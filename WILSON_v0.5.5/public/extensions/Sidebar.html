@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;600&display=swap" rel="stylesheet">
+  <style>
+    /* ═══════════════════════════════════════════════════════════
+       D.O.G. Bridge Sidebar Styles
+       Dark gray + orange accent theme
+       ═══════════════════════════════════════════════════════════ */
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Lexend', sans-serif;
+      font-weight: 300;
+      background: #292524;
+      color: #e7e5e4;
+      font-size: 12px;
+      line-height: 1.4;
+      overflow-y: auto;
+      height: 100vh;
+    }
+
+    /* ── Header ─────────────────────────────────────────────── */
+
+    .header {
+      background: #1c1917;
+      padding: 14px 16px 10px;
+      border-bottom: 2px solid #ea580c;
+    }
+
+    .header-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #ea580c;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+    }
+
+    .header-subtitle {
+      font-size: 9px;
+      color: #78716c;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+
+    /* ── Tabs ───────────────────────────────────────────────── */
+
+    .tab-bar {
+      display: flex;
+      background: #44403c;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 10px 0;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      color: #a8a29e;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+
+    .tab:hover {
+      color: #d6d3d1;
+      background: #3a3633;
+    }
+
+    .tab.active {
+      background: #1c1917;
+      color: #ea580c;
+      border-bottom-color: #ea580c;
+    }
+
+    /* ── Tab Content ────────────────────────────────────────── */
+
+    .tab-content {
+      display: none;
+      padding: 16px;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    /* ── Form Elements ──────────────────────────────────────── */
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 9px;
+      font-weight: 600;
+      color: #a8a29e;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      padding: 8px 10px;
+      background: #1c1917;
+      color: #f4a261;
+      border: none;
+      border-radius: 3px;
+      font-family: inherit;
+      font-size: 12px;
+      outline: none;
+      transition: box-shadow 0.15s ease;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    select:focus {
+      box-shadow: 0 0 0 2px #ea580c40;
+    }
+
+    input[type="number"] {
+      width: 80px;
+    }
+
+    select {
+      cursor: pointer;
+      -webkit-appearance: none;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23a8a29e'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 10px center;
+      padding-right: 28px;
+    }
+
+    select option {
+      background: #1c1917;
+      color: #f4a261;
+    }
+
+    /* ── Mode Toggle ────────────────────────────────────────── */
+
+    .mode-toggle {
+      display: flex;
+      background: #1c1917;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .mode-btn {
+      flex: 1;
+      padding: 8px 0;
+      text-align: center;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      color: #78716c;
+      transition: all 0.15s ease;
+      border: none;
+      background: transparent;
+      font-family: inherit;
+    }
+
+    .mode-btn.active {
+      background: #ea580c;
+      color: #fff;
+    }
+
+    .mode-btn:hover:not(.active) {
+      color: #d6d3d1;
+      background: #292524;
+    }
+
+    /* ── Page Number (conditional) ──────────────────────────── */
+
+    .page-number-group {
+      display: none;
+      margin-top: 10px;
+    }
+
+    .page-number-group.visible {
+      display: block;
+    }
+
+    .page-number-group input {
+      width: 70px;
+    }
+
+    /* ── Checkbox ────────────────────────────────────────────── */
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+      cursor: pointer;
+    }
+
+    .checkbox-group input[type="checkbox"] {
+      display: none;
+    }
+
+    .checkbox-custom {
+      width: 16px;
+      height: 16px;
+      border: 2px solid #57534e;
+      border-radius: 2px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+    }
+
+    .checkbox-group input:checked + .checkbox-custom {
+      background: #ea580c;
+      border-color: #ea580c;
+    }
+
+    .checkbox-group input:checked + .checkbox-custom::after {
+      content: '';
+      display: block;
+      width: 4px;
+      height: 8px;
+      border: solid #fff;
+      border-width: 0 2px 2px 0;
+      transform: rotate(45deg) translateY(-1px);
+    }
+
+    .checkbox-group input:disabled + .checkbox-custom {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .checkbox-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #a8a29e;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      user-select: none;
+    }
+
+    .checkbox-group input:disabled ~ .checkbox-label {
+      opacity: 0.3;
+    }
+
+    /* ── File Input ──────────────────────────────────────────── */
+
+    .file-input-wrapper {
+      position: relative;
+    }
+
+    .file-input-btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      background: #1c1917;
+      color: #78716c;
+      border: 1px dashed #57534e;
+      border-radius: 3px;
+      text-align: center;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 0.5px;
+      transition: all 0.15s ease;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-input-btn:hover {
+      border-color: #ea580c;
+      color: #a8a29e;
+    }
+
+    .file-input-btn.has-file {
+      border-color: #ea580c;
+      color: #f4a261;
+      border-style: solid;
+    }
+
+    .file-input-wrapper input[type="file"] {
+      display: none;
+    }
+
+    .file-name {
+      font-size: 10px;
+      color: #57534e;
+      margin-top: 4px;
+      word-break: break-all;
+    }
+
+    /* ── Folder Picker ──────────────────────────────────────── */
+
+    .folder-picker {
+      position: relative;
+    }
+
+    .folder-search-results {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: #1c1917;
+      border: 1px solid #57534e;
+      border-radius: 0 0 3px 3px;
+      max-height: 150px;
+      overflow-y: auto;
+      z-index: 10;
+      display: none;
+    }
+
+    .folder-search-results.visible {
+      display: block;
+    }
+
+    .folder-result {
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 11px;
+      color: #d6d3d1;
+      border-bottom: 1px solid #292524;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .folder-result:hover {
+      background: #292524;
+      color: #f4a261;
+    }
+
+    .folder-selected {
+      font-size: 10px;
+      color: #ea580c;
+      margin-top: 4px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    /* ── Create Button ──────────────────────────────────────── */
+
+    .create-btn {
+      display: block;
+      width: 100%;
+      padding: 14px;
+      background: #ea580c;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      margin-top: 20px;
+    }
+
+    .create-btn:hover {
+      background: #c2410c;
+    }
+
+    .create-btn:active {
+      transform: scale(0.98);
+    }
+
+    .create-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    /* ── Progress / Status ──────────────────────────────────── */
+
+    .progress-area {
+      margin-top: 14px;
+      display: none;
+    }
+
+    .progress-area.visible {
+      display: block;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 4px;
+      background: #1c1917;
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      width: 0%;
+      height: 100%;
+      background: #ea580c;
+      border-radius: 2px;
+      transition: width 0.3s ease;
+    }
+
+    .progress-text {
+      font-size: 10px;
+      color: #78716c;
+      margin-top: 6px;
+      letter-spacing: 0.5px;
+    }
+
+    .status-msg {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 3px;
+      font-size: 11px;
+      display: none;
+    }
+
+    .status-msg.visible {
+      display: block;
+    }
+
+    .status-msg.success {
+      background: #14532d;
+      color: #86efac;
+      border: 1px solid #166534;
+    }
+
+    .status-msg.error {
+      background: #450a0a;
+      color: #fca5a5;
+      border: 1px solid #7f1d1d;
+    }
+
+    .status-msg.warning {
+      background: #451a03;
+      color: #fdba74;
+      border: 1px solid #7c2d12;
+    }
+
+    /* ── Warnings List ──────────────────────────────────────── */
+
+    .warnings-list {
+      margin-top: 8px;
+      font-size: 10px;
+      color: #fdba74;
+      max-height: 120px;
+      overflow-y: auto;
+    }
+
+    .warnings-list div {
+      padding: 2px 0;
+      border-bottom: 1px solid #7c2d1233;
+    }
+
+    /* ── Settings Grid ──────────────────────────────────────── */
+
+    .settings-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .settings-row label {
+      flex: 1;
+      margin-bottom: 0;
+    }
+
+    .settings-row input,
+    .settings-row select {
+      width: auto;
+      flex-shrink: 0;
+    }
+
+    /* ── Divider ────────────────────────────────────────────── */
+
+    .divider {
+      border: none;
+      border-top: 1px solid #44403c;
+      margin: 16px 0;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────────── */
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #1c1917; }
+    ::-webkit-scrollbar-thumb { background: #57534e; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #78716c; }
+
+    /* ── Utility Classes ─────────────────────────────────────── */
+
+    .unit-label {
+      color: #78716c;
+      font-size: 10px;
+    }
+
+    .helper-text {
+      font-size: 9px;
+      color: #57534e;
+      margin-top: 4px;
+    }
+
+    .page-number-label {
+      margin-top: 8px;
+    }
+
+    .folder-result.no-results {
+      color: #78716c;
+      cursor: default;
+    }
+
+    .folder-result.error {
+      color: #fca5a5;
+    }
+
+  </style>
+</head>
+<body>
+
+  <!-- ═══ Header ═══ -->
+  <div class="header">
+    <div class="header-title">D.O.G. Bridge</div>
+    <div class="header-subtitle">Deck Outline Generator &rarr; Google Slides</div>
+  </div>
+
+  <!-- ═══ Tab Bar ═══ -->
+  <div class="tab-bar">
+    <div class="tab active" data-tab="create" onclick="switchTab('create')">Create</div>
+    <div class="tab" data-tab="settings" onclick="switchTab('settings')">Settings</div>
+  </div>
+
+  <!-- ═══ CREATE Tab ═══ -->
+  <div class="tab-content active" id="tab-create">
+
+    <!-- Mode Toggle -->
+    <div class="form-group">
+      <label>Mode</label>
+      <div class="mode-toggle">
+        <button class="mode-btn active" data-mode="full" onclick="setMode('full')">Full Deck</button>
+        <button class="mode-btn" data-mode="single" onclick="setMode('single')">Single Page</button>
+      </div>
+      <div class="page-number-group" id="pageNumGroup">
+        <label class="page-number-label">Page Number</label>
+        <input type="number" id="pageNumber" min="1" value="1" placeholder="#">
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <!-- Outline File -->
+    <div class="form-group">
+      <label>Outline File</label>
+      <div class="file-input-wrapper">
+        <div class="file-input-btn" id="fileBtn" onclick="document.getElementById('fileInput').click()">
+          Click to upload .md file
+        </div>
+        <input type="file" id="fileInput" accept=".md,.txt" onchange="handleFileSelect(event)">
+        <div class="file-name" id="fileName"></div>
+      </div>
+    </div>
+
+    <!-- Assets Folder -->
+    <div class="form-group">
+      <label>Assets Folder (Google Drive)</label>
+      <div class="folder-picker">
+        <input type="text" id="folderSearch" placeholder="Search folder name..." oninput="searchFolders(this.value)" onfocus="searchFolders(this.value)">
+        <div class="folder-search-results" id="folderResults"></div>
+      </div>
+      <div class="folder-selected" id="folderSelected"></div>
+      <input type="hidden" id="assetFolderId" value="">
+    </div>
+
+    <hr class="divider">
+
+    <!-- Checkboxes -->
+    <label class="checkbox-group" id="themeCheckboxGroup">
+      <input type="checkbox" id="useTheme" checked>
+      <span class="checkbox-custom"></span>
+      <span class="checkbox-label">Use Outline Theme</span>
+    </label>
+
+    <label class="checkbox-group">
+      <input type="checkbox" id="useAssets">
+      <span class="checkbox-custom"></span>
+      <span class="checkbox-label">Use Assets</span>
+    </label>
+
+    <!-- Create Button -->
+    <button class="create-btn" id="createBtn" onclick="handleCreate()">Create Deck</button>
+
+    <!-- Progress -->
+    <div class="progress-area" id="progressArea">
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressFill"></div>
+      </div>
+      <div class="progress-text" id="progressText">Initializing...</div>
+    </div>
+
+    <!-- Status Message -->
+    <div class="status-msg" id="statusMsg"></div>
+
+    <!-- Warnings -->
+    <div class="warnings-list" id="warningsList"></div>
+
+  </div>
+
+  <!-- ═══ SETTINGS Tab ═══ -->
+  <div class="tab-content" id="tab-settings">
+
+    <div class="form-group">
+      <label>Default Font Family</label>
+      <input type="text" id="settingFont" placeholder="Theme default">
+    </div>
+
+    <div class="settings-row">
+      <label>Title Font Size</label>
+      <input type="number" id="settingTitleSize" value="24" min="6" max="72"> <span class="unit-label">pt</span>
+    </div>
+
+    <div class="settings-row">
+      <label>Subtitle Font Size</label>
+      <input type="number" id="settingSubtitleSize" value="16" min="6" max="48"> <span class="unit-label">pt</span>
+    </div>
+
+    <div class="settings-row">
+      <label>Body Font Size</label>
+      <input type="number" id="settingBodySize" value="12" min="6" max="36"> <span class="unit-label">pt</span>
+    </div>
+
+    <hr class="divider">
+
+    <div class="form-group">
+      <label>Placeholder Style</label>
+      <select id="settingPlaceholder">
+        <option value="gray_with_label">Gray with Label</option>
+        <option value="outlined_only">Outlined Only</option>
+        <option value="transparent">Transparent</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label>Date Format Override</label>
+      <input type="text" id="settingDateFormat" placeholder="Auto-detect from theme">
+      <div class="helper-text">
+        e.g. MMMM DD, YYYY &middot; MM/DD/YY &middot; month.dd.yyyy
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <label class="checkbox-group">
+      <input type="checkbox" id="settingDebug">
+      <span class="checkbox-custom"></span>
+      <span class="checkbox-label">Debug Mode</span>
+    </label>
+    <div class="helper-text" style="margin-top:-8px;margin-bottom:16px">
+      Logs detailed parsing and placement info to Apps Script execution log.
+    </div>
+
+  </div>
+
+  <!-- ═══ JavaScript ═══ -->
+  <script>
+
+    // ── State ────────────────────────────────────────────────
+
+    var state = {
+      mode: 'full',
+      outlineText: null,
+      fileName: null,
+      assetFolderId: '',
+      folderSearchTimeout: null
+    };
+
+    // ── Tab Switching ────────────────────────────────────────
+
+    function switchTab(tabName) {
+      // Update tab buttons
+      var tabs = document.querySelectorAll('.tab');
+      for (var i = 0; i < tabs.length; i++) {
+        tabs[i].classList.toggle('active', tabs[i].getAttribute('data-tab') === tabName);
+      }
+      // Update content panels
+      var contents = document.querySelectorAll('.tab-content');
+      for (var j = 0; j < contents.length; j++) {
+        contents[j].classList.toggle('active', contents[j].id === 'tab-' + tabName);
+      }
+    }
+
+    // ── Mode Toggle ──────────────────────────────────────────
+
+    function setMode(mode) {
+      state.mode = mode;
+      var btns = document.querySelectorAll('.mode-btn');
+      for (var i = 0; i < btns.length; i++) {
+        btns[i].classList.toggle('active', btns[i].getAttribute('data-mode') === mode);
+      }
+      document.getElementById('pageNumGroup').classList.toggle('visible', mode === 'single');
+    }
+
+    // ── File Handling ────────────────────────────────────────
+
+    function handleFileSelect(event) {
+      var file = event.target.files[0];
+      if (!file) return;
+
+      state.fileName = file.name;
+      document.getElementById('fileBtn').textContent = file.name;
+      document.getElementById('fileBtn').classList.add('has-file');
+      document.getElementById('fileName').textContent = Math.round(file.size / 1024) + ' KB';
+
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        state.outlineText = e.target.result;
+
+        // Check if Format B (has theme data)
+        var hasTheme = /▸\s*SELECTED THEME:/i.test(state.outlineText);
+        var themeCheckbox = document.getElementById('useTheme');
+        themeCheckbox.disabled = !hasTheme;
+        if (!hasTheme) {
+          themeCheckbox.checked = false;
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // ── Folder Search ────────────────────────────────────────
+
+    function searchFolders(query) {
+      var resultsDiv = document.getElementById('folderResults');
+      if (!query || query.length < 2) {
+        resultsDiv.classList.remove('visible');
+        return;
+      }
+
+      // Debounce
+      clearTimeout(state.folderSearchTimeout);
+      state.folderSearchTimeout = setTimeout(function() {
+        google.script.run
+          .withSuccessHandler(function(folders) {
+            resultsDiv.innerHTML = '';
+            if (folders.length === 0) {
+              var noDiv = document.createElement('div');
+              noDiv.className = 'folder-result no-results';
+              noDiv.textContent = 'No folders found';
+              resultsDiv.appendChild(noDiv);
+            } else {
+              for (var i = 0; i < folders.length; i++) {
+                var div = document.createElement('div');
+                div.className = 'folder-result';
+                div.textContent = folders[i].name;
+                div.setAttribute('data-id', folders[i].id);
+                div.onclick = function() {
+                  selectFolder(this.getAttribute('data-id'), this.textContent);
+                };
+                resultsDiv.appendChild(div);
+              }
+            }
+            resultsDiv.classList.add('visible');
+          })
+          .withFailureHandler(function(err) {
+            var errDiv = document.createElement('div');
+            errDiv.className = 'folder-result error';
+            errDiv.textContent = err.message;
+            resultsDiv.innerHTML = '';
+            resultsDiv.appendChild(errDiv);
+            resultsDiv.classList.add('visible');
+          })
+          .searchDriveFolders(query);
+      }, 300);
+    }
+
+    function selectFolder(id, name) {
+      state.assetFolderId = id;
+      document.getElementById('assetFolderId').value = id;
+      document.getElementById('folderSearch').value = name;
+      document.getElementById('folderSelected').textContent = 'Selected: ' + name;
+      document.getElementById('folderResults').classList.remove('visible');
+    }
+
+    // Close folder dropdown on outside click
+    document.addEventListener('click', function(e) {
+      if (!e.target.closest('.folder-picker')) {
+        document.getElementById('folderResults').classList.remove('visible');
+      }
+    });
+
+    // ── Gather Settings ──────────────────────────────────────
+
+    function gatherSettings() {
+      return {
+        defaultFontFamily: document.getElementById('settingFont').value.trim(),
+        titleFontSize: document.getElementById('settingTitleSize').value,
+        subtitleFontSize: document.getElementById('settingSubtitleSize').value,
+        bodyFontSize: document.getElementById('settingBodySize').value,
+        placeholderStyle: document.getElementById('settingPlaceholder').value,
+        dateFormatOverride: document.getElementById('settingDateFormat').value.trim(),
+        debugMode: document.getElementById('settingDebug').checked
+      };
+    }
+
+    // ── Create Deck ──────────────────────────────────────────
+
+    function handleCreate() {
+      // Validate
+      if (!state.outlineText) {
+        showStatus('error', 'Please upload an outline file first.');
+        return;
+      }
+
+      if (state.mode === 'single') {
+        var pageNum = parseInt(document.getElementById('pageNumber').value, 10);
+        if (!pageNum || pageNum < 1) {
+          showStatus('error', 'Please enter a valid page number.');
+          return;
+        }
+      }
+
+      // Disable button, show progress
+      var btn = document.getElementById('createBtn');
+      btn.disabled = true;
+      btn.textContent = 'Working...';
+
+      showProgress(true);
+      setProgress(10, 'Parsing outline...');
+      hideStatus();
+
+      var params = {
+        outlineText: state.outlineText,
+        mode: state.mode,
+        pageNumber: document.getElementById('pageNumber').value,
+        useTheme: document.getElementById('useTheme').checked,
+        useAssets: document.getElementById('useAssets').checked,
+        assetFolderId: document.getElementById('assetFolderId').value,
+        settings: gatherSettings()
+      };
+
+      // Simulate progress updates
+      var progressTimer = setInterval(function() {
+        var fill = document.getElementById('progressFill');
+        var current = parseFloat(fill.style.width) || 10;
+        if (current < 85) {
+          setProgress(current + Math.random() * 8, 'Building slides...');
+        }
+      }, 800);
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          clearInterval(progressTimer);
+          btn.disabled = false;
+          btn.textContent = 'Create Deck';
+
+          if (result.success) {
+            setProgress(100, 'Complete!');
+            showStatus('success', result.message);
+          } else {
+            setProgress(0, '');
+            showProgress(false);
+            showStatus('error', result.message);
+          }
+
+          // Show warnings
+          if (result.warnings && result.warnings.length > 0) {
+            showWarnings(result.warnings);
+          }
+        })
+        .withFailureHandler(function(err) {
+          clearInterval(progressTimer);
+          btn.disabled = false;
+          btn.textContent = 'Create Deck';
+          setProgress(0, '');
+          showProgress(false);
+          showStatus('error', 'Script error: ' + err.message);
+        })
+        .createDeck(params);
+    }
+
+    // ── Progress & Status Helpers ────────────────────────────
+
+    function showProgress(visible) {
+      document.getElementById('progressArea').classList.toggle('visible', visible);
+    }
+
+    function setProgress(pct, text) {
+      document.getElementById('progressFill').style.width = pct + '%';
+      document.getElementById('progressText').textContent = text;
+    }
+
+    function showStatus(type, msg) {
+      var el = document.getElementById('statusMsg');
+      el.className = 'status-msg visible ' + type;
+      el.textContent = msg;
+    }
+
+    function hideStatus() {
+      var el = document.getElementById('statusMsg');
+      el.className = 'status-msg';
+      el.textContent = '';
+      document.getElementById('warningsList').innerHTML = '';
+    }
+
+    function showWarnings(warnings) {
+      var list = document.getElementById('warningsList');
+      list.innerHTML = '';
+      for (var i = 0; i < warnings.length; i++) {
+        var div = document.createElement('div');
+        div.textContent = warnings[i];
+        list.appendChild(div);
+      }
+    }
+
+  </script>
+
+</body>
+</html>

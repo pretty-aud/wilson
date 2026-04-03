@@ -1,0 +1,1214 @@
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Menu } from 'lucide-react'
+import TitleBar from './components/TitleBar'
+import PasswordScreen from './components/PasswordScreen'
+import Home from './components/Home'
+import SettingsPage from './components/SettingsPage'
+import ProjectManager from './components/ProjectManager'
+import HelpPage from './components/HelpPage'
+import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
+import Otter from './tools/otter_v0.3.1'
+import PetCompanion from './components/PetCompanion'
+import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
+import {
+  COMPANION_PROMPT
+} from './tools/otter_v0.3.1/prompts.js'
+import { AgentProvider, useAgent } from './agent'
+
+// Wrapper that bridges AgentProvider context to SettingsPage
+function SettingsPageWithAgent(props) {
+  const agent = useAgent()
+  if (!agent) return <SettingsPage {...props} />
+  return (
+    <SettingsPage
+      {...props}
+      agentEnabled={agent.agentEnabled}
+      onAgentEnabledChange={agent.setAgentEnabled}
+      autoApprove={agent.autoApprove}
+      onAutoApproveChange={agent.setAutoApprove}
+      lockedSubjects={agent.lockedSubjects}
+      onLockedSubjectsChange={agent.setLockedSubjects}
+      agentSystemPrompt={agent.agentSystemPrompt}
+      onAgentSystemPromptChange={agent.setAgentSystemPrompt}
+    />
+  )
+}
+
+// Wrapper that bridges AgentProvider context to PetCompanion props
+function PetCompanionWithAgent(props) {
+  const agent = useAgent()
+  if (!agent) return <PetCompanion {...props} />
+  const onOtterPage = props.currentPage === 'otter'
+  return (
+    <PetCompanion
+      {...props}
+      agentEnabled={onOtterPage && agent.agentEnabled}
+      agentMode={onOtterPage && agent.agentMode}
+      onAgentModeToggle={agent.setAgentMode}
+      agentMessages={agent.agentMessages}
+      agentInput={agent.agentInput}
+      onAgentInputChange={agent.handleAgentInputChange}
+      onSendAgent={agent.sendAgentMessage}
+      onClearAgent={() => agent.setAgentMessages([])}
+      agentLoading={agent.agentLoading}
+      canUndo={agent.undoStack?.length > 0}
+      onUndo={agent.undoLastEdit}
+    />
+  )
+}
+
+const PAGE_TITLES = {
+  home: 'HOME',
+  dog: 'D.O.G.',
+  otter: 'O.T.T.E.R.',
+  settings: 'SYSTEM SETTINGS',
+  'project-manager': 'PROJECT MANAGER',
+  help: 'HELP',
+};
+
+// Bar height configs per page (top, bottom in CSS values)
+// Content area fills whatever space remains between the bars
+const PAGE_BARS = {
+  home:               { top: '268px', bottom: '268px' },
+  dog:                { top: '95px', bottom: '8px' },
+  otter:              { top: '95px', bottom: '8px' },
+  settings:           { top: '200px', bottom: '150px' },
+  'project-manager':  { top: '200px', bottom: '150px' },
+  help:               { top: '140px', bottom: '100px' },
+};
+
+const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+
+// Check session via file-backed API (survives app restarts, expires after 1 hour)
+async function checkSessionValid() {
+  try {
+    const res = await fetch('/api/auth/session');
+    const data = await res.json();
+    return data.valid === true;
+  } catch { return false; }
+}
+
+const EASE = 'cubic-bezier(0.4,0,0.2,1)';
+
+// ═══════════════════════════════════════════════════════════════════
+//  PET CONSTANTS
+// ═══════════════════════════════════════════════════════════════════
+const DECAY_RATES = {
+  low:    { hunger: 0.4,  happiness: 0.25 },
+  medium: { hunger: 0.67, happiness: 0.5  },
+  high:   { hunger: 1.2,  happiness: 1.0  }
+};
+const EVOLVE_TIMES = { low: 30 * 60000, medium: 20 * 60000, high: 10 * 60000 };
+const SLEEP_DURATIONS = { low: 3 * 60000, medium: 2 * 60000, high: 1 * 60000 };
+
+function derivePetState(pet) {
+  if (!pet) return 'content';
+  if (pet.form === 'corpse' || pet.form === 'ghost') return 'dead';
+  if (pet.sleepingSince) return 'sleeping';
+  if (pet.hunger <= 15) return 'starving';
+  if (pet.hunger <= 40) return 'hungry';
+  if (pet.happiness <= 30) return 'lonely';
+  return 'content';
+}
+
+export default function App() {
+  const [authed, setAuthed] = useState(false);
+  const [showOverlay, setShowOverlay] = useState(true);
+  const [sessionChecked, setSessionChecked] = useState(false);
+  const [currentPage, setCurrentPage] = useState('home');
+
+  // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
+  const [transitionState, setTransitionState] = useState('idle');
+  const [transitionTitle, setTransitionTitle] = useState('');
+  const transitionRef = useRef(false);
+
+  // Nav menu state (for DOG hamburger)
+  const [showNavMenu, setShowNavMenu] = useState(false);
+
+  // Triggers to open tool settings panels from nav strip
+  const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
+  const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);
+
+  // Pet visibility state — hides sprite during page transitions
+  const [petVisible, setPetVisible] = useState(true);
+
+  // O.T.T.E.R. context — passed up from Otter component for agent awareness
+  const [otterContext, setOtterContext] = useState(null);
+
+  // Shared API key state
+  const [anthropicApiKey, setAnthropicApiKey] = useState(() => {
+    const newKey = localStorage.getItem('wilson-api-key');
+    if (newKey) return newKey;
+    const oldKey = localStorage.getItem('deck-outline-generator-api-key');
+    if (oldKey) {
+      localStorage.setItem('wilson-api-key', oldKey);
+      localStorage.removeItem('deck-outline-generator-api-key');
+      return oldKey;
+    }
+    return '';
+  });
+
+  useEffect(() => {
+    try { localStorage.setItem('wilson-api-key', anthropicApiKey); } catch {}
+  }, [anthropicApiKey]);
+
+  // Check persisted session on mount (survives app restart, 1-hour expiry)
+  useEffect(() => {
+    checkSessionValid().then(valid => {
+      if (valid) {
+        setAuthed(true);
+        setShowOverlay(false);
+      }
+      setSessionChecked(true);
+    });
+  }, []);
+
+  const handleAuth = () => {
+    // Auth timestamp is now set server-side in /api/auth/verify
+    setAuthed(true);
+  };
+
+  const handleAnimationComplete = () => {
+    setShowOverlay(false);
+  };
+
+  // Close confirmation dialog (Electron only)
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
+
+  useEffect(() => {
+    if (!window.electronAPI?.onCloseRequested) return;
+    const cleanup = window.electronAPI.onCloseRequested(() => {
+      setShowCloseDialog(true);
+    });
+    return cleanup;
+  }, []);
+
+  // Zoom state — track current zoom level so visualizer can counter-scale
+  const [zoomLevel, setZoomLevel] = useState(0);
+
+  useEffect(() => {
+    if (!window.electronAPI?.zoomIn) return;
+    const handler = (e) => {
+      const isMod = e.ctrlKey || e.metaKey;
+      if (!isMod) return;
+
+      // Ctrl+= or Ctrl+Shift+= (the "+" key on most keyboards)
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        window.electronAPI.zoomIn().then(level => { if (level != null) setZoomLevel(level); });
+      }
+      // Ctrl+- (zoom out)
+      if (e.key === '-') {
+        e.preventDefault();
+        window.electronAPI.zoomOut().then(level => { if (level != null) setZoomLevel(level); });
+      }
+      // Ctrl+0 (reset zoom)
+      if (e.key === '0') {
+        e.preventDefault();
+        window.electronAPI.zoomReset().then(level => { if (level != null) setZoomLevel(level); });
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  // Listen for zoom reset from main process (triggered by Ctrl+R / F5 refresh override)
+  useEffect(() => {
+    if (!window.electronAPI?.onZoomReset) return;
+    const cleanup = window.electronAPI.onZoomReset((level) => {
+      setZoomLevel(level ?? 0);
+    });
+    return cleanup;
+  }, []);
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  PET STATE — lifted from O.T.T.E.R. to be app-wide
+  // ═══════════════════════════════════════════════════════════════════
+  const [petData, setPetData] = useState(null);
+  const [petSaving, setPetSaving] = useState(false);
+  const petTimerRef = useRef(null);
+  const petSaveTimerRef = useRef(null);
+
+  // Companion state
+  const [companionOpen, setCompanionOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState('');
+  const chatInputRef = useRef('');
+  const handleChatInputChange = useCallback((val) => {
+    chatInputRef.current = val;
+    setChatInput(val);
+  }, []);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatThinking, setChatThinking] = useState(false);
+  const [feedbackJustRated, setFeedbackJustRated] = useState(false);
+  const [thumbFlash, setThumbFlash] = useState(null);
+  const [flashFeed, setFlashFeed] = useState(false);
+  const [flashPet, setFlashPet] = useState(false);
+  const [attentionJump, setAttentionJump] = useState(false);
+  const [eggWobble, setEggWobble] = useState(false);
+  const [sleepZCycle, setSleepZCycle] = useState(0);
+  const [cloudVisible, setCloudVisible] = useState(false);
+  const [showHatchModal, setShowHatchModal] = useState(false);
+  const [hatchNameInput, setHatchNameInput] = useState('');
+
+  // Save pet to server
+  const savePet = useCallback(async (data) => {
+    if (!data || petSaving) return;
+    setPetSaving(true);
+    try {
+      await fetch('/api/pet', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...data, lastUpdatedAt: new Date().toISOString() })
+      });
+    } catch { /* silent */ }
+    setPetSaving(false);
+  }, [petSaving]);
+
+  // Load pet on mount + calculate offline decay
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/pet');
+        let pet = await res.json();
+        if (!mounted) return;
+
+        // Offline decay calculation
+        if (pet.lastUpdatedAt && pet.form !== 'egg' && pet.form !== 'corpse' && pet.form !== 'ghost') {
+          const elapsed = (Date.now() - new Date(pet.lastUpdatedAt).getTime()) / 60000;
+          if (elapsed > 0 && !pet.sleepingSince) {
+            const rates = DECAY_RATES[pet.difficulty] || DECAY_RATES.medium;
+            const babyMult = pet.form === 'baby' ? 2 : 1;
+            pet.hunger = Math.max(0, pet.hunger - elapsed * rates.hunger * babyMult);
+            pet.happiness = Math.max(0, pet.happiness - elapsed * rates.happiness * babyMult);
+          }
+          if (pet.hunger <= 0) {
+            pet.form = 'ghost';
+            pet.state = 'dead';
+            pet.diedAt = pet.diedAt || new Date().toISOString();
+            pet.hunger = 0;
+          }
+        }
+
+        if (pet.form !== 'egg' && !pet.breed) pet.breed = 'otter';
+        pet.state = derivePetState(pet);
+        pet.lastUpdatedAt = new Date().toISOString();
+        setPetData(pet);
+        savePet(pet);
+      } catch { /* silent — server may not be ready yet */ }
+    })();
+    return () => { mounted = false; };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Decay timer — runs every 30 seconds
+  useEffect(() => {
+    if (!petData) return;
+    petTimerRef.current = setInterval(() => {
+      setPetData(prev => {
+        if (!prev) return prev;
+        if (prev.form === 'egg' || prev.form === 'corpse' || prev.form === 'ghost') return prev;
+        if (!prev.petMode) return prev;
+
+        const next = { ...prev };
+        const rates = DECAY_RATES[next.difficulty] || DECAY_RATES.medium;
+        const babyMult = next.form === 'baby' ? 2 : 1;
+        const perTick = 0.5; // 30s = 0.5 min
+
+        // Sleep check: has sleep ended?
+        if (next.sleepingSince) {
+          const sleepDur = SLEEP_DURATIONS[next.difficulty] || SLEEP_DURATIONS.medium;
+          if (Date.now() - new Date(next.sleepingSince).getTime() >= sleepDur) {
+            next.sleepingSince = null;
+            next.lastSleptAt = new Date().toISOString();
+            next.interactionCount = 0;
+          } else {
+            next.state = derivePetState(next);
+            next.lastUpdatedAt = new Date().toISOString();
+            return next;
+          }
+        }
+
+        // Should pet fall asleep?
+        const timeSinceLastSleep = next.lastSleptAt ? (Date.now() - new Date(next.lastSleptAt).getTime()) / 60000 : 999;
+        if ((next.interactionCount >= 15 || timeSinceLastSleep >= 30) && !next.sleepingSince && next.lastSleptAt !== null) {
+          next.sleepingSince = new Date().toISOString();
+          next.state = derivePetState(next);
+          next.lastUpdatedAt = new Date().toISOString();
+          return next;
+        }
+
+        // Apply decay
+        next.hunger = Math.max(0, next.hunger - rates.hunger * babyMult * perTick);
+        next.happiness = Math.max(0, next.happiness - rates.happiness * babyMult * perTick);
+
+        // Death check
+        if (next.hunger <= 0) {
+          next.form = 'corpse';
+          next.state = 'dead';
+          next.diedAt = new Date().toISOString();
+          next.hunger = 0;
+          setTimeout(() => {
+            setPetData(p => {
+              if (!p || p.form !== 'corpse') return p;
+              const ghost = { ...p, form: 'ghost' };
+              ghost.state = derivePetState(ghost);
+              savePet(ghost);
+              return ghost;
+            });
+          }, 10000);
+        }
+
+        // Baby evolution check
+        if (next.form === 'baby' && next.bornAt) {
+          const evolveTime = EVOLVE_TIMES[next.difficulty] || EVOLVE_TIMES.medium;
+          if (Date.now() - new Date(next.bornAt).getTime() >= evolveTime) {
+            next.form = 'adult';
+            next.evolvedAt = new Date().toISOString();
+          }
+        }
+
+        next.state = derivePetState(next);
+        next.lastUpdatedAt = new Date().toISOString();
+        return next;
+      });
+    }, 30000);
+
+    return () => clearInterval(petTimerRef.current);
+  }, [petData?.form, petData?.petMode, petData?.difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-save pet every 30 seconds
+  useEffect(() => {
+    if (!petData) return;
+    petSaveTimerRef.current = setInterval(() => {
+      setPetData(p => { if (p) savePet(p); return p; });
+    }, 30000);
+    return () => clearInterval(petSaveTimerRef.current);
+  }, [petData, savePet]);
+
+  // Sleep Z cycle animation
+  useEffect(() => {
+    if (petData?.state !== 'sleeping') return;
+    const id = setInterval(() => setSleepZCycle(c => c + 1), 2000);
+    return () => clearInterval(id);
+  }, [petData?.state]);
+
+  // Dream cloud intermittent visibility — show 3s, hide 8-15s
+  useEffect(() => {
+    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
+    if (!petData.petMode) return;
+    let timeout;
+    function cycle() {
+      setCloudVisible(true);
+      timeout = setTimeout(() => {
+        setCloudVisible(false);
+        timeout = setTimeout(cycle, 8000 + Math.random() * 7000);
+      }, 3000);
+    }
+    timeout = setTimeout(cycle, 2000 + Math.random() * 5000);
+    return () => clearTimeout(timeout);
+  }, [petData?.form, petData?.petMode]);
+
+  // Random attention-seeking jump — every 20-60 seconds
+  useEffect(() => {
+    if (!petData || petData.form === 'egg' || petData.form === 'corpse' || petData.form === 'ghost') return;
+    if (!petData.petMode || petData.sleepingSince) return;
+    let timeout;
+    function scheduleJump() {
+      timeout = setTimeout(() => {
+        setAttentionJump(true);
+        setTimeout(() => {
+          setAttentionJump(false);
+          scheduleJump();
+        }, 500);
+      }, 20000 + Math.random() * 40000);
+    }
+    scheduleJump();
+    return () => clearTimeout(timeout);
+  }, [petData?.form, petData?.petMode, petData?.sleepingSince]);
+
+  // ── Pet action handlers ──
+  const handleFeed = useCallback(() => {
+    if (!petData || (petData.form !== 'baby' && petData.form !== 'adult')) return;
+    if (petData.sleepingSince) return;
+    setPetData(prev => {
+      if (!prev) return prev;
+      if (prev.hunger >= 100) return prev;
+      const next = { ...prev, hunger: Math.min(100, prev.hunger + 25), lastFedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1 };
+      next.state = derivePetState(next);
+      savePet(next);
+      return next;
+    });
+    setFlashFeed(true);
+    setTimeout(() => setFlashFeed(false), 600);
+  }, [petData, savePet]);
+
+  const handlePetAction = useCallback(() => {
+    if (!petData) return;
+    if (petData.form === 'egg') {
+      setEggWobble(true);
+      setTimeout(() => setEggWobble(false), 500);
+      setPetData(prev => {
+        if (!prev) return prev;
+        const next = { ...prev, eggPetCount: prev.eggPetCount + 1 };
+        if (next.eggPetCount >= next.eggHatchThreshold) {
+          next.form = 'baby';
+          next.breed = pickRandomBreed();
+          next.bornAt = new Date().toISOString();
+          next.hunger = 80;
+          next.happiness = 80;
+          next.lastSleptAt = new Date().toISOString();
+          next.state = derivePetState(next);
+          savePet(next);
+          setTimeout(() => {
+            setHatchNameInput(next.name || 'Ollie');
+            setShowHatchModal(true);
+          }, 600);
+        } else {
+          savePet(next);
+        }
+        return next;
+      });
+      return;
+    }
+    if (petData.form === 'baby' || petData.form === 'adult') {
+      if (petData.sleepingSince) {
+        setPetData(prev => {
+          if (!prev) return prev;
+          const next = { ...prev, sleepingSince: null, lastSleptAt: new Date().toISOString(), interactionCount: 0 };
+          next.state = derivePetState(next);
+          savePet(next);
+          return next;
+        });
+        return;
+      }
+      setPetData(prev => {
+        if (!prev) return prev;
+        const next = { ...prev, happiness: Math.min(100, prev.happiness + 20), lastPettedAt: new Date().toISOString(), interactionCount: prev.interactionCount + 1 };
+        next.state = derivePetState(next);
+        savePet(next);
+        return next;
+      });
+      setFlashPet(true);
+      setTimeout(() => setFlashPet(false), 600);
+    }
+  }, [petData, savePet]);
+
+  const handleThumbRating = useCallback((rating) => {
+    if (feedbackJustRated || chatMessages.length === 0) return;
+    const lastAssistant = [...chatMessages].reverse().find(m => m.role === 'assistant');
+    const lastUser = [...chatMessages].reverse().find(m => m.role === 'user');
+    if (!lastAssistant) return;
+
+    setFeedbackJustRated(true);
+    setThumbFlash(rating);
+    setTimeout(() => setThumbFlash(null), 1000);
+
+    setPetData(prev => {
+      if (!prev) return prev;
+      const entry = {
+        timestamp: new Date().toISOString(),
+        userMsg: lastUser?.content || '',
+        botResponse: lastAssistant.content || '',
+        rating
+      };
+      const feedback = [...(prev.feedback || []), entry].slice(-50);
+      const next = {
+        ...prev,
+        feedback,
+        totalThumbsUp: prev.totalThumbsUp + (rating === 'up' ? 1 : 0),
+        totalThumbsDown: prev.totalThumbsDown + (rating === 'down' ? 1 : 0)
+      };
+      if (rating === 'up' && prev.petMode && (prev.form === 'baby' || prev.form === 'adult')) {
+        next.happiness = Math.min(100, next.happiness + 5);
+      }
+      next.state = derivePetState(next);
+      savePet(next);
+      return next;
+    });
+  }, [feedbackJustRated, chatMessages, savePet]);
+
+  const handleHatchConfirm = useCallback(() => {
+    const name = hatchNameInput.trim() || 'Ollie';
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, name };
+      savePet(next);
+      return next;
+    });
+    // Also save to O.T.T.E.R. settings
+    fetch('/api/otter-settings').then(r => r.json()).then(s => {
+      fetch('/api/otter-settings', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...s, companionName: name })
+      }).catch(() => {});
+    }).catch(() => {});
+    setShowHatchModal(false);
+  }, [hatchNameInput, savePet]);
+
+  // ── Companion chat ──
+  const sendChat = useCallback(async () => {
+    const currentInput = chatInputRef.current;
+    if (!currentInput.trim() || !anthropicApiKey) return;
+    const userMsg = { role: 'user', content: currentInput };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput('');
+    chatInputRef.current = '';
+    setChatLoading(true);
+    setChatThinking(true);
+    setFeedbackJustRated(false);
+
+    if (petData && petData.petMode && (petData.form === 'baby' || petData.form === 'adult')) {
+      setPetData(prev => prev ? { ...prev, interactionCount: (prev.interactionCount || 0) + 1 } : prev);
+    }
+
+    // Build context
+    let context = '\n\n--- CURRENT CONTEXT ---';
+    context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
+    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), System Settings, Project Manager, Help`;
+
+    // Pet status context
+    if (petData) {
+      context += `\n\nPET STATUS:`;
+      context += `\nName: ${petData.name} | Gender: ${petData.gender} | Breed: ${petData.breed || 'otter'} | Form: ${petData.form} | State: ${petData.state}`;
+      context += `\nHunger: ${Math.round(petData.hunger)}/100 | Happiness: ${Math.round(petData.happiness)}/100`;
+      context += `\nDifficulty: ${petData.difficulty} | Pet Mode: ${petData.petMode}`;
+
+      if (!petData.petMode) {
+        context += `\n\nPet mode is OFF. You are in helper-only mode. Do not reference hunger, sleep, or pet state. Just be a helpful study buddy.`;
+      }
+
+      if (petData.feedback && petData.feedback.length > 0) {
+        const recent = petData.feedback.slice(-10);
+        context += `\n\nRECENT FEEDBACK (last ${recent.length}):`;
+        for (const fb of recent) {
+          const userSnippet = (fb.userMsg || '').slice(0, 60);
+          const botSnippet = (fb.botResponse || '').slice(0, 60);
+          context += `\n[${fb.rating}] User: "${userSnippet}" → You: "${botSnippet}"`;
+        }
+        context += `\nTotal: ${petData.totalThumbsUp} thumbs up / ${petData.totalThumbsDown} thumbs down`;
+      }
+    }
+
+    try {
+      // Load O.T.T.E.R. settings for custom companion prompt
+      let companionPrompt = COMPANION_PROMPT;
+      try {
+        const settingsRes = await fetch('/api/otter-settings');
+        const otterSettings = await settingsRes.json();
+        if (otterSettings.prompts?.companion) companionPrompt = otterSettings.prompts.companion;
+      } catch { /* use default */ }
+
+      // Truncate conversation history to stay within token limits
+      // Keep last 40 messages (~20 exchanges), trim older ones but always keep first exchange for continuity
+      const MAX_HISTORY = 40;
+      const MAX_MSG_CHARS = 2000;
+      let trimmedMessages = newMessages.map(m => ({
+        role: m.role,
+        content: m.content.length > MAX_MSG_CHARS ? m.content.slice(0, MAX_MSG_CHARS) + '…' : m.content,
+      }));
+      if (trimmedMessages.length > MAX_HISTORY) {
+        const first2 = trimmedMessages.slice(0, 2);
+        const recent = trimmedMessages.slice(-MAX_HISTORY + 2);
+        trimmedMessages = [...first2, { role: 'user', content: '[Earlier conversation trimmed for brevity]' }, { role: 'assistant', content: 'Got it, I remember the gist!' }, ...recent];
+      }
+
+      // Retry logic for overloaded/rate-limit errors
+      let data;
+      let lastError;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+        try {
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-api-key': anthropicApiKey,
+              'anthropic-version': '2023-06-01',
+              'anthropic-dangerous-direct-browser-access': 'true',
+            },
+            body: JSON.stringify({
+              model: 'claude-haiku-4-5-20251001',
+              max_tokens: 1024,
+              system: companionPrompt + context,
+              messages: trimmedMessages,
+            }),
+          });
+          data = await res.json();
+          if (data.error) {
+            const errMsg = data.error?.message || JSON.stringify(data.error);
+            const isRetryable = res.status === 429 || res.status === 529 || res.status === 503 || /overloaded|rate.?limit|capacity/i.test(errMsg);
+            if (isRetryable && attempt < 2) { lastError = errMsg; continue; }
+            throw new Error(errMsg);
+          }
+          break;
+        } catch (fetchErr) {
+          lastError = fetchErr.message || 'Network error';
+          if (attempt < 2 && !/invalid|auth|key|permission/i.test(lastError)) continue;
+          throw fetchErr;
+        }
+      }
+      const reply = data.content?.[0]?.text || 'Sorry, I had trouble thinking of a response!';
+      setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (e) {
+      const msg = e.message || 'Unknown error';
+      setChatMessages(prev => [...prev, { role: 'assistant', content: `Oops! ${msg}` }]);
+    } finally {
+      setChatLoading(false);
+      setChatThinking(false);
+    }
+  }, [chatMessages, anthropicApiKey, currentPage, petData]);
+
+  // Enter key toggles companion (when not editing text)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const tag = document.activeElement?.tagName;
+      const editable = document.activeElement?.isContentEditable;
+      const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
+      if (e.key === 'Enter' && !isEditing && petData && !showOverlay) {
+        e.preventDefault();
+        setCompanionOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [petData, showOverlay]);
+
+  // Handle navigation links from companion chat
+  const handleCompanionNavLink = useCallback((navStr) => {
+    // navStr format: "nav:type:slug" or "nav:type:slug:subslug"
+    const parts = navStr.replace(/^nav:/, '').split(':');
+    const type = parts[0];
+    if (type === 'quiz' || type === 'library' || type === 'hotkeys' || type === 'functions') {
+      navigateTo('otter');
+    } else if (type === 'software' || type === 'subject' || type === 'lesson') {
+      navigateTo('otter');
+    }
+    setCompanionOpen(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Pet settings callbacks (for SettingsPage) ──
+  const handlePetModeToggle = useCallback((enabled) => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, petMode: enabled };
+      next.state = derivePetState(next);
+      savePet(next);
+      return next;
+    });
+  }, [savePet]);
+
+  const handleDifficultyChange = useCallback((difficulty) => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, difficulty };
+      savePet(next);
+      return next;
+    });
+  }, [savePet]);
+
+  const handlePetReset = useCallback(() => {
+    setPetData(prev => {
+      if (!prev) return prev;
+      const next = { ...prev, feedback: [], totalThumbsUp: 0, totalThumbsDown: 0, interactionCount: 0 };
+      savePet(next);
+      return next;
+    });
+  }, [savePet]);
+
+  const handleNewPet = useCallback(async () => {
+    try {
+      const res = await fetch('/api/pet/new-egg', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+      const pet = await res.json();
+      if (!pet.error) {
+        setPetData(pet);
+        setChatMessages([]);
+      }
+    } catch { /* silent */ }
+  }, []);
+
+  // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
+  const navigateTo = useCallback((targetPage) => {
+    if (transitionRef.current || targetPage === currentPage) return;
+    transitionRef.current = true;
+
+    setTransitionTitle(PAGE_TITLES[targetPage] || targetPage);
+
+    // Hide pet sprite immediately
+    setPetVisible(false);
+    // Close companion chat during transition
+    setCompanionOpen(false);
+
+    // Step 0: Fade out content first (before bars move)
+    setTransitionState('fading-out');
+
+    setTimeout(() => {
+      // Step 1: Compress (bars squeeze toward center)
+      setTransitionState('compressing');
+
+      setTimeout(() => {
+        // Step 2: Title hold
+        setTransitionState('title-hold');
+
+        setTimeout(() => {
+          // Step 3: Swap page, expand
+          setCurrentPage(targetPage);
+          setTransitionState('expanding');
+
+          setTimeout(() => {
+            // Step 4: Fade in new content
+            setTransitionState('fading-in');
+
+            setTimeout(() => {
+              // Step 5: Done
+              setTransitionState('idle');
+              setTransitionTitle('');
+              setShowNavMenu(false);
+              transitionRef.current = false;
+              // Show pet sprite after transition completes
+              setPetVisible(true);
+            }, 250);
+          }, 600);
+        }, 400);
+      }, 600);
+    }, 250);
+  }, [currentPage]);
+
+  // Page flags
+  const isDog = currentPage === 'dog';
+  const isOtter = currentPage === 'otter';
+  const isHome = currentPage === 'home';
+  const isDarkPage = isDog || isOtter;
+  const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
+
+  // Bottom offset for pet sprite — positions it above the bottom bar
+  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, settings: 150, 'project-manager': 150, help: 100 };
+  const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
+
+  // Build contextual nav strip items based on current page
+  const getNavStripItems = () => {
+    const items = [];
+
+    // HOME — always shown
+    items.push({ label: 'HOME', action: () => { setShowNavMenu(false); navigateTo('home'); } });
+
+    if (currentPage === 'settings') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+    } else if (currentPage === 'project-manager') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (isDog) {
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenSettingsTrigger(prev => prev + 1); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (isOtter) {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenOtterSettingsTrigger(prev => prev + 1); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (currentPage === 'help') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    }
+
+    return items;
+  };
+
+  const getNavStripHeight = () => {
+    const count = getNavStripItems().length;
+    return count * 24 + (count - 1) * 16 + 48;
+  };
+
+  // Determine bar heights based on transition state
+  const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
+  const isAnimating = transitionState !== 'idle';
+  const contentFaded = transitionState !== 'idle' && transitionState !== 'fading-in';
+  const isNavMenuVisible = hasNavMenu && showNavMenu && !isCompressed && transitionState !== 'expanding';
+
+  const pageBars = PAGE_BARS[currentPage] || PAGE_BARS.home;
+  const topHeight = isCompressed ? COMPRESSED.top : pageBars.top;
+  const bottomHeight = isCompressed ? COMPRESSED.bottom : pageBars.bottom;
+
+  // Render ALL pages simultaneously — hide inactive ones to preserve state
+  const renderAllPages = () => (
+    <>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <Home onNavigate={navigateTo} />
+      </div>
+      <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+        <DeckOutlineGenerator
+          apiKey={anthropicApiKey}
+          onNavigate={navigateTo}
+          showNavMenu={showNavMenu}
+          onToggleNavMenu={() => setShowNavMenu(prev => !prev)}
+          openSettingsTrigger={openSettingsTrigger}
+          zoomLevel={zoomLevel}
+        />
+      </div>
+      <div style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+        <Otter
+          apiKey={anthropicApiKey}
+          onNavigate={navigateTo}
+          openSettingsTrigger={openOtterSettingsTrigger}
+          onContextChange={setOtterContext}
+        />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <SettingsPageWithAgent
+          apiKey={anthropicApiKey}
+          onApiKeyChange={setAnthropicApiKey}
+          petData={petData}
+          onPetModeToggle={handlePetModeToggle}
+          onDifficultyChange={handleDifficultyChange}
+          onPetReset={handlePetReset}
+          onNewPet={handleNewPet}
+        />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <ProjectManager />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <HelpPage />
+      </div>
+    </>
+  );
+
+  // What to show in the top bar
+  const renderTopBarContent = () => {
+    if (isDog) {
+      return (
+        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <div>
+              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">D.O.G.</h1>
+              <p className="text-orange-200 text-xs tracking-wide">Deck Outline Generator</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowNavMenu(prev => !prev)}
+            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+            title="Navigation"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      );
+    }
+
+    if (isOtter) {
+      return (
+        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <div>
+              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">O.T.T.E.R.</h1>
+              <p className="text-orange-200 text-xs tracking-wide">On-demand Training & Technical Education Resource</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowNavMenu(prev => !prev)}
+            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+            title="Navigation"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      );
+    }
+
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'help') {
+      const pageLabel = PAGE_TITLES[currentPage] || currentPage;
+      return (
+        <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
+          <h1 className="text-[20px] font-bold tracking-tight uppercase text-white">{pageLabel}</h1>
+          <button
+            onClick={() => setShowNavMenu(prev => !prev)}
+            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+            title="Navigation"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      );
+    }
+
+    return null; // Home page — no bar content
+  };
+
+  return (
+    <AgentProvider apiKey={anthropicApiKey}>
+    <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
+      <TitleBar />
+      {authed && (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* ===== TOP ORANGE BAR ===== */}
+          <div style={{
+            backgroundColor: '#ea580c',
+            height: topHeight,
+            flexShrink: 0,
+            position: 'relative',
+            display: 'flex',
+            alignItems: 'flex-end',
+            transition: `height 600ms ${EASE}`,
+            overflow: 'hidden',
+            zIndex: 10,
+          }}>
+            <div style={{
+              width: '100%',
+              display: 'flex',
+              alignItems: 'flex-end',
+              opacity: contentFaded ? 0 : 1,
+              transition: 'opacity 250ms ease',
+              pointerEvents: contentFaded ? 'none' : 'auto',
+            }}>
+              {renderTopBarContent()}
+            </div>
+          </div>
+
+          {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
+          <div style={{
+            backgroundColor: '#ea580c',
+            overflow: 'hidden',
+            height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
+            transition: `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
+            flexShrink: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            justifyContent: 'center',
+            gap: '16px',
+            paddingRight: '48px',
+            zIndex: 9,
+          }}>
+            {getNavStripItems().map((item) => (
+              <button
+                key={item.label}
+                onClick={item.action}
+                className="text-white font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
+                style={{ fontSize: '16px' }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ===== Dark page border — when on DOG or OTTER page and idle ===== */}
+          {isDarkPage && !isAnimating && (
+            <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
+          )}
+
+          {/* ===== CONTENT AREA — the interface zone between the bars ===== */}
+          <div style={{
+            flex: 1,
+            backgroundColor: isDarkPage ? '#1c1917' : '#f4a261',
+            overflow: 'hidden',
+            position: 'relative',
+            display: 'flex',
+            flexDirection: 'column',
+            transition: `background-color 0ms linear ${isCompressed ? '0ms' : '300ms'}`,
+          }}>
+            {/* Transition title overlay — visible when bars are compressed */}
+            {isAnimating && (
+              <div style={{
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backgroundColor: '#f4a261',
+                zIndex: 5,
+                opacity: isCompressed ? 1 : 0,
+                transition: `opacity 200ms ease`,
+                pointerEvents: 'none',
+              }}>
+                <span style={{
+                  color: '#fff',
+                  fontWeight: 'bold',
+                  fontSize: '16.8px',
+                  letterSpacing: '0.3em',
+                  textTransform: 'uppercase',
+                  opacity: transitionState === 'title-hold' ? 1 : 0,
+                  transition: 'opacity 200ms ease',
+                }}>
+                  {transitionTitle}
+                </span>
+              </div>
+            )}
+
+            {/* Page content — fades during transitions, all pages rendered to preserve state */}
+            <div style={{
+              flex: 1,
+              overflow: 'hidden',
+              opacity: contentFaded ? 0 : 1,
+              transition: 'opacity 250ms ease',
+              pointerEvents: contentFaded ? 'none' : 'auto',
+              padding: (isDarkPage || currentPage === 'help') ? 0 : '3vh 0',
+              display: 'flex',
+              flexDirection: 'column',
+            }}>
+              {renderAllPages()}
+            </div>
+          </div>
+
+          {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
+          <div style={{
+            backgroundColor: '#ea580c',
+            height: bottomHeight,
+            flexShrink: 0,
+            transition: `height 600ms ${EASE}`,
+            zIndex: 10,
+          }} />
+
+          {/* Click-away overlay to close nav menu */}
+          {isNavMenuVisible && (
+            <div
+              onClick={() => setShowNavMenu(false)}
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 8,
+                cursor: 'default',
+              }}
+            />
+          )}
+
+          {/* ===== PET COMPANION OVERLAY — visible on ALL pages ===== */}
+          {petData && (
+            <PetCompanionWithAgent
+              currentPage={currentPage}
+              petData={petData}
+              companionOpen={companionOpen}
+              onCompanionToggle={setCompanionOpen}
+              chatMessages={chatMessages}
+              chatInput={chatInput}
+              onChatInputChange={handleChatInputChange}
+              onSendChat={sendChat}
+              onClearChat={() => setChatMessages([])}
+              chatLoading={chatLoading}
+              chatThinking={chatThinking}
+              feedbackJustRated={feedbackJustRated}
+              thumbFlash={thumbFlash}
+              onThumbRating={handleThumbRating}
+              onFeed={handleFeed}
+              onPetAction={handlePetAction}
+              flashFeed={flashFeed}
+              flashPet={flashPet}
+              eggWobble={eggWobble}
+              sleepZCycle={sleepZCycle}
+              cloudVisible={cloudVisible}
+              attentionJump={attentionJump}
+              showHatchModal={showHatchModal}
+              hatchNameInput={hatchNameInput}
+              onHatchNameChange={setHatchNameInput}
+              onHatchConfirm={handleHatchConfirm}
+              isDarkPage={isDarkPage}
+              onNavigateLink={handleCompanionNavLink}
+              bottomOffset={petBottomOffset}
+              petVisible={petVisible}
+              apiKeyMissing={!anthropicApiKey}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Auth overlay — wait for session check before showing */}
+      {showOverlay && sessionChecked && (
+        <PasswordScreen
+          onSuccess={handleAuth}
+          onAnimationComplete={handleAnimationComplete}
+          isRevealing={authed}
+        />
+      )}
+
+      {/* Close confirmation dialog */}
+      {showCloseDialog && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 200,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+        }}>
+          <div style={{
+            backgroundColor: '#1c1917',
+            border: '2px solid #ea580c',
+            borderRadius: '6px',
+            padding: '32px 36px 28px',
+            maxWidth: '400px',
+            width: '90%',
+            textAlign: 'center',
+          }}>
+            <h2 style={{
+              color: '#ea580c',
+              fontSize: '16px',
+              fontWeight: 'bold',
+              letterSpacing: '0.15em',
+              textTransform: 'uppercase',
+              marginBottom: '12px',
+              fontFamily: 'monospace',
+            }}>Close WILSON</h2>
+            <p style={{
+              color: '#a8a29e',
+              fontSize: '13px',
+              lineHeight: '1.5',
+              marginBottom: '24px',
+            }}>
+              Make sure you have exported your work before closing.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+              <button
+                onClick={() => setShowCloseDialog(false)}
+                style={{
+                  flex: 1,
+                  padding: '10px 20px',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  backgroundColor: '#44403c',
+                  color: '#a8a29e',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontFamily: 'monospace',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#57534e'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#44403c'; }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { setShowCloseDialog(false); window.electronAPI?.forceClose(); }}
+                style={{
+                  flex: 1,
+                  padding: '10px 20px',
+                  fontSize: '12px',
+                  fontWeight: 'bold',
+                  letterSpacing: '0.1em',
+                  textTransform: 'uppercase',
+                  backgroundColor: '#ea580c',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontFamily: 'monospace',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = '#c2410c'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = '#ea580c'; }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+    </AgentProvider>
+  );
+}
