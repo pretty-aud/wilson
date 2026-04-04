@@ -15,7 +15,7 @@ Built with Electron + Vite + React 19 + Tailwind CSS 4.
 
    ```bash
    git clone https://github.com/pretty-aud/wilson.git
-   cd wilson/WILSON_v0.5.5
+   cd wilson/WILSON
    ```
 
 2. **Install dependencies**
@@ -49,7 +49,7 @@ Built with Electron + Vite + React 19 + Tailwind CSS 4.
 ## Project Structure
 
 ```
-WILSON_v0.5.5/
+WILSON/
 ├── electron/          # Electron main + preload scripts
 ├── public/            # Static assets (icons, audio, extensions)
 ├── src/
