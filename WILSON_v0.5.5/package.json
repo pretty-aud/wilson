@@ -1,8 +1,12 @@
 {
   "name": "wilson",
   "private": true,
-  "version": "0.5.5",
+  "version": "0.5.6",
   "description": "WILSON - AI-powered creative production & learning platform",
+  "toolVersions": {
+    "deck-outline-generator": "0.514",
+    "otter": "0.3.1"
+  },
   "author": "Petal Studios",
   "type": "module",
   "main": "electron/main.cjs",

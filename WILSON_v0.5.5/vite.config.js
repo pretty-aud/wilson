@@ -4,21 +4,11 @@ import tailwindcss from '@tailwindcss/vite'
 import fs from 'fs'
 import path from 'path'
 
-// Extract DOG version from the tool folder name inside src/tools/
-const toolsDir = path.resolve(__dirname, 'src/tools')
-const toolFolders = fs.existsSync(toolsDir) ? fs.readdirSync(toolsDir) : []
-const dogFolder = toolFolders.find(f => f.startsWith('deck-outline-generator'))
-const versionMatch = dogFolder ? dogFolder.match(/_v([\d.]+)$/) : null
-const appVersion = versionMatch ? `v${versionMatch[1]}` : 'v?'
-
-// Extract O.T.T.E.R. version from tool folder name
-const otterFolder = toolFolders.find(f => f.startsWith('otter'))
-const otterVersionMatch = otterFolder ? otterFolder.match(/_v([\d.]+)$/) : null
-const otterVersion = otterVersionMatch ? `v${otterVersionMatch[1]}` : 'v?'
-
-// Extract WILSON container version from package.json
+// All versions sourced from package.json
 const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8'))
 const wilsonVersion = `v${pkg.version}`
+const appVersion = pkg.toolVersions?.['deck-outline-generator'] ? `v${pkg.toolVersions['deck-outline-generator']}` : 'v?'
+const otterVersion = pkg.toolVersions?.otter ? `v${pkg.toolVersions.otter}` : 'v?'
 
 export default defineConfig({
   base: './',

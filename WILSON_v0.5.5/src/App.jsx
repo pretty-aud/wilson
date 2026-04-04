@@ -665,7 +665,7 @@ export default function App() {
       const tag = document.activeElement?.tagName;
       const editable = document.activeElement?.isContentEditable;
       const isEditing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || editable;
-      if (e.key === 'Enter' && !isEditing && petData && !showOverlay) {
+      if (e.key === 'Enter' && !e.defaultPrevented && !isEditing && petData && !showOverlay) {
         e.preventDefault();
         setCompanionOpen(prev => !prev);
       }

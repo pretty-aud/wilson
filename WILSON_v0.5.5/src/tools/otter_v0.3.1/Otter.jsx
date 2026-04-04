@@ -2248,6 +2248,7 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
             resultType: 'hotkeys',
             matches: matchCount,
             content: allText,
+            hotkeyCategories,
           });
         }
       }
@@ -2262,6 +2263,13 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
         let matchCount = 0, idx2 = 0;
         while ((idx2 = lowerAll.indexOf(q, idx2)) !== -1) { matchCount++; idx2 += q.length; }
         if (matchCount > 0) {
+          const matchedFuncCategories = funcCategories.map(cat => ({
+            ...cat,
+            functions: cat.functions.filter(f => {
+              const fText = [f.name, f.description, f.syntax, f.returns, f.parameters, f.example].filter(Boolean).join(' ').toLowerCase();
+              return fText.includes(q);
+            })
+          })).filter(cat => cat.functions.length > 0);
           results.push({
             softwareName: sw.name,
             softwareSlug: sw.slug,
@@ -2273,6 +2281,54 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
             resultType: 'functions',
             matches: matchCount,
             content: allText,
+            matchedCategories: matchedFuncCategories,
+          });
+        }
+      }
+
+      // Nodes search
+      const nodeSystems = (cached.nodes?.systems || []).filter(sys => sys && Array.isArray(sys.categories));
+      if (nodeSystems.length > 0) {
+        const matchedNodeCategories = [];
+        let nodeMatchCount = 0;
+        for (const sys of nodeSystems) {
+          for (const cat of sys.categories) {
+            const matchingNodes = (cat.nodes || []).filter(n => {
+              const nText = [
+                n.name, n.description, n.notes,
+                ...(Array.isArray(n.inputs) ? n.inputs.map(inp => `${inp.name || ''} ${inp.description || ''}`) : []),
+                ...(Array.isArray(n.outputs) ? n.outputs.map(out => `${out.name || ''} ${out.description || ''}`) : []),
+              ].filter(Boolean).join(' ').toLowerCase();
+              return nText.includes(q);
+            });
+            if (matchingNodes.length > 0) {
+              let catMatches = 0;
+              for (const n of matchingNodes) {
+                const text = [n.name, n.description, n.notes,
+                  ...(Array.isArray(n.inputs) ? n.inputs.map(i => `${i.name || ''} ${i.description || ''}`) : []),
+                  ...(Array.isArray(n.outputs) ? n.outputs.map(o => `${o.name || ''} ${o.description || ''}`) : []),
+                ].filter(Boolean).join(' ').toLowerCase();
+                let ni = 0;
+                while ((ni = text.indexOf(q, ni)) !== -1) { catMatches++; ni += q.length; }
+              }
+              nodeMatchCount += catMatches;
+              matchedNodeCategories.push({ system: sys.system, category: cat.category, nodes: matchingNodes });
+            }
+          }
+        }
+        if (nodeMatchCount > 0) {
+          results.push({
+            softwareName: sw.name,
+            softwareSlug: sw.slug,
+            subjectTitle: 'Nodes',
+            subjectSlug: null,
+            sectionTitle: 'Reference',
+            lessonTitle: `${sw.name} — Node Reference`,
+            lessonId: null,
+            resultType: 'nodes',
+            matches: nodeMatchCount,
+            content: matchedNodeCategories.map(mc => mc.nodes.map(n => `${n.name} ${n.description}`).join('\n')).join('\n'),
+            matchedCategories: matchedNodeCategories,
           });
         }
       }
@@ -2297,6 +2353,8 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
     selectSoftware(r.softwareSlug);
     if (r.resultType === 'hotkeys' || r.resultType === 'functions') {
       setCurrentView('hotkeys');
+    } else if (r.resultType === 'nodes') {
+      setCurrentView('nodes');
     } else {
       selectSubject(r.softwareSlug, r.subjectSlug);
       setSelectedLessonId(r.lessonId);
@@ -2634,7 +2692,7 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
                     if (r) navigateToSearchResult(r);
                   }
                 }}
-                placeholder="Search lessons, hotkeys, functions..."
+                placeholder="Search lessons, hotkeys, functions, nodes..."
                 className="flex-1 bg-transparent text-white text-lg focus:outline-none placeholder-stone-500"
               />
               <span className="text-stone-500 text-xs shrink-0">
@@ -2657,7 +2715,7 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
                 >
                   <div className="flex items-center gap-1.5">
                     <p className="text-white text-xs font-bold truncate flex-1">{r.lessonTitle}</p>
-                    {r.resultType && <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : 'Func'}</span>}
+                    {r.resultType && <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-bold uppercase shrink-0 bg-stone-600 text-stone-300">{r.resultType === 'hotkeys' ? 'Keys' : r.resultType === 'functions' ? 'Func' : 'Node'}</span>}
                   </div>
                   <p className="text-stone-500 text-[10px] truncate">{r.softwareName}{r.resultType ? '' : ` / ${r.subjectTitle}`}</p>
                   <p className="text-orange-400 text-[10px] mt-0.5">{r.matches} match{r.matches !== 1 ? 'es' : ''}</p>
@@ -2668,10 +2726,152 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
               {selectedSearchResult !== null && searchResults[selectedSearchResult] ? (() => {
                 const r = searchResults[selectedSearchResult];
                 const q = searchQuery.trim();
+                const lowerQ = q.toLowerCase();
+
+                const header = (
+                  <div className="mb-4 pb-3 border-b border-stone-700">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-orange-400 font-bold text-sm">{r.lessonTitle}</h3>
+                        <p className="text-stone-500 text-xs">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
+                      </div>
+                      <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold border-2 border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
+                        {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : r.resultType === 'nodes' ? 'Go to Nodes' : 'Go to Lesson'}
+                      </button>
+                    </div>
+                    <p className="text-orange-400 text-xs mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
+                  </div>
+                );
+
+                {/* ── Hotkeys: table with all shortcuts, matches highlighted ── */}
+                if (r.resultType === 'hotkeys' && r.hotkeyCategories) {
+                  return (
+                    <div>
+                      {header}
+                      {r.hotkeyCategories.map((cat, ci) => {
+                        const hasMatch = cat.shortcuts.some(s => [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ));
+                        if (!hasMatch) return null;
+                        return (
+                          <div key={ci} className="mb-4">
+                            <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
+                            <div className="bg-stone-800 border border-stone-600 rounded-sm overflow-hidden">
+                              <table className="w-full">
+                                <thead>
+                                  <tr style={{ background: '#44403c' }}>
+                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Action</th>
+                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Windows</th>
+                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Mac</th>
+                                    <th className="text-left text-[10px] font-bold uppercase tracking-wide p-2 border-b border-stone-600" style={{ color: '#d6d3d1' }}>Notes</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {cat.shortcuts.map((s, si) => {
+                                    const isMatch = [s.action, s.windows, s.mac, s.notes].filter(Boolean).join(' ').toLowerCase().includes(lowerQ);
+                                    return (
+                                      <tr key={si} className={`border-b border-stone-700 last:border-0 transition-colors ${isMatch ? 'bg-orange-500/10' : 'opacity-40'}`}>
+                                        <td className="p-2 text-xs" style={{ color: '#d6d3d1' }}>{s.action}</td>
+                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.windows}</kbd></td>
+                                        <td className="p-2"><kbd className="px-1.5 py-0.5 rounded-sm text-[10px] border font-mono" style={{ background: '#1c1917', color: '#fb923c', borderColor: '#57534e' }}>{s.mac}</kbd></td>
+                                        <td className="p-2 text-[10px]" style={{ color: '#78716c' }}>{s.notes || '\u2014'}</td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
+
+                {/* ── Functions: only matching functions in card format ── */}
+                if (r.resultType === 'functions' && r.matchedCategories) {
+                  return (
+                    <div>
+                      {header}
+                      {r.matchedCategories.map((cat, ci) => (
+                        <div key={ci} className="mb-4">
+                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-2">{cat.category}</h4>
+                          <div className="space-y-2">
+                            {cat.functions.map((f, fi) => (
+                              <div key={fi} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
+                                <code className="font-mono font-bold text-xs" style={{ color: '#fb923c' }}>{f.name}</code>
+                                {f.syntax && <pre className="border rounded-sm px-2 py-1.5 mb-2 mt-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#d6d3d1', borderColor: '#44403c' }}>{f.syntax}</pre>}
+                                {f.parameters && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide block mb-0.5" style={{ color: '#78716c' }}>Parameters:</span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.parameters}</span></div>}
+                                {f.returns && <div className="mb-1.5"><span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: '#78716c' }}>Returns: </span><span className="text-[10px] whitespace-pre-wrap" style={{ color: '#d6d3d1' }}>{f.returns}</span></div>}
+                                {f.description && <p className="text-[10px] mb-1.5 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{f.description}</p>}
+                                {f.example && <pre className="border rounded-sm px-2 py-1.5 font-mono text-[10px] overflow-x-auto whitespace-pre-wrap" style={{ background: '#0c0a09', color: '#4ade80', borderColor: '#44403c' }}>{f.example}</pre>}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                {/* ── Nodes: only matching nodes in card format ── */}
+                if (r.resultType === 'nodes' && r.matchedCategories) {
+                  return (
+                    <div>
+                      {header}
+                      {r.matchedCategories.map((mc, ci) => (
+                        <div key={ci} className="mb-4">
+                          <h4 className="text-orange-400 font-bold uppercase tracking-wide text-xs mb-1">{mc.category}</h4>
+                          <p className="text-stone-600 text-[10px] mb-2">{mc.system}</p>
+                          <div className="space-y-2">
+                            {mc.nodes.map((node, ni) => (
+                              <div key={ni} className="bg-stone-800 border border-stone-600 rounded-sm p-3">
+                                <div className="font-mono font-bold text-xs mb-1.5" style={{ color: '#fb923c' }}>{node.name}</div>
+                                <p className="text-[10px] mb-2 whitespace-pre-wrap" style={{ color: '#a8a29e' }}>{node.description}</p>
+                                {Array.isArray(node.inputs) && node.inputs.length > 0 && (
+                                  <div className="mb-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Inputs</span>
+                                    <div className="space-y-0.5">
+                                      {node.inputs.filter(Boolean).map((inp, k) => (
+                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
+                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{inp.name || ''}</span>
+                                          <NodeTypeBadge type={inp.type} />
+                                          <span style={{ color: '#a8a29e' }}>{inp.description || ''}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {Array.isArray(node.outputs) && node.outputs.length > 0 && (
+                                  <div className="mb-2">
+                                    <span className="text-[10px] font-bold uppercase tracking-wide block mb-1" style={{ color: '#78716c' }}>Outputs</span>
+                                    <div className="space-y-0.5">
+                                      {node.outputs.filter(Boolean).map((out, k) => (
+                                        <div key={k} className="flex items-start gap-1.5 text-[10px]">
+                                          <span className="font-mono shrink-0 w-24 truncate" style={{ color: '#d6d3d1' }}>{out.name || ''}</span>
+                                          <NodeTypeBadge type={out.type} />
+                                          <span style={{ color: '#a8a29e' }}>{out.description || ''}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                                {node.notes && (
+                                  <div className="border-t border-stone-700 pt-1.5 mt-1.5">
+                                    <span className="text-[10px] italic" style={{ color: '#78716c' }}>{node.notes}</span>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+
+                {/* ── Default: lesson results with highlighted text ── */}
                 const content = r.content;
                 const parts = [];
                 const lowerContent = content.toLowerCase();
-                const lowerQ = q.toLowerCase();
                 let lastIdx = 0;
                 let pos = 0;
                 while ((pos = lowerContent.indexOf(lowerQ, lastIdx)) !== -1) {
@@ -2682,18 +2882,7 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
                 if (lastIdx < content.length) parts.push({ text: content.slice(lastIdx), highlight: false });
                 return (
                   <div>
-                    <div className="mb-4 pb-3 border-b border-stone-700">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h3 className="text-orange-400 font-bold text-sm">{r.lessonTitle}</h3>
-                          <p className="text-stone-500 text-xs">{r.softwareName} &gt; {r.subjectTitle} &gt; {r.sectionTitle}</p>
-                        </div>
-                        <button onClick={() => navigateToSearchResult(r)} className="bg-orange-600 text-white px-3 py-1.5 rounded-sm text-xs font-bold border-2 border-orange-700 hover:bg-orange-700 transition-colors shrink-0">
-                          {r.resultType === 'hotkeys' ? 'Go to Hotkeys' : r.resultType === 'functions' ? 'Go to Functions' : 'Go to Lesson'}
-                        </button>
-                      </div>
-                      <p className="text-orange-400 text-xs mt-1">{r.matches} occurrence{r.matches !== 1 ? 's' : ''} found</p>
-                    </div>
+                    {header}
                     <pre className="text-stone-300 text-xs leading-relaxed whitespace-pre-wrap font-sans">
                       {parts.map((part, i) =>
                         part.highlight
