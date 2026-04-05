@@ -11,13 +11,14 @@ import {
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
   Lock, Unlock, Library, Braces, FolderOpen, Share2,
-  Link, ExternalLink
+  Link, ExternalLink, ShieldCheck
 } from 'lucide-react';
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
   MULTIPLE_CHOICE_PROMPT, CODE_IDENTIFICATION_PROMPT, CODE_WRITING_PROMPT, COMPANION_PROMPT,
   NODES_GENERATION_PROMPT
 } from './prompts.js';
+import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
 import { useAgent } from '../../agent';
 
@@ -2528,6 +2529,20 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
           <Braces className="w-4 h-4" /> Functions
         </button>
 
+        {/* Validate — right-aligned */}
+        <div className="ml-auto" />
+        <button
+          onClick={() => navigateTo('validator')}
+          className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+            currentView === 'validator'
+              ? 'text-orange-400 border-orange-500 bg-stone-900'
+              : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
+          }`}
+          title="Lesson Validator"
+        >
+          <ShieldCheck className="w-4 h-4" /> Validate
+        </button>
+
       </nav>
 
       {/* ── BODY — sidebars + content ── */}
@@ -2542,6 +2557,15 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
           <div className={currentView === 'hotkeys' ? 'h-full' : 'hidden'}>{renderHotkeys()}</div>
           <div className={currentView === 'nodes' ? 'h-full' : 'hidden'}>{renderNodes()}</div>
           <div className={currentView === 'sources' ? 'h-full' : 'hidden'}>{renderSourcesView()}</div>
+          <div className={currentView === 'validator' ? 'h-full' : 'hidden'}>
+            <Validator
+              apiKey={apiKey}
+              softwareList={softwareList}
+              activeSoftwareSlug={activeSoftwareSlug}
+              softwareCacheRef={softwareCacheRef}
+              subjectCacheRef={subjectCacheRef}
+            />
+          </div>
         </main>
       </div>
 
