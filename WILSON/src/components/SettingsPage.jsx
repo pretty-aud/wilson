@@ -5,6 +5,9 @@ import { useAgent } from '../agent/AgentProvider'
 import CurrencyPicker from './settings/CurrencyPicker'
 import AgentSkillsSection from './settings/AgentSkillsSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
+import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRateCard } from './RateCard/useRateCard'
+import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 
 
 export default function SettingsPage({
@@ -46,6 +49,12 @@ export default function SettingsPage({
   // call sees the new prompt without a page reload.
   const agentCtx = useAgent()
 
+  // RABBIT provider + rate card hooks for the new RABBIT tab.
+  const rabbitCtx = useRabbit()
+  const rateCard = useRateCard()
+  const [rabbitDefaultRateCardId, setRabbitDefaultRateCardId] = useState(null)
+  const [adapterSwitching, setAdapterSwitching] = useState(false)
+
   // Load software list for subject lock picker
   useEffect(() => {
     fetch('/api/software').then(r => r.json()).then(list => {
@@ -59,6 +68,7 @@ export default function SettingsPage({
     fetch('/api/otter-settings').then(r => r.json()).then(data => {
       if (cancelled) return
       if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
+      if (data?.rabbit?.defaultRateCardId) setRabbitDefaultRateCardId(data.rabbit.defaultRateCardId)
       if (data?.agentSkills) setAgentSkills({ ...defaultAgentSkillsState(), ...data.agentSkills })
     }).catch(() => {})
     return () => { cancelled = true }
@@ -101,6 +111,21 @@ export default function SettingsPage({
   const handleCurrencyChange = (code) => {
     setRabbitDefaultCurrency(code)
     persistOtterSettings({ rabbit: { defaultCurrency: code } })
+  }
+
+  const handleRabbitAdapterSwitch = async (mode) => {
+    if (!rabbitCtx?.switchAdapter || mode === rabbitCtx.adapterMode) return
+    setAdapterSwitching(true)
+    try {
+      await rabbitCtx.switchAdapter(mode)
+    } finally {
+      setAdapterSwitching(false)
+    }
+  }
+
+  const handleRabbitDefaultRateCardChange = (id) => {
+    setRabbitDefaultRateCardId(id || null)
+    persistOtterSettings({ rabbit: { defaultRateCardId: id || null } })
   }
 
   const handleAgentSkillsChange = (next) => {
@@ -201,6 +226,7 @@ export default function SettingsPage({
 
   const tabs = [
     { key: 'general', label: 'General' },
+    { key: 'rabbit',  label: 'RABBIT' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
     { key: 'skills', label: 'Agent Skills' },
   ]
@@ -265,21 +291,6 @@ export default function SettingsPage({
                     </button>
                   )}
                 </div>
-              </div>
-
-              {/* RABBIT Default Currency */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Default Project Currency
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Used by R.A.B.B.I.T. as the starting currency for new projects and budget rollups.
-                  Each project can override this once it's been created.
-                </p>
-                <CurrencyPicker
-                  value={rabbitDefaultCurrency}
-                  onChange={handleCurrencyChange}
-                />
               </div>
 
               {/* Companion Section */}
@@ -491,6 +502,132 @@ export default function SettingsPage({
                     )}
                   </div>
                 </div>
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  RABBIT TAB                                               */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'rabbit' && (
+            <>
+              {/* Adapter mode */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Storage Backend
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Where R.A.B.B.I.T. stores projects, phases, assets, tasks, files, and rate
+                  cards. Switching backends preserves whatever lives in the destination — it
+                  does not migrate data between adapters.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {ADAPTER_MODES.map(mode => {
+                    const active = rabbitCtx?.adapterMode === mode
+                    const writes = adapterSupportsWrites(mode)
+                    const label =
+                      mode === 'supabase'     ? 'Supabase'      :
+                      mode === 'local_server' ? 'Local Server'  :
+                      mode === 'google_drive' ? 'Google Drive'  : mode
+                    const hint =
+                      mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
+                      mode === 'local_server' ? 'In-app Express server (default — single user)'      :
+                      mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={adapterSwitching || active}
+                        onClick={() => handleRabbitAdapterSwitch(mode)}
+                        className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
+                        style={{
+                          backgroundColor: active ? 'rgba(234, 88, 12, 0.18)' : 'rgba(120, 70, 30, 0.18)',
+                          border: `2px solid ${active ? '#ea580c' : 'transparent'}`,
+                        }}
+                      >
+                        <span
+                          className="mt-0.5 w-3 h-3 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: active ? '#ea580c' : 'transparent',
+                            border: '2px solid #7c2d12',
+                          }}
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
+                            {label}
+                            {!writes && (
+                              <span
+                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
+                                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #991b1b' }}
+                              >
+                                Read only
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px]" style={{ color: '#1c1917' }}>{hint}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: rabbitCtx?.adapterStatus?.online ? '#22c55e' : '#ef4444' }}
+                  />
+                  <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
+                    {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
+                    {rabbitCtx?.adapterStatus?.error && ` — ${rabbitCtx.adapterStatus.error}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Default currency */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Default Project Currency
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Used as the starting currency for new RABBIT projects and budget rollups.
+                  Each project can override this once it's been created.
+                </p>
+                <CurrencyPicker
+                  value={rabbitDefaultCurrency}
+                  onChange={handleCurrencyChange}
+                />
+              </div>
+
+              {/* Default rate card */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Default Rate Card
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  New projects open with this rate card pinned in the budget view. Manage
+                  individual cards on the Rate Card page.
+                </p>
+                {rateCard.rateCards.length === 0 ? (
+                  <div className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+                    No rate cards yet. Create one on the Rate Card page.
+                  </div>
+                ) : (
+                  <select
+                    value={rabbitDefaultRateCardId || ''}
+                    onChange={(e) => handleRabbitDefaultRateCardChange(e.target.value)}
+                    className="px-4 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                    style={{
+                      backgroundColor: 'rgba(120, 70, 30, 0.55)',
+                      color: '#fde8d0',
+                      border: 'none',
+                      minWidth: '260px',
+                    }}
+                  >
+                    <option value="">— None —</option>
+                    {rateCard.rateCards.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
               </div>
             </>
           )}
