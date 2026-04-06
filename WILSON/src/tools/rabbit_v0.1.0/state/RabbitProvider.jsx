@@ -492,6 +492,12 @@ export function RabbitProvider({ children }) {
     }),
   }), [bundle]);
 
+  // ── Adapter accessor ─────────────────────────────────────
+  // Returns the live adapter instance. Used by callers that need
+  // to invoke adapter methods not wrapped by the provider (e.g.
+  // workspace-level rate card CRUD lives outside the project bundle).
+  const getAdapter = useCallback(() => adapterRef.current, []);
+
   // ── Context value ───────────────────────────────────────
   const value = useMemo(() => ({
     // identity
@@ -499,6 +505,8 @@ export function RabbitProvider({ children }) {
     adapterStatus,
     switchAdapter,
     refreshProjectsIndex,
+    getAdapter,
+    DEFAULT_WORKSPACE_ID,
 
     // data
     activeProjectId,
@@ -537,7 +545,7 @@ export function RabbitProvider({ children }) {
     // selectors
     ...memoSelectors,
   }), [
-    adapterMode, adapterStatus, switchAdapter, refreshProjectsIndex,
+    adapterMode, adapterStatus, switchAdapter, refreshProjectsIndex, getAdapter,
     activeProjectId, projectsIndex, bundle, loadingProject, error, activeIngestion,
     startIngestion, acceptIngestion, discardIngestion,
     createProject, updateProject, deleteProject, setActiveProject,
