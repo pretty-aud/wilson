@@ -1,13 +1,19 @@
-// RABBIT v0.1.0 — top-level shell (Session 1 scaffold).
-//
-// This file intentionally renders nothing. Session 2 mounts the RabbitProvider
-// around the app; Session 3 fills in the real header, view router, and views.
-//
-// Do NOT register this in App.jsx yet — the scaffold is not on the navigation
-// surface until Session 3.
+// ============================================================
+// RABBIT v0.1 — top-level shell (stub for Commit 1)
+// ============================================================
+// Commit 1 only registers RABBIT in App.jsx so the Home menu has
+// a destination. The real RabbitPage shell (header + ProjectPicker
+// + ViewTabs + view router + activeTool wiring) lands in Commit 6.
 
-import React from 'react';
+import { ListChecks } from 'lucide-react'
 
 export default function Rabbit() {
-  return null;
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="flex items-center gap-3 text-stone-900">
+        <ListChecks className="w-6 h-6" />
+        <span className="font-bold text-sm tracking-widest uppercase">R.A.B.B.I.T.</span>
+      </div>
+    </div>
+  )
 }
