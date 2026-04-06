@@ -458,21 +458,29 @@ export function RabbitProvider({ children }) {
         assigned_role_slug: t.role ? t.role.toLowerCase().replace(/[^a-z0-9]+/g, '_') : null,
       });
     }
-    await adapterRef.current.updateIngestionRun(runId, {
-      status: 'complete',
-      project_id: activeProjectId,
-      finished_at: new Date().toISOString(),
-    });
+    // Skip the run update if no runId was supplied. The intake
+    // wizard accepts an ad-hoc breakdown without ever creating a
+    // run row when the user uploads files in "preview only" mode,
+    // and updateIngestionRun(null, …) would throw on every adapter.
+    if (runId) {
+      await adapterRef.current.updateIngestionRun(runId, {
+        status: 'complete',
+        project_id: activeProjectId,
+        finished_at: new Date().toISOString(),
+      });
+    }
     setActiveIngestion(null);
   }, [activeProjectId, addPhase, addAsset, addTask]);
 
   const discardIngestion = useCallback(async (runId) => {
     if (!adapterRef.current || !activeProjectId) return;
-    await adapterRef.current.updateIngestionRun(runId, {
-      status: 'failed',
-      project_id: activeProjectId,
-      finished_at: new Date().toISOString(),
-    });
+    if (runId) {
+      await adapterRef.current.updateIngestionRun(runId, {
+        status: 'failed',
+        project_id: activeProjectId,
+        finished_at: new Date().toISOString(),
+      });
+    }
     setActiveIngestion(null);
   }, [activeProjectId]);
 

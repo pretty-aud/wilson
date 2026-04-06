@@ -894,6 +894,7 @@ export default function App() {
           apiKey={anthropicApiKey}
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
+          currentPage={currentPage}
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
