@@ -26,6 +26,7 @@ import {
   Table as TableIcon, LayoutGrid, X,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
 
 export const ASSET_TYPES = [
   'character','environment','prop','vehicle','vfx','animation','rig','model',
@@ -45,10 +46,11 @@ export default function ProjectAssetsView() {
   const tasks   = ctx?.tasks   || []
   const project = ctx?.project
 
-  const [viewMode, setViewMode] = useState('table')   // table | gallery (gallery in C11)
+  const [viewMode, setViewMode] = useState('table')   // table | gallery
   const [search, setSearch]     = useState('')
   const [phaseFilter, setPhaseFilter] = useState('')  // '' = all
   const [typeFilter, setTypeFilter]   = useState('')
+  const [warningAssetId, setWarningAssetId] = useState(null)
 
   const phaseById = useMemo(() => {
     const map = {}
@@ -185,6 +187,7 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            onWarningClick={(id) => setWarningAssetId(id)}
           />
         ) : (
           <AssetGallery
@@ -192,15 +195,23 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            onWarningClick={(id) => setWarningAssetId(id)}
           />
         )}
       </div>
+
+      {warningAssetId && (
+        <AssetStatusWarningModal
+          asset={assets.find(a => a.id === warningAssetId)}
+          onClose={() => setWarningAssetId(null)}
+        />
+      )}
     </div>
   )
 }
 
 // ─── Table mode ───
-function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx }) {
+function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx, onWarningClick }) {
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2">
@@ -234,6 +245,7 @@ function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx }) {
             warning={ctx?.selectAssetStatusWarning?.(a)}
             onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
             onDelete={() => ctx.deleteAsset(a.id)}
+            onWarningClick={() => onWarningClick?.(a.id)}
           />
         ))}
       </tbody>
@@ -241,7 +253,7 @@ function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx }) {
   )
 }
 
-function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onDelete }) {
+function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onDelete, onWarningClick }) {
   return (
     <tr style={{ borderBottom: '1px solid #fed7aa', backgroundColor: '#fff7ed' }}>
       <Td>
@@ -278,9 +290,14 @@ function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onD
             tone={statusTone(asset.status)}
           />
           {warning && (
-            <span title="Tasks not yet done — click for details">
+            <button
+              type="button"
+              onClick={onWarningClick}
+              title="Tasks not yet done — click for details"
+              className="p-0.5 rounded-sm hover:bg-red-100"
+            >
               <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#991b1b' }} />
-            </span>
+            </button>
           )}
         </div>
       </Td>
@@ -315,7 +332,7 @@ function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onD
 // a card to inline-edit name, type, status, phase. Cards are a
 // little chunkier than table rows so the user can scan a moodboard
 // of an entire project at a glance.
-function AssetGallery({ assets, phaseById, taskCountByAsset, ctx }) {
+function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, onWarningClick }) {
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2">
@@ -337,13 +354,14 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx }) {
           warning={ctx?.selectAssetStatusWarning?.(a)}
           onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
           onDelete={() => ctx.deleteAsset(a.id)}
+          onWarningClick={() => onWarningClick?.(a.id)}
         />
       ))}
     </div>
   )
 }
 
-function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete }) {
+function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, onWarningClick }) {
   const tone = statusTone(asset.status)
   const colors = toneColors(tone)
   const initials = (asset.name || '?')
@@ -379,13 +397,15 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete }
           </span>
         )}
         {warning && (
-          <div
-            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-sm"
+          <button
+            type="button"
+            onClick={onWarningClick}
+            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-sm hover:bg-red-200"
             style={{ backgroundColor: '#fee2e2', border: '1px solid #991b1b', color: '#991b1b' }}
-            title="Status mismatch — tasks not yet done"
+            title="Status mismatch — click for details"
           >
             <AlertTriangle className="w-3 h-3" />
-          </div>
+          </button>
         )}
         <div
           className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
