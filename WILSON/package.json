@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@supabase/supabase-js": "^2.101.1",
     "cors": "^2.8.6",
     "electron-squirrel-startup": "^1.0.1",
     "express": "^5.2.1",

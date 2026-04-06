@@ -22,6 +22,15 @@ function getSoftwareDir() {
   return dir;
 }
 
+// ═══════════════════════════════════════════════════════════════════
+//  RABBIT DATA DIRECTORY — separate root from otter-data
+// ═══════════════════════════════════════════════════════════════════
+function getRabbitDataDir() {
+  const dir = path.join(app.getPath('userData'), 'rabbit-data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 function readJSON(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
 }
@@ -664,6 +673,24 @@ async function createWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null; });
 }
+
+// ── RABBIT config IPC (Supabase + future Drive credentials) ──
+// These read/write small JSON files inside the rabbit-data root.
+// Express routes for actual project data live in §3 (Local Server adapter).
+ipcMain.handle('rabbit:read-supabase-config', () => {
+  const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
+  return readJSON(cfgPath, null);
+});
+ipcMain.handle('rabbit:write-supabase-config', (_event, cfg) => {
+  if (!cfg || typeof cfg !== 'object') throw new Error('rabbit:write-supabase-config: payload must be an object');
+  writeJSON(path.join(getRabbitDataDir(), 'supabase.json'), cfg);
+  return { ok: true };
+});
+ipcMain.handle('rabbit:clear-supabase-config', () => {
+  const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
+  if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
+  return { ok: true };
+});
 
 // Window control IPC handlers
 ipcMain.handle('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });

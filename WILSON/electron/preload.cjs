@@ -18,4 +18,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('zoom-reset-notify', handler);
     return () => ipcRenderer.removeListener('zoom-reset-notify', handler);
   },
+
+  // ── RABBIT config bridge ──
+  // Used by the Supabase adapter to read/write credentials stored
+  // at {userData}/rabbit-data/supabase.json.
+  rabbit: {
+    readSupabaseConfig:  ()    => ipcRenderer.invoke('rabbit:read-supabase-config'),
+    writeSupabaseConfig: (cfg) => ipcRenderer.invoke('rabbit:write-supabase-config', cfg),
+    clearSupabaseConfig: ()    => ipcRenderer.invoke('rabbit:clear-supabase-config'),
+  },
 });
