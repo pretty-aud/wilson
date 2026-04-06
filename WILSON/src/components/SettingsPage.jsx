@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react'
 import { PET_BREEDS } from './sprites/index'
 import { AGENT_SYSTEM_PROMPT } from '../agent/agentPrompts'
+import CurrencyPicker from './settings/CurrencyPicker'
+import AgentSkillsSection from './settings/AgentSkillsSection'
+import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 
 
 export default function SettingsPage({
@@ -29,12 +32,61 @@ export default function SettingsPage({
   const [subjectList, setSubjectList] = useState([])
   const [softwareList, setSoftwareList] = useState([])
 
+  // RABBIT default currency + agent skills (persisted in otter-settings.json)
+  const [rabbitDefaultCurrency, setRabbitDefaultCurrency] = useState('USD')
+  const [agentSkills, setAgentSkills] = useState(defaultAgentSkillsState())
+
   // Load software list for subject lock picker
   useEffect(() => {
     fetch('/api/software').then(r => r.json()).then(list => {
       setSoftwareList(list || [])
     }).catch(() => {})
   }, [])
+
+  // Load Rabbit + agent-skills slices from otter-settings.json on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+      if (cancelled) return
+      if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
+      if (data?.agentSkills) setAgentSkills({ ...defaultAgentSkillsState(), ...data.agentSkills })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const persistOtterSettings = async (patch) => {
+    try {
+      const res = await fetch('/api/otter-settings')
+      const data = await res.json().catch(() => ({}))
+      // Shallow-merge top-level keys, but for object-valued keys do a one-deep merge
+      // so updating settings.rabbit.defaultCurrency doesn't blow away other rabbit fields.
+      const next = { ...data }
+      for (const [k, v] of Object.entries(patch)) {
+        if (v && typeof v === 'object' && !Array.isArray(v) && data[k] && typeof data[k] === 'object') {
+          next[k] = { ...data[k], ...v }
+        } else {
+          next[k] = v
+        }
+      }
+      await fetch('/api/otter-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+    } catch {
+      /* best effort */
+    }
+  }
+
+  const handleCurrencyChange = (code) => {
+    setRabbitDefaultCurrency(code)
+    persistOtterSettings({ rabbit: { defaultCurrency: code } })
+  }
+
+  const handleAgentSkillsChange = (next) => {
+    setAgentSkills(next)
+    persistOtterSettings({ agentSkills: next })
+  }
 
   const handleChangePassword = async () => {
     if (newPassword.length === 0) {
@@ -106,6 +158,7 @@ export default function SettingsPage({
   const tabs = [
     { key: 'general', label: 'General' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
+    { key: 'skills', label: 'Agent Skills' },
   ]
 
   return (
@@ -168,6 +221,21 @@ export default function SettingsPage({
                     </button>
                   )}
                 </div>
+              </div>
+
+              {/* RABBIT Default Currency */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Default Project Currency
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Used by R.A.B.B.I.T. as the starting currency for new projects and budget rollups.
+                  Each project can override this once it's been created.
+                </p>
+                <CurrencyPicker
+                  value={rabbitDefaultCurrency}
+                  onChange={handleCurrencyChange}
+                />
               </div>
 
               {/* Companion Section */}
@@ -570,6 +638,16 @@ export default function SettingsPage({
                 </div>
               </div>
             </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  AGENT SKILLS TAB                                         */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'skills' && (
+            <AgentSkillsSection
+              value={agentSkills}
+              onChange={handleAgentSkillsChange}
+            />
           )}
           </div>
         </div>
