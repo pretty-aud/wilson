@@ -7,21 +7,26 @@
 //
 //   upload → classify → core → run → review → save
 //
-// Commit 7 ships steps 1-3 (upload / classify / core-definer)
+// Commit 7 shipped steps 1-3 (upload / classify / core-definer)
 // plus the scaffolding for step 4 (run). Commit 8 wires the
 // IntakeProgress + IntakeReview UI and the acceptIngestion
 // save path.
 //
 // State lives in the wizard itself, not the provider, because
-// it's wizard-local and discardable on close.
+// it's wizard-local and discardable on close. The exception is
+// the *result* of a run — the moment the user clicks "Save to
+// project", the breakdown is pushed into the bundle via
+// `acceptIngestion(null, breakdown)` and the wizard resets.
 
 import { useState } from 'react'
-import { Sparkles, FolderPlus } from 'lucide-react'
+import { Sparkles, FolderPlus, AlertCircle } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { PERSONA_LIST } from '../intake/personas'
 import IntakeUploader from './intake/IntakeUploader'
 import IntakeClassifier from './intake/IntakeClassifier'
 import IntakeCoreDefiner from './intake/IntakeCoreDefiner'
+import IntakeProgress from './intake/IntakeProgress'
+import IntakeReview from './intake/IntakeReview'
 
 const STEPS = [
   { id: 'upload',   label: 'Upload'   },
@@ -30,6 +35,14 @@ const STEPS = [
   { id: 'run',      label: 'Run'      },
   { id: 'review',   label: 'Review'   },
 ]
+
+function readApiKey() {
+  try {
+    return localStorage.getItem('wilson-api-key') || ''
+  } catch {
+    return ''
+  }
+}
 
 export default function IntakeWizardView() {
   const ctx = useRabbit()
@@ -40,10 +53,23 @@ export default function IntakeWizardView() {
   const [enabledPersonas, setEnabledPersonas] = useState(
     PERSONA_LIST.filter(p => p.defaultEnabled).map(p => p.id)
   )
+  const [runResult, setRunResult] = useState(null)
 
   // No project yet → nudge user to create one before uploading.
   if (!activeProjectId) {
     return <NoProjectGate />
+  }
+
+  // No API key → block the run step entirely. We can still let
+  // the user upload + classify; only the actual pipeline call
+  // requires Anthropic.
+  const apiKey = readApiKey()
+
+  function resetWizard() {
+    setStep('upload')
+    setFiles([])
+    setRunResult(null)
+    setEnabledPersonas(PERSONA_LIST.filter(p => p.defaultEnabled).map(p => p.id))
   }
 
   return (
@@ -78,15 +104,28 @@ export default function IntakeWizardView() {
           />
         )}
         {step === 'run' && (
-          <RunPlaceholder
-            files={files}
-            personas={enabledPersonas}
-            onBack={() => setStep('core')}
-          />
+          apiKey ? (
+            <IntakeProgress
+              projectId={activeProjectId}
+              files={files.filter(f => f.is_core_definer)}
+              personas={enabledPersonas}
+              apiKey={apiKey}
+              onComplete={(result) => {
+                setRunResult(result)
+                setStep('review')
+              }}
+              onBack={() => setStep('core')}
+            />
+          ) : (
+            <NoApiKeyGate onBack={() => setStep('core')} />
+          )
         )}
         {step === 'review' && (
-          <ReviewPlaceholder
-            onBack={() => setStep('run')}
+          <IntakeReview
+            result={runResult}
+            onBack={() => setStep('core')}
+            onSaved={resetWizard}
+            onDiscarded={resetWizard}
           />
         )}
       </div>
@@ -143,35 +182,17 @@ function NoProjectGate() {
   )
 }
 
-// ─── Run / review placeholders (Commit 8 fills these in) ───
-function RunPlaceholder({ files, personas, onBack }) {
-  const coreCount = (files || []).filter(f => f.is_core_definer).length
+// ─── No-api-key gate (only blocks the run step) ───
+function NoApiKeyGate({ onBack }) {
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-3 p-8">
-      <Sparkles className="w-8 h-8" style={{ color: '#ea580c' }} />
-      <div className="text-xs font-mono text-center max-w-md leading-relaxed" style={{ color: '#7c2d12' }}>
-        Ready to run intake on {coreCount} core file
-        {coreCount === 1 ? '' : 's'} with {personas.length} persona
-        {personas.length === 1 ? '' : 's'}. The pipeline executor lands
-        in the next commit.
-      </div>
-      <button
-        type="button"
-        onClick={onBack}
-        className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-        style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+    <div className="h-full flex flex-col items-center justify-center gap-4 p-8">
+      <AlertCircle className="w-8 h-8" style={{ color: '#991b1b' }} />
+      <div
+        className="text-[11px] font-mono text-center max-w-md leading-relaxed p-3 rounded-sm"
+        style={{ color: '#991b1b', backgroundColor: '#fee2e2', border: '2px solid #991b1b' }}
       >
-        ← Back
-      </button>
-    </div>
-  )
-}
-
-function ReviewPlaceholder({ onBack }) {
-  return (
-    <div className="h-full flex flex-col items-center justify-center gap-3 p-8">
-      <div className="text-xs font-mono text-center" style={{ color: '#7c2d12' }}>
-        Review & save lands in Commit 8.
+        The intake pipeline needs an Anthropic API key. Add one in
+        System Settings → API & Models, then come back to this step.
       </div>
       <button
         type="button"
