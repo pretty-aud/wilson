@@ -98,9 +98,9 @@ export default function ImportPreviewModal({
             <CheckCircle2 className="w-3.5 h-3.5" />
             {rows.length} row{rows.length === 1 ? '' : 's'} ready
           </span>
-          <span className="text-stone-500">/ {totalRows} parsed</span>
+          <span style={{ color: '#7c2d12', opacity: 0.7 }}>/ {totalRows} parsed</span>
           {unmapped.length > 0 && (
-            <span className="flex items-center gap-1" style={{ color: '#a16207' }}>
+            <span className="flex items-center gap-1" style={{ color: '#7c2d12' }}>
               <AlertTriangle className="w-3.5 h-3.5" />
               {unmapped.length} column{unmapped.length === 1 ? '' : 's'} ignored
             </span>
@@ -127,7 +127,7 @@ export default function ImportPreviewModal({
         {unmapped.length > 0 && (
           <div
             className="mx-5 mb-2 p-2 rounded-sm text-[11px] font-mono"
-            style={{ backgroundColor: '#fef3c7', border: '1px solid #a16207', color: '#7c2d12' }}
+            style={{ backgroundColor: '#fed7aa', border: '1px solid #7c2d12', color: '#7c2d12' }}
           >
             Ignored columns: {unmapped.map(u => u.header).filter(Boolean).join(', ') || '(blank headers)'}
           </div>
@@ -156,7 +156,7 @@ export default function ImportPreviewModal({
             <tbody>
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-3 py-6 text-center text-xs text-stone-500 font-mono">
+                  <td colSpan={8} className="px-3 py-6 text-center text-xs font-mono" style={{ color: '#7c2d12', opacity: 0.7 }}>
                     No rows could be parsed.
                   </td>
                 </tr>

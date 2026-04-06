@@ -70,7 +70,7 @@ export default function ProjectPicker() {
       >
         <Folder className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
         <span className="flex-1 text-left truncate">
-          {active ? active.name : <span className="text-stone-500">No project selected</span>}
+          {active ? active.name : <span style={{ color: '#7c2d12', opacity: 0.7 }}>No project selected</span>}
         </span>
         <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
       </button>

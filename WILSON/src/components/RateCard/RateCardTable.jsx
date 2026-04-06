@@ -59,8 +59,8 @@ function EditableCell({ value, field, currency, onCommit, placeholder, align = '
   }, [editing])
 
   const display = isNumeric
-    ? formatCurrency(value, currency) || <span className="text-stone-400">—</span>
-    : (value || <span className="text-stone-400">{placeholder || '—'}</span>)
+    ? formatCurrency(value, currency) || <span style={{ color: '#7c2d12', opacity: 0.5 }}>—</span>
+    : (value || <span style={{ color: '#7c2d12', opacity: 0.5 }}>{placeholder || '—'}</span>)
 
   function startEdit() {
     setDraft(value === null || value === undefined ? '' : String(value))
@@ -145,10 +145,10 @@ function CurrencyCell({ value, onCommit }) {
         style={{ color: '#1c1917', minHeight: '28px' }}
       >
         <span>
-          <span className="text-orange-700 mr-1">{current.symbol}</span>
+          <span className="mr-1" style={{ color: '#7c2d12' }}>{current.symbol}</span>
           {current.code}
         </span>
-        <span className="text-stone-400 text-[10px]">{open ? '▲' : '▼'}</span>
+        <span className="text-[10px]" style={{ color: '#7c2d12', opacity: 0.5 }}>{open ? '▲' : '▼'}</span>
       </button>
       {open && (
         <div
@@ -172,13 +172,13 @@ function CurrencyCell({ value, onCommit }) {
               className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-50 transition-colors"
               style={{ color: c.code === current.code ? '#ea580c' : '#1c1917' }}
             >
-              <span className="w-6 text-orange-700">{c.symbol}</span>
+              <span className="w-6" style={{ color: '#7c2d12' }}>{c.symbol}</span>
               <span className="w-10">{c.code}</span>
-              <span className="text-stone-500 truncate">{c.label}</span>
+              <span className="truncate" style={{ color: '#7c2d12', opacity: 0.7 }}>{c.label}</span>
             </button>
           ))}
           {filtered.length === 0 && (
-            <div className="px-3 py-2 text-xs text-stone-500 font-mono">No matches.</div>
+            <div className="px-3 py-2 text-xs font-mono" style={{ color: '#7c2d12', opacity: 0.7 }}>No matches.</div>
           )}
         </div>
       )}
@@ -508,7 +508,7 @@ export default function RateCardTable({
 
             {entries.length === 0 && !loading && (
               <tr>
-                <td colSpan={9} className="text-center text-xs text-stone-500 font-mono py-6">
+                <td colSpan={9} className="text-center text-xs font-mono py-6" style={{ color: '#7c2d12', opacity: 0.7 }}>
                   No rate card entries yet — add one above or import from a file.
                 </td>
               </tr>

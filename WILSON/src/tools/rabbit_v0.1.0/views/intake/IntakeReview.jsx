@@ -272,7 +272,7 @@ function Row({ title, subtitle, tag, hint }) {
         <div className="ml-5 text-[10px] font-mono" style={{ color: '#7c2d12' }}>{subtitle}</div>
       )}
       {hint && (
-        <div className="ml-5 text-[10px] font-mono italic" style={{ color: '#9a3412' }}>{hint}</div>
+        <div className="ml-5 text-[10px] font-mono italic" style={{ color: '#7c2d12' }}>{hint}</div>
       )}
     </div>
   )

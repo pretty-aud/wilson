@@ -522,7 +522,7 @@ function InlineText({ value, onCommit, placeholder }) {
       type="button"
       onClick={() => { setDraft(value); setEditing(true) }}
       className="text-xs font-mono text-left w-full truncate hover:bg-orange-100 px-1 py-0.5 rounded-sm"
-      style={{ color: value ? '#1c1917' : '#9a3412' }}
+      style={{ color: value ? '#1c1917' : '#7c2d12' }}
     >
       {value || placeholder || '—'}
     </button>
@@ -560,8 +560,8 @@ function toneColors(tone) {
   switch (tone) {
     case 'good':   return { bg: '#dcfce7', fg: '#15803d', border: '#15803d' }
     case 'danger': return { bg: '#fee2e2', fg: '#991b1b', border: '#991b1b' }
-    case 'warn':   return { bg: '#fef3c7', fg: '#92400e', border: '#92400e' }
-    case 'active': return { bg: '#fed7aa', fg: '#9a3412', border: '#9a3412' }
+    case 'warn':   return { bg: '#fed7aa', fg: '#7c2d12', border: '#7c2d12' }
+    case 'active': return { bg: '#fed7aa', fg: '#ea580c', border: '#ea580c' }
     default:       return { bg: '#fff',    fg: '#1c1917', border: '#7c2d12' }
   }
 }

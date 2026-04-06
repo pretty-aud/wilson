@@ -400,7 +400,7 @@ function SummaryTile({ icon: Icon, label, value, tone }) {
 function barTone(status, critical) {
   if (critical) return { bg: '#ea580c', border: '#7c2d12', fg: '#fff7ed' }
   if (status === 'blocked')   return { bg: '#fee2e2', border: '#991b1b', fg: '#991b1b' }
-  if (status === 'on_hold')   return { bg: '#fef3c7', border: '#92400e', fg: '#92400e' }
+  if (status === 'on_hold')   return { bg: '#fed7aa', border: '#7c2d12', fg: '#7c2d12' }
   if (status === 'final' || status === 'approved') return { bg: '#dcfce7', border: '#15803d', fg: '#15803d' }
   return { bg: '#fed7aa', border: '#7c2d12', fg: '#1c1917' }
 }
