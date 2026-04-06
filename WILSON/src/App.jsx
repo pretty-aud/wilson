@@ -14,6 +14,7 @@ import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
+import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 
 // Wrapper that bridges AgentProvider context to SettingsPage
 function SettingsPageWithAgent(props) {
@@ -944,6 +945,7 @@ export default function App() {
 
   return (
     <AgentProvider apiKey={anthropicApiKey}>
+    <RabbitProvider>
     <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {authed && (
@@ -1209,6 +1211,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </RabbitProvider>
     </AgentProvider>
   );
 }
