@@ -14,11 +14,16 @@
 // The Rate Card is workspace-scoped, not project-scoped, so this
 // page consumes a dedicated `useRateCard()` hook that talks to
 // the active adapter directly. Commit 1 ships the shell + table.
-// Importers land in Commits 3-5.
+// Commit 3 wires the CSV/XLSX importer; PDF and Google Sheets
+// land in Commits 4 and 5.
 
+import { useRef, useState } from 'react'
 import { DollarSign, Upload, AlertCircle, Loader2 } from 'lucide-react'
 import { useRateCard } from './useRateCard'
 import RateCardTable from './RateCardTable'
+import ImportPreviewModal from './importers/ImportPreviewModal'
+import { importCsv } from './importers/csvImporter'
+import { importXlsx } from './importers/xlsxImporter'
 
 export default function RateCardPage() {
   const {
@@ -31,10 +36,72 @@ export default function RateCardPage() {
     addEntry,
     updateEntry,
     deleteEntry,
+    bulkUpsertEntries,
     makeSlug,
   } = useRateCard()
 
   const activeCard = rateCards.find(c => c.id === activeRateCardId) || null
+
+  // ─── Importer state ───
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [previewSource, setPreviewSource] = useState(null)   // 'CSV' | 'XLSX' | …
+  const [previewFileName, setPreviewFileName] = useState('')
+  const [previewResult, setPreviewResult] = useState(null)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importError, setImportError] = useState(null)
+
+  const fileInputRef = useRef(null)
+
+  function openFilePicker() {
+    setImportError(null)
+    fileInputRef.current?.click()
+  }
+
+  async function handleFileSelected(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // allow re-picking the same file
+    if (!file) return
+    const lower = file.name.toLowerCase()
+    try {
+      let result
+      let source
+      if (lower.endsWith('.csv')) {
+        result = await importCsv(file)
+        source = 'CSV'
+      } else if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) {
+        result = await importXlsx(file)
+        source = 'XLSX'
+      } else {
+        setImportError(`Unsupported file type: ${file.name}`)
+        return
+      }
+      setPreviewSource(source)
+      setPreviewFileName(file.name)
+      setPreviewResult(result)
+      setPreviewOpen(true)
+    } catch (err) {
+      setImportError(err.message || String(err))
+    }
+  }
+
+  async function handleConfirmImport(rows) {
+    setImportBusy(true)
+    try {
+      await bulkUpsertEntries(rows)
+      setPreviewOpen(false)
+      setPreviewResult(null)
+    } catch (err) {
+      setImportError(err.message || String(err))
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
+  function closePreview() {
+    if (importBusy) return
+    setPreviewOpen(false)
+    setPreviewResult(null)
+  }
 
   return (
     <div className="h-full w-full flex flex-col" style={{ backgroundColor: '#fef3e8' }}>
@@ -85,19 +152,19 @@ export default function RateCardPage() {
       </div>
 
       {/* ── Error banner ── */}
-      {error && (
+      {(error || importError) && (
         <div
           className="flex items-start gap-2 px-6 py-2"
           style={{ backgroundColor: '#fee2e2', borderBottom: '1px solid #991b1b' }}
         >
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#991b1b' }} />
-          <span className="text-xs font-mono" style={{ color: '#991b1b' }}>{error}</span>
+          <span className="text-xs font-mono" style={{ color: '#991b1b' }}>{importError || error}</span>
         </div>
       )}
 
       {/* ── Two-column body ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: importer column (placeholder until C3-C5) */}
+        {/* Left: importer column */}
         <div
           className="flex flex-col w-80 flex-shrink-0"
           style={{ borderRight: '2px solid #7c2d12', backgroundColor: '#fff7ed' }}
@@ -110,17 +177,19 @@ export default function RateCardPage() {
           </div>
 
           <div className="flex-1 p-4 space-y-3 overflow-auto">
-            <ImporterPlaceholder
+            {/* CSV / XLSX importer (active) */}
+            <ImporterCard
               label="CSV / XLSX"
-              note="Drop a spreadsheet — coming in Commit 3"
-              disabled
+              note="Click to pick a spreadsheet"
+              onClick={openFilePicker}
             />
-            <ImporterPlaceholder
+
+            <ImporterCard
               label="PDF"
               note="Heuristic extraction — coming in Commit 4"
               disabled
             />
-            <ImporterPlaceholder
+            <ImporterCard
               label="Google Sheet"
               note="Public URL fetch — coming in Commit 5"
               disabled
@@ -156,17 +225,38 @@ export default function RateCardPage() {
           )}
         </div>
       </div>
+
+      {/* Hidden file input for spreadsheet picker */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+        onChange={handleFileSelected}
+        style={{ display: 'none' }}
+      />
+
+      {/* Import preview modal */}
+      <ImportPreviewModal
+        open={previewOpen}
+        source={previewSource}
+        fileName={previewFileName}
+        result={previewResult}
+        busy={importBusy}
+        onClose={closePreview}
+        onConfirm={handleConfirmImport}
+      />
     </div>
   )
 }
 
-// ─── Importer placeholder ───
-function ImporterPlaceholder({ label, note, disabled }) {
+// ─── Importer card ───
+function ImporterCard({ label, note, onClick, disabled }) {
   return (
     <button
       type="button"
+      onClick={onClick}
       disabled={disabled}
-      className="w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed"
+      className="w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed hover:bg-orange-100"
       style={{
         backgroundColor: '#fef3e8',
         border: '2px solid #f4a261',
