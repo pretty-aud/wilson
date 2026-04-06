@@ -187,7 +187,12 @@ export default function ProjectAssetsView() {
             ctx={ctx}
           />
         ) : (
-          <GalleryPlaceholder />
+          <AssetGallery
+            assets={filtered}
+            phaseById={phaseById}
+            taskCountByAsset={taskCountByAsset}
+            ctx={ctx}
+          />
         )}
       </div>
     </div>
@@ -303,14 +308,132 @@ function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onD
   )
 }
 
-// ─── Gallery placeholder (Commit 11) ───
-function GalleryPlaceholder() {
+// ─── Gallery mode ───
+//
+// Card grid showing thumbnail (or generated initials block),
+// name, type, status, phase, and a small "tasks" footer. Click
+// a card to inline-edit name, type, status, phase. Cards are a
+// little chunkier than table rows so the user can scan a moodboard
+// of an entire project at a glance.
+function AssetGallery({ assets, phaseById, taskCountByAsset, ctx }) {
+  if (assets.length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-2">
+        <Boxes className="w-8 h-8" style={{ color: '#7c2d12' }} />
+        <span className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+          No assets — click “Add asset” or run the intake wizard.
+        </span>
+      </div>
+    )
+  }
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-2">
-      <LayoutGrid className="w-8 h-8" style={{ color: '#7c2d12' }} />
-      <span className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
-        Gallery view lands in the next commit.
-      </span>
+    <div className="p-6 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+      {assets.map(a => (
+        <AssetCard
+          key={a.id}
+          asset={a}
+          phaseLabel={phaseById[a.phase_id]?.name || ''}
+          taskCount={taskCountByAsset[a.id] || 0}
+          warning={ctx?.selectAssetStatusWarning?.(a)}
+          onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
+          onDelete={() => ctx.deleteAsset(a.id)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete }) {
+  const tone = statusTone(asset.status)
+  const colors = toneColors(tone)
+  const initials = (asset.name || '?')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(w => w[0]?.toUpperCase() || '')
+    .join('')
+  return (
+    <div
+      className="rounded-sm overflow-hidden flex flex-col"
+      style={{ backgroundColor: '#fff7ed', border: '2px solid #7c2d12' }}
+    >
+      {/* Thumbnail / initials block */}
+      <div
+        className="h-24 flex items-center justify-center relative"
+        style={{
+          backgroundColor: '#fed7aa',
+          borderBottom: '2px solid #7c2d12',
+          ...(asset.thumbnail_url ? {
+            backgroundImage: `url(${JSON.stringify(asset.thumbnail_url)})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          } : {}),
+        }}
+      >
+        {!asset.thumbnail_url && (
+          <span
+            className="text-2xl font-mono font-bold"
+            style={{ color: '#7c2d12' }}
+          >
+            {initials}
+          </span>
+        )}
+        {warning && (
+          <div
+            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-sm"
+            style={{ backgroundColor: '#fee2e2', border: '1px solid #991b1b', color: '#991b1b' }}
+            title="Status mismatch — tasks not yet done"
+          >
+            <AlertTriangle className="w-3 h-3" />
+          </div>
+        )}
+        <div
+          className="absolute top-1.5 left-1.5 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
+          style={{
+            color: colors.fg,
+            backgroundColor: colors.bg,
+            border: `1px solid ${colors.border}`,
+          }}
+        >
+          {asset.status || 'not_started'}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="flex-1 flex flex-col gap-1 p-2">
+        <InlineText
+          value={asset.name || ''}
+          onCommit={(name) => onUpdate({ name })}
+          placeholder="Untitled"
+        />
+        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+          <span>{asset.type || 'other'}</span>
+          {phaseLabel && <span className="truncate max-w-[100px]">· {phaseLabel}</span>}
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div
+        className="flex items-center justify-between px-2 py-1"
+        style={{ borderTop: '1px solid #fed7aa', backgroundColor: '#fef3e8' }}
+      >
+        <span className="text-[10px] font-mono" style={{ color: '#7c2d12' }}>
+          {taskCount} task{taskCount === 1 ? '' : 's'}
+        </span>
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) {
+              onDelete()
+            }
+          }}
+          className="p-0.5 rounded-sm hover:bg-red-100"
+          title="Delete asset"
+          style={{ color: '#991b1b' }}
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
     </div>
   )
 }
