@@ -30,11 +30,24 @@
 // Zoom controls + summary band move into Commit 14. The Commit
 // 13 renderer is fixed at 1 day = 24px.
 
-import { useMemo } from 'react'
-import { CalendarDays, GitBranch } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import {
+  CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks, AlertTriangle,
+} from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 
-const DAY_PX = 24
+// Zoom levels: { id, label, dayPx, axisStep, axisFormat }
+// dayPx = pixels per calendar day
+// axisStep = how often to render an axis tick (in days)
+// axisFormat = 'day' | 'week' | 'month' | 'quarter' | 'year'
+const ZOOM_LEVELS = [
+  { id: 'day',     label: 'Day',     dayPx: 24, axisStep: 1,   axisFormat: 'day'     },
+  { id: 'week',    label: 'Week',    dayPx: 12, axisStep: 7,   axisFormat: 'week'    },
+  { id: 'month',   label: 'Month',   dayPx: 4,  axisStep: 7,   axisFormat: 'month'   },
+  { id: 'quarter', label: 'Quarter', dayPx: 2,  axisStep: 30,  axisFormat: 'month'   },
+  { id: 'year',    label: 'Year',    dayPx: 1,  axisStep: 90,  axisFormat: 'quarter' },
+]
+
 const ROW_PX = 28
 const HEADER_PX = 40
 const LABEL_W = 220
@@ -47,6 +60,10 @@ export default function TimelineView() {
   const assets = ctx?.assets || []
   const tasks  = ctx?.tasks  || []
   const dependencies = ctx?.dependencies || []
+
+  const [zoomId, setZoomId] = useState('week')
+  const zoom = ZOOM_LEVELS.find(z => z.id === zoomId) || ZOOM_LEVELS[1]
+  const DAY_PX = zoom.dayPx
 
   const criticalSet = useMemo(() => {
     const path = ctx?.selectCriticalPath?.() || []
@@ -61,6 +78,11 @@ export default function TimelineView() {
   const rows = useMemo(
     () => buildRows({ phases, assets, tasks, schedule }),
     [phases, assets, tasks, schedule]
+  )
+
+  const summary = useMemo(
+    () => buildSummary({ phases, assets, tasks, schedule, criticalSet }),
+    [phases, assets, tasks, schedule, criticalSet]
   )
 
   if (!project) {
@@ -108,13 +130,19 @@ export default function TimelineView() {
           · {tasks.length} task{tasks.length === 1 ? '' : 's'} · {totalDays} day window
         </span>
         <span
-          className="ml-auto flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#7c2d12', backgroundColor: '#fed7aa', border: '1px solid #7c2d12' }}
         >
           <GitBranch className="w-3 h-3" />
           synthetic schedule
         </span>
+
+        <ZoomControls zoomId={zoomId} onChange={setZoomId} />
       </div>
+
+      {/* Summary band */}
+      <SummaryBand summary={summary} />
+
 
       {/* Gantt body */}
       <div className="flex-1 overflow-auto">
@@ -172,46 +200,45 @@ export default function TimelineView() {
                 backgroundColor: '#f4a261',
               }}
             >
-              {Array.from({ length: totalDays + 1 }, (_, i) => {
-                const d = addDays(span.start, i)
-                const isWeekStart = d.getDay() === 1
-                const isMonthStart = d.getDate() === 1
-                if (!isWeekStart && !isMonthStart && i !== 0) return null
-                return (
-                  <div
-                    key={i}
-                    className="absolute top-0 bottom-0 flex flex-col justify-end pb-1 px-1"
-                    style={{
-                      left: i * DAY_PX,
-                      borderLeft: isMonthStart ? '2px solid #7c2d12' : '1px solid #ea580c',
-                    }}
+              {buildAxisTicks(span.start, totalDays, zoom).map(tick => (
+                <div
+                  key={tick.key}
+                  className="absolute top-0 bottom-0 flex flex-col justify-end pb-1 px-1"
+                  style={{
+                    left: tick.offset * DAY_PX,
+                    borderLeft: tick.major ? '2px solid #7c2d12' : '1px solid #ea580c',
+                  }}
+                >
+                  <span
+                    className="text-[9px] font-mono"
+                    style={{ color: '#1c1917', whiteSpace: 'nowrap' }}
                   >
-                    <span
-                      className="text-[9px] font-mono"
-                      style={{ color: '#1c1917', whiteSpace: 'nowrap' }}
-                    >
-                      {isMonthStart ? formatMonth(d) : formatDayLabel(d)}
-                    </span>
-                  </div>
-                )
-              })}
+                    {tick.label}
+                  </span>
+                </div>
+              ))}
             </div>
 
             {/* Row backgrounds + bars */}
             <div className="relative" style={{ height: rows.length * ROW_PX }}>
-              {/* Day grid */}
-              {Array.from({ length: totalDays + 1 }, (_, i) => (
-                <div
-                  key={`g-${i}`}
-                  className="absolute top-0 bottom-0"
-                  style={{
-                    left: i * DAY_PX,
-                    width: 1,
-                    backgroundColor: addDays(span.start, i).getDay() === 1 ? '#f4a261' : '#fed7aa',
-                    opacity: 0.6,
-                  }}
-                />
-              ))}
+              {/* Grid (skip when day cells are too narrow to be readable) */}
+              {DAY_PX >= 4 && Array.from({ length: totalDays + 1 }, (_, i) => {
+                const d = addDays(span.start, i)
+                const isWeek = d.getDay() === 1
+                if (DAY_PX < 8 && !isWeek) return null
+                return (
+                  <div
+                    key={`g-${i}`}
+                    className="absolute top-0 bottom-0"
+                    style={{
+                      left: i * DAY_PX,
+                      width: 1,
+                      backgroundColor: isWeek ? '#f4a261' : '#fed7aa',
+                      opacity: 0.6,
+                    }}
+                  />
+                )
+              })}
 
               {/* Today line */}
               {todayDays >= 0 && todayDays <= totalDays && (
@@ -219,7 +246,7 @@ export default function TimelineView() {
                   className="absolute top-0 bottom-0"
                   style={{
                     left: todayDays * DAY_PX,
-                    width: 2,
+                    width: Math.max(2, DAY_PX > 8 ? 2 : 1),
                     backgroundColor: '#991b1b',
                     zIndex: 5,
                   }}
@@ -246,6 +273,7 @@ export default function TimelineView() {
                       label={r.label}
                       critical={criticalSet.has(r.task.id)}
                       status={r.task.status}
+                      dayPx={DAY_PX}
                     />
                   )}
                 </div>
@@ -259,14 +287,15 @@ export default function TimelineView() {
 }
 
 // ─── Bar atom ───
-function Bar({ offsetDays, lengthDays, label, critical, status }) {
+function Bar({ offsetDays, lengthDays, label, critical, status, dayPx }) {
   const tone = barTone(status, critical)
+  const width = Math.max(3, lengthDays * dayPx)
   return (
     <div
       className="absolute flex items-center px-2 rounded-sm overflow-hidden"
       style={{
-        left: offsetDays * DAY_PX,
-        width: lengthDays * DAY_PX,
+        left: offsetDays * dayPx,
+        width,
         top: 4,
         height: ROW_PX - 8,
         backgroundColor: tone.bg,
@@ -274,12 +303,96 @@ function Bar({ offsetDays, lengthDays, label, critical, status }) {
       }}
       title={`${label} · ${lengthDays.toFixed(1)} day${lengthDays === 1 ? '' : 's'}`}
     >
-      <span
-        className="text-[10px] font-mono truncate"
-        style={{ color: tone.fg }}
+      {width > 32 && (
+        <span
+          className="text-[10px] font-mono truncate"
+          style={{ color: tone.fg }}
+        >
+          {label}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─── ZoomControls ───
+function ZoomControls({ zoomId, onChange }) {
+  const idx = ZOOM_LEVELS.findIndex(z => z.id === zoomId)
+  const canZoomIn  = idx > 0
+  const canZoomOut = idx < ZOOM_LEVELS.length - 1
+  return (
+    <div className="ml-auto flex items-center gap-1">
+      <button
+        type="button"
+        onClick={() => canZoomIn && onChange(ZOOM_LEVELS[idx - 1].id)}
+        disabled={!canZoomIn}
+        className="p-1 rounded-sm hover:bg-orange-200 disabled:opacity-30"
+        title="Zoom in"
+        style={{ color: '#7c2d12', border: '1px solid #7c2d12' }}
       >
-        {label}
-      </span>
+        <ZoomIn className="w-3 h-3" />
+      </button>
+      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #7c2d12' }}>
+        {ZOOM_LEVELS.map(z => (
+          <button
+            key={z.id}
+            type="button"
+            onClick={() => onChange(z.id)}
+            className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider"
+            style={{
+              color: zoomId === z.id ? '#fff7ed' : '#7c2d12',
+              backgroundColor: zoomId === z.id ? '#ea580c' : '#fff7ed',
+              borderRight: '1px solid #7c2d12',
+            }}
+          >
+            {z.label}
+          </button>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => canZoomOut && onChange(ZOOM_LEVELS[idx + 1].id)}
+        disabled={!canZoomOut}
+        className="p-1 rounded-sm hover:bg-orange-200 disabled:opacity-30"
+        title="Zoom out"
+        style={{ color: '#7c2d12', border: '1px solid #7c2d12' }}
+      >
+        <ZoomOut className="w-3 h-3" />
+      </button>
+    </div>
+  )
+}
+
+// ─── SummaryBand ───
+function SummaryBand({ summary }) {
+  return (
+    <div
+      className="flex items-center gap-2 px-6 py-2 flex-wrap"
+      style={{ borderBottom: '1px solid #f4a261', backgroundColor: '#fef3e8' }}
+    >
+      <SummaryTile icon={Layers}    label="Phases"        value={summary.phases} />
+      <SummaryTile icon={Boxes}     label="Assets"        value={summary.assets} />
+      <SummaryTile icon={ListChecks}label="Tasks"         value={summary.tasks} />
+      <SummaryTile icon={GitBranch} label="Critical"      value={summary.critical} />
+      <SummaryTile icon={AlertTriangle} label="Blocked"   value={summary.blocked} tone={summary.blocked > 0 ? 'danger' : undefined} />
+      <SummaryTile icon={CalendarDays} label="Span"       value={`${summary.spanDays} d`} />
+      <SummaryTile icon={CalendarDays} label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
+    </div>
+  )
+}
+
+function SummaryTile({ icon: Icon, label, value, tone }) {
+  const colors = tone === 'danger'
+    ? { bg: '#fee2e2', border: '#991b1b', text: '#991b1b' }
+    : { bg: '#fff7ed', border: '#f4a261', text: '#1c1917' }
+  return (
+    <div
+      className="flex items-center gap-1.5 px-2 py-1 rounded-sm"
+      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
+    >
+      <Icon className="w-3 h-3" style={{ color: '#ea580c' }} />
+      <span className="text-[11px] font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>{label}</span>
     </div>
   )
 }
@@ -473,4 +586,68 @@ function formatDayLabel(d) {
 function formatMonth(d) {
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${months[d.getMonth()]} ${d.getFullYear()}`
+}
+function formatQuarter(d) {
+  const q = Math.floor(d.getMonth() / 3) + 1
+  return `Q${q} ${d.getFullYear()}`
+}
+
+// Build axis ticks honoring the current zoom level. Returns
+// [{ key, offset, label, major }] where offset is in days from
+// span.start. Major ticks always render a heavier border.
+function buildAxisTicks(start, totalDays, zoom) {
+  const out = []
+  for (let i = 0; i <= totalDays; i++) {
+    const d = addDays(start, i)
+    let include = false
+    let label = ''
+    let major = false
+    switch (zoom.axisFormat) {
+      case 'day':
+        include = true
+        label = formatDayLabel(d)
+        major = d.getDate() === 1
+        break
+      case 'week':
+        include = d.getDay() === 1 || i === 0 || d.getDate() === 1
+        label = formatDayLabel(d)
+        major = d.getDate() === 1
+        break
+      case 'month':
+        include = d.getDate() === 1 || i === 0
+        label = formatMonth(d)
+        major = d.getMonth() === 0
+        break
+      case 'quarter':
+        include = (d.getDate() === 1 && [0, 3, 6, 9].includes(d.getMonth())) || i === 0
+        label = formatQuarter(d)
+        major = d.getMonth() === 0
+        break
+      default:
+        include = false
+    }
+    if (include) out.push({ key: i, offset: i, label, major })
+  }
+  return out
+}
+
+// Aggregates for the SummaryBand. Span days = day diff between
+// the earliest and latest scheduled point. Critical days = sum of
+// bid_days for tasks on the critical path.
+function buildSummary({ phases, assets, tasks, schedule, criticalSet }) {
+  const blocked = tasks.filter(t => t.status === 'blocked').length
+  const span = totalSpan(schedule)
+  let criticalDays = 0
+  for (const t of tasks) {
+    if (criticalSet.has(t.id)) criticalDays += Number(t.bid_days || 0)
+  }
+  return {
+    phases: phases.length,
+    assets: assets.length,
+    tasks:  tasks.length,
+    critical: criticalSet.size,
+    blocked,
+    spanDays: span.days,
+    criticalDays,
+  }
 }
