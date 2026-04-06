@@ -932,6 +932,33 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
+    // ── PDF text extraction (used by RABBIT intake pipeline) ──
+    // Accepts a JSON body with `{ name, dataUrl }` where `dataUrl` is a
+    // base64 data URL of the PDF. Returns `{ text, numPages }`. We
+    // lazy-load pdf-parse so server startup isn't penalized when no
+    // intake is running.
+    expressApp.post('/api/extract-pdf', async (req, res) => {
+      try {
+        const { dataUrl, name } = req.body || {};
+        if (!dataUrl || typeof dataUrl !== 'string') {
+          return res.status(400).json({ error: 'dataUrl is required' });
+        }
+        const comma = dataUrl.indexOf(',');
+        const base64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+        const buffer = Buffer.from(base64, 'base64');
+        const pdfParse = require('pdf-parse');
+        const data = await pdfParse(buffer);
+        res.json({
+          name: name || null,
+          text: data.text || '',
+          numPages: data.numpages || 0,
+        });
+      } catch (err) {
+        console.error('[RABBIT] /api/extract-pdf failed:', err);
+        res.status(500).json({ error: err.message || 'extract-pdf failed' });
+      }
+    });
+
     // ── Static file serving (SPA fallback) ──
     expressApp.use(express.static(distPath));
     expressApp.get('/{*splat}', (req, res) => {
