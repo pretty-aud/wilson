@@ -4,7 +4,7 @@ import TitleBar from './components/TitleBar'
 import PasswordScreen from './components/PasswordScreen'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
-import ProjectManager from './components/ProjectManager'
+import Projects from './components/Projects'
 import HelpPage from './components/HelpPage'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
@@ -63,7 +63,7 @@ const PAGE_TITLES = {
   dog: 'D.O.G.',
   otter: 'O.T.T.E.R.',
   settings: 'SYSTEM SETTINGS',
-  'project-manager': 'PROJECT MANAGER',
+  'project-manager': 'PROJECTS',
   help: 'HELP',
 };
 
@@ -796,25 +796,25 @@ export default function App() {
     if (currentPage === 'settings') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
     } else if (currentPage === 'project-manager') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isDog) {
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isOtter) {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenOtterSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (currentPage === 'help') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     }
 
@@ -872,7 +872,7 @@ export default function App() {
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
-        <ProjectManager />
+        <Projects />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <HelpPage />
