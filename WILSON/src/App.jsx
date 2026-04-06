@@ -909,7 +909,7 @@ export default function App() {
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
-        <Projects />
+        <Projects onNavigate={navigateTo} />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <RateCardPage />
