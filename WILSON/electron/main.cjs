@@ -1025,6 +1025,35 @@ ipcMain.handle('rabbit:clear-supabase-config', () => {
   return { ok: true };
 });
 
+// ── RABBIT Google Drive credentials IPC ──
+// gdrive-config.json holds { clientId, clientSecret, redirectUri, rootFolderId }
+// gdrive-tokens.json holds { accessToken, refreshToken, expiresAt }
+// Both are written by the Settings/Connect flow and consumed by the
+// googleDriveAdapter in the renderer.
+ipcMain.handle('rabbit:read-gdrive-config', () => {
+  return readJSON(path.join(getRabbitDataDir(), 'gdrive-config.json'), null);
+});
+ipcMain.handle('rabbit:write-gdrive-config', (_event, cfg) => {
+  if (!cfg || typeof cfg !== 'object') throw new Error('rabbit:write-gdrive-config: payload must be an object');
+  writeJSON(path.join(getRabbitDataDir(), 'gdrive-config.json'), cfg);
+  return { ok: true };
+});
+ipcMain.handle('rabbit:read-gdrive-tokens', () => {
+  return readJSON(path.join(getRabbitDataDir(), 'gdrive-tokens.json'), null);
+});
+ipcMain.handle('rabbit:write-gdrive-tokens', (_event, tokens) => {
+  if (!tokens || typeof tokens !== 'object') throw new Error('rabbit:write-gdrive-tokens: payload must be an object');
+  writeJSON(path.join(getRabbitDataDir(), 'gdrive-tokens.json'), tokens);
+  return { ok: true };
+});
+ipcMain.handle('rabbit:clear-gdrive', () => {
+  for (const f of ['gdrive-config.json', 'gdrive-tokens.json']) {
+    const p = path.join(getRabbitDataDir(), f);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+  }
+  return { ok: true };
+});
+
 // Window control IPC handlers
 ipcMain.handle('window-minimize', () => { if (mainWindow) mainWindow.minimize(); });
 ipcMain.handle('window-maximize', () => {

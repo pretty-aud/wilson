@@ -26,5 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readSupabaseConfig:  ()    => ipcRenderer.invoke('rabbit:read-supabase-config'),
     writeSupabaseConfig: (cfg) => ipcRenderer.invoke('rabbit:write-supabase-config', cfg),
     clearSupabaseConfig: ()    => ipcRenderer.invoke('rabbit:clear-supabase-config'),
+    readGdriveConfig:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-config'),
+    writeGdriveConfig:   (cfg) => ipcRenderer.invoke('rabbit:write-gdrive-config', cfg),
+    readGdriveTokens:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-tokens'),
+    writeGdriveTokens:   (tk)  => ipcRenderer.invoke('rabbit:write-gdrive-tokens', tk),
+    clearGdrive:         ()    => ipcRenderer.invoke('rabbit:clear-gdrive'),
   },
 });
