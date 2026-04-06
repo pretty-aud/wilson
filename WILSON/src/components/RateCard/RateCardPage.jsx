@@ -22,9 +22,11 @@ import { DollarSign, Upload, AlertCircle, Loader2 } from 'lucide-react'
 import { useRateCard } from './useRateCard'
 import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
+import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
 import { importCsv } from './importers/csvImporter'
 import { importXlsx } from './importers/xlsxImporter'
 import { importPdf } from './importers/pdfImporter'
+import { importGoogleSheet } from './importers/googleSheetImporter'
 
 export default function RateCardPage() {
   const {
@@ -53,6 +55,8 @@ export default function RateCardPage() {
 
   const sheetInputRef = useRef(null)
   const pdfInputRef = useRef(null)
+  const [gSheetPromptOpen, setGSheetPromptOpen] = useState(false)
+  const [gSheetFetching, setGSheetFetching] = useState(false)
 
   function openSheetPicker() {
     setImportError(null)
@@ -62,6 +66,27 @@ export default function RateCardPage() {
   function openPdfPicker() {
     setImportError(null)
     pdfInputRef.current?.click()
+  }
+
+  function openGoogleSheetPrompt() {
+    setImportError(null)
+    setGSheetPromptOpen(true)
+  }
+
+  async function handleGoogleSheetSubmit(url) {
+    setGSheetFetching(true)
+    try {
+      const result = await importGoogleSheet(url)
+      setPreviewSource('Google Sheet')
+      setPreviewFileName(url)
+      setPreviewResult(result)
+      setGSheetPromptOpen(false)
+      setPreviewOpen(true)
+    } catch (err) {
+      setImportError(err.message || String(err))
+    } finally {
+      setGSheetFetching(false)
+    }
   }
 
   async function handleSheetSelected(e) {
@@ -218,8 +243,8 @@ export default function RateCardPage() {
             />
             <ImporterCard
               label="Google Sheet"
-              note="Public URL fetch — coming in Commit 5"
-              disabled
+              note="Paste a public sheet URL"
+              onClick={openGoogleSheetPrompt}
             />
 
             <div
@@ -278,6 +303,14 @@ export default function RateCardPage() {
         busy={importBusy}
         onClose={closePreview}
         onConfirm={handleConfirmImport}
+      />
+
+      {/* Google Sheet URL prompt */}
+      <GoogleSheetUrlPrompt
+        open={gSheetPromptOpen}
+        busy={gSheetFetching}
+        onClose={() => !gSheetFetching && setGSheetPromptOpen(false)}
+        onSubmit={handleGoogleSheetSubmit}
       />
     </div>
   )

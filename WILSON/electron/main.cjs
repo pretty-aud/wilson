@@ -613,6 +613,41 @@ function startLocalServer(distPath) {
       }
     });
 
+    // Raw passthrough fetcher used by the RABBIT Rate Card
+    // Google Sheets importer. Returns the body verbatim along
+    // with the response Content-Type so the renderer can decide
+    // how to parse it (CSV vs HTML vs JSON). 15 second timeout,
+    // 5 MB cap to keep things sane.
+    expressApp.post('/api/fetch-raw', async (req, res) => {
+      const { url, redirect = 'follow' } = req.body || {};
+      if (!url) return res.status(400).json({ error: 'URL required' });
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+        const response = await fetch(url, {
+          signal: controller.signal,
+          redirect,
+          headers: { 'User-Agent': 'WILSON/0.6 RABBIT' },
+        });
+        clearTimeout(timeout);
+        if (!response.ok) {
+          return res.status(response.status).json({
+            error: `Upstream ${response.status} ${response.statusText}`,
+            status: response.status,
+          });
+        }
+        const contentType = response.headers.get('content-type') || '';
+        const buf = await response.arrayBuffer();
+        if (buf.byteLength > 5 * 1024 * 1024) {
+          return res.status(413).json({ error: 'Response exceeds 5 MB cap' });
+        }
+        const body = Buffer.from(buf).toString('utf8');
+        res.json({ body, contentType, finalUrl: response.url, status: response.status });
+      } catch (e) {
+        res.status(500).json({ error: e.message || 'Failed to fetch URL' });
+      }
+    });
+
     // ═══════════════════════════════════════════════════════════════
     //  RABBIT — local server adapter routes
     //  Backs `localServerAdapter.js`. Persists each project as one
