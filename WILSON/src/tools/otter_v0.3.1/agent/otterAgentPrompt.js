@@ -129,3 +129,107 @@ export const OTTER_AGENT_EDIT_CONTEXT = (lessonContent, corrections, subjectStru
   }
   return ctx;
 };
+
+// ─────────────────────────────────────────────────────────────
+// Structured registry export (read by Settings → Agent Skills)
+// ─────────────────────────────────────────────────────────────
+//
+// The Otter agent's tool schema. The 4 actions match the
+// `<agent_action>` JSON envelopes in the system prompt above.
+// This is intentionally a flat array of `{ name, description,
+// input_schema }` so the Agent Skills tab can render it as a
+// read-only code block alongside the editable system prompt.
+
+export const OTTER_AGENT_TOOL_SCHEMA = [
+  {
+    name: 'edit',
+    description: 'Apply small text-level edits to the currently open lesson.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'object',
+          properties: {
+            subject_slug: { type: 'string' },
+            lesson_id:    { type: 'string' },
+          },
+          required: ['subject_slug', 'lesson_id'],
+        },
+        changes: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              field:    { type: 'string' },
+              original: { type: 'string' },
+              proposed: { type: 'string' },
+            },
+            required: ['field', 'original', 'proposed'],
+          },
+        },
+        correction_category: {
+          type: 'string',
+          enum: ['hotkey', 'factual', 'formatting', 'clarity', 'other'],
+        },
+      },
+      required: ['target', 'changes'],
+    },
+  },
+  {
+    name: 'bulk_edit',
+    description: 'Walk multiple lessons in one pass; each diff is reviewed individually.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        edits: {
+          type: 'array',
+          items: { type: 'object' },
+        },
+      },
+      required: ['edits'],
+    },
+  },
+  {
+    name: 'generate_subject',
+    description: 'Create a brand-new subject card with full lessons + hotkeys.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        subject: {
+          type: 'object',
+          properties: {
+            topic:       { type: 'string' },
+            description: { type: 'string' },
+          },
+          required: ['topic'],
+        },
+      },
+      required: ['subject'],
+    },
+  },
+  {
+    name: 'generate_course',
+    description: 'Create a software/language course with 5–10 subject stubs.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        course: {
+          type: 'object',
+          properties: {
+            software_name: { type: 'string' },
+            description:   { type: 'string' },
+          },
+          required: ['software_name'],
+        },
+      },
+      required: ['course'],
+    },
+  },
+];
+
+export const otterAgentPrompt = {
+  toolName: 'otter',
+  displayName: 'O.T.T.E.R.',
+  systemPrompt: OTTER_AGENT_SYSTEM_PROMPT,
+  toolSchema: OTTER_AGENT_TOOL_SCHEMA,
+};

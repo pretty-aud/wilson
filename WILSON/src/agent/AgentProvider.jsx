@@ -1,7 +1,8 @@
-import { createContext, useContext, useState, useCallback, useRef, useMemo } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import DiffView from './DiffView'
 import LessonOutlinePopup from './LessonOutlinePopup'
 import { AGENT_SYSTEM_PROMPT, AGENT_EDIT_CONTEXT } from './agentPrompts'
+import { getEffectivePrompt } from '../components/settings/agentSkillRegistry'
 
 const AgentContext = createContext(null)
 
@@ -55,6 +56,25 @@ export default function AgentProvider({ children, apiKey }) {
   const [lockedEntities, setLockedEntities] = useState({ otter: [], rabbit: [] })
   const [agentSystemPrompt, setAgentSystemPrompt] = useState(AGENT_SYSTEM_PROMPT)
   const [activeTool, setActiveTool] = useState('otter')
+
+  // Per-tool prompt overrides from agent-skills.json. Loaded on
+  // mount and refreshable from outside (SettingsPage calls
+  // refreshPromptOverrides() after saving). Empty by default.
+  const [promptOverrides, setPromptOverrides] = useState({})
+
+  const refreshPromptOverrides = useCallback(async () => {
+    try {
+      const res = await fetch('/api/agent-skills')
+      const data = await res.json().catch(() => ({}))
+      if (data && typeof data === 'object') setPromptOverrides(data)
+    } catch {
+      /* best effort */
+    }
+  }, [])
+
+  useEffect(() => {
+    refreshPromptOverrides()
+  }, [refreshPromptOverrides])
 
   // Tool registration — keyed by tool name so multiple tools can coexist.
   const toolInterfacesRef = useRef({})
@@ -316,8 +336,15 @@ export default function AgentProvider({ children, apiKey }) {
     }
 
     try {
-      // Use the custom or default system prompt
-      const systemPrompt = agentSystemPrompt + context
+      // Resolve the system prompt: prefer the registry+overrides
+      // (the §9.2 multi-tool path) and fall back to the legacy
+      // single-tool agentSystemPrompt state for tools that haven't
+      // moved into the registry yet.
+      const registryPrompt = getEffectivePrompt(activeTool, promptOverrides)
+      const basePrompt = (registryPrompt && registryPrompt.length > 0)
+        ? registryPrompt
+        : agentSystemPrompt
+      const systemPrompt = basePrompt + context
 
       // Truncate history
       const MAX_HISTORY = 30
@@ -384,7 +411,7 @@ export default function AgentProvider({ children, apiKey }) {
     } finally {
       setAgentLoading(false)
     }
-  }, [agentMessages, apiKey, agentSystemPrompt, lockedEntities, activeTool, handleAgentAction])
+  }, [agentMessages, apiKey, agentSystemPrompt, promptOverrides, lockedEntities, activeTool, handleAgentAction])
 
   // Undo last edit (Otter scope — RABBIT will own its own undo path).
   const undoLastEdit = useCallback(async () => {
@@ -530,6 +557,7 @@ export default function AgentProvider({ children, apiKey }) {
     lockedSubjects, setLockedSubjects,                  // Otter back-compat
     lockedEntities, setLockedEntitiesForTool,           // multi-tool API
     agentSystemPrompt, setAgentSystemPrompt,
+    promptOverrides, refreshPromptOverrides,            // §9.2 multi-tool prompts
 
     // Multi-tool registration
     registerTool, unregisterTool,

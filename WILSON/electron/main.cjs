@@ -521,6 +521,20 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
+    // ── Agent skills (per-tool system prompt overrides) ──
+    // The Settings → Agent Skills tab persists prompt overrides
+    // here, separate from otter-settings so the existing Otter
+    // settings file isn't reshaped. Shape:
+    //   { [toolName]: { systemPromptOverride: string | null } }
+    expressApp.get('/api/agent-skills', (req, res) => {
+      const data = readJSON(path.join(getDataDir(), 'agent-skills.json'), {});
+      res.json(data);
+    });
+    expressApp.post('/api/agent-skills', (req, res) => {
+      writeJSON(path.join(getDataDir(), 'agent-skills.json'), req.body || {});
+      res.json({ ok: true });
+    });
+
     // ── Password management (file-backed, persists across port changes) ──
     const ADMIN_PASSWORD = 'DILLYDALLY';
     const DEFAULT_PASSWORD = 'MUTINY';

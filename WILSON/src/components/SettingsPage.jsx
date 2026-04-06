@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PET_BREEDS } from './sprites/index'
 import { AGENT_SYSTEM_PROMPT } from '../agent/agentPrompts'
+import { useAgent } from '../agent/AgentProvider'
 import CurrencyPicker from './settings/CurrencyPicker'
 import AgentSkillsSection from './settings/AgentSkillsSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
@@ -36,6 +37,15 @@ export default function SettingsPage({
   const [rabbitDefaultCurrency, setRabbitDefaultCurrency] = useState('USD')
   const [agentSkills, setAgentSkills] = useState(defaultAgentSkillsState())
 
+  // Per-tool agent system prompt overrides — separate file at
+  // userData/otter-data/agent-skills.json (see §9.2 spec).
+  const [agentPromptOverrides, setAgentPromptOverrides] = useState({})
+
+  // Multi-tool agent context — used to push prompt-override changes
+  // back into the live AgentProvider so the next sendAgentMessage
+  // call sees the new prompt without a page reload.
+  const agentCtx = useAgent()
+
   // Load software list for subject lock picker
   useEffect(() => {
     fetch('/api/software').then(r => r.json()).then(list => {
@@ -50,6 +60,16 @@ export default function SettingsPage({
       if (cancelled) return
       if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
       if (data?.agentSkills) setAgentSkills({ ...defaultAgentSkillsState(), ...data.agentSkills })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Load per-tool agent prompt overrides from agent-skills.json on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/agent-skills').then(r => r.json()).then(data => {
+      if (cancelled) return
+      if (data && typeof data === 'object') setAgentPromptOverrides(data)
     }).catch(() => {})
     return () => { cancelled = true }
   }, [])
@@ -86,6 +106,30 @@ export default function SettingsPage({
   const handleAgentSkillsChange = (next) => {
     setAgentSkills(next)
     persistOtterSettings({ agentSkills: next })
+  }
+
+  // Persist per-tool prompt overrides at userData/otter-data/agent-skills.json.
+  // Passing `override === null` clears the override (Reset to default).
+  const handlePromptOverrideChange = async (toolName, override) => {
+    const next = { ...agentPromptOverrides }
+    if (override == null) {
+      delete next[toolName]
+    } else {
+      next[toolName] = { ...(next[toolName] || {}), systemPromptOverride: override }
+    }
+    setAgentPromptOverrides(next)
+    try {
+      await fetch('/api/agent-skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+      // Tell the live AgentProvider to re-read its overrides so the
+      // next sendAgentMessage uses the new prompt.
+      agentCtx?.refreshPromptOverrides?.()
+    } catch {
+      /* best effort */
+    }
   }
 
   const handleChangePassword = async () => {
@@ -647,6 +691,8 @@ export default function SettingsPage({
             <AgentSkillsSection
               value={agentSkills}
               onChange={handleAgentSkillsChange}
+              promptOverrides={agentPromptOverrides}
+              onPromptOverrideChange={handlePromptOverrideChange}
             />
           )}
           </div>
