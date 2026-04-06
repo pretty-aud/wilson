@@ -1,9 +1,13 @@
-import { createContext, useContext, useState, useCallback, useRef } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useMemo } from 'react'
 import DiffView from './DiffView'
 import LessonOutlinePopup from './LessonOutlinePopup'
 import { AGENT_SYSTEM_PROMPT, AGENT_EDIT_CONTEXT } from './agentPrompts'
 
 const AgentContext = createContext(null)
+
+// Tool names known to the multi-tool agent. Adding a new tool means
+// adding its slug here AND wiring its handlers via registerTool().
+export const AGENT_TOOLS = ['otter', 'rabbit']
 
 export function useAgent() {
   return useContext(AgentContext)
@@ -20,21 +24,24 @@ function AgentToast({ message, onDone }) {
 }
 
 /**
- * AgentProvider — tool-agnostic agent system
+ * AgentProvider — multi-tool agent system
  *
- * Each tool registers itself via a standard interface:
- * {
- *   toolName: string,
- *   currentContext: { activeSoftwareSlug, activeSubjectSlug, selectedLessonId, ... },
- *   getContent: (targetId) => content string,
- *   applyChange: (targetId, changes) => Promise<void>,
- *   getCorrections: () => corrections[],
- *   saveCorrection: (correction) => Promise<void>,
- *   getSubjectData: (slug) => subject object,
- *   generateSingleSubjectFromAgent: (topic, overrideSlug) => Promise<void>,
- *   generateCourseFromAgent: (softwareName, description) => Promise<void>,
- *   getActiveSoftwareMeta: () => Promise<{ name, type } | null>,
- * }
+ * Each tool (Otter, RABBIT, …) registers itself via:
+ *
+ *   agent.registerTool('otter', {
+ *     currentContext: { activeSoftwareSlug, activeSubjectSlug, selectedLessonId, ... },
+ *     getContent, applyChange, getCorrections, saveCorrection,
+ *     getSubjectData, generateSingleSubjectFromAgent,
+ *     generateCourseFromAgent, getActiveSoftwareMeta,
+ *     ...
+ *   })
+ *
+ * Each tool's handlers live in `toolInterfacesRef.current[toolName]`.
+ * Page navigation calls `setActiveTool(toolName)` so the chat sidebar
+ * routes user prompts to the right tool. The previous single-tool
+ * shape (Otter only) is preserved as the default — Otter still works
+ * unchanged because (a) Otter passes 'otter' as the first arg now and
+ * (b) lockedSubjects is a backward-compat alias for lockedEntities.otter.
  */
 export default function AgentProvider({ children, apiKey }) {
   // Agent mode state
@@ -45,11 +52,12 @@ export default function AgentProvider({ children, apiKey }) {
   const agentInputRef = useRef('')
   const [agentLoading, setAgentLoading] = useState(false)
   const [autoApprove, setAutoApprove] = useState('always_ask') // 'always_ask' | 'minor' | 'all'
-  const [lockedSubjects, setLockedSubjects] = useState([]) // slugs of locked subjects
+  const [lockedEntities, setLockedEntities] = useState({ otter: [], rabbit: [] })
   const [agentSystemPrompt, setAgentSystemPrompt] = useState(AGENT_SYSTEM_PROMPT)
+  const [activeTool, setActiveTool] = useState('otter')
 
-  // Tool registration
-  const toolInterfaceRef = useRef(null)
+  // Tool registration — keyed by tool name so multiple tools can coexist.
+  const toolInterfacesRef = useRef({})
 
   // UI state for diff popup
   const [diffData, setDiffData] = useState(null)
@@ -63,13 +71,40 @@ export default function AgentProvider({ children, apiKey }) {
   // Unified proposal popup state (replaces outlineData + subjectOutlineData)
   const [proposalData, setProposalData] = useState(null)
 
-  // Register a tool's interface
-  const registerTool = useCallback((toolInterface) => {
-    toolInterfaceRef.current = toolInterface
+  // Register / unregister a tool's interface.
+  // Signature: registerTool(toolName, toolInterface)
+  const registerTool = useCallback((toolName, toolInterface) => {
+    if (!toolName || typeof toolName !== 'string') {
+      // Backward-compat: if a single object is passed, treat it as Otter.
+      toolInterface = toolName
+      toolName = 'otter'
+    }
+    toolInterfacesRef.current = {
+      ...toolInterfacesRef.current,
+      [toolName]: { ...toolInterface, toolName },
+    }
   }, [])
 
-  const unregisterTool = useCallback(() => {
-    toolInterfaceRef.current = null
+  const unregisterTool = useCallback((toolName) => {
+    if (!toolName) toolName = 'otter'
+    const next = { ...toolInterfacesRef.current }
+    delete next[toolName]
+    toolInterfacesRef.current = next
+  }, [])
+
+  // Backward-compat: lockedSubjects ↔ lockedEntities.otter.
+  const lockedSubjects = useMemo(() => lockedEntities.otter || [], [lockedEntities.otter])
+  const setLockedSubjects = useCallback((next) => {
+    setLockedEntities(prev => ({
+      ...prev,
+      otter: typeof next === 'function' ? next(prev.otter || []) : next,
+    }))
+  }, [])
+  const setLockedEntitiesForTool = useCallback((toolName, next) => {
+    setLockedEntities(prev => ({
+      ...prev,
+      [toolName]: typeof next === 'function' ? next(prev[toolName] || []) : next,
+    }))
   }, [])
 
   // Show toast notification
@@ -93,14 +128,18 @@ export default function AgentProvider({ children, apiKey }) {
     }
   }
 
-  // Check if a subject is locked
+  // Check if an entity is locked, scoped to the active tool.
   const isSubjectLocked = useCallback((subjectSlug) => {
-    return lockedSubjects.includes(subjectSlug)
-  }, [lockedSubjects])
+    return (lockedEntities.otter || []).includes(subjectSlug)
+  }, [lockedEntities.otter])
 
-  // Handle applying a single edit
+  const isEntityLocked = useCallback((toolName, entityId) => {
+    return (lockedEntities[toolName] || []).includes(entityId)
+  }, [lockedEntities])
+
+  // Handle applying a single edit (Otter scope today; RABBIT edits land via the RABBIT tool surface in Commit 11).
   const applyEdit = useCallback(async (edit) => {
-    const tool = toolInterfaceRef.current
+    const tool = toolInterfacesRef.current.otter
     if (!tool) return
 
     const { target, changes, correction_category } = edit
@@ -199,12 +238,19 @@ export default function AgentProvider({ children, apiKey }) {
     agentInputRef.current = ''
     setAgentLoading(true)
 
-    const tool = toolInterfaceRef.current
+    // Pick the active tool's interface. If the active tool isn't
+    // registered yet, fall back to whichever tool *is* registered
+    // (preserves the prior single-tool behavior for Otter).
+    const interfaces = toolInterfacesRef.current
+    const tool = interfaces[activeTool]
+      || interfaces.otter
+      || Object.values(interfaces)[0]
+      || null
 
     // Build context
     let context = '\n\n--- CURRENT CONTEXT ---'
     if (tool) {
-      const ctx = tool.currentContext
+      const ctx = tool.currentContext || {}
       context += `\nTool: ${tool.toolName}`
       if (ctx.activeSoftwareSlug) context += `\nCourse: ${ctx.activeSoftwareSlug}`
       if (ctx.activeSubjectSlug) context += `\nSubject: ${ctx.activeSubjectSlug}`
@@ -232,11 +278,12 @@ export default function AgentProvider({ children, apiKey }) {
       }
 
       // Inject subject structure and optionally lesson content
+      // (Otter-specific — RABBIT and other tools opt out by not implementing these methods).
       let lessonContent = null
       let subjectStructure = null
-      const corrections = await tool.getCorrections()
+      const corrections = tool.getCorrections ? await tool.getCorrections() : []
 
-      if (ctx.activeSubjectSlug) {
+      if (ctx.activeSubjectSlug && tool.getSubjectData) {
         // Get subject structure so agent knows what sections/lessons exist
         const subjectData = await tool.getSubjectData(ctx.activeSubjectSlug)
         if (subjectData?.sections) {
@@ -245,16 +292,24 @@ export default function AgentProvider({ children, apiKey }) {
           ).join('\n')
         }
 
-        if (ctx.selectedLessonId) {
+        if (ctx.selectedLessonId && tool.getContent) {
           lessonContent = tool.getContent(ctx.selectedLessonId)
         }
       }
 
-      context += AGENT_EDIT_CONTEXT(lessonContent, corrections, subjectStructure)
+      // Tool-supplied context block — Otter ships AGENT_EDIT_CONTEXT, RABBIT
+      // will register its own buildContextBlock() handler in Commit 11.
+      if (tool.buildContextBlock) {
+        context += await tool.buildContextBlock({ lessonContent, corrections, subjectStructure })
+      } else {
+        context += AGENT_EDIT_CONTEXT(lessonContent, corrections, subjectStructure)
+      }
 
-      // Locked subjects
-      if (lockedSubjects.length > 0) {
-        context += `\n\nLOCKED SUBJECTS (refuse edits): ${lockedSubjects.join(', ')}`
+      // Locked entities for the active tool
+      const locked = lockedEntities[tool.toolName] || []
+      if (locked.length > 0) {
+        const label = tool.toolName === 'otter' ? 'LOCKED SUBJECTS' : `LOCKED ${tool.toolName.toUpperCase()} ENTITIES`
+        context += `\n\n${label} (refuse edits): ${locked.join(', ')}`
       }
     } else {
       context += '\nNo tool is currently active. Ask the user what they want to work on.'
@@ -329,12 +384,12 @@ export default function AgentProvider({ children, apiKey }) {
     } finally {
       setAgentLoading(false)
     }
-  }, [agentMessages, apiKey, agentSystemPrompt, lockedSubjects, handleAgentAction])
+  }, [agentMessages, apiKey, agentSystemPrompt, lockedEntities, activeTool, handleAgentAction])
 
-  // Undo last edit
+  // Undo last edit (Otter scope — RABBIT will own its own undo path).
   const undoLastEdit = useCallback(async () => {
     if (undoStack.length === 0) return
-    const tool = toolInterfaceRef.current
+    const tool = toolInterfacesRef.current.otter
     if (!tool) return
 
     const last = undoStack[undoStack.length - 1]
@@ -421,7 +476,8 @@ export default function AgentProvider({ children, apiKey }) {
 
   const handleProposalGenerate = useCallback(() => {
     if (!proposalData) return
-    const tool = toolInterfaceRef.current
+    // Generation popups are Otter-only today — RABBIT uses its own pipeline.
+    const tool = toolInterfacesRef.current.otter
     if (!tool) {
       showToast('No tool is currently active')
       return
@@ -471,16 +527,19 @@ export default function AgentProvider({ children, apiKey }) {
     agentInput, handleAgentInputChange,
     agentLoading,
     autoApprove, setAutoApprove,
-    lockedSubjects, setLockedSubjects,
+    lockedSubjects, setLockedSubjects,                  // Otter back-compat
+    lockedEntities, setLockedEntitiesForTool,           // multi-tool API
     agentSystemPrompt, setAgentSystemPrompt,
 
-    // Tool registration
+    // Multi-tool registration
     registerTool, unregisterTool,
+    activeTool, setActiveTool,
 
     // Actions
     sendAgentMessage,
     undoLastEdit,
     isSubjectLocked,
+    isEntityLocked,
     showToast,
     undoStack,
   }
