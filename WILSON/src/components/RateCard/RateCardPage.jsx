@@ -24,6 +24,7 @@ import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
 import { importCsv } from './importers/csvImporter'
 import { importXlsx } from './importers/xlsxImporter'
+import { importPdf } from './importers/pdfImporter'
 
 export default function RateCardPage() {
   const {
@@ -50,14 +51,20 @@ export default function RateCardPage() {
   const [importBusy, setImportBusy] = useState(false)
   const [importError, setImportError] = useState(null)
 
-  const fileInputRef = useRef(null)
+  const sheetInputRef = useRef(null)
+  const pdfInputRef = useRef(null)
 
-  function openFilePicker() {
+  function openSheetPicker() {
     setImportError(null)
-    fileInputRef.current?.click()
+    sheetInputRef.current?.click()
   }
 
-  async function handleFileSelected(e) {
+  function openPdfPicker() {
+    setImportError(null)
+    pdfInputRef.current?.click()
+  }
+
+  async function handleSheetSelected(e) {
     const file = e.target.files?.[0]
     e.target.value = ''  // allow re-picking the same file
     if (!file) return
@@ -76,6 +83,25 @@ export default function RateCardPage() {
         return
       }
       setPreviewSource(source)
+      setPreviewFileName(file.name)
+      setPreviewResult(result)
+      setPreviewOpen(true)
+    } catch (err) {
+      setImportError(err.message || String(err))
+    }
+  }
+
+  async function handlePdfSelected(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      setImportError(`Expected a .pdf file, got: ${file.name}`)
+      return
+    }
+    try {
+      const result = await importPdf(file)
+      setPreviewSource('PDF')
       setPreviewFileName(file.name)
       setPreviewResult(result)
       setPreviewOpen(true)
@@ -177,17 +203,18 @@ export default function RateCardPage() {
           </div>
 
           <div className="flex-1 p-4 space-y-3 overflow-auto">
-            {/* CSV / XLSX importer (active) */}
+            {/* CSV / XLSX importer */}
             <ImporterCard
               label="CSV / XLSX"
               note="Click to pick a spreadsheet"
-              onClick={openFilePicker}
+              onClick={openSheetPicker}
             />
 
+            {/* PDF importer (heuristic) */}
             <ImporterCard
               label="PDF"
-              note="Heuristic extraction — coming in Commit 4"
-              disabled
+              note="Heuristic text extraction"
+              onClick={openPdfPicker}
             />
             <ImporterCard
               label="Google Sheet"
@@ -226,12 +253,19 @@ export default function RateCardPage() {
         </div>
       </div>
 
-      {/* Hidden file input for spreadsheet picker */}
+      {/* Hidden file inputs */}
       <input
-        ref={fileInputRef}
+        ref={sheetInputRef}
         type="file"
         accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-        onChange={handleFileSelected}
+        onChange={handleSheetSelected}
+        style={{ display: 'none' }}
+      />
+      <input
+        ref={pdfInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        onChange={handlePdfSelected}
         style={{ display: 'none' }}
       />
 
