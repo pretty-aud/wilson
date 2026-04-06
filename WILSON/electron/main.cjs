@@ -599,6 +599,339 @@ function startLocalServer(distPath) {
       }
     });
 
+    // ═══════════════════════════════════════════════════════════════
+    //  RABBIT — local server adapter routes
+    //  Backs `localServerAdapter.js`. Persists each project as one
+    //  denormalized JSON bundle under
+    //    {userData}/rabbit-data/projects/{project_id}/project.json
+    //  Binary files live under .../files/, thumbs under .../thumbs/.
+    // ═══════════════════════════════════════════════════════════════
+    const { v4: uuidv4 } = require('uuid');
+
+    function getRabbitProjectsDir() {
+      const dir = path.join(getRabbitDataDir(), 'projects');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    function getRabbitProjectDir(projectId) {
+      const dir = path.join(getRabbitProjectsDir(), projectId);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    function getRabbitFilesDir(projectId) {
+      const dir = path.join(getRabbitProjectDir(projectId), 'files');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    function rabbitBundlePath(projectId) {
+      return path.join(getRabbitProjectDir(projectId), 'project.json');
+    }
+    function readRabbitBundle(projectId) {
+      return readJSON(rabbitBundlePath(projectId), null);
+    }
+    function writeRabbitBundle(projectId, bundle) {
+      bundle.project.updated_at = new Date().toISOString();
+      writeJSON(rabbitBundlePath(projectId), bundle);
+    }
+    function emptyBundle(project) {
+      return {
+        project,
+        phases:        [],
+        assets:        [],
+        tasks:         [],
+        dependencies:  [],
+        taskLinks:     [],
+        files:         [],
+        assetVersions: [],
+        comments:      [],
+        ingestionRuns: [],
+      };
+    }
+    function rabbitTouch(row) {
+      const now = new Date().toISOString();
+      if (!row.id) row.id = uuidv4();
+      if (!row.created_at) row.created_at = now;
+      row.updated_at = now;
+      return row;
+    }
+    function rabbitUpsertInto(arr, row) {
+      const idx = arr.findIndex(x => x.id === row.id);
+      if (idx >= 0) {
+        arr[idx] = { ...arr[idx], ...row };
+        return arr[idx];
+      }
+      arr.push(row);
+      return row;
+    }
+    function rabbitRemoveFrom(arr, id) {
+      const idx = arr.findIndex(x => x.id === id);
+      if (idx < 0) return false;
+      arr.splice(idx, 1);
+      return true;
+    }
+    function rabbitNotFound(res, what = 'project') {
+      return res.status(404).json({ error: `${what} not found` });
+    }
+
+    // ── Projects ────────────────────────────────────────────
+    expressApp.get('/api/rabbit/projects', (req, res) => {
+      const projectsDir = getRabbitProjectsDir();
+      const ids = fs.readdirSync(projectsDir).filter(f =>
+        fs.statSync(path.join(projectsDir, f)).isDirectory()
+      );
+      const list = [];
+      for (const id of ids) {
+        const bundle = readRabbitBundle(id);
+        if (bundle?.project) list.push({
+          id:               bundle.project.id,
+          title:            bundle.project.title,
+          status:           bundle.project.status,
+          status_tag:       bundle.project.status_tag,
+          updated_at:       bundle.project.updated_at,
+          budget_total:     bundle.project.budget_total,
+          budget_currency:  bundle.project.budget_currency,
+          client_name:      bundle.project.client_name,
+          cover_image_url:  bundle.project.cover_image_url,
+        });
+      }
+      list.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
+      res.json(list);
+    });
+
+    expressApp.get('/api/rabbit/projects/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.id);
+      if (!bundle) return rabbitNotFound(res);
+      res.json(bundle);
+    });
+
+    expressApp.post('/api/rabbit/projects', (req, res) => {
+      const now = new Date().toISOString();
+      const project = {
+        id:              req.body.id || uuidv4(),
+        workspace_id:    req.body.workspace_id || '00000000-0000-0000-0000-000000000001',
+        title:           req.body.title || 'Untitled Project',
+        description:     req.body.description || '',
+        status:          req.body.status || 'active',
+        status_tag:      req.body.status_tag || null,
+        start_date:      req.body.start_date || null,
+        end_date:        req.body.end_date || null,
+        budget_total:    req.body.budget_total ?? null,
+        budget_currency: req.body.budget_currency || 'USD',
+        client_name:     req.body.client_name || null,
+        cover_image_url: req.body.cover_image_url || null,
+        created_by:      req.body.created_by || null,
+        created_at:      now,
+        updated_at:      now,
+      };
+      const bundle = emptyBundle(project);
+      writeRabbitBundle(project.id, bundle);
+      res.json(project);
+    });
+
+    expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.id);
+      if (!bundle) return rabbitNotFound(res);
+      bundle.project = { ...bundle.project, ...req.body, id: bundle.project.id };
+      writeRabbitBundle(req.params.id, bundle);
+      res.json(bundle.project);
+    });
+
+    expressApp.delete('/api/rabbit/projects/:id', (req, res) => {
+      const dir = path.join(getRabbitProjectsDir(), req.params.id);
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      res.json({ ok: true });
+    });
+
+    // ── Generic sub-entity factory (phases, assets, tasks, …) ──
+    // Each entity type lives as an array on the project bundle. The
+    // factory generates POST/PATCH/DELETE routes that load → mutate
+    // → save the whole bundle. Single-user, low write rate, fine.
+    function rabbitSubentityRoutes(entityName, bundleKey) {
+      // POST insert / upsert
+      expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
+        const bundle = readRabbitBundle(req.params.projectId);
+        if (!bundle) return rabbitNotFound(res);
+        const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
+        const result = rabbitUpsertInto(bundle[bundleKey], row);
+        writeRabbitBundle(req.params.projectId, bundle);
+        res.json(result);
+      });
+      // PATCH
+      expressApp.patch(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
+        const bundle = readRabbitBundle(req.params.projectId);
+        if (!bundle) return rabbitNotFound(res);
+        const arr = bundle[bundleKey];
+        const idx = arr.findIndex(x => x.id === req.params.id);
+        if (idx < 0) return rabbitNotFound(res, entityName);
+        arr[idx] = { ...arr[idx], ...req.body, id: req.params.id, updated_at: new Date().toISOString() };
+        writeRabbitBundle(req.params.projectId, bundle);
+        res.json(arr[idx]);
+      });
+      // DELETE
+      expressApp.delete(`/api/rabbit/projects/:projectId/${entityName}/:id`, (req, res) => {
+        const bundle = readRabbitBundle(req.params.projectId);
+        if (!bundle) return rabbitNotFound(res);
+        const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
+        if (!removed) return rabbitNotFound(res, entityName);
+        writeRabbitBundle(req.params.projectId, bundle);
+        res.json({ ok: true });
+      });
+    }
+
+    rabbitSubentityRoutes('phases',         'phases');
+    rabbitSubentityRoutes('assets',         'assets');
+    rabbitSubentityRoutes('tasks',          'tasks');
+    rabbitSubentityRoutes('dependencies',   'dependencies');
+    rabbitSubentityRoutes('task-links',     'taskLinks');
+    rabbitSubentityRoutes('asset-versions', 'assetVersions');
+    rabbitSubentityRoutes('comments',       'comments');
+    rabbitSubentityRoutes('ingestion-runs', 'ingestionRuns');
+
+    // ── Files: upload (base64 JSON payload) + download (binary stream) ──
+    // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
+    // Server decodes and writes to {project_dir}/files/{file_id}-{name}.
+    // Multipart was the original spec but base64 keeps us off a new dep
+    // (multer/formidable) and works fine inside the existing 50mb json limit.
+    expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const { name, mimeType, sizeBytes, base64, scope = {} } = req.body || {};
+      if (!name || !base64) return res.status(400).json({ error: 'name and base64 required' });
+
+      const fileId = uuidv4();
+      const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
+      const diskName = `${fileId}-${safeName}`;
+      const filesDir = getRabbitFilesDir(req.params.projectId);
+      fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
+
+      const row = rabbitTouch({
+        id:               fileId,
+        project_id:       req.params.projectId,
+        phase_id:         scope.phaseId || null,
+        asset_id:         scope.assetId || null,
+        task_id:          scope.taskId  || null,
+        name,
+        mime_type:        mimeType || null,
+        size_bytes:       sizeBytes ?? null,
+        storage_provider: 'local_server',
+        storage_path:     diskName,
+        kind:             scope.kind || 'source',
+        is_core_definer:  !!scope.isCoreDefiner,
+        uploaded_at:      new Date().toISOString(),
+      });
+      bundle.files.push(row);
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(row);
+    });
+
+    expressApp.get('/api/rabbit/projects/:projectId/files/:id/download', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const file = bundle.files.find(f => f.id === req.params.id);
+      if (!file) return rabbitNotFound(res, 'file');
+      const diskPath = path.join(getRabbitFilesDir(req.params.projectId), file.storage_path);
+      if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
+      res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+      res.sendFile(diskPath);
+    });
+
+    expressApp.patch('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const idx = bundle.files.findIndex(f => f.id === req.params.id);
+      if (idx < 0) return rabbitNotFound(res, 'file');
+      bundle.files[idx] = { ...bundle.files[idx], ...req.body, id: req.params.id };
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(bundle.files[idx]);
+    });
+
+    expressApp.delete('/api/rabbit/projects/:projectId/files/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const file = bundle.files.find(f => f.id === req.params.id);
+      if (file) {
+        const diskPath = path.join(getRabbitFilesDir(req.params.projectId), file.storage_path);
+        if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+      }
+      rabbitRemoveFrom(bundle.files, req.params.id);
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ ok: true });
+    });
+
+    // ── Ingestion chunks (live in their own array on the bundle) ──
+    expressApp.post('/api/rabbit/projects/:projectId/ingestion-chunks', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      if (!bundle.ingestionChunks) bundle.ingestionChunks = [];
+      const row = rabbitTouch({ ...req.body });
+      rabbitUpsertInto(bundle.ingestionChunks, row);
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(row);
+    });
+    expressApp.patch('/api/rabbit/projects/:projectId/ingestion-chunks/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      if (!bundle.ingestionChunks) bundle.ingestionChunks = [];
+      const idx = bundle.ingestionChunks.findIndex(c => c.id === req.params.id);
+      if (idx < 0) return rabbitNotFound(res, 'chunk');
+      bundle.ingestionChunks[idx] = { ...bundle.ingestionChunks[idx], ...req.body, id: req.params.id };
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(bundle.ingestionChunks[idx]);
+    });
+    expressApp.get('/api/rabbit/projects/:projectId/ingestion-runs/:runId/chunks', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const chunks = (bundle.ingestionChunks || []).filter(c => c.run_id === req.params.runId);
+      res.json(chunks);
+    });
+
+    // ── Rate cards (workspace-scoped, separate from project bundles) ──
+    function getRateCardsDir() {
+      const dir = path.join(getRabbitDataDir(), 'rate-cards');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    }
+    function rateCardPath(id) { return path.join(getRateCardsDir(), `${id}.json`); }
+
+    expressApp.get('/api/rabbit/workspaces/:workspaceId/rate-cards', (req, res) => {
+      const dir = getRateCardsDir();
+      const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+      const list = files.map(f => readJSON(path.join(dir, f), null)).filter(Boolean)
+        .filter(card => card.card?.workspace_id === req.params.workspaceId);
+      res.json(list.map(c => c.card));
+    });
+    expressApp.post('/api/rabbit/workspaces/:workspaceId/rate-cards', (req, res) => {
+      const card = rabbitTouch({ ...req.body, workspace_id: req.params.workspaceId });
+      const existing = readJSON(rateCardPath(card.id), null);
+      const stored = { card, entries: existing?.entries || [] };
+      writeJSON(rateCardPath(card.id), stored);
+      res.json(card);
+    });
+    expressApp.delete('/api/rabbit/rate-cards/:id', (req, res) => {
+      const p = rateCardPath(req.params.id);
+      if (fs.existsSync(p)) fs.unlinkSync(p);
+      res.json({ ok: true });
+    });
+    expressApp.get('/api/rabbit/rate-cards/:id/entries', (req, res) => {
+      const stored = readJSON(rateCardPath(req.params.id), null);
+      res.json(stored?.entries || []);
+    });
+    expressApp.post('/api/rabbit/rate-cards/:id/entries', (req, res) => {
+      const stored = readJSON(rateCardPath(req.params.id), null);
+      if (!stored) return rabbitNotFound(res, 'rate card');
+      const entry = rabbitTouch({ ...req.body, rate_card_id: req.params.id });
+      rabbitUpsertInto(stored.entries, entry);
+      writeJSON(rateCardPath(req.params.id), stored);
+      res.json(entry);
+    });
+    expressApp.delete('/api/rabbit/rate-cards/:id/entries/:entryId', (req, res) => {
+      const stored = readJSON(rateCardPath(req.params.id), null);
+      if (!stored) return rabbitNotFound(res, 'rate card');
+      rabbitRemoveFrom(stored.entries, req.params.entryId);
+      writeJSON(rateCardPath(req.params.id), stored);
+      res.json({ ok: true });
+    });
+
     // ── Static file serving (SPA fallback) ──
     expressApp.use(express.static(distPath));
     expressApp.get('/{*splat}', (req, res) => {
