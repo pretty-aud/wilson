@@ -574,6 +574,22 @@ export default function App() {
     context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
     context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), R.A.B.B.I.T. (Resource Allocation, Budgeting & Breakdown Intake Tool), System Settings, Projects, Rate Card, Help`;
 
+    // RABBIT knowledge snippet — appended when the user is on the
+    // RABBIT page so the companion can field tool-specific questions
+    // without polluting the base companion prompt for other tools.
+    if (currentPage === 'rabbit') {
+      context += `\n\nRABBIT KNOWLEDGE:`;
+      context += `\nRABBIT is a production-planning tool with this hierarchy: Workspace → Projects → Phases → Assets → Tasks. Each task carries bid_days, logged_days, status, priority, and an assigned_role_slug. Task dependencies form a DAG; the critical path is the longest-weighted chain through that DAG by bid_days.`;
+      context += `\nTabs (left submenu): Project Summary (overview cards), Project Assets (table or gallery, inline editing, type/phase filters), Timeline (Gantt with day/week/month/quarter/year zoom + critical path highlight), Budget (Summary / By Phase / By Role / By Asset / Custom), Intake Wizard (Upload → Classify → Core → Run → Review — turns source documents into a structured breakdown via the Anthropic API).`;
+      context += `\nResources submenu (slide-out): Projects (list + create), Rate Card (workspace-level role/day_rate table), Settings (adapter mode, default currency, default rate card).`;
+      context += `\nStorage adapters: Local Server (default, single-user, in-app Express), Supabase (multi-user Postgres), Google Drive (read-only sync; writes deferred to v0.2).`;
+      context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
+      context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
+      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard requires an Anthropic API key (set in System Settings → General).`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
+      context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
+    }
+
     // Pet status context
     if (petData) {
       context += `\n\nPET STATUS:`;
