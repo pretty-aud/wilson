@@ -40,6 +40,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
     setErrorMsg(null)
     try {
       await ctx.acceptIngestion(null, breakdown)
+      ctx.dismissBackgroundIngestion?.()
       onSaved?.()
     } catch (err) {
       setErrorMsg(err?.message || String(err))
@@ -53,6 +54,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
     setErrorMsg(null)
     try {
       await ctx.discardIngestion(null)
+      ctx.dismissBackgroundIngestion?.()
       onDiscarded?.()
     } catch (err) {
       setErrorMsg(err?.message || String(err))
@@ -64,12 +66,12 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
   const busy = saving || discarding
 
   return (
-    <div className="h-full flex flex-col p-6 gap-4 overflow-auto">
+    <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div>
-        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
+        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
           Step 5 · Review & save breakdown
         </h2>
-        <p className="text-[11px] font-mono mt-1" style={{ color: '#7c2d12' }}>
+        <p className="text-[11px] font-mono mt-1" style={{ color: '#a8a29e' }}>
           The pipeline merged {fileResults.length} source file
           {fileResults.length === 1 ? '' : 's'} into the breakdown
           below. Save it to push phases, assets, and tasks into the
@@ -167,7 +169,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
       {errorMsg && (
         <div
           className="text-[11px] font-mono p-2 rounded-sm"
-          style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #991b1b' }}
+          style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
         >
           {errorMsg}
         </div>
@@ -180,7 +182,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
           onClick={onBack}
           disabled={busy}
           className="px-4 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-          style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+          style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
         >
           ← Back
         </button>
@@ -190,7 +192,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             onClick={handleDiscard}
             disabled={busy}
             className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-            style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             {discarding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
             Discard
@@ -203,7 +205,7 @@ export default function IntakeReview({ result, onBack, onSaved, onDiscarded }) {
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
-              border: '2px solid #7c2d12',
+              border: '1px solid #c2410c',
             }}
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -220,12 +222,12 @@ function CountTile({ icon: Icon, label, n }) {
   return (
     <div
       className="flex items-center gap-2 px-3 py-2 rounded-sm"
-      style={{ backgroundColor: '#fff7ed', border: '2px solid #f4a261' }}
+      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
     >
-      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#ea580c' }} />
+      <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
       <div className="flex flex-col leading-tight">
-        <span className="text-[14px] font-mono font-bold" style={{ color: '#1c1917' }}>{n}</span>
-        <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>{label}</span>
+        <span className="text-[14px] font-mono font-bold" style={{ color: '#d6d3d1' }}>{n}</span>
+        <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{label}</span>
       </div>
     </div>
   )
@@ -235,18 +237,18 @@ function Section({ title, count, defaultOpen = false, children }) {
   const [open, setOpen] = useState(defaultOpen)
   const Chevron = open ? ChevronDown : ChevronRight
   return (
-    <div className="rounded-sm overflow-hidden" style={{ border: '2px solid #f4a261', backgroundColor: '#fff7ed' }}>
+    <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-orange-100"
-        style={{ borderBottom: open ? '1px solid #fed7aa' : 'none' }}
+        className="w-full flex items-center gap-2 px-3 py-2 hover:bg-stone-700"
+        style={{ borderBottom: open ? '1px solid #44403c' : 'none', backgroundColor: '#44403c' }}
       >
-        <Chevron className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
-        <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: '#1c1917' }}>
+        <Chevron className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+        <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
           {title}
         </span>
-        <span className="text-[10px] font-mono" style={{ color: '#7c2d12' }}>({count})</span>
+        <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>({count})</span>
       </button>
       {open && <div className="flex flex-col">{children}</div>}
     </div>
@@ -255,24 +257,24 @@ function Section({ title, count, defaultOpen = false, children }) {
 
 function Row({ title, subtitle, tag, hint }) {
   return (
-    <div className="flex flex-col gap-0.5 px-3 py-2" style={{ borderBottom: '1px solid #fed7aa' }}>
+    <div className="flex flex-col gap-0.5 px-3 py-2" style={{ borderBottom: '1px solid #1c1917' }}>
       <div className="flex items-start gap-2">
-        <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#ea580c' }} />
-        <span className="flex-1 text-xs font-mono" style={{ color: '#1c1917' }}>{title}</span>
+        <Sparkles className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: '#fb923c' }} />
+        <span className="flex-1 text-xs font-mono" style={{ color: '#d6d3d1' }}>{title}</span>
         {tag && (
           <span
             className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ backgroundColor: '#fed7aa', color: '#7c2d12', border: '1px solid #7c2d12' }}
+            style={{ backgroundColor: '#1c1917', color: '#fb923c', border: '1px solid #57534e' }}
           >
             {tag}
           </span>
         )}
       </div>
       {subtitle && (
-        <div className="ml-5 text-[10px] font-mono" style={{ color: '#7c2d12' }}>{subtitle}</div>
+        <div className="ml-5 text-[10px] font-mono" style={{ color: '#a8a29e' }}>{subtitle}</div>
       )}
       {hint && (
-        <div className="ml-5 text-[10px] font-mono italic" style={{ color: '#7c2d12' }}>{hint}</div>
+        <div className="ml-5 text-[10px] font-mono italic" style={{ color: '#78716c' }}>{hint}</div>
       )}
     </div>
   )
@@ -280,7 +282,7 @@ function Row({ title, subtitle, tag, hint }) {
 
 function Empty() {
   return (
-    <div className="px-3 py-3 text-[10px] font-mono italic" style={{ color: '#7c2d12' }}>
+    <div className="px-3 py-3 text-[10px] font-mono italic" style={{ color: '#78716c' }}>
       (none returned by the pipeline)
     </div>
   )

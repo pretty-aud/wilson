@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState, useRef } from 'react'
-import { Trash2, FileText, Image, Calendar, ChevronLeft, X, Upload } from 'lucide-react'
+import { Trash2, FileText, Image, Calendar, ChevronLeft, X, Upload, Rabbit as RabbitIcon } from 'lucide-react'
 
 function formatFileSize(bytes) {
   if (bytes < 1024) return bytes + ' B'
@@ -15,6 +15,7 @@ export default function ProjectDetailPanel({
   project,
   onBack,
   onUpdate,
+  onOpenInRabbit,
   onDelete,
   deleteConfirm,
   onRequestDelete,
@@ -27,15 +28,28 @@ export default function ProjectDetailPanel({
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-3xl mx-auto px-8 py-8 space-y-6">
-        {/* Back to list */}
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors mb-2"
-          style={{ backgroundColor: '#ea580c', color: '#fff' }}
-        >
-          <ChevronLeft className="w-4 h-4" />
-          Back to Projects
-        </button>
+        {/* Back / open-in-RABBIT row */}
+        <div className="flex items-center gap-2 mb-2">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
+            style={{ backgroundColor: '#ea580c', color: '#fff' }}
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Back to Projects
+          </button>
+          {onOpenInRabbit && (
+            <button
+              onClick={onOpenInRabbit}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
+              style={{ backgroundColor: '#44403c', color: '#fb923c', border: '1px solid #57534e' }}
+              title="Open this project in RABBIT"
+            >
+              <RabbitIcon className="w-4 h-4" />
+              Open in RABBIT
+            </button>
+          )}
+        </div>
 
         {/* Title */}
         <div>

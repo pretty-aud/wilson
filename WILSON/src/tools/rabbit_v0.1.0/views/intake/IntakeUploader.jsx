@@ -44,7 +44,7 @@ function fmtBytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
 
-export default function IntakeUploader({ files, onChange, onNext }) {
+export default function IntakeUploader({ files, onChange, onBack, onNext }) {
   const inputRef = useRef(null)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState(null)
@@ -94,12 +94,12 @@ export default function IntakeUploader({ files, onChange, onNext }) {
   }
 
   return (
-    <div className="h-full flex flex-col p-6 gap-4 overflow-auto">
+    <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div>
-        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
+        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
           Step 1 · Upload source documents
         </h2>
-        <p className="text-[11px] font-mono mt-1" style={{ color: '#7c2d12' }}>
+        <p className="text-[11px] font-mono mt-1" style={{ color: '#a8a29e' }}>
           Drop the briefs, treatments, scripts, decks, or notes that describe
           the project. The wizard will classify and chunk them in the next steps.
         </p>
@@ -113,16 +113,16 @@ export default function IntakeUploader({ files, onChange, onNext }) {
         onDrop={handleDrop}
         className="flex flex-col items-center justify-center gap-2 p-8 rounded-sm transition-colors cursor-pointer"
         style={{
-          backgroundColor: dragging ? '#fed7aa' : '#fff7ed',
-          border: `2px dashed ${dragging ? '#ea580c' : '#7c2d12'}`,
-          color: '#7c2d12',
+          backgroundColor: dragging ? '#292524' : '#1c1917',
+          border: `2px dashed ${dragging ? '#ea580c' : '#44403c'}`,
+          color: '#a8a29e',
         }}
       >
-        <Upload className="w-8 h-8" />
+        <Upload className="w-8 h-8" style={{ color: dragging ? '#fb923c' : '#78716c' }} />
         <span className="text-xs font-mono uppercase tracking-wider">
           {dragging ? 'Drop to add files' : 'Click or drop files here'}
         </span>
-        <span className="text-[10px] font-mono">
+        <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
           {ACCEPTED_EXTS.join(' · ')}
         </span>
       </button>
@@ -139,7 +139,7 @@ export default function IntakeUploader({ files, onChange, onNext }) {
       {error && (
         <div
           className="flex items-start gap-2 p-2 rounded-sm text-[11px] font-mono"
-          style={{ backgroundColor: '#fee2e2', border: '1px solid #991b1b', color: '#991b1b' }}
+          style={{ backgroundColor: '#1c1917', border: '1px solid #7f1d1d', color: '#fca5a5' }}
         >
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
           {error}
@@ -148,28 +148,28 @@ export default function IntakeUploader({ files, onChange, onNext }) {
 
       {/* File list */}
       {(files || []).length > 0 && (
-        <div className="flex-1 flex flex-col rounded-sm overflow-hidden" style={{ border: '2px solid #f4a261' }}>
+        <div className="flex-1 flex flex-col rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <div
             className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest"
-            style={{ color: '#7c2d12', backgroundColor: '#f4a261', borderBottom: '1px solid #7c2d12' }}
+            style={{ color: '#fb923c', backgroundColor: '#44403c', borderBottom: '1px solid #57534e' }}
           >
             {files.length} file{files.length === 1 ? '' : 's'} queued
           </div>
-          <div className="flex-1 overflow-auto" style={{ backgroundColor: '#fff7ed' }}>
+          <div className="flex-1 overflow-auto" style={{ backgroundColor: '#292524' }}>
             {files.map(f => (
               <div
                 key={f.id}
-                className="flex items-center gap-2 px-3 py-2 hover:bg-orange-50"
-                style={{ borderBottom: '1px solid #fed7aa' }}
+                className="flex items-center gap-2 px-3 py-2 hover:bg-stone-700"
+                style={{ borderBottom: '1px solid #1c1917' }}
               >
-                <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#7c2d12' }} />
-                <span className="flex-1 text-xs font-mono truncate" style={{ color: '#1c1917' }}>{f.name}</span>
-                <span className="text-[10px] font-mono" style={{ color: '#7c2d12' }}>{fmtBytes(f.size)}</span>
+                <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+                <span className="flex-1 text-xs font-mono truncate" style={{ color: '#d6d3d1' }}>{f.name}</span>
+                <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>{fmtBytes(f.size)}</span>
                 <button
                   type="button"
                   onClick={() => removeFile(f.id)}
-                  className="p-1 rounded-sm hover:bg-orange-200"
-                  style={{ color: '#7c2d12' }}
+                  className="p-1 rounded-sm hover:bg-stone-600"
+                  style={{ color: '#a8a29e' }}
                   title="Remove"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -180,8 +180,22 @@ export default function IntakeUploader({ files, onChange, onNext }) {
         </div>
       )}
 
-      {/* Next */}
-      <div className="flex justify-end">
+      {/* Back / Next */}
+      <div className="flex items-center justify-between">
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="px-4 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm transition-colors"
+            style={{
+              color: '#a8a29e',
+              backgroundColor: 'transparent',
+              border: '1px solid #44403c',
+            }}
+          >
+            ← Back
+          </button>
+        ) : <span />}
         <button
           type="button"
           onClick={onNext}
@@ -190,7 +204,7 @@ export default function IntakeUploader({ files, onChange, onNext }) {
           style={{
             color: '#fff7ed',
             backgroundColor: '#ea580c',
-            border: '2px solid #7c2d12',
+            border: '1px solid #c2410c',
           }}
         >
           Next: classify →

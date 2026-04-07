@@ -2,23 +2,16 @@
 // IntakeProgress — step 4 of the intake wizard
 // ============================================================
 //
-// Drives `runIngestion()` from intake/pipeline.js. Owns the
-// abort controller, the live progress counter, and the parsed
-// breakdown handed back to the parent on success.
-//
-// Lifecycle:
-//   mount    → kick off runIngestion(...)
-//   running  → updates {chunksDone, chunksTotal, lastLabel}
-//   complete → calls onComplete(breakdown) once
-//   error    → renders the message + a retry button
-//   abort    → user cancels via the abort controller
-//
-// The wizard is responsible for what happens after — this
-// component never writes to the project bundle itself.
+// As of WILSON v0.6.x the actual pipeline runs at the provider
+// level via `startBackgroundIngestion`, so a global toast can
+// keep showing progress even when the user navigates away from
+// the wizard. This component just kicks off the run on mount,
+// reads the live state from the provider, and forwards the
+// result to `onComplete` when the run finishes.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import { Sparkles, Loader2, AlertCircle, X } from 'lucide-react'
-import { runIngestion } from '../../intake/pipeline'
+import { useRabbit } from '../../state/RabbitProvider'
 
 export default function IntakeProgress({
   projectId,
@@ -28,80 +21,57 @@ export default function IntakeProgress({
   onComplete,
   onBack,
 }) {
-  const [phase, setPhase] = useState('starting')      // starting | running | done | error
-  const [progress, setProgress] = useState({ chunksDone: 0, chunksTotal: 0, lastLabel: '' })
-  const [errorMsg, setErrorMsg] = useState(null)
-  const abortRef = useRef(null)
+  const ctx = useRabbit()
+  const run = ctx?.ingestionRun
+  const startBackgroundIngestion = ctx?.startBackgroundIngestion
+  const cancelBackgroundIngestion = ctx?.cancelBackgroundIngestion
+  const dismissBackgroundIngestion = ctx?.dismissBackgroundIngestion
+
+  const startedRef = useRef(false)
   const completedRef = useRef(false)
 
-  // Kick off the pipeline once. The pipeline is the long-running
-  // network step; we never want StrictMode's double-invoke to fire
-  // it twice, so we guard with completedRef.
+  // Kick off the pipeline once on mount.
   useEffect(() => {
-    if (completedRef.current) return
-    let cancelled = false
-    const controller = new AbortController()
-    abortRef.current = controller
-
-    ;(async () => {
-      setPhase('running')
-      setErrorMsg(null)
-      try {
-        const result = await runIngestion({
-          projectId,
-          files,
-          personas,
-          apiKey,
-          signal: controller.signal,
-          onProgress: (p) => {
-            if (cancelled) return
-            setProgress(p)
-          },
-        })
-        if (cancelled) return
-        completedRef.current = true
-        setPhase('done')
-        onComplete?.(result)
-      } catch (err) {
-        if (cancelled) return
-        const msg = err?.message || String(err)
-        if (msg === 'aborted') {
-          setPhase('error')
-          setErrorMsg('Cancelled.')
-        } else {
-          setPhase('error')
-          setErrorMsg(msg)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-      try { controller.abort() } catch { /* noop */ }
-    }
-    // Run once on mount. Files / personas are wizard-local and
-    // are frozen the moment the user clicks "Run intake".
+    if (startedRef.current) return
+    if (!startBackgroundIngestion) return
+    startedRef.current = true
+    startBackgroundIngestion({ files, personas, apiKey }).catch(() => {
+      // The provider records the error on `ingestionRun.error`.
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Hand the result back to the wizard once.
+  useEffect(() => {
+    if (completedRef.current) return
+    if (run?.phase === 'done' && run.result) {
+      completedRef.current = true
+      onComplete?.(run.result)
+      // Leave the toast around — it auto-dismisses on review save.
+    }
+  }, [run, onComplete])
+
   function handleAbort() {
-    try { abortRef.current?.abort() } catch { /* noop */ }
+    cancelBackgroundIngestion?.()
   }
 
-  const pct = progress.chunksTotal > 0
-    ? Math.round((progress.chunksDone / progress.chunksTotal) * 100)
-    : 0
+  const phase = run?.phase || 'starting'
+  const chunksDone = run?.chunksDone || 0
+  const chunksTotal = run?.chunksTotal || 0
+  const lastLabel = run?.lastLabel || ''
+  const errorMsg = run?.error || null
+  const pct = chunksTotal > 0 ? Math.round((chunksDone / chunksTotal) * 100) : 0
 
   return (
-    <div className="h-full flex flex-col items-center justify-center gap-6 p-8">
+    <div className="h-full flex flex-col items-center justify-center gap-6 p-8" style={{ backgroundColor: '#1c1917' }}>
       {/* Headline */}
       <div className="flex items-center gap-2">
         {phase === 'error' ? (
-          <AlertCircle className="w-6 h-6" style={{ color: '#991b1b' }} />
+          <AlertCircle className="w-6 h-6" style={{ color: '#fca5a5' }} />
         ) : (
-          <Sparkles className="w-6 h-6" style={{ color: '#ea580c' }} />
+          <Sparkles className="w-6 h-6" style={{ color: '#fb923c' }} />
         )}
-        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
+        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
           {phase === 'starting' && 'Preparing intake…'}
           {phase === 'running'  && 'Running intake'}
           {phase === 'done'     && 'Intake complete'}
@@ -109,12 +79,17 @@ export default function IntakeProgress({
         </h2>
       </div>
 
+      <p className="text-[10px] font-mono italic max-w-md text-center" style={{ color: '#78716c' }}>
+        You can leave this view — the breakdown keeps running in the background.
+        Watch the toast in the bottom-left corner.
+      </p>
+
       {/* Progress bar */}
       {phase !== 'error' && (
         <div className="w-full max-w-md flex flex-col gap-2">
           <div
             className="h-3 w-full rounded-sm overflow-hidden"
-            style={{ backgroundColor: '#fed7aa', border: '2px solid #7c2d12' }}
+            style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <div
               className="h-full transition-all duration-200"
@@ -124,20 +99,20 @@ export default function IntakeProgress({
               }}
             />
           </div>
-          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
             <span>
-              {progress.chunksTotal === 0
+              {chunksTotal === 0
                 ? 'Extracting & chunking source documents…'
-                : `${progress.chunksDone} / ${progress.chunksTotal} chunks · ${pct}%`}
+                : `${chunksDone} / ${chunksTotal} chunks · ${pct}%`}
             </span>
             <span className="flex items-center gap-1">
               {phase === 'running' && <Loader2 className="w-3 h-3 animate-spin" />}
               {phase === 'done'    && 'done'}
             </span>
           </div>
-          {progress.lastLabel && (
-            <div className="text-[10px] font-mono truncate" style={{ color: '#7c2d12' }}>
-              last: {progress.lastLabel}
+          {lastLabel && (
+            <div className="text-[10px] font-mono truncate" style={{ color: '#78716c' }}>
+              last: {lastLabel}
             </div>
           )}
         </div>
@@ -147,7 +122,7 @@ export default function IntakeProgress({
       {phase === 'error' && errorMsg && (
         <div
           className="max-w-md text-[11px] font-mono leading-relaxed p-3 rounded-sm text-center"
-          style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '2px solid #991b1b' }}
+          style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
         >
           {errorMsg}
         </div>
@@ -160,23 +135,25 @@ export default function IntakeProgress({
             type="button"
             onClick={handleAbort}
             className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <X className="w-3 h-3" />
             Cancel
           </button>
         )}
         {phase === 'error' && (
-          <>
-            <button
-              type="button"
-              onClick={onBack}
-              className="px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-              style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
-            >
-              ← Back to settings
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => {
+              dismissBackgroundIngestion?.()
+              startedRef.current = false
+              onBack?.()
+            }}
+            className="px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
+            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
+          >
+            ← Back to settings
+          </button>
         )}
       </div>
     </div>

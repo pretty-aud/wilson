@@ -31,6 +31,7 @@ import React, {
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { selectAdapter, ADAPTER_MODES } from '../adapters';
+import { runIngestion } from '../intake/pipeline';
 import {
   selectAssetsByPhase,
   selectTasksByAsset,
@@ -106,6 +107,20 @@ export function RabbitProvider({ children }) {
 
   // ── intake state (minimal — pipeline lives in intake/) ──
   const [activeIngestion, setActiveIngestion] = useState(null);
+
+  // ── background ingestion run state ──────────────────────
+  // Lives at provider level so the bottom-left toast and the
+  // wizard's progress step both observe the same source of truth.
+  // The toast persists across view switches; the wizard step
+  // jumps to review when ingestionRun.phase === 'done'.
+  //
+  // Shape:
+  //   null                                              — idle
+  //   { phase, chunksDone, chunksTotal, lastLabel,      — running
+  //     fileCount, error, result, projectId,
+  //     abortController }
+  const [ingestionRun, setIngestionRun] = useState(null);
+  const ingestionAbortRef = useRef(null);
 
   // ── boot: read settings, build adapter, list projects ──
   useEffect(() => {
@@ -217,17 +232,11 @@ export function RabbitProvider({ children }) {
       ...payload,
     };
     const created = await adapterRef.current.createProject(draft);
-    setProjectsIndex(idx => ({ ...idx, [created.id]: {
-      id:              created.id,
-      title:           created.title,
-      status:          created.status,
-      status_tag:      created.status_tag,
-      updated_at:      created.updated_at,
-      budget_total:    created.budget_total,
-      budget_currency: created.budget_currency,
-      client_name:     created.client_name,
-      cover_image_url: created.cover_image_url,
-    }}));
+    // Spread the whole created record so DOG-side fields
+    // (documents, visualAssets, startDate, endDate, …) survive
+    // alongside the canonical RABBIT fields. The unified store
+    // means callers can put anything they need on a project.
+    setProjectsIndex(idx => ({ ...idx, [created.id]: { ...created } }));
     return created;
   }, []);
 
@@ -259,10 +268,25 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   // ── Phases ──────────────────────────────────────────────
-  const addPhase = useCallback((phase) => optimistic(
-    prev => ({ ...prev, phases: [...prev.phases, { id: phase.id || uuidv4(), project_id: activeProjectId, sort_order: prev.phases.length, ...phase }] }),
-    () => adapterRef.current.upsertPhase({ id: phase.id || uuidv4(), project_id: activeProjectId, sort_order: bundle.phases.length, ...phase }),
-  ), [optimistic, activeProjectId, bundle.phases.length]);
+  // Adapter-first: call the adapter, then merge the returned row
+  // into the bundle. Prevents the duplicate-uuid bug that bit when
+  // mutator + adapterCall each generated their own id, and avoids
+  // silent rollback on adapter errors that left the user staring
+  // at an empty list with no feedback.
+  const addPhase = useCallback(async (phase) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           phase.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundle.phases.length,
+      ...phase,
+    };
+    const created = await adapterRef.current.upsertPhase(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, phases: [...prev.phases, finalRow] }));
+    return finalRow;
+  }, [activeProjectId, bundle.phases.length]);
 
   const updatePhase = useCallback((id, patch) => optimistic(
     prev => ({ ...prev, phases: prev.phases.map(p => p.id === id ? { ...p, ...patch } : p) }),
@@ -291,10 +315,23 @@ export function RabbitProvider({ children }) {
   ), [optimistic, bundle.phases]);
 
   // ── Assets ──────────────────────────────────────────────
-  const addAsset = useCallback((asset) => optimistic(
-    prev => ({ ...prev, assets: [...prev.assets, { id: asset.id || uuidv4(), project_id: activeProjectId, sort_order: prev.assets.length, status: 'not_started', type: 'other', ...asset }] }),
-    () => adapterRef.current.upsertAsset({ id: asset.id || uuidv4(), project_id: activeProjectId, sort_order: bundle.assets.length, status: 'not_started', type: 'other', ...asset }),
-  ), [optimistic, activeProjectId, bundle.assets.length]);
+  // See addPhase — same adapter-first pattern.
+  const addAsset = useCallback(async (asset) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           asset.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundle.assets.length,
+      status:       'not_started',
+      type:         'other',
+      ...asset,
+    };
+    const created = await adapterRef.current.upsertAsset(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, assets: [...prev.assets, finalRow] }));
+    return finalRow;
+  }, [activeProjectId, bundle.assets.length]);
 
   const updateAsset = useCallback((id, patch) => optimistic(
     prev => ({ ...prev, assets: prev.assets.map(a => a.id === id ? { ...a, ...patch } : a) }),
@@ -323,22 +360,22 @@ export function RabbitProvider({ children }) {
   ), [optimistic, bundle.assets]);
 
   // ── Tasks ───────────────────────────────────────────────
-  const addTask = useCallback((task) => optimistic(
-    prev => ({ ...prev, tasks: [...prev.tasks, {
-      id: task.id || uuidv4(),
-      project_id: activeProjectId,
-      status: 'waiting_to_start',
-      priority: 'medium',
+  // See addPhase — same adapter-first pattern.
+  const addTask = useCallback(async (task) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           task.id || uuidv4(),
+      project_id:   activeProjectId,
+      status:       'waiting_to_start',
+      priority:     'medium',
       ...task,
-    }] }),
-    () => adapterRef.current.upsertTask({
-      id: task.id || uuidv4(),
-      project_id: activeProjectId,
-      status: 'waiting_to_start',
-      priority: 'medium',
-      ...task,
-    }),
-  ), [optimistic, activeProjectId]);
+    };
+    const created = await adapterRef.current.upsertTask(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, tasks: [...prev.tasks, finalRow] }));
+    return finalRow;
+  }, [activeProjectId]);
 
   const updateTask = useCallback((id, patch) => optimistic(
     prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
@@ -355,32 +392,53 @@ export function RabbitProvider({ children }) {
   ), [optimistic, activeProjectId]);
 
   // ── Dependencies ────────────────────────────────────────
-  const linkTasks = useCallback((predecessorId, successorId, type = 'FS', lagDays = 0) => optimistic(
-    prev => ({
-      ...prev,
-      dependencies: [...prev.dependencies, {
-        id: uuidv4(),
-        predecessor_id: predecessorId,
-        successor_id: successorId,
-        type,
-        lag_days: lagDays,
-        project_id: activeProjectId,
-      }],
-    }),
-    () => adapterRef.current.upsertDependency({
-      id: uuidv4(),
+  // The `dependencies` array carries BOTH task→task and phase→phase
+  // edges. We distinguish with an optional `kind` field ('task' |
+  // 'phase'). Missing / undefined kind is treated as 'task' so
+  // legacy rows keep working. The critical-path engine naturally
+  // filters out phase-kind rows because their ids aren't in the
+  // task lookup table.
+  const linkTasks = useCallback((predecessorId, successorId, type = 'FS', lagDays = 0) => {
+    const id = uuidv4();
+    const row = {
+      id,
       predecessor_id: predecessorId,
-      successor_id: successorId,
+      successor_id:   successorId,
+      kind:           'task',
       type,
-      lag_days: lagDays,
-      project_id: activeProjectId,
-    }),
-  ), [optimistic, activeProjectId]);
+      lag_days:       lagDays,
+      project_id:     activeProjectId,
+    };
+    return optimistic(
+      prev => ({ ...prev, dependencies: [...prev.dependencies, row] }),
+      () => adapterRef.current.upsertDependency(row),
+    );
+  }, [optimistic, activeProjectId]);
+
+  const linkPhases = useCallback((predecessorId, successorId, type = 'FS', lagDays = 0) => {
+    const id = uuidv4();
+    const row = {
+      id,
+      predecessor_id: predecessorId,
+      successor_id:   successorId,
+      kind:           'phase',
+      type,
+      lag_days:       lagDays,
+      project_id:     activeProjectId,
+    };
+    return optimistic(
+      prev => ({ ...prev, dependencies: [...prev.dependencies, row] }),
+      () => adapterRef.current.upsertDependency(row),
+    );
+  }, [optimistic, activeProjectId]);
 
   const unlinkTasks = useCallback((dependencyId) => optimistic(
     prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== dependencyId) }),
     () => adapterRef.current.deleteDependency(dependencyId, activeProjectId),
   ), [optimistic, activeProjectId]);
+
+  // Alias — semantically covers both task + phase edges.
+  const unlinkDependency = unlinkTasks;
 
   // ── Task links (free URLs) ──────────────────────────────
   const addTaskLink = useCallback((link) => optimistic(
@@ -484,6 +542,73 @@ export function RabbitProvider({ children }) {
     setActiveIngestion(null);
   }, [activeProjectId]);
 
+  // ── Background ingestion runner ─────────────────────────
+  // Kicks off runIngestion() and stores live progress on the
+  // provider so the toast + wizard view both observe it. Resolves
+  // to the result so callers can await it; also stores the result
+  // on `ingestionRun.result` for components mounted after the
+  // run finishes.
+  const startBackgroundIngestion = useCallback(async ({ files, personas, apiKey }) => {
+    if (!apiKey) throw new Error('missing API key');
+    if (!activeProjectId) throw new Error('no project');
+
+    // Cancel any prior in-flight run.
+    try { ingestionAbortRef.current?.abort() } catch { /* noop */ }
+    const controller = new AbortController();
+    ingestionAbortRef.current = controller;
+
+    const projectIdAtStart = activeProjectId;
+    const coreFiles = (files || []).filter(f => f && f.is_core_definer);
+
+    setIngestionRun({
+      phase:        'running',
+      chunksDone:   0,
+      chunksTotal:  0,
+      lastLabel:    '',
+      fileCount:    coreFiles.length,
+      error:        null,
+      result:       null,
+      projectId:    projectIdAtStart,
+      startedAt:    Date.now(),
+    });
+
+    try {
+      const result = await runIngestion({
+        projectId: projectIdAtStart,
+        files,
+        personas,
+        apiKey,
+        signal: controller.signal,
+        onProgress: (p) => {
+          setIngestionRun(prev => prev ? { ...prev, ...p } : prev);
+        },
+      });
+      setIngestionRun(prev => prev ? {
+        ...prev,
+        phase:  'done',
+        result,
+      } : prev);
+      return result;
+    } catch (err) {
+      const msg = err?.message || String(err);
+      setIngestionRun(prev => prev ? {
+        ...prev,
+        phase: 'error',
+        error: msg,
+      } : prev);
+      throw err;
+    }
+  }, [activeProjectId]);
+
+  const cancelBackgroundIngestion = useCallback(() => {
+    try { ingestionAbortRef.current?.abort() } catch { /* noop */ }
+    setIngestionRun(prev => prev ? { ...prev, phase: 'error', error: 'Cancelled.' } : prev);
+  }, []);
+
+  const dismissBackgroundIngestion = useCallback(() => {
+    setIngestionRun(null);
+  }, []);
+
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
     selectAssetsByPhase:        (phaseId) => selectAssetsByPhase(bundle.assets, phaseId),
@@ -538,6 +663,12 @@ export function RabbitProvider({ children }) {
     acceptIngestion,
     discardIngestion,
 
+    // background ingestion
+    ingestionRun,
+    startBackgroundIngestion,
+    cancelBackgroundIngestion,
+    dismissBackgroundIngestion,
+
     // actions
     createProject,
     updateProject,
@@ -546,7 +677,7 @@ export function RabbitProvider({ children }) {
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, reorderAssets,
     addTask, updateTask, deleteTask,
-    linkTasks, unlinkTasks,
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     uploadFile, markFileCoreDefiner,
 
@@ -556,11 +687,12 @@ export function RabbitProvider({ children }) {
     adapterMode, adapterStatus, switchAdapter, refreshProjectsIndex, getAdapter,
     activeProjectId, projectsIndex, bundle, loadingProject, error, activeIngestion,
     startIngestion, acceptIngestion, discardIngestion,
+    ingestionRun, startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,
     addAsset, updateAsset, deleteAsset, reorderAssets,
     addTask, updateTask, deleteTask,
-    linkTasks, unlinkTasks,
+    linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     uploadFile, markFileCoreDefiner,
     memoSelectors,

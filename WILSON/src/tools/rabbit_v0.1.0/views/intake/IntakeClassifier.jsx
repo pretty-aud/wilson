@@ -69,48 +69,48 @@ export default function IntakeClassifier({ files, onChange, onBack, onNext }) {
   }
 
   return (
-    <div className="h-full flex flex-col p-6 gap-4 overflow-auto">
+    <div className="h-full flex flex-col p-6 gap-4 overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div>
-        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
+        <h2 className="text-sm font-mono font-bold uppercase tracking-widest" style={{ color: '#fb923c' }}>
           Step 2 · Confirm document kinds
         </h2>
-        <p className="text-[11px] font-mono mt-1" style={{ color: '#7c2d12' }}>
+        <p className="text-[11px] font-mono mt-1" style={{ color: '#a8a29e' }}>
           The wizard guesses each document's kind from its name and
           extension. Adjust if a document was misclassified — the kind
           drives which chunker the pipeline uses.
         </p>
       </div>
 
-      <div className="flex-1 overflow-auto rounded-sm" style={{ border: '2px solid #f4a261' }}>
+      <div className="flex-1 overflow-auto rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead className="sticky top-0 z-10">
-            <tr style={{ backgroundColor: '#f4a261', borderBottom: '2px solid #7c2d12' }}>
-              <th className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-left" style={{ color: '#1c1917' }}>
+            <tr style={{ backgroundColor: '#44403c', borderBottom: '1px solid #57534e' }}>
+              <th className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-left" style={{ color: '#fb923c' }}>
                 File
               </th>
-              <th className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-left" style={{ color: '#1c1917' }}>
+              <th className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-left" style={{ color: '#fb923c' }}>
                 Kind
               </th>
             </tr>
           </thead>
           <tbody>
             {files.map(f => (
-              <tr key={f.id} style={{ borderBottom: '1px solid #fed7aa' }}>
+              <tr key={f.id} style={{ borderBottom: '1px solid #1c1917' }}>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#7c2d12' }} />
-                    <span className="text-xs font-mono truncate" style={{ color: '#1c1917' }}>{f.name}</span>
+                    <FileText className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+                    <span className="text-xs font-mono truncate" style={{ color: '#d6d3d1' }}>{f.name}</span>
                   </div>
                 </td>
                 <td className="px-3 py-2">
                   <select
                     value={f.document_kind || detectKind(f)}
                     onChange={(e) => patch(f.id, e.target.value)}
-                    className="px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
+                    className="px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                     style={{
-                      backgroundColor: '#fff',
-                      color: '#1c1917',
-                      border: '1px solid #7c2d12',
+                      backgroundColor: '#1c1917',
+                      color: '#f4a261',
+                      border: '1px solid #44403c',
                     }}
                   >
                     {DOCUMENT_KINDS.map(k => (
@@ -129,7 +129,7 @@ export default function IntakeClassifier({ files, onChange, onBack, onNext }) {
           type="button"
           onClick={onBack}
           className="px-4 py-1.5 text-xs font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+          style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
         >
           ← Back
         </button>
@@ -140,7 +140,7 @@ export default function IntakeClassifier({ files, onChange, onBack, onNext }) {
           style={{
             color: '#fff7ed',
             backgroundColor: '#ea580c',
-            border: '2px solid #7c2d12',
+            border: '1px solid #c2410c',
           }}
         >
           Next: pick core definers

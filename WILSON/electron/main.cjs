@@ -655,7 +655,9 @@ function startLocalServer(distPath) {
     //    {userData}/rabbit-data/projects/{project_id}/project.json
     //  Binary files live under .../files/, thumbs under .../thumbs/.
     // ═══════════════════════════════════════════════════════════════
-    const { v4: uuidv4 } = require('uuid');
+    // Use Node's built-in crypto.randomUUID — uuid@13 is ESM-only and
+    // can't be require()'d from this CommonJS main process file.
+    const { randomUUID: uuidv4 } = require('node:crypto');
 
     function getRabbitProjectsDir() {
       const dir = path.join(getRabbitDataDir(), 'projects');
@@ -731,17 +733,12 @@ function startLocalServer(distPath) {
       const list = [];
       for (const id of ids) {
         const bundle = readRabbitBundle(id);
-        if (bundle?.project) list.push({
-          id:               bundle.project.id,
-          title:            bundle.project.title,
-          status:           bundle.project.status,
-          status_tag:       bundle.project.status_tag,
-          updated_at:       bundle.project.updated_at,
-          budget_total:     bundle.project.budget_total,
-          budget_currency:  bundle.project.budget_currency,
-          client_name:      bundle.project.client_name,
-          cover_image_url:  bundle.project.cover_image_url,
-        });
+        if (bundle?.project) {
+          // Return the full project record so DOG-side fields
+          // (documents, visualAssets, startDate, endDate, description)
+          // travel through alongside the canonical RABBIT fields.
+          list.push({ ...bundle.project });
+        }
       }
       list.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
       res.json(list);
@@ -755,7 +752,11 @@ function startLocalServer(distPath) {
 
     expressApp.post('/api/rabbit/projects', (req, res) => {
       const now = new Date().toISOString();
+      // Spread req.body first so DOG-side fields (documents, visualAssets,
+      // startDate, endDate, etc.) ride through, then enforce the canonical
+      // identity / timestamp fields so they can't be overridden.
       const project = {
+        ...req.body,
         id:              req.body.id || uuidv4(),
         workspace_id:    req.body.workspace_id || '00000000-0000-0000-0000-000000000001',
         title:           req.body.title || 'Untitled Project',
@@ -769,6 +770,8 @@ function startLocalServer(distPath) {
         client_name:     req.body.client_name || null,
         cover_image_url: req.body.cover_image_url || null,
         created_by:      req.body.created_by || null,
+        documents:       Array.isArray(req.body.documents)    ? req.body.documents    : [],
+        visualAssets:    Array.isArray(req.body.visualAssets) ? req.body.visualAssets : [],
         created_at:      now,
         updated_at:      now,
       };

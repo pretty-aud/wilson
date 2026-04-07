@@ -43,24 +43,24 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
     >
       <div
         className="w-full max-w-md rounded-sm overflow-hidden flex flex-col"
-        style={{ backgroundColor: '#fff7ed', border: '2px solid #7c2d12' }}
+        style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
       >
         {/* Header */}
         <div
           className="flex items-center justify-between px-4 py-3"
-          style={{ backgroundColor: '#fee2e2', borderBottom: '2px solid #991b1b' }}
+          style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #7f1d1d' }}
         >
           <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4" style={{ color: '#991b1b' }} />
-            <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: '#991b1b' }}>
+            <AlertTriangle className="w-4 h-4" style={{ color: '#fca5a5' }} />
+            <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fca5a5' }}>
               Status mismatch
             </span>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-sm hover:bg-red-200"
-            style={{ color: '#991b1b' }}
+            className="p-1 rounded-sm hover:bg-stone-700"
+            style={{ color: '#fca5a5' }}
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -68,11 +68,11 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
 
         {/* Body */}
         <div className="p-4 flex flex-col gap-3">
-          <p className="text-[12px] font-mono leading-relaxed" style={{ color: '#1c1917' }}>
+          <p className="text-[12px] font-mono leading-relaxed" style={{ color: '#d6d3d1' }}>
             <span className="font-bold">{asset.name}</span> is marked
             <span
               className="mx-1 px-1.5 py-0.5 text-[10px] uppercase tracking-wider rounded-sm"
-              style={{ backgroundColor: '#dcfce7', color: '#15803d', border: '1px solid #15803d' }}
+              style={{ backgroundColor: '#1c1917', color: '#86efac', border: '1px solid #15803d' }}
             >
               {asset.status}
             </span>
@@ -83,11 +83,11 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
           {pending.length > 0 && (
             <div
               className="rounded-sm overflow-hidden"
-              style={{ border: '1px solid #f4a261', backgroundColor: '#fef3e8' }}
+              style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}
             >
               <div
                 className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-widest"
-                style={{ color: '#7c2d12', borderBottom: '1px solid #f4a261', backgroundColor: '#f4a261' }}
+                style={{ color: '#fb923c', borderBottom: '1px solid #44403c', backgroundColor: '#44403c' }}
               >
                 Pending tasks
               </div>
@@ -96,14 +96,14 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
                   <div
                     key={t.id}
                     className="flex items-center gap-2 px-3 py-1.5"
-                    style={{ borderBottom: '1px solid #fed7aa' }}
+                    style={{ borderBottom: '1px solid #292524' }}
                   >
-                    <span className="flex-1 text-[11px] font-mono truncate" style={{ color: '#1c1917' }}>
+                    <span className="flex-1 text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>
                       {t.title}
                     </span>
                     <span
                       className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
-                      style={{ backgroundColor: '#fed7aa', color: '#7c2d12', border: '1px solid #7c2d12' }}
+                      style={{ backgroundColor: '#292524', color: '#fb923c', border: '1px solid #57534e' }}
                     >
                       {t.status || '—'}
                     </span>
@@ -117,13 +117,13 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
         {/* Footer */}
         <div
           className="flex items-center justify-end gap-2 px-4 py-3"
-          style={{ borderTop: '1px solid #fed7aa' }}
+          style={{ borderTop: '1px solid #44403c' }}
         >
           <button
             type="button"
             onClick={onClose}
             className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#7c2d12', border: '1px solid #7c2d12', backgroundColor: 'transparent' }}
+            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
           >
             <Check className="w-3 h-3" />
             Keep as-is
@@ -135,7 +135,7 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
             style={{
               color: '#fff7ed',
               backgroundColor: '#ea580c',
-              border: '2px solid #7c2d12',
+              border: '1px solid #c2410c',
             }}
           >
             <ArrowDownCircle className="w-3 h-3" />

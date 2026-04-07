@@ -135,6 +135,7 @@ export default function App() {
   // Triggers to open tool settings panels from nav strip
   const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
   const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);
+  const [openRabbitSettingsTrigger, setOpenRabbitSettingsTrigger] = useState(0);
 
   // Pet visibility state — hides sprite during page transitions
   const [petVisible, setPetVisible] = useState(true);
@@ -853,6 +854,7 @@ export default function App() {
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenRabbitSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (currentPage === 'help') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
@@ -911,6 +913,7 @@ export default function App() {
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
+          openSettingsTrigger={openRabbitSettingsTrigger}
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>

@@ -112,11 +112,11 @@ export default function BudgetView() {
   if (!project) return <CenterMsg>No project loaded</CenterMsg>
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#fef3e8' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* Tab strip */}
       <div
         className="flex items-center gap-1 px-4 py-2"
-        style={{ backgroundColor: '#fff7ed', borderBottom: '1px solid #f4a261' }}
+        style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
       >
         {TABS.map(t => {
           const active = tab === t.id
@@ -128,9 +128,9 @@ export default function BudgetView() {
               onClick={() => setTab(t.id)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm"
               style={{
-                color: active ? '#fff7ed' : '#7c2d12',
+                color: active ? '#fff7ed' : '#a8a29e',
                 backgroundColor: active ? '#ea580c' : 'transparent',
-                border: '1px solid #7c2d12',
+                border: `1px solid ${active ? '#c2410c' : '#44403c'}`,
               }}
             >
               <Icon className="w-3 h-3" />
@@ -235,14 +235,14 @@ function SummaryTab({ variance, budget, tasks, roleRates, missingRolesCount, rat
             value={budget.total}
             currency={budget.currency}
             className="text-2xl font-mono font-bold"
-            style={{ color: '#1c1917' }}
+            style={{ color: '#d6d3d1' }}
           />
           <div className="flex flex-col items-end">
-            <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: '#7c2d12' }}>
+            <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: '#a8a29e' }}>
               {budget.currency} · {Object.keys(budget.byRole).length} role{Object.keys(budget.byRole).length === 1 ? '' : 's'}
             </span>
             {rateCardName && (
-              <span className="text-[10px] font-mono italic" style={{ color: '#7c2d12' }}>
+              <span className="text-[10px] font-mono italic" style={{ color: '#78716c' }}>
                 via {rateCardName}
               </span>
             )}
@@ -251,10 +251,10 @@ function SummaryTab({ variance, budget, tasks, roleRates, missingRolesCount, rat
         {missingRolesCount > 0 && (
           <div
             className="mt-3 flex items-start gap-2 p-2 rounded-sm"
-            style={{ backgroundColor: '#fef3e8', border: '1px solid #f4a261' }}
+            style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
           >
-            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#7c2d12' }} />
-            <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#7c2d12' }}>
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
+            <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
               {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
               the active rate card doesn't know about — those rows compute at 0.
               Add the missing role{missingRolesCount === 1 ? '' : 's'} to the
@@ -511,18 +511,18 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates, rateCard
             />
             <div
               className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-[11px] font-mono items-center"
-              style={{ backgroundColor: '#fef3e8', border: '2px solid #7c2d12' }}
+              style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
             >
-              <span className="font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>Total</span>
-              <span style={{ color: '#7c2d12' }}>{filteredTasks.length}</span>
-              <span style={{ color: '#7c2d12' }}>{totalBid.toFixed(1)}</span>
+              <span className="font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
+              <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
+              <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
               <span />
               <span />
               <CurrencyDisplay
                 value={totalCost}
                 currency={budget.currency}
                 className="font-bold"
-                style={{ color: '#1c1917' }}
+                style={{ color: '#d6d3d1' }}
               />
             </div>
           </>
@@ -537,12 +537,12 @@ function Card({ title, children }) {
   return (
     <div
       className="rounded-sm p-4 mb-4"
-      style={{ backgroundColor: '#fff7ed', border: '2px solid #7c2d12' }}
+      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
     >
       {title && (
         <h3
           className="text-[11px] font-mono uppercase tracking-widest font-bold mb-3"
-          style={{ color: '#1c1917' }}
+          style={{ color: '#fb923c' }}
         >
           {title}
         </h3>
@@ -554,21 +554,21 @@ function Card({ title, children }) {
 
 function BigTile({ label, value, hint, tone = 'neutral' }) {
   const colors = {
-    good:    { bg: '#dcfce7', border: '#15803d', text: '#15803d' },
-    danger:  { bg: '#fee2e2', border: '#991b1b', text: '#991b1b' },
-    neutral: { bg: '#fef3e8', border: '#7c2d12', text: '#1c1917' },
+    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
+    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
+    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
   }[tone]
   return (
     <div
       className="flex flex-col px-3 py-2 rounded-sm"
-      style={{ backgroundColor: colors.bg, border: `2px solid ${colors.border}` }}
+      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
     >
-      <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: colors.border }}>
+      <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>
         {label}
       </span>
       <span className="text-2xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
       {hint && (
-        <span className="text-[10px] font-mono" style={{ color: colors.border }}>{hint}</span>
+        <span className="text-[10px] font-mono" style={{ color: colors.label }}>{hint}</span>
       )}
     </div>
   )
@@ -585,14 +585,14 @@ function RoleTable({ rows, currency }) {
           <div
             key={row.role}
             className="grid grid-cols-3 gap-2 px-2 py-1 rounded-sm text-[11px] font-mono"
-            style={{ backgroundColor: '#fef3e8', border: '1px solid #fed7aa' }}
+            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
           >
-            <span style={{ color: '#1c1917' }}>{row.role}</span>
-            <span style={{ color: '#7c2d12' }}>{row.days.toFixed(1)} d</span>
+            <span style={{ color: '#d6d3d1' }}>{row.role}</span>
+            <span style={{ color: '#a8a29e' }}>{row.days.toFixed(1)} d</span>
             <CurrencyDisplay
               value={row.cost}
               currency={currency}
-              style={{ color: '#7c2d12' }}
+              style={{ color: '#a8a29e' }}
             />
           </div>
         ))}
@@ -608,14 +608,14 @@ function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
         <div
           key={`${row.name}-${i}`}
           className="grid grid-cols-6 gap-2 px-2 py-1 rounded-sm text-[11px] font-mono items-center"
-          style={{ backgroundColor: '#fef3e8', border: '1px solid #fed7aa' }}
+          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
-          <span className="truncate" style={{ color: '#1c1917' }}>{row.name}</span>
-          <span style={{ color: '#7c2d12' }}>{row.taskCount}</span>
-          <span style={{ color: '#7c2d12' }}>{row.bid.toFixed(1)}</span>
-          <span style={{ color: '#7c2d12' }}>{row.logged.toFixed(1)}</span>
+          <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
+          <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
+          <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
+          <span style={{ color: '#a8a29e' }}>{row.logged.toFixed(1)}</span>
           <VarianceCell value={row.variance} />
-          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#7c2d12' }} />
+          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
         </div>
       ))}
     </div>
@@ -626,13 +626,13 @@ function HeaderRow({ cols, sixCol }) {
   return (
     <div
       className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-2 py-1`}
-      style={{ borderBottom: '1px solid #f4a261' }}
+      style={{ borderBottom: '1px solid #44403c' }}
     >
       {cols.map(c => (
         <span
           key={c}
           className="text-[9px] font-mono uppercase tracking-widest"
-          style={{ color: '#7c2d12' }}
+          style={{ color: '#fb923c' }}
         >
           {c}
         </span>
@@ -644,9 +644,9 @@ function HeaderRow({ cols, sixCol }) {
 function VarianceCell({ value }) {
   const tone = varianceTone(value)
   const colors = {
-    good:    '#15803d',
-    danger:  '#991b1b',
-    neutral: '#7c2d12',
+    good:    '#86efac',
+    danger:  '#fca5a5',
+    neutral: '#a8a29e',
   }[tone]
   const Icon = value > 0 ? ArrowUp : value < 0 ? ArrowDown : Minus
   return (
@@ -660,7 +660,7 @@ function VarianceCell({ value }) {
 function Field({ label, children }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#7c2d12' }}>
+      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
         {label}
       </span>
       {children}
@@ -673,11 +673,11 @@ function Select({ value, onChange, options }) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-2 py-1 text-[11px] font-mono rounded-sm"
+      className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
       style={{
-        backgroundColor: '#fef3e8',
-        border: '1px solid #7c2d12',
-        color: '#1c1917',
+        backgroundColor: '#1c1917',
+        border: '1px solid #44403c',
+        color: '#f4a261',
       }}
     >
       {options.map(o => (
@@ -689,8 +689,8 @@ function Select({ value, onChange, options }) {
 
 function CenterMsg({ children }) {
   return (
-    <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#fef3e8' }}>
-      <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+    <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
+      <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
         {children}
       </span>
     </div>
@@ -699,7 +699,7 @@ function CenterMsg({ children }) {
 
 function Empty({ children }) {
   return (
-    <div className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+    <div className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>
       {children}
     </div>
   )

@@ -8,7 +8,7 @@
 //
 //   Intake → Summary → Assets → Timeline → Budget
 //
-// Visual: warm orange palette, 2px borders, monospace caps.
+// Visual: dark stone surface with orange accents, monospace caps.
 
 import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign,
@@ -27,9 +27,8 @@ export default function ViewTabs({ activeView, onChange, disabled }) {
     <div
       className="flex items-center gap-1 px-2"
       style={{
-        backgroundColor: '#fff7ed',
-        borderTop: '1px solid #f4a261',
-        borderBottom: '2px solid #7c2d12',
+        backgroundColor: '#1c1917',
+        borderBottom: '1px solid #44403c',
       }}
     >
       {RABBIT_VIEWS.map(({ id, label, Icon }) => {
@@ -42,13 +41,13 @@ export default function ViewTabs({ activeView, onChange, disabled }) {
             disabled={disabled}
             className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-mono uppercase tracking-wider transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
             style={{
-              color: active ? '#fff7ed' : '#7c2d12',
+              color: active ? '#fff7ed' : '#a8a29e',
               backgroundColor: active ? '#ea580c' : 'transparent',
-              borderLeft: active ? '2px solid #7c2d12' : '2px solid transparent',
-              borderRight: active ? '2px solid #7c2d12' : '2px solid transparent',
-              borderTop: active ? '2px solid #7c2d12' : '2px solid transparent',
+              borderLeft: '1px solid transparent',
+              borderRight: '1px solid transparent',
+              borderTop: '1px solid transparent',
               borderBottom: active ? '2px solid #ea580c' : '2px solid transparent',
-              marginBottom: '-2px',
+              marginBottom: '-1px',
             }}
           >
             <Icon className="w-3.5 h-3.5" />

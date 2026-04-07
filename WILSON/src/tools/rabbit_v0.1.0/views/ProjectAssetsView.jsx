@@ -87,8 +87,8 @@ export default function ProjectAssetsView() {
 
   if (!project) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+      <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
+        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           No project loaded
         </span>
       </div>
@@ -96,11 +96,11 @@ export default function ProjectAssetsView() {
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ backgroundColor: '#fef3e8' }}>
+    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── Toolbar ── */}
       <div
         className="flex items-center gap-2 px-6 py-3 flex-wrap"
-        style={{ borderBottom: '1px solid #f4a261', backgroundColor: '#fff7ed' }}
+        style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
       >
         <button
           type="button"
@@ -109,19 +109,19 @@ export default function ProjectAssetsView() {
           style={{
             color: '#fff7ed',
             backgroundColor: '#ea580c',
-            border: '2px solid #7c2d12',
+            border: '1px solid #c2410c',
           }}
         >
           <Plus className="w-3 h-3" /> Add asset
         </button>
 
         <div className="flex items-center gap-1">
-          <Filter className="w-3 h-3" style={{ color: '#7c2d12' }} />
+          <Filter className="w-3 h-3" style={{ color: '#a8a29e' }} />
           <select
             value={phaseFilter}
             onChange={(e) => setPhaseFilter(e.target.value)}
-            className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
-            style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #7c2d12' }}
+            className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           >
             <option value="">All phases</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -129,8 +129,8 @@ export default function ProjectAssetsView() {
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
-            style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #7c2d12' }}
+            className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           >
             <option value="">All types</option>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
@@ -138,21 +138,21 @@ export default function ProjectAssetsView() {
         </div>
 
         <div className="flex items-center gap-1 flex-1 max-w-xs">
-          <Search className="w-3 h-3" style={{ color: '#7c2d12' }} />
+          <Search className="w-3 h-3" style={{ color: '#a8a29e' }} />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search assets…"
-            className="flex-1 px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
-            style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #7c2d12' }}
+            className="flex-1 px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch('')}
               className="p-0.5"
-              style={{ color: '#7c2d12' }}
+              style={{ color: '#a8a29e' }}
             >
               <X className="w-3 h-3" />
             </button>
@@ -160,7 +160,7 @@ export default function ProjectAssetsView() {
         </div>
 
         <div className="flex items-center gap-1 ml-auto">
-          <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+          <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
             {filtered.length} / {assets.length}
           </span>
           <ViewModeButton
@@ -215,8 +215,8 @@ function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx, onWarnin
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2">
-        <Boxes className="w-8 h-8" style={{ color: '#7c2d12' }} />
-        <span className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+        <Boxes className="w-8 h-8" style={{ color: '#57534e' }} />
+        <span className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>
           No assets — click “Add asset” or run the intake wizard.
         </span>
       </div>
@@ -225,7 +225,7 @@ function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx, onWarnin
   return (
     <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
       <thead className="sticky top-0 z-10">
-        <tr style={{ backgroundColor: '#f4a261', borderBottom: '2px solid #7c2d12' }}>
+        <tr style={{ backgroundColor: '#44403c', borderBottom: '1px solid #57534e' }}>
           <Th>Name</Th>
           <Th>Type</Th>
           <Th>Phase</Th>
@@ -255,7 +255,7 @@ function AssetTable({ assets, phases, phaseById, taskCountByAsset, ctx, onWarnin
 
 function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onDelete, onWarningClick }) {
   return (
-    <tr style={{ borderBottom: '1px solid #fed7aa', backgroundColor: '#fff7ed' }}>
+    <tr style={{ borderBottom: '1px solid #1c1917', backgroundColor: '#292524' }}>
       <Td>
         <InlineText
           value={asset.name || ''}
@@ -294,15 +294,15 @@ function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onD
               type="button"
               onClick={onWarningClick}
               title="Tasks not yet done — click for details"
-              className="p-0.5 rounded-sm hover:bg-red-100"
+              className="p-0.5 rounded-sm hover:bg-stone-700"
             >
-              <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#991b1b' }} />
+              <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#fca5a5' }} />
             </button>
           )}
         </div>
       </Td>
       <Td>
-        <span className="text-[11px] font-mono" style={{ color: '#7c2d12' }}>
+        <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>
           {taskCount}
         </span>
       </Td>
@@ -314,9 +314,9 @@ function AssetRow({ asset, phases, phaseLabel, taskCount, warning, onUpdate, onD
               onDelete()
             }
           }}
-          className="p-1 rounded-sm hover:bg-red-100"
+          className="p-1 rounded-sm hover:bg-stone-700"
           title="Delete asset"
-          style={{ color: '#991b1b' }}
+          style={{ color: '#fca5a5' }}
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
@@ -336,8 +336,8 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, onWarningClick
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-2">
-        <Boxes className="w-8 h-8" style={{ color: '#7c2d12' }} />
-        <span className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+        <Boxes className="w-8 h-8" style={{ color: '#57534e' }} />
+        <span className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>
           No assets — click “Add asset” or run the intake wizard.
         </span>
       </div>
@@ -373,14 +373,14 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
   return (
     <div
       className="rounded-sm overflow-hidden flex flex-col"
-      style={{ backgroundColor: '#fff7ed', border: '2px solid #7c2d12' }}
+      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
     >
       {/* Thumbnail / initials block */}
       <div
         className="h-24 flex items-center justify-center relative"
         style={{
-          backgroundColor: '#fed7aa',
-          borderBottom: '2px solid #7c2d12',
+          backgroundColor: '#1c1917',
+          borderBottom: '1px solid #44403c',
           ...(asset.thumbnail_url ? {
             backgroundImage: `url(${JSON.stringify(asset.thumbnail_url)})`,
             backgroundSize: 'cover',
@@ -391,7 +391,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
         {!asset.thumbnail_url && (
           <span
             className="text-2xl font-mono font-bold"
-            style={{ color: '#7c2d12' }}
+            style={{ color: '#57534e' }}
           >
             {initials}
           </span>
@@ -400,8 +400,8 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
           <button
             type="button"
             onClick={onWarningClick}
-            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-sm hover:bg-red-200"
-            style={{ backgroundColor: '#fee2e2', border: '1px solid #991b1b', color: '#991b1b' }}
+            className="absolute top-1.5 right-1.5 flex items-center gap-1 px-1.5 py-0.5 rounded-sm hover:bg-stone-700"
+            style={{ backgroundColor: '#1c1917', border: '1px solid #7f1d1d', color: '#fca5a5' }}
             title="Status mismatch — click for details"
           >
             <AlertTriangle className="w-3 h-3" />
@@ -426,7 +426,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
           onCommit={(name) => onUpdate({ name })}
           placeholder="Untitled"
         />
-        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#7c2d12' }}>
+        <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           <span>{asset.type || 'other'}</span>
           {phaseLabel && <span className="truncate max-w-[100px]">· {phaseLabel}</span>}
         </div>
@@ -435,9 +435,9 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
       {/* Footer */}
       <div
         className="flex items-center justify-between px-2 py-1"
-        style={{ borderTop: '1px solid #fed7aa', backgroundColor: '#fef3e8' }}
+        style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
       >
-        <span className="text-[10px] font-mono" style={{ color: '#7c2d12' }}>
+        <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>
           {taskCount} task{taskCount === 1 ? '' : 's'}
         </span>
         <button
@@ -447,9 +447,9 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, onUpdate, onDelete, 
               onDelete()
             }
           }}
-          className="p-0.5 rounded-sm hover:bg-red-100"
+          className="p-0.5 rounded-sm hover:bg-stone-700"
           title="Delete asset"
-          style={{ color: '#991b1b' }}
+          style={{ color: '#fca5a5' }}
         >
           <Trash2 className="w-3 h-3" />
         </button>
@@ -467,9 +467,9 @@ function ViewModeButton({ active, onClick, icon: Icon, label }) {
       title={label}
       className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm"
       style={{
-        color: active ? '#fff7ed' : '#7c2d12',
+        color: active ? '#fff7ed' : '#a8a29e',
         backgroundColor: active ? '#ea580c' : 'transparent',
-        border: '1px solid #7c2d12',
+        border: `1px solid ${active ? '#c2410c' : '#44403c'}`,
       }}
     >
       <Icon className="w-3 h-3" />
@@ -483,7 +483,7 @@ function Th({ children }) {
   return (
     <th
       className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-left"
-      style={{ color: '#1c1917' }}
+      style={{ color: '#fb923c' }}
     >
       {children}
     </th>
@@ -512,8 +512,8 @@ function InlineText({ value, onCommit, placeholder }) {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
-        style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #7c2d12' }}
+        className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+        style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
   }
@@ -521,8 +521,8 @@ function InlineText({ value, onCommit, placeholder }) {
     <button
       type="button"
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-xs font-mono text-left w-full truncate hover:bg-orange-100 px-1 py-0.5 rounded-sm"
-      style={{ color: value ? '#1c1917' : '#7c2d12' }}
+      className="text-xs font-mono text-left w-full truncate hover:bg-stone-700 px-1 py-0.5 rounded-sm"
+      style={{ color: value ? '#d6d3d1' : '#78716c' }}
     >
       {value || placeholder || '—'}
     </button>
@@ -536,7 +536,7 @@ function InlineSelect({ value, options, onCommit, tone }) {
     <select
       value={value}
       onChange={(e) => onCommit(e.target.value)}
-      className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
+      className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
       style={{
         backgroundColor: colors.bg,
         color: colors.fg,
@@ -558,10 +558,10 @@ function statusTone(status) {
 
 function toneColors(tone) {
   switch (tone) {
-    case 'good':   return { bg: '#dcfce7', fg: '#15803d', border: '#15803d' }
-    case 'danger': return { bg: '#fee2e2', fg: '#991b1b', border: '#991b1b' }
-    case 'warn':   return { bg: '#fed7aa', fg: '#7c2d12', border: '#7c2d12' }
-    case 'active': return { bg: '#fed7aa', fg: '#ea580c', border: '#ea580c' }
-    default:       return { bg: '#fff',    fg: '#1c1917', border: '#7c2d12' }
+    case 'good':   return { bg: '#1c1917', fg: '#86efac', border: '#15803d' }
+    case 'danger': return { bg: '#1c1917', fg: '#fca5a5', border: '#7f1d1d' }
+    case 'warn':   return { bg: '#1c1917', fg: '#fcd34d', border: '#78350f' }
+    case 'active': return { bg: '#1c1917', fg: '#fb923c', border: '#c2410c' }
+    default:       return { bg: '#1c1917', fg: '#d6d3d1', border: '#44403c' }
   }
 }
