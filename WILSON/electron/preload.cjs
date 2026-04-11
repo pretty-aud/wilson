@@ -31,5 +31,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
     readGdriveTokens:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-tokens'),
     writeGdriveTokens:   (tk)  => ipcRenderer.invoke('rabbit:write-gdrive-tokens', tk),
     clearGdrive:         ()    => ipcRenderer.invoke('rabbit:clear-gdrive'),
+
+    // ── File management ──
+    readFilesConfig:      ()    => ipcRenderer.invoke('rabbit:read-files-config'),
+    writeFilesConfig:     (cfg) => ipcRenderer.invoke('rabbit:write-files-config', cfg),
+    pickDirectory:        ()    => ipcRenderer.invoke('rabbit:pick-directory'),
+    pickFiles:            ()    => ipcRenderer.invoke('rabbit:pick-files'),
+    copyFile:             (opts) => ipcRenderer.invoke('rabbit:copy-file', opts),
+    getFileStats:         (opts) => ipcRenderer.invoke('rabbit:get-file-stats', opts),
+    openInExplorer:       (opts) => ipcRenderer.invoke('rabbit:open-in-explorer', opts),
+    ensureProjectFolder:  (opts) => ipcRenderer.invoke('rabbit:ensure-project-folder', opts),
+    pickImage:            ()     => ipcRenderer.invoke('rabbit:pick-image'),
+    generateAssetThumbnail: (opts) => ipcRenderer.invoke('rabbit:generate-asset-thumbnail', opts),
+    clearAssetThumbnail:  (opts) => ipcRenderer.invoke('rabbit:clear-asset-thumbnail', opts),
+    onCopyProgress: (callback) => {
+      const handler = (_event, data) => callback(data);
+      ipcRenderer.on('rabbit:copy-progress', handler);
+      return () => ipcRenderer.removeListener('rabbit:copy-progress', handler);
+    },
   },
 });

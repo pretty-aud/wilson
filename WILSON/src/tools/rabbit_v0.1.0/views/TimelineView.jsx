@@ -46,19 +46,29 @@
 //   • phase.start_date / phase.end_date  (ISO YYYY-MM-DD)
 //   • task.phase_id                      (uuid, optional)
 
-import { useEffect, useMemo, useRef, useState, forwardRef } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback, forwardRef } from 'react'
 import {
   CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
+  Undo2, Redo2, Maximize2, Briefcase, Upload, Download,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import FileManager from '../components/FileManager'
+import TaskDetailPopup from '../components/TaskDetailPopup'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../rabbitHelpContent.jsx'
+import TaskTemplateManager from '../../../components/TaskTemplates/TaskTemplateManager'
 import {
   RABBIT_SCHEDULER_PROMPT,
   RABBIT_TASK_RECOMMENDER_PROMPT,
   RABBIT_PHASE_GENERATOR_PROMPT,
 } from '../prompts.js'
+import {
+  loadHolidays, saveHolidays,
+  parseHolidayCSV, exportHolidayCSV,
+  countWorkingDays,
+} from '../holidays.js'
 
 // ─── Constants ──────────────────────────────────────────────
 
@@ -68,7 +78,7 @@ const ZOOM_LEVELS = [
   { id: 'day',     label: 'Day',     dayPx: 56,  axisFormat: 'day'     },
   { id: 'week',    label: 'Week',    dayPx: 22,  axisFormat: 'week'    },
   { id: 'month',   label: 'Month',   dayPx: 8,   axisFormat: 'month'   },
-  { id: 'quarter', label: 'Quarter', dayPx: 4,   axisFormat: 'month'   },
+  { id: 'quarter', label: 'Quarter', dayPx: 4,   axisFormat: 'quarter' },
 ]
 
 // Per-zoom row heights — day view gets a taller row so each
@@ -85,6 +95,7 @@ const HEADER_PX        = 44
 const LABEL_W          = 240
 const OVERVIEW_HEIGHT  = 160
 const OVERVIEW_HEADER  = 24
+const OVERVIEW_SCROLLBAR_H = 10                   // infinite-wrap horizontal scrollbar
 const OVERVIEW_ROW_PX       = 14                  // legacy fallback / OverviewBar baseline
 const OVERVIEW_PHASE_ROW_PX = 22                  // taller rows for phase bars in minimap
 const OVERVIEW_TASK_ROW_PX  = 11                  // shorter rows for task bars in minimap
@@ -103,9 +114,10 @@ const RABBIT_SETTINGS_KEY = 'rabbit-timeline-settings-v1'
 
 const DEFAULT_SETTINGS = {
   showWeekends: true,
+  sortOrder:    'asc',  // 'asc' = earliest first (default), 'desc' = latest first
 }
 
-function loadRabbitSettings() {
+export function loadRabbitSettings() {
   try {
     const raw = localStorage.getItem(RABBIT_SETTINGS_KEY)
     if (!raw) return { ...DEFAULT_SETTINGS }
@@ -115,7 +127,7 @@ function loadRabbitSettings() {
     return { ...DEFAULT_SETTINGS }
   }
 }
-function saveRabbitSettings(s) {
+export function saveRabbitSettings(s) {
   try { localStorage.setItem(RABBIT_SETTINGS_KEY, JSON.stringify(s)) } catch {}
 }
 
@@ -123,7 +135,7 @@ function saveRabbitSettings(s) {
 // TimelineView
 // ============================================================
 
-export default function TimelineView() {
+export default function TimelineView({ settings, holidays }) {
   const ctx = useRabbit()
   const project = ctx?.project
   const phases = ctx?.phases || []
@@ -136,27 +148,53 @@ export default function TimelineView() {
   const DAY_PX = zoom.dayPx
   const ROW_PX = ROW_PX_BY_ZOOM[zoomId] || DEFAULT_ROW_PX
 
-  // ── settings (persisted) ─────────────────────────────────
-  const [settings, setSettings] = useState(() => loadRabbitSettings())
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState('settings')
-  const [showHelpModal, setShowHelpModal] = useState(false)
-  const [helpPage, setHelpPage] = useState(RABBIT_HELP_SIDEBAR_ITEMS[0]?.id || 'rabbit-overview')
-  function patchSettings(p) {
-    setSettings(prev => {
-      const next = { ...prev, ...p }
-      saveRabbitSettings(next)
+  // ── collapsed phases (persisted) ─────────────────────────
+  // Stored as a localStorage-backed Set of phase ids. This is
+  // kept independent from the phase record so it doesn't depend
+  // on the backend persisting a `collapsed` field — click the
+  // chevron and the next render sees the collapse immediately.
+  const COLLAPSE_KEY = 'rabbit-collapsed-phases-v1'
+  const [collapsedPhaseIds, setCollapsedPhaseIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSE_KEY)
+      if (raw) return new Set(JSON.parse(raw))
+    } catch {}
+    return new Set()
+  })
+  const toggleCollapsed = useCallback((phaseId) => {
+    if (!phaseId) return
+    setCollapsedPhaseIds(prev => {
+      const next = new Set(prev)
+      if (next.has(phaseId)) next.delete(phaseId)
+      else next.add(phaseId)
+      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next])) } catch {}
       return next
     })
-  }
-
-  // Listen for the WILSON nav strip's "open settings" event so the
-  // SETTINGS item can pop the slide-out from outside the timeline.
-  useEffect(() => {
-    function onOpen() { setSettingsOpen(true) }
-    window.addEventListener('rabbit:open-settings', onOpen)
-    return () => window.removeEventListener('rabbit:open-settings', onOpen)
   }, [])
+
+  // ── Undo / redo keyboard shortcuts ──────────────────────
+  // Ctrl+Z (Cmd+Z on mac) → undo, Ctrl+Shift+Z / Ctrl+Y → redo.
+  // Skipped while the user is typing inside an input / textarea /
+  // contenteditable so the editor modal still gets normal text undo.
+  useEffect(() => {
+    function onKey(e) {
+      const t = e.target
+      const tag = t?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      const k = (e.key || '').toLowerCase()
+      if (k === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        ctx?.undo?.()
+      } else if ((k === 'z' && e.shiftKey) || (k === 'y' && !e.shiftKey)) {
+        e.preventDefault()
+        ctx?.redo?.()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [ctx])
 
   // Day-grain showWeekends switch only matters at day zoom — at
   // larger zooms the visible cells are weeks/months and weekends
@@ -166,6 +204,9 @@ export default function TimelineView() {
   // ── editor ───────────────────────────────────────────────
   const [editor, setEditor] = useState(null)
   const closeEditor = () => setEditor(null)
+
+  // Shared task-detail popup (same component used in Tasks tab)
+  const [detailTaskId, setDetailTaskId] = useState(null)
 
   const openNewTask = (prefill = {}) => setEditor({
     mode:   'task',
@@ -181,21 +222,8 @@ export default function TimelineView() {
     phaseId: null,
     draft:   emptyPhaseDraft(prefill),
   })
-  const openEditTask = (task) => setEditor({
-    mode:   'task',
-    taskId: task.id,
-    draft: {
-      title:      task.title || '',
-      asset_id:   task.asset_id || '',
-      phase_id:   task.phase_id || '',
-      start_date: toDateInputValue(task.start_date),
-      end_date:   toDateInputValue(task.end_date),
-      bid_days:   task.bid_days ?? '',
-      role:       task.assigned_position || task.assigned_role_slug || '',
-      priority:   task.priority || 'medium',
-      status:     task.status || 'waiting_to_start',
-    },
-  })
+  // Existing tasks open the shared detail popup instead of the editor
+  const openEditTask = (task) => setDetailTaskId(task.id)
   const openEditPhase = (phase) => setEditor({
     mode:    'phase',
     phaseId: phase.id,
@@ -205,6 +233,7 @@ export default function TimelineView() {
       parent_phase_id: phase.parent_phase_id || '',
       start_date:      toDateInputValue(phase.start_date),
       end_date:        toDateInputValue(phase.end_date),
+      status:          phase.status || 'not_started',
     },
   })
 
@@ -220,13 +249,13 @@ export default function TimelineView() {
   )
 
   const rows = useMemo(
-    () => buildRows({ phases, assets, tasks, schedule }),
-    [phases, assets, tasks, schedule]
+    () => buildRows({ phases, assets, tasks, schedule, sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds }),
+    [phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds]
   )
 
   const summary = useMemo(
-    () => buildSummary({ phases, assets, tasks, schedule, criticalSet }),
-    [phases, assets, tasks, schedule, criticalSet]
+    () => buildSummary({ phases, assets, tasks, schedule, criticalSet, holidays }),
+    [phases, assets, tasks, schedule, criticalSet, holidays]
   )
 
   // Overview span: project min ‑ 6mo … project max + 18mo, with
@@ -348,7 +377,93 @@ export default function TimelineView() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
-  const OVERVIEW_DAY_PX = overviewWidth / Math.max(1, overviewSpan.days)
+  // ── minimap window state (zoom + pan independent of detail) ──
+  // The minimap is now a free-floating window over an infinite
+  // calendar. Zoom is measured in days (half a year to ten years,
+  // with snap points at 1/2/5 years). Center is a calendar date —
+  // null means "auto-fit to project + detail scroll".
+  const MINIMAP_ZOOM_MIN_DAYS = 183          // ~6 months
+  const MINIMAP_ZOOM_MAX_DAYS = 1825         // ~5 years (hard cap)
+  const MINIMAP_SNAP_DAYS     = [365, 730, 1825] // 1y, 2y, 5y
+  const MINIMAP_SNAP_PX       = 10           // snap tolerance in slider px
+
+  const [minimapZoomDays, setMinimapZoomDays]   = useState(null)
+  const [minimapCenterDate, setMinimapCenterDate] = useState(null)
+
+  // Derived minimap span. Falls back to the full overviewSpan when
+  // the user hasn't overridden either value yet — so the minimap
+  // behaves like it did before until the user touches a control.
+  const minimapSpan = useMemo(() => {
+    const defaultDays = Math.max(
+      MINIMAP_ZOOM_MIN_DAYS,
+      Math.min(MINIMAP_ZOOM_MAX_DAYS, overviewSpan.days || 365)
+    )
+    const days = minimapZoomDays ?? defaultDays
+    const defaultCenter = addDays(overviewSpan.start, Math.floor((overviewSpan.days || 0) / 2))
+    const center = minimapCenterDate ?? defaultCenter
+    const start = addDays(center, -Math.floor(days / 2))
+    const end   = addDays(start, days)
+    return { start, end, days, center }
+  }, [minimapZoomDays, minimapCenterDate, overviewSpan.start, overviewSpan.days])
+
+  const MINIMAP_DAY_PX = overviewWidth / Math.max(1, minimapSpan.days)
+
+  // Calendar-date window the detail pane is showing. Used by the
+  // minimap to position its frame rectangle in date space rather
+  // than overview-buffer space.
+  const visibleStartDate = addDays(overviewSpan.start, Math.max(0, Math.round(visibleStartDays)))
+  const visibleEndDate   = addDays(overviewSpan.start, Math.max(0, Math.round(visibleEndDays)))
+
+  // Translate a calendar date click on the minimap back into the
+  // detail pane's day-offset coordinate system.
+  const scrollDetailToDate = useCallback((date) => {
+    if (!date) return
+    const days = daysBetween(overviewSpan.start, date)
+    scrollDetailToDay(days)
+  }, [overviewSpan.start])
+
+  // Pan the minimap by a number of days (positive = move forward
+  // in time). Initializes the center-date state from the current
+  // derived center on first touch so the initial drag doesn't jump.
+  const panMinimap = useCallback((deltaDays) => {
+    setMinimapCenterDate(prev => {
+      const base = prev ?? addDays(overviewSpan.start, Math.floor((overviewSpan.days || 0) / 2))
+      return addDays(base, Math.round(deltaDays))
+    })
+  }, [overviewSpan.start, overviewSpan.days])
+
+  // Zoom the minimap, optionally pivoting on a specific date so
+  // the date under the cursor stays put while the span changes
+  // around it.
+  const zoomMinimap = useCallback((nextDays, pivotDate) => {
+    const clamped = Math.max(MINIMAP_ZOOM_MIN_DAYS, Math.min(MINIMAP_ZOOM_MAX_DAYS, Math.round(nextDays)))
+    setMinimapZoomDays(clamped)
+    if (pivotDate) {
+      const prevDays  = minimapSpan.days
+      const prevStart = minimapSpan.start
+      const pivotOffsetDays = daysBetween(prevStart, pivotDate)
+      const pivotFrac = pivotOffsetDays / Math.max(1, prevDays)
+      const newStart  = addDays(pivotDate, -Math.round(pivotFrac * clamped))
+      const newCenter = addDays(newStart, Math.floor(clamped / 2))
+      setMinimapCenterDate(newCenter)
+    }
+  }, [minimapSpan.days, minimapSpan.start])
+
+  // "Fit to project" — snap the minimap window to exactly the
+  // project's first task/phase → last task/phase range, ignoring
+  // the ±6mo/18mo padding the detail buffer uses.
+  const fitMinimapToProject = useCallback(() => {
+    const inner = totalSpan(schedule)
+    const innerDays = Math.max(1, daysBetween(inner.start, inner.end))
+    setMinimapZoomDays(innerDays)
+    setMinimapCenterDate(addDays(inner.start, Math.floor(innerDays / 2)))
+  }, [schedule])
+
+  // "Center on today" — move the minimap window so today sits in
+  // the middle. Preserves the current zoom level.
+  const centerMinimapOnToday = useCallback(() => {
+    setMinimapCenterDate(TODAY)
+  }, [])
 
   // ── early return: no project ─────────────────────────────
   if (!project) {
@@ -383,58 +498,19 @@ export default function TimelineView() {
         <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>
           · {phases.length} phase{phases.length === 1 ? '' : 's'} · {tasks.length} task{tasks.length === 1 ? '' : 's'}
         </span>
-        <span
-          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <GitBranch className="w-3 h-3" />
-          drag to draw · resize edges to stretch
-        </span>
-
-        <button
-          type="button"
-          onClick={() => openNewPhase()}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <Plus className="w-3 h-3" />
-          Phase
-        </button>
-        <button
-          type="button"
-          onClick={() => openNewTask()}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-        >
-          <Plus className="w-3 h-3" />
-          Task
-        </button>
-
-        {/* Right-side icon group: settings (slide-out) + help */}
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            title="Timeline settings"
-            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
-          >
-            <SettingsIcon className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowHelpModal(true)}
-            title="Help & Documentation"
-            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
-          >
-            <HelpCircle className="w-3.5 h-3.5" />
-          </button>
-        </div>
       </div>
 
-      {/* ── Summary band ── */}
-      <SummaryBand summary={summary} />
+      {/* ── Summary + minimap controls (single consolidated row) ── */}
+      <SummaryBand
+        summary={summary}
+        minimapZoomDays={minimapSpan.days}
+        minimapMinDays={MINIMAP_ZOOM_MIN_DAYS}
+        minimapMaxDays={MINIMAP_ZOOM_MAX_DAYS}
+        minimapSnapDays={MINIMAP_SNAP_DAYS}
+        onMinimapZoomChange={(days) => zoomMinimap(days)}
+        onMinimapFitProject={fitMinimapToProject}
+        onMinimapCenterToday={centerMinimapOnToday}
+      />
 
       {/* ── Overview pane (top half) ── */}
       <OverviewPane
@@ -444,17 +520,16 @@ export default function TimelineView() {
         tasks={tasks}
         schedule={schedule}
         criticalSet={criticalSet}
-        span={overviewSpan}
-        dayPx={OVERVIEW_DAY_PX}
-        visibleStartDays={visibleStartDays}
-        visibleEndDays={visibleEndDays}
-        onScrollDetailToDay={scrollDetailToDay}
-        onCreateTaskFromDates={(startDate, endDate) =>
-          openNewTask({
-            start_date: toDateInputValue(startDate),
-            end_date:   toDateInputValue(endDate),
-          })
-        }
+        span={minimapSpan}
+        dayPx={MINIMAP_DAY_PX}
+        sortOrder={settings.sortOrder}
+        visibleStartDate={visibleStartDate}
+        visibleEndDate={visibleEndDate}
+        zoomMinDays={MINIMAP_ZOOM_MIN_DAYS}
+        zoomMaxDays={MINIMAP_ZOOM_MAX_DAYS}
+        onScrollDetailToDate={scrollDetailToDate}
+        onPanMinimap={panMinimap}
+        onZoomMinimap={zoomMinimap}
         onUpdateTask={(taskId, patch) => ctx.updateTask(taskId, patch).catch(() => {})}
         onUpdatePhase={(phaseId, patch) => ctx.updatePhase(phaseId, patch).catch(() => {})}
         onEditTask={openEditTask}
@@ -466,6 +541,14 @@ export default function TimelineView() {
         zoomId={zoomId}
         onChange={setZoomId}
         onCenterToday={centerDetailOnToday}
+        sortOrder={settings.sortOrder}
+        onSortOrderChange={(o) => patchSettings({ sortOrder: o })}
+        canUndo={!!ctx?.canUndo}
+        canRedo={!!ctx?.canRedo}
+        onUndo={() => ctx?.undo?.()}
+        onRedo={() => ctx?.redo?.()}
+        onNewPhase={() => openNewPhase()}
+        onNewTask={() => openNewTask()}
       />
 
       {/* ── Detail pane (bottom half) ── */}
@@ -494,9 +577,57 @@ export default function TimelineView() {
         }
         onUpdateTask={(taskId, patch) => ctx.updateTask(taskId, patch).catch(() => {})}
         onUpdatePhase={(phaseId, patch) => ctx.updatePhase(phaseId, patch).catch(() => {})}
-        onToggleCollapse={(phase) =>
-          ctx.updatePhase(phase.id, { collapsed: !phase.collapsed }).catch(() => {})
-        }
+        onMovePhaseAndChildren={(phaseId, deltaDays, phasePatch) => {
+          // Move a phase bar AND every task that lives inside it (or
+          // any of its sub-phases) by the same number of days, so the
+          // user's drag preserves each task's offset within the phase.
+          // The whole composite is wrapped in ctx.runBatch so it
+          // commits as a SINGLE undo step (one Ctrl+Z reverts the
+          // entire drag, not one task at a time).
+          if (!deltaDays) {
+            return ctx.updatePhase(phaseId, phasePatch).catch(() => {})
+          }
+          return ctx.runBatch(async () => {
+            // BFS: collect this phase + every descendant sub-phase id.
+            const affectedPhaseIds = new Set([phaseId])
+            const stack = [phaseId]
+            while (stack.length) {
+              const currentId = stack.pop()
+              for (const p of phases) {
+                if (p.parent_phase_id === currentId && !affectedPhaseIds.has(p.id)) {
+                  affectedPhaseIds.add(p.id)
+                  stack.push(p.id)
+                }
+              }
+            }
+            // Build an asset → phase lookup so we catch tasks attached
+            // via asset_id rather than phase_id directly.
+            const assetPhaseById = {}
+            for (const a of assets) assetPhaseById[a.id] = a.phase_id || null
+            // Find every task whose effective phase id is inside the
+            // affected set, and that has at least one explicit date to
+            // shift. Tasks with no explicit dates derive from the DAG
+            // and will follow naturally on the next render.
+            const taskUpdates = []
+            for (const t of tasks) {
+              const effectivePhaseId =
+                t.phase_id ||
+                (t.asset_id ? assetPhaseById[t.asset_id] : null) ||
+                null
+              if (!effectivePhaseId || !affectedPhaseIds.has(effectivePhaseId)) continue
+              const tStart = parseDate(t.start_date)
+              const tEnd   = parseDate(t.end_date)
+              if (!tStart && !tEnd) continue
+              const patch = {}
+              if (tStart) patch.start_date = toIsoDate(addDays(tStart, deltaDays))
+              if (tEnd)   patch.end_date   = toIsoDate(addDays(tEnd,   deltaDays))
+              taskUpdates.push(ctx.updateTask(t.id, patch).catch(() => {}))
+            }
+            const phaseUpdate = ctx.updatePhase(phaseId, phasePatch).catch(() => {})
+            return Promise.all([phaseUpdate, ...taskUpdates])
+          })
+        }}
+        onToggleCollapse={(phase) => toggleCollapsed(phase.id)}
         onLinkTasks={(predId, succId) => ctx.linkTasks(predId, succId).catch(() => {})}
         onLinkPhases={(predId, succId) => ctx.linkPhases(predId, succId).catch(() => {})}
         onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).catch(() => {})}
@@ -523,7 +654,7 @@ export default function TimelineView() {
         onEditPhase={openEditPhase}
       />
 
-      {/* ── Editor — sibling so it survives any branch switch ── */}
+      {/* ── Editor — new task / new phase / edit phase only ── */}
       {editor && (
         <TaskEditor
           editor={editor}
@@ -534,29 +665,15 @@ export default function TimelineView() {
         />
       )}
 
-      {/* ── Settings slide-out (DOG/OTTER pattern: 40% width, slide-in) ── */}
-      {settingsOpen && (
-        <SettingsPanel
-          settings={settings}
-          patchSettings={patchSettings}
-          settingsTab={settingsTab}
-          setSettingsTab={setSettingsTab}
-          onClose={() => setSettingsOpen(false)}
-          onOpenHelp={() => {
-            setSettingsOpen(false)
-            setShowHelpModal(true)
-          }}
+      {/* ── Shared task detail popup (same component as Tasks tab) ── */}
+      {detailTaskId && (
+        <TaskDetailPopup
+          taskId={detailTaskId}
+          ctx={ctx}
+          onClose={() => setDetailTaskId(null)}
         />
       )}
 
-      {/* ── Help & Documentation modal ── */}
-      {showHelpModal && (
-        <HelpModal
-          helpPage={helpPage}
-          setHelpPage={setHelpPage}
-          onClose={() => setShowHelpModal(false)}
-        />
-      )}
     </div>
   )
 }
@@ -567,54 +684,67 @@ export default function TimelineView() {
 
 const OverviewPane = forwardRef(function OverviewPane({
   phases, assets, tasks, schedule, criticalSet,
-  span, dayPx,
-  visibleStartDays, visibleEndDays,
-  onScrollDetailToDay,
-  onCreateTaskFromDates,
+  span, dayPx, sortOrder,
+  visibleStartDate, visibleEndDate,
+  zoomMinDays = 183, zoomMaxDays = 3650,
+  onScrollDetailToDate,
+  onPanMinimap, onZoomMinimap,
   onUpdateTask, onUpdatePhase,
   onEditTask, onEditPhase,
 }, forwardedRef) {
-  // We render every phase as a row, with its task children as
-  // smaller pills below. Orphan tasks (no phase) get a final
-  // "Other" row.
+  // We render every PHASE as a row — tasks do not appear in the
+  // minimap at all. The minimap shows project shape, not task
+  // detail. Each row carries a taskCount used by the hover popup.
   const overviewRows = useMemo(
-    () => buildOverviewRows({ phases, assets, tasks, schedule }),
-    [phases, assets, tasks, schedule]
+    () => buildOverviewRows({ phases, assets, tasks, schedule, sortOrder }),
+    [phases, assets, tasks, schedule, sortOrder]
   )
 
-  // Drag-on-empty: create task. Drag-on-frame: scroll detail.
-  // Drag-on-bar: move/resize bar (delegated to Bar).
+  // Hover popup state. When the mouse enters a phase bar we
+  // record the hovered row + the mouse viewport coordinates so a
+  // fixed-position tooltip can render name / task count / dates.
+  const [hoverPopup, setHoverPopup] = useState(null) // { row, x, y }
+
+  // The minimap is now a panning viewport — BG drag pans the
+  // minimap window, frame drag scrolls the detail pane, click
+  // jumps the detail pane to that date. Task creation moves to
+  // the header + Task button.
   const bgRef = useRef(null)
-  const [dragPreview, setDragPreview] = useState(null) // {kind:'create',leftPx,widthPx}
+  const [isPanning, setIsPanning] = useState(false)
+  // Suppress the click-to-jump handler when the user has just
+  // finished a pan drag — otherwise mouseup at the end of a drag
+  // fires a click and snaps the detail pane to whatever day the
+  // cursor happened to land on.
+  const suppressNextClickRef = useRef(false)
 
   function handleBackgroundMouseDown(e) {
-    // Only react to clicks landing on the background itself, not
-    // on a bar / frame / button.
-    if (e.target !== bgRef.current) return
+    // React to any mousedown that wasn't already consumed by a bar
+    // or the frame (both of which call stopPropagation). This lets
+    // the user grab-and-pan from anywhere in the minimap body —
+    // including the empty space between bars and even directly on
+    // the row wrapper divs, which used to reject the pan because
+    // their target wasn't bgRef.current.
     if (e.button !== 0) return
     e.preventDefault()
-    const rect = bgRef.current.getBoundingClientRect()
-    const startX = e.clientX - rect.left
-    let endX = startX
-    setDragPreview({ kind: 'create', leftPx: startX, widthPx: 0 })
+    let startX = e.clientX
+    let moved = false
+    setIsPanning(true)
     function onMove(ev) {
-      endX = ev.clientX - rect.left
-      const lo = Math.min(startX, endX)
-      const hi = Math.max(startX, endX)
-      setDragPreview({ kind: 'create', leftPx: lo, widthPx: hi - lo })
+      const dx = ev.clientX - startX
+      if (Math.abs(dx) > 1) {
+        // Pan by full-pixel increments; reset anchor after each
+        // handled chunk so we don't accumulate rounding error.
+        const ddays = -dx / dayPx
+        onPanMinimap?.(ddays)
+        startX = ev.clientX
+        if (Math.abs(dx) > MIN_DRAG_PX) moved = true
+      }
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      const lo = Math.min(startX, endX)
-      const hi = Math.max(startX, endX)
-      setDragPreview(null)
-      if (hi - lo < MIN_DRAG_PX) return
-      const startDays = lo / dayPx
-      const endDays   = hi / dayPx
-      const startDate = addDays(span.start, Math.round(startDays))
-      const endDate   = addDays(span.start, Math.max(1, Math.round(endDays)))
-      onCreateTaskFromDates(startDate, endDate)
+      setIsPanning(false)
+      if (moved) suppressNextClickRef.current = true
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
@@ -624,33 +754,114 @@ const OverviewPane = forwardRef(function OverviewPane({
     if (e.button !== 0) return
     e.preventDefault()
     e.stopPropagation()
-    const startX  = e.clientX
-    const startVisibleDays = visibleStartDays
+    const startX = e.clientX
+    const startVisibleDate = visibleStartDate
+    const containerRect = bgRef.current?.getBoundingClientRect()
+    // Auto-pan: when the frame is dragged near the edge of the
+    // minimap viewport, start scrolling the minimap in that
+    // direction so the frame can travel infinitely.
+    const EDGE_ZONE = 24 // px from container edge to trigger pan
+    const PAN_SPEED = 3  // days per animation frame
+    let panDir = 0       // -1 left, 0 stop, +1 right
+    let rafId = null
+    function autoPan() {
+      if (panDir !== 0) {
+        onPanMinimap?.(panDir * PAN_SPEED)
+      }
+      rafId = requestAnimationFrame(autoPan)
+    }
+    rafId = requestAnimationFrame(autoPan)
     function onMove(ev) {
       const dx = ev.clientX - startX
       const ddays = dx / dayPx
-      onScrollDetailToDay(startVisibleDays + ddays)
+      const newStart = addDays(startVisibleDate, Math.round(ddays))
+      onScrollDetailToDate?.(newStart)
+      // Check if cursor is near the edge of the container
+      if (containerRect) {
+        const relX = ev.clientX - containerRect.left
+        if (relX < EDGE_ZONE) {
+          panDir = -1
+        } else if (relX > containerRect.width - EDGE_ZONE) {
+          panDir = 1
+        } else {
+          panDir = 0
+        }
+      }
     }
     function onUp() {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
+      if (rafId) cancelAnimationFrame(rafId)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
   }
 
   // Click-to-jump on the background (without drag): scroll the
-  // detail pane to put that day at the left edge.
+  // detail pane so the clicked date sits at the center of the
+  // visible window. Skip if the click originated on a bar or the
+  // frame (detected by walking up the DOM looking for a marker)
+  // or if the previous mouseup finished a pan-drag.
   function handleBackgroundClick(e) {
-    if (e.target !== bgRef.current) return
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false
+      return
+    }
+    // Walk up from the click target — if it (or any ancestor up to
+    // bgRef) is marked as non-jumpable, bail out. Bars and the
+    // frame both set data-minimap-nojump="1" so clicking them
+    // doesn't also scroll the detail pane.
+    let node = e.target
+    while (node && node !== bgRef.current) {
+      if (node.dataset && node.dataset.minimapNojump) return
+      node = node.parentNode
+    }
     const rect = bgRef.current.getBoundingClientRect()
     const x = e.clientX - rect.left
-    onScrollDetailToDay(x / dayPx - (visibleEndDays - visibleStartDays) / 2)
+    const clickedDate = addDays(span.start, Math.round(x / dayPx))
+    const visibleDays = Math.max(1, daysBetween(visibleStartDate, visibleEndDate))
+    const targetStart = addDays(clickedDate, -Math.floor(visibleDays / 2))
+    onScrollDetailToDate?.(targetStart)
   }
 
-  const frameLeft  = visibleStartDays * dayPx
-  const frameWidth = (visibleEndDays - visibleStartDays) * dayPx
-  const todayLeft  = daysBetween(span.start, TODAY) * dayPx
+  // Wheel handler: horizontal wheel pans (including Shift+vertical);
+  // Ctrl/Cmd + wheel zooms pivoted on the cursor's date.
+  function handleWheel(e) {
+    // Ignore wheel events on the frame/bars so their own handling
+    // (scroll detail pane) doesn't fight this.
+    const delta = e.deltaX !== 0 ? e.deltaX : (e.shiftKey ? e.deltaY : 0)
+    const ctrlZoom = e.ctrlKey || e.metaKey
+    if (ctrlZoom && e.deltaY !== 0) {
+      e.preventDefault()
+      const rect = bgRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const x = e.clientX - rect.left
+      const pivotDate = addDays(span.start, Math.round(x / dayPx))
+      // Zoom factor 1.15× per wheel notch.
+      const factor = e.deltaY > 0 ? 1.15 : 1 / 1.15
+      onZoomMinimap?.(span.days * factor, pivotDate)
+      return
+    }
+    if (delta !== 0) {
+      e.preventDefault()
+      const ddays = delta / dayPx
+      onPanMinimap?.(ddays)
+    }
+  }
+
+  // Frame placement in minimap pixel space, derived from calendar
+  // dates so the frame stays on the correct dates when the user
+  // zooms or pans the minimap independently.
+  const frameLeftDays  = daysBetween(span.start, visibleStartDate)
+  const frameRightDays = daysBetween(span.start, visibleEndDate)
+  const frameLeft      = frameLeftDays  * dayPx
+  const frameWidth     = Math.max(8, (frameRightDays - frameLeftDays) * dayPx)
+  const todayLeft      = daysBetween(span.start, TODAY) * dayPx
+  // Off-screen flags for the arrow indicator — true when the
+  // detail pane's visible window has panned entirely past the
+  // minimap's current view.
+  const frameOffLeft  = frameRightDays < 0
+  const frameOffRight = frameLeftDays  > span.days
 
   // Variable-height layout for the minimap — phase rows are taller
   // than task rows so the phase bars read as "bigger / more
@@ -706,20 +917,26 @@ const OverviewPane = forwardRef(function OverviewPane({
         ))}
       </div>
 
-      {/* Body — bars + frame + drag preview */}
+      {/* Body — bars + frame + pan cursor.
+          Height = OVERVIEW_HEIGHT − header − scrollbar − 2 (pane
+          border-bottom), so the frame's orange border and the row
+          bars are never clipped by the bottom pane border. */}
       <div
         ref={bgRef}
-        className="relative w-full overflow-y-auto"
+        className="relative w-full"
         style={{
-          height: OVERVIEW_HEIGHT - OVERVIEW_HEADER,
-          cursor: 'crosshair',
+          height: OVERVIEW_HEIGHT - OVERVIEW_HEADER - OVERVIEW_SCROLLBAR_H - 2,
+          cursor: isPanning ? 'grabbing' : 'grab',
+          overflow: 'hidden',
         }}
         onMouseDown={handleBackgroundMouseDown}
         onClick={handleBackgroundClick}
+        onWheel={handleWheel}
       >
-        <div className="relative" style={{ height: Math.max(innerH, OVERVIEW_HEIGHT - OVERVIEW_HEADER) }}>
-          {/* Today line */}
-          {todayLeft >= 0 && todayLeft <= innerH + dayPx && (
+        <div className="relative h-full" style={{ minHeight: innerH }}>
+          {/* Today line — only drawn when today lies inside the
+              minimap's current visible span. */}
+          {todayLeft >= 0 && todayLeft <= span.days * dayPx && (
             <div
               className="absolute top-0 bottom-0 pointer-events-none"
               style={{ left: todayLeft, width: 1, backgroundColor: '#fca5a5', zIndex: 4 }}
@@ -747,7 +964,6 @@ const OverviewPane = forwardRef(function OverviewPane({
                 style={{
                   top: layout.top,
                   height: layout.height,
-                  borderBottom: '1px solid #292524',
                 }}
               >
                 {r.start && r.end && (
@@ -761,47 +977,279 @@ const OverviewPane = forwardRef(function OverviewPane({
                     onUpdatePhase={onUpdatePhase}
                     onEditTask={onEditTask}
                     onEditPhase={onEditPhase}
+                    onHoverEnter={(e) => {
+                      if (r.kind === 'phase') {
+                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
+                      }
+                    }}
+                    onHoverMove={(e) => {
+                      if (r.kind === 'phase') {
+                        setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
+                      }
+                    }}
+                    onHoverLeave={() => {
+                      setHoverPopup(prev => (prev && prev.row.key === r.key) ? null : prev)
+                    }}
                   />
                 )}
               </div>
             )
           })}
 
-          {/* Drag preview */}
-          {dragPreview && (
+          {/* Visible-window frame — only drawn when at least part
+              of the detail pane's visible window intersects the
+              current minimap span. When it's off-screen we hide
+              the frame entirely and show an edge arrow instead. */}
+          {!frameOffLeft && !frameOffRight && (
             <div
-              className="absolute pointer-events-none rounded-sm"
+              data-minimap-nojump="1"
+              className="absolute cursor-grab active:cursor-grabbing"
               style={{
-                left: dragPreview.leftPx,
-                width: dragPreview.widthPx,
-                top: 4,
-                bottom: 4,
-                backgroundColor: 'rgba(234, 88, 12, 0.25)',
-                border: '1px dashed #fb923c',
-                zIndex: 6,
+                left: frameLeft,
+                width: Math.max(8, frameWidth),
+                // Leave a 1px gutter top and bottom so the 2px
+                // orange border is fully visible (the old top:0 /
+                // bottom:0 layout let the bottom border get clipped
+                // under the OverviewPane's own border-bottom).
+                top: 1,
+                bottom: 1,
+                border: '2px solid #fb923c',
+                backgroundColor: 'rgba(251, 146, 60, 0.10)',
+                boxShadow: '0 0 0 1px rgba(28,25,23,0.6) inset',
+                zIndex: 5,
               }}
+              onMouseDown={handleFrameMouseDown}
+              title="Drag to scroll the detail pane"
             />
           )}
-
-          {/* Visible-window frame */}
-          <div
-            className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing"
-            style={{
-              left: frameLeft,
-              width: Math.max(8, frameWidth),
-              border: '2px solid #fb923c',
-              backgroundColor: 'rgba(251, 146, 60, 0.10)',
-              boxShadow: '0 0 0 1px rgba(28,25,23,0.6) inset',
-              zIndex: 5,
-            }}
-            onMouseDown={handleFrameMouseDown}
-            title="Drag to scroll the detail pane"
-          />
         </div>
       </div>
+
+      {/* ── Infinite horizontal scrollbar ──
+          Below the body, a thin bar with a fixed-width thumb that
+          the user can grab to pan the minimap. When the thumb is
+          dragged past either edge of the track, it snaps back to
+          the center visually — but the timeline keeps scrolling in
+          the same direction, giving an "infinite" feel. This is
+          what Notion's timeline scrollbar does. The bar sits at
+          exactly OVERVIEW_SCROLLBAR_H pixels tall so the sibling
+          body + scrollbar + 2px pane border add up to OVERVIEW_HEIGHT. */}
+      <MinimapScrollbar
+        dayPx={dayPx}
+        height={OVERVIEW_SCROLLBAR_H}
+        onPan={onPanMinimap}
+      />
+
+      {/* Off-frame indicator — when the detail pane's visible
+          window is completely outside the minimap's current view,
+          show a small arrow at the corresponding edge so the user
+          knows which way to pan/zoom to find it. Clicking the
+          arrow centers the minimap on the detail window. */}
+      {frameOffLeft && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+          }}
+          title="Detail view is off-screen (left) — click to pan"
+          className="absolute flex items-center justify-center rounded-sm"
+          style={{
+            left: 4,
+            top: OVERVIEW_HEADER + 4,
+            width: 22,
+            height: 22,
+            color: '#fff7ed',
+            backgroundColor: '#ea580c',
+            border: '1px solid #c2410c',
+            zIndex: 7,
+          }}
+        >
+          <ChevronRight className="w-3.5 h-3.5" style={{ transform: 'rotate(180deg)' }} />
+        </button>
+      )}
+      {frameOffRight && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onPanMinimap?.(daysBetween(addDays(span.start, Math.floor(span.days / 2)), visibleStartDate))
+          }}
+          title="Detail view is off-screen (right) — click to pan"
+          className="absolute flex items-center justify-center rounded-sm"
+          style={{
+            right: 4,
+            top: OVERVIEW_HEADER + 4,
+            width: 22,
+            height: 22,
+            color: '#fff7ed',
+            backgroundColor: '#ea580c',
+            border: '1px solid #c2410c',
+            zIndex: 7,
+          }}
+        >
+          <ChevronRight className="w-3.5 h-3.5" />
+        </button>
+      )}
+
+      {/* Phase hover tooltip — fixed-position popup anchored to
+          the cursor. Shows the phase name, task count, and date
+          range. Only renders when the user is hovering a phase
+          row in this minimap. */}
+      {hoverPopup && hoverPopup.row?.kind === 'phase' && (
+        <div
+          className="fixed pointer-events-none rounded-sm shadow-lg"
+          style={{
+            left: hoverPopup.x + 14,
+            top:  hoverPopup.y + 14,
+            backgroundColor: '#1c1917',
+            border: '1px solid #fb923c',
+            padding: '6px 10px',
+            zIndex: 9999,
+            maxWidth: 320,
+            fontFamily: 'monospace',
+          }}
+        >
+          <div
+            className="text-[11px] font-bold uppercase tracking-wider truncate"
+            style={{ color: '#fb923c' }}
+          >
+            {hoverPopup.row.label || 'Untitled phase'}
+          </div>
+          <div className="text-[10px] mt-1" style={{ color: '#d6d3d1' }}>
+            {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
+          </div>
+          <div className="text-[10px]" style={{ color: '#a8a29e' }}>
+            {hoverPopup.row.start && hoverPopup.row.end
+              ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
+              : '— no dates —'}
+          </div>
+        </div>
+      )}
     </div>
   )
 })
+
+// Short human date for hover popups: "Apr 8, 2026"
+function formatTooltipDate(d) {
+  if (!d) return ''
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+// ============================================================
+// MinimapScrollbar — infinite-wrap horizontal scrollbar
+// ============================================================
+//
+// A thin horizontal bar with a fixed-width thumb that pans the
+// minimap via `onPan(deltaDays)`. The trick that makes it feel
+// infinite: the thumb starts centered, and every time the drag
+// would carry the thumb past either edge of the track, the thumb
+// position snaps back to the center of the track WITHOUT moving
+// the timeline — so the user can keep dragging indefinitely.
+//
+// Conversion: 1px of mouse movement = 1 / dayPx days of pan,
+// matching the scale of the minimap's own pixel space so the
+// bar's visual motion and the timeline motion feel 1:1.
+function MinimapScrollbar({ dayPx, height, onPan }) {
+  const trackRef = useRef(null)
+  const [trackW, setTrackW] = useState(0)
+  const [thumbOffset, setThumbOffset] = useState(0)  // px from center
+  const [dragging, setDragging] = useState(false)
+
+  useEffect(() => {
+    const el = trackRef.current
+    if (!el) return
+    const measure = () => setTrackW(el.clientWidth || 0)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Thumb geometry: fixed 35% of the track with sensible min/max.
+  const THUMB_W = Math.max(48, Math.min(220, trackW * 0.35))
+  const maxOffset = Math.max(0, (trackW - THUMB_W) / 2)
+
+  function onThumbMouseDown(e) {
+    if (e.button !== 0) return
+    e.preventDefault()
+    e.stopPropagation()
+    setDragging(true)
+    let prevX = e.clientX
+    function onMove(ev) {
+      const dx = ev.clientX - prevX
+      if (dx === 0) return
+      prevX = ev.clientX
+      // Convert pixel drag to a day pan — same scale as the
+      // minimap's own day-pixel so the visible window moves at
+      // 1:1 speed with the cursor.
+      if (dayPx > 0) onPan?.(dx / dayPx)
+      setThumbOffset(prev => {
+        const next = prev + dx
+        // Wrap back to center when the thumb would leave the
+        // track. This does NOT rewind the timeline — the pan
+        // we just applied stands.
+        if (Math.abs(next) >= maxOffset) return 0
+        return next
+      })
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      setDragging(false)
+      // On release, ease the thumb back to the center so the
+      // next interaction always starts from a known position.
+      setThumbOffset(0)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  // Clicking the track outside the thumb pans by one thumb width
+  // in the clicked direction — classic scrollbar page-scroll.
+  function onTrackMouseDown(e) {
+    if (e.button !== 0) return
+    if (e.target !== trackRef.current) return
+    const rect = trackRef.current.getBoundingClientRect()
+    const clickX = e.clientX - rect.left
+    const thumbCenter = trackW / 2 + thumbOffset
+    const dir = clickX < thumbCenter ? -1 : 1
+    if (dayPx > 0) onPan?.(dir * THUMB_W / dayPx)
+  }
+
+  return (
+    <div
+      ref={trackRef}
+      onMouseDown={onTrackMouseDown}
+      data-minimap-nojump="1"
+      className="relative w-full"
+      style={{
+        height,
+        backgroundColor: '#0c0a09',
+        borderTop: '1px solid #292524',
+        cursor: 'default',
+        userSelect: 'none',
+      }}
+    >
+      <div
+        onMouseDown={onThumbMouseDown}
+        className="absolute rounded-full"
+        style={{
+          top: 2,
+          bottom: 2,
+          left: `calc(50% + ${thumbOffset}px - ${THUMB_W / 2}px)`,
+          width: THUMB_W,
+          backgroundColor: dragging ? '#fb923c' : '#57534e',
+          border: '1px solid #44403c',
+          cursor: dragging ? 'grabbing' : 'grab',
+          transition: dragging ? 'none' : 'background-color 0.15s ease',
+        }}
+        title="Drag to pan the timeline — keeps scrolling past the edges"
+      />
+    </div>
+  )
+}
 
 // ============================================================
 // OverviewContainmentOverlay — draws phase→task tree rails on
@@ -942,7 +1390,7 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
 // OverviewBar — compressed bar with squash/stretch + click
 // ============================================================
 
-function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase }) {
+function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase, onHoverEnter, onHoverMove, onHoverLeave }) {
   const offsetDays = daysBetween(span.start, row.start)
   const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
   const left  = offsetDays * dayPx
@@ -1017,6 +1465,10 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
   return (
     <div
       onMouseDown={onMouseDown}
+      onMouseEnter={onHoverEnter}
+      onMouseMove={onHoverMove}
+      onMouseLeave={onHoverLeave}
+      data-minimap-nojump="1"
       className="absolute rounded-sm"
       style={{
         left, width,
@@ -1030,6 +1482,11 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
           ? '0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
           : undefined,
         cursor: 'grab',
+        // Lift bars above the visible-window frame (zIndex 5) so
+        // hover/click still hit the bar even when it sits inside
+        // the orange frame rectangle. The frame's empty whitespace
+        // remains draggable because it still occupies the gaps.
+        zIndex: 6,
       }}
       title={`${row.label} · drag to move · drag edges to resize`}
     />
@@ -1046,7 +1503,7 @@ function DetailPane({
   criticalSet, todayDays,
   dependencies, phases,
   onCreateTaskFromDates,
-  onUpdateTask, onUpdatePhase,
+  onUpdateTask, onUpdatePhase, onMovePhaseAndChildren,
   onToggleCollapse,
   onLinkTasks, onLinkPhases, onUnlinkDependency,
   onMoveTaskToPhase,
@@ -1102,6 +1559,73 @@ function DetailPane({
   // cursor while the user drags from one bar's right-edge handle.
   // Shape: { fromKind, fromId, startX, startY, curX, curY }
   const [depDrag, setDepDrag] = useState(null)
+
+  // Dependency-rewire drag — user grabs the arrow head of an
+  // existing dependency and drags it. While active, the overlay
+  // renders that dep's line from the predecessor to the cursor.
+  // On release:
+  //   - dropped on a same-kind bar other than the original
+  //     successor → unlink old, link new (rewire)
+  //   - dropped on the same bar                          → no-op
+  //   - dropped anywhere else (empty space, wrong kind)  → unlink (disconnect)
+  const [depRewire, setDepRewire] = useState(null)
+  // { depId, kind, predId, origSuccId, curX, curY }
+
+  function beginDependencyRewire({ dep, kind, predId, origSuccId }) {
+    const containerEl = scrollRef.current
+    if (!containerEl) return
+    setDepRewire({
+      depId: dep.id, kind, predId, origSuccId,
+      curX: 0, curY: 0,
+    })
+    function onMove(ev) {
+      const el = scrollRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      const x = ev.clientX - rect.left + el.scrollLeft - LABEL_W
+      const y = ev.clientY - rect.top  + el.scrollTop  - HEADER_PX
+      setDepRewire(d => d ? { ...d, curX: x, curY: y } : d)
+    }
+    function onUp(ev) {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      // Resolve drop target by walking up from the DOM element
+      // under the cursor, same as beginDependencyDrag.
+      const hit = document.elementFromPoint(ev.clientX, ev.clientY)
+      let node = hit
+      let targetKey = null
+      while (node && node !== document.body) {
+        if (node.dataset && node.dataset.rowBar) {
+          targetKey = node.dataset.rowBar
+          break
+        }
+        node = node.parentNode
+      }
+      let rewired = false
+      if (targetKey) {
+        const [tKind, tId] = targetKey.split(':')
+        if (tKind === kind && tId) {
+          if (tId === origSuccId) {
+            // Dropped back on original successor — treat as cancel.
+            rewired = true
+          } else if (tId !== predId) {
+            // Valid rewire — unlink the old dep, create a new one.
+            onUnlinkDependency?.(dep.id)
+            if (kind === 'task')  onLinkTasks?.(predId, tId)
+            if (kind === 'phase') onLinkPhases?.(predId, tId)
+            rewired = true
+          }
+        }
+      }
+      if (!rewired) {
+        // Dropped on empty space / self / wrong kind → disconnect.
+        onUnlinkDependency?.(dep.id)
+      }
+      setDepRewire(null)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   // Dependency-drag handler — called by DetailBar's handle mousedown.
   // We resolve the target bar on mouseup via elementFromPoint and
@@ -1224,6 +1748,64 @@ function DetailPane({
   const [dropZoneHover, setDropZoneHover] = useState(null)  // { phaseId, mouseX }
   const suppressNextClickRef = useRef(false)
 
+  // ─── Drag preview state for ghost overlays ───────────────
+  // phaseDragPreview: while a phase bar is being moved, this records
+  //   the dragged phase id + the live deltaDays. We use it to render
+  //   translucent ghost copies of every contained task / sub-phase
+  //   bar at their shifted positions, so the user sees exactly where
+  //   the whole subtree will land.
+  const [phaseDragPreview, setPhaseDragPreview] = useState(null) // { phaseId, deltaDays }
+  // reparentTaskPreview: while a task is being dragged (either by
+  //   the grip handle or by the bar body), this records the task's
+  //   id + its current dates + its current phase id. When combined
+  //   with reparentHoverPhaseId, we render a task-shaped ghost in
+  //   the target phase's row so the user knows where it would fall.
+  const [reparentTaskPreview, setReparentTaskPreview] = useState(null) // { taskId, start, end, currentPhaseId }
+
+  // BFS the phase tree to find every descendant of the dragged
+  // phase. The dragged phase itself is included so callers can
+  // check membership uniformly; the renderer skips it explicitly
+  // because its own DetailBar already moves with the cursor.
+  const phaseDragAffectedIds = useMemo(() => {
+    if (!phaseDragPreview) return null
+    const set = new Set([phaseDragPreview.phaseId])
+    const stack = [phaseDragPreview.phaseId]
+    while (stack.length) {
+      const cur = stack.pop()
+      for (const p of phases || []) {
+        if (p.parent_phase_id === cur && !set.has(p.id)) {
+          set.add(p.id)
+          stack.push(p.id)
+        }
+      }
+    }
+    return set
+  }, [phaseDragPreview, phases])
+
+  // Find the best row index to anchor a reparent ghost in. We
+  // prefer the drop-zone row of the target phase (it sits right
+  // under the phase's children, which is where a reparented task
+  // visually lands), then fall back to the phase row itself, then
+  // the synthetic Unphased row for the __unphased__ sentinel.
+  function findGhostRowForPhase(phaseId) {
+    if (!phaseId) return -1
+    if (phaseId === '__unphased__') {
+      for (let i = 0; i < rows.length; i++) {
+        if (rows[i].key === 'ph-unphased') return i
+      }
+      return -1
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.kind === 'drop-zone' && r.phase?.id === phaseId) return i
+    }
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      if (r.kind === 'phase' && r.phase?.id === phaseId) return i
+    }
+    return -1
+  }
+
   function findPhaseIdAtPoint(x, y) {
     if (typeof document === 'undefined') return null
     const el = document.elementFromPoint(x, y)
@@ -1253,6 +1835,20 @@ function DetailPane({
 
     setReparentGhost({ x: e.clientX, y: e.clientY, label: taskLabel })
 
+    // Seed the in-row ghost preview with the task's current dates.
+    // The ghost only renders when reparentHoverPhaseId is set, so
+    // it costs nothing if the user never crosses a different phase.
+    const taskRowIdx = rowIndexByTaskId[taskId]
+    const taskRow = taskRowIdx != null ? rows[taskRowIdx] : null
+    if (taskRow && taskRow.start && taskRow.end) {
+      setReparentTaskPreview({
+        taskId,
+        start: taskRow.start,
+        end:   taskRow.end,
+        currentPhaseId: task.phase_id || taskRow.phaseHint || null,
+      })
+    }
+
     function onMove(ev) {
       if (!active) {
         const dx = ev.clientX - startX
@@ -1273,6 +1869,7 @@ function DetailPane({
       window.removeEventListener('mouseup',   onUp,   true)
       setReparentGhost(null)
       setReparentHoverPhaseId(null)
+      setReparentTaskPreview(null)
       // Even without drag movement (i.e. just a click on the grip)
       // we still treat this as a reparent attempt if the cursor
       // happens to be over a different phase. Typically grip click
@@ -1422,8 +2019,10 @@ function DetailPane({
                 onClick={() => handleRowClick(r)}
                 title={isTaskRow ? 'Click to edit · drag to move to another phase' : undefined}
               >
-                {/* Collapse chevron (phases with children only). */}
-                {r.kind === 'phase' && r.hasChildren && r.phase && (
+                {/* Collapse chevron — always visible on phase rows
+                    so the user can hide the "+ New task" drop-zone
+                    of an empty phase too. */}
+                {r.kind === 'phase' && r.phase && (
                   <button
                     type="button"
                     onMouseDown={(e) => e.stopPropagation()}
@@ -1474,13 +2073,35 @@ function DetailPane({
               return (
                 <div
                   key={tick.key}
-                  className="absolute top-0 bottom-0 flex flex-col justify-end pb-1 px-1"
+                  className="absolute top-0 bottom-0 px-1"
                   style={{
                     left: dayToX(tick.offset),
-                    borderLeft: tick.major ? '2px solid #57534e' : '1px solid #57534e',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    // Major lines (month-1st in week/day, year-1st in month/quarter)
+                    // are wider + brighter so they visually break up the header.
+                    borderLeft: tick.major
+                      ? '2px solid #78716c'
+                      : '1px solid #57534e',
                   }}
                 >
-                  <span className="text-[9px] font-mono whitespace-nowrap" style={{ color: '#fb923c' }}>
+                  {/* Two-tier header: month/quarter label sits near the
+                      top of the header bar, day label hugs the bottom.
+                      The flex spacer pushes them apart so they never
+                      overlap even on a 44px-tall header. */}
+                  {tick.topLabel && (
+                    <span
+                      className="text-[9px] font-mono font-bold whitespace-nowrap"
+                      style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
+                    >
+                      {tick.topLabel}
+                    </span>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <span
+                    className="text-[9px] font-mono whitespace-nowrap"
+                    style={{ color: tick.major ? '#d6d3d1' : '#a8a29e', marginBottom: 4 }}
+                  >
                     {tick.label}
                   </span>
                 </div>
@@ -1494,12 +2115,14 @@ function DetailPane({
             className="relative"
             style={{ height: Math.max(80, rows.length * rowPx) }}
           >
-            {/* Grid + weekend tint (day view only) */}
+            {/* Grid + weekend tint + month / quarter boundaries */}
             {dayPx >= 4 && Array.from({ length: totalDays + 1 }, (_, i) => {
               const d = addDays(span.start, i)
               const dow = d.getDay()
               const isWeek = dow === 1
               const isWeekend = dow === 0 || dow === 6
+              const isMonthStart = d.getDate() === 1
+              const isQuarterStart = isMonthStart && [0, 3, 6, 9].includes(d.getMonth())
               // In day view we paint a soft tint on the entire weekend
               // column so the user can spot Sat/Sun at a glance.
               if (zoomId === 'day' && !hideWeekends && isWeekend) {
@@ -1516,6 +2139,42 @@ function DetailPane({
                 )
               }
               if (dayMask && dayMask.mask[i]?.hidden) return null
+              // Month-1st boundaries are always drawn as bold lines in
+              // week + day views so months are clearly divided.
+              // Quarter-1st boundaries are bold in quarter + month views.
+              const isMajorBoundary =
+                (isMonthStart && (zoomId === 'week' || zoomId === 'day')) ||
+                (isQuarterStart && (zoomId === 'quarter' || zoomId === 'month'))
+              if (isMajorBoundary) {
+                return (
+                  <div
+                    key={`g-${i}`}
+                    className="absolute top-0 bottom-0 pointer-events-none"
+                    style={{
+                      left: dayToX(i),
+                      width: 2,
+                      backgroundColor: '#78716c',
+                      opacity: 0.85,
+                    }}
+                  />
+                )
+              }
+              // In quarter view, also draw lighter month-1st lines so
+              // months within each quarter are visibly separated.
+              if (isMonthStart && zoomId === 'quarter') {
+                return (
+                  <div
+                    key={`g-${i}`}
+                    className="absolute top-0 bottom-0 pointer-events-none"
+                    style={{
+                      left: dayToX(i),
+                      width: 1,
+                      backgroundColor: '#57534e',
+                      opacity: 0.7,
+                    }}
+                  />
+                )
+              }
               if (dayPx < 8 && !isWeek) return null
               return (
                 <div
@@ -1683,8 +2342,10 @@ function DetailPane({
                       label={r.label}
                       phaseStyle
                       onUpdatePhase={onUpdatePhase}
+                      onMovePhaseAndChildren={onMovePhaseAndChildren}
                       onEditPhase={onEditPhase}
                       onBeginDependencyDrag={beginDependencyDrag}
+                      onPhaseDragChange={setPhaseDragPreview}
                     />
                   )}
                   {r.kind === 'task' && r.start && r.end && (
@@ -1705,11 +2366,88 @@ function DetailPane({
                       onReparentHoverChange={setReparentHoverPhaseId}
                       findPhaseIdAtPoint={findPhaseIdAtPoint}
                       onMoveTaskToPhase={onMoveTaskToPhase}
+                      onTaskBarDragChange={setReparentTaskPreview}
                     />
                   )}
                 </div>
               )
             })}
+
+            {/* Phase-drag ghost overlay — when the user is moving a
+                phase bar, every task and sub-phase inside it gets a
+                translucent ghost copy at the live shifted position so
+                the user knows exactly where the whole subtree will
+                land before releasing. The dragged phase row itself is
+                skipped because its own DetailBar already moves under
+                the cursor. */}
+            {phaseDragPreview && phaseDragAffectedIds && (
+              <div
+                className="absolute left-0 right-0 top-0 pointer-events-none"
+                style={{ height: Math.max(80, rows.length * rowPx), zIndex: 8 }}
+              >
+                {rows.map((r, i) => {
+                  if (r.kind === 'phase' && r.phase?.id === phaseDragPreview.phaseId) return null
+                  let belongs = false
+                  if (r.kind === 'phase' && r.phase && phaseDragAffectedIds.has(r.phase.id)) belongs = true
+                  if (r.kind === 'task'  && r.phaseHint && phaseDragAffectedIds.has(r.phaseHint)) belongs = true
+                  if (!belongs) return null
+                  if (!r.start || !r.end) return null
+                  const offsetDays = daysBetween(span.start, r.start) + phaseDragPreview.deltaDays
+                  const lengthDays = Math.max(0.5, daysBetween(r.start, r.end))
+                  const left  = dayToX(offsetDays)
+                  const right = dayToX(offsetDays + lengthDays)
+                  const width = Math.max(6, right - left)
+                  const isPhase = r.kind === 'phase'
+                  return (
+                    <div
+                      key={`pdg-${r.key}`}
+                      className="absolute rounded-sm"
+                      style={{
+                        top:  i * rowPx + (isPhase ? 3 : 5),
+                        height: isPhase ? rowPx - 6 : rowPx - 10,
+                        left,
+                        width,
+                        backgroundColor: 'rgba(234, 88, 12, 0.18)',
+                        border: `${isPhase ? 2 : 1}px dashed #fb923c`,
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Task reparent ghost — when the user is dragging a task
+                (via grip OR bar) and hovering over a different phase
+                row, draw a task-shaped ghost in the target phase's
+                drop-zone (or phase row if no drop-zone exists) at the
+                task's current dates, so the user can see where it
+                would slot in. */}
+            {reparentTaskPreview && reparentHoverPhaseId &&
+              reparentHoverPhaseId !== reparentTaskPreview.currentPhaseId &&
+              (() => {
+                const targetIdx = findGhostRowForPhase(reparentHoverPhaseId)
+                if (targetIdx < 0) return null
+                if (!reparentTaskPreview.start || !reparentTaskPreview.end) return null
+                const offsetDays = daysBetween(span.start, reparentTaskPreview.start)
+                const lengthDays = Math.max(0.5, daysBetween(reparentTaskPreview.start, reparentTaskPreview.end))
+                const left  = dayToX(offsetDays)
+                const right = dayToX(offsetDays + lengthDays)
+                const width = Math.max(6, right - left)
+                return (
+                  <div
+                    className="absolute rounded-sm pointer-events-none"
+                    style={{
+                      top: targetIdx * rowPx + 5,
+                      height: rowPx - 10,
+                      left,
+                      width,
+                      backgroundColor: 'rgba(234, 88, 12, 0.32)',
+                      border: '1.5px dashed #fb923c',
+                      zIndex: 9,
+                    }}
+                  />
+                )
+              })()}
 
             {/* Containment tree lines — subtle connectors drawn
                 from each phase bar down into each of its direct
@@ -1726,7 +2464,9 @@ function DetailPane({
             />
 
             {/* Dependency overlay — SVG layer on top of the bars,
-                showing curved arrows + an animated light pulse. */}
+                showing curved arrows + an animated light pulse.
+                Drag previews are passed in so dep endpoints can
+                follow the ghost of a moving task / phase. */}
             <DependencyOverlay
               visibleDeps={visibleDeps}
               rows={rows}
@@ -1737,7 +2477,12 @@ function DetailPane({
               chartW={effectiveChartW}
               chartH={Math.max(80, rows.length * rowPx)}
               depDrag={depDrag}
+              depRewire={depRewire}
               onUnlinkDependency={onUnlinkDependency}
+              onBeginDepRewire={beginDependencyRewire}
+              taskDragPreview={reparentTaskPreview}
+              phaseDragPreview={phaseDragPreview}
+              phaseDragAffectedIds={phaseDragAffectedIds}
             />
           </div>
         </div>
@@ -1984,11 +2729,33 @@ function ContainmentOverlay({ rows, span, dayPx, rowPx, dayToX, chartW, chartH }
 //   task → task  : orange (#fb923c)    — RABBIT's primary accent
 //   phase → phase: cyan   (#22d3ee)    — high contrast vs orange
 function DependencyOverlay({
-  visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH, depDrag, onUnlinkDependency,
+  visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH,
+  depDrag, depRewire,
+  onUnlinkDependency, onBeginDepRewire,
+  taskDragPreview, phaseDragPreview, phaseDragAffectedIds,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
   const TASK_COLOR  = '#fb923c'
   const PHASE_COLOR = '#22d3ee'
+
+  // Live drag delta (days) to apply to a row's endpoints so the
+  // dependency line follows the ghost of a moving task / phase.
+  // Returns 0 for rows not touched by an active drag.
+  function rowDeltaDays(row) {
+    if (!row) return 0
+    if (taskDragPreview && row.kind === 'task' && row.task?.id === taskDragPreview.taskId) {
+      return taskDragPreview.deltaDays || 0
+    }
+    if (phaseDragPreview && phaseDragAffectedIds) {
+      if (row.kind === 'phase' && row.phase && phaseDragAffectedIds.has(row.phase.id)) {
+        return phaseDragPreview.deltaDays || 0
+      }
+      if (row.kind === 'task' && row.phaseHint && phaseDragAffectedIds.has(row.phaseHint)) {
+        return phaseDragPreview.deltaDays || 0
+      }
+    }
+    return 0
+  }
 
   const edges = []
   for (const { dep, kind, predIdx, succIdx } of visibleDeps) {
@@ -1996,23 +2763,56 @@ function DependencyOverlay({
     const succRow = rows[succIdx]
     if (!predRow?.start || !predRow?.end) continue
     if (!succRow?.start || !succRow?.end) continue
-    const x1 = dayToX(daysBetween(span.start, predRow.end))
+    const predDelta = rowDeltaDays(predRow)
+    const succDelta = rowDeltaDays(succRow)
+    const x1 = dayToX(daysBetween(span.start, predRow.end)   + predDelta)
     const y1 = predIdx * rowPx + rowPx / 2
-    const x2 = dayToX(daysBetween(span.start, succRow.start))
-    const y2 = succIdx * rowPx + rowPx / 2
-    edges.push({ id: dep.id, kind, x1, y1, x2, y2 })
+    // If this dep is the one currently being rewired, make its
+    // head follow the cursor instead of its original successor.
+    const rewiring = depRewire && depRewire.depId === dep.id
+    const x2 = rewiring
+      ? depRewire.curX
+      : dayToX(daysBetween(span.start, succRow.start) + succDelta)
+    const y2 = rewiring
+      ? depRewire.curY
+      : succIdx * rowPx + rowPx / 2
+    edges.push({
+      id: dep.id, dep, kind,
+      x1, y1, x2, y2,
+      predId: kind === 'task' ? dep.predecessor_id : dep.predecessor_id,
+      succId: kind === 'task' ? dep.successor_id   : dep.successor_id,
+      rewiring: !!rewiring,
+    })
   }
 
+  // Curved arrow path — a cubic Bezier that leaves the predecessor
+  // going right, sweeps through the vertical gap, and lands on the
+  // successor going right again. The control-point offset scales
+  // with both horizontal AND vertical distance so short/near
+  // connections stay tight and long/distant ones flow gracefully.
+  //
+  // When the successor is LEFT of the predecessor (a backflow
+  // dependency — rare but legal) we bow the curve OUT horizontally
+  // so it doesn't crash through the bars: both control points get
+  // pushed to the right of x1 by a generous margin, creating a
+  // lazy loop.
   function buildPath(x1, y1, x2, y2) {
-    const STUB = 10
-    if (x2 >= x1 + STUB * 2) {
-      const mx = (x1 + x2) / 2
-      return `M ${x1} ${y1} L ${mx} ${y1} L ${mx} ${y2} L ${x2} ${y2}`
+    const dx = x2 - x1
+    const dy = y2 - y1
+    if (dx >= 0) {
+      // Forward flow: S-curve. Control-point horizontal offset is
+      // half the horizontal gap, with a floor of 24px so even near-
+      // coincident endpoints get a visible arc.
+      const cxOffset = Math.max(24, Math.abs(dx) * 0.5)
+      const cx1 = x1 + cxOffset
+      const cx2 = x2 - cxOffset
+      return `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`
     }
-    const outR = x1 + STUB
-    const outL = x2 - STUB
-    const midY = y1 + rowPx / 2 + 2
-    return `M ${x1} ${y1} L ${outR} ${y1} L ${outR} ${midY} L ${outL} ${midY} L ${outL} ${y2} L ${x2} ${y2}`
+    // Backflow: bow the curve to the right of both endpoints.
+    const loopOut = Math.max(40, Math.abs(dy) * 0.6 + 20)
+    const cx1 = x1 + loopOut
+    const cx2 = x2 + loopOut
+    return `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`
   }
 
   return (
@@ -2104,39 +2904,73 @@ function DependencyOverlay({
               <title>Click to remove dependency</title>
             </path>
 
-            {/* Outer blurred bloom — big and soft, trails behind */}
-            <circle r={7} fill={glowId} filter="url(#rabbit-pulse-blur)">
-              <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
-              <animate
-                attributeName="opacity"
-                values="0;0.9;0.9;0"
-                keyTimes="0;0.12;0.88;1"
-                dur="2.2s"
-                repeatCount="indefinite"
-              />
+            {/* Grab handle at the arrow head — draggable to rewire
+                or disconnect. The visible target is the arrow head
+                marker itself (a colored triangle); this circle is
+                an invisible hit zone sitting on top so the user can
+                grab the colored arrow tip without us drawing an
+                extra ring around it. */}
+            <circle
+              cx={e.x2}
+              cy={e.y2}
+              r={7}
+              fill="transparent"
+              stroke="none"
+              style={{ pointerEvents: 'all', cursor: 'grab' }}
+              onMouseDown={(ev) => {
+                ev.preventDefault()
+                ev.stopPropagation()
+                onBeginDepRewire?.({
+                  dep: e.dep,
+                  kind: e.kind,
+                  predId: e.predId,
+                  origSuccId: e.succId,
+                })
+              }}
+            >
+              <title>Drag to rewire — drop on empty space to disconnect</title>
             </circle>
-            {/* Inner gradient-filled dot — crisp center of light */}
-            <circle r={4} fill={glowId}>
-              <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
-              <animate
-                attributeName="opacity"
-                values="0;1;1;0"
-                keyTimes="0;0.1;0.9;1"
-                dur="2.2s"
-                repeatCount="indefinite"
-              />
-            </circle>
-            {/* Tiny solid white core so the head reads sharp */}
-            <circle r={1.3} fill="#ffffff">
-              <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
-              <animate
-                attributeName="opacity"
-                values="0;1;1;0"
-                keyTimes="0;0.1;0.9;1"
-                dur="2.2s"
-                repeatCount="indefinite"
-              />
-            </circle>
+
+            {/* Animated pulse — skipped while this dep is being
+                rewired so the flowing dot doesn't chase the cursor
+                unpleasantly. */}
+            {!e.rewiring && (
+              <>
+                {/* Outer blurred bloom — big and soft, trails behind */}
+                <circle r={7} fill={glowId} filter="url(#rabbit-pulse-blur)">
+                  <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
+                  <animate
+                    attributeName="opacity"
+                    values="0;0.9;0.9;0"
+                    keyTimes="0;0.12;0.88;1"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+                {/* Inner gradient-filled dot — crisp center of light */}
+                <circle r={4} fill={glowId}>
+                  <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
+                  <animate
+                    attributeName="opacity"
+                    values="0;1;1;0"
+                    keyTimes="0;0.1;0.9;1"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+                {/* Tiny solid white core so the head reads sharp */}
+                <circle r={1.3} fill="#ffffff">
+                  <animateMotion dur="2.2s" repeatCount="indefinite" path={d} />
+                  <animate
+                    attributeName="opacity"
+                    values="0;1;1;0"
+                    keyTimes="0;0.1;0.9;1"
+                    dur="2.2s"
+                    repeatCount="indefinite"
+                  />
+                </circle>
+              </>
+            )}
           </g>
         )
       })}
@@ -2165,7 +2999,7 @@ function DependencyOverlay({
 function DetailBar({
   row, span, dayPx, rowPx, dayToX, label,
   critical, phaseStyle,
-  onUpdateTask, onUpdatePhase,
+  onUpdateTask, onUpdatePhase, onMovePhaseAndChildren,
   onEditTask, onEditPhase,
   onBeginDependencyDrag,
   parentPhase,
@@ -2177,6 +3011,12 @@ function DetailBar({
   onReparentHoverChange,
   findPhaseIdAtPoint,
   onMoveTaskToPhase,
+  // Drag-preview callbacks — fire { ... } during a live drag and
+  // null on release. DetailPane reads these to render translucent
+  // ghost overlays for child tasks (phase drag) or for the target
+  // phase row (task reparent drag).
+  onPhaseDragChange,
+  onTaskBarDragChange,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
   // Live drag state — kept local so parent doesn't re-render
@@ -2184,6 +3024,30 @@ function DetailBar({
   const [drag, setDrag] = useState(null) // null | {start, end, mode}
   const [hover, setHover] = useState(false)
   const [pendingExtend, setPendingExtend] = useState(null) // {patch, phaseId, newPhaseStart, newPhaseEnd}
+
+  // The dependency-drag dot sits OUTSIDE the bar's bounding box
+  // (right of the resize grab), so moving the mouse from the bar
+  // toward the dot triggers onMouseLeave on the bar before the
+  // cursor reaches the dot. To keep the dot reachable we delay
+  // the hover-off by ~180ms, and the dot itself maintains hover
+  // state while the cursor is over it.
+  const hoverLeaveTimerRef = useRef(null)
+  function scheduleHoverOff() {
+    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current)
+    hoverLeaveTimerRef.current = setTimeout(() => {
+      setHover(false)
+      hoverLeaveTimerRef.current = null
+    }, 180)
+  }
+  function cancelHoverOff() {
+    if (hoverLeaveTimerRef.current) {
+      clearTimeout(hoverLeaveTimerRef.current)
+      hoverLeaveTimerRef.current = null
+    }
+  }
+  useEffect(() => () => {
+    if (hoverLeaveTimerRef.current) clearTimeout(hoverLeaveTimerRef.current)
+  }, [])
 
   // Dep-handle mousedown: delegates to the pane's begin handler,
   // passing the source id + origin point in chart-container coords.
@@ -2246,6 +3110,23 @@ function DetailBar({
       typeof onMoveTaskToPhase === 'function'
     let lastHoverPhaseId = null
 
+    // Seed the in-row reparent ghost preview at drag start so the
+    // moment the user crosses into another phase row, the ghost
+    // is ready to render. Also seeded for non-reparent task drags
+    // so the DependencyOverlay can follow the task's live offset
+    // with dep lines even when reparenting isn't in play.
+    const isTaskMoveDrag =
+      !phaseStyle && row.task && mode === 'move' && typeof onTaskBarDragChange === 'function'
+    if (isTaskMoveDrag) {
+      onTaskBarDragChange({
+        taskId: row.task.id,
+        start:  origStart,
+        end:    origEnd,
+        currentPhaseId,
+        deltaDays: 0,
+      })
+    }
+
     function onMove(ev) {
       const dx = ev.clientX - startMouseX
       if (Math.abs(dx) > MIN_DRAG_PX) moved = true
@@ -2265,6 +3146,28 @@ function DetailBar({
       liveStart = newStart
       liveEnd   = newEnd
       setDrag({ start: newStart, end: newEnd, mode })
+
+      // Phase drag preview: only fires for phase bars in MOVE mode.
+      // Carries the live deltaDays so DetailPane can render ghost
+      // copies of every contained task / sub-phase at the shifted
+      // offset.
+      if (phaseStyle && row.phase && mode === 'move' && typeof onPhaseDragChange === 'function') {
+        onPhaseDragChange({ phaseId: row.phase.id, deltaDays: ddays })
+      }
+
+      // Task drag preview: fires for task bars in MOVE mode. Carries
+      // the live deltaDays so the DependencyOverlay can shift any
+      // dep endpoints touching this task with the ghost. Reparent
+      // info stays on the payload for the reparent ghost renderer.
+      if (isTaskMoveDrag) {
+        onTaskBarDragChange({
+          taskId: row.task.id,
+          start:  origStart,
+          end:    origEnd,
+          currentPhaseId,
+          deltaDays: ddays,
+        })
+      }
 
       // Reparent-hover tracking. We walk the DOM under the cursor to
       // find the nearest data-phase-drop-target ancestor. If it's a
@@ -2287,6 +3190,14 @@ function DetailBar({
       window.removeEventListener('mouseup', onUp)
       setDrag(null)
       if (canReparent) onReparentHoverChange?.(null)
+      // Clear preview overlays regardless of which path commits
+      // below — the drag is over.
+      if (phaseStyle && row.phase && mode === 'move' && typeof onPhaseDragChange === 'function') {
+        onPhaseDragChange(null)
+      }
+      if (isTaskMoveDrag) {
+        onTaskBarDragChange(null)
+      }
       if (!moved) {
         if (phaseStyle && row.phase) onEditPhase?.(row.phase)
         else if (!phaseStyle && row.task) onEditTask?.(row.task)
@@ -2296,8 +3207,19 @@ function DetailBar({
 
       // Phase bars: just commit. No clamping — phases ARE the
       // container, so they can move freely.
+      //
+      // MOVE mode also drags every task inside the phase (and inside
+      // its sub-phases) by the same delta, so each task keeps its
+      // offset within the phase. RESIZE modes only change the phase
+      // boundary — children stay put — so they keep using the plain
+      // onUpdatePhase path.
       if (phaseStyle && row.phase) {
-        onUpdatePhase?.(row.phase.id, patch)
+        if (mode === 'move' && typeof onMovePhaseAndChildren === 'function') {
+          const deltaDays = daysBetween(origStart, liveStart)
+          onMovePhaseAndChildren(row.phase.id, deltaDays, patch)
+        } else {
+          onUpdatePhase?.(row.phase.id, patch)
+        }
         return
       }
 
@@ -2356,8 +3278,8 @@ function DetailBar({
   return (
     <div
       onMouseDown={onMouseDown}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
+      onMouseLeave={scheduleHoverOff}
       data-row-bar={dataRowBar}
       className="absolute flex items-center px-2 rounded-sm cursor-grab active:cursor-grabbing"
       style={{
@@ -2381,23 +3303,28 @@ function DetailBar({
           {label}
         </span>
       )}
-      {/* Dependency-drag handle — right-edge dot, appears on hover.
-          Color matches the kind of dependency it will create:
-          orange for task→task, cyan for phase→phase. */}
+      {/* Dependency-drag handle — sits OUTSIDE the bar, just past
+          its right edge, so it no longer overlaps the 6px resize
+          grab zone at the bar's right edge. Color matches the kind
+          of dependency it will create: orange for task→task, cyan
+          for phase→phase. */}
       {hover && (
         <div
           onMouseDown={onDepHandleDown}
+          onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
+          onMouseLeave={scheduleHoverOff}
           className="absolute rounded-full"
           style={{
-            right: -6,
+            right: -22,
             top: '50%',
             transform: 'translateY(-50%)',
-            width: 10,
-            height: 10,
+            width: 14,
+            height: 14,
             backgroundColor: phaseStyle ? '#22d3ee' : '#fb923c',
             border: '2px solid #1c1917',
             cursor: 'crosshair',
             zIndex: 6,
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.4)',
           }}
           title="Drag to link a dependency"
         />
@@ -2498,6 +3425,20 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
+  // Team members for the "Assigned To" dropdown
+  const tm = useTeamMembers()
+  const teamAssignments = ctx?.teamAssignments || []
+  const memberById = useMemo(() => {
+    const map = {}
+    for (const m of tm.members) map[m.id] = m
+    return map
+  }, [tm.members])
+  const projectMembers = useMemo(() => {
+    return teamAssignments
+      .map(a => memberById[a.member_id])
+      .filter(Boolean)
+  }, [teamAssignments, memberById])
+
   const isTask = editor.mode === 'task'
   const isEditingExisting = isTask ? !!editor.taskId : !!editor.phaseId
 
@@ -2522,6 +3463,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           parent_phase_id: draft.parent_phase_id || null,
           start_date:      draft.start_date,
           end_date:        draft.end_date,
+          status:          draft.status || 'not_started',
         }
         if (editor.phaseId) {
           await ctx.updatePhase(editor.phaseId, payload)
@@ -2544,6 +3486,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           assigned_role_slug: draft.role?.trim()
             ? draft.role.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_')
             : null,
+          assignee_id:        draft.assignee_id || null,
           priority:           draft.priority || 'medium',
           status:             draft.status || 'waiting_to_start',
         }
@@ -2673,6 +3616,19 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                 Phases always have a start and end date — the bar you see
                 on the timeline is drawn from these.
               </div>
+              <Field label="Status">
+                <select
+                  value={draft.status || 'not_started'}
+                  onChange={(e) => patch('status', e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                >
+                  <option value="not_started">Not started</option>
+                  <option value="active">Active</option>
+                  <option value="completed">Completed</option>
+                  <option value="delayed">Delayed</option>
+                </select>
+              </Field>
               <Field label="Description">
                 <textarea
                   rows={3}
@@ -2759,15 +3715,18 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
-                <Field label="Role">
-                  <input
-                    type="text"
-                    value={draft.role}
-                    onChange={(e) => patch('role', e.target.value)}
-                    placeholder="e.g. Animator"
+                <Field label="Assigned To">
+                  <select
+                    value={draft.assignee_id || ''}
+                    onChange={(e) => patch('assignee_id', e.target.value)}
                     className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
-                  />
+                  >
+                    <option value="">-- unassigned --</option>
+                    {projectMembers.map(m => (
+                      <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
+                  </select>
                 </Field>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -2800,6 +3759,30 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                   </select>
                 </Field>
               </div>
+
+              {/* Asset files section — only shown for tasks with an asset */}
+              {draft.asset_id && (() => {
+                const parentAsset = assets.find(a => a.id === draft.asset_id)
+                if (!parentAsset) return null
+                return (
+                  <div className="mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
+                    <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+                      Asset: {parentAsset.name || 'Untitled'}
+                    </div>
+                    <FileManager
+                      files={ctx?.managedFiles || []}
+                      assetId={parentAsset.id}
+                      assetName={parentAsset.name}
+                      projectId={ctx?.activeProjectId}
+                      project={ctx?.project}
+                      mode="readonly"
+                      taskTitle={draft.title || null}
+                      taskId={editor.taskId || null}
+                      onFileAdded={() => ctx?.refreshManagedFiles?.()}
+                    />
+                  </div>
+                )
+              })()}
             </>
           )}
 
@@ -2880,10 +3863,11 @@ function emptyTaskDraft({ assetId = '', phaseId = '', start_date, end_date } = {
     phase_id:   phaseId || '',
     start_date: start_date ?? toDateInputValue(today),
     end_date:   end_date   ?? toDateInputValue(inWeek),
-    bid_days:   '',
-    role:       '',
-    priority:   'medium',
-    status:     'waiting_to_start',
+    bid_days:    '',
+    role:        '',
+    assignee_id: '',
+    priority:    'medium',
+    status:      'waiting_to_start',
   }
 }
 
@@ -2896,6 +3880,7 @@ function emptyPhaseDraft({ start_date, end_date, parent_phase_id } = {}) {
     parent_phase_id: parent_phase_id || '',
     start_date:      start_date ?? toDateInputValue(today),
     end_date:        end_date   ?? toDateInputValue(inMonth),
+    status:          'not_started',
   }
 }
 
@@ -2984,12 +3969,53 @@ function toIsoDate(d) {
 // gantt. Controls the bottom pane's zoom only; the minimap is
 // always locked to the OVERVIEW_ZOOM (week+).
 // ============================================================
-function DetailZoomToolbar({ zoomId, onChange, onCenterToday }) {
+function DetailZoomToolbar({
+  zoomId, onChange, onCenterToday,
+  sortOrder = 'asc', onSortOrderChange,
+  canUndo = false, canRedo = false, onUndo, onRedo,
+  onNewPhase, onNewTask,
+}) {
   return (
     <div
       className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
       style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
     >
+      {/* Undo / redo — leftmost so they're always in the same spot
+          regardless of which other controls are visible. Disabled
+          buttons gray out but stay in place so the layout doesn't
+          shift as history fills and empties. */}
+      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <button
+          type="button"
+          onClick={onUndo}
+          disabled={!canUndo}
+          className="px-2 py-1 flex items-center gap-1"
+          style={{
+            color: canUndo ? '#fff7ed' : '#57534e',
+            backgroundColor: canUndo ? '#1c1917' : '#292524',
+            borderRight: '1px solid #44403c',
+            cursor: canUndo ? 'pointer' : 'not-allowed',
+          }}
+          title="Undo (Ctrl+Z)"
+        >
+          <Undo2 className="w-3 h-3" />
+        </button>
+        <button
+          type="button"
+          onClick={onRedo}
+          disabled={!canRedo}
+          className="px-2 py-1 flex items-center gap-1"
+          style={{
+            color: canRedo ? '#fff7ed' : '#57534e',
+            backgroundColor: canRedo ? '#1c1917' : '#292524',
+            cursor: canRedo ? 'pointer' : 'not-allowed',
+          }}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          <Redo2 className="w-3 h-3" />
+        </button>
+      </div>
+
       <span
         className="text-[10px] font-mono uppercase tracking-wider"
         style={{ color: '#a8a29e' }}
@@ -3031,12 +4057,219 @@ function DetailZoomToolbar({ zoomId, onChange, onCenterToday }) {
         <Crosshair className="w-3 h-3" />
         <span className="text-[10px] font-mono uppercase tracking-wider">Today</span>
       </button>
+
+      {/* Sort by date — ascending / descending. Affects both the
+          minimap and the detail pane row order. */}
       <span
-        className="text-[10px] font-mono"
-        style={{ color: '#78716c' }}
+        className="text-[10px] font-mono uppercase tracking-wider ml-2"
+        style={{ color: '#a8a29e' }}
       >
-        · minimap above is locked to weeks
+        Sort
       </span>
+      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <button
+          type="button"
+          onClick={() => onSortOrderChange?.('asc')}
+          className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider"
+          style={{
+            color: sortOrder === 'asc' ? '#fff7ed' : '#a8a29e',
+            backgroundColor: sortOrder === 'asc' ? '#ea580c' : '#1c1917',
+            borderRight: '1px solid #44403c',
+          }}
+          title="Sort phases and tasks by start date, earliest first"
+        >
+          ↑ Date
+        </button>
+        <button
+          type="button"
+          onClick={() => onSortOrderChange?.('desc')}
+          className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider"
+          style={{
+            color: sortOrder === 'desc' ? '#fff7ed' : '#a8a29e',
+            backgroundColor: sortOrder === 'desc' ? '#ea580c' : '#1c1917',
+          }}
+          title="Sort phases and tasks by start date, latest first"
+        >
+          ↓ Date
+        </button>
+      </div>
+
+      {/* + Phase / + Task — moved here from the header strip so
+          they live alongside the other detail-pane controls. */}
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onNewPhase}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        >
+          <Plus className="w-3 h-3" />
+          Phase
+        </button>
+        <button
+          type="button"
+          onClick={onNewTask}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+        >
+          <Plus className="w-3 h-3" />
+          Task
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// HolidaysEditor — inline editor inside SettingsPanel for
+// managing blocked / holiday dates. Supports:
+//   • Adding individual dates via a date input
+//   • Importing a CSV (one YYYY-MM-DD per line)
+//   • Exporting the current list as CSV
+//   • Removing individual dates
+// ============================================================
+function HolidaysEditor({ holidays, onChange }) {
+  // holidays is a Map<date, title>
+  const [newDate, setNewDate] = useState('')
+  const [newTitle, setNewTitle] = useState('')
+  const fileRef = useRef(null)
+  const sorted = useMemo(() => {
+    if (!holidays || !(holidays instanceof Map)) return []
+    return [...holidays.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [holidays])
+
+  function addDate(iso, title) {
+    if (!iso || !holidays) return
+    const next = new Map(holidays)
+    next.set(iso, title || '')
+    onChange(next)
+  }
+  function removeDate(iso) {
+    if (!holidays) return
+    const next = new Map(holidays)
+    next.delete(iso)
+    onChange(next)
+  }
+  function handleImport(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const entries = parseHolidayCSV(ev.target.result)
+      if (entries.length === 0) return
+      const next = new Map(holidays)
+      for (const { date, title } of entries) next.set(date, title)
+      onChange(next)
+    }
+    reader.readAsText(file)
+    e.target.value = ''
+  }
+  function handleExport() {
+    const csv = exportHolidayCSV(holidays)
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'rabbit-holidays.csv'
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  return (
+    <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+      <label className="block text-sm font-bold mb-1 text-orange-400">
+        Holidays / Blocked Days
+      </label>
+      <p className="text-[10px] text-stone-500 mb-3">
+        Dates listed here are excluded from the working-day count.
+        Import a CSV (YYYY-MM-DD,Title per line) or add individual dates.
+      </p>
+
+      {/* Add individual date + title */}
+      <div className="flex items-center gap-2 mb-3">
+        <input
+          type="date"
+          value={newDate}
+          onChange={(e) => setNewDate(e.target.value)}
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11px] font-mono text-stone-300 focus:outline-none focus:border-orange-500"
+        />
+        <input
+          type="text"
+          value={newTitle}
+          onChange={(e) => setNewTitle(e.target.value)}
+          placeholder="Holiday name"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11px] font-mono text-stone-300 focus:outline-none focus:border-orange-500 flex-1 min-w-0"
+        />
+        <button
+          type="button"
+          onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+        >
+          <Plus className="w-3 h-3" />
+          Add
+        </button>
+      </div>
+
+      {/* Import / Export */}
+      <div className="flex items-center gap-2 mb-3">
+        <input ref={fileRef} type="file" accept=".csv,.txt" onChange={handleImport} className="hidden" />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        >
+          <Upload className="w-3 h-3" />
+          Import CSV
+        </button>
+        <button
+          type="button"
+          onClick={handleExport}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        >
+          <Download className="w-3 h-3" />
+          Export CSV
+        </button>
+        <span className="text-[10px] font-mono text-stone-500 ml-auto">
+          {sorted.length} date{sorted.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {/* Date list */}
+      <div
+        className="overflow-y-auto border border-stone-700 rounded-sm"
+        style={{ maxHeight: 200, backgroundColor: '#0c0a09' }}
+      >
+        {sorted.length === 0 ? (
+          <div className="px-3 py-4 text-[10px] text-stone-600 text-center font-mono">
+            No holidays configured
+          </div>
+        ) : (
+          sorted.map(([iso, title]) => (
+            <div
+              key={iso}
+              className="flex items-center gap-2 px-3 py-1 border-b border-stone-800 last:border-b-0 hover:bg-stone-900"
+            >
+              <span className="text-[11px] font-mono text-stone-400 flex-shrink-0" style={{ width: 90 }}>
+                {iso}
+              </span>
+              <span className="text-[11px] font-mono text-stone-300 truncate flex-1 min-w-0">
+                {title || ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => removeDate(iso)}
+                className="p-0.5 hover:bg-stone-700 rounded-sm transition-colors flex-shrink-0"
+                title="Remove this date"
+              >
+                <X className="w-3 h-3 text-stone-500 hover:text-red-400" />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   )
 }
@@ -3045,9 +4278,10 @@ function DetailZoomToolbar({ zoomId, onChange, onCenterToday }) {
 // SettingsPanel — slide-out from the right with two tabs:
 // Settings + System Prompts (matches DOG/OTTER pattern).
 // ============================================================
-function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, onClose, onOpenHelp }) {
+export function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, holidays, onHolidaysChange, onClose, onOpenHelp }) {
   const [promptsLocked, setPromptsLocked] = useState(true)
   const [toolsLocked, setToolsLocked]     = useState(true)
+  const [showTemplateManager, setShowTemplateManager] = useState(false)
   const isLocked = settingsTab === 'prompts' ? promptsLocked : toolsLocked
 
   // Editable prompt drafts — keyed by section. Persisted to localStorage
@@ -3181,6 +4415,29 @@ function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, o
                   current browser profile and persist via localStorage.
                 </p>
               </div>
+
+              {/* ── Task Templates ── */}
+              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+                <label className="block text-sm font-bold mb-2 text-orange-400">Task Templates</label>
+                <p className="text-[10px] text-stone-500 mb-3">
+                  Create and manage reusable task templates that can be applied when creating new assets.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateManager(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                >
+                  <ListChecks className="w-3.5 h-3.5" />
+                  Manage Task Templates
+                </button>
+              </div>
+
+              {/* ── Holidays / blocked days ── */}
+              <HolidaysEditor
+                holidays={holidays}
+                onChange={onHolidaysChange}
+              />
             </div>
           )}
 
@@ -3257,14 +4514,20 @@ function SettingsPanel({ settings, patchSettings, settingsTab, setSettingsTab, o
           )}
         </div>
       </div>
+
+      {/* ── Task Template Manager popup ── */}
+      {showTemplateManager && (
+        <TaskTemplateManager onClose={() => setShowTemplateManager(false)} />
+      )}
     </div>
   )
 }
 
 // ============================================================
 // HelpModal — 850×82vh modal with sidebar + content (DOG/OTTER pattern)
+// Exported so Rabbit.jsx can render it outside TimelineView.
 // ============================================================
-function HelpModal({ helpPage, setHelpPage, onClose }) {
+export function HelpModal({ helpPage, setHelpPage, onClose }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
@@ -3369,19 +4632,152 @@ function ZoomControls({ zoomId, onChange }) {
 // SummaryBand
 // ============================================================
 
-function SummaryBand({ summary }) {
+function SummaryBand({
+  summary,
+  minimapZoomDays, minimapMinDays, minimapMaxDays, minimapSnapDays,
+  onMinimapZoomChange, onMinimapFitProject, onMinimapCenterToday,
+}) {
+  // Snap-tolerant slider input: if the user lands within the
+  // snap tolerance of a configured snap point, pull the value
+  // hard to that point so 1y/2y/5y feel magnetic. Tolerance is a
+  // generous % of the full range so the snap zone is visible at
+  // typical slider widths (~14 px on a 260 px slider).
+  const SNAP_TOLERANCE_FRAC = 0.045
+  const snapTolerance = Math.max(20, Math.round((minimapMaxDays - minimapMinDays) * SNAP_TOLERANCE_FRAC))
+  function handleSliderInput(e) {
+    const raw = Number(e.target.value)
+    if (!Number.isFinite(raw)) return
+    let snapped = raw
+    let bestDist = Infinity
+    for (const s of minimapSnapDays || []) {
+      const d = Math.abs(raw - s)
+      if (d <= snapTolerance && d < bestDist) {
+        bestDist = d
+        snapped = s
+      }
+    }
+    onMinimapZoomChange?.(snapped)
+  }
+
+  // Friendly label for the current zoom level.
+  let zoomLabel = ''
+  if (minimapZoomDays != null) {
+    if (minimapZoomDays <= 200)       zoomLabel = `${Math.round(minimapZoomDays / 30)} mo`
+    else if (minimapZoomDays <= 800)  zoomLabel = `${(minimapZoomDays / 365).toFixed(1)} yr`
+    else                               zoomLabel = `${Math.round(minimapZoomDays / 365)} yr`
+  }
+
   return (
     <div
-      className="flex items-center gap-2 px-6 py-2 flex-wrap flex-shrink-0"
+      className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
       style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}
     >
-      <SummaryTile icon={Layers}        label="Phases"        value={summary.phases} />
-      <SummaryTile icon={Boxes}         label="Assets"        value={summary.assets} />
-      <SummaryTile icon={ListChecks}    label="Tasks"         value={summary.tasks} />
-      <SummaryTile icon={GitBranch}     label="Critical"      value={summary.critical} />
-      <SummaryTile icon={AlertTriangle} label="Blocked"       value={summary.blocked} tone={summary.blocked > 0 ? 'danger' : undefined} />
-      <SummaryTile icon={CalendarDays}  label="Span"          value={`${summary.spanDays} d`} />
-      <SummaryTile icon={CalendarDays}  label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
+      <div className="flex items-center gap-2 flex-wrap min-w-0">
+        <SummaryTile icon={Layers}        label="Phases"        value={summary.phases} />
+        <SummaryTile icon={Boxes}         label="Assets"        value={summary.assets} />
+        <SummaryTile icon={ListChecks}    label="Tasks"         value={summary.tasks} />
+        <SummaryTile icon={GitBranch}     label="Critical"      value={summary.critical} />
+        <SummaryTile icon={AlertTriangle} label="Blocked"       value={summary.blocked} tone={summary.blocked > 0 ? 'danger' : undefined} />
+        <SummaryTile icon={CalendarDays}  label="Span"          value={`${summary.spanDays} d`} />
+        <SummaryTile icon={Briefcase}     label="Working"       value={`${summary.workingDays} d`} />
+        <SummaryTile icon={CalendarDays}  label="Critical days" value={`${summary.criticalDays.toFixed(1)} d`} />
+      </div>
+
+      {/* Minimap controls — right-aligned. Fit + Today buttons sit
+          on the LEFT of the slider so the mouse travels the same
+          distance from the summary tiles to reach them. Slider is
+          ~half the previous width (120px) with snap tick marks
+          rendered above the track at 1y/2y/5y. */}
+      {onMinimapZoomChange && (
+        <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={onMinimapFitProject}
+            title="Fit minimap to project start/end"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
+          >
+            <Maximize2 className="w-3 h-3" />
+            Fit
+          </button>
+          <button
+            type="button"
+            onClick={onMinimapCenterToday}
+            title="Center minimap on today"
+            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
+          >
+            <Crosshair className="w-3 h-3" />
+            Today
+          </button>
+          <span className="text-[9px] font-mono uppercase tracking-wider ml-1" style={{ color: '#78716c' }}>
+            Zoom
+          </span>
+          <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>6mo</span>
+          <div className="relative" style={{ width: 195, height: 22 }}>
+            <input
+              type="range"
+              min={minimapMinDays}
+              max={minimapMaxDays}
+              step={1}
+              value={minimapZoomDays ?? minimapMinDays}
+              onInput={handleSliderInput}
+              onChange={handleSliderInput}
+              className="absolute inset-x-0 inset-y-0 w-full h-full"
+              style={{ accentColor: '#fb923c' }}
+              title={`Minimap span: ${zoomLabel}`}
+            />
+            {/* Snap stop lines — short vertical marks contained
+                inside the slider track. Drawn on top of the input
+                with pointer-events:none so the slider stays fully
+                interactive. The thumb visibly "absorbs" each line
+                when the value lands on a snap point. Padding on
+                the sides matches the typical thumb half-width so
+                the lines align with the track, not the container
+                edges. */}
+            {/* Snap stop lines — thin orange vertical lines
+                fully contained within the track height. No fill,
+                no glow — just a 1px orange stroke. */}
+            <div
+              className="absolute pointer-events-none"
+              style={{
+                left: 8,
+                right: 8,
+                top: '50%',
+                height: 8,
+                transform: 'translateY(-50%)',
+              }}
+            >
+              {(minimapSnapDays || []).map(s => {
+                const range = Math.max(1, minimapMaxDays - minimapMinDays)
+                const pct = ((s - minimapMinDays) / range) * 100
+                return (
+                  <div
+                    key={`line-${s}`}
+                    className="absolute"
+                    style={{
+                      left: `${pct}%`,
+                      top: 0,
+                      bottom: 0,
+                      width: 1,
+                      transform: 'translateX(-50%)',
+                      backgroundColor: '#fb923c',
+                      opacity: 0.7,
+                    }}
+                  />
+                )
+              })}
+            </div>
+          </div>
+          <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>5yr</span>
+          <span
+            className="text-[11px] font-mono tabular-nums"
+            style={{ color: '#fb923c', minWidth: 48, textAlign: 'right' }}
+          >
+            {zoomLabel}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -3429,28 +4825,34 @@ function lifecycleState(start, end, status) {
 //   row        — { start, end, task?, phase? } so we can read dates + status
 //   critical   — true if this task is on the critical path
 //   phaseStyle — true for phase bars (slightly bolder palette so phases still read as containers)
+//
+// Phases vs tasks: phases use an EXPLICIT status property the user
+// picks from a dropdown (not_started / active / completed / delayed).
+// Tasks still use date-driven lifecycleState() — they're cheap and
+// numerous, so deriving from dates keeps them in sync without making
+// the user babysit a status field on every one.
 function barTone(row, critical, phaseStyle) {
-  const status = phaseStyle ? null : row?.task?.status
+  if (phaseStyle) {
+    const phaseStatus = row?.phase?.status || 'not_started'
+    // Phase palette — bolder presence so a phase bar still reads as
+    // a container above its tasks. Driven entirely by the explicit
+    // status property; date heuristics no longer apply.
+    if (phaseStatus === 'completed') return { bg: '#27272a', border: '#52525b', fg: '#a1a1aa' }
+    if (phaseStatus === 'delayed')   return { bg: '#1c1917', border: '#b45309', fg: '#fcd34d' }
+    if (phaseStatus === 'active')    return { bg: '#7c2d12', border: '#fb923c', fg: '#fff7ed' }
+    // not_started (default)
+    return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
+  }
+
+  const status = row?.task?.status
 
   // Problem-state overrides — these stay distinctive because the
   // user NEEDS to notice them. They're rare so they don't compete
   // with the main lifecycle palette.
-  if (!phaseStyle) {
-    if (status === 'blocked') return { bg: '#1c1917', border: '#7f1d1d', fg: '#fca5a5' }
-    if (status === 'on_hold') return { bg: '#1c1917', border: '#78350f', fg: '#fcd34d' }
-  }
+  if (status === 'blocked') return { bg: '#1c1917', border: '#7f1d1d', fg: '#fca5a5' }
+  if (status === 'on_hold') return { bg: '#1c1917', border: '#78350f', fg: '#fcd34d' }
 
   const state = lifecycleState(row?.start, row?.end, status)
-
-  if (phaseStyle) {
-    // Phase palette — same lifecycle, slightly more presence so a
-    // phase bar still reads as a container above its tasks.
-    if (state === 'completed') return { bg: '#27272a', border: '#52525b', fg: '#a1a1aa' }
-    if (state === 'upcoming')  return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
-    // active phase — soft warm orange (same family as task active,
-    // a touch deeper so phases still anchor the row visually)
-    return { bg: '#7c2d12', border: '#fb923c', fg: '#fff7ed' }
-  }
 
   // Task palette — identical lifecycle, calmer than the phase tier.
   if (state === 'completed') return { bg: '#27272a', border: '#3f3f46', fg: '#71717a' }
@@ -3635,10 +5037,11 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
 //
 // Empty phases still render so the user can see the structure they
 // built and drag bars into them.
-function buildRows({ phases, assets, tasks, schedule }) {
+function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null }) {
   const childrenByParent = groupPhasesByParent(phases)
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
   const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
+  const sign = sortOrder === 'desc' ? -1 : 1
 
   // Compute a task's effective phase_id.
   function effectivePhaseOf(task) {
@@ -3661,15 +5064,29 @@ function buildRows({ phases, assets, tasks, schedule }) {
   }
 
   // Task ordering inside a phase: sort by start date (scheduled or
-  // explicit), then by title as a stable tiebreaker.
+  // explicit), then by title as a stable tiebreaker. Honors the
+  // sortOrder argument so the user can flip ascending / descending
+  // from the toolbar toggle.
   function sortTasks(list) {
     return list.slice().sort((a, b) => {
       const as = schedule.tasks[a.id]?.start
       const bs = schedule.tasks[b.id]?.start
-      if (as && bs && as.getTime() !== bs.getTime()) return as - bs
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
       if (as && !bs) return -1
       if (!as && bs) return 1
-      return String(a.title || '').localeCompare(String(b.title || ''))
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  // Phase ordering at each tree level — same date-then-name rule.
+  function sortPhases(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.phases[a.id]?.start
+      const bs = schedule.phases[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.name || '').localeCompare(String(b.name || ''))
     })
   }
 
@@ -3685,7 +5102,7 @@ function buildRows({ phases, assets, tasks, schedule }) {
 
   function pushPhase(phase, depth) {
     const phaseSched = schedule.phases[phase.id]
-    const collapsed = !!phase.collapsed
+    const collapsed = (collapsedSet && collapsedSet.has(phase.id)) || !!phase.collapsed
     const hasChildren = phaseHasChildren(phase)
     rows.push({
       key:   `ph-${phase.id}`,
@@ -3719,7 +5136,7 @@ function buildRows({ phases, assets, tasks, schedule }) {
     }
 
     // 2) Sub-phases (recursive).
-    for (const child of childrenByParent[phase.id] || []) {
+    for (const child of sortPhases(childrenByParent[phase.id] || [])) {
       pushPhase(child, depth + 1)
     }
 
@@ -3738,7 +5155,7 @@ function buildRows({ phases, assets, tasks, schedule }) {
     })
   }
 
-  for (const ph of childrenByParent['__root__'] || []) pushPhase(ph, 0)
+  for (const ph of sortPhases(childrenByParent['__root__'] || [])) pushPhase(ph, 0)
 
   // Unphased section — a synthetic phase row that holds every task
   // whose effective phase is null.
@@ -3769,13 +5186,39 @@ function buildRows({ phases, assets, tasks, schedule }) {
 }
 
 // buildOverviewRows: a flatter, less-indented list for the
-// minimap. Walks the same phase tree the detail pane uses, but
-// only emits rows that have a schedule (so the minimap stays
-// dense).
-function buildOverviewRows({ phases, assets, tasks, schedule }) {
+// minimap. The minimap shows PHASES ONLY — tasks are a detail-
+// pane concern, and cluttering the minimap with individual task
+// pills makes the project shape hard to read at a glance. Each
+// phase row carries a pre-computed taskCount so the hover popup
+// can show "N tasks" without reshipping the task list.
+function buildOverviewRows({ phases, assets, tasks, schedule, sortOrder = 'asc' }) {
   const out = []
   const childrenByParent = groupPhasesByParent(phases)
   const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+  const sign = sortOrder === 'desc' ? -1 : 1
+
+  // Count tasks that belong to each phase — directly via phase_id
+  // or indirectly through an asset that lives in that phase.
+  // Only tasks the scheduler has actually placed count, so the
+  // number matches what the user sees in the detail pane.
+  const taskCountByPhase = {}
+  for (const t of tasks) {
+    if (!schedule.tasks[t.id]) continue
+    const pid = t.phase_id || (t.asset_id && assetById[t.asset_id]?.phase_id) || null
+    if (!pid) continue
+    taskCountByPhase[pid] = (taskCountByPhase[pid] || 0) + 1
+  }
+
+  function sortPhases(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.phases[a.id]?.start
+      const bs = schedule.phases[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.name || '').localeCompare(String(b.name || ''))
+    })
+  }
 
   function walk(phase) {
     const ps = schedule.phases[phase.id]
@@ -3785,46 +5228,14 @@ function buildOverviewRows({ phases, assets, tasks, schedule }) {
       label:  phase.name,
       phase,
       phaseId: phase.id,
+      taskCount: taskCountByPhase[phase.id] || 0,
       start:  ps?.start,
       end:    ps?.end,
     })
-    // Tasks attached directly to this phase or to one of its
-    // assets, but NOT to any sub-phase (sub-phases get their own
-    // rows below).
-    for (const t of tasks) {
-      const tPhaseId = t.phase_id || (t.asset_id && assetById[t.asset_id]?.phase_id) || null
-      if (tPhaseId !== phase.id) continue
-      const ts = schedule.tasks[t.id]
-      if (!ts) continue
-      out.push({
-        key:           `ovr-tk-${t.id}`,
-        kind:          'task',
-        label:         t.title,
-        task:          t,
-        parentPhaseId: phase.id,
-        start:         ts.start,
-        end:           ts.end,
-      })
-    }
-    for (const child of childrenByParent[phase.id] || []) walk(child)
+    for (const child of sortPhases(childrenByParent[phase.id] || [])) walk(child)
   }
-  for (const p of childrenByParent['__root__'] || []) walk(p)
+  for (const p of sortPhases(childrenByParent['__root__'] || [])) walk(p)
 
-  // Orphan tasks.
-  for (const t of tasks) {
-    const tPhaseId = t.phase_id || (t.asset_id && assetById[t.asset_id]?.phase_id) || null
-    if (tPhaseId) continue
-    const ts = schedule.tasks[t.id]
-    if (!ts) continue
-    out.push({
-      key:   `ovr-tk-${t.id}`,
-      kind:  'task',
-      label: t.title,
-      task:  t,
-      start: ts.start,
-      end:   ts.end,
-    })
-  }
   return out
 }
 
@@ -3878,12 +5289,14 @@ function parseDate(value) {
   if (isNaN(d.getTime())) return null
   return startOfDay(d)
 }
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
 function formatDayLabel(d) {
-  return `${d.getMonth() + 1}/${d.getDate()}`
+  // "Apr 9" — compact and readable at tiny font sizes.
+  return `${MONTH_ABBR[d.getMonth()]} ${d.getDate()}`
 }
 function formatMonth(d) {
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${months[d.getMonth()]} ${d.getFullYear()}`
+  return `${MONTH_ABBR[d.getMonth()]} ${d.getFullYear()}`
 }
 function formatQuarter(d) {
   const q = Math.floor(d.getMonth() / 3) + 1
@@ -3891,48 +5304,90 @@ function formatQuarter(d) {
 }
 
 // Detail axis ticks honoring the current zoom level.
+//
+// Rules to prevent stray single-day fragments in the header:
+//   • Week: emit only Mondays and month-1st boundaries. The span
+//     start (i === 0) is NOT force-emitted because it usually
+//     falls mid-week and creates a tiny stub label.
+//   • Month: emit only month-1st boundaries.
+//   • Quarter: emit only quarter-1st boundaries.
+//   • Day: every single day is a tick — no stub possible.
+//
+// The very first tick in the output ALWAYS gets a full "Mon YYYY"
+// label instead of the short day format so the user immediately
+// knows the date context when scrolling to the start of the span.
 function buildAxisTicks(start, totalDays, zoom) {
   const out = []
+  // Track the last emitted major tick offset so we can suppress
+  // regular ticks that would overlap (e.g. a Monday 1 day after
+  // a month-1st boundary at week zoom).
+  let lastMajorOffset = -Infinity
+  const MIN_GAP = Math.max(3, Math.ceil(60 / zoom.dayPx)) // ≥60px between ticks
   for (let i = 0; i <= totalDays; i++) {
     const d = addDays(start, i)
     let include = false
     let label = ''
+    let topLabel = null   // optional upper-tier label (month header above day)
     let major = false
     switch (zoom.axisFormat) {
       case 'day':
         include = true
         label = formatDayLabel(d)
         major = d.getDate() === 1
+        if (major) topLabel = formatMonth(d)
         break
-      case 'week':
-        include = d.getDay() === 1 || i === 0 || d.getDate() === 1
-        label = formatDayLabel(d)
-        major = d.getDate() === 1
+      case 'week': {
+        const isMonday = d.getDay() === 1
+        const isMonth1 = d.getDate() === 1
+        if (isMonth1) {
+          include = true
+          major = true
+          topLabel = formatMonth(d)
+          label = formatDayLabel(d)
+          lastMajorOffset = i
+        } else if (isMonday) {
+          // Suppress Mondays too close to a month boundary
+          if (i - lastMajorOffset >= MIN_GAP) {
+            include = true
+            label = formatDayLabel(d)
+          }
+        }
         break
+      }
       case 'month':
-        include = d.getDate() === 1 || i === 0
+        include = d.getDate() === 1
         label = formatMonth(d)
         major = d.getMonth() === 0
         break
       case 'quarter':
-        include = (d.getDate() === 1 && [0, 3, 6, 9].includes(d.getMonth())) || i === 0
-        label = formatQuarter(d)
-        major = d.getMonth() === 0
+        // Emit every month-1st as a tick. Quarter starts (Jan/Apr/Jul/Oct)
+        // are major — they get bold lines + a "Q1 2026" label on top.
+        // Non-quarter months are minor with just the month abbreviation.
+        include = d.getDate() === 1
+        if ([0, 3, 6, 9].includes(d.getMonth())) {
+          major = true
+          topLabel = formatQuarter(d)
+          label = formatMonth(d)
+        } else {
+          label = MONTH_ABBR[d.getMonth()]
+        }
         break
       default:
         include = false
     }
-    if (include) out.push({ key: i, offset: i, label, major })
+    if (include) out.push({ key: i, offset: i, label, topLabel, major })
   }
   return out
 }
 
 // Overview ticks: month boundaries with year labels.
+// Does NOT force-emit a tick at i === 0 — that created ugly stub
+// labels when the minimap span started mid-month.
 function buildOverviewTicks(start, totalDays) {
   const out = []
   for (let i = 0; i <= totalDays; i++) {
     const d = addDays(start, i)
-    if (d.getDate() !== 1 && i !== 0) continue
+    if (d.getDate() !== 1) continue
     out.push({
       key: i,
       offset: i,
@@ -3944,13 +5399,14 @@ function buildOverviewTicks(start, totalDays) {
 }
 
 // Aggregates for the SummaryBand.
-function buildSummary({ phases, assets, tasks, schedule, criticalSet }) {
+function buildSummary({ phases, assets, tasks, schedule, criticalSet, holidays }) {
   const blocked = tasks.filter(t => t.status === 'blocked').length
   const span = totalSpan(schedule)
   let criticalDays = 0
   for (const t of tasks) {
     if (criticalSet.has(t.id)) criticalDays += Number(t.bid_days || 0)
   }
+  const workingDays = countWorkingDays(span.start, span.end, holidays)
   return {
     phases: phases.length,
     assets: assets.length,
@@ -3958,6 +5414,7 @@ function buildSummary({ phases, assets, tasks, schedule, criticalSet }) {
     critical: criticalSet.size,
     blocked,
     spanDays: span.days,
+    workingDays,
     criticalDays,
   }
 }

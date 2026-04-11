@@ -10,6 +10,7 @@ import {
   Briefcase,
   DollarSign,
   ListChecks,
+  Users,
 } from 'lucide-react'
 
 // Sentinel id used for the inline Resources sub-menu trigger.
@@ -26,8 +27,9 @@ const MAIN_ITEMS = [
 ]
 
 const RESOURCES_ITEMS = [
-  { id: 'project-manager', label: 'Projects',  Icon: Briefcase },
-  { id: 'rate-card',       label: 'Rate Card', Icon: DollarSign },
+  { id: 'project-manager', label: 'Projects',       Icon: Briefcase },
+  { id: 'rate-card',       label: 'Rate Card',      Icon: DollarSign },
+  { id: 'team-members',    label: 'Team Members',   Icon: Users },
 ]
 
 export default function Home({ onNavigate, currentPage }) {

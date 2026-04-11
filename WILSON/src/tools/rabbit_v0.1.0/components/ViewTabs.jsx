@@ -11,18 +11,20 @@
 // Visual: dark stone surface with orange accents, monospace caps.
 
 import {
-  Sparkles, FileText, Boxes, GanttChart, DollarSign,
+  Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
 } from 'lucide-react'
 
 export const RABBIT_VIEWS = [
   { id: 'intake',   label: 'Intake',   Icon: Sparkles    },
   { id: 'summary',  label: 'Summary',  Icon: FileText    },
   { id: 'assets',   label: 'Assets',   Icon: Boxes       },
+  { id: 'team',     label: 'Team',     Icon: Users       },
+  { id: 'tasks',    label: 'Tasks',    Icon: ListChecks  },
   { id: 'timeline', label: 'Timeline', Icon: GanttChart  },
   { id: 'budget',   label: 'Budget',   Icon: DollarSign  },
 ]
 
-export default function ViewTabs({ activeView, onChange, disabled }) {
+export default function ViewTabs({ activeView, onChange, disabled, rightSlot }) {
   return (
     <div
       className="flex items-center gap-1 px-2"
@@ -55,6 +57,13 @@ export default function ViewTabs({ activeView, onChange, disabled }) {
           </button>
         )
       })}
+      {/* Optional right-aligned slot for view-specific controls
+          (e.g. settings + help buttons on the Timeline view). */}
+      {rightSlot && (
+        <div className="ml-auto flex items-center gap-1 pr-2">
+          {rightSlot}
+        </div>
+      )}
     </div>
   )
 }

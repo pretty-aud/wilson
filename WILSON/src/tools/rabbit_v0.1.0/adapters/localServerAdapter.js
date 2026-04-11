@@ -81,6 +81,9 @@ export function localServerAdapter() {
         assetVersions: bundle.assetVersions || [],
         comments:      bundle.comments || [],
         ingestionRuns: bundle.ingestionRuns || [],
+        teamAssignments: bundle.teamAssignments || [],
+        managedFiles:    bundle.managedFiles || [],
+        budgetVersions:  bundle.budgetVersions || [],
       };
     },
 
@@ -232,6 +235,102 @@ export function localServerAdapter() {
       body:    JSON.stringify(entry),
     }),
     deleteRateCardEntry: (id, rateCardId) => jfetch(`${BASE}/rate-cards/${rateCardId}/entries/${id}`, { method: 'DELETE' }),
+
+    // ── Department defaults (per rate card) ──────────────────────
+    listDeptDefaults: (rateCardId) => jfetch(`${BASE}/rate-cards/${rateCardId}/dept-defaults`),
+    upsertDeptDefault: (rateCardId, data) => jfetch(`${BASE}/rate-cards/${rateCardId}/dept-defaults`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(data),
+    }),
+
+    // ── Team assignments (project-scoped) ──────────────────────
+    upsertTeamAssignment: (assignment) => jfetch(`${BASE}/projects/${assignment.project_id}/team-assignments`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(assignment),
+    }),
+    deleteTeamAssignment: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/team-assignments/${id}`, { method: 'DELETE' }),
+
+    // ── Team members ───────────────────────────────────────────
+    listTeamMembers: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/team-members`),
+    upsertTeamMember: (member) => jfetch(`${BASE}/workspaces/${member.workspace_id}/team-members`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(member),
+    }),
+    updateTeamMember: (id, patch) => jfetch(`${BASE}/team-members/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    deleteTeamMember: (id) => jfetch(`${BASE}/team-members/${id}`, { method: 'DELETE' }),
+
+    // ── Managed files ─────────────────────────────────────────
+    listManagedFiles: (projectId) => jfetch(`${BASE}/projects/${projectId}/managed-files`),
+
+    createManagedFile: (record) => jfetch(`${BASE}/projects/${record.project_id}/managed-files`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(record),
+    }),
+
+    updateManagedFile: (id, patch) => jfetch(`${BASE}/projects/${patch.project_id}/managed-files/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+
+    deleteManagedFile: async (id, projectId, hard = false) =>
+      jfetch(`${BASE}/projects/${projectId}/managed-files/${id}?hard=${hard}`, { method: 'DELETE' }),
+
+    importFolder: (projectId, folderPath) => jfetch(`${BASE}/projects/${projectId}/managed-files/import-folder`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ folderPath }),
+    }),
+
+    // ── Budget versions ─────────────────────────────────────────
+    listBudgetVersions: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).budgetVersions || [],
+    upsertBudgetVersion: (version) => jfetch(`${BASE}/projects/${version.project_id}/budget-versions`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(version),
+    }),
+    deleteBudgetVersion: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/budget-versions/${id}`, { method: 'DELETE' }),
+
+    // ── Expenses ────────────────────────────────────────────────
+    listExpenses: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).expenses || [],
+    upsertExpense: (expense) => jfetch(`${BASE}/projects/${expense.project_id}/expenses`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(expense),
+    }),
+    updateExpense: (id, projectId, patch) => jfetch(`${BASE}/projects/${projectId}/expenses/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    deleteExpense: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/expenses/${id}`, { method: 'DELETE' }),
+
+    // ── Task templates ──────────────────────────────────────────
+    listTaskTemplates: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/task-templates`),
+    listProjectTaskTemplates: (projectId) => jfetch(`${BASE}/projects/${projectId}/task-templates`),
+    upsertTaskTemplate: (template) => jfetch(`${BASE}/workspaces/${template.workspace_id}/task-templates`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(template),
+    }),
+    updateTaskTemplate: (id, patch) => jfetch(`${BASE}/task-templates/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    deleteTaskTemplate: (id) => jfetch(`${BASE}/task-templates/${id}`, { method: 'DELETE' }),
 
     // ── Realtime ──────────────────────────────────────────────
     // No-op for the local backend. Returns an unsubscribe function

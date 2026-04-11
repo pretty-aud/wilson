@@ -2,19 +2,23 @@
 // RABBIT v0.1 — top-level shell
 // ============================================================
 //
-// Layout:
+// Layout (v0.6.x — header bar removed):
 //
 //   ┌────────────────────────────────────────────────────┐
-//   │ Title │ adapter status │ refresh                   │   ← header
-//   ├────────────────────────────────────────────────────┤
 //   │ Intake │ Summary │ Assets │ Timeline │ Budget       │   ← tabs
 //   ├────────────────────────────────────────────────────┤
 //   │ Project: <name> │ Switch ▾ │ Gallery                 │   ← context bar
 //   ├────────────────────────────────────────────────────┤
 //   │                                                    │
 //   │              <active view body>                    │
-//   │                                                    │
+//   │  ●                                                 │   ← server status dot (bottom-left)
 //   └────────────────────────────────────────────────────┘
+//
+// The old title + adapter pill + refresh-index header has been
+// removed entirely. Adapter health now lives as a single red or
+// green dot in the bottom-left corner of the frame, just above
+// the scroll bar. Refreshing the projects index is no longer a
+// manual user action — the Summary view refreshes on demand.
 //
 // As of WILSON v0.6.x the header no longer hosts a project
 // picker — picking and creating projects happens exclusively
@@ -28,8 +32,8 @@
 // effect uses the `currentPage` prop passed down from App.jsx
 // — calling setActiveTool('rabbit') on visibility.
 
-import { useEffect, useRef, useState } from 'react'
-import { ListChecks, RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
 import ViewTabs from './components/ViewTabs'
@@ -38,40 +42,53 @@ import IngestionToast from './components/IngestionToast'
 import IntakeWizardView from './views/IntakeWizardView'
 import ProjectSummaryView from './views/ProjectSummaryView'
 import ProjectAssetsView from './views/ProjectAssetsView'
-import TimelineView from './views/TimelineView'
+import ProjectTasksView from './views/ProjectTasksView'
+import TimelineView, { SettingsPanel, HelpModal, loadRabbitSettings, saveRabbitSettings } from './views/TimelineView'
+import TeamView from './views/TeamView'
 import BudgetView from './views/BudgetView'
+import { loadHolidays, saveHolidays } from './holidays.js'
+import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
   const agent = useAgent()
   const [activeView, setActiveView] = useState('summary')
 
+  // ── Settings, help & holidays (shared across all RABBIT tabs) ──
+  const [settings, setSettings] = useState(() => loadRabbitSettings())
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState('settings')
+  const [showHelpModal, setShowHelpModal] = useState(false)
+  const [helpPage, setHelpPage] = useState(RABBIT_HELP_SIDEBAR_ITEMS[0]?.id || 'rabbit-overview')
+  const [holidays, setHolidays] = useState(() => loadHolidays())
+
+  const patchSettings = useCallback((p) => {
+    setSettings(prev => {
+      const next = { ...prev, ...p }
+      saveRabbitSettings(next)
+      return next
+    })
+  }, [])
+
+  const handleHolidaysChange = useCallback((next) => {
+    setHolidays(next)
+    saveHolidays(next)
+  }, [])
+
   // When the WILSON nav strip "SETTINGS" item is clicked the parent
-  // bumps `openSettingsTrigger`. We need to (a) make sure the
-  // Timeline view is the active view (because that's where the
-  // settings panel lives) and (b) tell the timeline to open it.
-  // Communication with TimelineView happens via a window-level
-  // custom event so we don't need to thread refs through.
+  // bumps `openSettingsTrigger`. Now that settings live at the shell
+  // level we just open the panel directly — no tab switch needed.
   const prevSettingsTrigger = useRef(openSettingsTrigger)
   useEffect(() => {
     if (openSettingsTrigger !== prevSettingsTrigger.current) {
       prevSettingsTrigger.current = openSettingsTrigger
-      setActiveView('timeline')
-      // Defer the dispatch one tick so the timeline view is mounted
-      // by the time the event is fired.
-      setTimeout(() => {
-        try {
-          window.dispatchEvent(new CustomEvent('rabbit:open-settings'))
-        } catch {}
-      }, 0)
+      setSettingsOpen(true)
     }
   }, [openSettingsTrigger])
 
   const adapterMode = ctx?.adapterMode
   const adapterStatus = ctx?.adapterStatus
-  const refreshProjectsIndex = ctx?.refreshProjectsIndex
   const activeProjectId = ctx?.activeProjectId
-  const loadingProject = ctx?.loadingProject
 
   // Tell the agent system this tool is in the foreground whenever
   // the page is visible. The all-pages-rendered pattern means we
@@ -99,41 +116,34 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   }
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
-      {/* ── Header ── */}
-      <div
-        className="flex items-center justify-between px-6 py-3"
-        style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
-      >
-        <div className="flex items-center gap-3">
-          <ListChecks className="w-5 h-5" style={{ color: '#fb923c' }} />
-          <span
-            className="font-bold text-sm tracking-widest uppercase"
-            style={{ color: '#fb923c' }}
-          >
-            R.A.B.B.I.T.
-          </span>
-          <AdapterBadge mode={adapterMode} status={adapterStatus} />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => refreshProjectsIndex?.()}
-            title="Refresh projects index"
-            className="p-1.5 rounded-sm transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loadingProject ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
-
+    <div className="relative h-full w-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── View tabs ── */}
       <ViewTabs
         activeView={activeView}
         onChange={setActiveView}
         disabled={!activeProjectId && activeView !== 'summary'}
+        rightSlot={(
+          <>
+            <button
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              title="RABBIT settings"
+              className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
+              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+            >
+              <SettingsIcon className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowHelpModal(true)}
+              title="Help & Documentation"
+              className="p-1.5 rounded-sm transition-colors hover:bg-stone-700"
+              style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: '#1c1917' }}
+            >
+              <HelpCircle className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       />
 
       {/* ── Project context bar ── */}
@@ -148,36 +158,80 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
             {activeView === 'intake'   && <IntakeWizardView   />}
             {activeView === 'summary'  && <ProjectSummaryView />}
             {activeView === 'assets'   && <ProjectAssetsView  />}
-            {activeView === 'timeline' && <TimelineView       />}
+            {activeView === 'team'     && <TeamView           />}
+            {activeView === 'tasks'    && <ProjectTasksView   />}
+            {activeView === 'timeline' && <TimelineView settings={settings} holidays={holidays} />}
             {activeView === 'budget'   && <BudgetView         />}
           </div>
         )}
       </div>
 
+      {/* ── Settings slide-out (shared across all tabs) ── */}
+      {settingsOpen && (
+        <SettingsPanel
+          settings={settings}
+          patchSettings={patchSettings}
+          settingsTab={settingsTab}
+          setSettingsTab={setSettingsTab}
+          holidays={holidays}
+          onHolidaysChange={handleHolidaysChange}
+          onClose={() => setSettingsOpen(false)}
+          onOpenHelp={() => {
+            setSettingsOpen(false)
+            setShowHelpModal(true)
+          }}
+        />
+      )}
+
+      {/* ── Help & Documentation modal ── */}
+      {showHelpModal && (
+        <HelpModal
+          helpPage={helpPage}
+          setHelpPage={setHelpPage}
+          onClose={() => setShowHelpModal(false)}
+        />
+      )}
+
       {/* ── Background ingestion toast ── */}
       <IngestionToast onJumpToReview={handleJumpToReview} />
+
+      {/* ── Adapter status dot ── */}
+      {/* Replaces the old header adapter pill. A single 10px
+          circle pinned to the bottom-right corner of the frame,
+          offset up so it sits just above a horizontal scroll bar
+          if one appears. Red = offline, green = online. Hovering
+          reveals the adapter mode + status text. */}
+      <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
     </div>
   )
 }
 
-// ─── Adapter status pill ───
-function AdapterBadge({ mode, status }) {
-  if (!mode) return null
+// ─── Adapter status dot ───
+// Tiny corner indicator — just a colored circle. Red when offline,
+// green when online, dim gray while the adapter isn't configured.
+function AdapterStatusDot({ mode, status }) {
+  const configured = !!mode
   const online = !!status?.online
-  const Icon = online ? Wifi : WifiOff
-  const label = (mode || '').replace('_', ' ')
+  const color = !configured ? '#57534e' : (online ? '#22c55e' : '#ef4444')
+  const glow  = !configured ? 'none'     : (online ? '0 0 6px rgba(34,197,94,0.7)' : '0 0 6px rgba(239,68,68,0.7)')
+  const label = configured
+    ? `${(mode || '').replace('_', ' ')} — ${online ? 'online' : 'offline'}`
+    : 'adapter not configured'
   return (
-    <span
-      className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+    <div
+      title={label}
+      className="absolute rounded-full pointer-events-auto"
       style={{
-        backgroundColor: '#1c1917',
-        color: online ? '#86efac' : '#fca5a5',
-        border: `1px solid ${online ? '#15803d' : '#7f1d1d'}`,
+        left: 10,
+        bottom: 18,
+        width: 10,
+        height: 10,
+        backgroundColor: color,
+        border: '1px solid rgba(0,0,0,0.5)',
+        boxShadow: glow,
+        zIndex: 50,
       }}
-    >
-      <Icon className="w-3 h-3" />
-      {label}
-    </span>
+    />
   )
 }
 

@@ -6,6 +6,7 @@ import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
+import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
 import HelpPage from './components/HelpPage'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
@@ -68,6 +69,7 @@ const PAGE_TITLES = {
   settings: 'SYSTEM SETTINGS',
   'project-manager': 'PROJECTS',
   'rate-card': 'RATE CARD',
+  'team-members': 'TEAM MEMBERS',
   help: 'HELP',
 };
 
@@ -81,6 +83,7 @@ const PAGE_BARS = {
   settings:           { top: '200px', bottom: '150px' },
   'project-manager':  { top: '200px', bottom: '150px' },
   'rate-card':        { top: '200px', bottom: '150px' },
+  'team-members':     { top: '200px', bottom: '150px' },
   help:               { top: '140px', bottom: '100px' },
 };
 
@@ -807,7 +810,7 @@ export default function App() {
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar
-  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, help: 100 };
+  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, help: 100 };
   const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
 
   // Build contextual nav strip items based on current page
@@ -823,23 +826,34 @@ export default function App() {
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
     } else if (currentPage === 'project-manager') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (currentPage === 'rate-card') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (currentPage === 'team-members') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isDog) {
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isOtter) {
@@ -847,6 +861,7 @@ export default function App() {
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenOtterSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isRabbit) {
@@ -854,6 +869,7 @@ export default function App() {
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenRabbitSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (currentPage === 'help') {
@@ -862,6 +878,7 @@ export default function App() {
       items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
       items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
       items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     }
 
@@ -932,6 +949,9 @@ export default function App() {
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <RateCardPage />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <TeamMembersPage />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <HelpPage />
@@ -1004,7 +1024,7 @@ export default function App() {
       );
     }
 
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'help') {
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'help') {
       const pageLabel = PAGE_TITLES[currentPage] || currentPage;
       return (
         <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>

@@ -1,7 +1,7 @@
 {
   "name": "wilson",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.6.2",
   "description": "WILSON - AI-powered creative production & learning platform",
   "toolVersions": {
     "deck-outline-generator": "0.514",
@@ -34,6 +34,7 @@
     "react-markdown": "^10.1.0",
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
+    "sharp": "^0.34.5",
     "uuid": "^13.0.0",
     "xlsx": "^0.18.5"
   },

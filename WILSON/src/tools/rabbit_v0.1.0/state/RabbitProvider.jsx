@@ -75,15 +75,19 @@ async function saveRabbitSettings(patch) {
 
 const EMPTY_BUNDLE = {
   project: null,
-  phases:        [],
-  assets:        [],
-  tasks:         [],
-  dependencies:  [],
-  taskLinks:     [],
-  files:         [],
-  assetVersions: [],
-  comments:      [],
-  ingestionRuns: [],
+  phases:         [],
+  assets:         [],
+  tasks:          [],
+  dependencies:   [],
+  taskLinks:      [],
+  files:          [],
+  assetVersions:  [],
+  comments:       [],
+  ingestionRuns:  [],
+  teamAssignments: [],
+  managedFiles:   [],
+  budgetVersions: [],
+  expenses:       [],
 };
 
 function indexById(rows) {
@@ -104,6 +108,100 @@ export function RabbitProvider({ children }) {
   const [bundle, setBundle] = useState(EMPTY_BUNDLE);
   const [loadingProject, setLoadingProject] = useState(false);
   const [error, setError] = useState(null);
+
+  // ── undo / redo history ─────────────────────────────────
+  // Inverse-operation stack with a 10-deep cap in each direction.
+  // Each entry is { undoOps:[], redoOps:[] } where every op is a
+  // function that re-runs through the public mutators (so the
+  // adapter and local bundle stay in sync). The `suspended` flag
+  // is set during replay so the public mutators don't recursively
+  // push history while undoing or redoing. The `batch` slot lets
+  // composite operations (e.g. drag a phase + N children) commit
+  // as ONE undo step instead of N+1.
+  const HISTORY_CAP = 10;
+  const historyRef = useRef({ undo: [], redo: [], suspended: false, batch: null });
+  const [historyVersion, setHistoryVersion] = useState(0);
+  const bundleRef = useRef(bundle);
+  useEffect(() => { bundleRef.current = bundle; }, [bundle]);
+  // mutationsRef holds the latest version of every public mutator
+  // so history closures can call the current implementation rather
+  // than a stale captured one.
+  const mutationsRef = useRef({});
+
+  function pushHistory(entry) {
+    if (historyRef.current.suspended) return;
+    if (historyRef.current.batch) {
+      historyRef.current.batch.entries.push(entry);
+      return;
+    }
+    historyRef.current.undo.push(entry);
+    if (historyRef.current.undo.length > HISTORY_CAP) historyRef.current.undo.shift();
+    historyRef.current.redo.length = 0;
+    setHistoryVersion(v => v + 1);
+  }
+
+  const runBatch = useCallback(async (fn) => {
+    if (historyRef.current.batch) return fn();
+    historyRef.current.batch = { entries: [] };
+    try {
+      return await fn();
+    } finally {
+      const b = historyRef.current.batch;
+      historyRef.current.batch = null;
+      if (b.entries.length > 0) {
+        // Combined undoOps run in REVERSE order so the latest sub-op
+        // gets undone first; redoOps run in original order.
+        const combined = {
+          undoOps: b.entries.slice().reverse().flatMap(e => e.undoOps),
+          redoOps: b.entries.flatMap(e => e.redoOps),
+        };
+        historyRef.current.undo.push(combined);
+        if (historyRef.current.undo.length > HISTORY_CAP) historyRef.current.undo.shift();
+        historyRef.current.redo.length = 0;
+        setHistoryVersion(v => v + 1);
+      }
+    }
+  }, []);
+
+  const undo = useCallback(async () => {
+    if (historyRef.current.undo.length === 0) return;
+    const entry = historyRef.current.undo.pop();
+    historyRef.current.suspended = true;
+    try {
+      for (const op of entry.undoOps) {
+        try { await op(); } catch (e) { /* swallow — keep going */ }
+      }
+    } finally {
+      historyRef.current.suspended = false;
+    }
+    historyRef.current.redo.push(entry);
+    if (historyRef.current.redo.length > HISTORY_CAP) historyRef.current.redo.shift();
+    setHistoryVersion(v => v + 1);
+  }, []);
+
+  const redo = useCallback(async () => {
+    if (historyRef.current.redo.length === 0) return;
+    const entry = historyRef.current.redo.pop();
+    historyRef.current.suspended = true;
+    try {
+      for (const op of entry.redoOps) {
+        try { await op(); } catch (e) { /* swallow — keep going */ }
+      }
+    } finally {
+      historyRef.current.suspended = false;
+    }
+    historyRef.current.undo.push(entry);
+    if (historyRef.current.undo.length > HISTORY_CAP) historyRef.current.undo.shift();
+    setHistoryVersion(v => v + 1);
+  }, []);
+
+  const clearHistory = useCallback(() => {
+    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    setHistoryVersion(v => v + 1);
+  }, []);
+
+  const canUndo = historyVersion >= 0 && historyRef.current.undo.length > 0;
+  const canRedo = historyVersion >= 0 && historyRef.current.redo.length > 0;
 
   // ── intake state (minimal — pipeline lives in intake/) ──
   const [activeIngestion, setActiveIngestion] = useState(null);
@@ -160,6 +258,9 @@ export function RabbitProvider({ children }) {
     setProjectsIndex({});
     setBundle(EMPTY_BUNDLE);
     setActiveProjectIdState(null);
+    // Clear undo history — old ops belong to the previous adapter.
+    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    setHistoryVersion(v => v + 1);
     await saveRabbitSettings({ adapterMode: nextMode, activeProjectId: null });
     try {
       const status = await adapterRef.current.status();
@@ -189,6 +290,9 @@ export function RabbitProvider({ children }) {
     if (!adapterRef.current) return;
     setActiveProjectIdState(projectId);
     if (persist) saveRabbitSettings({ activeProjectId: projectId });
+    // Clear undo history — old ops belong to the previous project.
+    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    setHistoryVersion(v => v + 1);
     if (!projectId) {
       setBundle(EMPTY_BUNDLE);
       return;
@@ -206,8 +310,11 @@ export function RabbitProvider({ children }) {
 
   // ── optimistic CRUD helper ──────────────────────────────
   // Applies a local mutation, calls the adapter, rolls back on error.
+  // Reads the snapshot from bundleRef so the closure stays stable
+  // across renders — important for history-replay paths that hold
+  // captured references to mutators.
   const optimistic = useCallback(async (mutator, adapterCall) => {
-    const snapshot = bundle;
+    const snapshot = bundleRef.current;
     try {
       setBundle(prev => mutator(prev));
       const result = await adapterCall();
@@ -217,7 +324,7 @@ export function RabbitProvider({ children }) {
       setError(err.message || String(err));
       throw err;
     }
-  }, [bundle]);
+  }, []);
 
   // ── Projects (mutators on the index, not the bundle) ────
   const createProject = useCallback(async (payload) => {
@@ -279,24 +386,52 @@ export function RabbitProvider({ children }) {
     const row = {
       id:           phase.id || uuidv4(),
       project_id:   activeProjectId,
-      sort_order:   bundle.phases.length,
+      sort_order:   bundleRef.current.phases.length,
       ...phase,
     };
     const created = await adapterRef.current.upsertPhase(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, phases: [...prev.phases, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deletePhase(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addPhase(finalRow)],
+    });
     return finalRow;
-  }, [activeProjectId, bundle.phases.length]);
+  }, [activeProjectId]);
 
-  const updatePhase = useCallback((id, patch) => optimistic(
-    prev => ({ ...prev, phases: prev.phases.map(p => p.id === id ? { ...p, ...patch } : p) }),
-    () => adapterRef.current.upsertPhase({ ...bundle.phases.find(p => p.id === id), ...patch, id }),
-  ), [optimistic, bundle.phases]);
+  const updatePhase = useCallback(async (id, patch) => {
+    const oldPhase = bundleRef.current.phases.find(p => p.id === id);
+    const oldValues = {};
+    if (oldPhase) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldPhase[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, phases: prev.phases.map(p => p.id === id ? { ...p, ...patch } : p) }),
+      () => adapterRef.current.upsertPhase({ ...bundleRef.current.phases.find(p => p.id === id), ...patch, id }),
+    );
+    if (oldPhase) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updatePhase(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updatePhase(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
 
-  const deletePhase = useCallback((id) => optimistic(
-    prev => ({ ...prev, phases: prev.phases.filter(p => p.id !== id) }),
-    () => adapterRef.current.deletePhase(id, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  const deletePhase = useCallback(async (id) => {
+    const oldPhase = bundleRef.current.phases.find(p => p.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, phases: prev.phases.filter(p => p.id !== id) }),
+      () => adapterRef.current.deletePhase(id, activeProjectId),
+    );
+    if (oldPhase) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addPhase(oldPhase)],
+        redoOps: [() => mutationsRef.current.deletePhase(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
 
   const reorderPhases = useCallback((orderedIds) => optimistic(
     prev => ({
@@ -322,7 +457,7 @@ export function RabbitProvider({ children }) {
     const row = {
       id:           asset.id || uuidv4(),
       project_id:   activeProjectId,
-      sort_order:   bundle.assets.length,
+      sort_order:   bundleRef.current.assets.length,
       status:       'not_started',
       type:         'other',
       ...asset,
@@ -330,18 +465,52 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertAsset(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, assets: [...prev.assets, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteAsset(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addAsset(finalRow)],
+    });
     return finalRow;
-  }, [activeProjectId, bundle.assets.length]);
+  }, [activeProjectId]);
 
-  const updateAsset = useCallback((id, patch) => optimistic(
-    prev => ({ ...prev, assets: prev.assets.map(a => a.id === id ? { ...a, ...patch } : a) }),
-    () => adapterRef.current.upsertAsset({ ...bundle.assets.find(a => a.id === id), ...patch, id }),
-  ), [optimistic, bundle.assets]);
+  const updateAsset = useCallback(async (id, patch) => {
+    const oldAsset = bundleRef.current.assets.find(a => a.id === id);
+    const oldValues = {};
+    if (oldAsset) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldAsset[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, assets: prev.assets.map(a => a.id === id ? { ...a, ...patch } : a) }),
+      () => adapterRef.current.upsertAsset({ ...bundleRef.current.assets.find(a => a.id === id), ...patch, id }),
+    );
+    if (oldAsset) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateAsset(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateAsset(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
 
-  const deleteAsset = useCallback((id) => optimistic(
-    prev => ({ ...prev, assets: prev.assets.filter(a => a.id !== id), tasks: prev.tasks.filter(t => t.asset_id !== id) }),
-    () => adapterRef.current.deleteAsset(id, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  const deleteAsset = useCallback(async (id) => {
+    const oldAsset = bundleRef.current.assets.find(a => a.id === id);
+    // deleteAsset cascades locally onto tasks (see mutator). Capture
+    // those tasks too so undo restores them.
+    const removedTasks = bundleRef.current.tasks.filter(t => t.asset_id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, assets: prev.assets.filter(a => a.id !== id), tasks: prev.tasks.filter(t => t.asset_id !== id) }),
+      () => adapterRef.current.deleteAsset(id, activeProjectId),
+    );
+    if (oldAsset) {
+      pushHistory({
+        undoOps: [
+          () => mutationsRef.current.addAsset(oldAsset),
+          ...removedTasks.map(t => () => mutationsRef.current.addTask(t)),
+        ],
+        redoOps: [() => mutationsRef.current.deleteAsset(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
 
   const reorderAssets = useCallback((orderedIds) => optimistic(
     prev => ({
@@ -374,22 +543,65 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertTask(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, tasks: [...prev.tasks, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteTask(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addTask(finalRow)],
+    });
     return finalRow;
   }, [activeProjectId]);
 
-  const updateTask = useCallback((id, patch) => optimistic(
-    prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
-    () => adapterRef.current.upsertTask({ ...bundle.tasks.find(t => t.id === id), ...patch, id }),
-  ), [optimistic, bundle.tasks]);
+  const updateTask = useCallback(async (id, patch) => {
+    const oldTask = bundleRef.current.tasks.find(t => t.id === id);
+    const oldValues = {};
+    if (oldTask) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldTask[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
+      () => adapterRef.current.upsertTask({ ...bundleRef.current.tasks.find(t => t.id === id), ...patch, id }),
+    );
+    if (oldTask) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateTask(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateTask(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
 
-  const deleteTask = useCallback((id) => optimistic(
-    prev => ({
-      ...prev,
-      tasks: prev.tasks.filter(t => t.id !== id),
-      dependencies: prev.dependencies.filter(d => d.predecessor_id !== id && d.successor_id !== id),
-    }),
-    () => adapterRef.current.deleteTask(id, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  const deleteTask = useCallback(async (id) => {
+    const oldTask = bundleRef.current.tasks.find(t => t.id === id);
+    // deleteTask also strips matching dependency rows. Capture them
+    // for undo so the dependency graph restores too.
+    const removedDeps = bundleRef.current.dependencies.filter(
+      d => d.predecessor_id === id || d.successor_id === id,
+    );
+    const result = await optimistic(
+      prev => ({
+        ...prev,
+        tasks: prev.tasks.filter(t => t.id !== id),
+        dependencies: prev.dependencies.filter(d => d.predecessor_id !== id && d.successor_id !== id),
+      }),
+      () => adapterRef.current.deleteTask(id, activeProjectId),
+    );
+    if (oldTask) {
+      pushHistory({
+        undoOps: [
+          () => mutationsRef.current.addTask(oldTask),
+          ...removedDeps.map(d => async () => {
+            // Re-insert the dependency row directly (preserves id +
+            // kind), bypassing the link* helpers' fresh-uuid path.
+            await optimistic(
+              prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
+              () => adapterRef.current.upsertDependency(d),
+            );
+          }),
+        ],
+        redoOps: [() => mutationsRef.current.deleteTask(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
 
   // ── Dependencies ────────────────────────────────────────
   // The `dependencies` array carries BOTH task→task and phase→phase
@@ -398,8 +610,8 @@ export function RabbitProvider({ children }) {
   // legacy rows keep working. The critical-path engine naturally
   // filters out phase-kind rows because their ids aren't in the
   // task lookup table.
-  const linkTasks = useCallback((predecessorId, successorId, type = 'FS', lagDays = 0) => {
-    const id = uuidv4();
+  const linkTasks = useCallback(async (predecessorId, successorId, type = 'FS', lagDays = 0, existingId = null) => {
+    const id = existingId || uuidv4();
     const row = {
       id,
       predecessor_id: predecessorId,
@@ -409,14 +621,19 @@ export function RabbitProvider({ children }) {
       lag_days:       lagDays,
       project_id:     activeProjectId,
     };
-    return optimistic(
+    const result = await optimistic(
       prev => ({ ...prev, dependencies: [...prev.dependencies, row] }),
       () => adapterRef.current.upsertDependency(row),
     );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.unlinkTasks(id)],
+      redoOps: [() => mutationsRef.current.linkTasks(predecessorId, successorId, type, lagDays, id)],
+    });
+    return result;
   }, [optimistic, activeProjectId]);
 
-  const linkPhases = useCallback((predecessorId, successorId, type = 'FS', lagDays = 0) => {
-    const id = uuidv4();
+  const linkPhases = useCallback(async (predecessorId, successorId, type = 'FS', lagDays = 0, existingId = null) => {
+    const id = existingId || uuidv4();
     const row = {
       id,
       predecessor_id: predecessorId,
@@ -426,30 +643,114 @@ export function RabbitProvider({ children }) {
       lag_days:       lagDays,
       project_id:     activeProjectId,
     };
-    return optimistic(
+    const result = await optimistic(
       prev => ({ ...prev, dependencies: [...prev.dependencies, row] }),
       () => adapterRef.current.upsertDependency(row),
     );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.unlinkTasks(id)],
+      redoOps: [() => mutationsRef.current.linkPhases(predecessorId, successorId, type, lagDays, id)],
+    });
+    return result;
   }, [optimistic, activeProjectId]);
 
-  const unlinkTasks = useCallback((dependencyId) => optimistic(
-    prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== dependencyId) }),
-    () => adapterRef.current.deleteDependency(dependencyId, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  const unlinkTasks = useCallback(async (dependencyId) => {
+    const oldRow = bundleRef.current.dependencies.find(d => d.id === dependencyId);
+    const result = await optimistic(
+      prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== dependencyId) }),
+      () => adapterRef.current.deleteDependency(dependencyId, activeProjectId),
+    );
+    if (oldRow) {
+      pushHistory({
+        undoOps: [async () => {
+          // Re-insert the original row directly so id + kind survive.
+          await optimistic(
+            prev => ({ ...prev, dependencies: [...prev.dependencies, oldRow] }),
+            () => adapterRef.current.upsertDependency(oldRow),
+          );
+        }],
+        redoOps: [() => mutationsRef.current.unlinkTasks(dependencyId)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
 
   // Alias — semantically covers both task + phase edges.
   const unlinkDependency = unlinkTasks;
 
   // ── Task links (free URLs) ──────────────────────────────
-  const addTaskLink = useCallback((link) => optimistic(
-    prev => ({ ...prev, taskLinks: [...prev.taskLinks, { id: uuidv4(), project_id: activeProjectId, ...link }] }),
-    () => adapterRef.current.upsertTaskLink({ id: uuidv4(), project_id: activeProjectId, ...link }),
-  ), [optimistic, activeProjectId]);
+  const addTaskLink = useCallback(async (link) => {
+    // Pre-allocate the id so the local state and the adapter call
+    // share it (the previous version generated two distinct uuids).
+    const row = { id: uuidv4(), project_id: activeProjectId, ...link };
+    const result = await optimistic(
+      prev => ({ ...prev, taskLinks: [...prev.taskLinks, row] }),
+      () => adapterRef.current.upsertTaskLink(row),
+    );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.removeTaskLink(row.id)],
+      redoOps: [async () => {
+        await optimistic(
+          prev => ({ ...prev, taskLinks: [...prev.taskLinks, row] }),
+          () => adapterRef.current.upsertTaskLink(row),
+        );
+      }],
+    });
+    return result;
+  }, [optimistic, activeProjectId]);
 
-  const removeTaskLink = useCallback((linkId) => optimistic(
-    prev => ({ ...prev, taskLinks: prev.taskLinks.filter(l => l.id !== linkId) }),
-    () => adapterRef.current.deleteTaskLink(linkId, activeProjectId),
-  ), [optimistic, activeProjectId]);
+  const removeTaskLink = useCallback(async (linkId) => {
+    const oldRow = bundleRef.current.taskLinks.find(l => l.id === linkId);
+    const result = await optimistic(
+      prev => ({ ...prev, taskLinks: prev.taskLinks.filter(l => l.id !== linkId) }),
+      () => adapterRef.current.deleteTaskLink(linkId, activeProjectId),
+    );
+    if (oldRow) {
+      pushHistory({
+        undoOps: [async () => {
+          await optimistic(
+            prev => ({ ...prev, taskLinks: [...prev.taskLinks, oldRow] }),
+            () => adapterRef.current.upsertTaskLink(oldRow),
+          );
+        }],
+        redoOps: [() => mutationsRef.current.removeTaskLink(linkId)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // ── Team assignments (project-scoped) ────────────────────
+  // Each assignment: { id, project_id, member_id, role: 'member' | 'manager' | 'reviewer' }
+  const addTeamAssignment = useCallback(async (assignment) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           assignment.id || uuidv4(),
+      project_id:   activeProjectId,
+      role:         'member',
+      ...assignment,
+    };
+    const created = await adapterRef.current.upsertTeamAssignment(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, teamAssignments: [...prev.teamAssignments, finalRow] }));
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateTeamAssignment = useCallback(async (id, patch) => {
+    const result = await optimistic(
+      prev => ({ ...prev, teamAssignments: prev.teamAssignments.map(a => a.id === id ? { ...a, ...patch } : a) }),
+      () => adapterRef.current.upsertTeamAssignment({ ...bundleRef.current.teamAssignments.find(a => a.id === id), ...patch, id }),
+    );
+    return result;
+  }, [optimistic]);
+
+  const removeTeamAssignment = useCallback(async (id) => {
+    const result = await optimistic(
+      prev => ({ ...prev, teamAssignments: prev.teamAssignments.filter(a => a.id !== id) }),
+      () => adapterRef.current.deleteTeamAssignment(id, activeProjectId),
+    );
+    return result;
+  }, [optimistic, activeProjectId]);
 
   // ── Files ───────────────────────────────────────────────
   const uploadFile = useCallback(async (file, scope = {}) => {
@@ -466,6 +767,61 @@ export function RabbitProvider({ children }) {
     }),
     () => adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: activeProjectId }),
   ), [optimistic, activeProjectId]);
+
+  // ── Managed files (asset-folder-based, versioned) ──────
+  const addManagedFile = useCallback(async (record) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId) throw new Error('no project');
+    const created = await adapterRef.current.createManagedFile({
+      ...record,
+      project_id: activeProjectId,
+    });
+    setBundle(prev => ({
+      ...prev,
+      managedFiles: [...(prev.managedFiles || []), created],
+    }));
+    return created;
+  }, [activeProjectId]);
+
+  const updateManagedFile = useCallback(async (id, patch) => {
+    return optimistic(
+      prev => ({
+        ...prev,
+        managedFiles: (prev.managedFiles || []).map(f =>
+          f.id === id ? { ...f, ...patch } : f
+        ),
+      }),
+      () => adapterRef.current.updateManagedFile(id, { ...patch, project_id: activeProjectId }),
+    );
+  }, [optimistic, activeProjectId]);
+
+  const deleteManagedFile = useCallback(async (id, hard = false) => {
+    if (hard) {
+      return optimistic(
+        prev => ({
+          ...prev,
+          managedFiles: (prev.managedFiles || []).filter(f => f.id !== id),
+        }),
+        () => adapterRef.current.deleteManagedFile(id, activeProjectId, true),
+      );
+    }
+    // Soft delete
+    return optimistic(
+      prev => ({
+        ...prev,
+        managedFiles: (prev.managedFiles || []).map(f =>
+          f.id === id ? { ...f, deleted_at: new Date().toISOString() } : f
+        ),
+      }),
+      () => adapterRef.current.deleteManagedFile(id, activeProjectId, false),
+    );
+  }, [optimistic, activeProjectId]);
+
+  const refreshManagedFiles = useCallback(async () => {
+    if (!adapterRef.current || !activeProjectId) return;
+    const files = await adapterRef.current.listManagedFiles(activeProjectId);
+    setBundle(prev => ({ ...prev, managedFiles: files }));
+  }, [activeProjectId]);
 
   // ── Ingestion runs ──────────────────────────────────────
   // The actual chunked pipeline lives in intake/pipeline.js (Commit 10).
@@ -609,6 +965,24 @@ export function RabbitProvider({ children }) {
     setIngestionRun(null);
   }, []);
 
+  // ── Mutations ref refresh ───────────────────────────────
+  // History closures call into mutationsRef.current so they always
+  // hit the latest mutator implementation, not a captured stale one.
+  mutationsRef.current.addPhase     = addPhase;
+  mutationsRef.current.updatePhase  = updatePhase;
+  mutationsRef.current.deletePhase  = deletePhase;
+  mutationsRef.current.addAsset     = addAsset;
+  mutationsRef.current.updateAsset  = updateAsset;
+  mutationsRef.current.deleteAsset  = deleteAsset;
+  mutationsRef.current.addTask      = addTask;
+  mutationsRef.current.updateTask   = updateTask;
+  mutationsRef.current.deleteTask   = deleteTask;
+  mutationsRef.current.linkTasks    = linkTasks;
+  mutationsRef.current.linkPhases   = linkPhases;
+  mutationsRef.current.unlinkTasks  = unlinkTasks;
+  mutationsRef.current.addTaskLink  = addTaskLink;
+  mutationsRef.current.removeTaskLink = removeTaskLink;
+
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
     selectAssetsByPhase:        (phaseId) => selectAssetsByPhase(bundle.assets, phaseId),
@@ -654,6 +1028,10 @@ export function RabbitProvider({ children }) {
     assetVersions: bundle.assetVersions,
     comments:      bundle.comments,
     ingestionRuns: bundle.ingestionRuns,
+    teamAssignments: bundle.teamAssignments,
+    managedFiles:    bundle.managedFiles || [],
+    budgetVersions:  bundle.budgetVersions || [],
+    expenses:        bundle.expenses || [],
     loadingProject,
     error,
 
@@ -679,7 +1057,12 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
+    addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     uploadFile, markFileCoreDefiner,
+    addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+
+    // history
+    undo, redo, runBatch, clearHistory, canUndo, canRedo,
 
     // selectors
     ...memoSelectors,
@@ -694,7 +1077,10 @@ export function RabbitProvider({ children }) {
     addTask, updateTask, deleteTask,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
+    addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     uploadFile, markFileCoreDefiner,
+    addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,
   ]);
 

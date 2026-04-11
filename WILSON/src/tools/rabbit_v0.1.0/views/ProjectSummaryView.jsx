@@ -18,6 +18,7 @@ import { useMemo } from 'react'
 import {
   ListChecks, AlertTriangle, Clock, DollarSign,
   Layers, Boxes, ChevronRight, FileText, Folder, Check, LayoutGrid,
+  FolderOpen,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 
@@ -150,6 +151,52 @@ export default function ProjectSummaryView() {
             <Stat icon={Boxes}  label="Assets" value={assets.length} />
             <Stat icon={ListChecks} label="Tasks" value={tasks.length} />
             <Stat icon={DollarSign} label="Budget" value={fmtMoney(budget.total, budget.currency)} />
+          </div>
+          {/* Project folder path */}
+          <div className="flex items-center gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
+            <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider flex-shrink-0" style={{ color: '#78716c' }}>
+              Folder:
+            </span>
+            {project.folder_root ? (
+              <>
+                <span className="text-[10px] font-mono truncate" style={{ color: '#a8a29e' }}>
+                  {project.folder_root}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.electronAPI?.rabbit?.openInExplorer?.({ filePath: project.folder_root })
+                  }}
+                  className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  style={{ color: '#fb923c', border: '1px solid #44403c' }}
+                >
+                  Open
+                </button>
+              </>
+            ) : (
+              <span className="text-[10px] font-mono italic" style={{ color: '#57534e' }}>
+                Using default location
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={async () => {
+                const api = window.electronAPI?.rabbit
+                if (!api?.pickDirectory) return
+                const dir = await api.pickDirectory()
+                if (!dir) return
+                // Set project-level folder_root
+                const projectSlug = project.folder_slug || project.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
+                const folderRoot = dir + '\\' + projectSlug
+                await api.ensureProjectFolder({ rootDir: dir, projectSlug })
+                ctx?.updateProject?.(project.id, { folder_root: folderRoot })
+              }}
+              className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+              style={{ color: '#a8a29e', border: '1px solid #44403c' }}
+            >
+              Change
+            </button>
           </div>
         </Card>
 
