@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
-import { loadProjects as idbLoadProjects, saveProjects as idbSaveProjects, loadProjectsSync } from '../../storage';
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -83,7 +83,16 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     }
   }, [openSettingsTrigger]);
 
-  // Project Integration State
+  // Project Integration State — projects come from the unified
+  // RabbitProvider store (same source as the Projects page and
+  // RABBIT itself). Local state only owns the new-project modal
+  // form fields and the currently-selected project id.
+  const rabbitCtx = useRabbit();
+  const projectsIndex = rabbitCtx?.projectsIndex || {};
+  const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
+  const createUnifiedProject = rabbitCtx?.createProject;
+  const updateUnifiedProject = rabbitCtx?.updateProject;
+
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
   const [newProjectTitle, setNewProjectTitle] = useState('');
@@ -92,23 +101,21 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const [newProjectEndDate, setNewProjectEndDate] = useState('');
   const [newProjectDocuments, setNewProjectDocuments] = useState([]);
   const [newProjectAssets, setNewProjectAssets] = useState([]);
-  const [projects, setProjects] = useState(loadProjectsSync);
 
-  // Hydrate projects from IndexedDB on mount
-  useEffect(() => {
-    idbLoadProjects().then(idbProjects => {
-      if (idbProjects && idbProjects.length > 0) {
-        setProjects(idbProjects);
-      }
-    }).catch(() => {});
-  }, []);
+  // Derived: flattened, recency-sorted list of unified projects.
+  const projects = useMemo(() => {
+    return Object.values(projectsIndex).sort((a, b) => {
+      const ad = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bd = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      return bd - ad;
+    });
+  }, [projectsIndex]);
 
-  // Re-read projects from IndexedDB when component mounts or modal closes
+  // Force a re-pull from the active adapter — used when the new
+  // project modal closes so the dropdown reflects the new row.
   const refreshProjects = useCallback(() => {
-    idbLoadProjects().then(idbProjects => {
-      setProjects(idbProjects || []);
-    }).catch(() => {});
-  }, []);
+    refreshProjectsIndex?.();
+  }, [refreshProjectsIndex]);
 
   // Get the selected project object
   const selectedProject = useMemo(() => {
@@ -116,29 +123,36 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     return projects.find(p => p.id === selectedProjectId) || null;
   }, [selectedProjectId, projects]);
 
-  // Convert project files to DOG-compatible format for injection into generation
+  // Convert project files to DOG-compatible format for injection into generation.
+  // Each file carries `isCore`: files marked core are the ones that define
+  // the project concept itself; the rest are reference / supporting context.
+  // Default is true so existing projects keep working — explicit opt-out only.
   const projectFiles = useMemo(() => {
     if (!selectedProject) return [];
     const files = [];
     // Add project documents
     (selectedProject.documents || []).forEach(doc => {
       if (!doc.content) return;
+      const isCore = doc.isCore !== false;
+      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
       const base64Data = doc.content.includes(',') ? doc.content.split(',')[1] : doc.content;
       if (doc.type?.startsWith('image/')) {
         files.push({
           id: `proj-${doc.id}`,
-          file: { name: `[Project] ${doc.name}`, size: doc.size || 0 },
+          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
           content: base64Data,
           type: 'image',
           mediaType: doc.type,
+          isCore,
         });
       } else if (doc.type === 'application/pdf' || doc.name?.endsWith('.pdf')) {
         files.push({
           id: `proj-${doc.id}`,
-          file: { name: `[Project] ${doc.name}`, size: doc.size || 0 },
+          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
           content: base64Data,
           type: 'pdf',
           mediaType: 'application/pdf',
+          isCore,
         });
       } else {
         // Text-based files — decode base64 to text if needed
@@ -146,24 +160,28 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
         try { textContent = atob(base64Data); } catch { /* already text */ }
         files.push({
           id: `proj-${doc.id}`,
-          file: { name: `[Project] ${doc.name}`, size: doc.size || 0 },
+          file: { name: `${labelPrefix} ${doc.name}`, size: doc.size || 0 },
           content: textContent,
           type: 'text',
           mediaType: 'text/plain',
+          isCore,
         });
       }
     });
     // Add project visual assets
     (selectedProject.visualAssets || []).forEach(asset => {
       if (!asset.content) return;
+      const isCore = asset.isCore !== false;
+      const labelPrefix = isCore ? '[Project · CORE]' : '[Project · REF]';
       const base64Data = asset.content.includes(',') ? asset.content.split(',')[1] : asset.content;
       const isVideo = asset.type?.startsWith('video/') || asset.name?.match(/\.(mp4|mov|webm|avi|mkv)$/i);
       files.push({
         id: `proj-${asset.id}`,
-        file: { name: `[Project] ${asset.name}`, size: asset.size || 0 },
+        file: { name: `${labelPrefix} ${asset.name}`, size: asset.size || 0 },
         content: base64Data,
         type: isVideo ? 'video' : 'image',
         mediaType: asset.type || (isVideo ? 'video/mp4' : 'image/png'),
+        isCore,
       });
     });
     return files;
@@ -188,14 +206,57 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
 
   const assetPlacementActive = placementAssets.length > 0;
 
-  // Project description context for injection into prompts
+  // Project description context for injection into prompts.
+  // Includes an explicit CORE / REFERENCE file split so the model
+  // knows which sources actually define the project concept and which
+  // are supporting context only.
   const projectContext = useMemo(() => {
     if (!selectedProject) return '';
     const parts = [];
     if (selectedProject.title) parts.push(`Project: ${selectedProject.title}`);
     if (selectedProject.description) parts.push(`Description: ${selectedProject.description}`);
+
+    const coreNames = projectFiles.filter(f => f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
+    const refNames  = projectFiles.filter(f => !f.isCore).map(f => f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, ''));
+
+    if (coreNames.length > 0 || refNames.length > 0) {
+      parts.push('');
+      parts.push('FILE ROLES — read carefully:');
+      parts.push('Files tagged [Project · CORE] are the *primary sources of truth* for what this project IS. Treat them as authoritative — the deck must faithfully reflect the concept, claims, and language they establish.');
+      parts.push('Files tagged [Project · REF] are *supporting reference material only*. Use them for background, examples, or supplementary detail, but do NOT let them override or reshape the core concept.');
+      if (coreNames.length > 0) {
+        parts.push('');
+        parts.push(`CORE files (${coreNames.length}):`);
+        coreNames.forEach(n => parts.push(`  • ${n}`));
+      }
+      if (refNames.length > 0) {
+        parts.push('');
+        parts.push(`REFERENCE files (${refNames.length}):`);
+        refNames.forEach(n => parts.push(`  • ${n}`));
+      }
+    }
+
     return parts.length > 0 ? parts.join('\n') : '';
-  }, [selectedProject]);
+  }, [selectedProject, projectFiles]);
+
+  // Flip a project file's CORE / REFERENCE flag and persist it
+  // through the unified project store. The flag lives directly on
+  // the file row in `documents[]` / `visualAssets[]` — the rest of
+  // the row is left untouched.
+  const toggleProjectFileCore = useCallback(async (category, fileId) => {
+    if (!selectedProject || !updateUnifiedProject) return;
+    const list = Array.isArray(selectedProject[category]) ? selectedProject[category] : [];
+    const next = list.map(f => {
+      if (f.id !== fileId) return f;
+      const current = f.isCore !== false; // default true
+      return { ...f, isCore: !current };
+    });
+    try {
+      await updateUnifiedProject(selectedProject.id, { [category]: next });
+    } catch (err) {
+      console.error('[DOG] toggle core flag failed:', err);
+    }
+  }, [selectedProject, updateUnifiedProject]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -232,32 +293,28 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     });
   }, []);
 
-  // Handle creating a new project from the modal
-  const handleCreateProjectFromModal = useCallback(() => {
-    if (!newProjectTitle.trim()) return;
-    const newProject = {
-      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-      title: newProjectTitle.trim(),
-      description: newProjectDescription.trim(),
-      startDate: newProjectStartDate,
-      endDate: newProjectEndDate,
-      documents: newProjectDocuments,
-      visualAssets: newProjectAssets,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    // Save to IndexedDB
-    idbLoadProjects().then(existing => {
-      existing.unshift(newProject);
-      return idbSaveProjects(existing);
-    }).then(() => {
-      refreshProjects();
-    }).catch(() => {});
-    // Optimistically update local state immediately
-    setProjects(prev => [newProject, ...prev]);
-    setSelectedProjectId(newProject.id);
-    resetNewProjectModal();
-  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, refreshProjects, resetNewProjectModal]);
+  // Handle creating a new project from the modal — writes through
+  // the unified RabbitProvider so the same record shows up in the
+  // Projects page and RABBIT itself, not just inside DOG.
+  const handleCreateProjectFromModal = useCallback(async () => {
+    if (!newProjectTitle.trim() || !createUnifiedProject) return;
+    try {
+      const created = await createUnifiedProject({
+        title:        newProjectTitle.trim(),
+        description:  newProjectDescription.trim(),
+        startDate:    newProjectStartDate,
+        endDate:      newProjectEndDate,
+        documents:    newProjectDocuments,
+        visualAssets: newProjectAssets,
+        status:       'active',
+      });
+      if (created?.id) setSelectedProjectId(created.id);
+    } catch (err) {
+      console.error('[DOG] createProject failed:', err);
+    } finally {
+      resetNewProjectModal();
+    }
+  }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
 
   // API Key — provided by container via props
   const anthropicApiKey = apiKey || '';
@@ -3760,15 +3817,72 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </button>
                 </div>
                 {selectedProject && (
-                  <div className="mt-1.5 px-2 py-1 bg-stone-900/50 rounded-sm border border-stone-700">
+                  <div className="mt-1.5 px-2 py-1.5 bg-stone-900/50 rounded-sm border border-stone-700">
                     {selectedProject.description && (
                       <p className="text-[10px] text-stone-400 mb-0.5">{selectedProject.description}</p>
                     )}
-                    <p className="text-[10px] text-stone-500">
+                    <p className="text-[10px] text-stone-500 mb-1.5">
                       {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
                       {' · '}
                       {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
                     </p>
+
+                    {/* CORE / REFERENCE classifier — tells the AI which files
+                        actually define the project concept vs. which are just
+                        supporting reference. Click a tag to flip it. */}
+                    {((selectedProject.documents || []).length + (selectedProject.visualAssets || []).length) > 0 && (
+                      <div className="border-t border-stone-700 pt-1.5">
+                        <p className="text-[9px] uppercase tracking-wider text-stone-500 mb-1">
+                          File roles · click to toggle
+                        </p>
+                        <div className="space-y-0.5">
+                          {(selectedProject.documents || []).map(doc => {
+                            const isCore = doc.isCore !== false;
+                            return (
+                              <div key={doc.id} className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleProjectFileCore('documents', doc.id)}
+                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
+                                  style={{
+                                    width: '52px',
+                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
+                                    color: isCore ? '#fff7ed' : '#a8a29e',
+                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
+                                  }}
+                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
+                                >
+                                  {isCore ? 'Core' : 'Ref'}
+                                </button>
+                                <span className="text-[10px] text-stone-400 truncate flex-1">{doc.name}</span>
+                              </div>
+                            );
+                          })}
+                          {(selectedProject.visualAssets || []).map(asset => {
+                            const isCore = asset.isCore !== false;
+                            return (
+                              <div key={asset.id} className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleProjectFileCore('visualAssets', asset.id)}
+                                  className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
+                                  style={{
+                                    width: '52px',
+                                    backgroundColor: isCore ? '#ea580c' : '#44403c',
+                                    color: isCore ? '#fff7ed' : '#a8a29e',
+                                    border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
+                                  }}
+                                  title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
+                                >
+                                  {isCore ? 'Core' : 'Ref'}
+                                </button>
+                                <span className="text-[10px] text-stone-400 truncate flex-1">{asset.name}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react'
 import { PET_BREEDS } from './sprites/index'
 import { AGENT_SYSTEM_PROMPT } from '../agent/agentPrompts'
+import { useAgent } from '../agent/AgentProvider'
+import CurrencyPicker from './settings/CurrencyPicker'
+import TaskTemplateManager from './TaskTemplates/TaskTemplateManager'
+import AgentSkillsSection from './settings/AgentSkillsSection'
+import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
+import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { useRateCard } from './RateCard/useRateCard'
+import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 
 
 export default function SettingsPage({
@@ -29,12 +37,159 @@ export default function SettingsPage({
   const [subjectList, setSubjectList] = useState([])
   const [softwareList, setSoftwareList] = useState([])
 
+  // Task template manager popup
+  const [showTemplateManager, setShowTemplateManager] = useState(false)
+
+  // Project files root directory
+  const [filesRootDir, setFilesRootDir] = useState(null)
+  const [filesRootLoaded, setFilesRootLoaded] = useState(false)
+
+  // Load files config on mount
+  useEffect(() => {
+    const api = window.electronAPI?.rabbit
+    if (!api?.readFilesConfig) { setFilesRootLoaded(true); return }
+    api.readFilesConfig().then(cfg => {
+      if (cfg?.defaultRootDir) setFilesRootDir(cfg.defaultRootDir)
+      setFilesRootLoaded(true)
+    }).catch(() => setFilesRootLoaded(true))
+  }, [])
+
+  async function handlePickRootDir() {
+    const api = window.electronAPI?.rabbit
+    if (!api?.pickDirectory) return
+    const dir = await api.pickDirectory()
+    if (!dir) return
+    setFilesRootDir(dir)
+    await api.writeFilesConfig({ defaultRootDir: dir })
+  }
+
+  async function handleClearRootDir() {
+    const api = window.electronAPI?.rabbit
+    if (!api?.writeFilesConfig) return
+    setFilesRootDir(null)
+    await api.writeFilesConfig({ defaultRootDir: null })
+  }
+
+  // RABBIT default currency + agent skills (persisted in otter-settings.json)
+  const [rabbitDefaultCurrency, setRabbitDefaultCurrency] = useState('USD')
+  const [agentSkills, setAgentSkills] = useState(defaultAgentSkillsState())
+
+  // Per-tool agent system prompt overrides — separate file at
+  // userData/otter-data/agent-skills.json (see §9.2 spec).
+  const [agentPromptOverrides, setAgentPromptOverrides] = useState({})
+
+  // Multi-tool agent context — used to push prompt-override changes
+  // back into the live AgentProvider so the next sendAgentMessage
+  // call sees the new prompt without a page reload.
+  const agentCtx = useAgent()
+
+  // RABBIT provider + rate card hooks for the new RABBIT tab.
+  const rabbitCtx = useRabbit()
+  const rateCard = useRateCard()
+  const [rabbitDefaultRateCardId, setRabbitDefaultRateCardId] = useState(null)
+  const [adapterSwitching, setAdapterSwitching] = useState(false)
+
   // Load software list for subject lock picker
   useEffect(() => {
     fetch('/api/software').then(r => r.json()).then(list => {
       setSoftwareList(list || [])
     }).catch(() => {})
   }, [])
+
+  // Load Rabbit + agent-skills slices from otter-settings.json on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+      if (cancelled) return
+      if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
+      if (data?.rabbit?.defaultRateCardId) setRabbitDefaultRateCardId(data.rabbit.defaultRateCardId)
+      if (data?.agentSkills) setAgentSkills({ ...defaultAgentSkillsState(), ...data.agentSkills })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  // Load per-tool agent prompt overrides from agent-skills.json on mount.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/agent-skills').then(r => r.json()).then(data => {
+      if (cancelled) return
+      if (data && typeof data === 'object') setAgentPromptOverrides(data)
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const persistOtterSettings = async (patch) => {
+    try {
+      const res = await fetch('/api/otter-settings')
+      const data = await res.json().catch(() => ({}))
+      // Shallow-merge top-level keys, but for object-valued keys do a one-deep merge
+      // so updating settings.rabbit.defaultCurrency doesn't blow away other rabbit fields.
+      const next = { ...data }
+      for (const [k, v] of Object.entries(patch)) {
+        if (v && typeof v === 'object' && !Array.isArray(v) && data[k] && typeof data[k] === 'object') {
+          next[k] = { ...data[k], ...v }
+        } else {
+          next[k] = v
+        }
+      }
+      await fetch('/api/otter-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+    } catch {
+      /* best effort */
+    }
+  }
+
+  const handleCurrencyChange = (code) => {
+    setRabbitDefaultCurrency(code)
+    persistOtterSettings({ rabbit: { defaultCurrency: code } })
+  }
+
+  const handleRabbitAdapterSwitch = async (mode) => {
+    if (!rabbitCtx?.switchAdapter || mode === rabbitCtx.adapterMode) return
+    setAdapterSwitching(true)
+    try {
+      await rabbitCtx.switchAdapter(mode)
+    } finally {
+      setAdapterSwitching(false)
+    }
+  }
+
+  const handleRabbitDefaultRateCardChange = (id) => {
+    setRabbitDefaultRateCardId(id || null)
+    persistOtterSettings({ rabbit: { defaultRateCardId: id || null } })
+  }
+
+  const handleAgentSkillsChange = (next) => {
+    setAgentSkills(next)
+    persistOtterSettings({ agentSkills: next })
+  }
+
+  // Persist per-tool prompt overrides at userData/otter-data/agent-skills.json.
+  // Passing `override === null` clears the override (Reset to default).
+  const handlePromptOverrideChange = async (toolName, override) => {
+    const next = { ...agentPromptOverrides }
+    if (override == null) {
+      delete next[toolName]
+    } else {
+      next[toolName] = { ...(next[toolName] || {}), systemPromptOverride: override }
+    }
+    setAgentPromptOverrides(next)
+    try {
+      await fetch('/api/agent-skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(next),
+      })
+      // Tell the live AgentProvider to re-read its overrides so the
+      // next sendAgentMessage uses the new prompt.
+      agentCtx?.refreshPromptOverrides?.()
+    } catch {
+      /* best effort */
+    }
+  }
 
   const handleChangePassword = async () => {
     if (newPassword.length === 0) {
@@ -103,9 +258,53 @@ export default function SettingsPage({
   const breedLabel = PET_BREEDS[petData?.breed]?.label || (form === 'egg' ? 'Unknown' : 'Otter')
   const isGhost = form === 'ghost' || form === 'corpse'
 
+  // ── Departments state ──
+  const [departments, setDepartments] = useState([
+    'CG Art', 'Production', 'Creatives', 'Post', 'QA',
+    'Audio', 'Physical Production', 'Development', 'Executive', 'Operations',
+  ])
+  const [newDeptName, setNewDeptName] = useState('')
+
+  // Load departments from otter-settings on mount
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+      if (cancelled) return
+      if (data?.rabbit?.departments && Array.isArray(data.rabbit.departments)) {
+        setDepartments(data.rabbit.departments)
+      }
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [])
+
+  const persistDepartments = (next) => {
+    setDepartments(next)
+    persistOtterSettings({ rabbit: { departments: next } })
+  }
+
+  const handleAddDepartment = () => {
+    const name = newDeptName.trim()
+    if (!name || departments.includes(name)) return
+    persistDepartments([...departments, name])
+    setNewDeptName('')
+  }
+
+  const handleRemoveDepartment = (dept) => {
+    persistDepartments(departments.filter(d => d !== dept))
+  }
+
+  const handleRenameDepartment = (oldName, newName) => {
+    const trimmed = newName.trim()
+    if (!trimmed || (trimmed !== oldName && departments.includes(trimmed))) return
+    persistDepartments(departments.map(d => d === oldName ? trimmed : d))
+  }
+
   const tabs = [
     { key: 'general', label: 'General' },
+    { key: 'rabbit',  label: 'RABBIT' },
+    { key: 'teams',   label: 'Teams' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
+    { key: 'skills', label: 'Agent Skills' },
   ]
 
   return (
@@ -306,6 +505,71 @@ export default function SettingsPage({
                 </div>
               )}
 
+              {/* Project Files Root Directory */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Project Files Location
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Default root directory where RABBIT creates project folders and stores asset files.
+                  Each project can also override this with its own location.
+                </p>
+                <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.15)', border: '1px solid rgba(120, 70, 30, 0.3)' }}>
+                  {filesRootDir ? (
+                    <div className="space-y-3">
+                      <div>
+                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Current path</span>
+                        <div className="mt-1 px-3 py-2 rounded-sm text-xs font-mono break-all" style={{ backgroundColor: 'rgba(0,0,0,0.1)', color: '#1c1917' }}>
+                          {filesRootDir}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={handlePickRootDir}
+                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                        >
+                          Change
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearRootDir}
+                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
+                          style={{ color: '#dc2626', border: '1px solid #dc2626' }}
+                        >
+                          Clear
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            window.electronAPI?.rabbit?.openInExplorer?.({ filePath: filesRootDir })
+                          }}
+                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                          style={{ color: '#57534e', border: '1px solid #a8a29e' }}
+                        >
+                          Open in Explorer
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <p className="text-xs italic" style={{ color: '#78716c' }}>
+                        No default location set. Project files will not be managed until a root directory is chosen.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={handlePickRootDir}
+                        className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                        style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                      >
+                        Select Root Directory
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Password Change Section */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
@@ -378,6 +642,211 @@ export default function SettingsPage({
                       </span>
                     )}
                   </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  RABBIT TAB                                               */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'rabbit' && (
+            <>
+              {/* Adapter mode */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Storage Backend
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Where R.A.B.B.I.T. stores projects, phases, assets, tasks, files, and rate
+                  cards. Switching backends preserves whatever lives in the destination — it
+                  does not migrate data between adapters.
+                </p>
+                <div className="flex flex-col gap-2">
+                  {ADAPTER_MODES.map(mode => {
+                    const active = rabbitCtx?.adapterMode === mode
+                    const writes = adapterSupportsWrites(mode)
+                    const label =
+                      mode === 'supabase'     ? 'Supabase'      :
+                      mode === 'local_server' ? 'Local Server'  :
+                      mode === 'google_drive' ? 'Google Drive'  : mode
+                    const hint =
+                      mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
+                      mode === 'local_server' ? 'In-app Express server (default — single user)'      :
+                      mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        disabled={adapterSwitching || active}
+                        onClick={() => handleRabbitAdapterSwitch(mode)}
+                        className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
+                        style={{
+                          backgroundColor: active ? 'rgba(234, 88, 12, 0.18)' : 'rgba(120, 70, 30, 0.18)',
+                          border: `2px solid ${active ? '#ea580c' : 'transparent'}`,
+                        }}
+                      >
+                        <span
+                          className="mt-0.5 w-3 h-3 rounded-full flex-shrink-0"
+                          style={{
+                            backgroundColor: active ? '#ea580c' : 'transparent',
+                            border: '2px solid #7c2d12',
+                          }}
+                        />
+                        <div className="flex flex-col">
+                          <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
+                            {label}
+                            {!writes && (
+                              <span
+                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
+                                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #991b1b' }}
+                              >
+                                Read only
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px]" style={{ color: '#1c1917' }}>{hint}</span>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="mt-2 flex items-center gap-2">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ backgroundColor: rabbitCtx?.adapterStatus?.online ? '#22c55e' : '#ef4444' }}
+                  />
+                  <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
+                    {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
+                    {rabbitCtx?.adapterStatus?.error && ` — ${rabbitCtx.adapterStatus.error}`}
+                  </span>
+                </div>
+              </div>
+
+              {/* Default currency */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Default Project Currency
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Used as the starting currency for new RABBIT projects and budget rollups.
+                  Each project can override this once it's been created.
+                </p>
+                <CurrencyPicker
+                  value={rabbitDefaultCurrency}
+                  onChange={handleCurrencyChange}
+                />
+              </div>
+
+              {/* Default rate card */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Default Rate Card
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  New projects open with this rate card pinned in the budget view. Manage
+                  individual cards on the Rate Card page.
+                </p>
+                {rateCard.rateCards.length === 0 ? (
+                  <div className="text-[11px] font-mono italic" style={{ color: '#7c2d12' }}>
+                    No rate cards yet. Create one on the Rate Card page.
+                  </div>
+                ) : (
+                  <select
+                    value={rabbitDefaultRateCardId || ''}
+                    onChange={(e) => handleRabbitDefaultRateCardChange(e.target.value)}
+                    className="px-4 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                    style={{
+                      backgroundColor: 'rgba(120, 70, 30, 0.55)',
+                      color: '#fde8d0',
+                      border: 'none',
+                      minWidth: '260px',
+                    }}
+                  >
+                    <option value="">— None —</option>
+                    {rateCard.rateCards.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Task Templates */}
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Task Templates
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Define reusable sets of tasks that can be automatically applied to assets.
+                  Templates are available across all projects unless marked as project-specific.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateManager(true)}
+                  className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                  style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                >
+                  Manage Task Templates
+                </button>
+              </div>
+            </>
+          )}
+
+          {showTemplateManager && (
+            <TaskTemplateManager onClose={() => setShowTemplateManager(false)} />
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  TEAMS TAB                                                */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'teams' && (
+            <>
+              <div>
+                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                  Departments
+                </h2>
+                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  Manage the department tags available for team members. These appear as dropdown
+                  options when assigning a department to a team member.
+                </p>
+
+                {/* Add new department */}
+                <div className="flex items-center gap-2 mb-4">
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment() }}
+                    placeholder="New department name..."
+                    className="flex-1 px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddDepartment}
+                    disabled={!newDeptName.trim()}
+                    className="px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
+                  >
+                    Add
+                  </button>
+                </div>
+
+                {/* Department list */}
+                <div className="space-y-1">
+                  {departments.map((dept, idx) => (
+                    <DepartmentRow
+                      key={idx}
+                      name={dept}
+                      onRename={(newName) => handleRenameDepartment(dept, newName)}
+                      onRemove={() => handleRemoveDepartment(dept)}
+                    />
+                  ))}
+                  {departments.length === 0 && (
+                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: '#78716c' }}>
+                      No departments configured. Add one above.
+                    </div>
+                  )}
                 </div>
               </div>
             </>
@@ -571,6 +1040,18 @@ export default function SettingsPage({
               </div>
             </>
           )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  AGENT SKILLS TAB                                         */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'skills' && (
+            <AgentSkillsSection
+              value={agentSkills}
+              onChange={handleAgentSkillsChange}
+              promptOverrides={agentPromptOverrides}
+              onPromptOverrideChange={handlePromptOverrideChange}
+            />
+          )}
           </div>
         </div>
       </div>
@@ -623,6 +1104,63 @@ export default function SettingsPage({
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── DepartmentRow — inline-editable department item ───
+function DepartmentRow({ name, onRename, onRemove }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(name)
+
+  function commit() {
+    setEditing(false)
+    if (draft.trim() && draft.trim() !== name) {
+      onRename(draft.trim())
+    } else {
+      setDraft(name)
+    }
+  }
+
+  return (
+    <div
+      className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-200/40"
+      style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)' }}
+    >
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            if (e.key === 'Escape') { setDraft(name); setEditing(false) }
+          }}
+          className="flex-1 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: '1px solid #d6d3d1' }}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => { setDraft(name); setEditing(true) }}
+          className="flex-1 text-left text-xs font-mono px-2 py-1 rounded-sm hover:bg-stone-200 transition-colors"
+          style={{ color: '#1c1917' }}
+        >
+          {name}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => {
+          if (window.confirm(`Remove department "${name}"?`)) onRemove()
+        }}
+        className="p-1 rounded-sm hover:bg-stone-300 transition-colors"
+        style={{ color: '#dc2626' }}
+        title="Remove department"
+      >
+        <span className="text-sm font-mono">&times;</span>
+      </button>
     </div>
   )
 }

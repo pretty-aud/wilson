@@ -58,7 +58,8 @@ WILSON/
 │   ├── data/          # Static data
 │   ├── tools/         # Tool modules
 │   │   ├── deck-outline-generator_v0.514/
-│   │   └── otter_v0.3.1/
+│   │   ├── otter_v0.3.1/
+│   │   └── rabbit_v0.1.0/
 │   ├── App.jsx        # Root app component
 │   ├── main.jsx       # React entry point
 │   └── storage.js     # Storage utilities

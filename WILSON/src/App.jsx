@@ -4,16 +4,20 @@ import TitleBar from './components/TitleBar'
 import PasswordScreen from './components/PasswordScreen'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
-import ProjectManager from './components/ProjectManager'
+import Projects from './components/Projects'
+import RateCardPage from './components/RateCard'
+import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
 import HelpPage from './components/HelpPage'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
+import Rabbit from './tools/rabbit_v0.1.0'
 import PetCompanion from './components/PetCompanion'
 import { PET_BREEDS, pickRandomBreed } from './components/sprites/index'
 import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
+import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 
 // Wrapper that bridges AgentProvider context to SettingsPage
 function SettingsPageWithAgent(props) {
@@ -61,8 +65,11 @@ const PAGE_TITLES = {
   home: 'HOME',
   dog: 'D.O.G.',
   otter: 'O.T.T.E.R.',
+  rabbit: 'R.A.B.B.I.T.',
   settings: 'SYSTEM SETTINGS',
-  'project-manager': 'PROJECT MANAGER',
+  'project-manager': 'PROJECTS',
+  'rate-card': 'RATE CARD',
+  'team-members': 'TEAM MEMBERS',
   help: 'HELP',
 };
 
@@ -72,8 +79,11 @@ const PAGE_BARS = {
   home:               { top: '268px', bottom: '268px' },
   dog:                { top: '95px', bottom: '8px' },
   otter:              { top: '95px', bottom: '8px' },
+  rabbit:             { top: '95px', bottom: '8px' },
   settings:           { top: '200px', bottom: '150px' },
   'project-manager':  { top: '200px', bottom: '150px' },
+  'rate-card':        { top: '200px', bottom: '150px' },
+  'team-members':     { top: '200px', bottom: '150px' },
   help:               { top: '140px', bottom: '100px' },
 };
 
@@ -128,6 +138,7 @@ export default function App() {
   // Triggers to open tool settings panels from nav strip
   const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
   const [openOtterSettingsTrigger, setOpenOtterSettingsTrigger] = useState(0);
+  const [openRabbitSettingsTrigger, setOpenRabbitSettingsTrigger] = useState(0);
 
   // Pet visibility state — hides sprite during page transitions
   const [petVisible, setPetVisible] = useState(true);
@@ -565,7 +576,23 @@ export default function App() {
     // Build context
     let context = '\n\n--- CURRENT CONTEXT ---';
     context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
-    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), System Settings, Project Manager, Help`;
+    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), R.A.B.B.I.T. (Resource Allocation, Budgeting & Breakdown Intake Tool), System Settings, Projects, Rate Card, Help`;
+
+    // RABBIT knowledge snippet — appended when the user is on the
+    // RABBIT page so the companion can field tool-specific questions
+    // without polluting the base companion prompt for other tools.
+    if (currentPage === 'rabbit') {
+      context += `\n\nRABBIT KNOWLEDGE:`;
+      context += `\nRABBIT is a production-planning tool with this hierarchy: Workspace → Projects → Phases → Assets → Tasks. Each task carries bid_days, logged_days, status, priority, and an assigned_role_slug. Task dependencies form a DAG; the critical path is the longest-weighted chain through that DAG by bid_days.`;
+      context += `\nTabs (left submenu): Project Summary (overview cards), Project Assets (table or gallery, inline editing, type/phase filters), Timeline (Gantt with day/week/month/quarter/year zoom + critical path highlight), Budget (Summary / By Phase / By Role / By Asset / Custom), Intake Wizard (Upload → Classify → Core → Run → Review — turns source documents into a structured breakdown via the Anthropic API).`;
+      context += `\nResources submenu (slide-out): Projects (list + create), Rate Card (workspace-level role/day_rate table), Settings (adapter mode, default currency, default rate card).`;
+      context += `\nStorage adapters: Local Server (default, single-user, in-app Express), Supabase (multi-user Postgres), Google Drive (read-only sync; writes deferred to v0.2).`;
+      context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
+      context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
+      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard requires an Anthropic API key (set in System Settings → General).`;
+      context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
+      context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
+    }
 
     // Pet status context
     if (petData) {
@@ -777,12 +804,13 @@ export default function App() {
   // Page flags
   const isDog = currentPage === 'dog';
   const isOtter = currentPage === 'otter';
+  const isRabbit = currentPage === 'rabbit';
   const isHome = currentPage === 'home';
-  const isDarkPage = isDog || isOtter;
+  const isDarkPage = isDog || isOtter || isRabbit;
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar
-  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, settings: 150, 'project-manager': 150, help: 100 };
+  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, help: 100 };
   const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
 
   // Build contextual nav strip items based on current page
@@ -795,25 +823,62 @@ export default function App() {
     if (currentPage === 'settings') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
     } else if (currentPage === 'project-manager') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (currentPage === 'rate-card') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (currentPage === 'team-members') {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isDog) {
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (isOtter) {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenOtterSettingsTrigger(prev => prev + 1); } });
+      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    } else if (isRabbit) {
+      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
+      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
+      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenRabbitSettingsTrigger(prev => prev + 1); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     } else if (currentPage === 'help') {
       items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
       items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECT MANAGER', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
+      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
+      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
+      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
       items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
     }
 
@@ -839,7 +904,7 @@ export default function App() {
   const renderAllPages = () => (
     <>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
-        <Home onNavigate={navigateTo} />
+        <Home onNavigate={navigateTo} currentPage={currentPage} />
       </div>
       <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <DeckOutlineGenerator
@@ -859,6 +924,15 @@ export default function App() {
           onContextChange={setOtterContext}
         />
       </div>
+      <div style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+        <Rabbit
+          apiKey={anthropicApiKey}
+          onNavigate={navigateTo}
+          isActive={currentPage === 'rabbit'}
+          currentPage={currentPage}
+          openSettingsTrigger={openRabbitSettingsTrigger}
+        />
+      </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <SettingsPageWithAgent
           apiKey={anthropicApiKey}
@@ -871,7 +945,13 @@ export default function App() {
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
-        <ProjectManager />
+        <Projects onNavigate={navigateTo} />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <RateCardPage />
+      </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <TeamMembersPage />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <HelpPage />
@@ -923,7 +1003,28 @@ export default function App() {
       );
     }
 
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'help') {
+    if (isRabbit) {
+      return (
+        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
+          <div className="flex items-center gap-3">
+            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <div>
+              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">R.A.B.B.I.T.</h1>
+              <p className="text-orange-200 text-xs tracking-wide">Resource Allocation, Budgeting & Breakdown Intake Tool</p>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowNavMenu(prev => !prev)}
+            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+            title="Navigation"
+          >
+            <Menu className="w-6 h-6" />
+          </button>
+        </div>
+      );
+    }
+
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'help') {
       const pageLabel = PAGE_TITLES[currentPage] || currentPage;
       return (
         <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
@@ -944,6 +1045,7 @@ export default function App() {
 
   return (
     <AgentProvider apiKey={anthropicApiKey}>
+    <RabbitProvider>
     <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {authed && (
@@ -1209,6 +1311,7 @@ export default function App() {
         </div>
       )}
     </div>
+    </RabbitProvider>
     </AgentProvider>
   );
 }

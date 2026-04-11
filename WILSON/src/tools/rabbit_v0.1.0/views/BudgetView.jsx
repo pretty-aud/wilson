@@ -1,0 +1,1907 @@
+// ============================================================
+// RABBIT — BudgetView
+// ============================================================
+//
+// Six-tab budget breakdown for the active project:
+//
+//   - Summary  — totals, margin, contingency, budget versioning, by-role
+//   - By Phase — phase-grouped bid/logged/variance/cost
+//   - By Role  — role-grouped bid/logged/variance/cost
+//   - By Asset — asset-grouped bid/logged/variance/cost
+//   - Custom   — user picks group-by + filter + rate card override
+//
+// Summary tab includes:
+//   - Editable margin % and contingency % (stored on project)
+//   - Budget versioning: create bid snapshots, select active, finalize
+//   - Grand total: base + margin + contingency
+//   - Variance against active bid version
+//
+// Costs come from `useRateCard()` — entries are flattened into a
+// `{ role_slug → day_rate }` map. Tasks whose assigned_role_slug
+// is missing fall back to 0 day rate.
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+import {
+  DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
+  ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
+  Lock, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
+  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown,
+  BookmarkPlus, ChevronDown, ChevronRight,
+} from 'lucide-react'
+import { useRabbit } from '../state/RabbitProvider'
+import { useRateCard } from '../../../components/RateCard/useRateCard'
+import { useExpenses } from '../../../components/Expenses/useExpenses'
+import CurrencyDisplay from '../components/CurrencyDisplay'
+
+const TABS = [
+  { id: 'summary',   label: 'Summary',  icon: DollarSign },
+  { id: 'by_phase',  label: 'By Phase', icon: Layers     },
+  { id: 'by_role',   label: 'By Role',  icon: UserCircle },
+  { id: 'by_asset',  label: 'By Asset', icon: Boxes      },
+  { id: 'custom',    label: 'Custom',   icon: Sparkles   },
+  { id: 'expenses', label: 'Expenses', icon: Receipt    },
+]
+
+const GROUP_BY_OPTIONS = [
+  { id: 'phase',    label: 'Phase'    },
+  { id: 'role',     label: 'Role'     },
+  { id: 'asset',    label: 'Asset'    },
+  { id: 'status',   label: 'Status'   },
+  { id: 'priority', label: 'Priority' },
+]
+
+const STATUS_FILTER_OPTIONS = [
+  { id: '__all__', label: 'All statuses' },
+  { id: 'bidding', label: 'Bidding' },
+  { id: 'waiting_to_start', label: 'Waiting to start' },
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'blocked', label: 'Blocked' },
+  { id: 'on_hold', label: 'On hold' },
+  { id: 'pending_review', label: 'Pending review' },
+  { id: 'revisions', label: 'Revisions' },
+  { id: 'approved', label: 'Approved' },
+  { id: 'final', label: 'Final' },
+  { id: 'omitted', label: 'Omitted' },
+]
+
+export default function BudgetView() {
+  const ctx = useRabbit()
+  const project = ctx?.project
+  const phases  = ctx?.phases  || []
+  const assets  = ctx?.assets  || []
+  const tasks   = ctx?.tasks   || []
+  const loading = ctx?.loadingProject
+  const budgetVersions = ctx?.budgetVersions || []
+
+  const rateCard = useRateCard()
+  const expensesHook = useExpenses()
+  const [tab, setTab] = useState('summary')
+
+  // Build a slug -> day_rate lookup from the active rate card.
+  const roleRates = useMemo(() => {
+    const map = {}
+    for (const e of rateCard.entries || []) {
+      if (!e.role_slug) continue
+      const rate = Number(e.day_rate || 0)
+      if (!Number.isFinite(rate)) continue
+      if (map[e.role_slug] == null) map[e.role_slug] = rate
+    }
+    return map
+  }, [rateCard.entries])
+
+  const variance = useMemo(
+    () => ctx?.selectVarianceForProject?.() || { bid: 0, logged: 0, variance: 0 },
+    [ctx]
+  )
+
+  const budget = useMemo(
+    () => ctx?.selectProjectBudgetRollup?.({ roleRates }) || { total: 0, byRole: {}, currency: 'USD' },
+    [ctx, roleRates]
+  )
+
+  const missingRolesCount = useMemo(() => {
+    let n = 0
+    for (const t of tasks) {
+      const slug = t.assigned_role_slug
+      if (!slug) continue
+      if (!(slug in roleRates)) n += 1
+    }
+    return n
+  }, [tasks, roleRates])
+
+  if (loading) return <CenterMsg>Loading project...</CenterMsg>
+  if (!project) return <CenterMsg>No project loaded</CenterMsg>
+
+  return (
+    <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+      {/* Tab strip */}
+      <div
+        className="flex items-center gap-1 px-4 py-2"
+        style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
+      >
+        {TABS.map(t => {
+          const active = tab === t.id
+          const Icon = t.icon
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm"
+              style={{
+                color: active ? '#fff7ed' : '#a8a29e',
+                backgroundColor: active ? '#ea580c' : 'transparent',
+                border: `1px solid ${active ? '#c2410c' : '#44403c'}`,
+              }}
+            >
+              <Icon className="w-3 h-3" />
+              <span className="text-[10px] font-mono uppercase tracking-wider">
+                {t.label}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="flex-1 overflow-auto p-6">
+        {tab === 'summary'  && (
+          <SummaryTab
+            ctx={ctx}
+            project={project}
+            variance={variance}
+            budget={budget}
+            tasks={tasks}
+            roleRates={roleRates}
+            missingRolesCount={missingRolesCount}
+            rateCardName={rateCard.rateCards.find(c => c.id === rateCard.activeRateCardId)?.name}
+            budgetVersions={budgetVersions}
+          />
+        )}
+        {tab === 'by_phase' && (
+          <ByPhaseTab phases={phases} assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'by_role'  && (
+          <ByRoleTab tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'by_asset' && (
+          <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'custom'   && (
+          <CustomTab
+            project={project}
+            phases={phases}
+            assets={assets}
+            tasks={tasks}
+            budget={budget}
+            roleRates={roleRates}
+          />
+        )}
+        {tab === 'expenses' && (
+          <ExpensesTab
+            ctx={ctx}
+            project={project}
+            phases={phases}
+            assets={assets}
+            tasks={tasks}
+            expensesHook={expensesHook}
+            currency={budget.currency}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Cost helpers ───────────────────────────────��───────────
+function computeRowCost(taskList, roleRates) {
+  let cost = 0
+  for (const t of taskList) {
+    const days = Number(t.bid_days || 0)
+    const slug = t.assigned_role_slug
+    const rate = slug ? Number(roleRates[slug] || 0) : 0
+    cost += days * rate
+  }
+  return cost
+}
+
+function aggregateTasks(taskList, roleRates) {
+  let bid = 0, logged = 0
+  for (const t of taskList) {
+    bid    += Number(t.bid_days || 0)
+    logged += Number(t.logged_days || 0)
+  }
+  return {
+    bid,
+    logged,
+    variance: logged - bid,
+    cost: computeRowCost(taskList, roleRates),
+    taskCount: taskList.length,
+  }
+}
+
+// ─── Summary tab ────────────────────────────────────────────
+function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingRolesCount, rateCardName, budgetVersions }) {
+  const knownRoles = Object.keys(roleRates).length
+
+  // ── Margin / Contingency (stored on project) ──
+  const marginPct = Number(project.budget_margin_pct ?? 0) || 0
+  const contingencyPct = Number(project.budget_contingency_pct ?? 0) || 0
+  const baseCost = budget.total
+  const marginAmt = Math.round(baseCost * (marginPct / 100) * 100) / 100
+  const contingencyAmt = Math.round(baseCost * (contingencyPct / 100) * 100) / 100
+  const grandTotal = Math.round((baseCost + marginAmt + contingencyAmt) * 100) / 100
+  const currency = budget.currency
+
+  function updateProjectField(field, value) {
+    ctx?.updateProject?.(project.id, { [field]: value })
+  }
+
+  // ── Budget versioning ──
+  const adapter = ctx?.getAdapter?.()
+  const [versionName, setVersionName] = useState('')
+  const [versionBusy, setVersionBusy] = useState(false)
+  const activeVersion = budgetVersions.find(v => v.is_active)
+  const isFinal = project.budget_finalized === true
+
+  async function createBidVersion() {
+    if (!versionName.trim() || !adapter?.upsertBudgetVersion) return
+    setVersionBusy(true)
+    try {
+      const snapshot = {
+        tasks: tasks.map(t => ({
+          id: t.id, asset_id: t.asset_id,
+          assigned_role_slug: t.assigned_role_slug,
+          assigned_position: t.assigned_position,
+          bid_days: t.bid_days, logged_days: t.logged_days,
+          status: t.status,
+        })),
+        roleRates: { ...roleRates },
+        baseCost, marginPct, contingencyPct, grandTotal,
+        totalBidDays: variance.bid,
+      }
+      await adapter.upsertBudgetVersion({
+        id: uuidv4(),
+        project_id: project.id,
+        name: versionName.trim(),
+        type: 'bid',
+        is_active: budgetVersions.length === 0,
+        created_at: new Date().toISOString(),
+        snapshot,
+      })
+      setVersionName('')
+      // Refresh bundle
+      ctx?.setActiveProject?.(project.id)
+    } catch (err) {
+      console.error('Failed to create budget version:', err)
+    } finally {
+      setVersionBusy(false)
+    }
+  }
+
+  async function setActiveVersion(versionId) {
+    if (!adapter?.upsertBudgetVersion) return
+    setVersionBusy(true)
+    try {
+      for (const v of budgetVersions) {
+        if (v.is_active !== (v.id === versionId)) {
+          await adapter.upsertBudgetVersion({
+            ...v,
+            is_active: v.id === versionId,
+          })
+        }
+      }
+      ctx?.setActiveProject?.(project.id)
+    } catch (err) {
+      console.error('Failed to set active version:', err)
+    } finally {
+      setVersionBusy(false)
+    }
+  }
+
+  async function deleteVersion(versionId) {
+    if (!adapter?.deleteBudgetVersion) return
+    setVersionBusy(true)
+    try {
+      await adapter.deleteBudgetVersion(versionId, project.id)
+      ctx?.setActiveProject?.(project.id)
+    } catch (err) {
+      console.error('Failed to delete budget version:', err)
+    } finally {
+      setVersionBusy(false)
+    }
+  }
+
+  async function finalizeBudget() {
+    updateProjectField('budget_finalized', true)
+  }
+
+  async function unlockBudget() {
+    updateProjectField('budget_finalized', false)
+  }
+
+  // ── Active version variance ──
+  const versionVariance = useMemo(() => {
+    if (!activeVersion?.snapshot) return null
+    const bidTotal = activeVersion.snapshot.grandTotal ?? activeVersion.snapshot.baseCost ?? 0
+    const diff = grandTotal - bidTotal
+    return { bidTotal, currentTotal: grandTotal, diff, pctChange: bidTotal > 0 ? (diff / bidTotal) * 100 : 0 }
+  }, [activeVersion, grandTotal])
+
+  return (
+    <div className="flex flex-col gap-4">
+      {/* ── Finalized banner ── */}
+      {isFinal && (
+        <div
+          className="flex items-center gap-2 px-4 py-2 rounded-sm"
+          style={{ backgroundColor: '#14532d', border: '1px solid #22c55e' }}
+        >
+          <Lock className="w-4 h-4" style={{ color: '#4ade80' }} />
+          <span className="text-xs font-mono font-bold uppercase" style={{ color: '#4ade80' }}>
+            Budget finalized
+          </span>
+          <button
+            type="button"
+            onClick={unlockBudget}
+            className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded-sm hover:bg-green-900 transition-colors"
+            style={{ color: '#86efac', border: '1px solid #22c55e' }}
+          >
+            Unlock
+          </button>
+        </div>
+      )}
+
+      {/* ── Day totals row ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <BigTile
+          label="Bid days"
+          value={variance.bid.toFixed(1)}
+          hint={`${tasks.length} task${tasks.length === 1 ? '' : 's'}`}
+        />
+        <BigTile
+          label="Logged days"
+          value={variance.logged.toFixed(1)}
+          hint={`${variance.bid > 0 ? Math.round((variance.logged / variance.bid) * 100) : 0}% of bid`}
+        />
+        <BigTile
+          label="Variance"
+          value={(variance.variance > 0 ? '+' : '') + variance.variance.toFixed(1)}
+          hint={varianceLabel(variance.variance)}
+          tone={varianceTone(variance.variance)}
+        />
+      </div>
+
+      {/* ── Margin & Contingency + Grand Total ── */}
+      <Card title="Cost breakdown">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          {/* Left: cost waterfall */}
+          <div className="flex flex-col gap-2">
+            <CostRow label="Base cost" amount={baseCost} currency={currency} bold />
+            <CostRow
+              label={`Margin (${marginPct}%)`}
+              amount={marginAmt}
+              currency={currency}
+              prefix="+"
+            />
+            <CostRow
+              label={`Contingency (${contingencyPct}%)`}
+              amount={contingencyAmt}
+              currency={currency}
+              prefix="+"
+            />
+            <div style={{ borderTop: '1px solid #57534e', marginTop: 4, paddingTop: 6 }}>
+              <CostRow label="Grand total" amount={grandTotal} currency={currency} bold large />
+            </div>
+            {rateCardName && (
+              <span className="text-[10px] font-mono italic mt-1" style={{ color: '#78716c' }}>
+                Rates via {rateCardName}
+              </span>
+            )}
+          </div>
+
+          {/* Right: editable controls */}
+          <div className="flex flex-col gap-3">
+            <PctInput
+              label="Margin %"
+              value={marginPct}
+              onChange={v => updateProjectField('budget_margin_pct', v)}
+              disabled={isFinal}
+            />
+            <PctInput
+              label="Contingency %"
+              value={contingencyPct}
+              onChange={v => updateProjectField('budget_contingency_pct', v)}
+              disabled={isFinal}
+            />
+          </div>
+        </div>
+
+        {missingRolesCount > 0 && (
+          <div
+            className="mt-3 flex items-start gap-2 p-2 rounded-sm"
+            style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
+          >
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
+            <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
+              {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
+              not in the rate card — those rows compute at $0.
+              ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* ── Budget versioning ── */}
+      <Card title="Budget versions">
+        {/* Create new bid */}
+        <div className="flex items-end gap-2 mb-4">
+          <div className="flex-1">
+            <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: '#fb923c' }}>
+              Save current as bid version
+            </span>
+            <input
+              type="text"
+              value={versionName}
+              onChange={e => setVersionName(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
+              placeholder="e.g. Bid v1 — initial estimate"
+              disabled={isFinal || versionBusy}
+              className="w-full px-3 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={createBidVersion}
+            disabled={!versionName.trim() || isFinal || versionBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors disabled:opacity-40"
+            style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
+          >
+            {versionBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            Save
+          </button>
+        </div>
+
+        {/* Saved versions list */}
+        {budgetVersions.length === 0 ? (
+          <Empty>No budget versions saved yet. Create one to track bid snapshots.</Empty>
+        ) : (
+          <div className="flex flex-col gap-1">
+            <div
+              className="grid grid-cols-12 gap-2 px-2 py-1"
+              style={{ borderBottom: '1px solid #44403c' }}
+            >
+              <span className="col-span-1 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Active</span>
+              <span className="col-span-4 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Name</span>
+              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Date</span>
+              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Total</span>
+              <span className="col-span-1 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Days</span>
+              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Actions</span>
+            </div>
+            {budgetVersions
+              .slice()
+              .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+              .map(v => (
+                <div
+                  key={v.id}
+                  className="grid grid-cols-12 gap-2 px-2 py-1.5 rounded-sm text-[11px] font-mono items-center"
+                  style={{
+                    backgroundColor: v.is_active ? '#1a2e1a' : '#1c1917',
+                    border: `1px solid ${v.is_active ? '#22c55e' : '#44403c'}`,
+                  }}
+                >
+                  <span className="col-span-1">
+                    {v.is_active ? (
+                      <CheckCircle className="w-3.5 h-3.5" style={{ color: '#4ade80' }} />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setActiveVersion(v.id)}
+                        disabled={versionBusy}
+                        className="p-0.5 rounded-sm hover:bg-stone-800 transition-colors"
+                        style={{ color: '#78716c' }}
+                        title="Set as active"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </span>
+                  <span className="col-span-4 truncate" style={{ color: v.is_active ? '#86efac' : '#d6d3d1' }}>
+                    {v.name}
+                  </span>
+                  <span className="col-span-2" style={{ color: '#78716c' }}>
+                    {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
+                  </span>
+                  <span className="col-span-2 text-right" style={{ color: '#a8a29e' }}>
+                    <CurrencyDisplay
+                      value={v.snapshot?.grandTotal ?? v.snapshot?.baseCost ?? 0}
+                      currency={currency}
+                    />
+                  </span>
+                  <span className="col-span-1 text-right" style={{ color: '#a8a29e' }}>
+                    {(v.snapshot?.totalBidDays ?? 0).toFixed(1)}
+                  </span>
+                  <span className="col-span-2 flex items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      onClick={() => deleteVersion(v.id)}
+                      disabled={versionBusy}
+                      className="p-1 rounded-sm hover:bg-red-900/40 transition-colors"
+                      style={{ color: '#ef4444' }}
+                      title="Delete version"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </span>
+                </div>
+              ))}
+          </div>
+        )}
+
+        {/* Variance against active version */}
+        {versionVariance && (
+          <div
+            className="mt-3 p-3 rounded-sm"
+            style={{
+              backgroundColor: '#1c1917',
+              border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
+            }}
+          >
+            <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: '#fb923c' }}>
+              Variance vs active bid ({activeVersion?.name})
+            </span>
+            <div className="flex items-baseline gap-4">
+              <span className="text-lg font-mono font-bold" style={{
+                color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
+              }}>
+                {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+                ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
+              </span>
+              <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>
+                Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
+                {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Finalize button */}
+        {!isFinal && budgetVersions.length > 0 && activeVersion && (
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              onClick={finalizeBudget}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors"
+              style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
+            >
+              <Lock className="w-3 h-3" />
+              Finalize budget
+            </button>
+          </div>
+        )}
+      </Card>
+
+      {/* ── By role breakdown ── */}
+      <Card title="By role">
+        {Object.keys(budget.byRole).length === 0 ? (
+          <Empty>No roles assigned yet.</Empty>
+        ) : (
+          <RoleTable rows={Object.values(budget.byRole)} currency={budget.currency} />
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ─── Margin/contingency % input ─────────────��───────────────
+function PctInput({ label, value, onChange, disabled }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
+  }, [editing])
+
+  function start() {
+    if (disabled) return
+    setDraft(String(value || 0))
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const num = parseFloat(draft)
+    if (Number.isFinite(num) && num !== value) onChange(num)
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+        {label}
+      </span>
+      <div
+        className="relative"
+        style={{ width: 120, height: 34 }}
+      >
+        {editing ? (
+          <div className="absolute inset-0 flex items-center gap-1">
+            <input
+              ref={ref}
+              type="text"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={e => {
+                if (e.key === 'Enter') { e.preventDefault(); commit() }
+                else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+              }}
+              className="w-full px-2 py-1.5 text-sm font-mono font-bold rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
+            />
+            <span className="absolute right-2 text-xs font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={start}
+            disabled={disabled}
+            className="absolute inset-0 text-right px-2 py-1.5 text-sm font-mono font-bold rounded-sm transition-colors disabled:cursor-not-allowed"
+            style={{
+              backgroundColor: '#1c1917',
+              border: '1px solid #44403c',
+              color: disabled ? '#57534e' : '#f4a261',
+            }}
+          >
+            {value}%
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Cost row in the waterfall ──────────��───────────────────
+function CostRow({ label, amount, currency, prefix, bold, large }) {
+  return (
+    <div className="flex items-baseline justify-between">
+      <span
+        className={`text-[11px] font-mono ${bold ? 'font-bold uppercase tracking-wider' : ''}`}
+        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
+      >
+        {prefix && <span style={{ color: '#57534e' }}>{prefix} </span>}
+        {label}
+      </span>
+      <CurrencyDisplay
+        value={amount}
+        currency={currency}
+        className={`font-mono ${bold ? 'font-bold' : ''} ${large ? 'text-xl' : 'text-sm'}`}
+        style={{ color: bold ? '#d6d3d1' : '#a8a29e' }}
+      />
+    </div>
+  )
+}
+
+// ─── By Phase tab ───────────────────────────────���───────────
+function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+    const groups = {}
+    for (const t of tasks) {
+      const asset = assetById[t.asset_id]
+      const phaseId = asset?.phase_id || '__unphased__'
+      if (!groups[phaseId]) groups[phaseId] = []
+      groups[phaseId].push(t)
+    }
+    const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
+    return Object.entries(groups)
+      .map(([phaseId, list]) => ({
+        ...aggregateTasks(list, roleRates),
+        name: phaseId === '__unphased__' ? 'Unphased' : (phaseById[phaseId]?.name || 'Unknown phase'),
+        sortOrder: phaseId === '__unphased__' ? 9999 : (phaseById[phaseId]?.sort_order ?? 0),
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [phases, assets, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No tasks yet — nothing to roll up.</Empty>
+
+  return (
+    <Card title="Phases">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Phase" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── By Role tab ───────────────────────────���────────────────
+function ByRoleTab({ tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      const role = t.assigned_role_slug || t.assigned_position || 'unassigned'
+      if (!groups[role]) groups[role] = []
+      groups[role].push(t)
+    }
+    return Object.entries(groups)
+      .map(([role, list]) => ({
+        ...aggregateTasks(list, roleRates),
+        name: role,
+      }))
+      .sort((a, b) => b.bid - a.bid)
+  }, [tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No roles assigned yet.</Empty>
+
+  return (
+    <Card title="Roles">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Role" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── By Asset tab ───────────��───────────────────────────────
+function ByAssetTab({ assets, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      if (!groups[t.asset_id]) groups[t.asset_id] = []
+      groups[t.asset_id].push(t)
+    }
+    return assets
+      .map(a => ({
+        ...aggregateTasks(groups[a.id] || [], roleRates),
+        name: a.name,
+      }))
+      .filter(r => r.taskCount > 0 || r.bid > 0)
+      .sort((a, b) => b.bid - a.bid)
+  }, [assets, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No assets carry any task hours yet.</Empty>
+
+  return (
+    <Card title="Assets">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Asset" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── Custom tab ────────────────────��────────────────────────
+function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
+  const storageKey = `rabbit-budget-custom-${project.id}`
+
+  const [prefs, setPrefs] = useState(() => {
+    try {
+      const raw = localStorage.getItem(storageKey)
+      if (raw) return { groupBy: 'phase', phaseFilter: '__all__', statusFilter: '__all__', ...JSON.parse(raw) }
+    } catch { /* ignore */ }
+    return { groupBy: 'phase', phaseFilter: '__all__', statusFilter: '__all__' }
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, JSON.stringify(prefs)) } catch { /* ignore */ }
+  }, [storageKey, prefs])
+
+  const filteredTasks = useMemo(() => {
+    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+    return tasks.filter(t => {
+      if (prefs.statusFilter !== '__all__' && t.status !== prefs.statusFilter) return false
+      if (prefs.phaseFilter !== '__all__') {
+        const a = assetById[t.asset_id]
+        const pid = a?.phase_id || '__unphased__'
+        if (pid !== prefs.phaseFilter) return false
+      }
+      return true
+    })
+  }, [tasks, assets, prefs.statusFilter, prefs.phaseFilter])
+
+  const rows = useMemo(() => {
+    const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+    const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
+    const groups = {}
+    for (const t of filteredTasks) {
+      let key, label
+      switch (prefs.groupBy) {
+        case 'phase': {
+          const a = assetById[t.asset_id]
+          key = a?.phase_id || '__unphased__'
+          label = key === '__unphased__' ? 'Unphased' : (phaseById[key]?.name || 'Unknown phase')
+          break
+        }
+        case 'role':     key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
+        case 'asset':    key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
+        case 'status':   key = t.status || 'unset'; label = key; break
+        case 'priority': key = t.priority || 'medium'; label = key; break
+        default:         key = 'all'; label = 'All'
+      }
+      if (!groups[key]) groups[key] = { key, label, tasks: [] }
+      groups[key].tasks.push(t)
+    }
+    return Object.values(groups)
+      .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label }))
+      .sort((a, b) => b.bid - a.bid)
+  }, [filteredTasks, assets, phases, prefs.groupBy, roleRates])
+
+  const totalCost = rows.reduce((acc, r) => acc + r.cost, 0)
+  const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Card title="Custom view">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <Field label="Group by">
+            <Select
+              value={prefs.groupBy}
+              onChange={v => setPrefs(p => ({ ...p, groupBy: v }))}
+              options={GROUP_BY_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+            />
+          </Field>
+          <Field label="Phase filter">
+            <Select
+              value={prefs.phaseFilter}
+              onChange={v => setPrefs(p => ({ ...p, phaseFilter: v }))}
+              options={[
+                { value: '__all__', label: 'All phases' },
+                ...phases.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)).map(p => ({ value: p.id, label: p.name })),
+                { value: '__unphased__', label: 'Unphased' },
+              ]}
+            />
+          </Field>
+          <Field label="Status filter">
+            <Select
+              value={prefs.statusFilter}
+              onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
+              options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+            />
+          </Field>
+        </div>
+      </Card>
+
+      <Card title={`Breakdown · ${rows.length} group${rows.length === 1 ? '' : 's'}`}>
+        {rows.length === 0 ? (
+          <Empty>No tasks match the current filters.</Empty>
+        ) : (
+          <>
+            <BreakdownTable rows={rows} currency={budget.currency} labelHeader={GROUP_BY_OPTIONS.find(o => o.id === prefs.groupBy)?.label || 'Group'} countHeader="Tasks" />
+            <div
+              className="grid grid-cols-6 gap-2 px-2 py-2 mt-2 rounded-sm text-[11px] font-mono items-center"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #57534e' }}
+            >
+              <span className="font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Total</span>
+              <span style={{ color: '#a8a29e' }}>{filteredTasks.length}</span>
+              <span style={{ color: '#a8a29e' }}>{totalBid.toFixed(1)}</span>
+              <span />
+              <span />
+              <CurrencyDisplay value={totalCost} currency={budget.currency} className="font-bold" style={{ color: '#d6d3d1' }} />
+            </div>
+          </>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ─── Expenses: constants ───────────────────────────────────
+const EXPENSE_FILTER_FIELDS = [
+  { value: 'title',         label: 'Title',         type: 'text' },
+  { value: 'description',   label: 'Description',   type: 'text' },
+  { value: 'purchase_date', label: 'Date',           type: 'text' },
+  { value: 'cost_status',   label: 'Cost Status',    type: 'select', options: ['over_budget', 'under_budget', 'on_budget', 'no_estimate'] },
+  { value: 'has_files',     label: 'Has Receipts',   type: 'select', options: ['yes', 'no'] },
+  { value: 'asset_id',      label: 'Linked Asset',   type: 'select', dynamic: 'assets' },
+  { value: 'phase_id',      label: 'Linked Phase',   type: 'select', dynamic: 'phases' },
+  { value: 'task_id',       label: 'Linked Task',    type: 'select', dynamic: 'tasks' },
+]
+
+const EXPENSE_FILTER_OPS = {
+  select: [
+    { value: 'is',           label: 'is' },
+    { value: 'is_not',       label: 'is not' },
+    { value: 'is_empty',     label: 'is empty' },
+    { value: 'is_not_empty', label: 'is not empty' },
+  ],
+  text: [
+    { value: 'contains',     label: 'contains' },
+    { value: 'not_contains', label: 'does not contain' },
+    { value: 'is',           label: 'is' },
+    { value: 'is_not',       label: 'is not' },
+    { value: 'is_empty',     label: 'is empty' },
+    { value: 'is_not_empty', label: 'is not empty' },
+  ],
+}
+
+const EXPENSE_SORTABLE_FIELDS = [
+  { value: 'title',          label: 'Title' },
+  { value: 'estimated_cost', label: 'Estimated Cost' },
+  { value: 'actual_cost',    label: 'Actual Cost' },
+  { value: 'variance',       label: 'Variance' },
+  { value: 'purchase_date',  label: 'Date' },
+  { value: 'created_at',     label: 'Created' },
+]
+
+const EXPENSE_GROUPABLE_FIELDS = [
+  { value: '',                label: 'No grouping' },
+  { value: 'cost_status',    label: 'Cost Status' },
+  { value: 'purchase_month', label: 'Month' },
+  { value: 'has_files',      label: 'Has Receipts' },
+]
+
+const COST_STATUS_LABELS = {
+  over_budget:  'Over Budget',
+  under_budget: 'Under Budget',
+  on_budget:    'On Budget',
+  no_estimate:  'No Estimate',
+}
+
+function expenseCostStatus(exp) {
+  const est = Number(exp.estimated_cost) || 0
+  const act = Number(exp.actual_cost) || 0
+  if (est === 0) return 'no_estimate'
+  if (act > est) return 'over_budget'
+  if (act < est) return 'under_budget'
+  return 'on_budget'
+}
+
+function expenseVariance(exp) {
+  return (Number(exp.actual_cost) || 0) - (Number(exp.estimated_cost) || 0)
+}
+
+function fmtExpLabel(str) {
+  return (str || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+
+// ─── Expenses tab ──────────────────────────────────────────
+function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, currency }) {
+  const {
+    expenses, loading: expLoading, addExpense, updateExpense, deleteExpense,
+    undo, redo, canUndo, canRedo,
+  } = expensesHook
+
+  const SAVED_VIEWS_KEY = `rabbit_expense_saved_views_${project?.id || ''}`
+
+  const [showPopup, setShowPopup]         = useState(false)
+  const [editingId, setEditingId]         = useState(null)
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+
+  // ── Filtering, sorting, grouping, saved views ──
+  const [search, setSearch]               = useState('')
+  const [filters, setFilters]             = useState([])
+  const [showFilterPanel, setShowFilterPanel] = useState(false)
+  const [sortField, setSortField]         = useState('purchase_date')
+  const [sortDir, setSortDir]             = useState('desc')
+  const [groupBy, setGroupBy]             = useState('')
+  const [savedViews, setSavedViews]       = useState(() => {
+    try { return JSON.parse(localStorage.getItem(SAVED_VIEWS_KEY) || '[]') } catch { return [] }
+  })
+  const [showSaveDialog, setShowSaveDialog] = useState(false)
+  const [saveName, setSaveName]           = useState('')
+
+  // ── Filter CRUD ──
+  function addFilter() {
+    setFilters(prev => [...prev, { field: 'title', op: 'contains', value: '' }])
+  }
+  function updateFilter(idx, patch) {
+    setFilters(prev => prev.map((f, i) => i === idx ? { ...f, ...patch } : f))
+  }
+  function removeFilter(idx) {
+    setFilters(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // ── Saved views CRUD ──
+  function saveCurrentView() {
+    if (!saveName.trim()) return
+    const view = {
+      id: Date.now().toString(),
+      name: saveName.trim(),
+      filters, sortField, sortDir, groupBy,
+    }
+    const next = [...savedViews, view]
+    setSavedViews(next)
+    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
+    setSaveName('')
+    setShowSaveDialog(false)
+  }
+  function loadView(view) {
+    setFilters(view.filters || [])
+    setSortField(view.sortField || 'purchase_date')
+    setSortDir(view.sortDir || 'desc')
+    setGroupBy(view.groupBy || '')
+  }
+  function deleteSavedView(id) {
+    const next = savedViews.filter(v => v.id !== id)
+    setSavedViews(next)
+    localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
+  }
+
+  // Keyboard shortcuts: Ctrl+Z / Ctrl+Shift+Z
+  useEffect(() => {
+    function onKey(e) {
+      const t = e.target
+      if (t?.tagName === 'INPUT' || t?.tagName === 'TEXTAREA' || t?.tagName === 'SELECT') return
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod) return
+      const k = (e.key || '').toLowerCase()
+      if (k === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
+      if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [undo, redo])
+
+  // ── Lookups ──
+  const phaseById = useMemo(() => Object.fromEntries(phases.map(p => [p.id, p])), [phases])
+  const assetById = useMemo(() => Object.fromEntries(assets.map(a => [a.id, a])), [assets])
+  const taskById  = useMemo(() => Object.fromEntries(tasks.map(t => [t.id, t])), [tasks])
+
+  // ── Apply filters ──
+  const applyFilters = useCallback((list) => {
+    let result = list
+    // Text search
+    const s = search.trim().toLowerCase()
+    if (s) result = result.filter(e =>
+      (e.title || '').toLowerCase().includes(s) ||
+      (e.description || '').toLowerCase().includes(s)
+    )
+    // Complex filters
+    for (const f of filters) {
+      if (!f.field) continue
+      result = result.filter(exp => {
+        // Derived fields
+        let val
+        if (f.field === 'cost_status')   val = expenseCostStatus(exp)
+        else if (f.field === 'has_files') val = (exp.file_ids?.length || 0) > 0 ? 'yes' : 'no'
+        else if (f.field === 'asset_id')  val = exp.asset_ids || []
+        else if (f.field === 'phase_id')  val = exp.phase_ids || []
+        else if (f.field === 'task_id')   val = exp.task_ids || []
+        else val = exp[f.field]
+
+        // Array fields (linked assets/phases/tasks)
+        if (Array.isArray(val)) {
+          switch (f.op) {
+            case 'is':           return val.includes(f.value)
+            case 'is_not':       return !val.includes(f.value)
+            case 'is_empty':     return val.length === 0
+            case 'is_not_empty': return val.length > 0
+            default: return true
+          }
+        }
+        switch (f.op) {
+          case 'is':           return val === f.value
+          case 'is_not':       return val !== f.value
+          case 'is_empty':     return !val
+          case 'is_not_empty': return !!val
+          case 'contains':     return (val || '').toLowerCase().includes((f.value || '').toLowerCase())
+          case 'not_contains': return !(val || '').toLowerCase().includes((f.value || '').toLowerCase())
+          default: return true
+        }
+      })
+    }
+    return result
+  }, [search, filters])
+
+  // ── Apply sort ──
+  const applySort = useCallback((list) => {
+    if (!sortField) return list
+    const sorted = [...list]
+    const dir = sortDir === 'desc' ? -1 : 1
+    sorted.sort((a, b) => {
+      let va, vb
+      if (sortField === 'variance') {
+        va = expenseVariance(a); vb = expenseVariance(b)
+      } else if (sortField === 'estimated_cost' || sortField === 'actual_cost') {
+        va = Number(a[sortField] || 0); vb = Number(b[sortField] || 0)
+      } else {
+        va = String(a[sortField] || '').toLowerCase()
+        vb = String(b[sortField] || '').toLowerCase()
+      }
+      if (va < vb) return -1 * dir
+      if (va > vb) return 1 * dir
+      return 0
+    })
+    return sorted
+  }, [sortField, sortDir])
+
+  const processed = useMemo(() => applySort(applyFilters(expenses)), [expenses, applyFilters, applySort])
+
+  // ── Grouping ──
+  const groups = useMemo(() => {
+    if (!groupBy) return null
+    const map = {}
+    for (const exp of processed) {
+      let key
+      if (groupBy === 'cost_status')    key = expenseCostStatus(exp)
+      else if (groupBy === 'purchase_month') {
+        const d = exp.purchase_date || ''
+        key = d.length >= 7 ? d.slice(0, 7) : '__no_date__'
+      }
+      else if (groupBy === 'has_files') key = (exp.file_ids?.length || 0) > 0 ? 'yes' : 'no'
+      else key = '__all__'
+      if (!map[key]) map[key] = []
+      map[key].push(exp)
+    }
+    let sortedKeys
+    if (groupBy === 'cost_status') {
+      sortedKeys = ['over_budget', 'under_budget', 'on_budget', 'no_estimate'].filter(k => map[k])
+    } else if (groupBy === 'purchase_month') {
+      sortedKeys = Object.keys(map).sort((a, b) => b.localeCompare(a)) // newest first
+    } else {
+      sortedKeys = Object.keys(map).sort()
+    }
+    return sortedKeys.map(key => ({
+      key,
+      label: groupBy === 'cost_status'    ? (COST_STATUS_LABELS[key] || key)
+           : groupBy === 'purchase_month' ? (key === '__no_date__' ? 'No Date' : key)
+           : groupBy === 'has_files'      ? (key === 'yes' ? 'Has Receipts' : 'No Receipts')
+           : key,
+      items: map[key] || [],
+    }))
+  }, [processed, groupBy])
+
+  // ── Totals ──
+  const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
+  const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
+  const totalVariance  = totalActual - totalEstimated
+
+  // ── Handlers ──
+  function handleCreate() { setEditingId(null); setShowPopup(true) }
+  function handleEdit(id) { setEditingId(id); setShowPopup(true) }
+  async function handleDelete(id) { await deleteExpense(id); setDeleteConfirmId(null) }
+  async function handleSave(data) {
+    if (editingId) await updateExpense(editingId, data)
+    else await addExpense(data)
+    setShowPopup(false); setEditingId(null)
+  }
+
+  if (expLoading) return <Empty>Loading expenses...</Empty>
+
+  // ── Render a single expense row ──
+  function ExpenseRow({ exp }) {
+    const est = Number(exp.estimated_cost) || 0
+    const act = Number(exp.actual_cost) || 0
+    const v = act - est
+    const status = expenseCostStatus(exp)
+    const relCount = (exp.asset_ids?.length || 0) + (exp.phase_ids?.length || 0) + (exp.task_ids?.length || 0)
+    const fileCount = exp.file_ids?.length || 0
+    const statusColor = status === 'over_budget' ? '#fca5a5' : status === 'under_budget' ? '#86efac' : '#a8a29e'
+
+    return (
+      <div
+        className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-800 cursor-pointer group"
+        style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        onClick={() => handleEdit(exp.id)}
+      >
+        <div style={{ flex: 2 }} className="min-w-0">
+          <div className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>
+            {exp.title || <span style={{ color: '#78716c', fontStyle: 'italic' }}>Untitled</span>}
+          </div>
+          {exp.description && <div className="text-[10px] truncate mt-0.5" style={{ color: '#78716c' }}>{exp.description}</div>}
+        </div>
+        <div style={{ flex: 1 }} className="text-[11px] font-mono">
+          <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
+        </div>
+        <div style={{ flex: 1 }} className="text-[11px] font-mono">
+          <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
+        </div>
+        <div style={{ flex: 0.8 }} className="text-[11px] font-mono">
+          {est > 0 ? (
+            <span style={{ color: statusColor }}>
+              {v > 0 ? '+' : ''}{<CurrencyDisplay value={v} currency={currency} style={{ color: statusColor }} />}
+            </span>
+          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
+        </div>
+        <div style={{ flex: 1 }} className="text-[11px] font-mono">
+          <span style={{ color: exp.purchase_date ? '#a8a29e' : '#57534e' }}>{exp.purchase_date || '\u2014'}</span>
+        </div>
+        <div style={{ flex: 1.2 }} className="flex items-center gap-1 text-[10px] font-mono flex-wrap">
+          {relCount > 0 ? (
+            <>
+              {(exp.asset_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.asset_ids.length} asset{exp.asset_ids.length !== 1 ? 's' : ''}</span>}
+              {(exp.phase_ids?.length || 0) > 0 && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.phase_ids.length} phase{exp.phase_ids.length !== 1 ? 's' : ''}</span>}
+              {(exp.task_ids?.length || 0) > 0  && <span className="px-1 py-0.5 rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#a8a29e' }}>{exp.task_ids.length} task{exp.task_ids.length !== 1 ? 's' : ''}</span>}
+            </>
+          ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
+        </div>
+        <div style={{ flex: 0.5 }} className="text-[11px] font-mono">
+          {fileCount > 0
+            ? <span className="flex items-center gap-1" style={{ color: '#a8a29e' }}><Paperclip className="w-3 h-3" /> {fileCount}</span>
+            : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
+        </div>
+        <div style={{ flex: 0.5 }} className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
+          <button type="button" onClick={() => handleEdit(exp.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="Edit"><Pencil className="w-3 h-3" /></button>
+          <button type="button" onClick={() => setDeleteConfirmId(exp.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete"><Trash2 className="w-3 h-3" /></button>
+        </div>
+      </div>
+    )
+  }
+
+  const COL_HEADER = [
+    { label: 'Title',    flex: 2 },
+    { label: 'Estimated', flex: 1, field: 'estimated_cost' },
+    { label: 'Actual',   flex: 1, field: 'actual_cost' },
+    { label: 'Variance', flex: 0.8, field: 'variance' },
+    { label: 'Date',     flex: 1, field: 'purchase_date' },
+    { label: 'Related',  flex: 1.2 },
+    { label: 'Files',    flex: 0.5 },
+    { label: '',          flex: 0.5 },
+  ]
+
+  return (
+    <div className="flex flex-col gap-3">
+      {/* Summary tiles */}
+      <div className="flex gap-3 flex-wrap">
+        <BigTile label="Estimated Total" value={<CurrencyDisplay value={totalEstimated} currency={currency} className="text-2xl font-mono font-bold" style={{ color: '#d6d3d1' }} />} />
+        <BigTile label="Actual Total" value={<CurrencyDisplay value={totalActual} currency={currency} className="text-2xl font-mono font-bold" style={{ color: '#d6d3d1' }} />} />
+        <BigTile
+          label="Variance"
+          value={<CurrencyDisplay value={totalVariance} currency={currency} className="text-2xl font-mono font-bold" style={{ color: totalVariance > 0 ? '#fca5a5' : totalVariance < 0 ? '#86efac' : '#d6d3d1' }} />}
+          tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
+        />
+        <BigTile label="Expenses" value={expenses.length} />
+      </div>
+
+      {/* Toolbar — matching RABBIT pattern */}
+      <div className="flex items-center gap-3 px-1 flex-wrap">
+        {/* New expense */}
+        <button type="button" onClick={handleCreate}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+          <Plus className="w-3.5 h-3.5" /> New expense
+        </button>
+
+        {/* Undo / redo */}
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)"
+            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Undo2 className="w-3.5 h-3.5" /></button>
+          <button type="button" onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Shift+Z)"
+            className="p-1.5 rounded-sm transition-colors hover:bg-stone-700 disabled:opacity-30 disabled:cursor-not-allowed"
+            style={{ color: '#a8a29e', border: '1px solid #44403c' }}><Redo2 className="w-3.5 h-3.5" /></button>
+        </div>
+
+        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+
+        {/* Filter */}
+        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
+          <Filter className="w-3.5 h-3.5" /> Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+        </button>
+
+        {/* Sort */}
+        <div className="flex items-center gap-1.5">
+          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
+          <select value={sortField} onChange={e => setSortField(e.target.value)}
+            className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+            <option value="">No sort</option>
+            {EXPENSE_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          {sortField && (
+            <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+              className="px-2 py-1.5 text-[10px] font-mono uppercase rounded-sm hover:bg-stone-700 transition-colors"
+              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+              {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
+            </button>
+          )}
+        </div>
+
+        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+
+        {/* Group */}
+        <div className="flex items-center gap-1.5">
+          <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
+          <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
+            className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+            {EXPENSE_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+
+        {/* Saved views */}
+        <ExpenseSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
+
+        {/* Search */}
+        <div className="flex items-center gap-1.5 flex-1 max-w-xs ml-auto">
+          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search expenses..."
+            className="flex-1 px-2.5 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+          {search && (
+            <button type="button" onClick={() => setSearch('')} className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}><X className="w-3.5 h-3.5" /></button>
+          )}
+        </div>
+
+        <span className="text-[10px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>{processed.length}/{expenses.length}</span>
+      </div>
+
+      {/* Filter panel */}
+      {showFilterPanel && (
+        <ExpenseFilterPanel
+          filters={filters}
+          phases={phases} assets={assets} tasks={tasks}
+          onAdd={addFilter} onUpdate={updateFilter} onRemove={removeFilter}
+          onClose={() => setShowFilterPanel(false)}
+        />
+      )}
+
+      {/* Column header */}
+      <div className="flex gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
+        {COL_HEADER.map((col, i) => (
+          <div key={i}
+            className={`text-[9px] font-mono uppercase tracking-widest ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
+            style={{ flex: col.flex, color: sortField === col.field ? '#fb923c' : '#78716c' }}
+            onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
+          >
+            {col.label}
+            {sortField === col.field && <span className="ml-1">{sortDir === 'asc' ? '\u25B2' : '\u25BC'}</span>}
+          </div>
+        ))}
+      </div>
+
+      {/* Table body — flat or grouped */}
+      {processed.length === 0 ? (
+        <Empty>{search || filters.length ? 'No matching expenses.' : 'No expenses yet \u2014 click "New expense" to add one.'}</Empty>
+      ) : groups ? (
+        <div className="flex flex-col gap-3">
+          {groups.map(g => (
+            <div key={g.key}>
+              <div className="flex items-center gap-2 px-2 py-1.5 mb-1 rounded-sm" style={{ backgroundColor: '#292524', borderLeft: '3px solid #fb923c' }}>
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{g.label}</span>
+                <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>({g.items.length})</span>
+                <span className="ml-auto text-[10px] font-mono" style={{ color: '#a8a29e' }}>
+                  Est: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#a8a29e' }} />
+                  {' / '}
+                  Act: <CurrencyDisplay value={g.items.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)} currency={currency} className="inline" style={{ color: '#d6d3d1' }} />
+                </span>
+              </div>
+              <div className="flex flex-col gap-1">
+                {g.items.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {processed.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/60" onClick={() => setDeleteConfirmId(null)} />
+          <div className="relative rounded-sm p-5 flex flex-col gap-3" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 360 }}>
+            <div className="flex items-center gap-2"><AlertCircle className="w-5 h-5 text-red-400" /><span className="text-sm font-bold" style={{ color: '#fca5a5' }}>Delete Expense</span></div>
+            <p className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>This will permanently remove this expense. You can undo with Ctrl+Z.</p>
+            <div className="flex justify-end gap-2 mt-1">
+              <button type="button" onClick={() => setDeleteConfirmId(null)} className="px-3 py-1.5 text-[11px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+              <button type="button" onClick={() => handleDelete(deleteConfirmId)} className="px-3 py-1.5 text-[11px] font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#dc2626', border: '1px solid #991b1b' }}>Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Save view dialog */}
+      {showSaveDialog && (
+        <>
+          <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
+          <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded-sm p-5 flex flex-col gap-4"
+            style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <span className="text-[13px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
+              placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
+              className="px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+            <div className="flex gap-2 justify-end">
+              <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-[11px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+              <button type="button" onClick={saveCurrentView} className="px-4 py-1.5 text-[11px] font-mono rounded-sm transition-colors" style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Create / Edit popup */}
+      {showPopup && (
+        <ExpensePopup
+          expense={editingId ? expenses.find(e => e.id === editingId) : null}
+          phases={phases} assets={assets} tasks={tasks}
+          projectId={project.id} ctx={ctx} currency={currency}
+          onSave={handleSave}
+          onClose={() => { setShowPopup(false); setEditingId(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+
+// ─── Expense filter panel ──────────────────────────────────
+function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, onRemove, onClose }) {
+  function getOptions(f) {
+    const def = EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)
+    if (!def) return []
+    if (def.dynamic === 'assets') return assets.map(a => ({ value: a.id, label: a.name || 'Untitled' }))
+    if (def.dynamic === 'phases') return phases.map(p => ({ value: p.id, label: p.name || 'Untitled' }))
+    if (def.dynamic === 'tasks')  return tasks.map(t => ({ value: t.id, label: t.name || 'Untitled' }))
+    return (def.options || []).map(o => ({ value: o, label: fmtExpLabel(o) }))
+  }
+  function getType(f) { return EXPENSE_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text' }
+
+  return (
+    <div className="px-4 py-3 flex flex-col gap-2 rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+      {filters.map((f, i) => {
+        const type = getType(f)
+        const ops = EXPENSE_FILTER_OPS[type] || EXPENSE_FILTER_OPS.text
+        const needsValue = !['is_empty', 'is_not_empty'].includes(f.op)
+        return (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-[10px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
+            <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
+              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+              {EXPENSE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
+            </select>
+            <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
+              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+              {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            {needsValue && (
+              type === 'select' ? (
+                <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
+                  className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+                  <option value="">-- select --</option>
+                  {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              ) : (
+                <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
+                  placeholder="value..."
+                  className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
+              )
+            )}
+            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#fca5a5' }}><X className="w-3.5 h-3.5" /></button>
+          </div>
+        )
+      })}
+      <div className="flex items-center gap-2 mt-1">
+        <button type="button" onClick={onAdd}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
+          style={{ color: '#fb923c', border: '1px solid #44403c' }}>
+          <Plus className="w-3.5 h-3.5" /> Add filter
+        </button>
+        {filters.length > 0 && (
+          <button type="button" onClick={onClose}
+            className="px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800 transition-colors"
+            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Done</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Expense saved views dropdown ──────────────────────────
+function ExpenseSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+        style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+        <BookmarkPlus className="w-3.5 h-3.5" /> Views
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 w-56 rounded-sm overflow-hidden z-30"
+          style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+          {views.length === 0 && <div className="px-3 py-2.5 text-[11px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>}
+          {views.map(v => (
+            <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
+              onClick={() => { onLoad(v); setOpen(false) }}>
+              <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
+                className="p-0.5 hover:bg-stone-600 rounded-sm transition-colors" style={{ color: '#fca5a5' }}><X className="w-3 h-3" /></button>
+            </div>
+          ))}
+          <div style={{ borderTop: '1px solid #44403c' }}>
+            <button type="button" onClick={() => { onSave(); setOpen(false) }}
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11px] font-mono transition-colors"
+              style={{ color: '#fb923c' }}>
+              <Save className="w-3 h-3" /> Save current view
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ─── Expense create / edit popup ───────────────────────────
+function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency, onSave, onClose }) {
+  const isEdit = !!expense
+  const [title, setTitle]                 = useState(expense?.title || '')
+  const [description, setDescription]     = useState(expense?.description || '')
+  const [estimatedCost, setEstimatedCost] = useState(expense?.estimated_cost ?? '')
+  const [actualCost, setActualCost]       = useState(expense?.actual_cost ?? '')
+  const [purchaseDate, setPurchaseDate]   = useState(expense?.purchase_date || '')
+  const [assetIds, setAssetIds]           = useState(expense?.asset_ids || [])
+  const [phaseIds, setPhaseIds]           = useState(expense?.phase_ids || [])
+  const [taskIds, setTaskIds]             = useState(expense?.task_ids || [])
+  const [fileIds, setFileIds]             = useState(expense?.file_ids || [])
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const [uploading, setUploading]         = useState(false)
+  const [busy, setBusy]                   = useState(false)
+  const fileInputRef = useRef(null)
+
+  const [existingFiles, setExistingFiles] = useState([])
+  useEffect(() => {
+    if (!isEdit || fileIds.length === 0) return
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.listFiles) return
+    adapter.listFiles(projectId).then(files => {
+      setExistingFiles(files.filter(f => fileIds.includes(f.id)))
+    }).catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const allFiles = useMemo(() => {
+    const map = new Map()
+    for (const f of existingFiles) map.set(f.id, f)
+    for (const f of uploadedFiles) map.set(f.id, f)
+    return [...map.values()]
+  }, [existingFiles, uploadedFiles])
+
+  async function handleFileUpload(e) {
+    const files = Array.from(e.target.files || [])
+    if (files.length === 0) return
+    setUploading(true)
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.uploadFile) { setUploading(false); return }
+    try {
+      const results = []
+      for (const file of files) {
+        const uploaded = await adapter.uploadFile(projectId, { type: 'expense' }, file)
+        if (uploaded?.id) results.push({ id: uploaded.id, name: file.name, mime_type: file.type })
+      }
+      setUploadedFiles(prev => [...prev, ...results])
+      setFileIds(prev => [...prev, ...results.map(r => r.id)])
+    } catch (err) { console.error('Upload failed', err) }
+    finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
+  }
+  function removeFile(id) {
+    setFileIds(prev => prev.filter(fid => fid !== id))
+    setUploadedFiles(prev => prev.filter(f => f.id !== id))
+    setExistingFiles(prev => prev.filter(f => f.id !== id))
+  }
+  function handleSubmit() {
+    if (!title.trim()) return
+    setBusy(true)
+    onSave({
+      title: title.trim(), description: description.trim(),
+      estimated_cost: Number(estimatedCost) || 0,
+      actual_cost: Number(actualCost) || 0,
+      purchase_date: purchaseDate,
+      asset_ids: assetIds, phase_ids: phaseIds, task_ids: taskIds, file_ids: fileIds,
+    })
+  }
+
+  const est = Number(estimatedCost) || 0
+  const act = Number(actualCost) || 0
+  const variance = act - est
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative flex flex-col rounded-sm shadow-2xl" style={{ backgroundColor: '#292524', border: '2px solid #44403c', width: 620, maxHeight: '85vh' }}>
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b-2 border-stone-600 flex-shrink-0" style={{ backgroundColor: '#1c1917' }}>
+          <div className="flex items-center gap-2">
+            <Receipt className="w-5 h-5 text-orange-400" />
+            <span className="text-sm font-bold text-orange-400 uppercase tracking-wide">{isEdit ? 'Edit Expense' : 'New Expense'}</span>
+          </div>
+          <button type="button" onClick={onClose} className="p-1 rounded hover:bg-stone-700 transition-colors"><X className="w-5 h-5" style={{ color: '#a8a29e' }} /></button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Title */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Title *</label>
+            <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
+              className="px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+          </div>
+
+          {/* Costs row: Estimated + Actual + Variance display */}
+          <div className="flex gap-4">
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
+              <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
+                className="px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+            </div>
+            <div className="flex flex-col gap-1 flex-1">
+              <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
+              <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
+                className="px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+            </div>
+            <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
+              <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Variance</label>
+              <div className="px-3 py-2 text-[11px] font-mono rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                {est > 0 ? (
+                  <span style={{ color: variance > 0 ? '#fca5a5' : variance < 0 ? '#86efac' : '#a8a29e' }}>
+                    {variance > 0 ? '+' : ''}<CurrencyDisplay value={variance} currency={currency} className="inline" style={{ color: 'inherit' }} />
+                  </span>
+                ) : <span style={{ color: '#57534e' }}>{'\u2014'}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* Date */}
+          <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
+            <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Purchase Date</label>
+            <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
+              className="px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+          </div>
+
+          {/* Description */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Description / Reason</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
+              className="px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+          </div>
+
+          {/* Relations */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Related Items</label>
+            <div className="space-y-2">
+              <RelationPicker label="Assets" icon={<Boxes className="w-3 h-3" />} items={assets} selectedIds={assetIds} onChange={setAssetIds} nameKey="name" />
+              <RelationPicker label="Phases" icon={<Layers className="w-3 h-3" />} items={phases} selectedIds={phaseIds} onChange={setPhaseIds} nameKey="name" />
+              <RelationPicker label="Tasks"  icon={<FileText className="w-3 h-3" />} items={tasks} selectedIds={taskIds} onChange={setTaskIds} nameKey="name" />
+            </div>
+          </div>
+
+          {/* File upload */}
+          <div className="flex flex-col gap-2">
+            <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Invoices / Receipts</label>
+            {allFiles.length > 0 && (
+              <div className="flex flex-col gap-1">
+                {allFiles.map(f => (
+                  <div key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                    <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
+                    <span className="text-[11px] font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
+                    <button type="button" onClick={() => removeFile(f.id)} className="p-0.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#ef4444' }}><X className="w-3 h-3" /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded-sm transition-colors hover:bg-stone-700 self-start"
+              style={{ color: '#a8a29e', border: '1px dashed #44403c' }}>
+              {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+              {uploading ? 'Uploading...' : 'Upload files'}
+            </button>
+            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3 border-t-2 border-stone-600 flex-shrink-0">
+          <p className="text-[10px] font-mono" style={{ color: '#78716c' }}>{isEdit ? 'Changes are saved when you press Save.' : 'Nothing is saved until you press Create.'}</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={onClose} className="px-3 py-1.5 text-[11px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
+            <button type="button" onClick={handleSubmit} disabled={!title.trim() || busy}
+              className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>{busy ? 'Saving...' : isEdit ? 'Save' : 'Create'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ─── Relation picker (multi-select dropdown) ───────────────
+function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [open])
+  const filtered = useMemo(() => {
+    if (!search.trim()) return items
+    const q = search.toLowerCase()
+    return items.filter(it => (it[nameKey] || '').toLowerCase().includes(q))
+  }, [items, search, nameKey])
+  function toggle(id) {
+    if (selectedIds.includes(id)) onChange(selectedIds.filter(x => x !== id))
+    else onChange([...selectedIds, id])
+  }
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(!open)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono rounded-sm transition-colors hover:bg-stone-700 w-full text-left"
+        style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
+        {icon}<span>{label}</span>
+        {selectedIds.length > 0 && <span className="ml-auto px-1.5 py-0.5 rounded-sm text-[10px]" style={{ backgroundColor: '#ea580c', color: '#fff7ed' }}>{selectedIds.length}</span>}
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 z-50 mt-1 rounded-sm shadow-xl flex flex-col" style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: 220 }}>
+          {items.length > 5 && (
+            <div className="p-1.5 border-b border-stone-700">
+              <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} autoFocus
+                className="w-full px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+            </div>
+          )}
+          <div className="overflow-y-auto flex-1">
+            {filtered.length === 0 ? <div className="px-3 py-2 text-[10px] font-mono" style={{ color: '#78716c' }}>No items</div> : (
+              filtered.map(it => {
+                const checked = selectedIds.includes(it.id)
+                return (
+                  <label key={it.id} className="flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-stone-700 transition-colors">
+                    <input type="checkbox" checked={checked} onChange={() => toggle(it.id)} className="accent-orange-500 w-3.5 h-3.5" />
+                    <span className="text-[11px] font-mono truncate" style={{ color: checked ? '#d6d3d1' : '#a8a29e' }}>{it[nameKey] || 'Unnamed'}</span>
+                  </label>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
+// ─── Sub-components ───────────────────────────────────────
+function Card({ title, children }) {
+  return (
+    <div
+      className="rounded-sm p-4 mb-4"
+      style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+    >
+      {title && (
+        <h3 className="text-[11px] font-mono uppercase tracking-widest font-bold mb-3" style={{ color: '#fb923c' }}>
+          {title}
+        </h3>
+      )}
+      {children}
+    </div>
+  )
+}
+
+function BigTile({ label, value, hint, tone = 'neutral' }) {
+  const colors = {
+    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac' },
+    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5' },
+    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
+  }[tone]
+  return (
+    <div className="flex flex-col px-3 py-2 rounded-sm" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+      <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
+      <span className="text-2xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      {hint && <span className="text-[10px] font-mono" style={{ color: colors.label }}>{hint}</span>}
+    </div>
+  )
+}
+
+function RoleTable({ rows, currency }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <HeaderRow cols={['Role', 'Days', 'Cost']} />
+      {rows.slice().sort((a, b) => b.cost - a.cost).map(row => (
+        <div key={row.role} className="grid grid-cols-3 gap-2 px-2 py-1 rounded-sm text-[11px] font-mono" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+          <span style={{ color: '#d6d3d1' }}>{row.role}</span>
+          <span style={{ color: '#a8a29e' }}>{row.days.toFixed(1)} d</span>
+          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function BreakdownTable({ rows, currency, labelHeader, countHeader }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <HeaderRow cols={[labelHeader, countHeader, 'Bid', 'Logged', 'Variance', 'Cost']} sixCol />
+      {rows.map((row, i) => (
+        <div key={`${row.name}-${i}`} className="grid grid-cols-6 gap-2 px-2 py-1 rounded-sm text-[11px] font-mono items-center" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+          <span className="truncate" style={{ color: '#d6d3d1' }}>{row.name}</span>
+          <span style={{ color: '#a8a29e' }}>{row.taskCount}</span>
+          <span style={{ color: '#a8a29e' }}>{row.bid.toFixed(1)}</span>
+          <span style={{ color: '#a8a29e' }}>{row.logged.toFixed(1)}</span>
+          <VarianceCell value={row.variance} />
+          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function HeaderRow({ cols, sixCol }) {
+  return (
+    <div className={`grid ${sixCol ? 'grid-cols-6' : 'grid-cols-3'} gap-2 px-2 py-1`} style={{ borderBottom: '1px solid #44403c' }}>
+      {cols.map(c => (
+        <span key={c} className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>{c}</span>
+      ))}
+    </div>
+  )
+}
+
+function VarianceCell({ value }) {
+  const tone = varianceTone(value)
+  const colors = { good: '#86efac', danger: '#fca5a5', neutral: '#a8a29e' }[tone]
+  const Icon = value > 0 ? ArrowUp : value < 0 ? ArrowDown : Minus
+  return (
+    <span className="flex items-center gap-1" style={{ color: colors }}>
+      <Icon className="w-3 h-3" />
+      {(value > 0 ? '+' : '') + value.toFixed(1)}
+    </span>
+  )
+}
+
+function Field({ label, children }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>{label}</span>
+      {children}
+    </div>
+  )
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
+    >
+      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  )
+}
+
+function CenterMsg({ children }) {
+  return (
+    <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
+      <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{children}</span>
+    </div>
+  )
+}
+
+function Empty({ children }) {
+  return <div className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>{children}</div>
+}
+
+function varianceLabel(v) {
+  if (v > 0) return 'Over budget'
+  if (v < 0) return 'Under budget'
+  return 'On target'
+}
+
+function varianceTone(v) {
+  if (v > 0) return 'danger'
+  if (v < 0) return 'good'
+  return 'neutral'
+}

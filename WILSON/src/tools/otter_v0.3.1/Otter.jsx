@@ -304,8 +304,8 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
       },
     };
 
-    agent.registerTool(toolInterface);
-    return () => agent.unregisterTool();
+    agent.registerTool('otter', toolInterface);
+    return () => agent.unregisterTool('otter');
   }, [agent, activeSoftwareSlug, activeSubjectSlug, selectedLessonId, activeSubject]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ═══════════════════════════════════════════════════════════════
