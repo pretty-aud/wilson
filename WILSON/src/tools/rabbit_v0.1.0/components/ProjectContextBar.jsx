@@ -132,8 +132,15 @@ export default function ProjectContextBar({ onJumpToSummary }) {
                         : <Circle className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />}
                       <span className="flex-1 truncate text-[11px] font-mono">{p.title || 'Untitled'}</span>
                       {p.status && (
-                        <span className="text-[9px] uppercase tracking-wider" style={{ color: '#78716c' }}>
-                          {p.status}
+                        <span className="flex items-center gap-1.5 flex-shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{
+                            backgroundColor: p.status === 'active' ? '#15803d' : p.status === 'archived' ? '#57534e' : p.status === 'wrapped' ? '#15803d' : '#ea580c',
+                          }} />
+                          <span className="text-[9px] uppercase tracking-wider" style={{
+                            color: p.status === 'active' ? '#4ade80' : p.status === 'archived' ? '#78716c' : p.status === 'wrapped' ? '#4ade80' : '#fb923c',
+                          }}>
+                            {p.status}
+                          </span>
                         </span>
                       )}
                     </button>

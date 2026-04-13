@@ -12,19 +12,23 @@
 
 import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
+  Film, Gamepad2,
 } from 'lucide-react'
 
 export const RABBIT_VIEWS = [
-  { id: 'intake',   label: 'Intake',   Icon: Sparkles    },
-  { id: 'summary',  label: 'Summary',  Icon: FileText    },
-  { id: 'assets',   label: 'Assets',   Icon: Boxes       },
-  { id: 'team',     label: 'Team',     Icon: Users       },
-  { id: 'tasks',    label: 'Tasks',    Icon: ListChecks  },
-  { id: 'timeline', label: 'Timeline', Icon: GanttChart  },
-  { id: 'budget',   label: 'Budget',   Icon: DollarSign  },
+  { id: 'intake',      label: 'Intake',       Icon: Sparkles   },
+  { id: 'summary',     label: 'Summary',      Icon: FileText   },
+  { id: 'team',        label: 'Team',         Icon: Users      },
+  { id: 'tasks',       label: 'Tasks',        Icon: ListChecks },
+  { id: 'assets',      label: 'Assets',       Icon: Boxes      },
+  { id: 'scenes',      label: 'Scenes',       Icon: Film       },
+  { id: 'levels',      label: 'Levels',       Icon: Gamepad2   },
+  { id: 'experiences', label: 'Experiences',   Icon: Sparkles   },
+  { id: 'timeline',    label: 'Timeline',     Icon: GanttChart },
+  { id: 'budget',      label: 'Budget',       Icon: DollarSign },
 ]
 
-export default function ViewTabs({ activeView, onChange, disabled, rightSlot }) {
+export default function ViewTabs({ activeView, onChange, disabled, rightSlot, hiddenTabs }) {
   return (
     <div
       className="flex items-center gap-1 px-2"
@@ -33,7 +37,7 @@ export default function ViewTabs({ activeView, onChange, disabled, rightSlot }) 
         borderBottom: '1px solid #44403c',
       }}
     >
-      {RABBIT_VIEWS.map(({ id, label, Icon }) => {
+      {RABBIT_VIEWS.filter(v => !hiddenTabs || !(hiddenTabs instanceof Set ? hiddenTabs.has(v.id) : Array.isArray(hiddenTabs) && hiddenTabs.includes(v.id))).map(({ id, label, Icon }) => {
         const active = id === activeView
         return (
           <button

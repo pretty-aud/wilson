@@ -1,7 +1,7 @@
 {
   "name": "wilson",
   "private": true,
-  "version": "0.6.2",
+  "version": "0.6.3",
   "description": "WILSON - AI-powered creative production & learning platform",
   "toolVersions": {
     "deck-outline-generator": "0.514",

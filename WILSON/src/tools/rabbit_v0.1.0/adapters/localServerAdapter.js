@@ -84,6 +84,13 @@ export function localServerAdapter() {
         teamAssignments: bundle.teamAssignments || [],
         managedFiles:    bundle.managedFiles || [],
         budgetVersions:  bundle.budgetVersions || [],
+        budgetLines:     bundle.budgetLines || [],
+        budgetActuals:   bundle.budgetActuals || [],
+        projectTeam:     bundle.projectTeam || [],
+        scenes:          bundle.scenes || [],
+        shots:           bundle.shots || [],
+        levels:          bundle.levels || [],
+        experiences:     bundle.experiences || [],
       };
     },
 
@@ -252,6 +259,14 @@ export function localServerAdapter() {
     }),
     deleteTeamAssignment: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/team-assignments/${id}`, { method: 'DELETE' }),
 
+    // ── Project team (project-scoped copy of workspace members) ──
+    listProjectTeam: (projectId) => jfetch(`${BASE}/projects/${projectId}/project-team`),
+    syncProjectTeam: (projectId, members) => jfetch(`${BASE}/projects/${projectId}/project-team/sync`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ members }),
+    }),
+
     // ── Team members ───────────────────────────────────────────
     listTeamMembers: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/team-members`),
     upsertTeamMember: (member) => jfetch(`${BASE}/workspaces/${member.workspace_id}/team-members`, {
@@ -301,6 +316,38 @@ export function localServerAdapter() {
     deleteBudgetVersion: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/budget-versions/${id}`, { method: 'DELETE' }),
 
+    // ── Budget lines ───────────────────────────────────────────
+    listBudgetLines: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).budgetLines || [],
+    upsertBudgetLine: (line) => jfetch(`${BASE}/projects/${line.project_id}/budget-lines`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(line),
+    }),
+    updateBudgetLine: (id, projectId, patch) => jfetch(`${BASE}/projects/${projectId}/budget-lines/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    deleteBudgetLine: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/budget-lines/${id}`, { method: 'DELETE' }),
+
+    // ── Budget actuals ──────────────────────────────────────────
+    listBudgetActuals: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).budgetActuals || [],
+    upsertBudgetActual: (actual) => jfetch(`${BASE}/projects/${actual.project_id}/budget-actuals`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(actual),
+    }),
+    updateBudgetActual: (id, projectId, patch) => jfetch(`${BASE}/projects/${projectId}/budget-actuals/${id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(patch),
+    }),
+    deleteBudgetActual: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/budget-actuals/${id}`, { method: 'DELETE' }),
+
     // ── Expenses ────────────────────────────────────────────────
     listExpenses: async (projectId) =>
       (await jfetch(`${BASE}/projects/${projectId}`)).expenses || [],
@@ -316,6 +363,61 @@ export function localServerAdapter() {
     }),
     deleteExpense: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/expenses/${id}`, { method: 'DELETE' }),
+
+    // ── Scenes ─────────────────────────────────────────────────
+    listScenes: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).scenes || [],
+    upsertScene: (scene) => jfetch(`${BASE}/projects/${scene.project_id}/scenes`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(scene),
+    }),
+    deleteScene: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/scenes/${id}`, { method: 'DELETE' }),
+
+    // ── Shots ──────────────────────────────────────────────────
+    listShots: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).shots || [],
+    upsertShot: (shot) => jfetch(`${BASE}/projects/${shot.project_id}/shots`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(shot),
+    }),
+    deleteShot: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/shots/${id}`, { method: 'DELETE' }),
+
+    // ── Levels ─────────────────────────────────────────────────
+    listLevels: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).levels || [],
+    upsertLevel: (level) => jfetch(`${BASE}/projects/${level.project_id}/levels`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(level),
+    }),
+    deleteLevel: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/levels/${id}`, { method: 'DELETE' }),
+
+    // ── Experiences ────────────────────────────────────────────
+    listExperiences: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).experiences || [],
+    upsertExperience: (experience) => jfetch(`${BASE}/projects/${experience.project_id}/experiences`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(experience),
+    }),
+    deleteExperience: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/experiences/${id}`, { method: 'DELETE' }),
+
+    // ── Milestones ────────────────────────────────────────────
+    listMilestones: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).milestones || [],
+    upsertMilestone: (milestone) => jfetch(`${BASE}/projects/${milestone.project_id}/milestones`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(milestone),
+    }),
+    deleteMilestone: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/milestones/${id}`, { method: 'DELETE' }),
 
     // ── Task templates ──────────────────────────────────────────
     listTaskTemplates: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/task-templates`),

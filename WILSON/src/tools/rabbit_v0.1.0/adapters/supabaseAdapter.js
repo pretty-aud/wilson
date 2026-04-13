@@ -393,6 +393,26 @@ export function supabaseAdapter() {
       unwrap(await client.from('rate_card_entries').delete().eq('id', id));
     },
 
+    // ── Scenes (tables pending — Phase 2) ─────────────────────
+    async upsertScene()  { throw new Error('[supabase] scenes table not yet created — use local_server adapter'); },
+    async deleteScene()  { throw new Error('[supabase] scenes table not yet created — use local_server adapter'); },
+
+    // ── Shots (tables pending — Phase 2) ─────────────────────
+    async upsertShot()   { throw new Error('[supabase] shots table not yet created — use local_server adapter'); },
+    async deleteShot()   { throw new Error('[supabase] shots table not yet created — use local_server adapter'); },
+
+    // ── Levels (tables pending — Phase 2) ────────────────────
+    async upsertLevel()  { throw new Error('[supabase] levels table not yet created — use local_server adapter'); },
+    async deleteLevel()  { throw new Error('[supabase] levels table not yet created — use local_server adapter'); },
+
+    // ── Experiences (tables pending — Phase 2) ───────────────
+    async upsertExperience() { throw new Error('[supabase] experiences table not yet created — use local_server adapter'); },
+    async deleteExperience() { throw new Error('[supabase] experiences table not yet created — use local_server adapter'); },
+
+    // ── Milestones (tables pending — Phase 2) ───────────────
+    async upsertMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
+    async deleteMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
+
     // ── Realtime ──────────────────────────────────────────────
     // Wires postgres_changes on the four core tables scoped to a
     // single project_id. The collab UI in v0.2 can flip a feature

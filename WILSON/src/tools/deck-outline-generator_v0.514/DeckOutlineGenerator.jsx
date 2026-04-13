@@ -3802,7 +3802,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                       className={`w-full px-3 py-1.5 text-xs bg-stone-900 border-2 border-stone-600 rounded-sm focus:outline-none focus:border-orange-500 transition-colors appearance-none cursor-pointer font-medium ${selectedProjectId ? 'text-stone-300' : 'text-orange-400'}`}
                     >
                       <option value="" className="text-orange-400">No project selected</option>
-                      {projects.filter(p => (p.status || 'active') === 'active').map(p => (
+                      {projects.map(p => (
                         <option key={p.id} value={p.id} className="text-stone-300">{p.title}</option>
                       ))}
                     </select>

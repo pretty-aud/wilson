@@ -25,30 +25,55 @@ import { v4 as uuidv4 } from 'uuid'
 import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
-  Lock, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
+  Lock, LockOpen, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
   Upload, FileText, Paperclip, Search, Filter, ArrowUpDown,
-  BookmarkPlus, ChevronDown, ChevronRight,
+  BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
+  Users, Star, Eye, CheckSquare, Square, MinusSquare,
+  Film, Gamepad2, Zap,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import { useExpenses } from '../../../components/Expenses/useExpenses'
+import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudgetLines'
+import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import CurrencyDisplay from '../components/CurrencyDisplay'
+import CrewTeamTab from './budget/CrewTeamTab'
+import TalentTab from './budget/TalentTab'
+import ClientViewTab from './budget/ClientViewTab'
+
+function fmtCurrency(val, currency = 'USD') {
+  const n = Number(val) || 0
+  return n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
+}
 
 const TABS = [
-  { id: 'summary',   label: 'Summary',  icon: DollarSign },
-  { id: 'by_phase',  label: 'By Phase', icon: Layers     },
-  { id: 'by_role',   label: 'By Role',  icon: UserCircle },
-  { id: 'by_asset',  label: 'By Asset', icon: Boxes      },
-  { id: 'custom',    label: 'Custom',   icon: Sparkles   },
-  { id: 'expenses', label: 'Expenses', icon: Receipt    },
+  { id: 'summary',        label: 'Summary',       icon: DollarSign },
+  { id: 'by_phase',       label: 'By Phase',      icon: Layers     },
+  { id: 'by_role',        label: 'By Role',       icon: UserCircle },
+  { id: 'by_asset',       label: 'By Asset',      icon: Boxes      },
+  { id: 'by_scene',       label: 'By Scene',      icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_shot',        label: 'By Shot',       icon: Film,      requires: 'scenes_enabled' },
+  { id: 'by_level',       label: 'By Level',      icon: Gamepad2,  requires: 'levels_enabled' },
+  { id: 'by_experience',  label: 'By Experience', icon: Zap,       requires: 'experiences_enabled' },
+  { id: 'custom',         label: 'Custom',        icon: Sparkles   },
+  { id: '__div1__' },
+  { id: 'crew',           label: 'Crew/Team',     icon: Users      },
+  { id: 'talent',         label: 'Talent',        icon: Star       },
+  { id: 'expenses',       label: 'Expenses',      icon: Receipt    },
+  { id: '__div2__' },
+  { id: 'client',         label: 'Client View',   icon: Eye        },
 ]
 
 const GROUP_BY_OPTIONS = [
-  { id: 'phase',    label: 'Phase'    },
-  { id: 'role',     label: 'Role'     },
-  { id: 'asset',    label: 'Asset'    },
-  { id: 'status',   label: 'Status'   },
-  { id: 'priority', label: 'Priority' },
+  { id: 'phase',      label: 'Phase'      },
+  { id: 'role',       label: 'Role'       },
+  { id: 'asset',      label: 'Asset'      },
+  { id: 'scene',      label: 'Scene',      requires: 'scenes_enabled' },
+  { id: 'shot',       label: 'Shot',       requires: 'scenes_enabled' },
+  { id: 'level',      label: 'Level',      requires: 'levels_enabled' },
+  { id: 'experience', label: 'Experience', requires: 'experiences_enabled' },
+  { id: 'status',     label: 'Status'     },
+  { id: 'priority',   label: 'Priority'   },
 ]
 
 const STATUS_FILTER_OPTIONS = [
@@ -59,7 +84,7 @@ const STATUS_FILTER_OPTIONS = [
   { id: 'blocked', label: 'Blocked' },
   { id: 'on_hold', label: 'On hold' },
   { id: 'pending_review', label: 'Pending review' },
-  { id: 'revisions', label: 'Revisions' },
+  { id: 'needs_revisions', label: 'Needs Revisions' },
   { id: 'approved', label: 'Approved' },
   { id: 'final', label: 'Final' },
   { id: 'omitted', label: 'Omitted' },
@@ -68,15 +93,50 @@ const STATUS_FILTER_OPTIONS = [
 export default function BudgetView() {
   const ctx = useRabbit()
   const project = ctx?.project
-  const phases  = ctx?.phases  || []
-  const assets  = ctx?.assets  || []
-  const tasks   = ctx?.tasks   || []
+  const phases       = ctx?.phases       || []
+  const assets       = ctx?.assets       || []
+  const tasks        = ctx?.tasks        || []
+  const scenes       = ctx?.scenes       || []
+  const shots        = ctx?.shots        || []
+  const levels       = ctx?.levels       || []
+  const experiences  = ctx?.experiences  || []
   const loading = ctx?.loadingProject
   const budgetVersions = ctx?.budgetVersions || []
 
+  const projectTeam = ctx?.projectTeam || []
+  const syncProjectTeam = ctx?.syncProjectTeam
+
   const rateCard = useRateCard()
   const expensesHook = useExpenses()
+  const budgetHook = useBudgetLines()
+  const tm = useTeamMembers()
   const [tab, setTab] = useState('summary')
+
+  // ── Project-scoped team ───────────────────────────────────
+  // teamAssignments (from the bundle) is the source of truth for which
+  // workspace members belong to THIS project. The TeamView manages them
+  // (assign / remove). We resolve the full member objects here so the
+  // budget tabs have name, department, title, etc.
+  const teamAssignments = ctx?.teamAssignments || []
+
+  const assignedTeam = useMemo(() => {
+    if (!teamAssignments.length || !tm.members?.length) return []
+    const assignedIds = new Set(teamAssignments.map(a => a.member_id))
+    return tm.members.filter(m => assignedIds.has(m.id))
+  }, [teamAssignments, tm.members])
+
+  // Sync the resolved member list into the bundle's projectTeam so it
+  // mirrors to _DATABASES/team.json. Only fires when assignments change.
+  const syncedRef = useRef(null)
+  useEffect(() => {
+    if (!project?.id || !syncProjectTeam) return
+    const fp = assignedTeam.map(m => m.id).sort().join(',')
+    if (syncedRef.current === `${project.id}::${fp}`) return
+    syncedRef.current = `${project.id}::${fp}`
+    syncProjectTeam(assignedTeam).catch(err => {
+      console.error('projectTeam sync failed:', err)
+    })
+  }, [project?.id, assignedTeam, syncProjectTeam])
 
   // Build a slug -> day_rate lookup from the active rate card.
   const roleRates = useMemo(() => {
@@ -117,10 +177,13 @@ export default function BudgetView() {
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* Tab strip */}
       <div
-        className="flex items-center gap-1 px-4 py-2"
+        className="flex items-center gap-2 px-5 py-2.5"
         style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
       >
-        {TABS.map(t => {
+        {TABS.filter(t => !t.requires || project?.[t.requires]).map(t => {
+          if (t.id.startsWith('__div')) {
+            return <div key={t.id} className="self-stretch flex items-center mx-2"><div style={{ width: 1, height: 20, backgroundColor: '#57534e' }} /></div>
+          }
           const active = tab === t.id
           const Icon = t.icon
           return (
@@ -128,7 +191,7 @@ export default function BudgetView() {
               key={t.id}
               type="button"
               onClick={() => setTab(t.id)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-sm"
               style={{
                 color: active ? '#fff7ed' : '#a8a29e',
                 backgroundColor: active ? '#ea580c' : 'transparent',
@@ -156,6 +219,10 @@ export default function BudgetView() {
             missingRolesCount={missingRolesCount}
             rateCardName={rateCard.rateCards.find(c => c.id === rateCard.activeRateCardId)?.name}
             budgetVersions={budgetVersions}
+            budgetHook={budgetHook}
+            rateCard={rateCard}
+            teamMembers={assignedTeam}
+            expensesHook={expensesHook}
           />
         )}
         {tab === 'by_phase' && (
@@ -167,14 +234,50 @@ export default function BudgetView() {
         {tab === 'by_asset' && (
           <ByAssetTab assets={assets} tasks={tasks} budget={budget} roleRates={roleRates} />
         )}
+        {tab === 'by_scene' && (
+          <BySceneTab scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'by_shot' && (
+          <ByShotTab shots={shots} scenes={scenes} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'by_level' && (
+          <ByLevelTab levels={levels} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
+        {tab === 'by_experience' && (
+          <ByExperienceTab experiences={experiences} tasks={tasks} budget={budget} roleRates={roleRates} />
+        )}
         {tab === 'custom'   && (
           <CustomTab
             project={project}
             phases={phases}
             assets={assets}
             tasks={tasks}
+            scenes={scenes}
+            shots={shots}
+            levels={levels}
+            experiences={experiences}
             budget={budget}
             roleRates={roleRates}
+          />
+        )}
+        {tab === 'crew' && (
+          <CrewTeamTab
+            budgetHook={budgetHook}
+            project={project}
+            tasks={tasks}
+            roleRates={roleRates}
+            rateCard={rateCard}
+            teamMembers={assignedTeam}
+            expenses={expensesHook.expenses}
+            currency={budget.currency}
+          />
+        )}
+        {tab === 'talent' && (
+          <TalentTab
+            budgetHook={budgetHook}
+            project={project}
+            expenses={expensesHook.expenses}
+            currency={budget.currency}
           />
         )}
         {tab === 'expenses' && (
@@ -184,6 +287,17 @@ export default function BudgetView() {
             phases={phases}
             assets={assets}
             tasks={tasks}
+            expensesHook={expensesHook}
+            currency={budget.currency}
+          />
+        )}
+        {tab === 'client' && (
+          <ClientViewTab
+            budget={budget}
+            budgetHook={budgetHook}
+            project={project}
+            tasks={tasks}
+            roleRates={roleRates}
             expensesHook={expensesHook}
             currency={budget.currency}
           />
@@ -221,12 +335,14 @@ function aggregateTasks(taskList, roleRates) {
 }
 
 // ─── Summary tab ────────────────────────────────────────────
-function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingRolesCount, rateCardName, budgetVersions }) {
+function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingRolesCount, rateCardName, budgetVersions, budgetHook, rateCard, teamMembers, expensesHook }) {
   const knownRoles = Object.keys(roleRates).length
 
   // ── Margin / Contingency (stored on project) ──
   const marginPct = Number(project.budget_margin_pct ?? 0) || 0
   const contingencyPct = Number(project.budget_contingency_pct ?? 0) || 0
+  const agencyEnabled = project?.budget_agency_enabled === true
+  const agencyPct     = Number(project?.budget_agency_pct ?? 20)
   const baseCost = budget.total
   const marginAmt = Math.round(baseCost * (marginPct / 100) * 100) / 100
   const contingencyAmt = Math.round(baseCost * (contingencyPct / 100) * 100) / 100
@@ -312,12 +428,47 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
     }
   }
 
-  async function finalizeBudget() {
-    updateProjectField('budget_finalized', true)
+  // ── Bid → Active workflow ──
+  const [showActivateConfirm, setShowActivateConfirm] = useState(false)
+  const isActive = project.budget_active === true
+  const lockedVersionId = project.budget_active_version_id || null
+  const lockedVersion = lockedVersionId ? budgetVersions.find(v => v.id === lockedVersionId) : null
+
+  async function activateBudget() {
+    if (!activeVersion) return
+    // Enrich the snapshot with additional locked data
+    const enrichedSnapshot = {
+      ...(activeVersion.snapshot || {}),
+      taskCount: tasks.length,
+      taskDurations: tasks.map(t => ({ id: t.id, name: t.name || t.title, bid_days: t.bid_days, status: t.status })),
+      lineItemTotals: {
+        baseCost, marginPct, marginAmt, contingencyPct, contingencyAmt, grandTotal,
+        agencyEnabled, agencyPct,
+        agencyAmt: agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0,
+      },
+      lockedAt: new Date().toISOString(),
+    }
+    // Save the enriched snapshot back onto the version
+    if (adapter?.upsertBudgetVersion) {
+      await adapter.upsertBudgetVersion({ ...activeVersion, snapshot: enrichedSnapshot })
+    }
+    // Mark project as active with the locked version
+    ctx?.updateProject?.(project.id, {
+      budget_active: true,
+      budget_active_version_id: activeVersion.id,
+      budget_finalized: true,
+    })
+    setShowActivateConfirm(false)
+    ctx?.setActiveProject?.(project.id)
   }
 
-  async function unlockBudget() {
-    updateProjectField('budget_finalized', false)
+  async function resetToTidding() {
+    ctx?.updateProject?.(project.id, {
+      budget_active: false,
+      budget_active_version_id: null,
+      budget_finalized: false,
+    })
+    ctx?.setActiveProject?.(project.id)
   }
 
   // ── Active version variance ──
@@ -330,23 +481,34 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
 
   return (
     <div className="flex flex-col gap-4">
-      {/* ── Finalized banner ── */}
-      {isFinal && (
+      {/* ── Active budget banner ── */}
+      {isActive && lockedVersion && (
         <div
-          className="flex items-center gap-2 px-4 py-2 rounded-sm"
+          className="flex items-center gap-3 px-4 py-3 rounded-sm"
           style={{ backgroundColor: '#14532d', border: '1px solid #22c55e' }}
         >
-          <Lock className="w-4 h-4" style={{ color: '#4ade80' }} />
-          <span className="text-xs font-mono font-bold uppercase" style={{ color: '#4ade80' }}>
-            Budget finalized
-          </span>
+          <ShieldCheck className="w-5 h-5 flex-shrink-0" style={{ color: '#4ade80' }} />
+          <div className="flex-1 min-w-0">
+            <span className="text-sm font-mono font-bold uppercase block" style={{ color: '#4ade80' }}>
+              Budget active — In production
+            </span>
+            <span className="text-xs font-mono block mt-0.5" style={{ color: '#86efac' }}>
+              Locked bid: <span className="font-bold">{lockedVersion.name}</span>
+              {' '}· {lockedVersion.snapshot?.lockedAt
+                ? new Date(lockedVersion.snapshot.lockedAt).toLocaleDateString()
+                : lockedVersion.created_at ? new Date(lockedVersion.created_at).toLocaleDateString() : ''}
+              {' '}· {fmtCurrency(lockedVersion.snapshot?.lineItemTotals?.grandTotal ?? lockedVersion.snapshot?.grandTotal ?? 0, currency)}
+            </span>
+          </div>
           <button
             type="button"
-            onClick={unlockBudget}
-            className="ml-auto text-[10px] font-mono px-2 py-0.5 rounded-sm hover:bg-green-900 transition-colors"
+            onClick={resetToTidding}
+            className="flex items-center gap-1.5 text-[10px] font-mono px-2.5 py-1 rounded-sm hover:bg-green-900 transition-colors flex-shrink-0"
             style={{ color: '#86efac', border: '1px solid #22c55e' }}
+            title="Reset to bidding — re-enables bid version editing"
           >
-            Unlock
+            <RotateCcw className="w-3 h-3" />
+            Reset to Bidding
           </button>
         </div>
       )}
@@ -371,48 +533,128 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         />
       </div>
 
-      {/* ── Margin & Contingency + Grand Total ── */}
+      {/* ── Cost Breakdown — clean waterfall with inline controls ── */}
+      {/* UX: Proximity (controls next to values), Fitts's (wide touch targets), */}
+      {/* Miller's (single scannable list), Jakob's (receipt/invoice familiarity) */}
       <Card title="Cost breakdown">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          {/* Left: cost waterfall */}
-          <div className="flex flex-col gap-2">
-            <CostRow label="Base cost" amount={baseCost} currency={currency} bold />
-            <CostRow
-              label={`Margin (${marginPct}%)`}
-              amount={marginAmt}
-              currency={currency}
-              prefix="+"
-            />
-            <CostRow
-              label={`Contingency (${contingencyPct}%)`}
-              amount={contingencyAmt}
-              currency={currency}
-              prefix="+"
-            />
-            <div style={{ borderTop: '1px solid #57534e', marginTop: 4, paddingTop: 6 }}>
-              <CostRow label="Grand total" amount={grandTotal} currency={currency} bold large />
+        <div className="flex flex-col gap-0">
+          {/* Base cost — read only */}
+          <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
+            style={{ backgroundColor: '#1c1917' }}>
+            <span className="text-[13px] font-mono font-bold uppercase tracking-wider" style={{ color: '#d6d3d1' }}>
+              Base cost
+            </span>
+            <div className="text-base font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+              <CurrencyDisplay value={baseCost} currency={currency} style={{ color: '#d6d3d1' }} />
             </div>
+          </div>
+
+          {/* Margin — inline editable */}
+          <WaterfallRow
+            label="Margin"
+            pct={marginPct}
+            amount={marginAmt}
+            currency={currency}
+            onPctChange={v => updateProjectField('budget_margin_pct', v)}
+            disabled={isActive}
+          />
+
+          {/* Contingency — inline editable */}
+          <WaterfallRow
+            label="Contingency"
+            pct={contingencyPct}
+            amount={contingencyAmt}
+            currency={currency}
+            onPctChange={v => updateProjectField('budget_contingency_pct', v)}
+            disabled={isActive}
+          />
+
+          {/* Agency fee — toggle + inline editable */}
+          <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
+            style={{ backgroundColor: '#1c1917' }}>
+            <div className="flex items-center gap-2.5">
+              <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>+ Agency fee</span>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!agencyEnabled) {
+                    updateProjectField('budget_agency_enabled', true)
+                    if (!project?.budget_agency_pct) updateProjectField('budget_agency_pct', 20)
+                  } else {
+                    updateProjectField('budget_agency_enabled', false)
+                  }
+                }}
+                disabled={isActive}
+                className="relative w-8 h-4 rounded-full transition-colors focus:outline-none"
+                style={{ backgroundColor: agencyEnabled ? '#ea580c' : '#44403c', cursor: isFinal ? 'not-allowed' : 'pointer' }}
+              >
+                <span className="absolute top-[2px] left-0 rounded-full w-3 h-3 transition-transform"
+                  style={{ backgroundColor: '#fff7ed', transform: agencyEnabled ? 'translateX(18px)' : 'translateX(2px)' }} />
+              </button>
+              {agencyEnabled && (
+                <InlinePct value={agencyPct}
+                  onChange={v => updateProjectField('budget_agency_pct', v)}
+                  disabled={isActive} />
+              )}
+            </div>
+            <div className="text-[13px] font-mono text-right" style={{ color: agencyEnabled ? '#a8a29e' : '#57534e', width: 160, flexShrink: 0 }}>
+              {agencyEnabled ? `+` : ''}{' '}
+              {agencyEnabled
+                ? <CurrencyDisplay value={Math.round(baseCost * (agencyPct / 100))} currency={currency} style={{ color: '#a8a29e' }} />
+                : 'OFF'}
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div style={{ borderTop: '2px solid #57534e', margin: '4px 0 6px' }} />
+
+          {/* Grand total */}
+          <div className="flex items-center justify-between py-4 px-4 rounded-sm"
+            style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
+            <span className="text-base font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+              Grand Total
+            </span>
+            <div className="text-2xl font-mono font-bold text-right" style={{ color: '#d6d3d1', width: 160, flexShrink: 0 }}>
+              <CurrencyDisplay
+                value={grandTotal + (agencyEnabled ? Math.round(baseCost * (agencyPct / 100)) : 0)}
+                currency={currency}
+                style={{ color: '#d6d3d1' }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Footer info row */}
+        <div className="flex items-center justify-between mt-3 px-1">
+          <div className="flex items-center gap-3">
             {rateCardName && (
-              <span className="text-[10px] font-mono italic mt-1" style={{ color: '#78716c' }}>
-                Rates via {rateCardName}
+              <span className="text-xs font-mono" style={{ color: '#78716c' }}>
+                Rates via <span style={{ color: '#a8a29e' }}>{rateCardName}</span>
               </span>
             )}
           </div>
-
-          {/* Right: editable controls */}
-          <div className="flex flex-col gap-3">
-            <PctInput
-              label="Margin %"
-              value={marginPct}
-              onChange={v => updateProjectField('budget_margin_pct', v)}
-              disabled={isFinal}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Actuals</span>
+            <select
+              value={project?.budget_actual_column_mode || 'fortnightly'}
+              onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
+              disabled={isActive}
+              className="px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+            >
+              {COLUMN_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+            <input
+              type="number" min={1} max={100}
+              value={Number(project?.budget_actual_column_count ?? 20)}
+              onChange={e => {
+                const n = parseInt(e.target.value, 10)
+                if (Number.isFinite(n) && n > 0 && n <= 100) updateProjectField('budget_actual_column_count', n)
+              }}
+              disabled={isActive}
+              className="w-12 px-2 py-1 text-xs font-mono rounded-sm text-center focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
             />
-            <PctInput
-              label="Contingency %"
-              value={contingencyPct}
-              onChange={v => updateProjectField('budget_contingency_pct', v)}
-              disabled={isFinal}
-            />
+            <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>cols</span>
           </div>
         </div>
 
@@ -422,7 +664,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
             style={{ backgroundColor: '#1c1917', border: '1px solid #78350f' }}
           >
             <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: '#fcd34d' }} />
-            <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
+            <p className="text-xs font-mono leading-relaxed" style={{ color: '#fcd34d' }}>
               {missingRolesCount} task{missingRolesCount === 1 ? '' : 's'} reference roles
               not in the rate card — those rows compute at $0.
               ({knownRoles} role{knownRoles === 1 ? '' : 's'} currently in the card.)
@@ -436,7 +678,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
         {/* Create new bid */}
         <div className="flex items-end gap-2 mb-4">
           <div className="flex-1">
-            <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: '#fb923c' }}>
+            <span className="text-[11px] font-mono uppercase tracking-widest block mb-1.5" style={{ color: '#fb923c' }}>
               Save current as bid version
             </span>
             <input
@@ -445,15 +687,15 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               onChange={e => setVersionName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
               placeholder="e.g. Bid v1 — initial estimate"
-              disabled={isFinal || versionBusy}
-              className="w-full px-3 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              disabled={isActive || versionBusy}
+              className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
             />
           </div>
           <button
             type="button"
             onClick={createBidVersion}
-            disabled={!versionName.trim() || isFinal || versionBusy}
+            disabled={!versionName.trim() || isActive || versionBusy}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors disabled:opacity-40"
             style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}
           >
@@ -471,12 +713,12 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               className="grid grid-cols-12 gap-2 px-2 py-1"
               style={{ borderBottom: '1px solid #44403c' }}
             >
-              <span className="col-span-1 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Active</span>
-              <span className="col-span-4 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Name</span>
-              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Date</span>
-              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Total</span>
-              <span className="col-span-1 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Days</span>
-              <span className="col-span-2 text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Actions</span>
+              <span className="col-span-1 text-[11px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Active</span>
+              <span className="col-span-4 text-[11px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Name</span>
+              <span className="col-span-2 text-[11px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Date</span>
+              <span className="col-span-2 text-[11px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Total</span>
+              <span className="col-span-1 text-[11px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Days</span>
+              <span className="col-span-2 text-[11px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c' }}>Actions</span>
             </div>
             {budgetVersions
               .slice()
@@ -484,30 +726,43 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               .map(v => (
                 <div
                   key={v.id}
-                  className="grid grid-cols-12 gap-2 px-2 py-1.5 rounded-sm text-[11px] font-mono items-center"
+                  className="grid grid-cols-12 gap-2 px-2 py-2 rounded-sm text-xs font-mono items-center"
                   style={{
-                    backgroundColor: v.is_active ? '#1a2e1a' : '#1c1917',
-                    border: `1px solid ${v.is_active ? '#22c55e' : '#44403c'}`,
+                    backgroundColor: isActive && v.id === lockedVersionId ? '#1a2e1a'
+                      : v.is_active ? '#292524' : '#1c1917',
+                    border: `1px solid ${isActive && v.id === lockedVersionId ? '#22c55e'
+                      : v.is_active ? '#ea580c' : '#44403c'}`,
                   }}
                 >
                   <span className="col-span-1">
-                    {v.is_active ? (
-                      <CheckCircle className="w-3.5 h-3.5" style={{ color: '#4ade80' }} />
+                    {isActive && v.id === lockedVersionId ? (
+                      <ShieldCheck className="w-3.5 h-3.5" style={{ color: '#4ade80' }} />
+                    ) : v.is_active ? (
+                      <CheckCircle className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
                     ) : (
                       <button
                         type="button"
                         onClick={() => setActiveVersion(v.id)}
-                        disabled={versionBusy}
-                        className="p-0.5 rounded-sm hover:bg-stone-800 transition-colors"
+                        disabled={versionBusy || isActive}
+                        className="p-0.5 rounded-sm hover:bg-stone-800 transition-colors disabled:opacity-30"
                         style={{ color: '#78716c' }}
-                        title="Set as active"
+                        title={isActive ? 'Reset to bidding to change versions' : 'Set as active'}
                       >
                         <CheckCircle className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </span>
-                  <span className="col-span-4 truncate" style={{ color: v.is_active ? '#86efac' : '#d6d3d1' }}>
+                  <span className="col-span-4 truncate" style={{
+                    color: isActive && v.id === lockedVersionId ? '#86efac'
+                      : v.is_active ? '#fb923c' : '#d6d3d1'
+                  }}>
                     {v.name}
+                    {isActive && v.id === lockedVersionId && (
+                      <span className="ml-1.5 text-[8px] uppercase tracking-wider px-1 py-0.5 rounded-sm"
+                        style={{ backgroundColor: '#166534', color: '#4ade80', border: '1px solid #22c55e' }}>
+                        Locked
+                      </span>
+                    )}
                   </span>
                   <span className="col-span-2" style={{ color: '#78716c' }}>
                     {v.created_at ? new Date(v.created_at).toLocaleDateString() : '—'}
@@ -525,10 +780,10 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                     <button
                       type="button"
                       onClick={() => deleteVersion(v.id)}
-                      disabled={versionBusy}
-                      className="p-1 rounded-sm hover:bg-red-900/40 transition-colors"
+                      disabled={versionBusy || (isActive && v.id === lockedVersionId)}
+                      className="p-1 rounded-sm hover:bg-red-900/40 transition-colors disabled:opacity-20"
                       style={{ color: '#ef4444' }}
-                      title="Delete version"
+                      title={isActive && v.id === lockedVersionId ? 'Cannot delete locked version' : 'Delete version'}
                     >
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -547,19 +802,19 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               border: `1px solid ${Math.abs(versionVariance.diff) < 0.01 ? '#44403c' : versionVariance.diff > 0 ? '#7f1d1d' : '#14532d'}`,
             }}
           >
-            <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: '#fb923c' }}>
+            <span className="text-[11px] font-mono uppercase tracking-widest block mb-2" style={{ color: '#fb923c' }}>
               Variance vs active bid ({activeVersion?.name})
             </span>
             <div className="flex items-baseline gap-4">
-              <span className="text-lg font-mono font-bold" style={{
+              <span className="text-xl font-mono font-bold" style={{
                 color: Math.abs(versionVariance.diff) < 0.01 ? '#a8a29e' : versionVariance.diff > 0 ? '#fca5a5' : '#86efac',
               }}>
                 {versionVariance.diff > 0 ? '+' : ''}<CurrencyDisplay value={versionVariance.diff} currency={currency} />
               </span>
-              <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+              <span className="text-xs font-mono" style={{ color: '#78716c' }}>
                 ({versionVariance.pctChange > 0 ? '+' : ''}{versionVariance.pctChange.toFixed(1)}%)
               </span>
-              <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>
+              <span className="text-xs font-mono" style={{ color: '#57534e' }}>
                 Bid: <CurrencyDisplay value={versionVariance.bidTotal} currency={currency} />
                 {' '}| Current: <CurrencyDisplay value={versionVariance.currentTotal} currency={currency} />
               </span>
@@ -567,33 +822,281 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
           </div>
         )}
 
-        {/* Finalize button */}
-        {!isFinal && budgetVersions.length > 0 && activeVersion && (
+        {/* Set Active button + confirmation dialog */}
+        {!isActive && budgetVersions.length > 0 && activeVersion && !showActivateConfirm && (
           <div className="mt-3 flex justify-end">
             <button
               type="button"
-              onClick={finalizeBudget}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors"
+              onClick={() => setShowActivateConfirm(true)}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
               style={{ backgroundColor: '#14532d', color: '#4ade80', border: '1px solid #22c55e' }}
             >
-              <Lock className="w-3 h-3" />
-              Finalize budget
+              <ShieldCheck className="w-3.5 h-3.5" />
+              Set Budget Active
             </button>
+          </div>
+        )}
+
+        {/* Confirmation dialog */}
+        {showActivateConfirm && (
+          <div className="mt-3 p-4 rounded-sm" style={{ backgroundColor: '#1c1917', border: '2px solid #d97706' }}>
+            <div className="flex items-start gap-3 mb-3">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#fbbf24' }} />
+              <div>
+                <span className="text-sm font-mono font-bold block" style={{ color: '#fbbf24' }}>
+                  Confirm: Set budget to active
+                </span>
+                <p className="text-[11px] font-mono mt-1.5 leading-relaxed" style={{ color: '#d6d3d1' }}>
+                  This will lock <span className="font-bold" style={{ color: '#fbbf24' }}>"{activeVersion?.name}"</span> as
+                  the approved bid for this project. A snapshot of all task counts, durations, and budget totals
+                  will be frozen as the reference point for production.
+                </p>
+                <p className="text-[11px] font-mono mt-2 leading-relaxed" style={{ color: '#a8a29e' }}>
+                  While active, you will not be able to create new bid versions or switch between versions.
+                  You can reset this later if needed.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
+              <button
+                type="button"
+                onClick={() => setShowActivateConfirm(false)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider transition-colors hover:bg-stone-800"
+                style={{ color: '#a8a29e', border: '1px solid #44403c' }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={activateBudget}
+                disabled={versionBusy}
+                className="flex items-center gap-1.5 px-4 py-1.5 rounded-sm text-xs font-mono uppercase tracking-wider font-bold transition-colors hover:brightness-110"
+                style={{ backgroundColor: '#d97706', color: '#fff7ed', border: '1px solid #b45309' }}
+              >
+                {versionBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                Confirm — Set Active
+              </button>
+            </div>
           </div>
         )}
       </Card>
 
-      {/* ── By role breakdown ── */}
-      <Card title="By role">
-        {Object.keys(budget.byRole).length === 0 ? (
-          <Empty>No roles assigned yet.</Empty>
-        ) : (
-          <RoleTable rows={Object.values(budget.byRole)} currency={budget.currency} />
-        )}
-      </Card>
+      {/* ── Topsheet rollup (from budget lines) ── */}
+      {budgetHook && (
+        <TopsheetRollup
+          budgetHook={budgetHook} project={project} currency={currency}
+          tasks={tasks} roleRates={roleRates} rateCard={rateCard}
+          teamMembers={teamMembers} expensesHook={expensesHook}
+        />
+      )}
     </div>
   )
 }
+
+
+
+
+// ─── Topsheet rollup — grouped by Crew/Team, Talent, Expenses ──
+function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateCard, teamMembers, expensesHook }) {
+  const { lines, lineComputations } = budgetHook
+  const agencyEnabled = project?.budget_agency_enabled === true
+  const agencyPct = Number(project?.budget_agency_pct ?? 0) / 100
+
+  function fmtC(val) {
+    return (Number(val) || 0).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
+  }
+
+  // ── Crew/Team: derived from team members + rate card + tasks ──
+  const crewData = useMemo(() => {
+    const rateMap = {}
+    for (const e of (rateCard?.entries || [])) {
+      if (!e.role_slug) continue
+      const rate = Number(e.wage || e.day_rate || 0)
+      if (rate > 0 && !rateMap[e.role_slug]) rateMap[e.role_slug] = rate
+    }
+    if (roleRates) {
+      for (const [slug, rate] of Object.entries(roleRates)) {
+        if (!rateMap[slug]) rateMap[slug] = rate
+      }
+    }
+    const bidDaysByRole = {}
+    for (const t of (tasks || [])) {
+      const slug = t.assigned_role_slug
+      if (slug) bidDaysByRole[slug] = (bidDaysByRole[slug] || 0) + Number(t.bid_days || 0)
+    }
+    const deptMap = {}
+    for (const m of (teamMembers || [])) {
+      // Look up role via rate card entry (role_slug is on rate card, not on member)
+      const memberEntry = (rateCard?.entries || []).find(e => e.member_id === m.id)
+      const roleSlug = memberEntry?.role_slug
+      const rate = memberEntry ? Number(memberEntry.wage || memberEntry.day_rate || 0) : (roleSlug ? (rateMap[roleSlug] || 0) : 0)
+      const days = roleSlug ? Number(bidDaysByRole[roleSlug] || 0) : 0
+      // Every project-team member gets a department bucket (even at zero)
+      const dept = m.department || 'Uncategorized'
+      if (!deptMap[dept]) deptMap[dept] = { department: dept, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
+      const sub = rate * days
+      const agency = agencyEnabled ? sub * agencyPct : 0
+      deptMap[dept].subtotal += sub
+      deptMap[dept].agencyFee += agency
+      deptMap[dept].bidTotal += sub + agency
+    }
+    // Actuals from crew budget lines
+    for (const line of lines.filter(l => l.sheet === 'crew' && !l.is_section_header)) {
+      const dept = line.department || 'Uncategorized'
+      if (!deptMap[dept]) deptMap[dept] = { department: dept, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
+      const comp = lineComputations[line.id]
+      if (comp) deptMap[dept].actualTotal += comp.actualTotal
+    }
+    const departments = Object.values(deptMap).filter(d => d.bidTotal > 0 || d.actualTotal > 0).sort((a, b) => b.bidTotal - a.bidTotal)
+    const total = departments.reduce((acc, d) => ({
+      subtotal: acc.subtotal + d.subtotal, agencyFee: acc.agencyFee + d.agencyFee,
+      bidTotal: acc.bidTotal + d.bidTotal, actualTotal: acc.actualTotal + d.actualTotal,
+    }), { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 })
+    return { departments, total }
+  }, [teamMembers, rateCard?.entries, roleRates, tasks, lines, lineComputations, agencyEnabled, agencyPct])
+
+  // ── Talent: from budget lines ──
+  const talentData = useMemo(() => {
+    const deptMap = {}
+    for (const line of lines.filter(l => l.sheet === 'talent' && !l.is_section_header)) {
+      const dept = line.department || 'Uncategorized'
+      if (!deptMap[dept]) deptMap[dept] = { department: dept, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
+      const comp = lineComputations[line.id]
+      if (comp) {
+        deptMap[dept].subtotal += comp.subtotal
+        deptMap[dept].agencyFee += comp.agencyFee
+        deptMap[dept].bidTotal += comp.bidTotal
+        deptMap[dept].actualTotal += comp.actualTotal
+      }
+    }
+    const departments = Object.values(deptMap).sort((a, b) => b.bidTotal - a.bidTotal)
+    const total = departments.reduce((acc, d) => ({
+      subtotal: acc.subtotal + d.subtotal, agencyFee: acc.agencyFee + d.agencyFee,
+      bidTotal: acc.bidTotal + d.bidTotal, actualTotal: acc.actualTotal + d.actualTotal,
+    }), { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 })
+    return { departments, total }
+  }, [lines, lineComputations])
+
+  // ── Expenses: from expenses system ──
+  const expenseData = useMemo(() => {
+    const list = expensesHook?.expenses || []
+    const estimated = list.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0)
+    const actual = list.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0)
+    return { estimated, actual, count: list.length }
+  }, [expensesHook?.expenses])
+
+  // Grand totals
+  const grand = {
+    subtotal: crewData.total.subtotal + talentData.total.subtotal + expenseData.estimated,
+    agencyFee: crewData.total.agencyFee + talentData.total.agencyFee,
+    bidTotal: crewData.total.bidTotal + talentData.total.bidTotal + expenseData.estimated,
+    actualTotal: crewData.total.actualTotal + talentData.total.actualTotal + expenseData.actual,
+  }
+  grand.variance = grand.actualTotal - grand.bidTotal
+
+  const hasData = crewData.departments.length > 0 || talentData.departments.length > 0 || expenseData.count > 0
+
+  if (!hasData) {
+    return (
+      <Card title="Topsheet rollup">
+        <Empty>No budget data yet. Add team members, talent lines, or expenses to see the rollup here.</Empty>
+      </Card>
+    )
+  }
+
+  // Column header
+  const colW = { dept: 'flex-1', sub: 90, agency: 80, bid: 100, actual: 100, variance: 100 }
+  function HeaderRow() {
+    return (
+      <div className="flex gap-2 px-2 py-1" style={{ borderBottom: '2px solid #57534e' }}>
+        <span className="flex-1 text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Category</span>
+        <span className="text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.sub }}>Subtotal</span>
+        {agencyEnabled && <span className="text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.agency }}>Agency</span>}
+        <span className="text-[9px] font-mono uppercase tracking-widest text-right font-bold" style={{ color: '#fb923c', width: colW.bid }}>Bid</span>
+        <span className="text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.actual }}>Actual</span>
+        <span className="text-[9px] font-mono uppercase tracking-widest text-right" style={{ color: '#fb923c', width: colW.variance }}>Variance</span>
+      </div>
+    )
+  }
+
+  function DataRow({ label, subtotal, agencyFee, bidTotal, actualTotal, bold, indent }) {
+    const v = actualTotal - bidTotal
+    return (
+      <div className="flex gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: bold ? '#292524' : '#1c1917', border: `1px solid ${bold ? '#57534e' : '#3a3733'}` }}>
+        <span className={`flex-1 text-[11px] font-mono truncate ${bold ? 'font-bold' : ''}`} style={{ color: bold ? '#d6d3d1' : '#a8a29e', paddingLeft: indent ? 12 : 0 }}>{label}</span>
+        <span className="text-[11px] font-mono text-right" style={{ color: '#a8a29e', width: colW.sub }}>{fmtC(subtotal)}</span>
+        {agencyEnabled && <span className="text-[11px] font-mono text-right" style={{ color: '#a8a29e', width: colW.agency }}>{agencyFee ? fmtC(agencyFee) : '\u2014'}</span>}
+        <span className={`text-[11px] font-mono text-right ${bold ? 'font-bold' : ''}`} style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(bidTotal)}</span>
+        <span className="text-[11px] font-mono text-right" style={{ color: actualTotal ? '#d6d3d1' : '#57534e', width: colW.actual }}>{actualTotal ? fmtC(actualTotal) : '\u2014'}</span>
+        <span className="text-[11px] font-mono text-right" style={{ width: colW.variance, color: v > 0 ? '#fca5a5' : v < 0 ? '#86efac' : '#78716c' }}>
+          {bidTotal > 0 || actualTotal > 0 ? `${v > 0 ? '+' : ''}${fmtC(v)}` : '\u2014'}
+        </span>
+      </div>
+    )
+  }
+
+  function SectionHeader({ label, icon }) {
+    return (
+      <div className="flex items-center gap-2 px-2 pt-3 pb-1">
+        {icon}
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{label}</span>
+      </div>
+    )
+  }
+
+  return (
+    <Card title="Topsheet rollup">
+      <div className="flex flex-col gap-0.5">
+        <HeaderRow />
+
+        {/* ── Crew / Team ── */}
+        {crewData.departments.length > 0 && (
+          <>
+            <SectionHeader label="Crew / Team" icon={<Users className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            {crewData.departments.map(d => (
+              <DataRow key={d.department} label={d.department} indent subtotal={d.subtotal} agencyFee={d.agencyFee} bidTotal={d.bidTotal} actualTotal={d.actualTotal} />
+            ))}
+            <DataRow label="Crew / Team total" bold subtotal={crewData.total.subtotal} agencyFee={crewData.total.agencyFee} bidTotal={crewData.total.bidTotal} actualTotal={crewData.total.actualTotal} />
+          </>
+        )}
+
+        {/* ── Talent ── */}
+        {talentData.departments.length > 0 && (
+          <>
+            <SectionHeader label="Talent" icon={<Star className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            {talentData.departments.map(d => (
+              <DataRow key={d.department} label={d.department} indent subtotal={d.subtotal} agencyFee={d.agencyFee} bidTotal={d.bidTotal} actualTotal={d.actualTotal} />
+            ))}
+            <DataRow label="Talent total" bold subtotal={talentData.total.subtotal} agencyFee={talentData.total.agencyFee} bidTotal={talentData.total.bidTotal} actualTotal={talentData.total.actualTotal} />
+          </>
+        )}
+
+        {/* ── Expenses ── */}
+        {expenseData.count > 0 && (
+          <>
+            <SectionHeader label={`Expenses (${expenseData.count})`} icon={<Receipt className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
+            <DataRow label="All expenses" indent subtotal={expenseData.estimated} agencyFee={0} bidTotal={expenseData.estimated} actualTotal={expenseData.actual} />
+          </>
+        )}
+
+        {/* ── Grand total ── */}
+        <div className="mt-2" style={{ borderTop: '2px solid #fb923c' }}>
+          <div className="flex gap-2 px-2 py-2.5 rounded-sm mt-1" style={{ backgroundColor: '#292524', border: '1px solid #57534e' }}>
+            <span className="flex-1 text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>Grand Total</span>
+            <span className="text-[12px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.sub }}>{fmtC(grand.subtotal)}</span>
+            {agencyEnabled && <span className="text-[12px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.agency }}>{fmtC(grand.agencyFee)}</span>}
+            <span className="text-[12px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.bid }}>{fmtC(grand.bidTotal)}</span>
+            <span className="text-[12px] font-mono text-right font-bold" style={{ color: '#d6d3d1', width: colW.actual }}>{grand.actualTotal ? fmtC(grand.actualTotal) : '\u2014'}</span>
+            <span className="text-[12px] font-mono text-right font-bold" style={{ width: colW.variance, color: grand.variance > 0 ? '#fca5a5' : grand.variance < 0 ? '#86efac' : '#a8a29e' }}>
+              {grand.bidTotal > 0 || grand.actualTotal > 0 ? `${grand.variance > 0 ? '+' : ''}${fmtC(grand.variance)}` : '\u2014'}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 
 // ─── Margin/contingency % input ─────────────��───────────────
 function PctInput({ label, value, onChange, disabled }) {
@@ -684,6 +1187,115 @@ function CostRow({ label, amount, currency, prefix, bold, large }) {
   )
 }
 
+// ─── Waterfall row — inline % control next to computed amount ──
+function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
+  }, [editing])
+
+  function start() {
+    if (disabled) return
+    setDraft(String(pct || 0))
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const num = parseFloat(draft)
+    if (Number.isFinite(num) && num !== pct) onPctChange(num)
+  }
+
+  return (
+    <div className="flex items-center justify-between py-3 px-4 rounded-sm mb-1"
+      style={{ backgroundColor: '#1c1917' }}>
+      <div className="flex items-center gap-2.5">
+        <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>+ {label}</span>
+        {editing ? (
+          <input
+            ref={ref}
+            type="text"
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={e => {
+              if (e.key === 'Enter') { e.preventDefault(); commit() }
+              else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+            }}
+            className="w-16 px-2 py-0.5 text-[13px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
+            style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
+          />
+        ) : (
+          <button
+            type="button" onClick={start} disabled={disabled}
+            className="px-2 py-0.5 text-[13px] font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+            style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
+          >
+            {pct}%
+          </button>
+        )}
+      </div>
+      <div className="text-[13px] font-mono text-right" style={{ color: '#a8a29e', width: 160, flexShrink: 0 }}>
+        <CurrencyDisplay value={amount} currency={currency} style={{ color: '#a8a29e' }} />
+      </div>
+    </div>
+  )
+}
+
+// ─── Compact inline % input (for agency row) ──────────────
+function InlinePct({ value, onChange, disabled }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
+  }, [editing])
+
+  function start() {
+    if (disabled) return
+    setDraft(String(value || 0))
+    setEditing(true)
+  }
+
+  function commit() {
+    setEditing(false)
+    const num = parseFloat(draft)
+    if (Number.isFinite(num) && num !== value) onChange(num)
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={ref}
+        type="text"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); commit() }
+          else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+        }}
+        className="w-14 px-1.5 py-0.5 text-[11px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
+        style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button" onClick={start} disabled={disabled}
+      className="px-1.5 py-0.5 text-[11px] font-mono font-bold rounded-sm transition-colors hover:bg-stone-800 disabled:cursor-not-allowed"
+      style={{ border: '1px solid #44403c', color: disabled ? '#57534e' : '#f4a261' }}
+    >
+      {value}%
+    </button>
+  )
+}
+
 // ─── By Phase tab ───────────────────────────────���───────────
 function ByPhaseTab({ phases, assets, tasks, budget, roleRates }) {
   const rows = useMemo(() => {
@@ -766,8 +1378,126 @@ function ByAssetTab({ assets, tasks, budget, roleRates }) {
   )
 }
 
-// ─── Custom tab ────────────────────��────────────────────────
-function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
+// ─── By Scene tab (conditional — visible when scenes_enabled) ──
+function BySceneTab({ scenes, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      const sceneId = t.scene_id || '__unscened__'
+      if (!groups[sceneId]) groups[sceneId] = []
+      groups[sceneId].push(t)
+    }
+    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
+    return Object.entries(groups)
+      .map(([sceneId, list]) => ({
+        ...aggregateTasks(list, roleRates),
+        name: sceneId === '__unscened__' ? 'No scene' : (sceneById[sceneId]?.name || 'Unknown scene'),
+        sortOrder: sceneId === '__unscened__' ? 9999 : (sceneById[sceneId]?.scene_number ?? 0),
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [scenes, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No tasks linked to scenes yet.</Empty>
+
+  return (
+    <Card title="Scenes">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Scene" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── By Shot tab (conditional — visible when scenes_enabled) ──
+function ByShotTab({ shots, scenes, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      const shotId = t.shot_id || '__unshot__'
+      if (!groups[shotId]) groups[shotId] = []
+      groups[shotId].push(t)
+    }
+    const shotById = Object.fromEntries(shots.map(s => [s.id, s]))
+    const sceneById = Object.fromEntries(scenes.map(s => [s.id, s]))
+    return Object.entries(groups)
+      .map(([shotId, list]) => {
+        const shot = shotById[shotId]
+        const parentScene = shot ? sceneById[shot.scene_id] : null
+        const prefix = parentScene ? `${parentScene.name} › ` : ''
+        return {
+          ...aggregateTasks(list, roleRates),
+          name: shotId === '__unshot__' ? 'No shot' : `${prefix}${shot?.name || 'Unknown shot'}`,
+          sortOrder: shotId === '__unshot__' ? 9999 : (shot?.shot_number ?? 0),
+        }
+      })
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [shots, scenes, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No tasks linked to shots yet.</Empty>
+
+  return (
+    <Card title="Shots">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Shot" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── By Level tab (conditional — visible when levels_enabled) ──
+function ByLevelTab({ levels, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      const levelId = t.level_id || '__unleveled__'
+      if (!groups[levelId]) groups[levelId] = []
+      groups[levelId].push(t)
+    }
+    const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
+    return Object.entries(groups)
+      .map(([levelId, list]) => ({
+        ...aggregateTasks(list, roleRates),
+        name: levelId === '__unleveled__' ? 'No level' : (levelById[levelId]?.name || 'Unknown level'),
+        sortOrder: levelId === '__unleveled__' ? 9999 : (levelById[levelId]?.sort_order ?? 0),
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [levels, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No tasks linked to levels yet.</Empty>
+
+  return (
+    <Card title="Levels">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Level" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── By Experience tab (conditional — visible when experiences_enabled) ──
+function ByExperienceTab({ experiences, tasks, budget, roleRates }) {
+  const rows = useMemo(() => {
+    const groups = {}
+    for (const t of tasks) {
+      const expId = t.experience_id || '__unexperienced__'
+      if (!groups[expId]) groups[expId] = []
+      groups[expId].push(t)
+    }
+    const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
+    return Object.entries(groups)
+      .map(([expId, list]) => ({
+        ...aggregateTasks(list, roleRates),
+        name: expId === '__unexperienced__' ? 'No experience' : (expById[expId]?.name || 'Unknown experience'),
+        sortOrder: expId === '__unexperienced__' ? 9999 : (expById[expId]?.sort_order ?? 0),
+      }))
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+  }, [experiences, tasks, roleRates])
+
+  if (rows.length === 0) return <Empty>No tasks linked to experiences yet.</Empty>
+
+  return (
+    <Card title="Experiences">
+      <BreakdownTable rows={rows} currency={budget.currency} labelHeader="Experience" countHeader="Tasks" />
+    </Card>
+  )
+}
+
+// ─── Custom tab ───────────────────────────────────────────
+function CustomTab({ project, phases, assets, tasks, scenes, shots, levels, experiences, budget, roleRates }) {
   const storageKey = `rabbit-budget-custom-${project.id}`
 
   const [prefs, setPrefs] = useState(() => {
@@ -798,6 +1528,10 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
   const rows = useMemo(() => {
     const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
     const phaseById = Object.fromEntries(phases.map(p => [p.id, p]))
+    const sceneById = Object.fromEntries((scenes || []).map(s => [s.id, s]))
+    const shotById  = Object.fromEntries((shots || []).map(s => [s.id, s]))
+    const levelById = Object.fromEntries((levels || []).map(l => [l.id, l]))
+    const expById   = Object.fromEntries((experiences || []).map(e => [e.id, e]))
     const groups = {}
     for (const t of filteredTasks) {
       let key, label
@@ -808,11 +1542,22 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
           label = key === '__unphased__' ? 'Unphased' : (phaseById[key]?.name || 'Unknown phase')
           break
         }
-        case 'role':     key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
-        case 'asset':    key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
-        case 'status':   key = t.status || 'unset'; label = key; break
-        case 'priority': key = t.priority || 'medium'; label = key; break
-        default:         key = 'all'; label = 'All'
+        case 'role':       key = t.assigned_role_slug || t.assigned_position || 'unassigned'; label = key; break
+        case 'asset':      key = t.asset_id; label = assetById[key]?.name || 'Unknown asset'; break
+        case 'scene':      key = t.scene_id || '__none__'; label = key === '__none__' ? 'No scene' : (sceneById[key]?.name || 'Unknown scene'); break
+        case 'shot': {
+          key = t.shot_id || '__none__'
+          if (key === '__none__') { label = 'No shot' } else {
+            const sh = shotById[key]; const sc = sh ? sceneById[sh.scene_id] : null
+            label = sc ? `${sc.name} › ${sh?.name || 'Unknown'}` : (sh?.name || 'Unknown shot')
+          }
+          break
+        }
+        case 'level':      key = t.level_id || '__none__'; label = key === '__none__' ? 'No level' : (levelById[key]?.name || 'Unknown level'); break
+        case 'experience': key = t.experience_id || '__none__'; label = key === '__none__' ? 'No experience' : (expById[key]?.name || 'Unknown experience'); break
+        case 'status':     key = t.status || 'unset'; label = key; break
+        case 'priority':   key = t.priority || 'medium'; label = key; break
+        default:           key = 'all'; label = 'All'
       }
       if (!groups[key]) groups[key] = { key, label, tasks: [] }
       groups[key].tasks.push(t)
@@ -820,7 +1565,7 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
     return Object.values(groups)
       .map(g => ({ ...aggregateTasks(g.tasks, roleRates), name: g.label }))
       .sort((a, b) => b.bid - a.bid)
-  }, [filteredTasks, assets, phases, prefs.groupBy, roleRates])
+  }, [filteredTasks, assets, phases, scenes, shots, levels, experiences, prefs.groupBy, roleRates])
 
   const totalCost = rows.reduce((acc, r) => acc + r.cost, 0)
   const totalBid  = rows.reduce((acc, r) => acc + r.bid, 0)
@@ -833,7 +1578,7 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
             <Select
               value={prefs.groupBy}
               onChange={v => setPrefs(p => ({ ...p, groupBy: v }))}
-              options={GROUP_BY_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+              options={GROUP_BY_OPTIONS.filter(o => !o.requires || project?.[o.requires]).map(o => ({ value: o.id, label: o.label }))}
             />
           </Field>
           <Field label="Phase filter">
@@ -852,6 +1597,7 @@ function CustomTab({ project, phases, assets, tasks, budget, roleRates }) {
               value={prefs.statusFilter}
               onChange={v => setPrefs(p => ({ ...p, statusFilter: v }))}
               options={STATUS_FILTER_OPTIONS.map(o => ({ value: o.id, label: o.label }))}
+              colorFn={budgetStatusColor}
             />
           </Field>
         </div>
@@ -960,9 +1706,33 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
 
   const SAVED_VIEWS_KEY = `rabbit_expense_saved_views_${project?.id || ''}`
 
+  // Project-level defaults for margin & contingency
+  const defaultMarginPct = Number(project?.budget_margin_pct ?? 0) || 0
+  const defaultContPct   = Number(project?.budget_contingency_pct ?? 0) || 0
+
   const [showPopup, setShowPopup]         = useState(false)
   const [editingId, setEditingId]         = useState(null)
   const [deleteConfirmId, setDeleteConfirmId] = useState(null)
+  // Margin/contingency popover: { expId, x, y, h }
+  const [mcPopover, setMcPopover] = useState(null)
+
+  // ── Multi-select ──
+  const [expSelected, setExpSelected] = useState(new Set())
+  const expSomeSelected = expSelected.size > 0
+  function expToggleOne(id) {
+    setExpSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function expToggleAll(ids) {
+    const allIn = ids.every(id => expSelected.has(id))
+    if (allIn) setExpSelected(new Set())
+    else setExpSelected(new Set(ids))
+  }
+  function expClearSelection() { setExpSelected(new Set()) }
+  function expBulkDelete() {
+    if (!window.confirm(`Delete ${expSelected.size} expense${expSelected.size === 1 ? '' : 's'}?`)) return
+    for (const id of expSelected) deleteExpense(id)
+    expClearSelection()
+  }
 
   // ── Filtering, sorting, grouping, saved views ──
   const [search, setSearch]               = useState('')
@@ -1142,6 +1912,16 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   const totalEstimated = useMemo(() => expenses.reduce((s, e) => s + (Number(e.estimated_cost) || 0), 0), [expenses])
   const totalActual    = useMemo(() => expenses.reduce((s, e) => s + (Number(e.actual_cost) || 0), 0), [expenses])
   const totalVariance  = totalActual - totalEstimated
+  const totalMargin = useMemo(() => expenses.reduce((s, e) => {
+    const est = Number(e.estimated_cost) || 0
+    const pct = e.margin_pct != null ? Number(e.margin_pct) : defaultMarginPct
+    return s + est * pct / 100
+  }, 0), [expenses, defaultMarginPct])
+  const totalCont = useMemo(() => expenses.reduce((s, e) => {
+    const est = Number(e.estimated_cost) || 0
+    const pct = e.contingency_pct != null ? Number(e.contingency_pct) : defaultContPct
+    return s + est * pct / 100
+  }, 0), [expenses, defaultContPct])
 
   // ── Handlers ──
   function handleCreate() { setEditingId(null); setShowPopup(true) }
@@ -1151,6 +1931,27 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     if (editingId) await updateExpense(editingId, data)
     else await addExpense(data)
     setShowPopup(false); setEditingId(null)
+  }
+
+  function handleMcCellClick(e, expId) {
+    e.stopPropagation()
+    if (mcPopover?.expId === expId) { setMcPopover(null); return }
+    const rect = e.currentTarget.getBoundingClientRect()
+    setMcPopover({ expId, x: rect.left, y: rect.top, h: rect.height })
+  }
+
+  async function handleMcSave(expId, data) {
+    await updateExpense(expId, { margin_pct: data.margin_pct, contingency_pct: data.contingency_pct })
+    setMcPopover(null)
+  }
+
+  async function resetAllMarginCont() {
+    if (!window.confirm('Reset all margin & contingency values to the project defaults? This cannot be undone.')) return
+    for (const exp of expenses) {
+      if (exp.margin_pct != null || exp.contingency_pct != null) {
+        await updateExpense(exp.id, { margin_pct: null, contingency_pct: null })
+      }
+    }
   }
 
   if (expLoading) return <Empty>Loading expenses...</Empty>
@@ -1164,13 +1965,25 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
     const relCount = (exp.asset_ids?.length || 0) + (exp.phase_ids?.length || 0) + (exp.task_ids?.length || 0)
     const fileCount = exp.file_ids?.length || 0
     const statusColor = status === 'over_budget' ? '#fca5a5' : status === 'under_budget' ? '#86efac' : '#a8a29e'
+    const isChecked = expSelected.has(exp.id)
 
     return (
       <div
         className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-800 cursor-pointer group"
-        style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        style={{ backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917', border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}` }}
         onClick={() => handleEdit(exp.id)}
       >
+        {/* Checkbox */}
+        <div className="flex-shrink-0" onClick={e => e.stopPropagation()}>
+          <button type="button" onClick={() => expToggleOne(exp.id)}
+            className="p-0.5 rounded hover:bg-stone-700 transition-colors"
+            style={{ opacity: isChecked ? 1 : undefined }}
+          >
+            {isChecked
+              ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+              : <Square className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#57534e' }} />}
+          </button>
+        </div>
         <div style={{ flex: 2 }} className="min-w-0">
           <div className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>
             {exp.title || <span style={{ color: '#78716c', fontStyle: 'italic' }}>Untitled</span>}
@@ -1180,6 +1993,28 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div style={{ flex: 1 }} className="text-[11px] font-mono">
           <CurrencyDisplay value={est} currency={currency} style={{ color: est ? '#a8a29e' : '#57534e' }} />
         </div>
+        {(() => {
+          const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
+          const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
+          const mAmt = est * mPct / 100
+          const cAmt = est * cPct / 100
+          return (<>
+            <div style={{ flex: 0.6 }} className="text-[10px] font-mono" onClick={e => e.stopPropagation()}>
+              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
+                className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
+                {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
+              </button>
+            </div>
+            <div style={{ flex: 0.6 }} className="text-[10px] font-mono" onClick={e => e.stopPropagation()}>
+              <button type="button" onClick={e => handleMcCellClick(e, exp.id)}
+                className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
+                {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
+              </button>
+            </div>
+          </>)
+        })()}
         <div style={{ flex: 1 }} className="text-[11px] font-mono">
           <CurrencyDisplay value={act} currency={currency} style={{ color: act ? '#d6d3d1' : '#57534e' }} />
         </div>
@@ -1216,25 +2051,29 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
   }
 
   const COL_HEADER = [
-    { label: 'Title',    flex: 2 },
-    { label: 'Estimated', flex: 1, field: 'estimated_cost' },
-    { label: 'Actual',   flex: 1, field: 'actual_cost' },
-    { label: 'Variance', flex: 0.8, field: 'variance' },
-    { label: 'Date',     flex: 1, field: 'purchase_date' },
-    { label: 'Related',  flex: 1.2 },
-    { label: 'Files',    flex: 0.5 },
-    { label: '',          flex: 0.5 },
+    { label: 'Title',       flex: 2 },
+    { label: 'Estimated',   flex: 1, field: 'estimated_cost' },
+    { label: 'Margin',      flex: 0.6, color: '#fb923c' },
+    { label: 'Conting.',    flex: 0.6, color: '#fb923c' },
+    { label: 'Actual',      flex: 1, field: 'actual_cost' },
+    { label: 'Variance',    flex: 0.8, field: 'variance' },
+    { label: 'Date',        flex: 1, field: 'purchase_date' },
+    { label: 'Related',     flex: 1.2 },
+    { label: 'Files',       flex: 0.5 },
+    { label: '',             flex: 0.5 },
   ]
 
   return (
     <div className="flex flex-col gap-3">
       {/* Summary tiles */}
       <div className="flex gap-3 flex-wrap">
-        <BigTile label="Estimated Total" value={<CurrencyDisplay value={totalEstimated} currency={currency} className="text-2xl font-mono font-bold" style={{ color: '#d6d3d1' }} />} />
-        <BigTile label="Actual Total" value={<CurrencyDisplay value={totalActual} currency={currency} className="text-2xl font-mono font-bold" style={{ color: '#d6d3d1' }} />} />
+        <BigTile label="Estimated Total" value={fmtCurrency(totalEstimated, currency)} />
+        <BigTile label="Actual Total" value={totalActual > 0 ? fmtCurrency(totalActual, currency) : '\u2014'} />
         <BigTile
           label="Variance"
-          value={<CurrencyDisplay value={totalVariance} currency={currency} className="text-2xl font-mono font-bold" style={{ color: totalVariance > 0 ? '#fca5a5' : totalVariance < 0 ? '#86efac' : '#d6d3d1' }} />}
+          value={totalEstimated > 0 || totalActual > 0
+            ? `${totalVariance > 0 ? '+' : ''}${fmtCurrency(totalVariance, currency)}`
+            : '\u2014'}
           tone={totalVariance > 0 ? 'danger' : totalVariance < 0 ? 'good' : 'neutral'}
         />
         <BigTile label="Expenses" value={expenses.length} />
@@ -1303,6 +2142,15 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         {/* Saved views */}
         <ExpenseSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
 
+        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+
+        {/* Reset margin/contingency */}
+        <button type="button" onClick={resetAllMarginCont}
+          className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+          <RotateCcw className="w-3 h-3" /> Reset M/C
+        </button>
+
         {/* Search */}
         <div className="flex items-center gap-1.5 flex-1 max-w-xs ml-auto">
           <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
@@ -1329,11 +2177,40 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
       )}
 
       {/* Column header */}
-      <div className="flex gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
+      <div className="relative flex gap-2 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
+        {/* ── Bulk-action bar (overlays header) ── */}
+        {expSomeSelected && (
+          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
+            style={{ left: 32, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
+            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+              {expSelected.size} selected
+            </span>
+            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            <button type="button" onClick={expBulkDelete}
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+              style={{ color: '#fca5a5' }}>
+              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+            </button>
+            <button type="button" onClick={expClearSelection}
+              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {/* Select-all checkbox */}
+        <div className="flex items-center flex-shrink-0" style={{ width: 20 }}>
+          <button type="button" onClick={() => expToggleAll(processed.map(e => e.id))} className="p-0.5 rounded hover:bg-stone-700 transition-colors">
+            {processed.length > 0 && processed.every(e => expSelected.has(e.id))
+              ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+              : expSomeSelected
+                ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+                : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
+          </button>
+        </div>
         {COL_HEADER.map((col, i) => (
           <div key={i}
             className={`text-[9px] font-mono uppercase tracking-widest ${col.field ? 'cursor-pointer hover:text-orange-300' : ''}`}
-            style={{ flex: col.flex, color: sortField === col.field ? '#fb923c' : '#78716c' }}
+            style={{ flex: col.flex, color: col.color ? col.color : sortField === col.field ? '#fb923c' : '#78716c' }}
             onClick={() => col.field && (sortField === col.field ? setSortDir(d => d === 'asc' ? 'desc' : 'asc') : (setSortField(col.field), setSortDir('asc')))}
           >
             {col.label}
@@ -1369,6 +2246,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           {processed.map(exp => <ExpenseRow key={exp.id} exp={exp} />)}
         </div>
       )}
+
 
       {/* Delete confirmation */}
       {deleteConfirmId && (
@@ -1414,10 +2292,100 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           onClose={() => { setShowPopup(false); setEditingId(null) }}
         />
       )}
+
+      {/* ── Margin/Contingency popover ── */}
+      {mcPopover && (() => {
+        const exp = expenses.find(e => e.id === mcPopover.expId)
+        if (!exp) return null
+        const est = Number(exp.estimated_cost) || 0
+        const mPct = exp.margin_pct != null ? Number(exp.margin_pct) : defaultMarginPct
+        const cPct = exp.contingency_pct != null ? Number(exp.contingency_pct) : defaultContPct
+        return (
+          <ExpenseMarginContPopover
+            pos={mcPopover}
+            marginPct={mPct}
+            contPct={cPct}
+            estimatedCost={est}
+            defaultMargin={defaultMarginPct}
+            defaultCont={defaultContPct}
+            currency={currency}
+            onSave={data => handleMcSave(mcPopover.expId, data)}
+            onClose={() => setMcPopover(null)}
+          />
+        )
+      })()}
     </div>
   )
 }
 
+
+// ─── Expense margin/contingency popover ─────────────────���─
+function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defaultMargin, defaultCont, currency, onSave, onClose }) {
+  const [margin, setMargin] = useState(marginPct ?? '')
+  const [cont, setCont]     = useState(contPct ?? '')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function onClick(e) { if (ref.current && !ref.current.contains(e.target)) onClose() }
+    document.addEventListener('mousedown', onClick)
+    return () => document.removeEventListener('mousedown', onClick)
+  }, [onClose])
+
+  const popW = 280
+  const popH = 280
+  const left = Math.min(pos.x, window.innerWidth - popW - 12)
+  const top  = pos.y + pos.h + 4 + popH > window.innerHeight
+    ? pos.y - popH - 4
+    : pos.y + pos.h + 4
+
+  const mPct = Number(margin) || 0
+  const cPct = Number(cont) || 0
+  const marginAmt = estimatedCost * mPct / 100
+  const contAmt   = estimatedCost * cPct / 100
+
+  return (
+    <div ref={ref} className="fixed z-[9999] rounded-sm shadow-2xl flex flex-col gap-2.5 p-3"
+      style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
+        top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
+        <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
+          <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
+        </button>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
+        <div className="flex items-center gap-2">
+          <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
+            placeholder={String(defaultMargin)}
+            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
+          <span className="text-[10px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-0.5">
+        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
+        <div className="flex items-center gap-2">
+          <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
+            placeholder={String(defaultCont)}
+            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
+          <span className="text-[10px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 mt-1">
+        <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
+          className="flex-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider font-bold rounded-sm"
+          style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
+        <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
+          className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+          <RotateCcw className="w-3 h-3" /> Default
+        </button>
+      </div>
+    </div>
+  )
+}
 
 // ─── Expense filter panel ──────────────────────────────────
 function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, onRemove, onClose }) {
@@ -1777,11 +2745,11 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
 function Card({ title, children }) {
   return (
     <div
-      className="rounded-sm p-4 mb-4"
+      className="rounded-sm p-5 mb-4"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
     >
       {title && (
-        <h3 className="text-[11px] font-mono uppercase tracking-widest font-bold mb-3" style={{ color: '#fb923c' }}>
+        <h3 className="text-sm font-mono uppercase tracking-widest font-bold mb-4" style={{ color: '#fb923c' }}>
           {title}
         </h3>
       )}
@@ -1797,25 +2765,11 @@ function BigTile({ label, value, hint, tone = 'neutral' }) {
     neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e' },
   }[tone]
   return (
-    <div className="flex flex-col px-3 py-2 rounded-sm" style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
-      <span className="text-2xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
-      {hint && <span className="text-[10px] font-mono" style={{ color: colors.label }}>{hint}</span>}
-    </div>
-  )
-}
-
-function RoleTable({ rows, currency }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <HeaderRow cols={['Role', 'Days', 'Cost']} />
-      {rows.slice().sort((a, b) => b.cost - a.cost).map(row => (
-        <div key={row.role} className="grid grid-cols-3 gap-2 px-2 py-1 rounded-sm text-[11px] font-mono" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-          <span style={{ color: '#d6d3d1' }}>{row.role}</span>
-          <span style={{ color: '#a8a29e' }}>{row.days.toFixed(1)} d</span>
-          <CurrencyDisplay value={row.cost} currency={currency} style={{ color: '#a8a29e' }} />
-        </div>
-      ))}
+    <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
+      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+      <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
+      <span className="text-xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      {hint && <span className="text-[10px] font-mono mt-0.5" style={{ color: colors.label }}>{hint}</span>}
     </div>
   )
 }
@@ -1869,15 +2823,30 @@ function Field({ label, children }) {
   )
 }
 
-function Select({ value, onChange, options }) {
+function budgetStatusColor(id) {
+  switch (id) {
+    case 'in_progress':     return '#fb923c'
+    case 'pending_review':  return '#fbbf24'
+    case 'needs_revisions': return '#e879f9'
+    case 'approved':        return '#4ade80'
+    case 'final':           return '#22c55e'
+    case 'blocked':         return '#ef4444'
+    case 'on_hold':         return '#fcd34d'
+    case 'omitted':         return '#57534e'
+    case 'bidding':         return '#c084fc'
+    default:                return '#a8a29e'
+  }
+}
+
+function Select({ value, onChange, options, colorFn }) {
   return (
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
       className="px-2 py-1 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
+      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#f4a261' }}
     >
-      {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}
     </select>
   )
 }

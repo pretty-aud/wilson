@@ -51,7 +51,8 @@ import {
   CalendarDays, GitBranch, ZoomIn, ZoomOut, Layers, Boxes, ListChecks,
   AlertTriangle, Plus, X, Trash2, Save, ChevronRight, ChevronDown,
   Settings as SettingsIcon, HelpCircle, Lock, Unlock, Crosshair,
-  Undo2, Redo2, Maximize2, Briefcase, Upload, Download,
+  Undo2, Redo2, Maximize2, Briefcase, Upload, Download, Check,
+  Users, Film, Gamepad2, Sparkles, Diamond,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
@@ -112,9 +113,32 @@ const TODAY = startOfDay(new Date())
 // Settings persistence key — survives reload, scoped to RABBIT.
 const RABBIT_SETTINGS_KEY = 'rabbit-timeline-settings-v1'
 
+// ── Project type template defaults ──
+// Each project type maps to which database modules should be
+// toggled on by default when creating a new project of that type.
+// Users can edit these defaults in the RABBIT system settings panel.
+export const PROJECT_TYPE_LIST = [
+  'commercial', 'film', 'series', 'music_video', 'branded_content',
+  'social', 'animation', 'documentary', 'other',
+]
+
+export const DEFAULT_PROJECT_TYPE_TEMPLATES = {
+  commercial:      { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  film:            { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  series:          { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  music_video:     { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  branded_content: { scenes_enabled: false, levels_enabled: false, experiences_enabled: true  },
+  social:          { scenes_enabled: false, levels_enabled: false, experiences_enabled: false },
+  animation:       { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  documentary:     { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
+  other:           { scenes_enabled: false, levels_enabled: false, experiences_enabled: false },
+}
+
 const DEFAULT_SETTINGS = {
   showWeekends: true,
   sortOrder:    'asc',  // 'asc' = earliest first (default), 'desc' = latest first
+  groupBy:      'phase',
+  projectTypeTemplates: DEFAULT_PROJECT_TYPE_TEMPLATES,
 }
 
 export function loadRabbitSettings() {
@@ -135,13 +159,21 @@ export function saveRabbitSettings(s) {
 // TimelineView
 // ============================================================
 
-export default function TimelineView({ settings, holidays }) {
+export default function TimelineView({ settings, patchSettings, holidays }) {
   const ctx = useRabbit()
   const project = ctx?.project
   const phases = ctx?.phases || []
   const assets = ctx?.assets || []
   const tasks  = ctx?.tasks  || []
   const dependencies = ctx?.dependencies || []
+  const scenes      = ctx?.scenes || []
+  const shots       = ctx?.shots || []
+  const levels      = ctx?.levels || []
+  const experiences = ctx?.experiences || []
+  const milestones  = ctx?.milestones || []
+  const teamAssignments = ctx?.teamAssignments || []
+
+  const tm = useTeamMembers()
 
   const [zoomId, setZoomId] = useState('week')
   const zoom = ZOOM_LEVELS.find(z => z.id === zoomId) || ZOOM_LEVELS[1]
@@ -170,6 +202,13 @@ export default function TimelineView({ settings, holidays }) {
       try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...next])) } catch {}
       return next
     })
+  }, [])
+
+  // ── group-by mode ─────────────────────────────────────────
+  const [groupBy, setGroupBy] = useState(settings.groupBy || 'phase')
+  const handleGroupByChange = useCallback((mode) => {
+    setGroupBy(mode)
+    // Don't persist into settings — it's a per-session view toggle
   }, [])
 
   // ── Undo / redo keyboard shortcuts ──────────────────────
@@ -222,6 +261,22 @@ export default function TimelineView({ settings, holidays }) {
     phaseId: null,
     draft:   emptyPhaseDraft(prefill),
   })
+  const openNewMilestone = (prefill = {}) => setEditor({
+    mode:        'milestone',
+    milestoneId: null,
+    draft:       emptyMilestoneDraft(prefill),
+  })
+  const openEditMilestone = (ms) => setEditor({
+    mode:        'milestone',
+    milestoneId: ms.id,
+    draft: {
+      title:       ms.title || '',
+      date:        toDateInputValue(ms.date),
+      color:       ms.color || '#f59e0b',
+      description: ms.description || '',
+      phase_id:    ms.phase_id || '',
+    },
+  })
   // Existing tasks open the shared detail popup instead of the editor
   const openEditTask = (task) => setDetailTaskId(task.id)
   const openEditPhase = (phase) => setEditor({
@@ -236,6 +291,44 @@ export default function TimelineView({ settings, holidays }) {
       status:          phase.status || 'not_started',
     },
   })
+  const openEditAsset = (asset) => setEditor({
+    mode:    'asset',
+    assetId: asset.id,
+    draft: {
+      name:        asset.name || '',
+      description: asset.description || '',
+      phase_id:    asset.phase_id || '',
+      start_date:  toDateInputValue(asset.start_date),
+      due_date:    toDateInputValue(asset.due_date),
+      status:      asset.status || 'not_started',
+      type:        asset.type || '',
+    },
+  })
+
+  // ── all milestones (user-created + synthetic project bounds) ──
+  const allMilestones = useMemo(() => {
+    const list = [...milestones]
+    // Project start/end dates are always shown as milestones
+    if (project?.start_date) {
+      list.push({
+        id: '__project_start__',
+        title: 'Project Start',
+        date: project.start_date,
+        color: '#22c55e',
+        isProjectBound: true,
+      })
+    }
+    if (project?.end_date) {
+      list.push({
+        id: '__project_end__',
+        title: 'Project End',
+        date: project.end_date,
+        color: '#ef4444',
+        isProjectBound: true,
+      })
+    }
+    return list
+  }, [milestones, project?.start_date, project?.end_date])
 
   // ── derived data ─────────────────────────────────────────
   const criticalSet = useMemo(() => {
@@ -249,8 +342,14 @@ export default function TimelineView({ settings, holidays }) {
   )
 
   const rows = useMemo(
-    () => buildRows({ phases, assets, tasks, schedule, sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds }),
-    [phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds]
+    () => buildRowsByGrouping({
+      groupBy, phases, assets, tasks, schedule,
+      sortOrder: settings.sortOrder, collapsedSet: collapsedPhaseIds,
+      teamAssignments, teamMembers: tm?.members || [],
+      scenes, shots, levels, experiences,
+    }),
+    [groupBy, phases, assets, tasks, schedule, settings.sortOrder, collapsedPhaseIds,
+     teamAssignments, tm?.members, scenes, shots, levels, experiences]
   )
 
   const summary = useMemo(
@@ -486,20 +585,6 @@ export default function TimelineView({ settings, holidays }) {
   // ── render ───────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
-      {/* ── Header strip ── */}
-      <div
-        className="flex items-center gap-3 px-6 py-3 flex-shrink-0"
-        style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
-      >
-        <CalendarDays className="w-4 h-4" style={{ color: '#fb923c' }} />
-        <span className="text-[11px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
-          Timeline
-        </span>
-        <span className="text-[10px] font-mono" style={{ color: '#a8a29e' }}>
-          · {phases.length} phase{phases.length === 1 ? '' : 's'} · {tasks.length} task{tasks.length === 1 ? '' : 's'}
-        </span>
-      </div>
-
       {/* ── Summary + minimap controls (single consolidated row) ── */}
       <SummaryBand
         summary={summary}
@@ -515,6 +600,7 @@ export default function TimelineView({ settings, holidays }) {
       {/* ── Overview pane (top half) ── */}
       <OverviewPane
         ref={overviewRef}
+        groupBy={groupBy}
         phases={phases}
         assets={assets}
         tasks={tasks}
@@ -527,6 +613,12 @@ export default function TimelineView({ settings, holidays }) {
         visibleEndDate={visibleEndDate}
         zoomMinDays={MINIMAP_ZOOM_MIN_DAYS}
         zoomMaxDays={MINIMAP_ZOOM_MAX_DAYS}
+        scenes={scenes}
+        shots={shots}
+        levels={levels}
+        experiences={experiences}
+        teamAssignments={teamAssignments}
+        teamMembers={tm?.members || []}
         onScrollDetailToDate={scrollDetailToDate}
         onPanMinimap={panMinimap}
         onZoomMinimap={zoomMinimap}
@@ -534,6 +626,7 @@ export default function TimelineView({ settings, holidays }) {
         onUpdatePhase={(phaseId, patch) => ctx.updatePhase(phaseId, patch).catch(() => {})}
         onEditTask={openEditTask}
         onEditPhase={openEditPhase}
+        milestones={allMilestones}
       />
 
       {/* ── Detail-pane zoom toolbar (sits between minimap + gantt) ── */}
@@ -549,6 +642,10 @@ export default function TimelineView({ settings, holidays }) {
         onRedo={() => ctx?.redo?.()}
         onNewPhase={() => openNewPhase()}
         onNewTask={() => openNewTask()}
+        onNewMilestone={() => openNewMilestone()}
+        groupBy={groupBy}
+        onGroupByChange={handleGroupByChange}
+        project={project}
       />
 
       {/* ── Detail pane (bottom half) ── */}
@@ -652,6 +749,10 @@ export default function TimelineView({ settings, holidays }) {
         }}
         onEditTask={openEditTask}
         onEditPhase={openEditPhase}
+        onEditAsset={openEditAsset}
+        onUpdateAsset={(assetId, patch) => ctx.updateAsset(assetId, patch).catch(() => {})}
+        milestones={allMilestones}
+        onEditMilestone={openEditMilestone}
       />
 
       {/* ── Editor — new task / new phase / edit phase only ── */}
@@ -683,18 +784,21 @@ export default function TimelineView({ settings, holidays }) {
 // ============================================================
 
 const OverviewPane = forwardRef(function OverviewPane({
-  phases, assets, tasks, schedule, criticalSet,
+  groupBy, phases, assets, tasks, schedule, criticalSet,
   span, dayPx, sortOrder,
   visibleStartDate, visibleEndDate,
   zoomMinDays = 183, zoomMaxDays = 3650,
+  scenes, shots, levels, experiences, teamAssignments, teamMembers,
   onScrollDetailToDate,
   onPanMinimap, onZoomMinimap,
   onUpdateTask, onUpdatePhase,
   onEditTask, onEditPhase,
+  milestones = [],
 }, forwardedRef) {
-  // We render every PHASE as a row — tasks do not appear in the
-  // minimap at all. The minimap shows project shape, not task
-  // detail. Each row carries a taskCount used by the hover popup.
+  // The minimap ALWAYS shows phases regardless of the active
+  // group-by mode. Phases are the project's backbone and the
+  // minimap should always reflect them so the user can orient
+  // within the timeline at a glance.
   const overviewRows = useMemo(
     () => buildOverviewRows({ phases, assets, tasks, schedule, sortOrder }),
     [phases, assets, tasks, schedule, sortOrder]
@@ -943,6 +1047,35 @@ const OverviewPane = forwardRef(function OverviewPane({
             />
           )}
 
+          {/* Milestone lines in minimap */}
+          {milestones.map(ms => {
+            const msDate = parseDate(ms.date)
+            if (!msDate) return null
+            const msDays = daysBetween(span.start, msDate)
+            if (msDays < 0 || msDays > span.days) return null
+            const msX = msDays * dayPx
+            const msColor = ms.color || '#f59e0b'
+            return (
+              <div key={`ovr-ms-${ms.id}`} className="absolute top-0 bottom-0" style={{ left: msX, width: 1, zIndex: 7 }}>
+                <div className="absolute top-0 bottom-0 pointer-events-none" style={{ width: 1, backgroundColor: msColor, opacity: 0.5 }} />
+                <div
+                  data-minimap-nojump="1"
+                  className="pointer-events-auto cursor-pointer"
+                  onMouseEnter={(e) => setHoverPopup({ row: { kind: 'milestone', label: ms.title, milestone: ms, start: msDate }, x: e.clientX, y: e.clientY })}
+                  onMouseMove={(e) => setHoverPopup(prev => prev?.row?.kind === 'milestone' && prev.row.milestone?.id === ms.id ? { ...prev, x: e.clientX, y: e.clientY } : prev)}
+                  onMouseLeave={() => setHoverPopup(prev => prev?.row?.milestone?.id === ms.id ? null : prev)}
+                  style={{
+                    position: 'absolute', top: -2, left: -5, width: 11, height: 11,
+                    backgroundColor: msColor,
+                    transform: 'rotate(45deg)',
+                    border: '1.5px solid rgba(0,0,0,0.4)',
+                    boxShadow: `0 0 3px ${msColor}66`,
+                  }}
+                />
+              </div>
+            )
+          })}
+
           {/* Containment rails — draw a tree branch from each phase
               row down to its child task rows so tasks visually attach
               to their parent phase. Dependencies are intentionally
@@ -1096,34 +1229,53 @@ const OverviewPane = forwardRef(function OverviewPane({
           the cursor. Shows the phase name, task count, and date
           range. Only renders when the user is hovering a phase
           row in this minimap. */}
-      {hoverPopup && hoverPopup.row?.kind === 'phase' && (
+      {hoverPopup && (hoverPopup.row?.kind === 'phase' || hoverPopup.row?.kind === 'milestone') && (
         <div
           className="fixed pointer-events-none rounded-sm shadow-lg"
           style={{
             left: hoverPopup.x + 14,
             top:  hoverPopup.y + 14,
             backgroundColor: '#1c1917',
-            border: '1px solid #fb923c',
+            border: `1px solid ${hoverPopup.row.kind === 'milestone' ? (hoverPopup.row.milestone?.color || '#f59e0b') : '#fb923c'}`,
             padding: '6px 10px',
             zIndex: 9999,
             maxWidth: 320,
             fontFamily: 'monospace',
           }}
         >
-          <div
-            className="text-[11px] font-bold uppercase tracking-wider truncate"
-            style={{ color: '#fb923c' }}
-          >
-            {hoverPopup.row.label || 'Untitled phase'}
-          </div>
-          <div className="text-[10px] mt-1" style={{ color: '#d6d3d1' }}>
-            {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
-          </div>
-          <div className="text-[10px]" style={{ color: '#a8a29e' }}>
-            {hoverPopup.row.start && hoverPopup.row.end
-              ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
-              : '— no dates —'}
-          </div>
+          {hoverPopup.row.kind === 'milestone' ? (
+            <>
+              <div className="flex items-center gap-1.5">
+                <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }} />
+                <div className="text-[11px] font-bold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
+                  {hoverPopup.row.label || 'Untitled milestone'}
+                </div>
+              </div>
+              {hoverPopup.row.milestone?.description && (
+                <div className="text-[10px] mt-1 truncate" style={{ color: '#d6d3d1' }}>{hoverPopup.row.milestone.description}</div>
+              )}
+              <div className="text-[10px] mt-0.5" style={{ color: '#a8a29e' }}>
+                {hoverPopup.row.start ? formatTooltipDate(hoverPopup.row.start) : '— no date —'}
+              </div>
+              {hoverPopup.row.milestone?.isProjectBound && (
+                <div className="text-[9px] mt-0.5 uppercase" style={{ color: '#78716c' }}>project bound</div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="text-[11px] font-bold uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
+                {hoverPopup.row.label || 'Untitled phase'}
+              </div>
+              <div className="text-[10px] mt-1" style={{ color: '#d6d3d1' }}>
+                {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
+              </div>
+              <div className="text-[10px]" style={{ color: '#a8a29e' }}>
+                {hoverPopup.row.start && hoverPopup.row.end
+                  ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
+                  : '— no dates —'}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -1508,7 +1660,10 @@ function DetailPane({
   onLinkTasks, onLinkPhases, onUnlinkDependency,
   onMoveTaskToPhase,
   onEditTask, onEditPhase,
+  onEditAsset, onUpdateAsset,
   onNewTaskInPhase,
+  milestones = [],
+  onEditMilestone,
 }) {
   // When weekends are hidden in day view we mask out Sat/Sun day
   // columns by collapsing their day-pixel width to 0. We build a
@@ -1727,6 +1882,14 @@ function DetailPane({
         const endDays   = Math.max(startDays + 1, preview.hi / dayPx)
         const startDate = addDays(span.start, Math.round(startDays))
         const endDate   = addDays(span.start, Math.round(endDays))
+        // Asset row without a bar: set the asset's dates instead of creating a task
+        if (row.assetRef && (!row.start || !row.end)) {
+          onUpdateAsset?.(row.assetRef.id, {
+            start_date: toIsoDate(startDate),
+            due_date:   toIsoDate(endDate),
+          })
+          return
+        }
         onCreateTaskFromDates(startDate, endDate, row.phaseHint || null, row.assetHint || null)
       }
       window.addEventListener('mousemove', onMove)
@@ -1893,7 +2056,8 @@ function DetailPane({
       suppressNextClickRef.current = false
       return
     }
-    if (row.kind === 'phase' && row.phase) onEditPhase(row.phase)
+    if (row.kind === 'phase' && row.assetRef) onEditAsset?.(row.assetRef)
+    else if (row.kind === 'phase' && row.phase) onEditPhase(row.phase)
     if (row.kind === 'task'  && row.task)  onEditTask(row.task)
   }
 
@@ -2009,8 +2173,11 @@ function DetailPane({
                   borderBottom: '1px solid #1c1917',
                   backgroundColor: isHoverTarget
                     ? '#7c2d12'
-                    : (r.kind === 'phase' ? '#44403c' : '#292524'),
-                  paddingLeft: 8 + depth * INDENT_UNIT + 20,
+                    : (r.kind === 'phase'
+                        ? (r.isSubgroup ? '#33302d' : '#44403c')
+                        : '#292524'),
+                  borderLeft: r.isSubgroup ? '3px solid #b45309' : undefined,
+                  paddingLeft: r.isSubgroup ? (5 + depth * INDENT_UNIT + 20) : (8 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
                   outline: isHoverTarget ? '2px dashed #fb923c' : undefined,
                   userSelect: 'none',
@@ -2032,11 +2199,11 @@ function DetailPane({
                     }}
                     className="absolute flex items-center justify-center rounded-sm hover:bg-stone-600"
                     style={{
-                      left: 6 + depth * INDENT_UNIT,
+                      left: r.isSubgroup ? (3 + depth * INDENT_UNIT) : (6 + depth * INDENT_UNIT),
                       top: (rowPx - 16) / 2,
                       width: 16,
                       height: 16,
-                      color: '#fb923c',
+                      color: r.isSubgroup ? '#b45309' : '#fb923c',
                       zIndex: 2,
                     }}
                     title={r.collapsed ? 'Expand' : 'Collapse'}
@@ -2047,8 +2214,12 @@ function DetailPane({
                   </button>
                 )}
                 <span
-                  className={`text-[11px] font-mono truncate ${r.kind === 'phase' ? 'font-bold uppercase tracking-wider' : ''}`}
-                  style={{ color: r.kind === 'phase' ? '#fb923c' : '#d6d3d1' }}
+                  className={`text-[11px] font-mono truncate ${
+                    r.kind === 'phase'
+                      ? (r.isSubgroup ? 'font-semibold' : 'font-bold uppercase tracking-wider')
+                      : ''
+                  }`}
+                  style={{ color: r.kind === 'phase' ? (r.isSubgroup ? '#d6d3d1' : '#fb923c') : '#d6d3d1' }}
                 >
                   {r.label}
                 </span>
@@ -2204,6 +2375,52 @@ function DetailPane({
               />
             )}
 
+            {/* Milestone vertical lines + diamonds */}
+            {milestones.map(ms => {
+              const msDate = parseDate(ms.date)
+              if (!msDate) return null
+              const msDays = daysBetween(span.start, msDate)
+              if (msDays < 0 || msDays > totalDays) return null
+              if (dayMask && dayMask.mask[msDays]?.hidden) return null
+              const msX = dayToX(msDays)
+              const msColor = ms.color || '#f59e0b'
+              return (
+                <div key={`ms-${ms.id}`} className="absolute top-0 pointer-events-none" style={{ left: msX, zIndex: 8 }}>
+                  {/* Vertical dashed line */}
+                  <div
+                    className="absolute"
+                    style={{
+                      top: 0,
+                      bottom: 0,
+                      left: 0,
+                      width: 1.5,
+                      height: rows.length * rowPx,
+                      backgroundImage: `repeating-linear-gradient(to bottom, ${msColor} 0, ${msColor} 4px, transparent 4px, transparent 8px)`,
+                      opacity: 0.5,
+                    }}
+                  />
+                  {/* Diamond marker at top */}
+                  <div
+                    className="pointer-events-auto cursor-pointer"
+                    onClick={() => !ms.isProjectBound && onEditMilestone?.(ms)}
+                    title={`${ms.title}${ms.description ? ' — ' + ms.description : ''}${ms.isProjectBound ? ' (project bound)' : ''}`}
+                    style={{
+                      position: 'absolute',
+                      top: -1,
+                      left: -6,
+                      width: 13,
+                      height: 13,
+                      backgroundColor: msColor,
+                      border: '1.5px solid rgba(0,0,0,0.5)',
+                      transform: 'rotate(45deg)',
+                      boxShadow: `0 0 4px ${msColor}66`,
+                      zIndex: 9,
+                    }}
+                  />
+                </div>
+              )
+            })}
+
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
@@ -2326,7 +2543,9 @@ function DetailPane({
                     borderBottom: '1px solid #1c1917',
                     backgroundColor: isChartHoverTarget
                       ? 'rgba(124, 45, 18, 0.45)'
-                      : (r.kind === 'phase' ? 'rgba(68, 64, 60, 0.55)' : 'transparent'),
+                      : (r.kind === 'phase'
+                          ? (r.isSubgroup ? 'rgba(51, 48, 45, 0.45)' : 'rgba(68, 64, 60, 0.55)')
+                          : 'transparent'),
                     outline: isChartHoverTarget ? '2px dashed #fb923c' : undefined,
                     cursor: r.kind === 'asset' ? 'default' : 'crosshair',
                   }}
@@ -2341,10 +2560,14 @@ function DetailPane({
                       dayToX={dayToX}
                       label={r.label}
                       phaseStyle
+                      subgroupStyle={!!r.isSubgroup}
+                      assetRef={r.assetRef || null}
                       onUpdatePhase={onUpdatePhase}
+                      onUpdateAsset={onUpdateAsset}
                       onMovePhaseAndChildren={onMovePhaseAndChildren}
                       onEditPhase={onEditPhase}
-                      onBeginDependencyDrag={beginDependencyDrag}
+                      onEditAsset={onEditAsset}
+                      onBeginDependencyDrag={r.isSubgroup ? null : beginDependencyDrag}
                       onPhaseDragChange={setPhaseDragPreview}
                     />
                   )}
@@ -2998,9 +3221,10 @@ function DependencyOverlay({
 
 function DetailBar({
   row, span, dayPx, rowPx, dayToX, label,
-  critical, phaseStyle,
-  onUpdateTask, onUpdatePhase, onMovePhaseAndChildren,
-  onEditTask, onEditPhase,
+  critical, phaseStyle, subgroupStyle,
+  assetRef,
+  onUpdateTask, onUpdatePhase, onUpdateAsset, onMovePhaseAndChildren,
+  onEditTask, onEditPhase, onEditAsset,
   onBeginDependencyDrag,
   parentPhase,
   // Reparent hooks — only passed for task bars. When present, the
@@ -3084,7 +3308,9 @@ function DetailBar({
   // Lifecycle palette — picks active / upcoming / completed based
   // on the row's (live, drag-aware) dates + status. Phases use the
   // phaseStyle variant which carries a touch more visual weight.
-  const tone = barTone({ ...row, start, end }, critical, phaseStyle)
+  // Subgroups get a distinct cool-toned palette to separate them
+  // visually from real phases.
+  const tone = barTone({ ...row, start, end }, critical, phaseStyle, subgroupStyle)
 
   function onMouseDown(e) {
     if (e.button !== 0) return
@@ -3199,11 +3425,19 @@ function DetailBar({
         onTaskBarDragChange(null)
       }
       if (!moved) {
-        if (phaseStyle && row.phase) onEditPhase?.(row.phase)
+        if (phaseStyle && assetRef) onEditAsset?.(assetRef)
+        else if (phaseStyle && row.phase) onEditPhase?.(row.phase)
         else if (!phaseStyle && row.task) onEditTask?.(row.task)
         return
       }
       const patch = { start_date: toIsoDate(liveStart), end_date: toIsoDate(liveEnd) }
+
+      // Asset bars: commit date updates via the asset adapter.
+      if (phaseStyle && assetRef) {
+        const assetPatch = { start_date: toIsoDate(liveStart), due_date: toIsoDate(liveEnd) }
+        onUpdateAsset?.(assetRef.id, assetPatch)
+        return
+      }
 
       // Phase bars: just commit. No clamping — phases ARE the
       // container, so they can move freely.
@@ -3284,11 +3518,12 @@ function DetailBar({
       className="absolute flex items-center px-2 rounded-sm cursor-grab active:cursor-grabbing"
       style={{
         left, width,
-        top: phaseStyle ? 3 : 5,
-        height: phaseStyle ? rowPx - 6 : rowPx - 10,
+        top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
+        height: subgroupStyle ? rowPx - 8 : (phaseStyle ? rowPx - 6 : rowPx - 10),
         backgroundColor: tone.bg,
-        border: `${phaseStyle ? 2 : 1}px solid ${tone.border}`,
-        boxShadow: phaseStyle ? '0 0 0 1px rgba(0,0,0,0.4)' : undefined,
+        border: `${subgroupStyle ? 1.5 : (phaseStyle ? 2 : 1)}px solid ${tone.border}`,
+        boxShadow: subgroupStyle ? undefined : (phaseStyle ? '0 0 0 1px rgba(0,0,0,0.4)' : undefined),
+        borderStyle: subgroupStyle ? 'dashed' : 'solid',
       }}
       title={`${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`}
     >
@@ -3297,7 +3532,9 @@ function DetailBar({
       <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: 'ew-resize' }} />
       {width > 32 && (
         <span
-          className={`text-[10px] font-mono truncate pointer-events-none overflow-hidden ${phaseStyle ? 'font-bold uppercase tracking-wider' : ''}`}
+          className={`text-[10px] font-mono truncate pointer-events-none overflow-hidden ${
+            subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-bold uppercase tracking-wider' : '')
+          }`}
           style={{ color: tone.fg }}
         >
           {label}
@@ -3425,6 +3662,13 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
 
+  // Pull toggleable databases from ctx
+  const project = ctx?.project
+  const scenes = ctx?.scenes || []
+  const shots = ctx?.shots || []
+  const levels = ctx?.levels || []
+  const experiences = ctx?.experiences || []
+
   // Team members for the "Assigned To" dropdown
   const tm = useTeamMembers()
   const teamAssignments = ctx?.teamAssignments || []
@@ -3440,7 +3684,9 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   }, [teamAssignments, memberById])
 
   const isTask = editor.mode === 'task'
-  const isEditingExisting = isTask ? !!editor.taskId : !!editor.phaseId
+  const isMilestone = editor.mode === 'milestone'
+  const isAsset = editor.mode === 'asset'
+  const isEditingExisting = isMilestone ? !!editor.milestoneId : isAsset ? !!editor.assetId : (isTask ? !!editor.taskId : !!editor.phaseId)
 
   function patch(field, value) {
     setDraft(d => ({ ...d, [field]: value }))
@@ -3450,7 +3696,36 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
     setSaving(true)
     setError(null)
     try {
-      if (editor.mode === 'phase') {
+      if (editor.mode === 'milestone') {
+        if (!draft.title?.trim()) throw new Error('Milestone title is required.')
+        if (!draft.date) throw new Error('Milestone date is required.')
+        const payload = {
+          title:       draft.title.trim(),
+          date:        draft.date,
+          color:       draft.color || '#f59e0b',
+          description: draft.description?.trim() || '',
+          phase_id:    draft.phase_id || null,
+        }
+        if (editor.milestoneId) {
+          await ctx.updateMilestone(editor.milestoneId, payload)
+        } else {
+          await ctx.addMilestone(payload)
+        }
+      } else if (editor.mode === 'asset') {
+        if (!draft.name?.trim()) throw new Error('Asset name is required.')
+        const payload = {
+          name:        draft.name.trim(),
+          description: draft.description?.trim() || '',
+          phase_id:    draft.phase_id || null,
+          start_date:  draft.start_date || null,
+          due_date:    draft.due_date || null,
+          status:      draft.status || 'not_started',
+          type:        draft.type?.trim() || null,
+        }
+        if (editor.assetId) {
+          await ctx.updateAsset(editor.assetId, payload)
+        }
+      } else if (editor.mode === 'phase') {
         if (!draft.name?.trim()) throw new Error('Phase name is required.')
         if (!draft.start_date)   throw new Error('Phase start date is required.')
         if (!draft.end_date)     throw new Error('Phase end date is required.')
@@ -3489,6 +3764,10 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           assignee_id:        draft.assignee_id || null,
           priority:           draft.priority || 'medium',
           status:             draft.status || 'waiting_to_start',
+          scene_id:           draft.scene_id || null,
+          shot_id:            draft.shot_id || null,
+          level_id:           draft.level_id || null,
+          experience_id:      draft.experience_id || null,
         }
         if (editor.taskId) {
           await ctx.updateTask(editor.taskId, payload)
@@ -3508,7 +3787,19 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
     setSaving(true)
     setError(null)
     try {
-      if (editor.mode === 'phase' && editor.phaseId) {
+      if (editor.mode === 'milestone' && editor.milestoneId) {
+        if (!confirm('Delete this milestone?')) {
+          setSaving(false)
+          return
+        }
+        await ctx.deleteMilestone(editor.milestoneId)
+      } else if (editor.mode === 'asset' && editor.assetId) {
+        if (!confirm('Delete this asset? Tasks linked to it will lose their asset reference.')) {
+          setSaving(false)
+          return
+        }
+        await ctx.deleteAsset(editor.assetId)
+      } else if (editor.mode === 'phase' && editor.phaseId) {
         if (!confirm('Delete this phase? Tasks linked to it will become orphans.')) {
           setSaving(false)
           return
@@ -3544,11 +3835,20 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           className="flex items-center gap-2 px-3 py-2"
           style={{ borderBottom: '1px solid #44403c', backgroundColor: '#44403c' }}
         >
-          <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-          <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>
-            {editor.mode === 'phase'
-              ? (isEditingExisting ? 'Edit phase' : 'New phase')
-              : (isEditingExisting ? 'Edit task'  : 'New task')}
+          {isMilestone
+            ? <Diamond className="w-3.5 h-3.5" style={{ color: '#f59e0b' }} />
+            : isAsset
+              ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+              : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+          }
+          <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+            {isMilestone
+              ? (isEditingExisting ? 'Edit key date' : 'New key date')
+              : isAsset
+                ? 'Edit asset'
+                : editor.mode === 'phase'
+                  ? (isEditingExisting ? 'Edit phase' : 'New phase')
+                  : (isEditingExisting ? 'Edit task'  : 'New task')}
           </span>
           <button
             type="button"
@@ -3561,7 +3861,150 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
         </div>
 
         <div className="px-4 py-4 flex flex-col gap-3">
-          {editor.mode === 'phase' ? (
+          {isMilestone ? (
+            <>
+              <Field label="Title">
+                <input
+                  type="text"
+                  autoFocus
+                  value={draft.title}
+                  onChange={(e) => patch('title', e.target.value)}
+                  placeholder="e.g. Alpha Delivery"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Date (required)">
+                  <input
+                    type="date"
+                    value={draft.date}
+                    onChange={(e) => patch('date', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
+                  />
+                </Field>
+                <Field label="Color">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={draft.color || '#f59e0b'}
+                      onChange={(e) => patch('color', e.target.value)}
+                      className="w-8 h-8 rounded-sm border-0 cursor-pointer"
+                      style={{ backgroundColor: '#1c1917' }}
+                    />
+                    <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
+                  </div>
+                </Field>
+              </div>
+              <Field label="Phase (optional)">
+                <select
+                  value={draft.phase_id || ''}
+                  onChange={(e) => patch('phase_id', e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
+                >
+                  <option value="">(no phase — project-level)</option>
+                  {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Description (optional)">
+                <input
+                  type="text"
+                  value={draft.description}
+                  onChange={(e) => patch('description', e.target.value)}
+                  placeholder="What does this milestone mark?"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
+                />
+              </Field>
+            </>
+          ) : isAsset ? (
+            <>
+              <Field label="Asset name">
+                <input
+                  type="text"
+                  autoFocus
+                  value={draft.name}
+                  onChange={(e) => patch('name', e.target.value)}
+                  placeholder="e.g. Hero Character Model"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Start date">
+                  <input
+                    type="date"
+                    value={draft.start_date || ''}
+                    onChange={(e) => patch('start_date', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  />
+                </Field>
+                <Field label="Due date">
+                  <input
+                    type="date"
+                    value={draft.due_date || ''}
+                    onChange={(e) => patch('due_date', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Status">
+                  <select
+                    value={draft.status || 'not_started'}
+                    onChange={(e) => patch('status', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  >
+                    <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
+                    <option value="in_progress" style={{ color: '#fb923c' }}>In progress</option>
+                    <option value="pending_review" style={{ color: '#fbbf24' }}>Pending review</option>
+                    <option value="needs_revisions" style={{ color: '#e879f9' }}>Needs revisions</option>
+                    <option value="approved" style={{ color: '#4ade80' }}>Approved</option>
+                    <option value="final" style={{ color: '#22c55e' }}>Final</option>
+                    <option value="blocked" style={{ color: '#ef4444' }}>Blocked</option>
+                    <option value="on_hold" style={{ color: '#fcd34d' }}>On hold</option>
+                    <option value="omitted" style={{ color: '#57534e' }}>Omitted</option>
+                  </select>
+                </Field>
+                <Field label="Type">
+                  <input
+                    type="text"
+                    value={draft.type || ''}
+                    onChange={(e) => patch('type', e.target.value)}
+                    placeholder="e.g. 3D Model, Texture"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  />
+                </Field>
+              </div>
+              <Field label="Phase (optional)">
+                <select
+                  value={draft.phase_id || ''}
+                  onChange={(e) => patch('phase_id', e.target.value)}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                >
+                  <option value="">(no phase)</option>
+                  {phases.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </Field>
+              <Field label="Description">
+                <input
+                  type="text"
+                  value={draft.description || ''}
+                  onChange={(e) => patch('description', e.target.value)}
+                  placeholder="Asset description"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
+                />
+              </Field>
+            </>
+          ) : editor.mode === 'phase' ? (
             <>
               <Field label="Phase name">
                 <input
@@ -3623,10 +4066,10 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                   className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
-                  <option value="not_started">Not started</option>
-                  <option value="active">Active</option>
-                  <option value="completed">Completed</option>
-                  <option value="delayed">Delayed</option>
+                  <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
+                  <option value="active" style={{ color: '#fb923c' }}>Active</option>
+                  <option value="completed" style={{ color: '#4ade80' }}>Completed</option>
+                  <option value="delayed" style={{ color: '#ef4444' }}>Delayed</option>
                 </select>
               </Field>
               <Field label="Description">
@@ -3683,6 +4126,60 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                   })}
                 </select>
               </Field>
+              {/* ── Conditional relation fields ── */}
+              {project?.scenes_enabled && (
+                <div className="grid grid-cols-2 gap-2">
+                  <Field label="Scene">
+                    <select
+                      value={draft.scene_id || ''}
+                      onChange={(e) => { patch('scene_id', e.target.value); patch('shot_id', '') }}
+                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                    >
+                      <option value="">(no scene)</option>
+                      {scenes.map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Shot">
+                    <select
+                      value={draft.shot_id || ''}
+                      onChange={(e) => patch('shot_id', e.target.value)}
+                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                    >
+                      <option value="">(no shot)</option>
+                      {(draft.scene_id ? shots.filter(s => s.scene_id === draft.scene_id) : shots)
+                        .map(s => <option key={s.id} value={s.id}>{s.name || 'Untitled'}</option>)}
+                    </select>
+                  </Field>
+                </div>
+              )}
+              {project?.levels_enabled && (
+                <Field label="Level">
+                  <select
+                    value={draft.level_id || ''}
+                    onChange={(e) => patch('level_id', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  >
+                    <option value="">(no level)</option>
+                    {levels.map(l => <option key={l.id} value={l.id}>{l.name || 'Untitled'}</option>)}
+                  </select>
+                </Field>
+              )}
+              {project?.experiences_enabled && (
+                <Field label="Experience">
+                  <select
+                    value={draft.experience_id || ''}
+                    onChange={(e) => patch('experience_id', e.target.value)}
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+                  >
+                    <option value="">(no experience)</option>
+                    {experiences.map(ex => <option key={ex.id} value={ex.id}>{ex.name || 'Untitled'}</option>)}
+                  </select>
+                </Field>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Start date">
                   <input
@@ -3737,10 +4234,10 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                     className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="crit">Critical</option>
+                    <option value="low" style={{ color: '#a8a29e' }}>Low</option>
+                    <option value="medium" style={{ color: '#fbbf24' }}>Medium</option>
+                    <option value="high" style={{ color: '#fb923c' }}>High</option>
+                    <option value="crit" style={{ color: '#ef4444' }}>Critical</option>
                   </select>
                 </Field>
                 <Field label="Status">
@@ -3750,12 +4247,15 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                     className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
-                    <option value="waiting_to_start">Waiting</option>
-                    <option value="in_progress">In progress</option>
-                    <option value="blocked">Blocked</option>
-                    <option value="on_hold">On hold</option>
-                    <option value="final">Final</option>
-                    <option value="approved">Approved</option>
+                    <option value="waiting_to_start" style={{ color: '#a8a29e' }}>Waiting to start</option>
+                    <option value="in_progress" style={{ color: '#fb923c' }}>In progress</option>
+                    <option value="pending_review" style={{ color: '#fbbf24' }}>Pending review</option>
+                    <option value="needs_revisions" style={{ color: '#e879f9' }}>Needs revisions</option>
+                    <option value="approved" style={{ color: '#4ade80' }}>Approved</option>
+                    <option value="final" style={{ color: '#22c55e' }}>Final</option>
+                    <option value="blocked" style={{ color: '#ef4444' }}>Blocked</option>
+                    <option value="on_hold" style={{ color: '#fcd34d' }}>On hold</option>
+                    <option value="omitted" style={{ color: '#57534e' }}>Omitted</option>
                   </select>
                 </Field>
               </div>
@@ -3837,6 +4337,16 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
       </div>
     </div>
   )
+}
+
+function emptyMilestoneDraft({ date, phase_id } = {}) {
+  return {
+    title:       '',
+    date:        date ?? toDateInputValue(new Date()),
+    color:       '#f59e0b',
+    description: '',
+    phase_id:    phase_id || '',
+  }
 }
 
 function Field({ label, children }) {
@@ -3973,7 +4483,8 @@ function DetailZoomToolbar({
   zoomId, onChange, onCenterToday,
   sortOrder = 'asc', onSortOrderChange,
   canUndo = false, canRedo = false, onUndo, onRedo,
-  onNewPhase, onNewTask,
+  onNewPhase, onNewTask, onNewMilestone,
+  groupBy, onGroupByChange, project,
 }) {
   return (
     <div
@@ -4058,6 +4569,38 @@ function DetailZoomToolbar({
         <span className="text-[10px] font-mono uppercase tracking-wider">Today</span>
       </button>
 
+      {/* Group-by selector */}
+      {onGroupByChange && (
+        <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+          {[
+            { id: 'phase',      icon: Layers,   title: 'Group by phase' },
+            { id: 'team',       icon: Users,    title: 'Group by team member' },
+            { id: 'asset',      icon: Boxes,    title: 'Group by asset' },
+            ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
+            ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
+            ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
+          ].map((g, i, arr) => {
+            const Icon = g.icon
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => onGroupByChange(g.id)}
+                className="px-2 py-1 flex items-center justify-center"
+                style={{
+                  color: groupBy === g.id ? '#fff7ed' : '#a8a29e',
+                  backgroundColor: groupBy === g.id ? '#ea580c' : '#1c1917',
+                  borderRight: i < arr.length - 1 ? '1px solid #44403c' : 'none',
+                }}
+                title={g.title}
+              >
+                <Icon className="w-3 h-3" />
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {/* Sort by date — ascending / descending. Affects both the
           minimap and the detail pane row order. */}
       <span
@@ -4097,6 +4640,7 @@ function DetailZoomToolbar({
       {/* + Phase / + Task — moved here from the header strip so
           they live alongside the other detail-pane controls. */}
       <div className="ml-auto flex items-center gap-2">
+        {groupBy === 'phase' && (
         <button
           type="button"
           onClick={onNewPhase}
@@ -4105,6 +4649,16 @@ function DetailZoomToolbar({
         >
           <Plus className="w-3 h-3" />
           Phase
+        </button>
+        )}
+        <button
+          type="button"
+          onClick={onNewMilestone}
+          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+          style={{ color: '#f59e0b', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+        >
+          <Diamond className="w-3 h-3" />
+          Key Date
         </button>
         <button
           type="button"
@@ -4433,6 +4987,62 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 </button>
               </div>
 
+              {/* ── Project Type Defaults ── */}
+              <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+                <label className="block text-sm font-bold mb-2 text-orange-400">Project Type Defaults</label>
+                <p className="text-[10px] text-stone-500 mb-3">
+                  When creating a new project, these databases will be toggled on by default based on the project type.
+                  You can override these per-project in the Project Control Panel.
+                </p>
+                <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+                  {/* Header row */}
+                  <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
+                    <span className="flex-1 text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Type</span>
+                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scenes</span>
+                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Levels</span>
+                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Exp.</span>
+                  </div>
+                  {/* Rows — one per project type */}
+                  {PROJECT_TYPE_LIST.map(type => {
+                    const tpl = settings.projectTypeTemplates?.[type] || DEFAULT_PROJECT_TYPE_TEMPLATES[type] || {}
+                    return (
+                      <div key={type} className="flex items-center px-3 py-1.5 hover:bg-stone-800/40 transition-colors"
+                        style={{ borderBottom: '1px solid #292524' }}>
+                        <span className="flex-1 text-[11px] font-mono capitalize" style={{ color: '#d6d3d1' }}>
+                          {type.replace(/_/g, ' ')}
+                        </span>
+                        {['scenes_enabled', 'levels_enabled', 'experiences_enabled'].map(field => (
+                          <span key={field} className="w-16 flex justify-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const templates = { ...(settings.projectTypeTemplates || DEFAULT_PROJECT_TYPE_TEMPLATES) }
+                                templates[type] = { ...(templates[type] || {}), [field]: !tpl[field] }
+                                patchSettings({ projectTypeTemplates: templates })
+                              }}
+                              className="w-4 h-4 rounded-sm flex items-center justify-center transition-colors"
+                              style={{
+                                backgroundColor: tpl[field] ? '#ea580c' : 'transparent',
+                                border: `1px solid ${tpl[field] ? '#ea580c' : '#57534e'}`,
+                              }}
+                            >
+                              {tpl[field] && <Check className="w-2.5 h-2.5 text-white" />}
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                    )
+                  })}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
+                  className="text-[10px] text-orange-400 hover:text-orange-300 transition-colors mt-2"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+
               {/* ── Holidays / blocked days ── */}
               <HolidaysEditor
                 holidays={holidays}
@@ -4672,7 +5282,13 @@ function SummaryBand({
       className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
       style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}
     >
-      <div className="flex items-center gap-2 flex-wrap min-w-0">
+      {/* Title */}
+      <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
+      <span className="text-[11px] font-mono uppercase tracking-widest font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+        Timeline
+      </span>
+
+      <div className="flex items-center gap-2 flex-wrap min-w-0 ml-4">
         <SummaryTile icon={Layers}        label="Phases"        value={summary.phases} />
         <SummaryTile icon={Boxes}         label="Assets"        value={summary.assets} />
         <SummaryTile icon={ListChecks}    label="Tasks"         value={summary.tasks} />
@@ -4822,45 +5438,71 @@ function lifecycleState(start, end, status) {
 
 // barTone — pick a palette for a phase or task bar.
 // Args:
-//   row        — { start, end, task?, phase? } so we can read dates + status
-//   critical   — true if this task is on the critical path
-//   phaseStyle — true for phase bars (slightly bolder palette so phases still read as containers)
+//   row           — { start, end, task?, phase?, assetRef? }
+//   critical      — true if this task is on the critical path
+//   phaseStyle    — true for phase bars (phases + subgroups)
+//   subgroupStyle — true for subgroup bars (assets, team, scenes, etc.)
 //
-// Phases vs tasks: phases use an EXPLICIT status property the user
-// picks from a dropdown (not_started / active / completed / delayed).
-// Tasks still use date-driven lifecycleState() — they're cheap and
-// numerous, so deriving from dates keeps them in sync without making
-// the user babysit a status field on every one.
-function barTone(row, critical, phaseStyle) {
+// Color mapping aligns with statusColor() in ProjectTasksView so the
+// timeline and task table speak the same visual language.
+function barTone(row, critical, phaseStyle, subgroupStyle) {
+  // ── Subgroup bars (assets, team members, scenes, etc.) ────────
+  // Status-driven when an explicit status is available (assets carry
+  // status via assetRef). Falls back to date-based lifecycle for
+  // subgroups without an explicit status field.
+  if (subgroupStyle) {
+    const status = row?.assetRef?.status || row?.phase?.status || null
+    if (status) {
+      if (status === 'in_progress')  return { bg: '#451a03', border: '#fb923c', fg: '#fff7ed' }
+      if (status === 'completed')    return { bg: '#052e16', border: '#22c55e', fg: '#dcfce7' }
+      if (status === 'on_hold')      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
+      // not_started or unrecognized
+      return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
+    }
+    // No explicit status — fall back to date-based lifecycle
+    const state = lifecycleState(row?.start, row?.end)
+    if (state === 'completed') return { bg: '#292524', border: '#57534e', fg: '#78716c' }
+    if (state === 'upcoming')  return { bg: '#1c1917', border: '#78716c', fg: '#a8a29e' }
+    return { bg: '#451a03', border: '#f59e0b', fg: '#fef3c7' }
+  }
+
+  // ── Phase bars ────────────────────────────────────────────────
   if (phaseStyle) {
     const phaseStatus = row?.phase?.status || 'not_started'
-    // Phase palette — bolder presence so a phase bar still reads as
-    // a container above its tasks. Driven entirely by the explicit
-    // status property; date heuristics no longer apply.
     if (phaseStatus === 'completed') return { bg: '#27272a', border: '#52525b', fg: '#a1a1aa' }
     if (phaseStatus === 'delayed')   return { bg: '#1c1917', border: '#b45309', fg: '#fcd34d' }
     if (phaseStatus === 'active')    return { bg: '#7c2d12', border: '#fb923c', fg: '#fff7ed' }
-    // not_started (default)
     return { bg: '#1c1917', border: '#78716c', fg: '#d6d3d1' }
   }
 
+  // ── Task bars — status-driven ─────────────────────────────────
   const status = row?.task?.status
 
-  // Problem-state overrides — these stay distinctive because the
-  // user NEEDS to notice them. They're rare so they don't compete
-  // with the main lifecycle palette.
-  if (status === 'blocked') return { bg: '#1c1917', border: '#7f1d1d', fg: '#fca5a5' }
-  if (status === 'on_hold') return { bg: '#1c1917', border: '#78350f', fg: '#fcd34d' }
-
-  const state = lifecycleState(row?.start, row?.end, status)
-
-  // Task palette — identical lifecycle, calmer than the phase tier.
-  if (state === 'completed') return { bg: '#27272a', border: '#3f3f46', fg: '#71717a' }
-  if (state === 'upcoming')  return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
-  // active task — critical-path gets a slightly hotter border so it
-  // pops out of the active set without being a different category
-  if (critical) return { bg: '#9a3412', border: '#fb923c', fg: '#fff7ed' }
-  return { bg: '#7c2d12', border: '#c2410c', fg: '#fed7aa' }
+  switch (status) {
+    case 'in_progress':
+      if (critical) return { bg: '#9a3412', border: '#fb923c', fg: '#fff7ed' }
+      return { bg: '#7c2d12', border: '#fb923c', fg: '#fed7aa' }
+    case 'pending_review':
+      return { bg: '#451a03', border: '#fbbf24', fg: '#fef3c7' }
+    case 'needs_revisions':
+      return { bg: '#4a1942', border: '#e879f9', fg: '#fae8ff' }
+    case 'approved':
+      return { bg: '#052e16', border: '#4ade80', fg: '#dcfce7' }
+    case 'final':
+      return { bg: '#14532d', border: '#22c55e', fg: '#bbf7d0' }
+    case 'blocked':
+      return { bg: '#1c1917', border: '#ef4444', fg: '#fca5a5' }
+    case 'on_hold':
+      return { bg: '#1c1917', border: '#d97706', fg: '#fcd34d' }
+    case 'omitted':
+      return { bg: '#1c1917', border: '#292524', fg: '#57534e' }
+    case 'waiting_to_start':
+      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
+    default: {
+      // Unknown or unset status — stone neutral
+      return { bg: '#1c1917', border: '#57534e', fg: '#a8a29e' }
+    }
+  }
 }
 
 // ============================================================
@@ -5014,6 +5656,32 @@ function buildSchedule({ phases, assets, tasks, dependencies }) {
   }
 
   return { tasks: taskMap, phases: phaseMap }
+}
+
+// ============================================================
+// buildRowsByGrouping — dispatches to the right row builder
+// ============================================================
+
+function buildRowsByGrouping({
+  groupBy, phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet = null,
+  teamAssignments = [], teamMembers = [],
+  scenes = [], shots = [], levels = [], experiences = [],
+}) {
+  switch (groupBy) {
+    case 'team':
+      return buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder, collapsedSet, teamAssignments, teamMembers })
+    case 'asset':
+      return buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder, collapsedSet })
+    case 'scene':
+      return buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder, collapsedSet })
+    case 'level':
+      return buildRowsByLevel({ tasks, levels, schedule, sortOrder, collapsedSet })
+    case 'experience':
+      return buildRowsByExperience({ tasks, experiences, schedule, sortOrder, collapsedSet })
+    case 'phase':
+    default:
+      return buildRows({ phases, assets, tasks, schedule, sortOrder, collapsedSet })
+  }
 }
 
 // buildRows builds the detail-pane row list as a depth-first
@@ -5183,6 +5851,682 @@ function buildRows({ phases, assets, tasks, schedule, sortOrder = 'asc', collaps
   }
 
   return rows
+}
+
+// ── buildRowsByTeam ─────────────────────────────────────────
+// Team Member → Tasks (flat — no phase wrappers)
+function buildRowsByTeam({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet, teamAssignments, teamMembers }) {
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const rows = []
+  const memberById = Object.fromEntries(teamMembers.map(m => [m.id, m]))
+  const assignmentByMember = Object.fromEntries(teamAssignments.map(a => [a.member_id, a]))
+
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.tasks[a.id]?.start
+      const bs = schedule.tasks[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  // Bucket tasks by assignee
+  const tasksByMember = {}   // { memberId: Task[] }
+  const unassignedTasks = []
+  for (const t of tasks) {
+    const mid = t.assignee_id && memberById[t.assignee_id] ? t.assignee_id : null
+    if (mid) {
+      if (!tasksByMember[mid]) tasksByMember[mid] = []
+      tasksByMember[mid].push(t)
+    } else {
+      unassignedTasks.push(t)
+    }
+  }
+
+  // Sort members by name
+  const sortedMembers = teamAssignments
+    .map(a => memberById[a.member_id])
+    .filter(Boolean)
+    .slice()
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+
+  for (const member of sortedMembers) {
+    const memberTasks = tasksByMember[member.id] || []
+    const assignment = assignmentByMember[member.id]
+    const collapsed = collapsedSet?.has(member.id)
+    const mStart = parseDate(assignment?.start_date)
+    const mEnd = parseDate(assignment?.end_date)
+    rows.push({
+      key: `grp-tm-${member.id}`,
+      kind: 'phase',
+      isSubgroup: true,
+      label: member.name || 'Unnamed',
+      phase: { id: member.id, name: member.name || 'Unnamed', start_date: assignment?.start_date, end_date: assignment?.end_date },
+      phaseHint: member.id,
+      depth: 0,
+      collapsed,
+      hasChildren: true,
+      start: mStart, end: mEnd,
+    })
+    if (collapsed) continue
+    for (const t of sortTasks(memberTasks)) {
+      const sched = schedule.tasks[t.id]
+      rows.push({
+        key: `tk-${t.id}`, kind: 'task',
+        label: t.title || 'Untitled task', task: t,
+        phaseHint: member.id, depth: 1,
+        start: sched?.start, end: sched?.end,
+      })
+    }
+    rows.push({
+      key: `dz-${member.id}`,
+      kind: 'drop-zone',
+      label: '+ New task',
+      phase: { id: member.id, name: member.name || 'Unnamed' },
+      phaseHint: member.id,
+      depth: 1,
+      phaseStart: mStart, phaseEnd: mEnd,
+    })
+  }
+
+  // Unassigned tasks
+  if (unassignedTasks.length > 0) {
+    const unassignedCollapsed = collapsedSet?.has('__unassigned__')
+    rows.push({
+      key: 'grp-tm-unassigned',
+      kind: 'phase',
+      isSubgroup: true,
+      label: 'Unassigned',
+      phase: { id: '__unassigned__', name: 'Unassigned' },
+      phaseHint: '__unassigned__',
+      depth: 0,
+      collapsed: unassignedCollapsed,
+      hasChildren: true,
+    })
+    if (!unassignedCollapsed) {
+      for (const t of sortTasks(unassignedTasks)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({
+          key: `tk-${t.id}`, kind: 'task',
+          label: t.title || 'Untitled task', task: t,
+          phaseHint: '__unassigned__', depth: 1,
+          start: sched?.start, end: sched?.end,
+        })
+      }
+      rows.push({
+        key: 'dz-__unassigned__',
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: '__unassigned__', name: 'Unassigned' },
+        phaseHint: '__unassigned__',
+        depth: 1,
+      })
+    }
+  }
+  return rows
+}
+
+// ── buildRowsByAsset ────────────────────────────────────────
+// Asset → Tasks (flat — no phase wrappers)
+function buildRowsByAsset({ phases, assets, tasks, schedule, sortOrder = 'asc', collapsedSet }) {
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const rows = []
+  const assetById = Object.fromEntries(assets.map(a => [a.id, a]))
+
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.tasks[a.id]?.start
+      const bs = schedule.tasks[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  // Bucket tasks by asset id
+  const tasksByAsset = {}     // { assetId: Task[] }
+  const noAssetTasks = []
+  for (const t of tasks) {
+    const aid = t.asset_id && assetById[t.asset_id] ? t.asset_id : null
+    if (aid) {
+      if (!tasksByAsset[aid]) tasksByAsset[aid] = []
+      tasksByAsset[aid].push(t)
+    } else {
+      noAssetTasks.push(t)
+    }
+  }
+
+  // Sort assets by start_date then name
+  const sortedAssets = assets.slice().sort((a, b) => {
+    const as = parseDate(a.start_date)
+    const bs = parseDate(b.start_date)
+    if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+    if (as && !bs) return -1
+    if (!as && bs) return 1
+    return sign * String(a.name || '').localeCompare(String(b.name || ''))
+  })
+
+  // Push each asset as a top-level group header with its tasks
+  for (const asset of sortedAssets) {
+    const assetTasks = tasksByAsset[asset.id] || []
+    const collapsed = collapsedSet?.has(asset.id)
+    const aStart = parseDate(asset.start_date)
+    const aEnd = parseDate(asset.due_date)
+    rows.push({
+      key: `grp-as-${asset.id}`,
+      kind: 'phase',
+      isSubgroup: true,
+      assetRef: asset,
+      label: asset.name || 'Untitled asset',
+      phase: { id: asset.id, name: asset.name || 'Untitled asset', start_date: asset.start_date, end_date: asset.due_date, status: asset.status },
+      phaseHint: asset.id,
+      depth: 0,
+      collapsed,
+      hasChildren: true,
+      start: aStart, end: aEnd,
+    })
+    if (collapsed) continue
+    for (const t of sortTasks(assetTasks)) {
+      const sched = schedule.tasks[t.id]
+      rows.push({
+        key: `tk-${t.id}`, kind: 'task',
+        label: t.title || 'Untitled task', task: t,
+        phaseHint: asset.id, assetHint: asset.id, depth: 1,
+        start: sched?.start, end: sched?.end,
+      })
+    }
+    // Drop zone — same pattern as phases
+    rows.push({
+      key: `dz-${asset.id}`,
+      kind: 'drop-zone',
+      label: '+ New task',
+      phase: { id: asset.id, name: asset.name },
+      phaseHint: asset.id,
+      depth: 1,
+      phaseStart: aStart, phaseEnd: aEnd,
+    })
+  }
+
+  // Tasks with no asset
+  if (noAssetTasks.length > 0) {
+    const noAssetCollapsed = collapsedSet?.has('__noasset__')
+    rows.push({
+      key: 'grp-as-noasset',
+      kind: 'phase',
+      isSubgroup: true,
+      label: 'No Asset',
+      phase: { id: '__noasset__', name: 'No Asset' },
+      phaseHint: '__noasset__',
+      depth: 0,
+      collapsed: noAssetCollapsed,
+      hasChildren: true,
+    })
+    if (!noAssetCollapsed) {
+      for (const t of sortTasks(noAssetTasks)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({
+          key: `tk-${t.id}`, kind: 'task',
+          label: t.title || 'Untitled task', task: t,
+          phaseHint: '__noasset__', depth: 1,
+          start: sched?.start, end: sched?.end,
+        })
+      }
+      rows.push({
+        key: 'dz-__noasset__',
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: '__noasset__', name: 'No Asset' },
+        phaseHint: '__noasset__',
+        depth: 1,
+      })
+    }
+  }
+
+  return rows
+}
+
+// ── buildRowsByScene ────────────────────────────────────────
+// Flat Scene → Shot → Tasks (no phase wrappers)
+function buildRowsByScene({ phases, assets, tasks, scenes, shots, schedule, sortOrder = 'asc', collapsedSet }) {
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const rows = []
+
+  // Group shots by scene
+  const shotsByScene = {}
+  for (const sh of shots) {
+    if (!sh.scene_id) continue
+    if (!shotsByScene[sh.scene_id]) shotsByScene[sh.scene_id] = []
+    shotsByScene[sh.scene_id].push(sh)
+  }
+
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.tasks[a.id]?.start
+      const bs = schedule.tasks[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  // Bucket tasks by scene and shot (flat — ignore phases)
+  const tasksByScene = {}   // { sceneId: Task[] }
+  const tasksByShot = {}    // { shotId: Task[] }
+  const noSceneTasks = []
+  for (const t of tasks) {
+    if (t.shot_id) {
+      if (!tasksByShot[t.shot_id]) tasksByShot[t.shot_id] = []
+      tasksByShot[t.shot_id].push(t)
+    } else if (t.scene_id) {
+      if (!tasksByScene[t.scene_id]) tasksByScene[t.scene_id] = []
+      tasksByScene[t.scene_id].push(t)
+    } else {
+      noSceneTasks.push(t)
+    }
+  }
+
+  // Sort scenes by scene_number then name
+  const sortedScenes = scenes.slice().sort((a, b) => {
+    const an = a.scene_number || 0, bn = b.scene_number || 0
+    if (an !== bn) return sign * (an - bn)
+    return sign * String(a.name || '').localeCompare(String(b.name || ''))
+  })
+
+  for (const scene of sortedScenes) {
+    const directTasks = tasksByScene[scene.id] || []
+    const sceneShots = (shotsByScene[scene.id] || []).slice()
+      .sort((a, b) => (a.shot_number || 0) - (b.shot_number || 0))
+    const shotTaskCount = sceneShots.reduce((n, sh) => n + (tasksByShot[sh.id] || []).length, 0)
+    const collapsed = collapsedSet?.has(scene.id)
+    const sStart = parseDate(scene.start_date)
+    const sEnd = parseDate(scene.end_date)
+    rows.push({
+      key: `grp-sc-${scene.id}`, kind: 'phase',
+      isSubgroup: true,
+      label: scene.name || 'Untitled scene',
+      phase: { id: scene.id, name: scene.name, start_date: scene.start_date, end_date: scene.end_date, status: scene.status },
+      phaseHint: scene.id, depth: 0,
+      collapsed, hasChildren: true, start: sStart, end: sEnd,
+    })
+    if (collapsed) continue
+    for (const t of sortTasks(directTasks)) {
+      const sched = schedule.tasks[t.id]
+      rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+        phaseHint: scene.id, depth: 1, start: sched?.start, end: sched?.end })
+    }
+    for (const shot of sceneShots) {
+      const shotTasks = tasksByShot[shot.id] || []
+      const shotCollapsed = collapsedSet?.has(shot.id)
+      rows.push({
+        key: `grp-sh-${shot.id}`, kind: 'phase',
+        isSubgroup: true,
+        label: shot.name || 'Untitled shot',
+        phase: { id: shot.id, name: shot.name, start_date: shot.start_date, end_date: shot.end_date, status: shot.status },
+        phaseHint: shot.id, depth: 1,
+        collapsed: shotCollapsed, hasChildren: true,
+        start: parseDate(shot.start_date), end: parseDate(shot.end_date),
+      })
+      if (shotCollapsed) continue
+      for (const t of sortTasks(shotTasks)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+          phaseHint: shot.id, depth: 2, start: sched?.start, end: sched?.end })
+      }
+      rows.push({
+        key: `dz-${shot.id}`,
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: shot.id, name: shot.name },
+        phaseHint: shot.id,
+        depth: 2,
+        phaseStart: parseDate(shot.start_date), phaseEnd: parseDate(shot.end_date),
+      })
+    }
+    // Scene-level drop zone (after shots)
+    rows.push({
+      key: `dz-${scene.id}`,
+      kind: 'drop-zone',
+      label: '+ New task',
+      phase: { id: scene.id, name: scene.name },
+      phaseHint: scene.id,
+      depth: 1,
+      phaseStart: sStart, phaseEnd: sEnd,
+    })
+  }
+
+  // Tasks with no scene
+  if (noSceneTasks.length > 0) {
+    const noSceneCollapsed = collapsedSet?.has('__noscene__')
+    rows.push({
+      key: 'grp-noscene', kind: 'phase', isSubgroup: true, label: 'No Scene',
+      phase: { id: '__noscene__', name: 'No Scene' },
+      phaseHint: '__noscene__',
+      depth: 0, collapsed: noSceneCollapsed, hasChildren: true,
+    })
+    if (!noSceneCollapsed) {
+      for (const t of sortTasks(noSceneTasks)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({ key: `tk-${t.id}`, kind: 'task', label: t.title || 'Untitled task', task: t,
+          phaseHint: '__noscene__', depth: 1, start: sched?.start, end: sched?.end })
+      }
+      rows.push({
+        key: 'dz-__noscene__',
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: '__noscene__', name: 'No Scene' },
+        phaseHint: '__noscene__',
+        depth: 1,
+      })
+    }
+  }
+  return rows
+}
+
+// ── buildRowsByLevel ────────────────────────────────────────
+function buildRowsByLevel({ tasks, levels, schedule, sortOrder = 'asc', collapsedSet }) {
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const rows = []
+  const levelById = Object.fromEntries(levels.map(l => [l.id, l]))
+
+  const tasksByLevel = {}
+  const noLevel = []
+  for (const t of tasks) {
+    if (t.level_id && levelById[t.level_id]) {
+      if (!tasksByLevel[t.level_id]) tasksByLevel[t.level_id] = []
+      tasksByLevel[t.level_id].push(t)
+    } else {
+      noLevel.push(t)
+    }
+  }
+
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.tasks[a.id]?.start
+      const bs = schedule.tasks[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  const sortedLevels = levels.slice().sort((a, b) => {
+    const as = parseDate(a.start_date)
+    const bs = parseDate(b.start_date)
+    if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+    if (as && !bs) return -1
+    if (!as && bs) return 1
+    return sign * String(a.name || '').localeCompare(String(b.name || ''))
+  })
+
+  for (const level of sortedLevels) {
+    const levelTasks = tasksByLevel[level.id] || []
+    const collapsed = collapsedSet?.has(level.id)
+    const start = parseDate(level.start_date)
+    const end = parseDate(level.end_date)
+    rows.push({
+      key: `grp-lv-${level.id}`,
+      kind: 'phase',
+      isSubgroup: true,
+      label: level.name || 'Untitled level',
+      phase: { id: level.id, name: level.name, start_date: level.start_date, end_date: level.end_date },
+      phaseHint: level.id,
+      depth: 0,
+      collapsed,
+      hasChildren: true,
+      start, end,
+    })
+    if (collapsed) continue
+    for (const t of sortTasks(levelTasks)) {
+      const sched = schedule.tasks[t.id]
+      rows.push({
+        key: `tk-${t.id}`, kind: 'task',
+        label: t.title || 'Untitled task', task: t,
+        phaseHint: level.id, depth: 1,
+        start: sched?.start, end: sched?.end,
+      })
+    }
+    rows.push({
+      key: `dz-${level.id}`,
+      kind: 'drop-zone',
+      label: '+ New task',
+      phase: { id: level.id, name: level.name },
+      phaseHint: level.id,
+      depth: 1,
+      phaseStart: start, phaseEnd: end,
+    })
+  }
+
+  if (noLevel.length > 0) {
+    const noLevelCollapsed = collapsedSet?.has('__nolevel__')
+    rows.push({
+      key: 'grp-nolevel', kind: 'phase', isSubgroup: true, label: 'No Level',
+      phase: { id: '__nolevel__', name: 'No Level' },
+      phaseHint: '__nolevel__',
+      depth: 0, collapsed: noLevelCollapsed, hasChildren: true,
+    })
+    if (!noLevelCollapsed) {
+      for (const t of sortTasks(noLevel)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({
+          key: `tk-${t.id}`, kind: 'task',
+          label: t.title || 'Untitled task', task: t,
+          phaseHint: '__nolevel__', depth: 1,
+          start: sched?.start, end: sched?.end,
+        })
+      }
+      rows.push({
+        key: 'dz-__nolevel__',
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: '__nolevel__', name: 'No Level' },
+        phaseHint: '__nolevel__',
+        depth: 1,
+      })
+    }
+  }
+  return rows
+}
+
+// ── buildRowsByExperience ───────────────────────────────────
+function buildRowsByExperience({ tasks, experiences, schedule, sortOrder = 'asc', collapsedSet }) {
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const rows = []
+  const expById = Object.fromEntries(experiences.map(e => [e.id, e]))
+
+  const tasksByExp = {}
+  const noExp = []
+  for (const t of tasks) {
+    if (t.experience_id && expById[t.experience_id]) {
+      if (!tasksByExp[t.experience_id]) tasksByExp[t.experience_id] = []
+      tasksByExp[t.experience_id].push(t)
+    } else {
+      noExp.push(t)
+    }
+  }
+
+  function sortTasks(list) {
+    return list.slice().sort((a, b) => {
+      const as = schedule.tasks[a.id]?.start
+      const bs = schedule.tasks[b.id]?.start
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.title || '').localeCompare(String(b.title || ''))
+    })
+  }
+
+  const sorted = experiences.slice().sort((a, b) => {
+    const as = parseDate(a.start_date)
+    const bs = parseDate(b.start_date)
+    if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+    if (as && !bs) return -1
+    if (!as && bs) return 1
+    return sign * String(a.name || '').localeCompare(String(b.name || ''))
+  })
+
+  for (const exp of sorted) {
+    const expTasks = tasksByExp[exp.id] || []
+    const collapsed = collapsedSet?.has(exp.id)
+    const start = parseDate(exp.start_date)
+    const end = parseDate(exp.end_date)
+    rows.push({
+      key: `grp-xp-${exp.id}`,
+      kind: 'phase',
+      isSubgroup: true,
+      label: exp.name || 'Untitled experience',
+      phase: { id: exp.id, name: exp.name, start_date: exp.start_date, end_date: exp.end_date },
+      phaseHint: exp.id,
+      depth: 0,
+      collapsed,
+      hasChildren: true,
+      start, end,
+    })
+    if (collapsed) continue
+    for (const t of sortTasks(expTasks)) {
+      const sched = schedule.tasks[t.id]
+      rows.push({
+        key: `tk-${t.id}`, kind: 'task',
+        label: t.title || 'Untitled task', task: t,
+        phaseHint: exp.id, depth: 1,
+        start: sched?.start, end: sched?.end,
+      })
+    }
+    rows.push({
+      key: `dz-${exp.id}`,
+      kind: 'drop-zone',
+      label: '+ New task',
+      phase: { id: exp.id, name: exp.name },
+      phaseHint: exp.id,
+      depth: 1,
+      phaseStart: start, phaseEnd: end,
+    })
+  }
+
+  if (noExp.length > 0) {
+    const noExpCollapsed = collapsedSet?.has('__noexp__')
+    rows.push({
+      key: 'grp-noexp', kind: 'phase', isSubgroup: true, label: 'No Experience',
+      phase: { id: '__noexp__', name: 'No Experience' },
+      phaseHint: '__noexp__',
+      depth: 0, collapsed: noExpCollapsed, hasChildren: true,
+    })
+    if (!noExpCollapsed) {
+      for (const t of sortTasks(noExp)) {
+        const sched = schedule.tasks[t.id]
+        rows.push({
+          key: `tk-${t.id}`, kind: 'task',
+          label: t.title || 'Untitled task', task: t,
+          phaseHint: '__noexp__', depth: 1,
+          start: sched?.start, end: sched?.end,
+        })
+      }
+      rows.push({
+        key: 'dz-__noexp__',
+        kind: 'drop-zone',
+        label: '+ New task',
+        phase: { id: '__noexp__', name: 'No Experience' },
+        phaseHint: '__noexp__',
+        depth: 1,
+      })
+    }
+  }
+  return rows
+}
+
+// buildOverviewRowsByGrouping — dispatches overview rows by groupBy
+function buildOverviewRowsByGrouping({
+  groupBy, phases, assets, tasks, schedule, sortOrder = 'asc',
+  scenes = [], shots = [], levels = [], experiences = [],
+  teamAssignments = [], teamMembers = [],
+}) {
+  if (groupBy === 'phase' || !groupBy) {
+    return buildOverviewRows({ phases, assets, tasks, schedule, sortOrder })
+  }
+
+  // Generic overview builder for non-phase groupings
+  const sign = sortOrder === 'desc' ? -1 : 1
+  const out = []
+
+  function sortByDate(list, dateFn) {
+    return list.slice().sort((a, b) => {
+      const as = dateFn(a)
+      const bs = dateFn(b)
+      if (as && bs && as.getTime() !== bs.getTime()) return sign * (as - bs)
+      if (as && !bs) return -1
+      if (!as && bs) return 1
+      return sign * String(a.name || '').localeCompare(String(b.name || ''))
+    })
+  }
+
+  function countTasksFor(field, id) {
+    let n = 0
+    for (const t of tasks) { if (t[field] === id && schedule.tasks[t.id]) n++ }
+    return n
+  }
+
+  if (groupBy === 'team') {
+    const memberById = Object.fromEntries(teamMembers.map(m => [m.id, m]))
+    const assignmentByMember = Object.fromEntries(teamAssignments.map(a => [a.member_id, a]))
+    const ids = [...new Set([...teamAssignments.map(a => a.member_id)])]
+    for (const id of ids) {
+      const m = memberById[id]
+      if (!m) continue
+      const a = assignmentByMember[id]
+      out.push({
+        key: `ovr-tm-${id}`, kind: 'phase',
+        label: m.name, phase: { id, name: m.name },
+        phaseId: id,
+        taskCount: countTasksFor('assignee_id', id),
+        start: parseDate(a?.start_date), end: parseDate(a?.end_date),
+      })
+    }
+  } else if (groupBy === 'asset') {
+    for (const a of sortByDate(assets, x => parseDate(x.start_date))) {
+      out.push({
+        key: `ovr-as-${a.id}`, kind: 'phase',
+        label: a.name, phase: { id: a.id, name: a.name },
+        phaseId: a.id,
+        taskCount: countTasksFor('asset_id', a.id),
+        start: parseDate(a.start_date), end: parseDate(a.due_date),
+      })
+    }
+  } else if (groupBy === 'scene') {
+    for (const s of sortByDate(scenes, x => parseDate(x.start_date))) {
+      out.push({
+        key: `ovr-sc-${s.id}`, kind: 'phase',
+        label: s.name, phase: { id: s.id, name: s.name },
+        phaseId: s.id,
+        taskCount: countTasksFor('scene_id', s.id),
+        start: parseDate(s.start_date), end: parseDate(s.end_date),
+      })
+    }
+  } else if (groupBy === 'level') {
+    for (const l of sortByDate(levels, x => parseDate(x.start_date))) {
+      out.push({
+        key: `ovr-lv-${l.id}`, kind: 'phase',
+        label: l.name, phase: { id: l.id, name: l.name },
+        phaseId: l.id,
+        taskCount: countTasksFor('level_id', l.id),
+        start: parseDate(l.start_date), end: parseDate(l.end_date),
+      })
+    }
+  } else if (groupBy === 'experience') {
+    for (const e of sortByDate(experiences, x => parseDate(x.start_date))) {
+      out.push({
+        key: `ovr-xp-${e.id}`, kind: 'phase',
+        label: e.name, phase: { id: e.id, name: e.name },
+        phaseId: e.id,
+        taskCount: countTasksFor('experience_id', e.id),
+        start: parseDate(e.start_date), end: parseDate(e.end_date),
+      })
+    }
+  }
+  return out
 }
 
 // buildOverviewRows: a flatter, less-indented list for the

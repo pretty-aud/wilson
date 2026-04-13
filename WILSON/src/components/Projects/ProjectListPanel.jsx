@@ -1,6 +1,10 @@
 // ============================================================
-// Projects — list panel (table of all legacy IDB projects)
+// Projects — list panel (all projects)
 // ============================================================
+//
+// No card container — table flows directly on the warm page bg.
+// Moderate warm brown tones for header/rows. Content uses full
+// available width for a spacious feel.
 
 import { Plus, Trash2 } from 'lucide-react'
 
@@ -9,6 +13,11 @@ function formatDate(iso) {
   try {
     return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   } catch { return iso }
+}
+
+function truncate(str, len = 40) {
+  if (!str) return '—'
+  return str.length > len ? str.slice(0, len) + '...' : str
 }
 
 export default function ProjectListPanel({
@@ -25,86 +34,186 @@ export default function ProjectListPanel({
 }) {
   return (
     <div className="h-full flex flex-col">
-      <div className="max-w-4xl mx-auto w-full px-8 py-8 flex-1">
+      <div style={{ maxWidth: 1100, margin: '0 auto', width: '100%', padding: '32px 40px', flex: 1 }}>
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <div>
-            <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900">
+            <h2 style={{
+              fontSize: 18, fontWeight: 700, textTransform: 'uppercase',
+              letterSpacing: '0.06em', color: '#3a1e08',
+            }}>
               Projects
             </h2>
-            <p className="text-[10px] text-stone-600 mt-0.5">
-              Create and manage your deck projects, upload reference documents and visual assets
+            <p style={{ fontSize: 13, color: '#6b4423', marginTop: 4 }}>
+              Create and manage your projects, upload reference documents and visual assets
             </p>
           </div>
           <button
             onClick={onCreate}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
+            className="flex items-center gap-2 rounded-sm transition-colors"
+            style={{
+              backgroundColor: '#ea580c', color: '#fff',
+              padding: '10px 20px', fontSize: 13, fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus size={16} />
             New Project
           </button>
         </div>
 
         {projects.length === 0 ? (
           /* Empty state */
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
-              style={{ backgroundColor: '#1c1917' }}>
-              <Plus className="w-6 h-6 text-stone-500" />
+          <div style={{
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', padding: '60px 40px',
+          }}>
+            <div style={{
+              width: 56, height: 56, borderRadius: '50%',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              backgroundColor: 'rgba(120, 70, 30, 0.4)', marginBottom: 16,
+            }}>
+              <Plus size={24} style={{ color: '#9a6438' }} />
             </div>
-            <p className="text-sm text-stone-700 font-bold mb-1">No projects yet</p>
-            <p className="text-xs text-stone-500 mb-4">Create your first project to get started</p>
+            <p style={{ fontSize: 16, color: '#3a1e08', fontWeight: 700, marginBottom: 6 }}>
+              No projects yet
+            </p>
+            <p style={{ fontSize: 13, color: '#7c4f1f', marginBottom: 20 }}>
+              Create your first project to get started
+            </p>
             <button
               onClick={onCreate}
-              className="px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-              style={{ backgroundColor: '#ea580c', color: '#fff' }}
+              className="rounded-sm transition-colors"
+              style={{
+                backgroundColor: '#ea580c', color: '#fff',
+                padding: '10px 24px', fontSize: 14, fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}
             >
               Create Project
             </button>
           </div>
         ) : (
-          /* Project table */
-          <div className="rounded-sm overflow-hidden" style={{ backgroundColor: '#1c1917' }}>
-            <div className="grid grid-cols-[1fr_90px_120px_120px_40px] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-stone-500 border-b border-stone-700">
-              <span>Title</span>
-              <span>Status</span>
-              <span>Start</span>
-              <span>End</span>
-              <span></span>
+          /* Project table — flows on page */
+          <div
+            className="rounded-sm wilson-light-scroll"
+            style={{ overflow: 'hidden', border: '1px solid rgba(120, 70, 30, 0.3)' }}
+          >
+            {/* Header row */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(180px, 2fr) minmax(120px, 1.5fr) 110px minmax(80px, 1fr) 110px 110px 44px',
+              gap: 0,
+              backgroundColor: 'rgba(120, 70, 30, 0.45)',
+              borderBottom: '1px solid rgba(120, 70, 30, 0.3)',
+              padding: '0 8px',
+            }}>
+              {['Title', 'Description', 'Status', 'Client', 'Start', 'End', ''].map((h, i) => (
+                <span key={i} style={{
+                  fontSize: 11, fontWeight: 700, textTransform: 'uppercase',
+                  letterSpacing: '0.06em', color: '#3a1e08',
+                  padding: '12px 14px', fontFamily: 'ui-monospace, monospace',
+                }}>
+                  {h}
+                </span>
+              ))}
             </div>
-            {projects.map(project => (
+
+            {/* Data rows */}
+            {projects.map((project, i) => (
               <div
                 key={project.id}
-                className="grid grid-cols-[1fr_90px_120px_120px_40px] gap-4 px-4 py-3 border-b border-stone-800 hover:bg-stone-800/50 transition-colors cursor-pointer items-center"
                 onClick={() => onOpen(project.id)}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'minmax(180px, 2fr) minmax(120px, 1.5fr) 110px minmax(80px, 1fr) 110px 110px 44px',
+                  gap: 0,
+                  padding: '0 8px',
+                  borderBottom: '1px solid rgba(120, 70, 30, 0.15)',
+                  backgroundColor: i % 2 === 0 ? 'rgba(120, 70, 30, 0.12)' : 'rgba(120, 70, 30, 0.22)',
+                  cursor: 'pointer',
+                  alignItems: 'center',
+                  transition: 'background-color 0.12s ease',
+                }}
+                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(120, 70, 30, 0.38)'}
+                onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? 'rgba(120, 70, 30, 0.12)' : 'rgba(120, 70, 30, 0.22)'}
               >
-                <span className="text-sm text-orange-400 font-medium truncate">{project.title}</span>
-                <span>
+                {/* Title */}
+                <span style={{
+                  fontSize: 15, color: '#3a1e08', fontWeight: 600,
+                  padding: '14px 14px', overflow: 'hidden', textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {project.title}
+                </span>
+
+                {/* Description */}
+                <span style={{
+                  fontSize: 13, color: '#7c4f1f', padding: '14px 14px',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {truncate(project.description)}
+                </span>
+
+                {/* Status */}
+                <span style={{ padding: '14px 14px' }}>
                   <select
                     value={project.status || 'active'}
                     onChange={(e) => { e.stopPropagation(); onUpdateStatus(project.id, e.target.value) }}
                     onClick={(e) => e.stopPropagation()}
-                    className="text-[11px] font-bold uppercase tracking-wide cursor-pointer rounded-sm px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-orange-500"
                     style={{
-                      color: (project.status || 'active') === 'active' ? '#22c55e' : '#ef4444',
-                      backgroundColor: '#292524',
-                      border: '1px solid #44403c',
+                      fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
+                      letterSpacing: '0.04em', cursor: 'pointer',
+                      color: (project.status || 'active') === 'active' ? '#16a34a' : '#dc2626',
+                      backgroundColor: 'rgba(120, 70, 30, 0.5)',
+                      border: '1px solid rgba(120, 70, 30, 0.3)',
+                      borderRadius: 2, padding: '4px 8px', outline: 'none',
                     }}
                   >
-                    <option value="active" style={{ color: '#22c55e', backgroundColor: '#1c1917' }}>Active</option>
-                    <option value="inactive" style={{ color: '#ef4444', backgroundColor: '#1c1917' }}>Inactive</option>
+                    <option value="active" style={{ color: '#16a34a' }}>Active</option>
+                    <option value="inactive" style={{ color: '#dc2626' }}>Inactive</option>
                   </select>
                 </span>
-                <span className="text-xs text-stone-500">{formatDate(project.startDate)}</span>
-                <span className="text-xs text-stone-500">{formatDate(project.endDate)}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); onRequestDelete(project.id) }}
-                  className="p-1 text-stone-600 hover:text-red-400 transition-colors"
-                  title="Delete project"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+
+                {/* Client */}
+                <span style={{
+                  fontSize: 13, color: '#7c4f1f', padding: '14px 14px',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {project.client_name || '—'}
+                </span>
+
+                {/* Start */}
+                <span style={{
+                  fontSize: 12, color: '#7c4f1f', padding: '14px 14px',
+                  fontFamily: 'ui-monospace, monospace',
+                }}>
+                  {formatDate(project.startDate || project.start_date)}
+                </span>
+
+                {/* End */}
+                <span style={{
+                  fontSize: 12, color: '#7c4f1f', padding: '14px 14px',
+                  fontFamily: 'ui-monospace, monospace',
+                }}>
+                  {formatDate(project.endDate || project.end_date)}
+                </span>
+
+                {/* Delete */}
+                <span style={{ padding: '14px 10px', display: 'flex', justifyContent: 'center' }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onRequestDelete(project.id) }}
+                    style={{
+                      color: '#9a6438', padding: 4, borderRadius: 3,
+                      border: 'none', background: 'none', cursor: 'pointer',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                    onMouseLeave={e => e.currentTarget.style.color = '#9a6438'}
+                    title="Delete project"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </span>
               </div>
             ))}
           </div>
@@ -112,20 +221,31 @@ export default function ProjectListPanel({
 
         {/* Delete confirmation */}
         {deleteConfirm && (
-          <div className="mt-3 flex items-center gap-3 px-4 py-2 rounded-sm" style={{ backgroundColor: '#1c1917' }}>
-            <span className="text-xs text-red-400 font-bold">
+          <div style={{
+            marginTop: 12, display: 'flex', alignItems: 'center', gap: 14,
+            padding: '12px 0',
+          }}>
+            <span style={{ fontSize: 14, color: '#dc2626', fontWeight: 700 }}>
               Delete "{projects.find(p => p.id === deleteConfirm)?.title}"?
             </span>
             <button
               onClick={() => onConfirmDelete(deleteConfirm)}
-              className="px-3 py-1 text-xs font-bold uppercase rounded-sm"
-              style={{ backgroundColor: '#dc2626', color: '#fff' }}
+              className="rounded-sm transition-colors"
+              style={{
+                backgroundColor: '#dc2626', color: '#fff',
+                padding: '8px 16px', fontSize: 13, fontWeight: 700,
+                textTransform: 'uppercase',
+              }}
             >
               Confirm
             </button>
             <button
               onClick={onCancelDelete}
-              className="text-xs text-stone-500 hover:text-stone-300 transition-colors"
+              className="rounded-sm transition-colors"
+              style={{
+                padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                color: '#7c4f1f',
+              }}
             >
               Cancel
             </button>
@@ -133,13 +253,21 @@ export default function ProjectListPanel({
         )}
 
         {saveError && (
-          <div className="mt-3 text-xs text-red-700 bg-red-100/50 px-3 py-2 rounded">
+          <div style={{
+            marginTop: 12, fontSize: 13, color: '#dc2626',
+            backgroundColor: 'rgba(220,38,38,0.1)',
+            padding: '10px 14px', borderRadius: 2,
+          }}>
             {saveError}
           </div>
         )}
 
         {storageWarning && (
-          <div className="mt-3 text-xs text-amber-700 bg-amber-100/50 px-3 py-2 rounded">
+          <div style={{
+            marginTop: 12, fontSize: 13, color: '#d97706',
+            backgroundColor: 'rgba(217,119,6,0.1)',
+            padding: '10px 14px', borderRadius: 2,
+          }}>
             Storage usage is high. Consider removing unused files to free up space.
           </div>
         )}

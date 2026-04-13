@@ -43,6 +43,15 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   GLOBAL — Dark-theme native <select> dropdown backgrounds
+   Chromium renders <option> with white bg by default; force stone.
+   ═══════════════════════════════════════════════════════════════ */
+select option {
+  background-color: #1c1917;
+  color: #d6d3d1;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    PET COMPANION ANIMATIONS (from O.T.T.E.R. v0.3)
    ═══════════════════════════════════════════════════════════════ */
 

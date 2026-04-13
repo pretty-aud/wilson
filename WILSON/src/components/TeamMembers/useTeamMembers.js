@@ -29,6 +29,11 @@ export const DEFAULT_DEPARTMENTS = [
 
 export const PRONOUN_OPTIONS = ['he', 'him', 'she', 'her', 'they', 'them']
 
+export const EMPLOYMENT_TYPES = [
+  { value: 'fulltime',   label: 'Full-Time / Internal' },
+  { value: 'freelancer', label: 'Freelancer' },
+]
+
 export function useTeamMembers() {
   const rabbit = useRabbit()
   const getAdapter = rabbit?.getAdapter
@@ -79,6 +84,7 @@ export function useTeamMembers() {
       department: draft.department || '',
       location: draft.location || '',
       email: draft.email || '',
+      employment_type: draft.employment_type || 'fulltime',
       pronouns: Array.isArray(draft.pronouns) ? draft.pronouns : [],
       profile_picture_url: draft.profile_picture_url || null,
       ...draft,

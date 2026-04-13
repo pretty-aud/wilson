@@ -721,28 +721,58 @@ function startLocalServer(distPath) {
       return path.join(getRabbitProjectDir(projectId), 'project.json');
     }
     function readRabbitBundle(projectId) {
-      return readJSON(rabbitBundlePath(projectId), null);
+      const bundle = readJSON(rabbitBundlePath(projectId), null);
+      if (!bundle) return null;
+      // ── Migrate old bundles ──
+      let dirty = false;
+      if (!bundle.projectTeam)     { bundle.projectTeam     = []; dirty = true; }
+      if (!bundle.managedFiles)    { bundle.managedFiles    = []; dirty = true; }
+      if (!bundle.budgetLines)     { bundle.budgetLines     = []; dirty = true; }
+      if (!bundle.budgetActuals)   { bundle.budgetActuals   = []; dirty = true; }
+      if (!bundle.budgetVersions)  { bundle.budgetVersions  = []; dirty = true; }
+      if (!bundle.expenses)        { bundle.expenses        = []; dirty = true; }
+      if (!bundle.scenes)          { bundle.scenes          = []; dirty = true; }
+      if (!bundle.shots)           { bundle.shots           = []; dirty = true; }
+      if (!bundle.levels)          { bundle.levels          = []; dirty = true; }
+      if (!bundle.experiences)     { bundle.experiences     = []; dirty = true; }
+      // Ensure sub-folder structure exists on first access
+      try { ensureProjectFolders(bundle); } catch {}
+      if (dirty) {
+        try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
+      }
+      return bundle;
     }
     function writeRabbitBundle(projectId, bundle) {
       bundle.project.updated_at = new Date().toISOString();
+      // Ensure projectTeam array exists (backward compat for old bundles)
+      if (!bundle.projectTeam) bundle.projectTeam = [];
       writeJSON(rabbitBundlePath(projectId), bundle);
+      // Mirror split databases to user-visible project folder
+      mirrorProjectDatabases(projectId, bundle);
     }
     function emptyBundle(project) {
       return {
         project,
-        phases:         [],
-        assets:         [],
-        tasks:          [],
-        dependencies:   [],
-        taskLinks:      [],
-        files:          [],
-        assetVersions:  [],
-        comments:       [],
-        ingestionRuns:  [],
+        phases:          [],
+        assets:          [],
+        tasks:           [],
+        dependencies:    [],
+        taskLinks:       [],
+        files:           [],
+        assetVersions:   [],
+        comments:        [],
+        ingestionRuns:   [],
         teamAssignments: [],
-        managedFiles:   [],
-        budgetVersions: [],
-        expenses:       [],
+        projectTeam:     [],
+        managedFiles:    [],
+        budgetVersions:  [],
+        expenses:        [],
+        budgetLines:     [],
+        budgetActuals:   [],
+        scenes:          [],
+        shots:           [],
+        levels:          [],
+        experiences:     [],
       };
     }
     function rabbitTouch(row) {
@@ -769,6 +799,91 @@ function startLocalServer(distPath) {
     }
     function rabbitNotFound(res, what = 'project') {
       return res.status(404).json({ error: `${what} not found` });
+    }
+
+    // ── Project folder structure helpers ─────────────────────
+    // Every user-visible project folder gets three sub-folders:
+    //   ASSETS/                       — asset folders + managed files
+    //   {Slug}_DATABASES/             — read-only JSON mirrors of project data
+    //   {Slug}_FILES/                 — uploaded files (receipts, docs, etc.)
+
+    function resolveProjectFolder(bundle) {
+      const root = bundle?.project?.folder_root;
+      if (root && fs.existsSync(root)) return root;
+      const cfg = readFilesConfig();
+      if (!cfg.defaultRootDir) return null;
+      const slug = bundle?.project?.folder_slug || fileSlugify(bundle?.project?.title || 'Untitled-Project');
+      const resolved = path.join(cfg.defaultRootDir, slug);
+      return fs.existsSync(resolved) ? resolved : null;
+    }
+
+    function ensureProjectFolders(bundle) {
+      const root = resolveProjectFolder(bundle);
+      if (!root) return;
+      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+      const dirs = [
+        path.join(root, 'ASSETS'),
+        path.join(root, `${slug}_DATABASES`),
+        path.join(root, `${slug}_FILES`),
+      ];
+      for (const d of dirs) {
+        if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
+      }
+    }
+
+    function mirrorProjectDatabases(projectId, bundle) {
+      const root = resolveProjectFolder(bundle);
+      if (!root) return;
+      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+      const dbDir = path.join(root, `${slug}_DATABASES`);
+      if (!fs.existsSync(dbDir)) fs.mkdirSync(dbDir, { recursive: true });
+      try {
+        // project.json — project metadata
+        writeJSON(path.join(dbDir, 'project.json'), bundle.project);
+        // team.json — project-scoped team roster
+        writeJSON(path.join(dbDir, 'team.json'), bundle.projectTeam || []);
+        // tasks.json — tasks + dependencies + task links
+        writeJSON(path.join(dbDir, 'tasks.json'), {
+          tasks:        bundle.tasks        || [],
+          dependencies: bundle.dependencies || [],
+          taskLinks:    bundle.taskLinks    || [],
+        });
+        // timeline.json — phases + scheduling data
+        writeJSON(path.join(dbDir, 'timeline.json'), {
+          phases:       bundle.phases       || [],
+          tasks:        (bundle.tasks || []).map(t => ({
+            id: t.id, name: t.name, asset_id: t.asset_id,
+            assigned_role_slug: t.assigned_role_slug,
+            status: t.status, bid_days: t.bid_days,
+            start_date: t.start_date, end_date: t.end_date,
+            sort_order: t.sort_order,
+          })),
+          dependencies: bundle.dependencies || [],
+        });
+        // budget.json — budget lines, actuals, versions, expenses
+        writeJSON(path.join(dbDir, 'budget.json'), {
+          budgetLines:    bundle.budgetLines    || [],
+          budgetActuals:  bundle.budgetActuals  || [],
+          budgetVersions: bundle.budgetVersions || [],
+          expenses:       bundle.expenses       || [],
+        });
+      } catch (e) {
+        console.error('mirrorProjectDatabases failed:', e.message);
+      }
+    }
+
+    // Resolve the _FILES dir inside the user-visible project folder.
+    // Falls back to the internal rabbit-data files dir if no project folder exists.
+    function resolveProjectFilesDir(bundle, projectId) {
+      const root = resolveProjectFolder(bundle);
+      if (root) {
+        const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+        const dir = path.join(root, `${slug}_FILES`);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+      // Fallback to internal storage
+      return getRabbitFilesDir(projectId);
     }
 
     // ── Projects ────────────────────────────────────────────
@@ -833,6 +948,8 @@ function startLocalServer(distPath) {
         if (!fs.existsSync(projFolder)) fs.mkdirSync(projFolder, { recursive: true });
         if (!project.folder_root) project.folder_root = projFolder;
       }
+      // Create ASSETS/, _DATABASES/, _FILES/ sub-folders
+      ensureProjectFolders(bundle);
       writeRabbitBundle(project.id, bundle);
       res.json(project);
     });
@@ -857,6 +974,14 @@ function startLocalServer(distPath) {
               try {
                 fs.renameSync(oldPath, newPath);
                 bundle.project.folder_root = newPath;
+                // Rename slug-prefixed sub-folders inside the project folder
+                for (const suffix of ['_DATABASES', '_FILES']) {
+                  const op = path.join(newPath, oldSlug + suffix);
+                  const np = path.join(newPath, newSlug + suffix);
+                  if (fs.existsSync(op) && !fs.existsSync(np)) {
+                    try { fs.renameSync(op, np); } catch (e2) { console.error(`subfolder rename ${suffix}:`, e2.message); }
+                  }
+                }
               } catch (e) { console.error('project folder rename failed:', e.message); }
             }
           }
@@ -928,8 +1053,10 @@ function startLocalServer(distPath) {
     function ensureAssetFolder(bundle, assetName) {
       const root = resolveProjectFolderRoot(bundle);
       if (!root) return null;
+      const assetsDir = path.join(root, 'ASSETS');
+      if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
       const assetSlug = fileSlugify(assetName || 'Untitled-Asset');
-      const folderPath = path.join(root, assetSlug);
+      const folderPath = path.join(assetsDir, assetSlug);
       if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
       return { folderPath, assetSlug };
     }
@@ -961,8 +1088,10 @@ function startLocalServer(distPath) {
         if (root) {
           const oldSlug = oldAsset.folder_slug || fileSlugify(oldAsset.name || 'Untitled-Asset');
           const newSlug = fileSlugify(req.body.name);
-          const oldPath = path.join(root, oldSlug);
-          const newPath = path.join(root, newSlug);
+          const assetsDir = path.join(root, 'ASSETS');
+          if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
+          const oldPath = path.join(assetsDir, oldSlug);
+          const newPath = path.join(assetsDir, newSlug);
           if (fs.existsSync(oldPath) && oldPath !== newPath) {
             try { fs.renameSync(oldPath, newPath); } catch (e) { console.error('folder rename failed:', e.message); }
           } else if (!fs.existsSync(newPath)) {
@@ -971,8 +1100,8 @@ function startLocalServer(distPath) {
           newAsset.folder_slug = newSlug;
           // Update folder_path on managed files
           if (!bundle.managedFiles) bundle.managedFiles = [];
-          const oldPrefix = oldSlug + '/';
-          const newPrefix = newSlug + '/';
+          const oldPrefix = 'ASSETS/' + oldSlug + '/';
+          const newPrefix = 'ASSETS/' + newSlug + '/';
           for (const mf of bundle.managedFiles) {
             if (mf.asset_id === req.params.id && mf.folder_path) {
               mf.folder_path = mf.folder_path.replace(oldPrefix, newPrefix);
@@ -993,7 +1122,7 @@ function startLocalServer(distPath) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
           const slug = asset.folder_slug || fileSlugify(asset.name || 'Untitled-Asset');
-          const folderPath = path.join(root, slug);
+          const folderPath = path.join(root, 'ASSETS', slug);
           if (fs.existsSync(folderPath)) {
             const trashDir = path.join(root, '.trash');
             if (!fs.existsSync(trashDir)) fs.mkdirSync(trashDir, { recursive: true });
@@ -1022,6 +1151,37 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('team-assignments', 'teamAssignments');
     rabbitSubentityRoutes('budget-versions', 'budgetVersions');
     rabbitSubentityRoutes('expenses',        'expenses');
+    rabbitSubentityRoutes('budget-lines',    'budgetLines');
+    rabbitSubentityRoutes('budget-actuals',  'budgetActuals');
+    rabbitSubentityRoutes('scenes',          'scenes');
+    rabbitSubentityRoutes('shots',           'shots');
+    rabbitSubentityRoutes('levels',          'levels');
+    rabbitSubentityRoutes('experiences',     'experiences');
+    rabbitSubentityRoutes('milestones',      'milestones');
+
+    // ── Project Team: project-scoped copy of workspace team members ──
+    // Bulk-sync: replaces projectTeam with the provided array of members
+    expressApp.post('/api/rabbit/projects/:projectId/project-team/sync', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const members = Array.isArray(req.body.members) ? req.body.members : [];
+      const now = new Date().toISOString();
+      bundle.projectTeam = members.map(m => ({
+        ...m,
+        project_id: req.params.projectId,
+        synced_at: now,
+      }));
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(bundle.projectTeam);
+    });
+    // GET — list project team members
+    expressApp.get('/api/rabbit/projects/:projectId/project-team', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      res.json(bundle.projectTeam || []);
+    });
+    // Individual CRUD via sub-entity factory
+    rabbitSubentityRoutes('project-team',    'projectTeam');
 
     // ── Files: upload (base64 JSON payload) + download (binary stream) ──
     // Renderer reads File as ArrayBuffer, base64-encodes, POSTs JSON.
@@ -1037,7 +1197,7 @@ function startLocalServer(distPath) {
       const fileId = uuidv4();
       const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
       const diskName = `${fileId}-${safeName}`;
-      const filesDir = getRabbitFilesDir(req.params.projectId);
+      const filesDir = resolveProjectFilesDir(bundle, req.params.projectId);
       fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
 
       const row = rabbitTouch({
@@ -1065,7 +1225,7 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
       if (!file) return rabbitNotFound(res, 'file');
-      const diskPath = path.join(getRabbitFilesDir(req.params.projectId), file.storage_path);
+      const diskPath = path.join(resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
       if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
       res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
       res.sendFile(diskPath);
@@ -1086,7 +1246,7 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
       if (file) {
-        const diskPath = path.join(getRabbitFilesDir(req.params.projectId), file.storage_path);
+        const diskPath = path.join(resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
         if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
       }
       rabbitRemoveFrom(bundle.files, req.params.id);
@@ -1120,7 +1280,7 @@ function startLocalServer(distPath) {
       // Build folder_path
       const asset = (bundle.assets || []).find(a => a.id === req.body.asset_id);
       const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
-      const folderPath = `${projectSlug}/${assetSlug}/`;
+      const folderPath = `ASSETS/${assetSlug}/`;
 
       const row = {
         id:               req.body.id || uuidv4(),
@@ -1177,7 +1337,7 @@ function startLocalServer(distPath) {
           const root = resolveProjectFolderRoot(bundle);
           if (root) {
             const diskPath = path.join(root,
-              (mf.folder_path || '').split('/').slice(1).join(path.sep),
+              ...(mf.folder_path || '').split('/').filter(Boolean),
               mf.stored_name);
             if (fs.existsSync(diskPath)) try { fs.unlinkSync(diskPath); } catch {}
           }
@@ -1214,7 +1374,7 @@ function startLocalServer(distPath) {
       if (!root) return res.status(404).json({ error: 'no file root configured' });
       const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
       const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
-      const srcPath = path.join(root, assetSlug, mf.stored_name);
+      const srcPath = path.join(root, 'ASSETS', assetSlug, mf.stored_name);
       if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source file missing' });
       try {
         await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
@@ -1307,7 +1467,7 @@ function startLocalServer(distPath) {
             size_bytes:       stats.size,
             version:          1,
             version_label:    'v001',
-            folder_path:      `${projectSlug}/${assetSlug}/`,
+            folder_path:      `ASSETS/${assetSlug}/`,
             thumbnail_path:   null,
             uploaded_by:      null,
             uploaded_at:      now,
