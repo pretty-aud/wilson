@@ -21,8 +21,13 @@ import {
   Layers, ChevronDown, ChevronRight, Trash2, Eye,
   Table as TableIcon, ArrowUpDown, AlertTriangle, Save,
   BookmarkPlus, CheckSquare, Square, MinusSquare, Upload,
+  ImagePlus, ImageOff,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRateCard } from '../../../components/RateCard/useRateCard'
+import TaskDetailPopup from '../components/TaskDetailPopup'
+import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 
 // ── Status config ──
 const EXPERIENCE_STATUSES = [
@@ -95,6 +100,15 @@ export default function ExperiencesView() {
   const experiences = ctx?.experiences || []
   const assets = ctx?.assets || []
   const tasks = ctx?.tasks || []
+  const phases = ctx?.phases || []
+
+  // ── Team members + rate card (for task creation popup) ──
+  const tm = useTeamMembers()
+  const rc = useRateCard()
+  const teamAssignments = ctx?.teamAssignments || []
+  const memberById = useMemo(() => { const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m }, [tm.members])
+  const projectMembers = useMemo(() => teamAssignments.map(a => memberById[a.member_id]).filter(Boolean), [teamAssignments, memberById])
+  const roleEntries = useMemo(() => { const seen = new Set(); return (rc.entries || []).filter(e => { if (!e.role_slug || seen.has(e.role_slug)) return false; seen.add(e.role_slug); return true }) }, [rc.entries])
 
   // ── View state ──
   const [viewMode, setViewMode]     = useState('table')
@@ -117,6 +131,7 @@ export default function ExperiencesView() {
   // ── Popup state ──
   const [detailExpId, setDetailExpId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null) // { id, name }
+  const [thumbRevision, setThumbRevision] = useState(0)
   const [showCreatePopup, setShowCreatePopup] = useState(false)
 
   function toggleGroup(key) {
@@ -253,7 +268,7 @@ export default function ExperiencesView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[13px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-[13.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -263,55 +278,47 @@ export default function ExperiencesView() {
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}>
+      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
-          <Filter className="w-3.5 h-3.5" />
+          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
 
         {/* Sort */}
-        <div className="flex items-center gap-1.5">
-          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
+        <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-            <option value="">No sort</option>
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+            <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
-          {sortField && (
-            <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-[10px] font-mono uppercase rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-              {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
-            </button>
-          )}
+          <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
+            style={{ color: sortField ? '#fb923c' : '#57534e' }}>
+            <ArrowUpDown className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Group */}
-        <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={groupBy}
-            onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-            {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
-        </div>
+        <select value={groupBy}
+          onChange={e => setGroupBy(e.target.value)}
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* View mode toggle */}
-        <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -319,11 +326,10 @@ export default function ExperiencesView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent',
               color: viewMode === 'gallery' ? '#fff7ed' : '#78716c',
-              borderLeft: '1px solid #44403c',
             }}>
             <LayoutGrid className="w-3 h-3" /> Gallery
           </button>
@@ -331,54 +337,50 @@ export default function ExperiencesView() {
 
         {/* Gallery size selector */}
         {viewMode === 'gallery' && (
-          <>
-            <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
-            <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
-              {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-                <button key={key} type="button" onClick={() => setGallerySize(key)}
-                  className="flex items-center justify-center w-7 h-7 transition-colors"
-                  title={`${key} cards`}
-                  style={{
-                    backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
-                    color: gallerySize === key ? '#fff7ed' : '#78716c',
-                    borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                  }}>
-                  <Square style={{ width: size, height: size }} />
-                </button>
-              ))}
-            </div>
-          </>
+          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
+              <button key={key} type="button" onClick={() => setGallerySize(key)}
+                className="flex items-center justify-center w-7 h-7 transition-colors"
+                title={`${key} cards`}
+                style={{
+                  backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
+                  color: gallerySize === key ? '#fff7ed' : '#78716c',
+                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
+                }}>
+                <Square style={{ width: size, height: size }} />
+              </button>
+            ))}
+          </div>
         )}
 
         {/* Saved views */}
         <SavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Search */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search experiences..."
-            className="flex-1 px-2.5 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+            placeholder="Search…"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
-              <X className="w-3.5 h-3.5" />
+              className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
             </button>
           )}
         </div>
 
         {/* Right: count + add button */}
         <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-[10.5px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
             {sorted.length}/{experiences.length}
           </span>
 
           <button type="button" onClick={() => setShowCreatePopup(true)}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             <Plus className="w-3.5 h-3.5" /> New experience
           </button>
@@ -394,12 +396,12 @@ export default function ExperiencesView() {
       {showSaveDialog && (
         <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
             style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
           <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+            className="px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
           <button type="button" onClick={() => setShowSaveDialog(false)}
             className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
@@ -420,10 +422,10 @@ export default function ExperiencesView() {
                   {collapsedGroups.has(g.key)
                     ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                     : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                  <span className="text-[12px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
+                  <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
                     {g.label}
                   </span>
-                  <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+                  <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
                     ({g.experiences.length})
                   </span>
                 </div>
@@ -452,6 +454,10 @@ export default function ExperiencesView() {
           ctx={ctx}
           assetCountByExperience={assetCountByExperience}
           taskCountByExperience={taskCountByExperience}
+          projectMembers={projectMembers}
+          roleEntries={roleEntries}
+          thumbRevision={thumbRevision}
+          onThumbChanged={() => setThumbRevision(r => r + 1)}
           onClose={() => setDetailExpId(null)}
           onRequestDelete={setConfirmDelete}
         />
@@ -496,7 +502,7 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
   if (experiences.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No experiences yet
         </span>
       </div>
@@ -512,23 +518,23 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
            : someSelected ? <MinusSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
            : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
         </span>
-        <span className="flex-[2] text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-28 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Assets</span>
-        <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Tasks</span>
-        <span className="flex-[2] text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Description</span>
+        <span className="flex-[2] text-[10.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Name</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Assets</span>
+        <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Tasks</span>
+        <span className="flex-[2] text-[10.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Description</span>
         <span className="w-20" />
 
         {/* Bulk action bar */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <BulkSelect label="Status" options={EXPERIENCE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
             <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
             </button>
             <button type="button" onClick={clearSelection} className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -564,7 +570,7 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
             <select
               value={ex.status || 'not_started'}
               onChange={e => ctx?.updateExperience?.(ex.id, { status: e.target.value })}
-              className="px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+              className="px-1.5 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
               style={{
                 color: statusColor(ex.status),
                 backgroundColor: 'rgba(0,0,0,0.3)',
@@ -576,12 +582,12 @@ function ExperienceTable({ experiences, assetCountByExperience, taskCountByExper
           </span>
 
           {/* Assets count */}
-          <span className="w-16 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-[11.5px] font-mono text-center" style={{ color: '#a8a29e' }}>
             {assetCountByExperience[ex.id] || 0}
           </span>
 
           {/* Tasks count */}
-          <span className="w-16 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
+          <span className="w-16 text-[11.5px] font-mono text-center" style={{ color: '#a8a29e' }}>
             {taskCountByExperience[ex.id] || 0}
           </span>
 
@@ -621,7 +627,7 @@ function ExperienceGallery({ experiences, gallerySize, onOpenDetail, onRequestDe
   if (experiences.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No experiences yet
         </span>
       </div>
@@ -648,17 +654,17 @@ function ExperienceGallery({ experiences, gallerySize, onOpenDetail, onRequestDe
           </div>
           {/* Info */}
           <div className="px-3 py-2.5 flex flex-col gap-1">
-            <span className="text-[12px] font-mono truncate font-bold" style={{ color: '#e7e5e4' }}>
+            <span className="text-[12.5px] font-mono truncate font-bold" style={{ color: '#e7e5e4' }}>
               {ex.name || 'Untitled experience'}
             </span>
             <div className="flex items-center gap-2">
-              <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
+              <span className="px-1.5 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm"
                 style={{ color: statusColor(ex.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(ex.status)}30` }}>
                 {fmt(ex.status || 'not_started')}
               </span>
             </div>
             {ex.description && (
-              <span className="text-[10px] font-mono truncate" style={{ color: '#78716c' }}>
+              <span className="text-[10.5px] font-mono truncate" style={{ color: '#78716c' }}>
                 {ex.description}
               </span>
             )}
@@ -671,13 +677,17 @@ function ExperienceGallery({ experiences, gallerySize, onOpenDetail, onRequestDe
 
 
 // ─── Experience detail popup ───
-function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, taskCountByExperience, onClose, onRequestDelete }) {
+function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, taskCountByExperience, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
   const experience = (ctx?.experiences || []).find(e => e.id === experienceId)
+  const project = ctx?.project
 
   const [descDraft, setDescDraft] = useState(experience?.description || '')
   const [notesDraft, setNotesDraft] = useState(experience?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [nestedTaskId, setNestedTaskId] = useState(null)
+  const [nestedAssetId, setNestedAssetId] = useState(null)
 
   useEffect(() => { setDescDraft(experience?.description || '') }, [experience?.description])
   useEffect(() => { setNotesDraft(experience?.notes || '') }, [experience?.notes])
@@ -685,23 +695,77 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
   if (!experience) return null
 
   const sc = statusColor(experience.status)
+  const hasThumbnail = !!experience.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateExperience?.(experience.id, patch) }
+
+  async function handleSetThumbnail() {
+    if (!window.electronAPI?.rabbit?.pickImage) return
+    const imagePath = await window.electronAPI.rabbit.pickImage()
+    if (!imagePath) return
+    handleUpdate({ thumbnail_image: imagePath })
+    try {
+      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'experience', entityId: experience.id, sourcePath: imagePath })
+    } catch (e) { console.error('experience thumbnail gen failed:', e) }
+    onThumbChanged?.()
+  }
+
+  async function handleClearThumbnail() {
+    handleUpdate({ thumbnail_image: null })
+    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'experience', entityId: experience.id }) } catch {}
+    onThumbChanged?.()
+  }
+
+  async function handleCreateTask(draft) {
+    try {
+      await ctx?.addTask?.({ ...draft, experience_id: experience.id })
+      setShowCreateTask(false)
+    } catch (err) { console.error('Failed to create task:', err) }
+  }
 
   return (
     <>
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-2xl rounded overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #f97316',
-          maxHeight: '85vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
+      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
+
+        {/* ── LEFT SIDE POPUP (task creation / nested detail) ── */}
+        {showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
+            <NewTaskSidePopup
+              entityType="experience"
+              entityId={experience.id}
+              assets={ctx?.assets || []}
+              phases={ctx?.phases || []}
+              scenes={ctx?.scenes || []}
+              shots={ctx?.shots || []}
+              levels={ctx?.levels || []}
+              experiences={ctx?.experiences || []}
+              projectMembers={projectMembers || []}
+              roleEntries={roleEntries || []}
+              project={project}
+              onConfirm={handleCreateTask}
+              onClose={() => setShowCreateTask(false)}
+            />
+          </div>
+        )}
+
+        {nestedTaskId && !showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
+            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+          </div>
+        )}
+
+        {/* ── MAIN POPUP ── */}
+        <div
+          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
+          style={{
+            backgroundColor: '#292524',
+            border: '2px solid #f97316',
+            maxHeight: '85vh',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
@@ -710,22 +774,68 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
               {experience.name || 'Untitled experience'}
             </span>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-auto px-5 py-4">
+        {/* Two-column body */}
+        <div className="flex-1 overflow-auto flex">
 
-          {/* Title */}
-          <div className="mb-5">
-            <FieldLabel>Experience name</FieldLabel>
-            <PopupInlineText
-              value={experience.name || ''}
-              placeholder="Untitled experience"
-              onCommit={v => handleUpdate({ name: v })}
-            />
+          {/* LEFT COLUMN — Relations */}
+          <RelationsPanel
+            entityType="experience"
+            entityId={experience.id}
+            assets={ctx?.assets || []}
+            tasks={ctx?.tasks || []}
+            ctx={ctx}
+            onOpenAsset={id => setNestedAssetId(id)}
+            onOpenTask={id => setNestedTaskId(id)}
+            onCreateTask={() => setShowCreateTask(true)}
+          />
+
+          {/* RIGHT COLUMN — Properties */}
+          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+
+          {/* Thumbnail + Title */}
+          <div className="flex items-start gap-4 mb-5">
+            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
+              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              {hasThumbnail ? (
+                <>
+                  <img
+                    src={`/api/rabbit/projects/${project?.id}/experiences/${experience.id}/thumbnail?r=${thumbRevision}`}
+                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
+                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                    <button type="button" onClick={handleSetThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
+                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
+                    <button type="button" onClick={handleClearThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" onClick={handleSetThumbnail}
+                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
+                  style={{ color: '#57534e' }} title="Set thumbnail">
+                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                    <ImagePlus className="w-4 h-4" />
+                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
+                  </div>
+                  <Sparkles className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <FieldLabel>Experience name</FieldLabel>
+              <PopupInlineText
+                value={experience.name || ''}
+                placeholder="Untitled experience"
+                onCommit={v => handleUpdate({ name: v })}
+              />
+            </div>
           </div>
 
           {/* Properties */}
@@ -733,7 +843,7 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={experience.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {EXPERIENCE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -741,18 +851,18 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             <div>
               <FieldLabel>Linked counts</FieldLabel>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-mono uppercase" style={{ color: '#78716c' }}>
+                <span className="text-[10.5px] font-mono uppercase" style={{ color: '#78716c' }}>
                   {assetCountByExperience[experienceId] || 0} assets / {taskCountByExperience[experienceId] || 0} tasks
                 </span>
               </div>
             </div>
             <div>
-              <label className="block text-[10px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Start Date</label>
+              <label className="block text-[10.5px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Start Date</label>
               <input
                 type="date"
                 value={experience.start_date || ''}
                 onChange={(e) => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -760,12 +870,12 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
               />
             </div>
             <div>
-              <label className="block text-[10px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Due Date</label>
+              <label className="block text-[10.5px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Due Date</label>
               <input
                 type="date"
                 value={experience.end_date || ''}
                 onChange={(e) => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -780,23 +890,23 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-[10px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setDescDraft(experience.description || ''); setEditingDesc(false) }}
-                    className="text-[10px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-[12px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-[12.5px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: experience.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {experience.description || 'Click to add a description...'}
               </div>
@@ -809,45 +919,47 @@ function ExperienceDetailPopup({ experienceId, ctx, assetCountByExperience, task
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-[10px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setNotesDraft(experience.notes || ''); setEditingNotes(false) }}
-                    className="text-[10px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-[12px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-[12.5px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: experience.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {experience.notes || 'Click to add notes...'}
               </div>
             )}
           </div>
-        </div>
+          </div>{/* close RIGHT COLUMN */}
+        </div>{/* close two-column flex */}
 
         {/* Footer */}
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ id: experience.id, name: experience.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
             <Trash2 className="w-3.5 h-3.5" /> Delete experience
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
         </div>
-      </div>
+        </div>{/* close MAIN POPUP */}
+      </div>{/* close flex container */}
     </>
   )
 }
@@ -865,18 +977,18 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-[13px] font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
+            <span className="text-[13.5px] font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
           </div>
         </div>
         <div className="px-5 py-4">
-          <p className="text-[12px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>{message}</p>
+          <p className="text-[12.5px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>{message}</p>
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
+            className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
             style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>Delete</button>
         </div>
       </div>
@@ -924,13 +1036,13 @@ function CreateExperiencePopup({ ctx, expCount, onClose }) {
           <div>
             <FieldLabel>Name <span style={{ color: '#ef4444' }}>*</span></FieldLabel>
             <input type="text" value={name} onChange={e => setName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} autoFocus />
           </div>
           <div>
             <FieldLabel>Status</FieldLabel>
             <select value={status} onChange={e => setStatus(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(status), border: '1px solid #44403c' }}>
               {EXPERIENCE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -938,7 +1050,7 @@ function CreateExperiencePopup({ ctx, expCount, onClose }) {
           <div>
             <FieldLabel>Description</FieldLabel>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="Description..." />
           </div>
@@ -946,7 +1058,7 @@ function CreateExperiencePopup({ ctx, expCount, onClose }) {
             <FieldLabel>Files</FieldLabel>
             <input ref={fileInputRef} type="file" multiple onChange={handleFileSelect} className="hidden" />
             <button type="button" onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
               <Upload className="w-3.5 h-3.5" /> Add files
             </button>
@@ -954,7 +1066,7 @@ function CreateExperiencePopup({ ctx, expCount, onClose }) {
               <div className="mt-2 flex flex-col gap-1">
                 {files.map((f, i) => (
                   <div key={i} className="flex items-center gap-2 px-2 py-1 rounded" style={{ backgroundColor: '#1c1917' }}>
-                    <span className="text-[10px] font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
+                    <span className="text-[10.5px] font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
                     <button type="button" onClick={() => setFiles(prev => prev.filter((_, j) => j !== i))}
                       className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#fca5a5' }}>
                       <X className="w-3 h-3" />
@@ -967,10 +1079,10 @@ function CreateExperiencePopup({ ctx, expCount, onClose }) {
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
           <button type="button" onClick={handleConfirm} disabled={!name.trim()}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+            className="px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors disabled:opacity-40"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Confirm & Create</button>
         </div>
       </div>
@@ -997,23 +1109,23 @@ function ExpFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[10px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-[10.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {EXP_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1021,7 +1133,7 @@ function ExpFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -1033,13 +1145,13 @@ function ExpFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -1064,7 +1176,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -1072,12 +1184,12 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
         <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {views.length === 0 && (
-            <div className="px-3 py-2.5 text-[11px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
+            <div className="px-3 py-2.5 text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
           )}
           {views.map(v => (
             <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
               onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <span className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
                 className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
                 <X className="w-3 h-3" />
@@ -1086,7 +1198,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
           ))}
           <div style={{ borderTop: '1px solid #44403c' }}>
             <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11px] font-mono transition-colors"
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11.5px] font-mono transition-colors"
               style={{ color: '#fb923c' }}>
               <Save className="w-3 h-3" /> Save current view
             </button>
@@ -1102,7 +1214,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
       <option value="" disabled>{label}</option>
       {allowEmpty && <option value="">None</option>}
@@ -1123,7 +1235,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md' }) {
     if (trimmed !== value) onCommit(trimmed)
     setEditing(false)
   }
-  const textSize = size === 'sm' ? 'text-[11px]' : 'text-[12px]'
+  const textSize = size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'
   const textColor = size === 'sm' ? '#a8a29e' : '#e7e5e4'
   if (editing) {
     return (
@@ -1161,13 +1273,13 @@ function PopupInlineText({ value, placeholder, onCommit }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full text-[13px] font-mono px-2.5 py-1.5 rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full text-[13.5px] font-mono px-2.5 py-1.5 rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <div onClick={() => setEditing(true)}
-      className="text-[13px] font-mono px-2.5 py-1.5 rounded cursor-pointer hover:bg-stone-800 transition-colors"
+      className="text-[13.5px] font-mono px-2.5 py-1.5 rounded cursor-pointer hover:bg-stone-800 transition-colors"
       style={{ backgroundColor: '#1c1917', color: value ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
       {value || placeholder}
     </div>
@@ -1176,7 +1288,7 @@ function PopupInlineText({ value, placeholder, onCommit }) {
 
 function FieldLabel({ children }) {
   return (
-    <label className="block text-[10px] font-mono uppercase tracking-wider font-bold mb-1.5" style={{ color: '#78716c' }}>
+    <label className="block text-[10.5px] font-mono uppercase tracking-wider font-bold mb-1.5" style={{ color: '#78716c' }}>
       {children}
     </label>
   )

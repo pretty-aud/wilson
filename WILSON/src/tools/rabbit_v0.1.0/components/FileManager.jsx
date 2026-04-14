@@ -62,6 +62,10 @@ export default function FileManager({
   files = [],
   assetId,
   assetName,
+  shotId,
+  shotName,
+  sceneId,
+  sceneName,
   projectId,
   project,
   mode = 'full',
@@ -78,11 +82,17 @@ export default function FileManager({
   const [editingNotes, setEditingNotes] = useState(null) // file id
   const [notesDraft, setNotesDraft] = useState('')
 
-  // Filter to only files for this asset, exclude soft-deleted
+  // Filter to only files for this parent (asset or shot), exclude soft-deleted
+  const parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'
+  const parentName = sceneName || shotName || assetName
   const assetFiles = useMemo(() =>
-    files.filter(f => f.asset_id === assetId && !f.deleted_at)
-      .sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
-    [files, assetId]
+    files.filter(f => {
+      if (f.deleted_at) return false
+      if (sceneId) return f.scene_id === sceneId
+      if (shotId) return f.shot_id === shotId
+      return f.asset_id === assetId
+    }).sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
+    [files, assetId, shotId, sceneId]
   )
 
   // Listen for copy progress IPC events
@@ -124,7 +134,9 @@ export default function FileManager({
 
         // Create manifest record first to get the stored_name with version
         const record = await ctx.addManagedFile({
-          asset_id:      assetId,
+          asset_id:      assetId || null,
+          shot_id:       shotId || null,
+          scene_id:      sceneId || null,
           task_id:       taskId || null,
           file_name:     fileName,
           original_name: originalName,
@@ -135,16 +147,16 @@ export default function FileManager({
         })
 
         // Resolve destination directory
-        const assetSlug = fileSlugify(assetName || 'Untitled-Asset')
+        const parentSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
         const folderRoot = project?.folder_root
         let destDir
         if (folderRoot) {
-          destDir = folderRoot.replace(/\\/g, '/') + '/ASSETS/' + assetSlug
+          destDir = folderRoot.replace(/\\/g, '/') + '/' + parentType + '/' + parentSlug
         } else {
           // Fallback: use the files config default root
           const cfg = await api.readFilesConfig()
           if (cfg?.defaultRootDir) {
-            destDir = cfg.defaultRootDir.replace(/\\/g, '/') + '/' + projectSlug + '/ASSETS/' + assetSlug
+            destDir = cfg.defaultRootDir.replace(/\\/g, '/') + '/' + projectSlug + '/' + parentType + '/' + parentSlug
           }
         }
 
@@ -166,7 +178,7 @@ export default function FileManager({
       setCopying(false)
       setCopyProgress(null)
     }
-  }, [ctx, assetId, assetName, project, taskTitle, taskId, onFileAdded])
+  }, [ctx, assetId, shotId, parentName, parentType, project, taskTitle, taskId, onFileAdded])
 
   // ── Download handler ──
   const handleDownload = useCallback(async (file) => {
@@ -174,21 +186,21 @@ export default function FileManager({
     if (!api) return
     // Open the file's folder in OS explorer
     const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const assetSlug = fileSlugify(assetName || 'Untitled-Asset')
+    const pSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
     const folderRoot = project?.folder_root
     let filePath
     if (folderRoot) {
-      filePath = folderRoot + '\\' + assetSlug + '\\' + file.stored_name
+      filePath = folderRoot + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
     } else {
       const cfg = await api.readFilesConfig()
       if (cfg?.defaultRootDir) {
-        filePath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + assetSlug + '\\' + file.stored_name
+        filePath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
       }
     }
     if (filePath) {
       await api.openInExplorer({ filePath: filePath.replace(/\//g, '\\') })
     }
-  }, [project, assetName])
+  }, [project, parentName, parentType, shotId])
 
   // ── Delete handler ──
   const handleDelete = useCallback(async (file) => {
@@ -206,21 +218,21 @@ export default function FileManager({
     const api = window.electronAPI?.rabbit
     if (!api) return
     const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
-    const assetSlug = fileSlugify(assetName || 'Untitled-Asset')
+    const pSlug = fileSlugify(parentName || (shotId ? 'Untitled-Shot' : 'Untitled-Asset'))
     const folderRoot = project?.folder_root
     let folderPath
     if (folderRoot) {
-      folderPath = folderRoot + '\\ASSETS\\' + assetSlug
+      folderPath = folderRoot + '\\' + parentType + '\\' + pSlug
     } else {
       const cfg = await api.readFilesConfig()
       if (cfg?.defaultRootDir) {
-        folderPath = cfg.defaultRootDir + '\\' + projectSlug + '\\ASSETS\\' + assetSlug
+        folderPath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug
       }
     }
     if (folderPath) {
       await api.openInExplorer({ filePath: folderPath.replace(/\//g, '\\') })
     }
-  }, [project, assetName])
+  }, [project, parentName, parentType, shotId])
 
   // ── Notes editing ──
   const handleSaveNotes = useCallback(async (fileId) => {

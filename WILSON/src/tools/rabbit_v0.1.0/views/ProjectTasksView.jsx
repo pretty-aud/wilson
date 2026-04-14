@@ -32,6 +32,7 @@ import {
   Table as TableIcon, Columns3, ArrowUpDown, Layers, Diamond,
   ChevronDown, ChevronRight, Save, BookmarkPlus,
   GripVertical, MoreHorizontal, CheckSquare, Square, MinusSquare,
+  Clock, CalendarDays,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
@@ -409,67 +410,100 @@ export default function ProjectTasksView() {
     setFilters(prev => prev.filter((_, i) => i !== idx))
   }
 
+  // ── Summary computations ──
+  const taskSummary = useMemo(() => {
+    const completed = tasks.filter(t => t.status === 'approved' || t.status === 'final').length
+    const omitted = tasks.filter(t => t.status === 'omitted').length
+    const remaining = tasks.length - completed - omitted
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    let daysRemaining = '—'
+    let daysPassed = '—'
+
+    if (project?.end_date) {
+      const end = new Date(project.end_date)
+      end.setHours(0, 0, 0, 0)
+      const diff = Math.ceil((end - today) / (1000 * 60 * 60 * 24))
+      daysRemaining = Math.max(diff, 0)
+    }
+
+    if (project?.start_date) {
+      const start = new Date(project.start_date)
+      start.setHours(0, 0, 0, 0)
+      const diff = Math.ceil((today - start) / (1000 * 60 * 60 * 24))
+      daysPassed = Math.max(diff, 0)
+    }
+
+    return { remaining, completed, daysRemaining, daysPassed }
+  }, [tasks, project?.start_date, project?.end_date])
+
   // ── Render ──
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[13px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>No project loaded</span>
+        <span className="text-[13.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>No project loaded</span>
       </div>
     )
   }
 
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+
+      {/* ── Summary cards (always visible) ── */}
+      <div className="flex gap-3 px-4 pt-4 pb-2 flex-wrap flex-shrink-0">
+        <TaskBigTile icon={ListChecks} label="Tasks Remaining" value={taskSummary.remaining} />
+        <TaskBigTile icon={Clock} label="Days Remaining" value={taskSummary.daysRemaining} />
+        <TaskBigTile icon={CheckSquare} label="Tasks Completed" value={taskSummary.completed} tone="good" />
+        <TaskBigTile icon={CalendarDays} label="Days Passed" value={taskSummary.daysPassed} />
+      </div>
+
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}>
+      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
 
         {/* Filter */}
         <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-          style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
-          <Filter className="w-3.5 h-3.5" />
+          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          <Filter className="w-3 h-3" />
           Filter{filters.length > 0 ? ` (${filters.length})` : ''}
         </button>
 
         {/* Sort */}
-        <div className="flex items-center gap-1.5">
-          <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
+        <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-            <option value="">No sort</option>
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+            <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
           {sortField && (
             <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-              className="px-2 py-1.5 text-[10px] font-mono uppercase rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-              {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
+              className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
+              style={{ color: sortField ? '#fb923c' : '#57534e' }}>
+              <ArrowUpDown className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
 
         {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Group */}
-        <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-          <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
-            onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-            {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-          </select>
-        </div>
+        <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
+          onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          style={{ backgroundColor: '#292524', color: (viewMode === 'kanban' ? kanbanGroup : groupBy) ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+        </select>
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* View mode toggle — segmented control */}
-        <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
               color: viewMode === 'table' ? '#fff7ed' : '#78716c',
@@ -477,11 +511,10 @@ export default function ProjectTasksView() {
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('kanban')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
             style={{
               backgroundColor: viewMode === 'kanban' ? '#ea580c' : 'transparent',
               color: viewMode === 'kanban' ? '#fff7ed' : '#78716c',
-              borderLeft: '1px solid #44403c',
             }}>
             <Columns3 className="w-3 h-3" /> Board
           </button>
@@ -495,20 +528,18 @@ export default function ProjectTasksView() {
           onSave={() => setShowSaveDialog(true)}
         />
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Search */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search tasks..."
-            className="flex-1 px-2.5 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
+            placeholder="Search tasks…"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            style={{ color: '#d6d3d1' }} />
           {search && (
-            <button type="button" onClick={() => setSearch('')}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
             </button>
           )}
         </div>
@@ -516,26 +547,26 @@ export default function ProjectTasksView() {
         {/* Right: count, phase, new task */}
         <div className="flex items-center gap-2 ml-auto">
 
-          <span className="text-[10px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
+          <span className="text-[10.5px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
             {processed.length}/{tasks.length}
           </span>
 
           {/* Phase create */}
           <button type="button" onClick={() => setShowPhaseCreate(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             <Plus className="w-3.5 h-3.5" /> Phase
           </button>
 
           {/* Key date create */}
           <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
             style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
             <Diamond className="w-3.5 h-3.5" /> Key Date
           </button>
 
           <button type="button" onClick={() => handleAddTask()}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
             <Plus className="w-3.5 h-3.5" /> New task
           </button>
@@ -601,7 +632,7 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowSaveDialog(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-[13px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
+            <span className="text-[13.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
@@ -609,10 +640,10 @@ export default function ProjectTasksView() {
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)}
-                className="px-4 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-[11.5px] font-mono rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={saveCurrentView}
-                className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
+                className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
             </div>
           </div>
@@ -625,7 +656,7 @@ export default function ProjectTasksView() {
           <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={() => setShowPhaseCreate(false)} />
           <div className="fixed z-50 top-1/2 left-1/2 w-80 rounded p-5 flex flex-col gap-4"
             style={{ backgroundColor: '#292524', border: '2px solid #f97316', transform: 'translate(-50%,-50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
-            <span className="text-[13px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Create phase</span>
+            <span className="text-[13.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Create phase</span>
             <input autoFocus type="text" value={newPhaseName} onChange={e => setNewPhaseName(e.target.value)}
               placeholder="Phase name..."
               onKeyDown={e => { if (e.key === 'Enter') handleCreatePhase() }}
@@ -633,10 +664,10 @@ export default function ProjectTasksView() {
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowPhaseCreate(false)}
-                className="px-4 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
+                className="px-4 py-1.5 text-[11.5px] font-mono rounded hover:bg-stone-700 transition-colors"
                 style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
               <button type="button" onClick={handleCreatePhase}
-                className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
+                className="px-4 py-1.5 text-[11.5px] font-mono rounded transition-colors"
                 style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Create</button>
             </div>
           </div>
@@ -679,23 +710,23 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[10px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-[10.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -703,7 +734,7 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }} />
               )
             )}
@@ -715,13 +746,13 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
       })}
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
           <Plus className="w-3.5 h-3.5" /> Add filter
         </button>
         {filters.length > 0 && (
           <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Done
           </button>
@@ -749,7 +780,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
   return (
     <div className="relative" ref={ref}>
       <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+        className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
         style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
         <BookmarkPlus className="w-3.5 h-3.5" /> Views
       </button>
@@ -757,12 +788,12 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
         <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
           style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
           {views.length === 0 && (
-            <div className="px-3 py-2.5 text-[11px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
+            <div className="px-3 py-2.5 text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
           )}
           {views.map(v => (
             <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
               onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
+              <span className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
               <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
                 className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
                 <X className="w-3 h-3" />
@@ -771,7 +802,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
           ))}
           <div style={{ borderTop: '1px solid #44403c' }}>
             <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11px] font-mono transition-colors"
+              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11.5px] font-mono transition-colors"
               style={{ color: '#fb923c' }}>
               <Save className="w-3 h-3" /> Save current view
             </button>
@@ -831,8 +862,8 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
         <ListChecks className="w-12 h-12" style={{ color: '#44403c' }} />
-        <span className="text-[13px] font-mono" style={{ color: '#78716c' }}>No tasks yet</span>
-        <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>Create a task to get started</span>
+        <span className="text-[13.5px] font-mono" style={{ color: '#78716c' }}>No tasks yet</span>
+        <span className="text-[11.5px] font-mono" style={{ color: '#57534e' }}>Create a task to get started</span>
       </div>
     )
   }
@@ -840,12 +871,12 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
   return (
     <div className="min-w-full relative">
       {/* Header */}
-      <div className="relative flex sticky top-0 z-10" style={{ backgroundColor: '#292524', borderBottom: '2px solid #44403c' }}>
+      <div className="relative flex sticky top-0 z-10" style={{ borderBottom: '1px solid #44403c' }}>
         {/* ── Bulk-action bar (overlays header) ── */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
             style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+            <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
             <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
@@ -857,7 +888,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
             <button type="button" onClick={bulkDelete}
               className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
               style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
             </button>
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
@@ -876,7 +907,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
           </button>
         </div>
         {columns.map(c => (
-          <div key={c.key} className="px-3.5 py-2.5 text-[11px] font-mono uppercase tracking-wider font-semibold text-left"
+          <div key={c.key} className="px-3.5 py-2.5 text-[10.5px] font-mono uppercase tracking-wider font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
             {c.label}
           </div>
@@ -886,76 +917,78 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
       {/* Milestone rows + task rows. When sorting by a date field,
           milestones are interleaved at their correct chronological
           position. Otherwise they render as a block above the tasks. */}
-      {groups ? (
-        <>
-          {/* Milestones above grouped tasks */}
-          {milestones.length > 0 && (
-            <div style={{ borderBottom: '2px solid #44403c' }}>
-              {milestones.map(ms => (
-                <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
-              ))}
-            </div>
-          )}
-          {groups.map(g => (
-            <TaskGroup key={g.key} group={g} groupBy={groupBy} columns={columns}
-              assets={assets} phases={phases} members={members}
-              assetById={assetById} phaseById={phaseById} memberById={memberById}
-              collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-              ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick}
-              selected={selected} toggleOne={toggleOne} />
-          ))}
-        </>
-      ) : (
-        <>
-          {(() => {
-            // When sorted by date, interleave milestones chronologically
-            const dateSort = sortField === 'start_date' || sortField === 'end_date'
-            if (dateSort && milestones.length > 0) {
-              const dir = sortDir === 'desc' ? -1 : 1
-              // Build a merged array of { type: 'task'|'milestone', item }
-              const merged = [
-                ...tasks.map(t => ({ type: 'task', item: t, date: t[sortField] || '' })),
-                ...milestones.map(ms => ({ type: 'milestone', item: ms, date: ms.date || '' })),
-              ]
-              merged.sort((a, b) => {
-                if (a.date < b.date) return -1 * dir
-                if (a.date > b.date) return 1 * dir
-                // milestones sort before tasks at same date
-                if (a.type === 'milestone' && b.type !== 'milestone') return -1
-                if (a.type !== 'milestone' && b.type === 'milestone') return 1
-                return 0
-              })
-              return merged.map(entry =>
-                entry.type === 'milestone' ? (
-                  <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} />
-                ) : (
-                  <TaskRow key={entry.item.id} task={entry.item} columns={columns}
-                    assets={assets} phases={phases} members={members}
-                    assetById={assetById} phaseById={phaseById} memberById={memberById}
-                    ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
-                    isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
-                )
-              )
-            }
-            // No date sort — milestones first, then tasks
-            return (
-              <>
+      <div className="flex flex-col gap-1 p-3">
+        {groups ? (
+          <>
+            {/* Milestones above grouped tasks */}
+            {milestones.length > 0 && (
+              <div className="flex flex-col gap-1">
                 {milestones.map(ms => (
                   <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
                 ))}
-                {tasks.map(t => (
-                  <TaskRow key={t.id} task={t} columns={columns}
-                    assets={assets} phases={phases} members={members}
-                    assetById={assetById} phaseById={phaseById} memberById={memberById}
-                    ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
-                    isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
-                ))}
-              </>
-            )
-          })()}
-          <AddRowButton onAdd={() => onAddTask()} />
-        </>
-      )}
+              </div>
+            )}
+            {groups.map(g => (
+              <TaskGroup key={g.key} group={g} groupBy={groupBy} columns={columns}
+                assets={assets} phases={phases} members={members}
+                assetById={assetById} phaseById={phaseById} memberById={memberById}
+                collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
+                ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick}
+                selected={selected} toggleOne={toggleOne} />
+            ))}
+          </>
+        ) : (
+          <>
+            {(() => {
+              // When sorted by date, interleave milestones chronologically
+              const dateSort = sortField === 'start_date' || sortField === 'end_date'
+              if (dateSort && milestones.length > 0) {
+                const dir = sortDir === 'desc' ? -1 : 1
+                // Build a merged array of { type: 'task'|'milestone', item }
+                const merged = [
+                  ...tasks.map(t => ({ type: 'task', item: t, date: t[sortField] || '' })),
+                  ...milestones.map(ms => ({ type: 'milestone', item: ms, date: ms.date || '' })),
+                ]
+                merged.sort((a, b) => {
+                  if (a.date < b.date) return -1 * dir
+                  if (a.date > b.date) return 1 * dir
+                  // milestones sort before tasks at same date
+                  if (a.type === 'milestone' && b.type !== 'milestone') return -1
+                  if (a.type !== 'milestone' && b.type === 'milestone') return 1
+                  return 0
+                })
+                return merged.map(entry =>
+                  entry.type === 'milestone' ? (
+                    <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} />
+                  ) : (
+                    <TaskRow key={entry.item.id} task={entry.item} columns={columns}
+                      assets={assets} phases={phases} members={members}
+                      assetById={assetById} phaseById={phaseById} memberById={memberById}
+                      ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                      isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
+                  )
+                )
+              }
+              // No date sort — milestones first, then tasks
+              return (
+                <>
+                  {milestones.map(ms => (
+                    <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                  ))}
+                  {tasks.map(t => (
+                    <TaskRow key={t.id} task={t} columns={columns}
+                      assets={assets} phases={phases} members={members}
+                      assetById={assetById} phaseById={phaseById} memberById={memberById}
+                      ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+                      isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
+                  ))}
+                </>
+              )
+            })()}
+            <AddRowButton onAdd={() => onAddTask()} />
+          </>
+        )}
+      </div>
 
     </div>
   )
@@ -967,7 +1000,7 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1052,26 +1085,26 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
               accent={groupAccent}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
-              <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Start</span>
+              <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Start</span>
               <input
                 type="date"
                 value={phase.start_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { start_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
-              <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>End</span>
+              <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>End</span>
               <input
                 type="date"
                 value={phase.end_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { end_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
             </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded flex-shrink-0"
+            <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded flex-shrink-0"
               style={{ color: '#a8a29e', backgroundColor: '#292524' }}>
               {group.tasks.length}
             </span>
@@ -1079,11 +1112,11 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         ) : (
           /* ── Standard group header ── */
           <button type="button" onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0 text-left">
-            <span className="text-[12px] font-mono uppercase tracking-wider font-bold"
+            <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold"
               style={{ color: groupAccent }}>
               {group.label}
             </span>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
+            <span className="text-[10.5px] font-mono px-1.5 py-0.5 rounded"
               style={{ color: '#a8a29e', backgroundColor: '#292524' }}>
               {group.tasks.length}
             </span>
@@ -1091,7 +1124,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         )}
       </div>
       {!collapsed && (
-        <>
+        <div className="flex flex-col gap-1 p-3 pt-1">
           {group.tasks.map(t => (
             <TaskRow key={t.id} task={t} columns={columns}
               assets={assets} phases={phases} members={members}
@@ -1100,7 +1133,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
               isSelected={selected?.has(t.id)} onToggleSelect={() => toggleOne?.(t.id)} />
           ))}
           <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
-        </>
+        </div>
       )}
     </div>
   )
@@ -1124,7 +1157,7 @@ function PhaseInlineEdit({ value, onCommit, accent }) {
         onBlur={commit}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="px-1.5 py-0.5 text-[12px] font-mono uppercase tracking-wider font-bold rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="px-1.5 py-0.5 text-[12.5px] font-mono uppercase tracking-wider font-bold rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: accent, border: '1px solid #44403c', minWidth: 80 }}
       />
     )
@@ -1132,7 +1165,7 @@ function PhaseInlineEdit({ value, onCommit, accent }) {
   return (
     <button type="button"
       onClick={e => { e.stopPropagation(); setDraft(value); setEditing(true) }}
-      className="text-[12px] font-mono uppercase tracking-wider font-bold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
+      className="text-[12.5px] font-mono uppercase tracking-wider font-bold hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors truncate"
       style={{ color: accent }}
       title="Click to rename phase">
       {value || 'Untitled'}
@@ -1174,7 +1207,8 @@ function MilestoneRow({ milestone, columns, ctx }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        borderBottom: '1px solid #44403c',
+        border: '1px solid #44403c',
+        borderRadius: 4,
         backgroundColor: hovered ? 'rgba(245, 158, 11, 0.08)' : 'rgba(245, 158, 11, 0.04)',
         borderLeft: `3px solid ${milestone.color || '#f59e0b'}`,
       }}
@@ -1193,12 +1227,12 @@ function MilestoneRow({ milestone, columns, ctx }) {
                   onChange={e => setLocalTitle(e.target.value)}
                   onBlur={commitTitle}
                   onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
-                  className="flex-1 px-1 py-0.5 text-[12px] font-mono font-semibold rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="flex-1 px-1 py-0.5 text-[12.5px] font-mono font-semibold rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               ) : (
                 <span
-                  className="text-[12px] font-mono font-semibold truncate cursor-pointer"
+                  className="text-[12.5px] font-mono font-semibold truncate cursor-pointer"
                   style={{ color: '#f59e0b' }}
                   onClick={() => !isProjectBound && setEditTitle(true)}
                   title={milestone.description || milestone.title}
@@ -1207,7 +1241,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
                 </span>
               )}
               {isProjectBound && (
-                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #3a3733' }}>bound</span>
+                <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #3a3733' }}>bound</span>
               )}
             </div>
           )
@@ -1221,12 +1255,12 @@ function MilestoneRow({ milestone, columns, ctx }) {
                     onChange={e => setLocalDate(e.target.value)}
                     onBlur={commitDate}
                     onKeyDown={e => { if (e.key === 'Enter') commitDate(); if (e.key === 'Escape') { setLocalDate(milestone.date); setEditDate(false) } }}
-                    className="w-full px-1 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 ) : (
                   <span
-                    className="text-[11px] font-mono cursor-pointer"
+                    className="text-[11.5px] font-mono cursor-pointer"
                     style={{ color: '#f59e0b' }}
                     onClick={() => !isProjectBound && setEditDate(true)}
                   >
@@ -1234,7 +1268,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
                   </span>
                 )
               ) : (
-                <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>—</span>
+                <span className="text-[11.5px] font-mono" style={{ color: '#57534e' }}>—</span>
               )}
             </div>
           )
@@ -1254,7 +1288,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
         // Empty cell for other columns
         return (
           <div key={c.key} className="px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
-            <span className="text-[11px] font-mono" style={{ color: '#3a3733' }}>—</span>
+            <span className="text-[11.5px] font-mono" style={{ color: '#3a3733' }}>—</span>
           </div>
         )
       })}
@@ -1299,7 +1333,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         const sc = statusColor(task.status)
         return (
           <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
-            className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: sc }}>
             {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
           </select>
@@ -1309,7 +1343,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         const pc = priorityColor(task.priority)
         return (
           <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
-            className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: pc }}>
             {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
           </select>
@@ -1318,7 +1352,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'asset_id':
         return (
           <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: task.asset_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -1327,7 +1361,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'phase_id':
         return (
           <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: task.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1336,7 +1370,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'assignee_id':
         return (
           <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: task.assignee_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -1360,7 +1394,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           </div>
         )
       default:
-        return <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
+        return <span className="text-[11.5px] font-mono" style={{ color: '#a8a29e' }}>{task[col.key] ?? '--'}</span>
     }
   }
 
@@ -1370,12 +1404,13 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   }
 
   return (
-    <div className="flex cursor-grab active:cursor-grabbing" draggable
+    <div className={`flex cursor-grab active:cursor-grabbing${!isSelected && !hovered ? ' hover:bg-stone-800' : ''}`} draggable
       onDragStart={handleDragStart}
       style={{
-        borderBottom: '1px solid #292524',
-        backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.1)' : hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
-        transition: 'background-color 150ms ease',
+        border: isSelected ? '1px solid #ea580c' : '1px solid #44403c',
+        borderRadius: 4,
+        backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
+        transition: 'background-color 150ms ease, border-color 150ms ease',
       }}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       {/* Checkbox */}
@@ -1402,9 +1437,9 @@ function AddRowButton({ onAdd }) {
   return (
     <button type="button" onClick={onAdd}
       className="w-full flex items-center gap-2 px-3.5 py-2 hover:bg-stone-800/40 transition-colors text-left"
-      style={{ borderBottom: '1px solid #292524' }}>
+      style={{ border: '1px dashed #292524', borderRadius: 4 }}>
       <Plus className="w-3.5 h-3.5" style={{ color: '#57534e' }} />
-      <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>New task</span>
+      <span className="text-[11.5px] font-mono" style={{ color: '#57534e' }}>New task</span>
     </button>
   )
 }
@@ -1493,11 +1528,11 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
       <div className="px-3.5 py-3 flex items-center justify-between"
         style={{ borderBottom: `3px solid ${headerAccent}`, flexShrink: 0 }}>
         <div className="flex items-center gap-2.5">
-          <span className="text-[12px] font-mono uppercase tracking-wider font-bold"
+          <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold"
             style={{ color: headerAccent }}>
             {group.label}
           </span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded"
+          <span className="text-[10.5px] font-mono px-2 py-0.5 rounded"
             style={{ color: '#a8a29e', backgroundColor: '#1c1917' }}>
             {group.tasks.length}
           </span>
@@ -1521,7 +1556,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
           placeholder="+ Add task..."
           onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
           onBlur={commitAdd}
-          className="w-full px-3 py-2 text-[11px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
+          className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
           style={{
             color: '#a8a29e',
             backgroundColor: 'transparent',
@@ -1561,7 +1596,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
 
       {/* Title + actions */}
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[13px] font-mono leading-snug font-medium" style={{ color: '#e7e5e4' }}>
+        <span className="text-[13.5px] font-mono leading-snug font-medium" style={{ color: '#e7e5e4' }}>
           {task.title || 'Untitled task'}
         </span>
         <div className="flex items-center gap-0.5 flex-shrink-0"
@@ -1583,11 +1618,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
 
       {/* Status + Priority */}
       <div className="flex items-center gap-2 mt-0.5">
-        <span className="text-[10px] font-mono uppercase tracking-wider font-semibold" style={{ color: sc }}>
+        <span className="text-[10.5px] font-mono uppercase tracking-wider font-semibold" style={{ color: sc }}>
           {fmt(task.status || 'waiting_to_start')}
         </span>
         <span style={{ color: '#44403c' }}>&middot;</span>
-        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: pc }}>
+        <span className="text-[10.5px] font-mono uppercase tracking-wider" style={{ color: pc }}>
           {fmt(task.priority || 'medium')}
         </span>
       </div>
@@ -1596,12 +1631,12 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
       {(asset || assignee) && (
         <div className="flex items-center justify-between mt-1 pt-1.5" style={{ borderTop: '1px solid #292524' }}>
           {asset ? (
-            <span className="text-[10px] font-mono truncate max-w-[140px]" style={{ color: '#78716c' }}>
+            <span className="text-[10.5px] font-mono truncate max-w-[140px]" style={{ color: '#78716c' }}>
               {asset.name}
             </span>
           ) : <span />}
           {assignee ? (
-            <span className="text-[10px] font-mono truncate max-w-[100px] text-right" style={{ color: '#78716c' }}>
+            <span className="text-[10.5px] font-mono truncate max-w-[100px] text-right" style={{ color: '#78716c' }}>
               {assignee.name}
             </span>
           ) : null}
@@ -1610,7 +1645,7 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
 
       {/* Date + bid */}
       {(task.start_date || task.bid_days != null) && (
-        <div className="flex items-center gap-2 text-[10px] font-mono" style={{ color: '#57534e' }}>
+        <div className="flex items-center gap-2 text-[10.5px] font-mono" style={{ color: '#57534e' }}>
           {task.start_date && <span>{task.start_date}</span>}
           {task.bid_days != null && <span>{task.bid_days}d</span>}
         </div>
@@ -1639,13 +1674,13 @@ function CellInlineText({ value, placeholder, onCommit }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-1 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-1 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
   return (
     <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-[12px] font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
+      className="text-[12.5px] font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-1 rounded transition-colors"
       style={{ color: value ? '#d6d3d1' : '#57534e' }}>
       {value || placeholder || '\u2014'}
     </button>
@@ -1655,7 +1690,7 @@ function CellInlineText({ value, placeholder, onCommit }) {
 function CellDateInput({ value, onCommit }) {
   return (
     <input type="date" value={value || ''} onChange={e => onCommit(e.target.value)}
-      className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
       style={{ backgroundColor: 'transparent', color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none', colorScheme: 'dark' }} />
   )
 }
@@ -1667,9 +1702,28 @@ function CellNumberInput({ value, onCommit }) {
     <input type="number" value={draft} onChange={e => setDraft(e.target.value)}
       onBlur={() => { const n = parseFloat(draft); onCommit(isNaN(n) ? null : n) }}
       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
-      className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
       style={{ backgroundColor: 'transparent', color: (value != null && value !== '') ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none' }}
       min={0} step={0.5} />
+  )
+}
+
+// ─── Summary card ───
+function TaskBigTile({ icon: Icon, label, value, tone = 'neutral' }) {
+  const colors = {
+    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac', icon: '#15803d' },
+    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5', icon: '#7f1d1d' },
+    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e', icon: '#57534e' },
+  }[tone]
+  return (
+    <div className="flex-1 min-w-[120px] flex items-center gap-3 rounded-sm px-4 py-3"
+      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
+      <div className="flex flex-col min-w-0">
+        <span className="text-[11.5px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
+        <span className="text-lg font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      </div>
+    </div>
   )
 }
 

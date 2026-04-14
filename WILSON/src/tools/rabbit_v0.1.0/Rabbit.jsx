@@ -162,7 +162,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
 
       {/* ── Project context bar ── */}
       {activeView !== 'summary' && (
-        <ProjectContextBar onJumpToSummary={() => setActiveView('summary')} />
+        <ProjectContextBar />
       )}
 
       {/* ── View body ── */}

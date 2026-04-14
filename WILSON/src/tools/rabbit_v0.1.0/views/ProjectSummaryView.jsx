@@ -510,7 +510,7 @@ export default function ProjectSummaryView() {
 //   Progressive Disclosure — sections are visually separated, not overwhelming
 
 const STATUS_OPTIONS  = ['draft', 'active', 'on_hold', 'wrapped', 'archived']
-const TYPE_OPTIONS    = ['commercial', 'film', 'series', 'music_video', 'branded_content', 'social', 'animation', 'documentary', 'other']
+const TYPE_OPTIONS    = ['commercial', 'film', 'series', 'music_video', 'branded_content', 'social', 'animation', 'documentary', 'video_game', 'interactive_experience', 'experiential_activation', 'other']
 const TIER_OPTIONS    = ['micro', 'small', 'mid', 'large', 'enterprise']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY', 'NZD']
 const ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']
@@ -532,6 +532,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
       if (tpl.scenes_enabled !== undefined) patch.scenes_enabled = tpl.scenes_enabled
       if (tpl.levels_enabled !== undefined) patch.levels_enabled = tpl.levels_enabled
       if (tpl.experiences_enabled !== undefined) patch.experiences_enabled = tpl.experiences_enabled
+      if (tpl.uses_realtime_engine !== undefined) patch.uses_realtime_engine = tpl.uses_realtime_engine
     }
     ctx?.updateProject?.(project.id, patch)
   }, [ctx, project?.id])
@@ -729,6 +730,20 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
                     + (project.scene_separator || '_')
                     + 'SH' + String(project.scene_start_number ?? 1).padStart(project.shot_digits ?? 4, '0')}
                 </span>
+              </div>
+
+              <div style={{ height: 1, backgroundColor: '#44403c', margin: '4px 0' }} />
+
+              <span className="text-[9px] font-mono uppercase tracking-widest font-medium" style={{ color: '#78716c' }}>Timing</span>
+              <div className="grid grid-cols-2 gap-3">
+                <SettingsField label="Frames per second">
+                  <SettingsSelect
+                    value={String(project.fps || 24)}
+                    options={['24', '25', '29.97', '30', '48', '59.94', '60', '120', '240']}
+                    labels={['24 fps', '25 fps', '29.97 fps', '30 fps', '48 fps', '59.94 fps', '60 fps', '120 fps', '240 fps']}
+                    onChange={v => update('fps', parseFloat(v))}
+                  />
+                </SettingsField>
               </div>
             </div>
           )}
@@ -1069,7 +1084,7 @@ function ProjectMiniCard({ project, active, onClick }) {
           {project.title || 'Untitled'}
         </span>
         <span
-          className="px-1 py-0.5 text-[8px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          className="px-1 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
           style={{
             color: '#fff7ed',
             backgroundColor: statusColor,

@@ -26,7 +26,7 @@ const STEPS = [
   { id: 'review',  label: 'Review'  },
 ]
 
-const TYPE_OPTIONS     = ['commercial', 'film', 'series', 'music_video', 'branded_content', 'social', 'animation', 'documentary', 'other']
+const TYPE_OPTIONS     = ['commercial', 'film', 'series', 'music_video', 'branded_content', 'social', 'animation', 'documentary', 'video_game', 'interactive_experience', 'experiential_activation', 'other']
 const TIER_OPTIONS     = ['micro', 'small', 'mid', 'large', 'enterprise']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
 
@@ -220,6 +220,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
           if (tpl.scenes_enabled !== undefined) payload.scenes_enabled = tpl.scenes_enabled
           if (tpl.levels_enabled !== undefined) payload.levels_enabled = tpl.levels_enabled
           if (tpl.experiences_enabled !== undefined) payload.experiences_enabled = tpl.experiences_enabled
+          if (tpl.uses_realtime_engine !== undefined) payload.uses_realtime_engine = tpl.uses_realtime_engine
         }
       }
 

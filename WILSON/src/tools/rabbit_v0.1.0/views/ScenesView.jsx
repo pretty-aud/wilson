@@ -1,25 +1,24 @@
 // ============================================================
-// RABBIT — ScenesView (Phase 4 — full implementation)
+// RABBIT — ScenesView (v2 — restyled + timing properties)
 // ============================================================
 //
 // Scene & Shot management with table/gallery views, auto-naming,
 // detail popups, create/edit/delete workflows.
 //
-// Scenes contain shots — the table shows shots nested under their
-// parent scene with an expand/collapse toggle. Gallery lays out
-// cards in a configurable grid (sm / md / lg).
-//
-// ── Auto-naming ──
-// When creating a new scene/shot the view auto-generates a name
-// using the project's naming conventions:
-//   {project_code}{separator}SC{padded_scene#}{separator}SH{padded_shot#}
-// All naming parameters are configurable in the Project Control Panel.
+// v2 additions:
+//   • Scene: description column, time_of_day dropdown
+//   • Shot:  description column, frame_count, derived duration
+//   • Scene totals: frame_count + runtime derived from child shots
+//   • Project FPS setting drives timecode ↔ frame calculations
+//   • Summary cards (total runtime/frames/scenes/shots)
+//   • Expenses-table minimal aesthetic
 //
 // ── UX Laws applied ──
 // • Aesthetic-Usability Effect — polished dark stone surface
 // • Law of Common Region — rows as clearly bounded groups
 // • Law of Proximity — tight internal spacing, generous external gaps
 // • Von Restorff Effect — status accent bars for instant recognition
+// • Cognitive Load — summary cards reduce need to calculate
 
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
@@ -28,8 +27,14 @@ import {
   Table as TableIcon, ArrowUpDown, AlertTriangle, Save,
   Maximize2, Minimize2, Clapperboard,
   BookmarkPlus, CheckSquare, Square, MinusSquare,
+  Clock, Hash, Sun, FolderOpen, ImagePlus, ImageOff,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRateCard } from '../../../components/RateCard/useRateCard'
+import FileManager from '../components/FileManager'
+import TaskDetailPopup from '../components/TaskDetailPopup'
+import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -39,13 +44,93 @@ const SCENE_STATUSES = [
 
 const SCENE_TYPES = ['interior', 'exterior', 'int_ext', 'other']
 
+const TIME_OF_DAY_OPTIONS = [
+  'day', 'night', 'dawn', 'morning', 'afternoon', 'dusk',
+  'evening', 'later', 'moments_later', 'continuous', 'same_time',
+]
+
+const FRAMING_OPTIONS = [
+  { abbr: 'EWS',     label: 'Extreme Wide Shot' },
+  { abbr: 'WS',      label: 'Wide Shot' },
+  { abbr: 'FS',      label: 'Full Shot' },
+  { abbr: 'LS',      label: 'Long Shot' },
+  { abbr: 'MLS',     label: 'Medium Long Shot' },
+  { abbr: 'MS',      label: 'Medium Shot' },
+  { abbr: 'MCU',     label: 'Medium Close-Up' },
+  { abbr: 'CU',      label: 'Close-Up' },
+  { abbr: 'ECU',     label: 'Extreme Close-Up' },
+  { abbr: '2S',      label: 'Two-Shot' },
+  { abbr: '3S',      label: 'Three-Shot' },
+  { abbr: 'OTS',     label: 'Over-the-Shoulder' },
+  { abbr: 'POV',     label: 'Point of View' },
+  { abbr: 'INS',     label: 'Insert Shot' },
+  { abbr: 'CA',      label: 'Cutaway' },
+  { abbr: 'AER',     label: 'Aerial / Bird\'s Eye' },
+]
+
+const CAMERA_MOVEMENT_OPTIONS = [
+  { abbr: 'PAN',        label: 'Pan' },
+  { abbr: 'TILT',       label: 'Tilt' },
+  { abbr: 'DUTCH',      label: 'Dutch Tilt' },
+  { abbr: 'ROLL',       label: 'Roll' },
+  { abbr: 'DOLLY IN',   label: 'Dolly In' },
+  { abbr: 'DOLLY OUT',  label: 'Dolly Out' },
+  { abbr: 'TRUCK L',    label: 'Truck Left' },
+  { abbr: 'TRUCK R',    label: 'Truck Right' },
+  { abbr: 'PED UP',     label: 'Pedestal Up' },
+  { abbr: 'PED DOWN',   label: 'Pedestal Down' },
+  { abbr: 'CRANE UP',   label: 'Crane Up' },
+  { abbr: 'CRANE DOWN', label: 'Crane Down' },
+  { abbr: 'ZOOM IN',    label: 'Zoom In' },
+  { abbr: 'ZOOM OUT',   label: 'Zoom Out' },
+  { abbr: 'DOLLY ZOOM', label: 'Dolly Zoom / Vertigo' },
+  { abbr: 'HANDHELD',   label: 'Handheld' },
+  { abbr: 'STEADICAM',  label: 'Steadicam' },
+  { abbr: 'ARC',        label: 'Arc' },
+  { abbr: 'PUSH IN',    label: 'Push In' },
+  { abbr: 'PULL OUT',   label: 'Pull Out' },
+  { abbr: 'WHIP PAN',   label: 'Whip Pan' },
+  { abbr: 'RACK FOCUS', label: 'Rack Focus' },
+]
+
+// ── Thumbnail row heights (16:9 aspect) ──
+const BASE_ROW_H = 36
+const THUMB_SIZES = {
+  sm: { h: BASE_ROW_H },
+  md: { h: Math.round(BASE_ROW_H * 1.5) },
+  lg: { h: BASE_ROW_H * 2 },
+}
+function thumbW(h) { return Math.round(h * 16 / 9) }
+
 // ── Sort config ──
 const SORTABLE_FIELDS = [
   { value: 'name',         label: 'Name' },
   { value: 'scene_number', label: 'Scene Number' },
   { value: 'type',         label: 'Type' },
   { value: 'status',       label: 'Status' },
+  { value: 'time_of_day',  label: 'Time of Day' },
   { value: 'created_at',   label: 'Created' },
+]
+
+const SHOT_SORTABLE_FIELDS = [
+  { value: 'name',             label: 'Name' },
+  { value: 'shot_number',      label: 'Shot Number' },
+  { value: 'type',             label: 'Type' },
+  { value: 'status',           label: 'Status' },
+  { value: 'time_of_day',      label: 'Time of Day' },
+  { value: 'framing',          label: 'Framing' },
+  { value: 'camera_movement',  label: 'Camera Movement' },
+  { value: 'frame_count',      label: 'Frame Count' },
+  { value: 'created_at',       label: 'Created' },
+]
+
+const SHOT_FILTER_FIELDS = [
+  { value: 'status',          label: 'Status',          type: 'select', options: SCENE_STATUSES },
+  { value: 'type',            label: 'Type',            type: 'select', options: SCENE_TYPES },
+  { value: 'time_of_day',     label: 'Time of Day',     type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'framing',         label: 'Framing',         type: 'select', options: FRAMING_OPTIONS.map(f => f.abbr) },
+  { value: 'camera_movement', label: 'Camera Movement', type: 'select', options: CAMERA_MOVEMENT_OPTIONS.map(c => c.abbr) },
+  { value: 'name',            label: 'Name',            type: 'text' },
 ]
 
 // ── Group config ──
@@ -54,12 +139,22 @@ const GROUPABLE_FIELDS = [
   { value: 'type',   label: 'Type' },
   { value: 'status', label: 'Status' },
 ]
+const SHOT_GROUPABLE_FIELDS = [
+  { value: '',                label: 'No grouping' },
+  { value: 'scene',          label: 'Scene' },
+  { value: 'status',         label: 'Status' },
+  { value: 'type',           label: 'Type' },
+  { value: 'time_of_day',    label: 'Time of Day' },
+  { value: 'framing',        label: 'Framing' },
+  { value: 'camera_movement', label: 'Camera Movement' },
+]
 
 // ── Filter config ──
 const SCENE_FILTER_FIELDS = [
-  { value: 'status', label: 'Status', type: 'select', options: SCENE_STATUSES },
-  { value: 'type',   label: 'Type',   type: 'select', options: SCENE_TYPES },
-  { value: 'name',   label: 'Name',   type: 'text' },
+  { value: 'status',      label: 'Status',      type: 'select', options: SCENE_STATUSES },
+  { value: 'type',        label: 'Type',        type: 'select', options: SCENE_TYPES },
+  { value: 'time_of_day', label: 'Time of Day', type: 'select', options: TIME_OF_DAY_OPTIONS },
+  { value: 'name',        label: 'Name',        type: 'text' },
 ]
 
 const FILTER_OPS = {
@@ -98,6 +193,34 @@ function statusColor(status) {
 
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
 
+// ── Timecode helpers ──
+function framesToTimecode(totalFrames, fps) {
+  if (!totalFrames || !fps || fps <= 0) return '00:00:00:00'
+  const fpsCeil = Math.ceil(fps)
+  const f = Math.round(totalFrames)
+  const secs = Math.floor(f / fpsCeil)
+  const rem = f % fpsCeil
+  const hh = Math.floor(secs / 3600)
+  const mm = Math.floor((secs % 3600) / 60)
+  const ss = secs % 60
+  const fDigits = fpsCeil >= 100 ? 3 : 2
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}:${String(rem).padStart(fDigits, '0')}`
+}
+
+function fmtNumber(n) {
+  if (n == null || isNaN(n)) return '0'
+  return n.toLocaleString()
+}
+
+function fileSlugify(str) {
+  return str.trim()
+    .replace(/[^a-zA-Z0-9\s]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join('-')
+}
+
 
 // ─────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -109,16 +232,29 @@ export default function ScenesView() {
   const shots = ctx?.shots || []
   const assets = ctx?.assets || []
   const tasks = ctx?.tasks || []
+  const phases = ctx?.phases || []
+  const fps = project?.fps || 24
 
-  // ── View state ──
-  const [viewMode, setViewMode]     = useState('table')   // table | gallery
-  const [contentMode, setContentMode] = useState('scenes') // scenes | shots
-  const [search, setSearch]         = useState('')
-  const [filters, setFilters]       = useState([])
-  const [sortField, setSortField]   = useState('')
-  const [sortDir, setSortDir]       = useState('asc')
-  const [groupBy, setGroupBy]       = useState('')
-  const [gallerySize, setGallerySize] = useState('md')     // sm | md | lg
+  // ── Team members + rate card (for task creation popup) ──
+  const tm = useTeamMembers()
+  const rc = useRateCard()
+  const teamAssignments = ctx?.teamAssignments || []
+  const memberById = useMemo(() => { const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m }, [tm.members])
+  const projectMembers = useMemo(() => teamAssignments.map(a => memberById[a.member_id]).filter(Boolean), [teamAssignments, memberById])
+  const roleEntries = useMemo(() => { const seen = new Set(); return (rc.entries || []).filter(e => { if (!e.role_slug || seen.has(e.role_slug)) return false; seen.add(e.role_slug); return true }) }, [rc.entries])
+
+  // ── View / content state ──
+  const [viewMode, setViewMode] = useState('table')          // 'table' | 'gallery'
+  const [contentMode, setContentMode] = useState('scenes')    // 'scenes' | 'shots'
+  const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState([])
+  const [sortField, setSortField] = useState('')
+  const [sortDir, setSortDir] = useState('asc')
+  const [groupBy, setGroupBy] = useState('')
+  const [shotGroupBy, setShotGroupBy] = useState('scene')
+  const [gallerySize, setGallerySize] = useState('md')
+  const [thumbSize, setThumbSize] = useState('sm')
+  const [thumbRevision, setThumbRevision] = useState(0)
   const [showFilterPanel, setShowFilterPanel] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
@@ -129,9 +265,10 @@ export default function ScenesView() {
   const [showSaveDialog, setShowSaveDialog] = useState(false)
   const [saveName, setSaveName] = useState('')
 
-  // ── Popup state ──
+  // ── Popups ──
   const [detailSceneId, setDetailSceneId] = useState(null)
-  const [confirmDelete, setConfirmDelete]   = useState(null) // { type:'scene'|'shot', id, name }
+  const [detailShotId, setDetailShotId] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null)
   const [shotPickerOpen, setShotPickerOpen] = useState(false)
   const shotPickerRef = useRef(null)
 
@@ -169,12 +306,33 @@ export default function ScenesView() {
       if (!map[key]) map[key] = []
       map[key].push(s)
     }
-    // Sort each bucket by shot_number
     for (const key of Object.keys(map)) {
       map[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
     }
     return map
   }, [shots])
+
+  // ── Frame / runtime totals per scene ──
+  const sceneTotals = useMemo(() => {
+    const result = {}
+    for (const sc of scenes) {
+      const sceneShots = shotsByScene[sc.id] || []
+      const totalFrames = sceneShots.reduce((sum, sh) => sum + (Number(sh.frame_count) || 0), 0)
+      result[sc.id] = { totalFrames, runtime: framesToTimecode(totalFrames, fps) }
+    }
+    return result
+  }, [scenes, shotsByScene, fps])
+
+  // ── Grand totals ──
+  const grandTotals = useMemo(() => {
+    const totalFrames = scenes.reduce((sum, sc) => sum + (sceneTotals[sc.id]?.totalFrames || 0), 0)
+    return {
+      runtime: framesToTimecode(totalFrames, fps),
+      frames: totalFrames,
+      scenes: scenes.length,
+      shots: shots.length,
+    }
+  }, [scenes, shots.length, sceneTotals, fps])
 
   // ── Auto-naming helpers ──
   const nextSceneNumber = useMemo(() => {
@@ -230,13 +388,13 @@ export default function ScenesView() {
         shot_number: nextNum,
         status: 'not_started',
         type: 'other',
+        frame_count: 0,
       })
     } catch (err) { console.error('Failed to create shot:', err) }
   }, [ctx, scenes, nextShotNumberForScene, formatShotCode])
 
   const handleDeleteScene = useCallback(async (id) => {
     try {
-      // Delete child shots first
       const childShots = shotsByScene[id] || []
       for (const shot of childShots) {
         await ctx?.deleteShot?.(shot.id)
@@ -257,7 +415,7 @@ export default function ScenesView() {
   // ── Saved views ──
   function saveCurrentView() {
     if (!saveName.trim()) return
-    const view = { id: Date.now().toString(), name: saveName.trim(), filters, sortField, sortDir, groupBy, viewMode, gallerySize, contentMode }
+    const view = { id: Date.now().toString(), name: saveName.trim(), filters, sortField, sortDir, groupBy, viewMode, gallerySize, thumbSize, contentMode }
     const next = [...savedViews, view]
     setSavedViews(next)
     localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
@@ -269,130 +427,178 @@ export default function ScenesView() {
     setSortField(view.sortField || '')
     setSortDir(view.sortDir || 'asc')
     setGroupBy(view.groupBy || '')
-    if (view.viewMode) setViewMode(view.viewMode)
-    if (view.gallerySize) setGallerySize(view.gallerySize)
+    setViewMode(view.viewMode || 'table')
+    setGallerySize(view.gallerySize || 'md')
+    if (view.thumbSize) setThumbSize(view.thumbSize)
     if (view.contentMode) setContentMode(view.contentMode)
   }
-  function deleteSavedView(id) {
+  function deleteView(id) {
     const next = savedViews.filter(v => v.id !== id)
     setSavedViews(next)
     localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(next))
   }
 
-  // ── Filter CRUD ──
+  // ── Filter helpers ──
   function addFilter() { setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }]) }
-  function updateFilter(idx, patch) { setFilters(prev => prev.map((f, i) => i === idx ? { ...f, ...patch } : f)) }
-  function removeFilter(idx) { setFilters(prev => prev.filter((_, i) => i !== idx)) }
+  function updateFilter(index, patch) { setFilters(prev => prev.map((f, i) => i === index ? { ...f, ...patch } : f)) }
+  function removeFilter(index) { setFilters(prev => prev.filter((_, i) => i !== index)) }
 
-  // ── Filtering (search + complex filters) ──
-  const filtered = useMemo(() => {
-    let result = scenes
-    const s = search.trim().toLowerCase()
-    if (s) result = result.filter(sc => (sc.name || '').toLowerCase().includes(s))
-    for (const f of filters) {
-      if (!f.field) continue
-      result = result.filter(sc => {
-        const val = sc[f.field]
-        switch (f.op) {
-          case 'is':           return val === f.value
-          case 'is_not':       return val !== f.value
-          case 'is_empty':     return !val
-          case 'is_not_empty': return !!val
-          case 'contains':     return (val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          case 'not_contains': return !(val || '').toLowerCase().includes((f.value || '').toLowerCase())
-          default: return true
-        }
-      })
+  function matchesFilter(row, f) {
+    const val = (row[f.field] || '').toString().toLowerCase()
+    const fv = (f.value || '').toString().toLowerCase()
+    switch (f.op) {
+      case 'is':           return val === fv
+      case 'is_not':       return val !== fv
+      case 'contains':     return val.includes(fv)
+      case 'not_contains': return !val.includes(fv)
+      case 'is_empty':     return !val
+      case 'is_not_empty': return !!val
+      default:             return true
     }
-    return result
+  }
+
+  // ── Scene filtering + sorting ──
+  const filtered = useMemo(() => {
+    let list = scenes
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+    }
+    for (const f of filters) {
+      if (!f.value && !['is_empty', 'is_not_empty'].includes(f.op)) continue
+      list = list.filter(s => matchesFilter(s, f))
+    }
+    return list
   }, [scenes, search, filters])
 
-  // ── Sorting ──
   const sorted = useMemo(() => {
-    if (!sortField) return [...filtered].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-    const dir = sortDir === 'desc' ? -1 : 1
+    if (!sortField) return filtered
     return [...filtered].sort((a, b) => {
-      let va = a[sortField] ?? ''
-      let vb = b[sortField] ?? ''
+      let av = a[sortField] ?? '', bv = b[sortField] ?? ''
       if (sortField === 'status') {
-        va = SCENE_STATUSES.indexOf(va); vb = SCENE_STATUSES.indexOf(vb)
+        av = SCENE_STATUSES.indexOf(av); bv = SCENE_STATUSES.indexOf(bv)
       } else if (sortField === 'type') {
-        va = SCENE_TYPES.indexOf(va); vb = SCENE_TYPES.indexOf(vb)
-      } else if (typeof va === 'string') {
-        va = va.toLowerCase(); vb = (vb || '').toLowerCase()
+        av = SCENE_TYPES.indexOf(av); bv = SCENE_TYPES.indexOf(bv)
+      } else if (sortField === 'time_of_day') {
+        av = TIME_OF_DAY_OPTIONS.indexOf(av); bv = TIME_OF_DAY_OPTIONS.indexOf(bv)
+      } else if (typeof av === 'string') {
+        av = av.toLowerCase(); bv = (bv || '').toLowerCase()
       }
-      if (va < vb) return -1 * dir
-      if (va > vb) return 1 * dir
-      return 0
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sortDir === 'asc' ? cmp : -cmp
     })
   }, [filtered, sortField, sortDir])
 
-  // ── Grouping ──
+  // ── Groups ──
+  const groupAccent = useCallback((key) => {
+    if (groupBy === 'status') return statusColor(key)
+    return '#fb923c'
+  }, [groupBy])
+
   const groups = useMemo(() => {
     if (!groupBy) return null
     const map = {}
-    for (const sc of sorted) {
-      let key
-      if (groupBy === 'type')   key = sc.type || 'other'
-      else if (groupBy === 'status') key = sc.status || 'not_started'
-      else key = '__all__'
-      if (!map[key]) map[key] = []
-      map[key].push(sc)
+    for (const s of sorted) {
+      const key = s[groupBy] || '__empty__'
+      if (!map[key]) map[key] = { key, label: fmt(key === '__empty__' ? 'none' : key), scenes: [] }
+      map[key].scenes.push(s)
     }
-    let sortedKeys
-    if (groupBy === 'type')   sortedKeys = SCENE_TYPES.filter(t => map[t])
-    else if (groupBy === 'status') sortedKeys = SCENE_STATUSES.filter(s => map[s])
-    else sortedKeys = Object.keys(map)
-    return sortedKeys.map(key => ({
-      key,
-      label: fmt(key),
-      scenes: map[key] || [],
-    }))
+    return Object.values(map)
   }, [sorted, groupBy])
 
-  function groupAccent(key) {
-    if (groupBy === 'status') return statusColor(key)
-    return '#fb923c'
-  }
-
-  // ── Shot filtering / sorting / grouping ──
-  const filteredShots = useMemo(() => {
-    let result = shots
-    const s = search.trim().toLowerCase()
-    if (s) result = result.filter(sh => (sh.name || '').toLowerCase().includes(s))
-    return result
-  }, [shots, search])
-
+  // ── Shot mode filtering + sorting ──
   const sceneMap = useMemo(() => {
-    const map = {}
-    for (const sc of scenes) map[sc.id] = sc
-    return map
+    const m = {}
+    for (const s of scenes) m[s.id] = s
+    return m
   }, [scenes])
 
+  const filteredShots = useMemo(() => {
+    let list = shots
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.description || '').toLowerCase().includes(q))
+    }
+    if (contentMode === 'shots') {
+      for (const f of filters) {
+        if (!f.value && !['is_empty', 'is_not_empty'].includes(f.op)) continue
+        list = list.filter(s => matchesFilter(s, f))
+      }
+    }
+    return list
+  }, [shots, search, filters, contentMode])
+
+  const sortedShots = useMemo(() => {
+    if (contentMode !== 'shots' || !sortField) return filteredShots
+    return [...filteredShots].sort((a, b) => {
+      let av = a[sortField] ?? '', bv = b[sortField] ?? ''
+      if (sortField === 'status') {
+        av = SCENE_STATUSES.indexOf(av); bv = SCENE_STATUSES.indexOf(bv)
+      } else if (sortField === 'type') {
+        av = SCENE_TYPES.indexOf(av); bv = SCENE_TYPES.indexOf(bv)
+      } else if (sortField === 'time_of_day') {
+        av = TIME_OF_DAY_OPTIONS.indexOf(av); bv = TIME_OF_DAY_OPTIONS.indexOf(bv)
+      } else if (sortField === 'frame_count' || sortField === 'shot_number') {
+        av = Number(av) || 0; bv = Number(bv) || 0
+      } else if (typeof av === 'string') {
+        av = av.toLowerCase(); bv = (bv || '').toLowerCase()
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [filteredShots, sortField, sortDir, contentMode])
+
   const shotGroups = useMemo(() => {
-    // group filtered shots by parent scene, sorted by scene number
+    // No grouping — flat list in one group
+    if (!shotGroupBy) {
+      return [{ key: '__all__', label: null, groupType: 'none', shots: sortedShots }]
+    }
+
+    // Group by scene (original behavior)
+    if (shotGroupBy === 'scene') {
+      const buckets = {}
+      for (const sh of sortedShots) {
+        const key = sh.scene_id || '__unlinked__'
+        if (!buckets[key]) buckets[key] = []
+        buckets[key].push(sh)
+      }
+      for (const key of Object.keys(buckets)) {
+        buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
+      }
+      const keys = Object.keys(buckets).sort((a, b) => {
+        const scA = sceneMap[a]; const scB = sceneMap[b]
+        return (scA?.scene_number ?? 9999) - (scB?.scene_number ?? 9999)
+      })
+      return keys.map(key => ({
+        key,
+        sceneId: key,
+        scene: sceneMap[key] || null,
+        label: sceneMap[key]?.name || 'Unlinked shots',
+        groupType: 'scene',
+        shots: buckets[key],
+      }))
+    }
+
+    // Group by field (status, type, time_of_day, framing, camera_movement)
+    const field = shotGroupBy
     const buckets = {}
-    for (const sh of filteredShots) {
-      const key = sh.scene_id || '__unlinked__'
-      if (!buckets[key]) buckets[key] = []
-      buckets[key].push(sh)
+    for (const sh of sortedShots) {
+      const val = sh[field] || '__none__'
+      if (!buckets[val]) buckets[val] = []
+      buckets[val].push(sh)
     }
-    // sort shots within each bucket
-    for (const key of Object.keys(buckets)) {
-      buckets[key].sort((a, b) => (a.shot_number ?? 0) - (b.shot_number ?? 0))
-    }
-    // order buckets by scene number
     const keys = Object.keys(buckets).sort((a, b) => {
-      const scA = sceneMap[a]; const scB = sceneMap[b]
-      return (scA?.scene_number ?? 9999) - (scB?.scene_number ?? 9999)
+      if (a === '__none__') return 1
+      if (b === '__none__') return -1
+      return a.localeCompare(b)
     })
     return keys.map(key => ({
-      sceneId: key,
-      scene: sceneMap[key] || null,
-      label: sceneMap[key]?.name || 'Unlinked shots',
+      key,
+      label: key === '__none__' ? 'Unset' : (field === 'framing' ? key : fmt(key)),
+      groupType: 'field',
       shots: buckets[key],
     }))
-  }, [filteredShots, sceneMap])
+  }, [sortedShots, sceneMap, shotGroupBy])
 
   const totalFilteredShots = useMemo(() => shotGroups.reduce((n, g) => n + g.shots.length, 0), [shotGroups])
 
@@ -410,7 +616,7 @@ export default function ScenesView() {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[13px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
+        <span className="text-[13.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
           No project loaded
         </span>
       </div>
@@ -419,209 +625,213 @@ export default function ScenesView() {
 
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+
+      {/* ── Summary cards (always visible) ── */}
+      <div className="flex gap-3 px-4 pt-4 pb-2 flex-wrap flex-shrink-0">
+        <BigTile icon={Clock} label="Total Runtime" value={grandTotals.runtime} />
+        <BigTile icon={Hash} label="Total Frames" value={fmtNumber(grandTotals.frames)} />
+        <BigTile icon={Film} label="Scenes" value={grandTotals.scenes} />
+        <BigTile icon={Clapperboard} label="Shots" value={grandTotals.shots} />
+      </div>
+
       {/* ── Toolbar ── */}
-      <div className="flex items-center gap-3 px-4 py-2.5 flex-wrap" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}>
+      <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
 
-        {/* Filter (scene mode only) */}
-        {contentMode === 'scenes' && (
-          <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-            style={{ color: filters.length > 0 ? '#fb923c' : '#a8a29e', border: '1px solid #44403c' }}>
-            <Filter className="w-3.5 h-3.5" />
-            Filter{filters.length > 0 ? ` (${filters.length})` : ''}
-          </button>
-        )}
+        {/* Content mode toggle */}
+        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+          {['scenes', 'shots'].map(m => (
+            <button key={m} type="button" onClick={() => setContentMode(m)}
+              className="px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
+              style={{
+                color: contentMode === m ? '#fff7ed' : '#78716c',
+                backgroundColor: contentMode === m ? '#ea580c' : 'transparent',
+              }}>
+              {m === 'scenes' ? 'Scenes' : 'Shots'}
+            </button>
+          ))}
+        </div>
 
-        {/* Content mode toggle: Scenes | Shots */}
-        <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
-          <button type="button" onClick={() => setContentMode('scenes')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-            style={{
-              backgroundColor: contentMode === 'scenes' ? '#ea580c' : 'transparent',
-              color: contentMode === 'scenes' ? '#fff7ed' : '#78716c',
-            }}>
-            <Film className="w-3 h-3" /> Scenes
-          </button>
-          <button type="button" onClick={() => setContentMode('shots')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-            style={{
-              backgroundColor: contentMode === 'shots' ? '#ea580c' : 'transparent',
-              color: contentMode === 'shots' ? '#fff7ed' : '#78716c',
-              borderLeft: '1px solid #44403c',
-            }}>
-            <Clapperboard className="w-3 h-3" /> Shots
+        {/* Filter */}
+        <button type="button" onClick={() => setShowFilterPanel(!showFilterPanel)}
+          className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: filters.length > 0 ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
+          <Filter className="w-3 h-3" />
+          Filter{filters.length > 0 ? ` (${filters.length})` : ''}
+        </button>
+
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+
+        {/* Sort */}
+        <div className="flex items-center gap-1">
+          <select value={sortField} onChange={e => setSortField(e.target.value)}
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 150 }}>
+            <option value="">Sort…</option>
+            {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+          <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+            className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
+            style={{ color: sortField ? '#fb923c' : '#57534e' }}>
+            <ArrowUpDown className="w-3.5 h-3.5" />
           </button>
         </div>
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
-
-        {/* Sort (scene mode only) */}
-        {contentMode === 'scenes' && (
-          <>
-            <div className="flex items-center gap-1.5">
-              <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-              <select value={sortField} onChange={e => setSortField(e.target.value)}
-                className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-                <option value="">No sort</option>
-                {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-              {sortField && (
-                <button type="button" onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
-                  className="px-2 py-1.5 text-[10px] font-mono uppercase rounded hover:bg-stone-700 transition-colors"
-                  style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-                  {sortDir === 'asc' ? 'A\u2192Z' : 'Z\u2192A'}
-                </button>
-              )}
-            </div>
-            <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
-          </>
+        {/* Group */}
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+        {contentMode === 'scenes' ? (
+          <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
+        ) : (
+          <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            style={{ backgroundColor: '#292524', color: shotGroupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
+            {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+          </select>
         )}
 
-        {/* Group (scene mode only) */}
-        {contentMode === 'scenes' && (
-          <>
-            <div className="flex items-center gap-1.5">
-              <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-              <select value={groupBy}
-                onChange={e => setGroupBy(e.target.value)}
-                className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
-                {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-              </select>
-            </div>
-            <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
-          </>
-        )}
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* View mode toggle */}
-        <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <div className="flex items-center rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
           <button type="button" onClick={() => setViewMode('table')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-            style={{
-              backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent',
-              color: viewMode === 'table' ? '#fff7ed' : '#78716c',
-            }}>
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
+            style={{ color: viewMode === 'table' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'table' ? '#ea580c' : 'transparent' }}>
             <TableIcon className="w-3 h-3" /> Table
           </button>
           <button type="button" onClick={() => setViewMode('gallery')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors"
-            style={{
-              backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent',
-              color: viewMode === 'gallery' ? '#fff7ed' : '#78716c',
-              borderLeft: '1px solid #44403c',
-            }}>
+            className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider transition-colors"
+            style={{ color: viewMode === 'gallery' ? '#fff7ed' : '#78716c', backgroundColor: viewMode === 'gallery' ? '#ea580c' : 'transparent' }}>
             <LayoutGrid className="w-3 h-3" /> Gallery
           </button>
         </div>
 
-        {/* Gallery size selector (only in gallery mode) */}
-        {viewMode === 'gallery' && (
-          <>
-            <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
-            <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
-              {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
-                <button key={key} type="button" onClick={() => setGallerySize(key)}
-                  className="flex items-center justify-center w-7 h-7 transition-colors"
-                  title={`${key} cards`}
-                  style={{
-                    backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
-                    color: gallerySize === key ? '#fff7ed' : '#78716c',
-                    borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
-                  }}>
-                  <Square style={{ width: size, height: size }} />
-                </button>
-              ))}
-            </div>
-          </>
+        {/* Thumbnail size (table mode) */}
+        {viewMode === 'table' && (
+          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
+              <button key={key} type="button" onClick={() => setThumbSize(key)}
+                className="flex items-center justify-center w-7 h-7 transition-colors"
+                title={`${key} thumbnails`}
+                style={{
+                  backgroundColor: thumbSize === key ? '#ea580c' : 'transparent',
+                  color: thumbSize === key ? '#fff7ed' : '#78716c',
+                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
+                }}>
+                <Square style={{ width: size, height: size }} />
+              </button>
+            ))}
+          </div>
         )}
 
-        {/* Saved views */}
-        <SceneSavedViewsDropdown views={savedViews} onLoad={loadView} onDelete={deleteSavedView} onSave={() => setShowSaveDialog(true)} />
+        {/* Gallery size (gallery mode only) */}
+        {viewMode === 'gallery' && (
+          <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+            {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
+              <button key={key} type="button" onClick={() => setGallerySize(key)}
+                className="flex items-center justify-center w-7 h-7 transition-colors"
+                title={`${key} cards`}
+                style={{
+                  backgroundColor: gallerySize === key ? '#ea580c' : 'transparent',
+                  color: gallerySize === key ? '#fff7ed' : '#78716c',
+                  borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
+                }}>
+                <Square style={{ width: size, height: size }} />
+              </button>
+            ))}
+          </div>
+        )}
 
-        {/* Divider */}
-        <div style={{ width: 1, height: 20, backgroundColor: '#44403c' }} />
+        {/* FPS badge */}
+        <span className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          style={{ color: '#fb923c', backgroundColor: '#292524', border: '1px solid #44403c' }}>
+          {fps} fps
+        </span>
+
+        {/* Saved views */}
+        <SceneSavedViewsDropdown
+          views={savedViews}
+          onLoad={loadView}
+          onDelete={deleteView}
+          onSaveRequest={() => setShowSaveDialog(true)}
+        />
+
+        <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
         {/* Search */}
-        <div className="flex items-center gap-1.5 flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
+        <div className="flex items-center flex-1 min-w-[120px] max-w-[240px] rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#292524' }}>
+          <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-            placeholder={contentMode === 'shots' ? 'Search shots...' : 'Search scenes...'}
-            className="flex-1 px-2.5 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+            placeholder="Search…"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            style={{ color: '#d6d3d1' }} />
           {search && (
-            <button type="button" onClick={() => setSearch('')}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
             </button>
           )}
         </div>
 
-        {/* Right: count + add buttons */}
-        <div className="flex items-center gap-2 ml-auto">
-          <span className="text-[10px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
-            {contentMode === 'shots'
-              ? `${totalFilteredShots}/${shots.length} shots`
-              : `${sorted.length}/${scenes.length}`
-            }
-          </span>
+        {/* Count */}
+        <span className="text-[10.5px] font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
+          {contentMode === 'scenes'
+            ? `${filtered.length}/${scenes.length}`
+            : `${totalFilteredShots}/${shots.length}`}
+        </span>
 
-          {/* New scene button */}
+        {/* Actions */}
+        <div className="ml-auto flex items-center gap-1.5">
           <button type="button" onClick={handleNewScene}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
             style={{
-              color: contentMode === 'scenes' ? '#fff7ed' : '#a8a29e',
+              color: contentMode === 'scenes' ? '#fff7ed' : '#78716c',
               backgroundColor: contentMode === 'scenes' ? '#ea580c' : 'transparent',
               border: contentMode === 'scenes' ? '1px solid #c2410c' : '1px solid #44403c',
             }}>
-            <Plus className="w-3.5 h-3.5" /> Scene
+            <Plus className="w-3 h-3" /> Scene
           </button>
 
-          {/* New shot button with scene picker */}
-          <div className="relative" ref={shotPickerRef}>
+          {/* Shot button with scene picker */}
+          <div ref={shotPickerRef} className="relative">
             <button type="button"
               onClick={() => {
-                if (scenes.length === 0) return
                 if (scenes.length === 1) { handleNewShot(scenes[0].id); return }
-                setShotPickerOpen(o => !o)
+                if (scenes.length > 1) setShotPickerOpen(o => !o)
               }}
               disabled={scenes.length === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors disabled:opacity-40"
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:brightness-110 disabled:opacity-30 disabled:cursor-not-allowed"
               style={{
-                color: contentMode === 'shots' ? '#fff7ed' : '#a8a29e',
+                color: contentMode === 'shots' ? '#fff7ed' : '#78716c',
                 backgroundColor: contentMode === 'shots' ? '#ea580c' : 'transparent',
                 border: contentMode === 'shots' ? '1px solid #c2410c' : '1px solid #44403c',
-              }}
-              title={scenes.length === 0 ? 'Create a scene first' : 'Add a new shot'}>
-              <Plus className="w-3.5 h-3.5" /> Shot
+              }}>
+              <Plus className="w-3 h-3" /> Shot
               {scenes.length > 1 && <ChevronDown className="w-3 h-3 ml-0.5" />}
             </button>
-
-            {/* Scene picker dropdown */}
-            {shotPickerOpen && (
-              <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-50"
-                style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-                <div className="px-3 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-                  <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>
-                    Add shot to scene
-                  </span>
+            {shotPickerOpen && scenes.length > 1 && (
+              <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
+                style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 200, maxHeight: 260 }}>
+                <div className="px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c', borderBottom: '1px solid #44403c' }}>
+                  Add shot to scene:
                 </div>
-                <div className="max-h-48 overflow-auto">
-                  {scenes.map(sc => (
-                    <button key={sc.id} type="button"
-                      onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-stone-700/50 transition-colors"
-                      style={{ borderBottom: '1px solid #1c1917' }}>
-                      <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: statusColor(sc.status) }} />
-                      <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>
-                        {sc.name || 'Untitled scene'}
-                      </span>
-                      <span className="text-[9px] font-mono ml-auto flex-shrink-0" style={{ color: '#57534e' }}>
-                        {(shotsByScene[sc.id] || []).length} shots
-                      </span>
-                    </button>
-                  ))}
+                <div className="overflow-y-auto" style={{ maxHeight: 220 }}>
+                  {scenes
+                    .slice()
+                    .sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0))
+                    .map(sc => (
+                      <button key={sc.id} type="button"
+                        onClick={() => { handleNewShot(sc.id); setShotPickerOpen(false) }}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-left text-[11.5px] font-mono hover:bg-stone-700 transition-colors"
+                        style={{ borderBottom: '1px solid #1c1917', color: '#d6d3d1' }}>
+                        <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
+                        <span className="flex-1 truncate">{sc.name || 'Untitled'}</span>
+                        <span className="text-[9.5px] font-mono ml-auto flex-shrink-0" style={{ color: '#57534e' }}>
+                          {(shotsByScene[sc.id] || []).length} shots
+                        </span>
+                      </button>
+                    ))}
                 </div>
               </div>
             )}
@@ -630,23 +840,30 @@ export default function ScenesView() {
       </div>
 
       {/* ── Filter panel ── */}
-      {showFilterPanel && contentMode === 'scenes' && (
-        <SceneFilterPanel filters={filters} onAdd={addFilter} onUpdate={updateFilter} onRemove={removeFilter} onClose={() => setShowFilterPanel(false)} />
+      {showFilterPanel && (
+        <SceneFilterPanel
+          filters={filters}
+          filterFields={contentMode === 'shots' ? SHOT_FILTER_FIELDS : SCENE_FILTER_FIELDS}
+          onAdd={addFilter}
+          onUpdate={updateFilter}
+          onRemove={removeFilter}
+          onClose={() => setShowFilterPanel(false)}
+        />
       )}
 
       {/* ── Save view dialog ── */}
       {showSaveDialog && (
-        <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+        <div className="px-4 py-2.5 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-48"
             style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
           <button type="button" onClick={saveCurrentView}
-            className="px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>Save</button>
           <button type="button" onClick={() => setShowSaveDialog(false)}
-            className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+            className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -655,12 +872,16 @@ export default function ScenesView() {
       {/* ── Body ── */}
       <div className="flex-1 overflow-auto">
         {contentMode === 'shots' ? (
-          /* ── SHOT MODE ── */
           viewMode === 'table' ? (
             <ShotTable
               shotGroups={shotGroups}
               ctx={ctx}
+              fps={fps}
+              thumbSize={thumbSize}
+              thumbRevision={thumbRevision}
+              onThumbChanged={() => setThumbRevision(r => r + 1)}
               onOpenSceneDetail={setDetailSceneId}
+              onOpenShotDetail={setDetailShotId}
               onNewShot={handleNewShot}
               onRequestDelete={setConfirmDelete}
             />
@@ -668,28 +889,28 @@ export default function ScenesView() {
             <ShotGallery
               shotGroups={shotGroups}
               gallerySize={gallerySize}
+              fps={fps}
               ctx={ctx}
               onOpenSceneDetail={setDetailSceneId}
+              onOpenShotDetail={setDetailShotId}
               onRequestDelete={setConfirmDelete}
             />
           )
         ) : (
-          /* ── SCENE MODE ── */
           viewMode === 'table' ? (
             groups ? (
-              // Table — grouped
               groups.map(g => (
                 <div key={g.key}>
-                  <div className="flex items-center gap-2 px-5 py-2.5 cursor-pointer hover:bg-stone-800/30 transition-colors"
-                    style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${groupAccent(g.key)}` }}
+                  <div className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-stone-800/30 transition-colors"
+                    style={{ borderBottom: '1px solid #292524', borderLeft: `3px solid ${groupAccent(g.key)}`, backgroundColor: '#292524' }}
                     onClick={() => toggleGroup(g.key)}>
                     {collapsedGroups.has(g.key)
                       ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
                       : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-                    <span className="text-[12px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
+                    <span className="text-[11.5px] font-mono uppercase tracking-wider font-bold" style={{ color: groupAccent(g.key) }}>
                       {g.label}
                     </span>
-                    <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+                    <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
                       ({g.scenes.length})
                     </span>
                   </div>
@@ -697,10 +918,16 @@ export default function ScenesView() {
                     <SceneTable
                       scenes={g.scenes}
                       shotsByScene={shotsByScene}
+                      sceneTotals={sceneTotals}
                       assetCountByScene={assetCountByScene}
                       taskCountByScene={taskCountByScene}
+                      fps={fps}
+                      thumbSize={thumbSize}
+                      thumbRevision={thumbRevision}
+                      onThumbChanged={() => setThumbRevision(r => r + 1)}
                       ctx={ctx}
                       onOpenDetail={setDetailSceneId}
+                      onOpenShotDetail={setDetailShotId}
                       onNewShot={handleNewShot}
                       onRequestDelete={setConfirmDelete}
                     />
@@ -708,24 +935,28 @@ export default function ScenesView() {
                 </div>
               ))
             ) : (
-              // Table — ungrouped
               <SceneTable
                 scenes={sorted}
                 shotsByScene={shotsByScene}
+                sceneTotals={sceneTotals}
                 assetCountByScene={assetCountByScene}
                 taskCountByScene={taskCountByScene}
+                fps={fps}
+                thumbSize={thumbSize}
                 ctx={ctx}
                 onOpenDetail={setDetailSceneId}
+                onOpenShotDetail={setDetailShotId}
                 onNewShot={handleNewShot}
                 onRequestDelete={setConfirmDelete}
               />
             )
           ) : (
-            // Gallery
             <SceneGallery
               scenes={groups ? groups.flatMap(g => g.scenes) : sorted}
               shotsByScene={shotsByScene}
+              sceneTotals={sceneTotals}
               gallerySize={gallerySize}
+              fps={fps}
               onOpenDetail={setDetailSceneId}
               onRequestDelete={setConfirmDelete}
             />
@@ -738,11 +969,33 @@ export default function ScenesView() {
         <SceneDetailPopup
           sceneId={detailSceneId}
           ctx={ctx}
+          fps={fps}
           shotsByScene={shotsByScene}
+          sceneTotals={sceneTotals}
           assetCountByScene={assetCountByScene}
           taskCountByScene={taskCountByScene}
+          projectMembers={projectMembers}
+          roleEntries={roleEntries}
+          thumbRevision={thumbRevision}
+          onThumbChanged={() => setThumbRevision(r => r + 1)}
           onNewShot={handleNewShot}
           onClose={() => setDetailSceneId(null)}
+          onRequestDelete={setConfirmDelete}
+          onOpenShot={setDetailShotId}
+        />
+      )}
+
+      {/* ── Shot detail popup ── */}
+      {detailShotId && (
+        <ShotDetailPopup
+          shotId={detailShotId}
+          ctx={ctx}
+          fps={fps}
+          projectMembers={projectMembers}
+          roleEntries={roleEntries}
+          thumbRevision={thumbRevision}
+          onThumbChanged={() => setThumbRevision(r => r + 1)}
+          onClose={() => setDetailShotId(null)}
           onRequestDelete={setConfirmDelete}
         />
       )}
@@ -768,11 +1021,44 @@ export default function ScenesView() {
 }
 
 
+// ─── BigTile — summary card ───
+function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
+  const colors = {
+    good:    { bg: '#1c1917', border: '#15803d', text: '#86efac', label: '#86efac', icon: '#15803d' },
+    danger:  { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5', label: '#fca5a5', icon: '#7f1d1d' },
+    neutral: { bg: '#1c1917', border: '#44403c', text: '#d6d3d1', label: '#a8a29e', icon: '#57534e' },
+  }[tone]
+  return (
+    <div className="flex-1 min-w-[120px] flex items-center gap-3 rounded-sm px-4 py-3"
+      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
+      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: colors.icon }} />
+      <div className="flex flex-col min-w-0">
+        <span className="text-[11.5px] font-mono uppercase tracking-widest" style={{ color: colors.label }}>{label}</span>
+        <span className="text-lg font-mono font-bold" style={{ color: colors.text }}>{value}</span>
+      </div>
+    </div>
+  )
+}
+
+
 // ─── Scene table ───
-function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene, ctx, onOpenDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+  const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
+  const tw = thumbW(rowH)
   const [expandedScenes, setExpandedScenes] = useState(new Set())
 
-  // ── Multi-select ──
+  // ── Nested-shot multi-select ──
+  const [selectedNestedShots, setSelectedNestedShots] = useState(new Set())
+  function toggleNestedShot(id) { setSelectedNestedShots(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
+  function clearNestedSelection() { setSelectedNestedShots(new Set()) }
+  function bulkUpdateNestedShots(patch) { for (const id of selectedNestedShots) ctx?.updateShot?.(id, patch); clearNestedSelection() }
+  function bulkDeleteNestedShots() {
+    if (!window.confirm(`Delete ${selectedNestedShots.size} shot${selectedNestedShots.size === 1 ? '' : 's'}?`)) return
+    for (const id of selectedNestedShots) ctx?.deleteShot?.(id)
+    clearNestedSelection()
+  }
+
+  // ── Scene multi-select ──
   const [selected, setSelected] = useState(new Set())
   const allIds = useMemo(() => scenes.map(s => s.id), [scenes])
   const allSelected = allIds.length > 0 && allIds.every(id => selected.has(id))
@@ -803,7 +1089,7 @@ function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene,
   if (scenes.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No scenes yet
         </span>
       </div>
@@ -811,37 +1097,40 @@ function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene,
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-1 p-3">
       {/* Header */}
-      <div className="relative flex items-center gap-0 px-4 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-8 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
-          {allSelected ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-           : someSelected ? <MinusSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-           : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
+        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
+          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
         </span>
-        <span className="w-8" />
-        <span className="flex-1 text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Name</span>
-        <span className="w-24 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="w-20 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scene #</span>
-        <span className="w-28 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Assets</span>
-        <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Tasks</span>
-        <span className="w-20" />
+        <span className="w-7" />
+        <span style={{ width: tw }} className="text-[10.5px] font-mono uppercase tracking-widest text-center flex-shrink-0" />
+        <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
+        <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Name</span>
+        <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
+        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
+        <span className="flex-1 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Runtime</span>
+        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
+        <span className="w-14" />
 
         {/* Bulk action bar */}
         {someSelected && (
           <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
-            style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
-            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
+            <span className="text-[10.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
             <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
             <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
+            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-sm hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
+              <Trash2 className="w-3 h-3" /> <span className="text-[9.5px] font-mono uppercase">Delete</span>
             </button>
-            <button type="button" onClick={clearSelection} className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={clearSelection} className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
             </button>
           </div>
         )}
@@ -851,66 +1140,89 @@ function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene,
       {scenes.map(sc => {
         const sceneShots = shotsByScene[sc.id] || []
         const expanded = expandedScenes.has(sc.id)
+        const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
+        const isChecked = selected.has(sc.id)
         return (
           <div key={sc.id}>
             <div
-              className="flex items-center gap-0 px-4 py-2 hover:bg-stone-800/40 transition-colors group"
-              style={{ borderBottom: '1px solid #292524', borderLeft: `3px solid ${statusColor(sc.status)}` }}
+              className="flex items-center gap-3 px-3 rounded-sm transition-colors hover:bg-stone-800 cursor-pointer group"
+              style={{
+                backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
+                border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
+                minHeight: rowH + 8,
+              }}
             >
               {/* Checkbox */}
-              <span className="w-8 flex items-center justify-center cursor-pointer" onClick={() => toggleOne(sc.id)}>
-                {selected.has(sc.id)
-                  ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-                  : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+              <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
+                onClick={e => { e.stopPropagation(); toggleOne(sc.id) }}>
+                {isChecked
+                  ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+                  : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
               </span>
 
               {/* Expand toggle */}
-              <button type="button" onClick={() => toggleExpand(sc.id)}
-                className="w-8 flex items-center justify-center"
+              <button type="button" onClick={e => { e.stopPropagation(); toggleExpand(sc.id) }}
+                className="w-7 flex items-center justify-center flex-shrink-0 p-1 -m-1 rounded hover:bg-stone-700/50 transition-colors"
                 style={{ color: '#78716c' }}>
                 {sceneShots.length > 0 ? (
                   expanded
-                    ? <ChevronDown className="w-3.5 h-3.5" />
-                    : <ChevronRight className="w-3.5 h-3.5" />
+                    ? <ChevronDown className="w-4 h-4" />
+                    : <ChevronRight className="w-4 h-4" />
                 ) : (
-                  <span className="w-3.5 h-3.5" />
+                  <span className="w-4 h-4" />
                 )}
               </button>
 
-              {/* Name — inline editable */}
-              <span className="flex-1 min-w-0">
-                <InlineText
-                  value={sc.name || ''}
-                  placeholder="Untitled scene"
-                  onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
-                />
-              </span>
+              {/* Thumbnail */}
+              <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/scthumb cursor-pointer"
+                style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
+                onClick={async e => {
+                  e.stopPropagation()
+                  if (!window.electronAPI?.rabbit?.pickImage) return
+                  const imagePath = await window.electronAPI.rabbit.pickImage()
+                  if (!imagePath) return
+                  ctx?.updateScene?.(sc.id, { thumbnail_image: imagePath })
+                  try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: sc.id, sourcePath: imagePath }) } catch {}
+                  onThumbChanged?.()
+                }}>
+                {sc.thumbnail_image ? (
+                  <>
+                    <img src={`/api/rabbit/projects/${ctx?.project?.id}/scenes/${sc.id}/thumbnail?r=${thumbRevision}`}
+                      alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
+                    <div className="absolute inset-0 opacity-0 group-hover/scthumb:opacity-100 transition-opacity flex items-center justify-center"
+                      style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                      <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <Film className="w-4 h-4 group-hover/scthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
+                    <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/scthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
+                  </>
+                )}
+              </div>
 
-              {/* Type */}
-              <span className="w-24 flex justify-center">
-                <select
-                  value={sc.type || 'interior'}
-                  onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
-                  className="px-1 py-0.5 text-[10px] font-mono uppercase rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                >
-                  {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                </select>
-              </span>
-
-              {/* Scene number */}
-              <span className="w-20 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
+              {/* Scene # */}
+              <span className="w-14 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
                 {sc.scene_number ?? '—'}
               </span>
 
+              {/* Name */}
+              <div className="w-48 min-w-0 flex-shrink-0" onClick={() => onOpenDetail(sc.id)}>
+                <InlineText
+                  value={sc.name || ''}
+                  placeholder="Untitled scene"
+                  color="#fb923c"
+                  onCommit={v => ctx?.updateScene?.(sc.id, { name: v })}
+                />
+              </div>
+
               {/* Status */}
-              <span className="w-28 flex justify-center">
+              <span className="w-36 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
                 <select
                   value={sc.status || 'not_started'}
                   onChange={e => ctx?.updateScene?.(sc.id, { status: e.target.value })}
-                  className="px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{
                     color: statusColor(sc.status),
                     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -921,90 +1233,246 @@ function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene,
                 </select>
               </span>
 
-              {/* Assets count */}
-              <span className="w-16 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
-                {assetCountByScene[sc.id] || 0}
+              {/* Time of Day */}
+              <span className="w-28 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <select
+                  value={sc.time_of_day || ''}
+                  onChange={e => ctx?.updateScene?.(sc.id, { time_of_day: e.target.value || null })}
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  style={{ color: sc.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
+                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                >
+                  <option value="">—</option>
+                  {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                </select>
               </span>
 
-              {/* Tasks count */}
-              <span className="w-16 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
-                {taskCountByScene[sc.id] || 0}
+              {/* Type */}
+              <span className="w-20 flex justify-center flex-shrink-0" onClick={e => e.stopPropagation()}>
+                <select
+                  value={sc.type || 'interior'}
+                  onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                  onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                  onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
+                >
+                  {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                </select>
+              </span>
+
+              {/* Description */}
+              <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                <InlineText
+                  value={sc.description || ''}
+                  placeholder="Add description…"
+                  size="sm"
+                  onCommit={v => ctx?.updateScene?.(sc.id, { description: v })}
+                />
+              </div>
+
+              {/* Runtime */}
+              <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
+                {totals.runtime}
+              </span>
+
+              {/* Frame count */}
+              <span className="w-20 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: totals.totalFrames > 0 ? '#d6d3d1' : '#44403c' }}>
+                {fmtNumber(totals.totalFrames)}
               </span>
 
               {/* Actions */}
-              <span className="w-20 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button type="button" onClick={() => onOpenDetail(sc.id)}
-                  className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
-                  <Eye className="w-3.5 h-3.5" />
+              <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                <button type="button" onClick={e => { e.stopPropagation(); onOpenDetail(sc.id) }}
+                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
+                  <Eye className="w-3 h-3" />
                 </button>
-                <button type="button" onClick={() => onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' })}
-                  className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete scene">
-                  <Trash2 className="w-3.5 h-3.5" />
+                <button type="button" onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }}
+                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete scene">
+                  <Trash2 className="w-3 h-3" />
                 </button>
               </span>
             </div>
 
             {/* Nested shots */}
             {expanded && (
-              <div style={{ backgroundColor: '#1a1816' }}>
-                {sceneShots.map(shot => (
+              <div className="ml-7 flex flex-col gap-0.5 mt-0.5 mb-1 relative">
+                {/* Nested-shot bulk action bar */}
+                {(() => {
+                  const sceneShotIds = sceneShots.map(s => s.id)
+                  const selInScene = sceneShotIds.filter(id => selectedNestedShots.has(id))
+                  if (selInScene.length === 0) return null
+                  return (
+                    <div className="sticky top-0 z-20 flex items-center gap-3 px-3 py-1.5 rounded-sm mb-0.5"
+                      style={{ backgroundColor: '#292524', border: '1px solid #fb923c' }}>
+                      <span className="text-[10.5px] font-mono font-bold" style={{ color: '#fb923c' }}>
+                        {selInScene.length} selected
+                      </span>
+                      <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdateNestedShots({ status: v })} />
+                      <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdateNestedShots({ type: v })} />
+                      <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdateNestedShots({ time_of_day: v })} />
+                      <button type="button" onClick={bulkDeleteNestedShots}
+                        className="ml-auto px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-red-900/30 transition-colors"
+                        style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
+                        <Trash2 className="w-3 h-3 inline-block mr-1" /> Delete
+                      </button>
+                      <button type="button" onClick={clearNestedSelection}
+                        className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}>
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )
+                })()}
+                {sceneShots.map(shot => {
+                  const isNested = selectedNestedShots.has(shot.id)
+                  return (
                   <div key={shot.id}
-                    className="flex items-center gap-0 px-4 py-1.5 hover:bg-stone-800/30 transition-colors group/shot"
-                    style={{ borderBottom: '1px solid #1c1917', paddingLeft: 48, borderLeft: '3px solid #44403c' }}>
-                    <Film className="w-3 h-3 mr-2 flex-shrink-0" style={{ color: '#57534e' }} />
-                    <span className="flex-1 min-w-0">
-                      <InlineText
-                        value={shot.name || ''}
-                        placeholder="Untitled shot"
-                        size="sm"
-                        onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
-                      />
+                    className="flex items-center gap-3 px-3 py-1.5 rounded-sm hover:bg-stone-800/60 transition-colors group/shot"
+                    style={{
+                      backgroundColor: isNested ? 'rgba(234, 88, 12, 0.08)' : '#0c0a09',
+                      border: `1px solid ${isNested ? '#ea580c' : '#292524'}`,
+                    }}>
+                    {/* Checkbox */}
+                    <span className="flex items-center justify-center cursor-pointer flex-shrink-0"
+                      onClick={() => toggleNestedShot(shot.id)}>
+                      {isNested
+                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
                     </span>
-                    <span className="w-24 flex justify-center">
-                      <select
-                        value={shot.type || 'other'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="px-1 py-0.5 text-[9px] font-mono uppercase rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#78716c', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
-                      >
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-                    <span className="w-20 text-[10px] font-mono text-center" style={{ color: '#78716c' }}>
+                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
+                    {/* Thumbnail */}
+                    <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/shthumb cursor-pointer"
+                      style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), backgroundColor: '#0c0a09', border: '1px solid #292524' }}
+                      onClick={async e => {
+                        e.stopPropagation()
+                        if (!window.electronAPI?.rabbit?.pickImage) return
+                        const imagePath = await window.electronAPI.rabbit.pickImage()
+                        if (!imagePath) return
+                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                        onThumbChanged?.()
+                      }}>
+                      {shot.thumbnail_image ? (
+                        <>
+                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                            alt="" style={{ width: thumbW(Math.max(rowH - 8, 28)), height: Math.max(rowH - 8, 28), objectFit: 'cover', display: 'block' }} />
+                          <div className="absolute inset-0 opacity-0 group-hover/shthumb:opacity-100 transition-opacity flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                            <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <Clapperboard className="w-3 h-3 group-hover/shthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
+                          <ImagePlus className="w-3 h-3 absolute opacity-0 group-hover/shthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
+                        </>
+                      )}
+                    </div>
+                    {/* Shot # */}
+                    <span className="w-10 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#57534e' }}>
                       {shot.shot_number ?? '—'}
                     </span>
-                    <span className="w-28 flex justify-center">
-                      <select
-                        value={shot.status || 'not_started'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{
-                          color: statusColor(shot.status),
-                          backgroundColor: 'rgba(0,0,0,0.3)',
-                          border: `1px solid ${statusColor(shot.status)}30`,
-                        }}
-                      >
+                    {/* Name */}
+                    <div className="w-40 min-w-0 flex-shrink-0">
+                      <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm"
+                        onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
+                    </div>
+                    {/* Status */}
+                    <span className="w-36 flex justify-center flex-shrink-0">
+                      <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                         {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                       </select>
                     </span>
-                    <span className="w-16" />
-                    <span className="w-16" />
-                    <span className="w-20 flex items-center justify-end gap-1 opacity-0 group-hover/shot:opacity-100 transition-opacity">
+                    {/* Time of Day */}
+                    <span className="w-28 flex justify-center flex-shrink-0">
+                      <select value={shot.time_of_day || ''} onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                      </select>
+                    </span>
+                    {/* Type */}
+                    <span className="w-20 flex justify-center flex-shrink-0">
+                      <select value={shot.type || 'other'} onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: '#78716c', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                      </select>
+                    </span>
+                    {/* Framing */}
+                    <span className="w-20 flex justify-center flex-shrink-0 relative">
+                      <span className="absolute inset-0 flex items-center px-1.5 text-[10.5px] font-mono uppercase pointer-events-none z-[1]"
+                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
+                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
+                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
+                      </span>
+                      <select value={shot.framing || ''} onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
+                        style={{ color: 'transparent', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
+                      </select>
+                    </span>
+                    {/* Camera Movement */}
+                    <span className="w-28 flex justify-center flex-shrink-0">
+                      <select value={shot.camera_movement || ''} onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
+                      </select>
+                    </span>
+                    {/* Description */}
+                    <div className="flex-1 min-w-0">
+                      <InlineText value={shot.description || ''} placeholder="Add description…" size="sm"
+                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })} />
+                    </div>
+                    {/* Duration */}
+                    <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#a8a29e' : '#44403c' }}>
+                      {framesToTimecode(shot.frame_count || 0, fps)}
+                    </span>
+                    {/* Frames */}
+                    <span className="w-20 flex justify-center flex-shrink-0">
+                      <input type="number" min={0} value={shot.frame_count ?? ''}
+                        onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
+                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
+                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
+                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
+                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
+                        placeholder="0" />
+                    </span>
+                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover/shot:opacity-100 transition-opacity flex-shrink-0">
+                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
+                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
+                        <Eye className="w-3 h-3" />
+                      </button>
                       <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
+                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
                         <Trash2 className="w-3 h-3" />
                       </button>
                     </span>
                   </div>
-                ))}
+                  )
+                })}
                 {/* Add shot row */}
                 <button type="button" onClick={() => onNewShot(sc.id)}
-                  className="flex items-center gap-2 w-full px-4 py-2 text-[10px] font-mono uppercase tracking-wider hover:bg-stone-800/40 transition-colors"
-                  style={{ paddingLeft: 48, color: '#57534e', borderBottom: '1px solid #1c1917', borderLeft: '3px solid #44403c' }}>
-                  <Plus className="w-3 h-3" />
-                  Add shot
+                  className="flex items-center gap-2 px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
+                  style={{ color: '#57534e', border: '1px dashed #292524' }}>
+                  <Plus className="w-3 h-3" /> Add shot
                 </button>
               </div>
             )}
@@ -1017,14 +1485,14 @@ function SceneTable({ scenes, shotsByScene, assetCountByScene, taskCountByScene,
 
 
 // ─── Scene gallery ───
-function SceneGallery({ scenes, shotsByScene, gallerySize, onOpenDetail, onRequestDelete }) {
+function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onOpenDetail, onRequestDelete }) {
   const sizeMap = { sm: 160, md: 220, lg: 300 }
   const cardW = sizeMap[gallerySize] || sizeMap.md
 
   if (scenes.length === 0) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No scenes yet
         </span>
       </div>
@@ -1035,42 +1503,62 @@ function SceneGallery({ scenes, shotsByScene, gallerySize, onOpenDetail, onReque
     <div className="p-4 flex flex-wrap gap-3">
       {scenes.map(sc => {
         const sceneShots = shotsByScene[sc.id] || []
+        const totals = sceneTotals[sc.id] || { totalFrames: 0, runtime: '00:00:00:00' }
         return (
           <div key={sc.id}
             onClick={() => onOpenDetail(sc.id)}
-            className="rounded overflow-hidden hover:ring-2 hover:ring-orange-500/50 transition-all cursor-pointer group relative"
-            style={{ width: cardW, backgroundColor: '#292524', border: '1px solid #44403c' }}>
+            className="rounded-sm overflow-hidden hover:ring-1 hover:ring-orange-500/40 transition-all cursor-pointer group relative"
+            style={{ width: cardW, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
             {/* Thumbnail placeholder */}
             <div className="flex items-center justify-center relative"
-              style={{ height: cardW * 0.6, backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-              <Film className="w-8 h-8" style={{ color: '#44403c' }} />
-              {/* Delete button (top-right on hover) */}
+              style={{ height: cardW * 0.5, backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
+              <Film className="w-7 h-7" style={{ color: '#292524' }} />
+              {/* Delete button */}
               <button type="button"
                 onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'scene', id: sc.id, name: sc.name || 'Untitled' }) }}
-                className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
+                className="absolute top-2 right-2 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
                 style={{ color: '#ef4444' }}>
                 <Trash2 className="w-3 h-3" />
               </button>
+              {/* Status accent bar */}
+              <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: statusColor(sc.status) }} />
             </div>
             {/* Info */}
-            <div className="px-3 py-2.5 flex flex-col gap-1">
-              <span className="text-[12px] font-mono truncate font-bold" style={{ color: '#e7e5e4' }}>
+            <div className="px-3 py-2.5 flex flex-col gap-1.5">
+              <span className="text-[11.5px] font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
                 {sc.name || 'Untitled scene'}
               </span>
+              {sc.description && (
+                <span className="text-[9.5px] font-mono truncate" style={{ color: '#57534e' }}>
+                  {sc.description}
+                </span>
+              )}
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[10px] font-mono uppercase" style={{ color: '#78716c' }}>
+                <span className="text-[9.5px] font-mono uppercase" style={{ color: '#78716c' }}>
                   {fmt(sc.type || '')}
                 </span>
-                <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
+                {sc.time_of_day && (
+                  <span className="text-[9.5px] font-mono uppercase" style={{ color: '#78716c' }}>
+                    {fmt(sc.time_of_day)}
+                  </span>
+                )}
+                <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm"
                   style={{ color: statusColor(sc.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(sc.status)}30` }}>
                   {fmt(sc.status || 'not_started')}
                 </span>
               </div>
-              {sceneShots.length > 0 && (
-                <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>
-                  {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
-                </span>
-              )}
+              <div className="flex items-center gap-3 mt-0.5">
+                {sceneShots.length > 0 && (
+                  <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>
+                    {sceneShots.length} shot{sceneShots.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {totals.totalFrames > 0 && (
+                  <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
+                    {totals.runtime}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         )
@@ -1081,13 +1569,31 @@ function SceneGallery({ scenes, shotsByScene, gallerySize, onOpenDetail, onReque
 
 
 // ─── Shot table (shots grouped by scene) ───
-function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDelete }) {
-  const [collapsedScenes, setCollapsedScenes] = useState(new Set())
+function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+  const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
+  const tw = thumbW(rowH)
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
-  function toggleScene(id) {
-    setCollapsedScenes(prev => {
+  // ── Multi-select ──
+  const [selected, setSelected] = useState(new Set())
+  const allShotIds = useMemo(() => shotGroups.flatMap(g => g.shots.map(s => s.id)), [shotGroups])
+  const allSelected = allShotIds.length > 0 && allShotIds.every(id => selected.has(id))
+  const someSelected = selected.size > 0
+
+  function toggleOne(id) { setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s }) }
+  function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(allShotIds)) }
+  function clearSelection() { setSelected(new Set()) }
+  function bulkUpdate(patch) { for (const id of selected) ctx?.updateShot?.(id, patch); clearSelection() }
+  function bulkDelete() {
+    if (!window.confirm(`Delete ${selected.size} shot${selected.size === 1 ? '' : 's'}?`)) return
+    for (const id of selected) ctx?.deleteShot?.(id)
+    clearSelection()
+  }
+
+  function toggleGroup(key) {
+    setCollapsedGroups(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
   }
@@ -1095,7 +1601,7 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No shots yet — create a scene first, then add shots
         </span>
       </div>
@@ -1103,92 +1609,180 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
   }
 
   return (
-    <div>
+    <div className="flex flex-col gap-1 p-3">
       {/* Column header */}
-      <div className="flex items-center gap-0 px-4 py-2" style={{ borderBottom: '1px solid #44403c' }}>
-        <span className="w-8" />
-        <span className="flex-1 text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Shot name</span>
-        <span className="w-24 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Type</span>
-        <span className="w-20 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Shot #</span>
-        <span className="w-28 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Status</span>
-        <span className="w-28 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Start</span>
-        <span className="w-28 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>End</span>
-        <span className="w-20" />
+      <div className="relative flex items-center gap-3 px-3 py-1.5" style={{ borderBottom: '1px solid #44403c' }}>
+        <span className="w-7 flex items-center justify-center cursor-pointer" onClick={toggleAll}>
+          {allSelected ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+           : someSelected ? <MinusSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+           : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
+        </span>
+        <span style={{ width: tw }} className="flex-shrink-0" />
+        <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
+        <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
+        <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
+        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
+        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Framing</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Cam Move</span>
+        <span className="flex-1 text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Description</span>
+        <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Duration</span>
+        <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Frames</span>
+        <span className="w-24 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Start</span>
+        <span className="w-24 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>End</span>
+        <span className="w-14" />
+
+        {/* Bulk action bar */}
+        {someSelected && (
+          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
+            style={{ left: 28, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
+            <span className="text-[10.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>{selected.size} selected</span>
+            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
+            <SceneBulkSelect label="Status" options={SCENE_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+            <SceneBulkSelect label="Type" options={SCENE_TYPES} onPick={v => bulkUpdate({ type: v })} />
+            <SceneBulkSelect label="Time of Day" options={TIME_OF_DAY_OPTIONS} onPick={v => bulkUpdate({ time_of_day: v })} />
+            <div style={{ width: 1, height: 14, backgroundColor: '#44403c' }} />
+            <button type="button" onClick={bulkDelete} className="flex items-center gap-1 px-2 py-0.5 rounded-sm hover:bg-red-900/40 transition-colors" style={{ color: '#fca5a5' }}>
+              <Trash2 className="w-3 h-3" /> <span className="text-[9.5px] font-mono uppercase">Delete</span>
+            </button>
+            <button type="button" onClick={clearSelection} className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </div>
 
       {shotGroups.map(g => {
-        const collapsed = collapsedScenes.has(g.sceneId)
+        const isGrouped = g.groupType !== 'none'
+        const collapsed = isGrouped && collapsedGroups.has(g.key)
+        const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
         return (
-          <div key={g.sceneId}>
-            {/* Scene group header */}
-            <div
-              className="flex items-center gap-2 px-4 py-2 cursor-pointer hover:bg-stone-800/30 transition-colors"
-              style={{ borderBottom: '1px solid #44403c', borderLeft: `3px solid ${g.scene ? statusColor(g.scene.status) : '#57534e'}`, backgroundColor: '#292524' }}
-              onClick={() => toggleScene(g.sceneId)}
-            >
-              {collapsed
-                ? <ChevronRight className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
-                : <ChevronDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />}
-              <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-              <span className="text-[11px] font-mono font-bold truncate" style={{ color: '#fb923c' }}>
-                {g.label}
-              </span>
-              <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
-                ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
-              </span>
-              {g.scene && (
-                <button type="button"
-                  onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }}
-                  className="ml-auto p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="Scene details">
-                  <Eye className="w-3 h-3" />
-                </button>
-              )}
-            </div>
+          <div key={g.key}>
+            {/* Group header (skip for ungrouped) */}
+            {g.groupType === 'scene' && (
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-sm cursor-pointer hover:bg-stone-800/30 transition-colors"
+                style={{ backgroundColor: '#292524', borderLeft: `3px solid ${g.scene ? statusColor(g.scene.status) : '#57534e'}` }}
+                onClick={() => toggleGroup(g.key)}
+              >
+                {collapsed
+                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
+                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
+                <Film className="w-3 h-3" style={{ color: '#fb923c' }} />
+                <span className="text-[10.5px] font-mono font-bold truncate" style={{ color: '#fb923c' }}>
+                  {g.label}
+                </span>
+                <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
+                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
+                </span>
+                {groupFrames > 0 && (
+                  <span className="text-[9.5px] font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
+                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
+                  </span>
+                )}
+                {g.scene && (
+                  <button type="button"
+                    onClick={e => { e.stopPropagation(); onOpenSceneDetail(g.sceneId) }}
+                    className="p-1 rounded-sm hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#a8a29e' }} title="Scene details">
+                    <Eye className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            )}
+            {g.groupType === 'field' && (
+              <div
+                className="flex items-center gap-2 px-3 py-2 rounded-sm cursor-pointer hover:bg-stone-800/30 transition-colors"
+                style={{ backgroundColor: '#292524', borderLeft: '3px solid #78716c' }}
+                onClick={() => toggleGroup(g.key)}
+              >
+                {collapsed
+                  ? <ChevronRight className="w-4 h-4" style={{ color: '#78716c' }} />
+                  : <ChevronDown className="w-4 h-4" style={{ color: '#78716c' }} />}
+                <Layers className="w-3 h-3" style={{ color: '#a8a29e' }} />
+                <span className="text-[10.5px] font-mono font-bold truncate" style={{ color: '#a8a29e' }}>
+                  {g.label}
+                </span>
+                <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
+                  ({g.shots.length} shot{g.shots.length !== 1 ? 's' : ''})
+                </span>
+                {groupFrames > 0 && (
+                  <span className="text-[9.5px] font-mono tabular-nums ml-auto mr-2" style={{ color: '#57534e' }}>
+                    {framesToTimecode(groupFrames, fps)} · {fmtNumber(groupFrames)} frames
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Shot rows */}
             {!collapsed && (
-              <div>
-                {g.shots.map(shot => (
+              <div className="flex flex-col gap-0.5 mt-0.5">
+                {g.shots.map(shot => {
+                  const isChecked = selected.has(shot.id)
+                  return (
                   <div key={shot.id}
-                    className="flex items-center gap-0 px-4 py-2 hover:bg-stone-800/40 transition-colors group"
-                    style={{ borderBottom: '1px solid #292524', borderLeft: '3px solid #44403c' }}>
-                    <span className="w-8 flex items-center justify-center">
-                      <Clapperboard className="w-3 h-3" style={{ color: '#57534e' }} />
+                    className="flex items-center gap-3 px-3 rounded-sm hover:bg-stone-800 transition-colors group"
+                    style={{
+                      backgroundColor: isChecked ? 'rgba(234, 88, 12, 0.1)' : '#1c1917',
+                      border: `1px solid ${isChecked ? '#ea580c' : '#44403c'}`,
+                      minHeight: rowH + 8,
+                    }}>
+                    {/* Checkbox */}
+                    <span className="w-7 flex items-center justify-center cursor-pointer flex-shrink-0"
+                      onClick={() => toggleOne(shot.id)}>
+                      {isChecked
+                        ? <CheckSquare className="w-3 h-3" style={{ color: '#fb923c' }} />
+                        : <Square className="w-3 h-3" style={{ color: '#57534e' }} />}
                     </span>
 
-                    {/* Name — inline editable */}
-                    <span className="flex-1 min-w-0">
+                    {/* Thumbnail */}
+                    <div className="flex items-center justify-center rounded-sm overflow-hidden flex-shrink-0 relative group/stthumb cursor-pointer"
+                      style={{ width: tw, height: rowH, backgroundColor: '#0c0a09', border: '1px solid #292524' }}
+                      onClick={async e => {
+                        e.stopPropagation()
+                        if (!window.electronAPI?.rabbit?.pickImage) return
+                        const imagePath = await window.electronAPI.rabbit.pickImage()
+                        if (!imagePath) return
+                        ctx?.updateShot?.(shot.id, { thumbnail_image: imagePath })
+                        try { await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath }) } catch {}
+                        onThumbChanged?.()
+                      }}>
+                      {shot.thumbnail_image ? (
+                        <>
+                          <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                            alt="" style={{ width: tw, height: rowH, objectFit: 'cover', display: 'block' }} />
+                          <div className="absolute inset-0 opacity-0 group-hover/stthumb:opacity-100 transition-opacity flex items-center justify-center"
+                            style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                            <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <Clapperboard className="w-4 h-4 group-hover/stthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
+                          <ImagePlus className="w-3.5 h-3.5 absolute opacity-0 group-hover/stthumb:opacity-100 transition-opacity" style={{ color: '#57534e' }} />
+                        </>
+                      )}
+                    </div>
+
+                    {/* Shot # */}
+                    <span className="w-14 text-[11.5px] font-mono text-center flex-shrink-0" style={{ color: '#78716c' }}>
+                      {shot.shot_number ?? '—'}
+                    </span>
+
+                    {/* Name */}
+                    <div className="w-48 min-w-0 flex-shrink-0">
                       <InlineText
                         value={shot.name || ''}
                         placeholder="Untitled shot"
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
-                    </span>
-
-                    {/* Type */}
-                    <span className="w-24 flex justify-center">
-                      <select
-                        value={shot.type || 'other'}
-                        onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="px-1 py-0.5 text-[10px] font-mono uppercase rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
-                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
-                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
-                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
-                      </select>
-                    </span>
-
-                    {/* Shot number */}
-                    <span className="w-20 text-[11px] font-mono text-center" style={{ color: '#a8a29e' }}>
-                      {shot.shot_number ?? '—'}
-                    </span>
+                    </div>
 
                     {/* Status */}
-                    <span className="w-28 flex justify-center">
+                    <span className="w-36 flex justify-center flex-shrink-0">
                       <select
                         value={shot.status || 'not_started'}
                         onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="px-1.5 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{
                           color: statusColor(shot.status),
                           backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1198,13 +1792,108 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
                       </select>
                     </span>
 
+                    {/* Time of Day */}
+                    <span className="w-28 flex justify-center flex-shrink-0">
+                      <select
+                        value={shot.time_of_day || ''}
+                        onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                      </select>
+                    </span>
+
+                    {/* Type */}
+                    <span className="w-20 flex justify-center flex-shrink-0">
+                      <select
+                        value={shot.type || 'other'}
+                        onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+                      </select>
+                    </span>
+
+                    {/* Framing */}
+                    <span className="w-20 flex justify-center flex-shrink-0 relative">
+                      <span className="absolute inset-0 flex items-center px-1.5 text-[10.5px] font-mono uppercase pointer-events-none z-[1]"
+                        style={{ color: shot.framing ? '#a8a29e' : '#44403c' }}>
+                        <span className="flex-1 text-center">{shot.framing || '—'}</span>
+                        <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
+                      </span>
+                      <select
+                        value={shot.framing || ''}
+                        onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
+                        style={{ color: 'transparent', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
+                      </select>
+                    </span>
+
+                    {/* Camera Movement */}
+                    <span className="w-28 flex justify-center flex-shrink-0">
+                      <select
+                        value={shot.camera_movement || ''}
+                        onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
+                        <option value="">—</option>
+                        {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr}</option>)}
+                      </select>
+                    </span>
+
+                    {/* Description */}
+                    <div className="flex-1 min-w-0">
+                      <InlineText
+                        value={shot.description || ''}
+                        placeholder="Add description…"
+                        size="sm"
+                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
+                      />
+                    </div>
+
+                    {/* Duration (derived) */}
+                    <span className="w-28 text-[12.5px] font-mono text-center tabular-nums flex-shrink-0" style={{ color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#44403c' }}>
+                      {framesToTimecode(shot.frame_count || 0, fps)}
+                    </span>
+
+                    {/* Frame count (editable) */}
+                    <span className="w-20 flex justify-center flex-shrink-0">
+                      <input
+                        type="number"
+                        min={0}
+                        value={shot.frame_count ?? ''}
+                        onChange={e => {
+                          const n = parseInt(e.target.value, 10)
+                          ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
+                        }}
+                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
+                        style={{ color: '#a8a29e', border: '1px solid transparent' }}
+                        onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
+                        onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
+                        onFocus={e => { e.target.style.borderColor = '#44403c' }}
+                        onBlur={e => { e.target.style.borderColor = 'transparent' }}
+                        placeholder="0"
+                      />
+                    </span>
+
                     {/* Start date */}
-                    <span className="w-28 flex justify-center">
+                    <span className="w-24 flex justify-center flex-shrink-0">
                       <input
                         type="date"
                         value={shot.start_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10px] font-mono rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
                         style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1212,12 +1901,12 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
                     </span>
 
                     {/* End date */}
-                    <span className="w-28 flex justify-center">
+                    <span className="w-24 flex justify-center flex-shrink-0">
                       <input
                         type="date"
                         value={shot.end_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10px] font-mono rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
                         style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1225,22 +1914,26 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
                     </span>
 
                     {/* Actions */}
-                    <span className="w-20 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="w-14 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button type="button" onClick={() => onOpenShotDetail(shot.id)}
+                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }} title="View details">
+                        <Eye className="w-3 h-3" />
+                      </button>
                       <button type="button" onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                        className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
-                        <Trash2 className="w-3.5 h-3.5" />
+                        className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }} title="Delete shot">
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     </span>
                   </div>
-                ))}
+                  )
+                })}
 
                 {/* Add shot row */}
                 {g.scene && (
                   <button type="button" onClick={() => onNewShot(g.sceneId)}
-                    className="flex items-center gap-2 w-full px-4 py-2 text-[10px] font-mono uppercase tracking-wider hover:bg-stone-800/40 transition-colors"
-                    style={{ paddingLeft: 48, color: '#57534e', borderBottom: '1px solid #292524', borderLeft: '3px solid #44403c' }}>
-                    <Plus className="w-3 h-3" />
-                    Add shot
+                    className="flex items-center gap-2 px-3 py-1.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-800/40 transition-colors"
+                    style={{ color: '#57534e', border: '1px dashed #292524' }}>
+                    <Plus className="w-3 h-3" /> Add shot
                   </button>
                 )}
               </div>
@@ -1254,14 +1947,14 @@ function ShotTable({ shotGroups, ctx, onOpenSceneDetail, onNewShot, onRequestDel
 
 
 // ─── Shot gallery (shot cards grouped by scene) ───
-function ShotGallery({ shotGroups, gallerySize, ctx, onOpenSceneDetail, onRequestDelete }) {
+function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
   const sizeMap = { sm: 160, md: 220, lg: 300 }
   const cardW = sizeMap[gallerySize] || sizeMap.md
 
   if (shotGroups.length === 0 || shotGroups.every(g => g.shots.length === 0)) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[12px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <span className="text-[12.5px] font-mono uppercase tracking-wider" style={{ color: '#57534e' }}>
           No shots yet
         </span>
       </div>
@@ -1270,82 +1963,110 @@ function ShotGallery({ shotGroups, gallerySize, ctx, onOpenSceneDetail, onReques
 
   return (
     <div className="p-4">
-      {shotGroups.map(g => (
-        <div key={g.sceneId} className="mb-5 last:mb-0">
-          {/* Scene group header */}
-          <div className="flex items-center gap-2 mb-3">
-            <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
-            <span className="text-[11px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
-              {g.label}
-            </span>
-            <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>
-              {g.shots.length} shot{g.shots.length !== 1 ? 's' : ''}
-            </span>
-            {g.scene && (
-              <button type="button"
-                onClick={() => onOpenSceneDetail(g.sceneId)}
-                className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }} title="Scene details">
-                <Eye className="w-3 h-3" />
-              </button>
-            )}
-            <div className="flex-1 h-px ml-2" style={{ backgroundColor: '#44403c' }} />
-          </div>
+      {shotGroups.map(g => {
+        const groupFrames = g.shots.reduce((s, sh) => s + (Number(sh.frame_count) || 0), 0)
+        return (
+          <div key={g.sceneId} className="mb-5 last:mb-0">
+            {/* Scene group header */}
+            <div className="flex items-center gap-2 mb-3">
+              <Film className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+              <span className="text-[10.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+                {g.label}
+              </span>
+              <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>
+                {g.shots.length} shot{g.shots.length !== 1 ? 's' : ''}
+              </span>
+              {groupFrames > 0 && (
+                <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
+                  · {framesToTimecode(groupFrames, fps)}
+                </span>
+              )}
+              {g.scene && (
+                <button type="button"
+                  onClick={() => onOpenSceneDetail(g.sceneId)}
+                  className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }} title="Scene details">
+                  <Eye className="w-3 h-3" />
+                </button>
+              )}
+              <div className="flex-1 h-px ml-2" style={{ backgroundColor: '#292524' }} />
+            </div>
 
-          {/* Shot cards */}
-          <div className="flex flex-wrap gap-3">
-            {g.shots.map(shot => (
-              <div key={shot.id}
-                className="rounded overflow-hidden hover:ring-2 hover:ring-orange-500/50 transition-all cursor-pointer group relative"
-                style={{ width: cardW, backgroundColor: '#292524', border: '1px solid #44403c' }}
-                onClick={() => g.scene && onOpenSceneDetail(g.sceneId)}
-              >
-                {/* Thumbnail placeholder */}
-                <div className="flex items-center justify-center relative"
-                  style={{ height: cardW * 0.5, backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                  <Clapperboard className="w-6 h-6" style={{ color: '#44403c' }} />
-                  {/* Delete button (top-right on hover) */}
-                  <button type="button"
-                    onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
-                    className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
-                    style={{ color: '#ef4444' }}>
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
-                {/* Info */}
-                <div className="px-3 py-2.5 flex flex-col gap-1">
-                  <span className="text-[12px] font-mono truncate font-bold" style={{ color: '#e7e5e4' }}>
-                    {shot.name || 'Untitled shot'}
-                  </span>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] font-mono uppercase" style={{ color: '#78716c' }}>
-                      #{shot.shot_number ?? '—'}
+            {/* Shot cards */}
+            <div className="flex flex-wrap gap-3">
+              {g.shots.map(shot => (
+                <div key={shot.id}
+                  className="rounded-sm overflow-hidden hover:ring-1 hover:ring-orange-500/40 transition-all cursor-pointer group relative"
+                  style={{ width: cardW, backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+                  onClick={() => onOpenShotDetail?.(shot.id)}
+                >
+                  {/* Thumbnail placeholder (16:9) */}
+                  <div className="flex items-center justify-center relative"
+                    style={{ height: Math.round(cardW * 9 / 16), backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
+                    <Clapperboard className="w-6 h-6" style={{ color: '#292524' }} />
+                    <button type="button"
+                      onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
+                      className="absolute top-2 right-2 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
+                      style={{ color: '#ef4444' }}>
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                    <div className="absolute bottom-0 left-0 right-0 h-0.5" style={{ backgroundColor: statusColor(shot.status) }} />
+                  </div>
+                  {/* Info */}
+                  <div className="px-3 py-2.5 flex flex-col gap-1">
+                    <span className="text-[11.5px] font-mono truncate font-bold" style={{ color: '#d6d3d1' }}>
+                      {shot.name || 'Untitled shot'}
                     </span>
-                    <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
-                      style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
-                      {fmt(shot.status || 'not_started')}
-                    </span>
+                    {shot.description && (
+                      <span className="text-[9.5px] font-mono truncate" style={{ color: '#57534e' }}>
+                        {shot.description}
+                      </span>
+                    )}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[9.5px] font-mono" style={{ color: '#78716c' }}>
+                        #{shot.shot_number ?? '—'}
+                      </span>
+                      <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm"
+                        style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
+                        {fmt(shot.status || 'not_started')}
+                      </span>
+                    </div>
+                    {(shot.frame_count || 0) > 0 && (
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#57534e' }}>
+                          {framesToTimecode(shot.frame_count, fps)}
+                        </span>
+                        <span className="text-[9.5px] font-mono tabular-nums" style={{ color: '#44403c' }}>
+                          {fmtNumber(shot.frame_count)} fr
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
 
 
 // ─── Scene detail popup ───
-function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskCountByScene, onNewShot, onClose, onRequestDelete }) {
+function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, projectMembers, roleEntries, thumbRevision, onThumbChanged, onNewShot, onClose, onRequestDelete, onOpenShot }) {
   const scene = (ctx?.scenes || []).find(s => s.id === sceneId)
   const sceneShots = shotsByScene[sceneId] || []
+  const totals = sceneTotals[sceneId] || { totalFrames: 0, runtime: '00:00:00:00' }
   const project = ctx?.project
+  const managedFiles = ctx?.managedFiles || []
 
   const [descDraft, setDescDraft] = useState(scene?.description || '')
   const [notesDraft, setNotesDraft] = useState(scene?.notes || '')
   const [editingDesc, setEditingDesc] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [nestedTaskId, setNestedTaskId] = useState(null)
+  const [nestedAssetId, setNestedAssetId] = useState(null)
 
   useEffect(() => { setDescDraft(scene?.description || '') }, [scene?.description])
   useEffect(() => { setNotesDraft(scene?.notes || '') }, [scene?.notes])
@@ -1353,67 +2074,170 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
   if (!scene) return null
 
   const sc = statusColor(scene.status)
+  const hasThumbnail = !!scene.thumbnail_image
 
   function handleUpdate(patch) { ctx?.updateScene?.(scene.id, patch) }
 
-  // Format the full scene code for display
+  async function handleSetThumbnail() {
+    if (!window.electronAPI?.rabbit?.pickImage) return
+    const imagePath = await window.electronAPI.rabbit.pickImage()
+    if (!imagePath) return
+    handleUpdate({ thumbnail_image: imagePath })
+    try {
+      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'scene', entityId: scene.id, sourcePath: imagePath })
+    } catch (e) { console.error('scene thumbnail gen failed:', e) }
+    onThumbChanged?.()
+  }
+
+  async function handleClearThumbnail() {
+    handleUpdate({ thumbnail_image: null })
+    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'scene', entityId: scene.id }) } catch {}
+    onThumbChanged?.()
+  }
+
+  async function handleCreateTask(draft) {
+    try {
+      await ctx?.addTask?.({ ...draft, scene_id: scene.id })
+      setShowCreateTask(false)
+    } catch (err) { console.error('Failed to create task:', err) }
+  }
+
   const code = project?.project_code || 'PROJ'
   const sep = project?.scene_separator || '_'
   const digits = project?.scene_digits ?? 3
   const sceneCode = `${code}${sep}SC${String(scene.scene_number ?? 0).padStart(digits, '0')}`
+  const sceneSlug = fileSlugify(scene.name || 'Untitled-Scene')
+  const sceneFolderPath = `SCENES/${sceneSlug}/`
+  const fileCount = managedFiles.filter(f => f.scene_id === scene.id && !f.deleted_at).length
+
+  // Show side panel?
+  const hasLeftSide = showCreateTask || nestedTaskId || nestedAssetId
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
-      {/* Modal */}
-      <div
-        className="fixed z-50 top-1/2 left-1/2 w-full max-w-2xl rounded overflow-hidden flex flex-col"
-        style={{
-          backgroundColor: '#292524',
-          border: '2px solid #f97316',
-          maxHeight: '85vh',
-          transform: 'translate(-50%, -50%)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
-        }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
+      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
+
+        {/* ── LEFT SIDE POPUP (task creation / nested detail) ── */}
+        {showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
+            <NewTaskSidePopup
+              entityType="scene"
+              entityId={scene.id}
+              assets={ctx?.assets || []}
+              phases={ctx?.phases || []}
+              scenes={ctx?.scenes || []}
+              shots={ctx?.shots || []}
+              levels={ctx?.levels || []}
+              experiences={ctx?.experiences || []}
+              projectMembers={projectMembers || []}
+              roleEntries={roleEntries || []}
+              project={project}
+              onConfirm={handleCreateTask}
+              onClose={() => setShowCreateTask(false)}
+            />
+          </div>
+        )}
+
+        {nestedTaskId && !showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
+            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+          </div>
+        )}
+
+        {/* ── MAIN POPUP ── */}
+        <div
+          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
+          style={{
+            backgroundColor: '#292524',
+            border: '2px solid #f97316',
+            maxHeight: '85vh',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+        {/* Header — spans full width */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
           <div className="flex items-center gap-2.5">
             <Film className="w-4 h-4" style={{ color: '#fb923c' }} />
             <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
               {scene.name || 'Untitled scene'}
             </span>
-            <span className="text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+            <span className="text-[10.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
               style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
               {sceneCode}
             </span>
           </div>
-          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Scrollable body */}
-        <div className="flex-1 overflow-auto px-5 py-4">
+        {/* Two-column body */}
+        <div className="flex-1 overflow-auto flex">
 
-          {/* Title (editable) */}
-          <div className="mb-5">
-            <FieldLabel>Scene name</FieldLabel>
-            <PopupInlineText
-              value={scene.name || ''}
-              placeholder="Untitled scene"
-              onCommit={v => handleUpdate({ name: v })}
-            />
+          {/* LEFT COLUMN — Relations */}
+          <RelationsPanel
+            entityType="scene"
+            entityId={scene.id}
+            assets={ctx?.assets || []}
+            tasks={ctx?.tasks || []}
+            ctx={ctx}
+            onOpenAsset={id => setNestedAssetId(id)}
+            onOpenTask={id => setNestedTaskId(id)}
+            onCreateTask={() => setShowCreateTask(true)}
+          />
+
+          {/* RIGHT COLUMN — Properties */}
+          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+
+          {/* Thumbnail + Title */}
+          <div className="flex items-start gap-4 mb-5">
+            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
+              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              {hasThumbnail ? (
+                <>
+                  <img
+                    src={`/api/rabbit/projects/${project?.id}/scenes/${scene.id}/thumbnail?r=${thumbRevision}`}
+                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
+                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                    <button type="button" onClick={handleSetThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
+                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
+                    <button type="button" onClick={handleClearThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" onClick={handleSetThumbnail}
+                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
+                  style={{ color: '#57534e' }} title="Set thumbnail">
+                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                    <ImagePlus className="w-4 h-4" />
+                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
+                  </div>
+                  <Film className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <FieldLabel>Scene name</FieldLabel>
+              <PopupInlineText
+                value={scene.name || ''}
+                placeholder="Untitled scene"
+                onCommit={v => handleUpdate({ name: v })}
+              />
+            </div>
           </div>
 
           {/* Properties grid */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-5">
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={scene.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -1421,9 +2245,18 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
             <div>
               <FieldLabel>Type</FieldLabel>
               <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                 {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Time of Day</FieldLabel>
+              <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: scene.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                <option value="">—</option>
+                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
               </select>
             </div>
             <div>
@@ -1432,31 +2265,45 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
                 const n = parseInt(e.target.value, 10)
                 if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
               }}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             </div>
             <div>
-              <FieldLabel>Shots</FieldLabel>
-              <div className="flex items-center gap-2">
-                <span className="text-[13px] font-mono font-bold" style={{ color: '#d6d3d1' }}>
-                  {sceneShots.length}
-                </span>
-                <span className="text-[10px] font-mono uppercase" style={{ color: '#78716c' }}>
-                  / {assetCountByScene[sceneId] || 0} assets / {taskCountByScene[sceneId] || 0} tasks
-                </span>
+              <FieldLabel>Runtime</FieldLabel>
+              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
+                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                {totals.runtime}
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Total Frames</FieldLabel>
+              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
+                style={{ backgroundColor: '#1c1917', color: totals.totalFrames > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                {fmtNumber(totals.totalFrames)}
               </div>
             </div>
           </div>
 
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 mb-5">
+          {/* Counts + dates */}
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
+            <div>
+              <FieldLabel>Shots / Assets / Tasks</FieldLabel>
+              <div className="flex items-center gap-2">
+                <span className="text-[12.5px] font-mono font-bold" style={{ color: '#d6d3d1' }}>
+                  {sceneShots.length}
+                </span>
+                <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
+                  / {assetCountByScene[sceneId] || 0} / {taskCountByScene[sceneId] || 0}
+                </span>
+              </div>
+            </div>
             <div>
               <FieldLabel>Start Date</FieldLabel>
               <input
                 type="date"
                 value={scene.start_date || ''}
                 onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -1466,7 +2313,7 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
                 type="date"
                 value={scene.end_date || ''}
                 onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -1478,23 +2325,23 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
-                    className="text-[10px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setDescDraft(scene.description || ''); setEditingDesc(false) }}
-                    className="text-[10px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <div onClick={() => setEditingDesc(true)}
-                className="px-3 py-2 text-[12px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: scene.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {scene.description || 'Click to add a description...'}
               </div>
@@ -1507,27 +2354,55 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
                   <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
-                    className="text-[10px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
                     <Save className="w-3 h-3" /> Save
                   </button>
                   <button type="button" onClick={() => { setNotesDraft(scene.notes || ''); setEditingNotes(false) }}
-                    className="text-[10px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
                     Cancel
                   </button>
                 </div>
               </div>
             ) : (
               <div onClick={() => setEditingNotes(true)}
-                className="px-3 py-2 text-[12px] font-mono rounded cursor-pointer hover:bg-stone-800 transition-colors"
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
                 style={{ backgroundColor: '#1c1917', color: scene.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
                 {scene.notes || 'Click to add notes...'}
               </div>
             )}
+          </div>
+
+          {/* Folder path */}
+          <div className="mb-4">
+            <FieldLabel>Folder</FieldLabel>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-sm"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
+              <span className="text-[11.5px] font-mono truncate" style={{ color: '#a8a29e' }}>
+                {sceneFolderPath}
+              </span>
+            </div>
+          </div>
+
+          {/* Files */}
+          <div className="mb-4">
+            <FieldLabel>Files ({fileCount})</FieldLabel>
+            <FileManager
+              files={managedFiles}
+              sceneId={scene.id}
+              sceneName={scene.name || 'Untitled-Scene'}
+              projectId={project?.id}
+              project={project}
+              mode="full"
+              onFileAdded={() => ctx?.refreshManagedFiles?.()}
+              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+            />
           </div>
 
           {/* Shots list */}
@@ -1535,36 +2410,51 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
             <div className="flex items-center justify-between mb-2">
               <FieldLabel>Shots ({sceneShots.length})</FieldLabel>
               <button type="button" onClick={() => onNewShot(sceneId)}
-                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+                className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
                 style={{ color: '#fb923c', border: '1px solid #44403c' }}>
                 <Plus className="w-3 h-3" /> Add shot
               </button>
             </div>
             {sceneShots.length === 0 ? (
-              <div className="px-3 py-4 text-center text-[11px] font-mono uppercase tracking-wider rounded"
+              <div className="px-3 py-4 text-center text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
                 style={{ color: '#57534e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                 No shots yet
               </div>
             ) : (
-              <div className="rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
+              <div className="flex flex-col gap-0.5">
                 {sceneShots.map(shot => (
                   <div key={shot.id}
-                    className="flex items-center gap-2 px-3 py-2 hover:bg-stone-800/40 transition-colors group/shot"
-                    style={{ borderBottom: '1px solid #292524' }}>
-                    <Film className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
-                    <span className="flex-1 text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>
-                      {shot.name || 'Untitled shot'}
-                    </span>
-                    <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+                    className="flex items-center gap-2 px-3 py-2 rounded-sm hover:bg-stone-800 transition-colors group/shot cursor-pointer"
+                    style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+                    onClick={() => onOpenShot?.(shot.id)}>
+                    <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
+                    <div className="flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                      <span className="text-[11.5px] font-mono truncate block cursor-pointer" style={{ color: '#d6d3d1' }}
+                        onClick={() => onOpenShot?.(shot.id)}>
+                        {shot.name || 'Untitled shot'}
+                      </span>
+                      <InlineText
+                        value={shot.description || ''}
+                        placeholder="Add description…"
+                        size="xs"
+                        onCommit={v => ctx?.updateShot?.(shot.id, { description: v })}
+                      />
+                    </div>
+                    <span className="text-[9.5px] font-mono flex-shrink-0" style={{ color: '#78716c' }}>
                       #{shot.shot_number ?? '—'}
                     </span>
-                    <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-wider rounded-sm"
+                    {(shot.frame_count || 0) > 0 && (
+                      <span className="text-[9.5px] font-mono tabular-nums flex-shrink-0" style={{ color: '#57534e' }}>
+                        {framesToTimecode(shot.frame_count, fps)} · {fmtNumber(shot.frame_count)} fr
+                      </span>
+                    )}
+                    <span className="px-1.5 py-0.5 text-[8.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
                       style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                       {fmt(shot.status || 'not_started')}
                     </span>
                     <button type="button"
                       onClick={() => onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' })}
-                      className="p-0.5 rounded hover:bg-stone-700 transition-colors opacity-0 group-hover/shot:opacity-100"
+                      className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors opacity-0 group-hover/shot:opacity-100"
                       style={{ color: '#ef4444' }}>
                       <Trash2 className="w-3 h-3" />
                     </button>
@@ -1573,23 +2463,422 @@ function SceneDetailPopup({ sceneId, ctx, shotsByScene, assetCountByScene, taskC
               </div>
             )}
           </div>
-        </div>
+          </div>{/* close RIGHT COLUMN */}
+        </div>{/* close two-column flex */}
 
         {/* Footer */}
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button"
             onClick={() => { onClose(); onRequestDelete({ type: 'scene', id: scene.id, name: scene.name || 'Untitled' }) }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
             style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
-            <Trash2 className="w-3.5 h-3.5" /> Delete scene
+            <Trash2 className="w-3 h-3" /> Delete scene
           </button>
           <button type="button" onClick={onClose}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Close
           </button>
         </div>
-      </div>
+      </div>{/* close MAIN POPUP */}
+      </div>{/* close flex container */}
+    </>
+  )
+}
+
+
+// ─── Shot detail popup ───
+function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
+  const shot = (ctx?.shots || []).find(s => s.id === shotId)
+  const scene = shot ? (ctx?.scenes || []).find(s => s.id === shot.scene_id) : null
+  const project = ctx?.project
+  const managedFiles = ctx?.managedFiles || []
+
+  const [descDraft, setDescDraft] = useState(shot?.description || '')
+  const [notesDraft, setNotesDraft] = useState(shot?.notes || '')
+  const [editingDesc, setEditingDesc] = useState(false)
+  const [editingNotes, setEditingNotes] = useState(false)
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [nestedTaskId, setNestedTaskId] = useState(null)
+  const [nestedAssetId, setNestedAssetId] = useState(null)
+
+  useEffect(() => { setDescDraft(shot?.description || '') }, [shot?.description])
+  useEffect(() => { setNotesDraft(shot?.notes || '') }, [shot?.notes])
+
+  if (!shot) return null
+
+  const sc = statusColor(shot.status)
+  const hasThumbnail = !!shot.thumbnail_image
+
+  function handleUpdate(patch) { ctx?.updateShot?.(shot.id, patch) }
+
+  async function handleSetThumbnail() {
+    if (!window.electronAPI?.rabbit?.pickImage) return
+    const imagePath = await window.electronAPI.rabbit.pickImage()
+    if (!imagePath) return
+    handleUpdate({ thumbnail_image: imagePath })
+    try {
+      await window.electronAPI.rabbit.generateEntityThumbnail({ entityType: 'shot', entityId: shot.id, sourcePath: imagePath })
+    } catch (e) { console.error('shot thumbnail gen failed:', e) }
+    onThumbChanged?.()
+  }
+
+  async function handleClearThumbnail() {
+    handleUpdate({ thumbnail_image: null })
+    try { await window.electronAPI.rabbit.clearEntityThumbnail({ entityType: 'shot', entityId: shot.id }) } catch {}
+    onThumbChanged?.()
+  }
+
+  async function handleCreateTask(draft) {
+    try {
+      await ctx?.addTask?.({ ...draft, shot_id: shot.id, scene_id: shot.scene_id || null })
+      setShowCreateTask(false)
+    } catch (err) { console.error('Failed to create task:', err) }
+  }
+
+  // Build shot code
+  const code = project?.project_code || 'PROJ'
+  const sep = project?.scene_separator || '_'
+  const sDigits = project?.scene_digits ?? 3
+  const hDigits = project?.shot_digits ?? 4
+  const shotCode = `${code}${sep}SC${String(scene?.scene_number ?? 0).padStart(sDigits, '0')}${sep}SH${String(shot.shot_number ?? 0).padStart(hDigits, '0')}`
+  const shotSlug = fileSlugify(shot.name || 'Untitled-Shot')
+  const shotFolderPath = `SHOTS/${shotSlug}/`
+
+  const fileCount = managedFiles.filter(f => f.shot_id === shot.id && !f.deleted_at).length
+
+  return (
+    <>
+      <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
+      <div className="fixed z-50 inset-0 flex items-center justify-center gap-3 pointer-events-none">
+
+        {/* ── LEFT SIDE POPUP ── */}
+        {showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh]">
+            <NewTaskSidePopup
+              entityType="shot"
+              entityId={shot.id}
+              assets={ctx?.assets || []}
+              phases={ctx?.phases || []}
+              scenes={ctx?.scenes || []}
+              shots={ctx?.shots || []}
+              levels={ctx?.levels || []}
+              experiences={ctx?.experiences || []}
+              projectMembers={projectMembers || []}
+              roleEntries={roleEntries || []}
+              project={project}
+              onConfirm={handleCreateTask}
+              onClose={() => setShowCreateTask(false)}
+            />
+          </div>
+        )}
+
+        {nestedTaskId && !showCreateTask && (
+          <div className="pointer-events-auto flex-shrink-0 max-h-[85vh] overflow-auto">
+            <TaskDetailPopup taskId={nestedTaskId} ctx={ctx} onClose={() => setNestedTaskId(null)} />
+          </div>
+        )}
+
+        {/* ── MAIN POPUP ── */}
+        <div
+          className="pointer-events-auto w-full max-w-4xl rounded-sm overflow-hidden flex flex-col"
+          style={{
+            backgroundColor: '#292524',
+            border: '2px solid #f97316',
+            maxHeight: '85vh',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.5)',
+          }}
+          onClick={e => e.stopPropagation()}
+        >
+        {/* Header — spans full width */}
+        <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: `3px solid ${sc}` }}>
+          <div className="flex items-center gap-2.5">
+            <Clapperboard className="w-4 h-4" style={{ color: '#fb923c' }} />
+            <span className="text-[14px] font-mono font-bold" style={{ color: '#fb923c' }}>
+              {shot.name || 'Untitled shot'}
+            </span>
+            <span className="text-[10.5px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
+              style={{ color: '#78716c', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              {shotCode}
+            </span>
+          </div>
+          <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded-sm transition-colors" style={{ color: '#a8a29e' }}>
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Two-column body */}
+        <div className="flex-1 overflow-auto flex">
+
+          {/* LEFT COLUMN — Relations */}
+          <RelationsPanel
+            entityType="shot"
+            entityId={shot.id}
+            assets={ctx?.assets || []}
+            tasks={ctx?.tasks || []}
+            ctx={ctx}
+            onOpenAsset={id => setNestedAssetId(id)}
+            onOpenTask={id => setNestedTaskId(id)}
+            onCreateTask={() => setShowCreateTask(true)}
+          />
+
+          {/* RIGHT COLUMN — Properties */}
+          <div className="flex-1 overflow-auto px-5 py-4 min-w-0">
+
+          {/* Thumbnail + Title */}
+          <div className="flex items-start gap-4 mb-5">
+            <div className="relative flex-shrink-0 rounded-sm overflow-hidden flex items-center justify-center group/thumb"
+              style={{ width: 142, height: 80, backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              {hasThumbnail ? (
+                <>
+                  <img
+                    src={`/api/rabbit/projects/${project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                    alt="" style={{ width: 142, height: 80, objectFit: 'cover', display: 'block' }} />
+                  <div className="absolute inset-0 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center gap-1"
+                    style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}>
+                    <button type="button" onClick={handleSetThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#d6d3d1' }}
+                      title="Change thumbnail"><ImagePlus className="w-4 h-4" /></button>
+                    <button type="button" onClick={handleClearThumbnail}
+                      className="p-1.5 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                      title="Remove thumbnail"><ImageOff className="w-4 h-4" /></button>
+                  </div>
+                </>
+              ) : (
+                <button type="button" onClick={handleSetThumbnail}
+                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
+                  style={{ color: '#57534e' }} title="Set thumbnail">
+                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
+                    <ImagePlus className="w-4 h-4" />
+                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
+                  </div>
+                  <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
+                </button>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <FieldLabel>Shot name</FieldLabel>
+              <PopupInlineText
+                value={shot.name || ''}
+                placeholder="Untitled shot"
+                onCommit={v => handleUpdate({ name: v })}
+              />
+            </div>
+          </div>
+
+          {/* Properties grid */}
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
+            <div>
+              <FieldLabel>Status</FieldLabel>
+              <select value={shot.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
+                {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Type</FieldLabel>
+              <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
+                {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Time of Day</FieldLabel>
+              <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: shot.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                <option value="">—</option>
+                {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Shot number</FieldLabel>
+              <input type="number" value={shot.shot_number ?? ''} onChange={e => {
+                const n = parseInt(e.target.value, 10)
+                if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
+              }}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
+            </div>
+            <div>
+              <FieldLabel>Frame count</FieldLabel>
+              <input type="number" min={0} value={shot.frame_count ?? ''} onChange={e => {
+                const n = parseInt(e.target.value, 10)
+                handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
+              }}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
+                placeholder="0" />
+            </div>
+            <div>
+              <FieldLabel>Duration</FieldLabel>
+              <div className="px-2.5 py-1.5 text-[11.5px] font-mono tabular-nums rounded-sm"
+                style={{ backgroundColor: '#1c1917', color: (shot.frame_count || 0) > 0 ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                {framesToTimecode(shot.frame_count || 0, fps)}
+              </div>
+            </div>
+          </div>
+
+          {/* Framing + Camera Movement */}
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
+            <div>
+              <FieldLabel>Framing</FieldLabel>
+              <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: shot.framing ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                <option value="">—</option>
+                {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <FieldLabel>Camera Movement</FieldLabel>
+              <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: shot.camera_movement ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                <option value="">—</option>
+                {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
+              </select>
+            </div>
+            <div />
+          </div>
+
+          {/* Parent scene + dates */}
+          <div className="grid grid-cols-3 gap-x-4 gap-y-4 mb-5">
+            <div>
+              <FieldLabel>Parent scene</FieldLabel>
+              <div className="px-2.5 py-1.5 text-[11.5px] font-mono truncate rounded-sm"
+                style={{ backgroundColor: '#1c1917', color: scene ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+                {scene?.name || '—'}
+              </div>
+            </div>
+            <div>
+              <FieldLabel>Start Date</FieldLabel>
+              <input
+                type="date"
+                value={shot.start_date || ''}
+                onChange={e => handleUpdate({ start_date: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
+              />
+            </div>
+            <div>
+              <FieldLabel>End Date</FieldLabel>
+              <input
+                type="date"
+                value={shot.end_date || ''}
+                onChange={e => handleUpdate({ end_date: e.target.value || null })}
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
+              />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="mb-4">
+            <FieldLabel>Description</FieldLabel>
+            {editingDesc ? (
+              <div>
+                <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
+                  autoFocus />
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={() => { handleUpdate({ description: descDraft }); setEditingDesc(false) }}
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    <Save className="w-3 h-3" /> Save
+                  </button>
+                  <button type="button" onClick={() => { setDescDraft(shot.description || ''); setEditingDesc(false) }}
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div onClick={() => setEditingDesc(true)}
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
+                style={{ backgroundColor: '#1c1917', color: shot.description ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
+                {shot.description || 'Click to add a description...'}
+              </div>
+            )}
+          </div>
+
+          {/* Notes */}
+          <div className="mb-4">
+            <FieldLabel>Notes</FieldLabel>
+            {editingNotes ? (
+              <div>
+                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
+                  autoFocus />
+                <div className="flex gap-2 mt-1">
+                  <button type="button" onClick={() => { handleUpdate({ notes: notesDraft }); setEditingNotes(false) }}
+                    className="text-[10.5px] font-mono uppercase text-orange-400 hover:text-orange-300 flex items-center gap-1">
+                    <Save className="w-3 h-3" /> Save
+                  </button>
+                  <button type="button" onClick={() => { setNotesDraft(shot.notes || ''); setEditingNotes(false) }}
+                    className="text-[10.5px] font-mono uppercase text-stone-500 hover:text-stone-400">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div onClick={() => setEditingNotes(true)}
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm cursor-pointer hover:bg-stone-800 transition-colors"
+                style={{ backgroundColor: '#1c1917', color: shot.notes ? '#a8a29e' : '#57534e', border: '1px solid #44403c', minHeight: 40 }}>
+                {shot.notes || 'Click to add notes...'}
+              </div>
+            )}
+          </div>
+
+          {/* Folder path */}
+          <div className="mb-4">
+            <FieldLabel>Folder</FieldLabel>
+            <div className="flex items-center gap-2 px-3 py-2 rounded-sm"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <FolderOpen className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#57534e' }} />
+              <span className="text-[11.5px] font-mono truncate" style={{ color: '#a8a29e' }}>
+                {shotFolderPath}
+              </span>
+            </div>
+          </div>
+
+          {/* Files */}
+          <div className="mb-4">
+            <FieldLabel>Files ({fileCount})</FieldLabel>
+            <FileManager
+              files={managedFiles}
+              shotId={shot.id}
+              shotName={shot.name || 'Untitled-Shot'}
+              projectId={project?.id}
+              project={project}
+              mode="full"
+              onFileAdded={() => ctx?.refreshManagedFiles?.()}
+              onFileDeleted={() => ctx?.refreshManagedFiles?.()}
+              onFileUpdated={() => ctx?.refreshManagedFiles?.()}
+            />
+          </div>
+          </div>{/* close RIGHT COLUMN */}
+        </div>{/* close two-column flex */}
+
+        {/* Footer */}
+        <div className="px-5 py-3 flex items-center justify-between flex-shrink-0" style={{ borderTop: '1px solid #44403c' }}>
+          <button type="button"
+            onClick={() => { onClose(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-900/30"
+            style={{ color: '#ef4444', border: '1px solid #ef444440' }}>
+            <Trash2 className="w-3 h-3" /> Delete shot
+          </button>
+          <button type="button" onClick={onClose}
+            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+            Close
+          </button>
+        </div>
+      </div>{/* close MAIN POPUP */}
+      </div>{/* close flex container */}
     </>
   )
 }
@@ -1600,28 +2889,28 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
   return (
     <>
       <div className="fixed inset-0 z-[60]" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} onClick={onCancel} />
-      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded overflow-hidden"
+      <div className="fixed z-[60] top-1/2 left-1/2 w-full max-w-sm rounded-sm overflow-hidden"
         style={{ backgroundColor: '#292524', border: '2px solid #ef4444', transform: 'translate(-50%, -50%)', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" style={{ color: '#ef4444' }} />
-            <span className="text-[13px] font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
+            <span className="text-[13.5px] font-mono font-bold" style={{ color: '#ef4444' }}>{title}</span>
           </div>
         </div>
         <div className="px-5 py-4">
-          <p className="text-[12px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
+          <p className="text-[11.5px] font-mono leading-relaxed" style={{ color: '#a8a29e' }}>
             {message}
           </p>
         </div>
         <div className="px-5 py-3 flex items-center justify-end gap-3" style={{ borderTop: '1px solid #44403c' }}>
           <button type="button" onClick={onCancel}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
             style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
             Cancel
           </button>
           <button type="button" onClick={onConfirm}
-            className="px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
+            className="px-4 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-red-800"
             style={{ color: '#fff7ed', backgroundColor: '#ef4444', border: '1px solid #dc2626' }}>
             Delete
           </button>
@@ -1633,70 +2922,70 @@ function ConfirmDialog({ title, message, onConfirm, onCancel }) {
 
 
 // ─── Filter panel ───
-function SceneFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
+function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, onClose }) {
+  const fields = filterFields || SCENE_FILTER_FIELDS
   function getOptions(f) {
-    const def = SCENE_FILTER_FIELDS.find(ff => ff.value === f.field)
+    const def = fields.find(ff => ff.value === f.field)
     if (!def) return []
     return (def.options || []).map(o => ({ value: o, label: fmt(o) }))
   }
   function getType(f) {
-    return SCENE_FILTER_FIELDS.find(ff => ff.value === f.field)?.type || 'text'
+    return fields.find(ff => ff.value === f.field)?.type || 'text'
   }
   return (
-    <div className="px-4 py-3 flex flex-col gap-2" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+    <div className="px-4 py-2.5 flex flex-col gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
       {filters.map((f, i) => {
         const type = getType(f)
         const ops = FILTER_OPS[type] || FILTER_OPS.text
         const needsValue = !['is_empty','is_not_empty'].includes(f.op)
         return (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-[10px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
+            <span className="text-[9.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
-              {SCENE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+              {fields.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-              style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
-                  <option value="">-- select --</option>
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
+                  <option value="">Select…</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  placeholder="value..."
-                  className="px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
-                  style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-32"
+                  style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}
+                  placeholder="value…" />
               )
             )}
-            <button type="button" onClick={() => onRemove(i)} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#fca5a5' }}>
-              <X className="w-3.5 h-3.5" />
+            <button type="button" onClick={() => onRemove(i)}
+              className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3 h-3" />
             </button>
           </div>
         )
       })}
-      <div className="flex items-center gap-2 mt-1">
+      <div className="flex items-center gap-2">
         <button type="button" onClick={onAdd}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
+          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#fb923c', border: '1px solid #44403c' }}>
-          <Plus className="w-3.5 h-3.5" /> Add filter
+          <Plus className="w-3 h-3" /> Add filter
         </button>
-        {filters.length > 0 && (
-          <button type="button" onClick={onClose}
-            className="px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-800 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            Done
-          </button>
-        )}
+        <button type="button" onClick={onClose}
+          className="px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          style={{ color: '#78716c', border: '1px solid #44403c' }}>
+          Done
+        </button>
       </div>
     </div>
   )
@@ -1704,46 +2993,57 @@ function SceneFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
 
 
 // ─── Saved views dropdown ───
-function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
+function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+
   useEffect(() => {
     if (!open) return
-    function handleClick(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
+    }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
   }, [open])
 
   return (
-    <div className="relative" ref={ref}>
-      <button type="button" onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-        style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-        <BookmarkPlus className="w-3.5 h-3.5" /> Views
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen(o => !o)}
+        className="p-1.5 rounded-sm hover:bg-stone-700 transition-colors"
+        style={{ color: views.length > 0 ? '#fb923c' : '#57534e' }}
+        title="Saved views">
+        <BookmarkPlus className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 rounded overflow-hidden z-30"
-          style={{ backgroundColor: '#292524', border: '1px solid #44403c', boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          {views.length === 0 && (
-            <div className="px-3 py-2.5 text-[11px] font-mono italic" style={{ color: '#78716c' }}>No saved views</div>
-          )}
-          {views.map(v => (
-            <div key={v.id} className="flex items-center justify-between px-3 py-2 hover:bg-stone-700 cursor-pointer transition-colors"
-              onClick={() => { onLoad(v); setOpen(false) }}>
-              <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1' }}>{v.name}</span>
-              <button type="button" onClick={e => { e.stopPropagation(); onDelete(v.id) }}
-                className="p-0.5 hover:bg-stone-600 rounded transition-colors" style={{ color: '#fca5a5' }}>
-                <X className="w-3 h-3" />
-              </button>
-            </div>
-          ))}
-          <div style={{ borderTop: '1px solid #44403c' }}>
-            <button type="button" onClick={() => { onSave(); setOpen(false) }}
-              className="w-full flex items-center gap-1.5 px-3 py-2 hover:bg-stone-700 text-[11px] font-mono transition-colors"
-              style={{ color: '#fb923c' }}>
-              <Save className="w-3 h-3" /> Save current view
-            </button>
+        <div className="absolute right-0 mt-1 z-40 rounded-sm shadow-2xl overflow-hidden"
+          style={{ backgroundColor: '#292524', border: '1px solid #44403c', minWidth: 180, maxHeight: 240 }}>
+          <div className="overflow-y-auto" style={{ maxHeight: 200 }}>
+            {views.length === 0 ? (
+              <div className="px-3 py-2 text-[10.5px] font-mono italic" style={{ color: '#57534e' }}>
+                No saved views yet
+              </div>
+            ) : (
+              views.map(v => (
+                <div key={v.id}
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-stone-700 transition-colors cursor-pointer"
+                  style={{ borderBottom: '1px solid #1c1917' }}>
+                  <span className="flex-1 text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}
+                    onClick={() => { onLoad(v); setOpen(false) }}>
+                    {v.name}
+                  </span>
+                  <button type="button" onClick={() => onDelete(v.id)}
+                    className="p-0.5 rounded-sm hover:bg-stone-600 transition-colors" style={{ color: '#78716c' }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))
+            )}
           </div>
+          <button type="button" onClick={() => { onSaveRequest(); setOpen(false) }}
+            className="w-full px-3 py-2 text-[10.5px] font-mono uppercase tracking-wider hover:bg-stone-700 transition-colors text-left"
+            style={{ color: '#fb923c', borderTop: '1px solid #44403c' }}>
+            <Save className="w-3 h-3 inline-block mr-1.5" /> Save current view
+          </button>
         </div>
       )}
     </div>
@@ -1751,21 +3051,21 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 }
 
 
-// ─── Bulk select dropdown ───
+// ─── Bulk select ───
 function SceneBulkSelect({ label, options, onPick }) {
   return (
-    <select defaultValue="" onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
-      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
+    <select defaultValue="" onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
+      className="px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none cursor-pointer"
+      style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
       <option value="" disabled>{label}</option>
-      {options.map(o => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}
+      {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
     </select>
   )
 }
 
 
-// ─── Inline text editor (table rows) ───
-function InlineText({ value, placeholder, onCommit, size = 'md' }) {
+// ─── InlineText ───
+function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   const inputRef = useRef(null)
@@ -1773,38 +3073,34 @@ function InlineText({ value, placeholder, onCommit, size = 'md' }) {
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
 
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-
-  const textSize = size === 'sm' ? 'text-[11px]' : 'text-[12px]'
-  const textColor = size === 'sm' ? '#a8a29e' : '#e7e5e4'
-
   if (editing) {
     return (
       <input ref={inputRef} type="text" value={draft}
         onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className={`w-full ${textSize} font-mono px-1.5 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-orange-500`}
-        style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
+          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+        }}
+        className={`w-full bg-transparent focus:outline-none font-mono ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
+        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
+        onClick={e => e.stopPropagation()}
       />
     )
   }
-
   return (
-    <span onClick={() => setEditing(true)}
-      className={`${textSize} font-mono truncate cursor-pointer hover:text-orange-400 transition-colors block`}
-      style={{ color: value ? textColor : '#57534e' }}>
+    <span
+      className={`font-mono truncate cursor-text block ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
+      style={{ color: value ? (color || (size === 'xs' ? '#78716c' : '#d6d3d1')) : '#57534e' }}
+      onClick={e => { e.stopPropagation(); setEditing(true) }}
+    >
       {value || placeholder}
     </span>
   )
 }
 
 
-// ─── Popup inline text (larger, for detail popup titles) ───
+// ─── PopupInlineText ───
 function PopupInlineText({ value, placeholder, onCommit }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
@@ -1813,39 +3109,37 @@ function PopupInlineText({ value, placeholder, onCommit }) {
   useEffect(() => { setDraft(value) }, [value])
   useEffect(() => { if (editing && inputRef.current) inputRef.current.focus() }, [editing])
 
-  function commit() {
-    const trimmed = draft.trim()
-    if (trimmed !== value) onCommit(trimmed)
-    setEditing(false)
-  }
-
   if (editing) {
     return (
       <input ref={inputRef} type="text" value={draft}
         onChange={e => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full text-[13px] font-mono px-2.5 py-1.5 rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
+        onBlur={() => { if (draft !== value) onCommit(draft); setEditing(false) }}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
+          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
+        }}
+        className="w-full bg-transparent focus:outline-none text-[13.5px] font-mono"
+        style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
       />
     )
   }
-
   return (
-    <div onClick={() => setEditing(true)}
-      className="text-[13px] font-mono px-2.5 py-1.5 rounded cursor-pointer hover:bg-stone-800 transition-colors"
-      style={{ backgroundColor: '#1c1917', color: value ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
+    <span
+      className="text-[13.5px] font-mono truncate cursor-text block"
+      style={{ color: value ? '#d6d3d1' : '#57534e' }}
+      onClick={() => setEditing(true)}
+    >
       {value || placeholder}
-    </div>
+    </span>
   )
 }
 
 
-// ─── Field label (reused in detail popup) ───
+// ─── FieldLabel ───
 function FieldLabel({ children }) {
   return (
-    <label className="block text-[10px] font-mono uppercase tracking-wider font-bold mb-1.5" style={{ color: '#78716c' }}>
+    <span className="block text-[10.5px] font-mono uppercase tracking-widest font-medium mb-1" style={{ color: '#78716c' }}>
       {children}
-    </label>
+    </span>
   )
 }

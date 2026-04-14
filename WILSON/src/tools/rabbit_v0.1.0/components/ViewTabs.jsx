@@ -20,12 +20,12 @@ export const RABBIT_VIEWS = [
   { id: 'summary',     label: 'Summary',      Icon: FileText   },
   { id: 'team',        label: 'Team',         Icon: Users      },
   { id: 'tasks',       label: 'Tasks',        Icon: ListChecks },
+  { id: 'timeline',    label: 'Timeline',     Icon: GanttChart },
+  { id: 'budget',      label: 'Budget',       Icon: DollarSign },
   { id: 'assets',      label: 'Assets',       Icon: Boxes      },
   { id: 'scenes',      label: 'Scenes',       Icon: Film       },
   { id: 'levels',      label: 'Levels',       Icon: Gamepad2   },
   { id: 'experiences', label: 'Experiences',   Icon: Sparkles   },
-  { id: 'timeline',    label: 'Timeline',     Icon: GanttChart },
-  { id: 'budget',      label: 'Budget',       Icon: DollarSign },
 ]
 
 export default function ViewTabs({ activeView, onChange, disabled, rightSlot, hiddenTabs }) {

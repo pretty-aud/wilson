@@ -44,6 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     pickImage:            ()     => ipcRenderer.invoke('rabbit:pick-image'),
     generateAssetThumbnail: (opts) => ipcRenderer.invoke('rabbit:generate-asset-thumbnail', opts),
     clearAssetThumbnail:  (opts) => ipcRenderer.invoke('rabbit:clear-asset-thumbnail', opts),
+    generateEntityThumbnail: (opts) => ipcRenderer.invoke('rabbit:generate-entity-thumbnail', opts),
+    clearEntityThumbnail:    (opts) => ipcRenderer.invoke('rabbit:clear-entity-thumbnail', opts),
     onCopyProgress: (callback) => {
       const handler = (_event, data) => callback(data);
       ipcRenderer.on('rabbit:copy-progress', handler);

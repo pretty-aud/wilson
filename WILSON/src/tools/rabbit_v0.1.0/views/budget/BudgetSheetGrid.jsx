@@ -389,7 +389,7 @@ export default function BudgetSheetGrid({
         <div ref={scrollRef} className="flex overflow-x-auto flex-1" style={{ scrollbarWidth: 'thin' }}>
           {colHeaders.map(col => (
             <div key={col.index}
-              className="text-[8px] font-mono uppercase tracking-wider px-1 py-2 flex-shrink-0 text-center whitespace-pre-line"
+              className="text-[8.5px] font-mono uppercase tracking-wider px-1 py-2 flex-shrink-0 text-center whitespace-pre-line"
               style={{ width: 80, color: '#78716c', borderRight: '1px solid #3a3733' }}>
               {col.label}
             </div>

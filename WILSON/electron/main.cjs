@@ -64,10 +64,13 @@ function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 
 // Next version number for a file within an asset: finds max existing version
 // and returns max+1. Returns 1 if no prior versions exist.
-function getNextVersion(managedFiles, fileName, assetId) {
-  const existing = (managedFiles || []).filter(f =>
-    f.file_name === fileName && f.asset_id === assetId && !f.deleted_at
-  );
+function getNextVersion(managedFiles, fileName, assetId, shotId, sceneId) {
+  const existing = (managedFiles || []).filter(f => {
+    if (f.file_name !== fileName || f.deleted_at) return false;
+    if (sceneId) return f.scene_id === sceneId;
+    if (shotId) return f.shot_id === shotId;
+    return f.asset_id === assetId;
+  });
   if (existing.length === 0) return 1;
   return Math.max(...existing.map(f => f.version || 0)) + 1;
 }
@@ -825,6 +828,9 @@ function startLocalServer(distPath) {
         path.join(root, 'ASSETS'),
         path.join(root, `${slug}_DATABASES`),
         path.join(root, `${slug}_FILES`),
+        path.join(root, `${slug}_RECEIPTS&INVOICES`),
+        path.join(root, `${slug}_CREWINVOICES`),
+        path.join(root, `${slug}_TALENTINVOICES`),
       ];
       for (const d of dirs) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -1159,6 +1165,32 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('experiences',     'experiences');
     rabbitSubentityRoutes('milestones',      'milestones');
 
+    // ── Invoice folder resolution ─────────────────────────────────
+    // Returns the absolute folder path for crew or talent invoice files.
+    // Creates the folder if it doesn't exist yet.
+    expressApp.post('/api/rabbit/projects/:projectId/invoice-folder', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const root = resolveProjectFolder(bundle);
+      if (!root) return res.status(400).json({ error: 'no project folder configured' });
+      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
+      const { type, memberName } = req.body; // type: 'crew' | 'talent' | 'receipts'
+      let folderPath;
+      if (type === 'receipts') {
+        folderPath = path.join(root, `${slug}_RECEIPTS&INVOICES`);
+      } else if (type === 'crew') {
+        const safeName = fileSlugify(memberName || 'Unknown');
+        folderPath = path.join(root, `${slug}_CREWINVOICES`, `${slug}_${safeName}`);
+      } else if (type === 'talent') {
+        const safeName = fileSlugify(memberName || 'Unknown');
+        folderPath = path.join(root, `${slug}_TALENTINVOICES`, `${slug}_${safeName}`);
+      } else {
+        return res.status(400).json({ error: 'invalid type — must be crew, talent, or receipts' });
+      }
+      if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+      res.json({ ok: true, folderPath });
+    });
+
     // ── Project Team: project-scoped copy of workspace team members ──
     // Bulk-sync: replaces projectTeam with the provided array of members
     expressApp.post('/api/rabbit/projects/:projectId/project-team/sync', (req, res) => {
@@ -1271,21 +1303,34 @@ function startLocalServer(distPath) {
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const now = new Date().toISOString();
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
-      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id);
+      const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id);
       const vLabel = formatVersion(version);
       const ext = req.body.extension || '';
       const fileNameSlug = fileSlugify(req.body.file_name || 'File');
       const storedName = `${projectSlug}_${fileNameSlug}_${vLabel}${ext}`;
 
-      // Build folder_path
-      const asset = (bundle.assets || []).find(a => a.id === req.body.asset_id);
-      const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
-      const folderPath = `ASSETS/${assetSlug}/`;
+      // Build folder_path — scenes use SCENES/{slug}/, shots use SHOTS/{slug}/, assets use ASSETS/{slug}/
+      let folderPath;
+      if (req.body.scene_id && !req.body.asset_id && !req.body.shot_id) {
+        const scene = (bundle.scenes || []).find(s => s.id === req.body.scene_id);
+        const sceneSlug = fileSlugify(scene?.name || 'Untitled-Scene');
+        folderPath = `SCENES/${sceneSlug}/`;
+      } else if (req.body.shot_id && !req.body.asset_id) {
+        const shot = (bundle.shots || []).find(s => s.id === req.body.shot_id);
+        const shotSlug = fileSlugify(shot?.name || 'Untitled-Shot');
+        folderPath = `SHOTS/${shotSlug}/`;
+      } else {
+        const asset = (bundle.assets || []).find(a => a.id === req.body.asset_id);
+        const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
+        folderPath = `ASSETS/${assetSlug}/`;
+      }
 
       const row = {
         id:               req.body.id || uuidv4(),
         project_id:       req.params.projectId,
         asset_id:         req.body.asset_id || null,
+        shot_id:          req.body.shot_id || null,
+        scene_id:         req.body.scene_id || null,
         task_id:          req.body.task_id || null,
         file_name:        req.body.file_name || 'Untitled',
         stored_name:      storedName,
@@ -1419,6 +1464,41 @@ function startLocalServer(distPath) {
         res.status(500).json({ error: 'thumbnail generation failed' });
       }
     });
+
+    // ── Generic entity thumbnail endpoints (scene, shot, level, experience) ──
+    for (const etype of ['scenes', 'shots', 'levels', 'experiences']) {
+      const singular = etype.replace(/s$/, ''); // 'scene', 'shot', 'level', 'experience'
+      expressApp.get(`/api/rabbit/projects/:projectId/${etype}/:id/thumbnail`, async (req, res) => {
+        const bundle = readRabbitBundle(req.params.projectId);
+        if (!bundle) return rabbitNotFound(res);
+        const list = bundle[etype] || [];
+        const entity = list.find(e => e.id === req.params.id);
+        if (!entity) return rabbitNotFound(res, singular);
+        if (!entity.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
+
+        const thumbDir = getThumbCacheDir();
+        const thumbPath = path.join(thumbDir, `${singular}-${entity.id}.jpg`);
+
+        if (fs.existsSync(thumbPath)) {
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Cache-Control', 'public, max-age=60');
+          return res.sendFile(thumbPath);
+        }
+
+        const srcPath = entity.thumbnail_image;
+        if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
+
+        try {
+          await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+          res.setHeader('Content-Type', 'image/jpeg');
+          res.setHeader('Cache-Control', 'public, max-age=60');
+          res.sendFile(thumbPath);
+        } catch (err) {
+          console.error(`${singular} thumbnail generation failed:`, err.message);
+          res.status(500).json({ error: 'thumbnail generation failed' });
+        }
+      });
+    }
 
     // Import existing folder structure into managed files manifest
     expressApp.post('/api/rabbit/projects/:projectId/managed-files/import-folder', (req, res) => {
@@ -1934,6 +2014,23 @@ ipcMain.handle('rabbit:generate-asset-thumbnail', async (_event, { assetId, sour
 // Clear a cached asset thumbnail
 ipcMain.handle('rabbit:clear-asset-thumbnail', (_event, { assetId }) => {
   const thumbPath = path.join(getThumbCacheDir(), `asset-${assetId}.jpg`);
+  if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+  return { ok: true };
+});
+
+// Generic entity thumbnail — works for scene, shot, level, experience
+ipcMain.handle('rabbit:generate-entity-thumbnail', async (_event, { entityType, entityId, sourcePath }) => {
+  if (!sourcePath || !fs.existsSync(sourcePath)) {
+    throw new Error('source image does not exist');
+  }
+  const thumbDir = getThumbCacheDir();
+  const thumbPath = path.join(thumbDir, `${entityType}-${entityId}.jpg`);
+  await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
+  return { ok: true, thumbPath };
+});
+
+ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId }) => {
+  const thumbPath = path.join(getThumbCacheDir(), `${entityType}-${entityId}.jpg`);
   if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
   return { ok: true };
 });

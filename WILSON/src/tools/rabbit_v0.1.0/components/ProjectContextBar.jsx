@@ -8,18 +8,15 @@
 //   • Project icon + title + status pill
 //   • A "switch project" dropdown listing every project in the
 //     workspace, with the active one marked
-//   • A "Gallery →" link that jumps the user to the Summary tab
-//     (which is where the full project gallery now lives)
-//
 // Reads from RabbitProvider.
 
 import { useState, useRef, useEffect } from 'react'
 import {
-  Folder, ChevronDown, Check, LayoutGrid, Circle,
+  Folder, ChevronDown, Check, Circle,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 
-export default function ProjectContextBar({ onJumpToSummary }) {
+export default function ProjectContextBar() {
   const ctx = useRabbit()
   const project = ctx?.project
   const projectsIndex = ctx?.projectsIndex || {}
@@ -55,7 +52,7 @@ export default function ProjectContextBar({ onJumpToSummary }) {
   return (
     <div
       className="flex items-center gap-3 px-6 py-2"
-      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}
+      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
     >
       <Folder className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
 
@@ -152,20 +149,6 @@ export default function ProjectContextBar({ onJumpToSummary }) {
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={onJumpToSummary}
-        className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-        style={{
-          color: '#a8a29e',
-          backgroundColor: '#292524',
-          border: '1px solid #44403c',
-        }}
-        title="Open the project gallery in the Summary tab"
-      >
-        <LayoutGrid className="w-3 h-3" />
-        Gallery →
-      </button>
     </div>
   )
 }
