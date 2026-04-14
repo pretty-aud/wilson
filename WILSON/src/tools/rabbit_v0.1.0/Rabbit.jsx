@@ -32,7 +32,7 @@
 // effect uses the `currentPage` prop passed down from App.jsx
 // — calling setActiveTool('rabbit') on visibility.
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
@@ -46,13 +46,26 @@ import ProjectTasksView from './views/ProjectTasksView'
 import TimelineView, { SettingsPanel, HelpModal, loadRabbitSettings, saveRabbitSettings } from './views/TimelineView'
 import TeamView from './views/TeamView'
 import BudgetView from './views/BudgetView'
+import ScenesView from './views/ScenesView'
+import LevelsView from './views/LevelsView'
+import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
   const agent = useAgent()
+  const project = ctx?.project
   const [activeView, setActiveView] = useState('summary')
+
+  // ── Dynamic tab visibility based on project toggle fields ──
+  const hiddenTabs = useMemo(() => {
+    const hidden = new Set()
+    if (!project?.scenes_enabled) hidden.add('scenes')
+    if (!project?.levels_enabled) hidden.add('levels')
+    if (!project?.experiences_enabled) hidden.add('experiences')
+    return hidden
+  }, [project?.scenes_enabled, project?.levels_enabled, project?.experiences_enabled])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())
@@ -122,6 +135,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
         activeView={activeView}
         onChange={setActiveView}
         disabled={!activeProjectId && activeView !== 'summary'}
+        hiddenTabs={hiddenTabs}
         rightSlot={(
           <>
             <button
@@ -147,7 +161,9 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
       />
 
       {/* ── Project context bar ── */}
-      <ProjectContextBar onJumpToSummary={() => setActiveView('summary')} />
+      {activeView !== 'summary' && (
+        <ProjectContextBar onJumpToSummary={() => setActiveView('summary')} />
+      )}
 
       {/* ── View body ── */}
       <div className="flex-1 overflow-hidden relative">
@@ -160,7 +176,10 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
             {activeView === 'assets'   && <ProjectAssetsView  />}
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}
-            {activeView === 'timeline' && <TimelineView settings={settings} holidays={holidays} />}
+            {activeView === 'scenes'      && <ScenesView />}
+            {activeView === 'levels'      && <LevelsView />}
+            {activeView === 'experiences' && <ExperiencesView />}
+            {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} />}
             {activeView === 'budget'   && <BudgetView         />}
           </div>
         )}

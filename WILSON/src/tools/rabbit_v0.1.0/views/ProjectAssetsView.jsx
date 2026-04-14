@@ -30,7 +30,7 @@ import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,
   Table as TableIcon, LayoutGrid, X, FileText, ImagePlus, ImageOff,
   Layers, ArrowUpDown, ChevronDown, ChevronRight,
-  Save, BookmarkPlus,
+  Save, BookmarkPlus, CheckSquare, Square, MinusSquare,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
@@ -53,12 +53,12 @@ export const ASSET_TYPES = [
 ]
 
 export const ASSET_STATUSES = [
-  'not_started','in_progress','pending_review','revisions',
+  'not_started','in_progress','pending_review','needs_revisions',
   'approved','final','blocked','on_hold','omitted',
 ]
 
 export const TASK_STATUSES = [
-  'waiting_to_start','in_progress','pending_review','revisions',
+  'waiting_to_start','in_progress','pending_review','needs_revisions',
   'approved','final','blocked','on_hold','omitted',
 ]
 
@@ -132,7 +132,7 @@ function statusColor(status) {
   switch (status) {
     case 'in_progress':    return '#fb923c'
     case 'pending_review': return '#fbbf24'
-    case 'revisions':      return '#f97316'
+    case 'needs_revisions': return '#e879f9'
     case 'approved':       return '#4ade80'
     case 'final':          return '#22c55e'
     case 'blocked':        return '#ef4444'
@@ -456,21 +456,17 @@ export default function ProjectAssetsView() {
 
           {/* Thumbnail size selector */}
           {viewMode === 'table' && (
-            <div className="flex items-center gap-0.5">
-              {Object.entries(THUMB_SIZES).map(([key, { label }]) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setThumbSize(key)}
-                  className="px-1.5 py-1 text-[10px] font-mono uppercase tracking-wider rounded"
+            <div className="flex rounded overflow-hidden" style={{ border: '1px solid #44403c' }}>
+              {[{ key: 'sm', size: 10 }, { key: 'md', size: 13 }, { key: 'lg', size: 16 }].map(({ key, size }) => (
+                <button key={key} type="button" onClick={() => setThumbSize(key)}
+                  className="flex items-center justify-center w-7 h-7 transition-colors"
+                  title={`${key} thumbnails`}
                   style={{
-                    color: thumbSize === key ? '#fff7ed' : '#a8a29e',
-                    backgroundColor: thumbSize === key ? '#78716c' : 'transparent',
-                    border: `1px solid ${thumbSize === key ? '#57534e' : '#44403c'}`,
-                  }}
-                  title={`Thumbnail size ${label}`}
-                >
-                  {label}
+                    backgroundColor: thumbSize === key ? '#ea580c' : 'transparent',
+                    color: thumbSize === key ? '#fff7ed' : '#78716c',
+                    borderLeft: key !== 'sm' ? '1px solid #44403c' : 'none',
+                  }}>
+                  <Square style={{ width: size, height: size }} />
                 </button>
               ))}
             </div>
@@ -753,6 +749,33 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
 
+  // ── Multi-select state ──
+  const [selected, setSelected] = useState(new Set())
+  const allAssetIds = useMemo(() => {
+    if (groups) return groups.flatMap(g => g.assets.map(a => a.id))
+    return assets.map(a => a.id)
+  }, [groups, assets])
+  const allSelected = allAssetIds.length > 0 && allAssetIds.every(id => selected.has(id))
+  const someSelected = selected.size > 0
+
+  function toggleOne(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function toggleAll() {
+    if (allSelected) setSelected(new Set())
+    else setSelected(new Set(allAssetIds))
+  }
+  function clearSelection() { setSelected(new Set()) }
+  function bulkUpdate(patch) {
+    for (const id of selected) ctx?.updateAsset?.(id, patch)
+    clearSelection()
+  }
+  function bulkDelete() {
+    if (!window.confirm(`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?`)) return
+    for (const id of selected) ctx?.deleteAsset?.(id)
+    clearSelection()
+  }
+
   const columns = [
     { key: 'name',        label: 'Name',        flex: 3 },
     { key: 'type',        label: 'Type',        flex: 1.2 },
@@ -776,9 +799,42 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
   }
 
   return (
-    <div className="min-w-full">
+    <div className="min-w-full relative">
       {/* Header */}
-      <div className="flex sticky top-0 z-10" style={{ backgroundColor: '#292524', borderBottom: '2px solid #44403c' }}>
+      <div className="relative flex sticky top-0 z-10" style={{ backgroundColor: '#292524', borderBottom: '2px solid #44403c' }}>
+        {/* ── Bulk-action bar (overlays header) ── */}
+        {someSelected && (
+          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
+            style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
+            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+              {selected.size} selected
+            </span>
+            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+            <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
+            <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            <button type="button" onClick={bulkDelete}
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+              style={{ color: '#fca5a5' }}>
+              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+            </button>
+            <button type="button" onClick={clearSelection}
+              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {/* Checkbox column */}
+        <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
+          <button type="button" onClick={toggleAll} className="p-0.5 rounded hover:bg-stone-700 transition-colors">
+            {allSelected
+              ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+              : someSelected
+                ? <MinusSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+                : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+          </button>
+        </div>
         {/* Thumbnail spacer */}
         <div style={{ width: rowH, flexShrink: 0 }} />
         {columns.map(c => (
@@ -828,6 +884,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   onWarningClick={() => onWarningClick?.(a.id)}
                   onDetailClick={() => onDetailClick?.(a.id)}
                   onThumbChanged={onThumbChanged}
+                  isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
                 />
               ))}
             </div>
@@ -851,16 +908,33 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             onWarningClick={() => onWarningClick?.(a.id)}
             onDetailClick={() => onDetailClick?.(a.id)}
             onThumbChanged={onThumbChanged}
+            isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
           />
         ))
       )}
+
     </div>
+  )
+}
+
+function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
+  return (
+    <select
+      defaultValue=""
+      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
+      className="px-2 py-1 text-[10px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+    >
+      <option value="" disabled>{label}</option>
+      {allowEmpty && <option value="">None</option>}
+      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
+    </select>
   )
 }
 
 
 // ── Single asset row (flex-based, matching task rows) ──
-function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged }) {
+function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
   const hasThumbnail = !!asset.thumbnail_image
   const effectiveH = hasThumbnail ? rowH : BASE_ROW_H
@@ -932,7 +1006,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             <select value={asset.status || 'not_started'} onChange={e => onUpdate({ status: e.target.value })}
               className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors"
               style={{ ...flatSelect, color: sc }}>
-              {ASSET_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
+              {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
             {warning && (
               <button type="button" onClick={onWarningClick}
@@ -994,11 +1068,22 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
     <div className="flex"
       style={{
         borderBottom: '1px solid #292524',
-        backgroundColor: hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
+        backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.1)' : hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
         transition: 'background-color 150ms ease',
         minHeight: effectiveH,
       }}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+
+      {/* Checkbox */}
+      <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
+        <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
+          className="p-0.5 rounded hover:bg-stone-700 transition-colors"
+          style={{ opacity: isSelected || hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
+          {isSelected
+            ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+            : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+        </button>
+      </div>
 
       {/* Thumbnail cell — fixed width 1:1 square */}
       <div style={{ width: effectiveH, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -1354,7 +1439,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                 <select value={draft.status} onChange={e => patch({ status: e.target.value })}
                   className="w-full px-2 py-1.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
-                  {ASSET_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
+                  {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                 </select>
               </div>
             </div>
@@ -1854,7 +1939,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
           className="px-1.5 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: sc, border: '1px solid transparent' }}
         >
-          {TASK_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
+          {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
         </select>
       </Td>
       <Td>
@@ -2013,7 +2098,7 @@ function statusTone(status) {
   if (status === 'final' || status === 'approved') return 'good'
   if (status === 'blocked') return 'danger'
   if (status === 'on_hold' || status === 'omitted') return 'warn'
-  if (status === 'in_progress' || status === 'pending_review' || status === 'revisions') return 'active'
+  if (status === 'in_progress' || status === 'pending_review' || status === 'needs_revisions') return 'active'
   return 'neutral'
 }
 

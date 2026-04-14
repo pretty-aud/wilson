@@ -88,6 +88,12 @@ const EMPTY_BUNDLE = {
   managedFiles:   [],
   budgetVersions: [],
   expenses:       [],
+  projectTeam:    [],
+  scenes:         [],
+  shots:          [],
+  levels:         [],
+  experiences:    [],
+  milestones:     [],
 };
 
 function indexById(rows) {
@@ -512,6 +518,275 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, activeProjectId]);
 
+  // ── Scenes ─────────────────────────────────────────────
+  const addScene = useCallback(async (scene) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           scene.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundleRef.current.scenes.length,
+      ...scene,
+    };
+    const created = await adapterRef.current.upsertScene(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, scenes: [...prev.scenes, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteScene(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addScene(finalRow)],
+    });
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateScene = useCallback(async (id, patch) => {
+    const oldScene = bundleRef.current.scenes.find(s => s.id === id);
+    const oldValues = {};
+    if (oldScene) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldScene[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, scenes: prev.scenes.map(s => s.id === id ? { ...s, ...patch } : s) }),
+      () => adapterRef.current.upsertScene({ ...bundleRef.current.scenes.find(s => s.id === id), ...patch, id }),
+    );
+    if (oldScene) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateScene(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateScene(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
+
+  const deleteScene = useCallback(async (id) => {
+    const oldScene = bundleRef.current.scenes.find(s => s.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, scenes: prev.scenes.filter(s => s.id !== id) }),
+      () => adapterRef.current.deleteScene(id, activeProjectId),
+    );
+    if (oldScene) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addScene(oldScene)],
+        redoOps: [() => mutationsRef.current.deleteScene(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // ── Shots ──────────────────────────────────────────────
+  const addShot = useCallback(async (shot) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           shot.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundleRef.current.shots.length,
+      ...shot,
+    };
+    const created = await adapterRef.current.upsertShot(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, shots: [...prev.shots, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteShot(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addShot(finalRow)],
+    });
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateShot = useCallback(async (id, patch) => {
+    const oldShot = bundleRef.current.shots.find(s => s.id === id);
+    const oldValues = {};
+    if (oldShot) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldShot[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, shots: prev.shots.map(s => s.id === id ? { ...s, ...patch } : s) }),
+      () => adapterRef.current.upsertShot({ ...bundleRef.current.shots.find(s => s.id === id), ...patch, id }),
+    );
+    if (oldShot) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateShot(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateShot(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
+
+  const deleteShot = useCallback(async (id) => {
+    const oldShot = bundleRef.current.shots.find(s => s.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, shots: prev.shots.filter(s => s.id !== id) }),
+      () => adapterRef.current.deleteShot(id, activeProjectId),
+    );
+    if (oldShot) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addShot(oldShot)],
+        redoOps: [() => mutationsRef.current.deleteShot(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // ── Levels ─────────────────────────────────────────────
+  const addLevel = useCallback(async (level) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           level.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundleRef.current.levels.length,
+      ...level,
+    };
+    const created = await adapterRef.current.upsertLevel(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, levels: [...prev.levels, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteLevel(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addLevel(finalRow)],
+    });
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateLevel = useCallback(async (id, patch) => {
+    const oldLevel = bundleRef.current.levels.find(l => l.id === id);
+    const oldValues = {};
+    if (oldLevel) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldLevel[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, levels: prev.levels.map(l => l.id === id ? { ...l, ...patch } : l) }),
+      () => adapterRef.current.upsertLevel({ ...bundleRef.current.levels.find(l => l.id === id), ...patch, id }),
+    );
+    if (oldLevel) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateLevel(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateLevel(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
+
+  const deleteLevel = useCallback(async (id) => {
+    const oldLevel = bundleRef.current.levels.find(l => l.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, levels: prev.levels.filter(l => l.id !== id) }),
+      () => adapterRef.current.deleteLevel(id, activeProjectId),
+    );
+    if (oldLevel) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addLevel(oldLevel)],
+        redoOps: [() => mutationsRef.current.deleteLevel(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // ── Experiences ────────────────────────────────────────
+  const addExperience = useCallback(async (experience) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           experience.id || uuidv4(),
+      project_id:   activeProjectId,
+      sort_order:   bundleRef.current.experiences.length,
+      ...experience,
+    };
+    const created = await adapterRef.current.upsertExperience(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, experiences: [...prev.experiences, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteExperience(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addExperience(finalRow)],
+    });
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateExperience = useCallback(async (id, patch) => {
+    const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
+    const oldValues = {};
+    if (oldExperience) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldExperience[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, experiences: prev.experiences.map(e => e.id === id ? { ...e, ...patch } : e) }),
+      () => adapterRef.current.upsertExperience({ ...bundleRef.current.experiences.find(e => e.id === id), ...patch, id }),
+    );
+    if (oldExperience) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateExperience(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateExperience(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
+
+  const deleteExperience = useCallback(async (id) => {
+    const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, experiences: prev.experiences.filter(e => e.id !== id) }),
+      () => adapterRef.current.deleteExperience(id, activeProjectId),
+    );
+    if (oldExperience) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addExperience(oldExperience)],
+        redoOps: [() => mutationsRef.current.deleteExperience(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
+  // ── Milestones ──────────────────────────────────────────
+  const addMilestone = useCallback(async (milestone) => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId)    throw new Error('no project');
+    const row = {
+      id:           milestone.id || uuidv4(),
+      project_id:   activeProjectId,
+      ...milestone,
+    };
+    const created = await adapterRef.current.upsertMilestone(row);
+    const finalRow = created || row;
+    setBundle(prev => ({ ...prev, milestones: [...prev.milestones, finalRow] }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteMilestone(finalRow.id)],
+      redoOps: [() => mutationsRef.current.addMilestone(finalRow)],
+    });
+    return finalRow;
+  }, [activeProjectId]);
+
+  const updateMilestone = useCallback(async (id, patch) => {
+    const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
+    const oldValues = {};
+    if (oldMilestone) {
+      for (const k of Object.keys(patch)) oldValues[k] = oldMilestone[k];
+    }
+    const result = await optimistic(
+      prev => ({ ...prev, milestones: prev.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }),
+      () => adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id }),
+    );
+    if (oldMilestone) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateMilestone(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateMilestone(id, patch)],
+      });
+    }
+    return result;
+  }, [optimistic]);
+
+  const deleteMilestone = useCallback(async (id) => {
+    const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
+    const result = await optimistic(
+      prev => ({ ...prev, milestones: prev.milestones.filter(m => m.id !== id) }),
+      () => adapterRef.current.deleteMilestone(id, activeProjectId),
+    );
+    if (oldMilestone) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.addMilestone(oldMilestone)],
+        redoOps: [() => mutationsRef.current.deleteMilestone(id)],
+      });
+    }
+    return result;
+  }, [optimistic, activeProjectId]);
+
   const reorderAssets = useCallback((orderedIds) => optimistic(
     prev => ({
       ...prev,
@@ -752,6 +1027,14 @@ export function RabbitProvider({ children }) {
     return result;
   }, [optimistic, activeProjectId]);
 
+  // ── Project team (project-scoped copy of workspace members) ──
+  const syncProjectTeam = useCallback(async (members) => {
+    if (!adapterRef.current?.syncProjectTeam || !activeProjectId) return;
+    const synced = await adapterRef.current.syncProjectTeam(activeProjectId, members);
+    setBundle(prev => ({ ...prev, projectTeam: synced || members }));
+    return synced;
+  }, [activeProjectId]);
+
   // ── Files ───────────────────────────────────────────────
   const uploadFile = useCallback(async (file, scope = {}) => {
     if (!adapterRef.current || !activeProjectId) throw new Error('no project');
@@ -766,6 +1049,14 @@ export function RabbitProvider({ children }) {
       files: prev.files.map(f => f.id === fileId ? { ...f, is_core_definer: isCore } : f),
     }),
     () => adapterRef.current.updateFile(fileId, { is_core_definer: isCore, project_id: activeProjectId }),
+  ), [optimistic, activeProjectId]);
+
+  const patchFile = useCallback((fileId, patch) => optimistic(
+    prev => ({
+      ...prev,
+      files: prev.files.map(f => f.id === fileId ? { ...f, ...patch } : f),
+    }),
+    () => adapterRef.current.updateFile(fileId, { ...patch, project_id: activeProjectId }),
   ), [optimistic, activeProjectId]);
 
   // ── Managed files (asset-folder-based, versioned) ──────
@@ -982,6 +1273,21 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.unlinkTasks  = unlinkTasks;
   mutationsRef.current.addTaskLink  = addTaskLink;
   mutationsRef.current.removeTaskLink = removeTaskLink;
+  mutationsRef.current.addScene       = addScene;
+  mutationsRef.current.updateScene    = updateScene;
+  mutationsRef.current.deleteScene    = deleteScene;
+  mutationsRef.current.addShot        = addShot;
+  mutationsRef.current.updateShot     = updateShot;
+  mutationsRef.current.deleteShot     = deleteShot;
+  mutationsRef.current.addLevel       = addLevel;
+  mutationsRef.current.updateLevel    = updateLevel;
+  mutationsRef.current.deleteLevel    = deleteLevel;
+  mutationsRef.current.addExperience  = addExperience;
+  mutationsRef.current.updateExperience = updateExperience;
+  mutationsRef.current.deleteExperience = deleteExperience;
+  mutationsRef.current.addMilestone     = addMilestone;
+  mutationsRef.current.updateMilestone  = updateMilestone;
+  mutationsRef.current.deleteMilestone  = deleteMilestone;
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -1032,6 +1338,14 @@ export function RabbitProvider({ children }) {
     managedFiles:    bundle.managedFiles || [],
     budgetVersions:  bundle.budgetVersions || [],
     expenses:        bundle.expenses || [],
+    budgetLines:     bundle.budgetLines || [],
+    budgetActuals:   bundle.budgetActuals || [],
+    projectTeam:     bundle.projectTeam || [],
+    scenes:          bundle.scenes || [],
+    shots:           bundle.shots || [],
+    levels:          bundle.levels || [],
+    experiences:     bundle.experiences || [],
+    milestones:      bundle.milestones || [],
     loadingProject,
     error,
 
@@ -1058,8 +1372,14 @@ export function RabbitProvider({ children }) {
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
-    uploadFile, markFileCoreDefiner,
+    syncProjectTeam,
+    uploadFile, markFileCoreDefiner, patchFile,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    addScene, updateScene, deleteScene,
+    addShot, updateShot, deleteShot,
+    addLevel, updateLevel, deleteLevel,
+    addExperience, updateExperience, deleteExperience,
+    addMilestone, updateMilestone, deleteMilestone,
 
     // history
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
@@ -1078,8 +1398,14 @@ export function RabbitProvider({ children }) {
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
-    uploadFile, markFileCoreDefiner,
+    syncProjectTeam,
+    uploadFile, markFileCoreDefiner, patchFile,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    addScene, updateScene, deleteScene,
+    addShot, updateShot, deleteShot,
+    addLevel, updateLevel, deleteLevel,
+    addExperience, updateExperience, deleteExperience,
+    addMilestone, updateMilestone, deleteMilestone,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,
   ]);

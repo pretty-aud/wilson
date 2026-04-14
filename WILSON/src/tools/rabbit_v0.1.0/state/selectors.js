@@ -8,7 +8,7 @@
 
 // ─── Status taxonomy helpers ────────────────────────────────
 const TASK_DONE_STATES = new Set(['approved', 'final', 'omitted']);
-const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'revisions']);
+const TASK_ACTIVE_STATES = new Set(['in_progress', 'pending_review', 'needs_revisions']);
 
 export function isTaskDone(task) {
   return task && TASK_DONE_STATES.has(task.status);

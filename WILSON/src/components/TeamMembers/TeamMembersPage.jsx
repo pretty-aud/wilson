@@ -10,7 +10,7 @@ import { useState, useMemo, useEffect } from 'react'
 import {
   Users, Plus, Search, Trash2, X, ChevronDown,
 } from 'lucide-react'
-import { useTeamMembers, PRONOUN_OPTIONS } from './useTeamMembers'
+import { useTeamMembers, PRONOUN_OPTIONS, EMPLOYMENT_TYPES } from './useTeamMembers'
 
 export default function TeamMembersPage() {
   const tm = useTeamMembers()
@@ -129,6 +129,7 @@ export default function TeamMembersPage() {
                 <ThLight>Department</ThLight>
                 <ThLight>Location</ThLight>
                 <ThLight>Email</ThLight>
+                <ThLight>Type</ThLight>
                 <ThLight>Pronouns</ThLight>
                 <ThLight />
               </tr>
@@ -183,6 +184,13 @@ function MemberRow({ member, departments, onUpdate, onDelete }) {
       </TdLight>
       <TdLight>
         <InlineLightText value={member.email || ''} onCommit={(email) => onUpdate({ email })} placeholder="email@..." />
+      </TdLight>
+      <TdLight>
+        <InlineLightSelect
+          value={member.employment_type || 'fulltime'}
+          options={EMPLOYMENT_TYPES}
+          onCommit={(employment_type) => onUpdate({ employment_type })}
+        />
       </TdLight>
       <TdLight>
         <PronounPicker

@@ -210,6 +210,10 @@ export function googleDriveAdapter() {
         assetVersions: bundle.assetVersions || [],
         comments:      bundle.comments || [],
         ingestionRuns: bundle.ingestionRuns || [],
+        scenes:        bundle.scenes || [],
+        shots:         bundle.shots || [],
+        levels:        bundle.levels || [],
+        experiences:   bundle.experiences || [],
       };
     },
 
@@ -261,6 +265,16 @@ export function googleDriveAdapter() {
     listRateCardEntries:  readOnly('listRateCardEntries'),
     upsertRateCardEntry:  readOnly('upsertRateCardEntry'),
     deleteRateCardEntry:  readOnly('deleteRateCardEntry'),
+    upsertScene:          readOnly('upsertScene'),
+    deleteScene:          readOnly('deleteScene'),
+    upsertShot:           readOnly('upsertShot'),
+    deleteShot:           readOnly('deleteShot'),
+    upsertLevel:          readOnly('upsertLevel'),
+    deleteLevel:          readOnly('deleteLevel'),
+    upsertExperience:     readOnly('upsertExperience'),
+    deleteExperience:     readOnly('deleteExperience'),
+    upsertMilestone:      readOnly('upsertMilestone'),
+    deleteMilestone:      readOnly('deleteMilestone'),
 
     // No realtime on Drive.
     subscribeProjectChanges: () => () => {},

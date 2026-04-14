@@ -103,6 +103,15 @@ export default function TeamView() {
     }
   }
 
+  async function handleDateChange(assignmentId, field, value) {
+    if (!ctx?.updateTeamAssignment) return
+    try {
+      await ctx.updateTeamAssignment(assignmentId, { [field]: value || null })
+    } catch (err) {
+      console.error('[TeamView] date change failed:', err)
+    }
+  }
+
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
@@ -153,8 +162,11 @@ export default function TeamView() {
                 <Th>Name</Th>
                 <Th>Title</Th>
                 <Th>Department</Th>
+                <Th>Type</Th>
                 <Th>Role</Th>
                 <Th>Tasks</Th>
+                <Th>Start</Th>
+                <Th>End</Th>
                 <Th>Email</Th>
                 <Th />
               </tr>
@@ -185,6 +197,15 @@ export default function TeamView() {
                       </span>
                     </Td>
                     <Td>
+                      <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{
+                        color: member.employment_type === 'freelancer' ? '#fbbf24' : '#86efac',
+                        backgroundColor: member.employment_type === 'freelancer' ? '#1c1917' : '#1c1917',
+                        border: `1px solid ${member.employment_type === 'freelancer' ? '#78350f' : '#14532d'}`,
+                      }}>
+                        {member.employment_type === 'freelancer' ? 'Freelancer' : 'Full-Time'}
+                      </span>
+                    </Td>
+                    <Td>
                       <select
                         value={assignment.role || 'member'}
                         onChange={(e) => handleRoleChange(assignment.id, e.target.value)}
@@ -204,6 +225,34 @@ export default function TeamView() {
                       <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>
                         {taskCountByMember[member.id] || 0}
                       </span>
+                    </Td>
+                    <Td>
+                      <input
+                        type="date"
+                        value={assignment.start_date || ''}
+                        onChange={(e) => handleDateChange(assignment.id, 'start_date', e.target.value)}
+                        className="text-[11px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        style={{
+                          backgroundColor: '#1c1917',
+                          color: assignment.start_date ? '#a8a29e' : '#57534e',
+                          border: '1px solid #44403c',
+                          colorScheme: 'dark',
+                        }}
+                      />
+                    </Td>
+                    <Td>
+                      <input
+                        type="date"
+                        value={assignment.end_date || ''}
+                        onChange={(e) => handleDateChange(assignment.id, 'end_date', e.target.value)}
+                        className="text-[11px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        style={{
+                          backgroundColor: '#1c1917',
+                          color: assignment.end_date ? '#a8a29e' : '#57534e',
+                          border: '1px solid #44403c',
+                          colorScheme: 'dark',
+                        }}
+                      />
                     </Td>
                     <Td>
                       <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>

@@ -63,7 +63,7 @@ RULES:
 - Use bid_days as a number; if you don't know, use null and flag it in "message".
 - Asset \`type\` is one of: character, environment, prop, vehicle, vfx, ui, sfx, music, doc, other.
 - Task \`priority\` defaults to "med". Valid values: low | med | high | crit.
-- Task \`status\` is one of the project's 10-state workflow: not_started, in_progress, blocked, in_review, revisions, approved, complete, on_hold, cancelled, archived.
+- Task \`status\` is one of the project's 10-state workflow: not_started, in_progress, blocked, in_review, needs_revisions, approved, complete, on_hold, cancelled, archived.
 - Dependency \`type\` is one of: FS, SS, FF, SF. Default lag is 0 days.
 - If a project is locked, refuse the write and explain why.
 - If the user asks to "break down this script" or similar, propose bulk_create_from_breakdown — do NOT enumerate individual tasks one by one.

@@ -29,9 +29,9 @@
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import {
   ListChecks, Plus, Search, Filter, Trash2, X, FileText,
-  Table as TableIcon, Columns3, ArrowUpDown, Layers,
+  Table as TableIcon, Columns3, ArrowUpDown, Layers, Diamond,
   ChevronDown, ChevronRight, Save, BookmarkPlus,
-  GripVertical, MoreHorizontal,
+  GripVertical, MoreHorizontal, CheckSquare, Square, MinusSquare,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
@@ -39,7 +39,7 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 
 // ── Constants ──
 const TASK_STATUSES = [
-  'waiting_to_start','in_progress','pending_review','revisions',
+  'waiting_to_start','in_progress','pending_review','needs_revisions',
   'approved','final','blocked','on_hold','omitted',
 ]
 
@@ -99,7 +99,7 @@ function statusColor(status) {
   switch (status) {
     case 'in_progress':    return '#fb923c'
     case 'pending_review': return '#fbbf24'
-    case 'revisions':      return '#f97316'
+    case 'needs_revisions': return '#e879f9'
     case 'approved':       return '#4ade80'
     case 'final':          return '#22c55e'
     case 'blocked':        return '#ef4444'
@@ -131,6 +131,7 @@ export default function ProjectTasksView() {
   const assets  = ctx?.assets  || []
   const phases  = ctx?.phases  || []
   const project = ctx?.project
+  const milestones = ctx?.milestones || []
   const teamAssignments = ctx?.teamAssignments || []
 
   // Lookups
@@ -232,6 +233,18 @@ export default function ProjectTasksView() {
   }, [sortField, sortDir])
 
   const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
+
+  // ── All milestones (user + project bounds) ──
+  const allMilestones = useMemo(() => {
+    const list = [...milestones]
+    if (project?.start_date) {
+      list.push({ id: '__project_start__', title: 'Project Start', date: project.start_date, color: '#22c55e', isProjectBound: true })
+    }
+    if (project?.end_date) {
+      list.push({ id: '__project_end__', title: 'Project End', date: project.end_date, color: '#ef4444', isProjectBound: true })
+    }
+    return list
+  }, [milestones, project?.start_date, project?.end_date])
 
   // ── Grouping (table) ──
   const groups = useMemo(() => {
@@ -514,6 +527,13 @@ export default function ProjectTasksView() {
             <Plus className="w-3.5 h-3.5" /> Phase
           </button>
 
+          {/* Key date create */}
+          <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+            style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
+            <Diamond className="w-3.5 h-3.5" /> Key Date
+          </button>
+
           <button type="button" onClick={() => handleAddTask()}
             className="flex items-center gap-1.5 px-4 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
@@ -554,6 +574,9 @@ export default function ProjectTasksView() {
             ctx={ctx}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
+            milestones={allMilestones}
+            sortField={sortField}
+            sortDir={sortDir}
           />
         ) : (
           <KanbanBoard
@@ -763,7 +786,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW
 // ═════════════════════════════════════════════════════
-function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick }) {
+function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title',    flex: 3 },
     { key: 'status',      label: 'Status',   flex: 1.2 },
@@ -777,6 +800,33 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     { key: '_actions',    label: '',         flex: 0.4 },
   ]
 
+  // ── Multi-select state ──
+  const [selected, setSelected] = useState(new Set())
+  const allTaskIds = useMemo(() => {
+    if (groups) return groups.flatMap(g => g.tasks.map(t => t.id))
+    return tasks.map(t => t.id)
+  }, [groups, tasks])
+  const allSelected = allTaskIds.length > 0 && allTaskIds.every(id => selected.has(id))
+  const someSelected = selected.size > 0
+
+  function toggleOne(id) {
+    setSelected(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function toggleAll() {
+    if (allSelected) setSelected(new Set())
+    else setSelected(new Set(allTaskIds))
+  }
+  function clearSelection() { setSelected(new Set()) }
+  function bulkUpdate(patch) {
+    for (const id of selected) ctx?.updateTask?.(id, patch)
+    clearSelection()
+  }
+  function bulkDelete() {
+    if (!window.confirm(`Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`)) return
+    for (const id of selected) ctx?.deleteTask?.(id)
+    clearSelection()
+  }
+
   if (tasks.length === 0 && (!groups || groups.length === 0)) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
@@ -788,9 +838,43 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
   }
 
   return (
-    <div className="min-w-full">
+    <div className="min-w-full relative">
       {/* Header */}
-      <div className="flex sticky top-0 z-10" style={{ backgroundColor: '#292524', borderBottom: '2px solid #44403c' }}>
+      <div className="relative flex sticky top-0 z-10" style={{ backgroundColor: '#292524', borderBottom: '2px solid #44403c' }}>
+        {/* ── Bulk-action bar (overlays header) ── */}
+        {someSelected && (
+          <div className="absolute top-0 z-20 flex items-center gap-3 h-full px-3 rounded-sm"
+            style={{ left: 36, backgroundColor: '#292524', border: '1px solid #ea580c', width: 'fit-content' }}>
+            <span className="text-[11px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+              {selected.size} selected
+            </span>
+            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            <BulkSelect label="Status" options={TASK_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+            <BulkSelect label="Priority" options={PRIORITIES} onPick={v => bulkUpdate({ priority: v })} />
+            <BulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+            <BulkSelect label="Assignee" options={members.map(m => m.id)} labels={members.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ assignee_id: v || null })} allowEmpty />
+            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+            <button type="button" onClick={bulkDelete}
+              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+              style={{ color: '#fca5a5' }}>
+              <Trash2 className="w-3 h-3" /> <span className="text-[10px] font-mono uppercase">Delete</span>
+            </button>
+            <button type="button" onClick={clearSelection}
+              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+        {/* Checkbox column */}
+        <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
+          <button type="button" onClick={toggleAll} className="p-0.5 rounded hover:bg-stone-700 transition-colors">
+            {allSelected
+              ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+              : someSelected
+                ? <MinusSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+                : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+          </button>
+        </div>
         {columns.map(c => (
           <div key={c.key} className="px-3.5 py-2.5 text-[11px] font-mono uppercase tracking-wider font-semibold text-left"
             style={{ color: '#a8a29e', flex: c.flex, minWidth: 0 }}>
@@ -799,27 +883,97 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
         ))}
       </div>
 
-      {/* Rows */}
+      {/* Milestone rows + task rows. When sorting by a date field,
+          milestones are interleaved at their correct chronological
+          position. Otherwise they render as a block above the tasks. */}
       {groups ? (
-        groups.map(g => (
-          <TaskGroup key={g.key} group={g} groupBy={groupBy} columns={columns}
-            assets={assets} phases={phases} members={members}
-            assetById={assetById} phaseById={phaseById} memberById={memberById}
-            collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-            ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick} />
-        ))
-      ) : (
         <>
-          {tasks.map(t => (
-            <TaskRow key={t.id} task={t} columns={columns}
+          {/* Milestones above grouped tasks */}
+          {milestones.length > 0 && (
+            <div style={{ borderBottom: '2px solid #44403c' }}>
+              {milestones.map(ms => (
+                <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+              ))}
+            </div>
+          )}
+          {groups.map(g => (
+            <TaskGroup key={g.key} group={g} groupBy={groupBy} columns={columns}
               assets={assets} phases={phases} members={members}
               assetById={assetById} phaseById={phaseById} memberById={memberById}
-              ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)} />
+              collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
+              ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick}
+              selected={selected} toggleOne={toggleOne} />
           ))}
+        </>
+      ) : (
+        <>
+          {(() => {
+            // When sorted by date, interleave milestones chronologically
+            const dateSort = sortField === 'start_date' || sortField === 'end_date'
+            if (dateSort && milestones.length > 0) {
+              const dir = sortDir === 'desc' ? -1 : 1
+              // Build a merged array of { type: 'task'|'milestone', item }
+              const merged = [
+                ...tasks.map(t => ({ type: 'task', item: t, date: t[sortField] || '' })),
+                ...milestones.map(ms => ({ type: 'milestone', item: ms, date: ms.date || '' })),
+              ]
+              merged.sort((a, b) => {
+                if (a.date < b.date) return -1 * dir
+                if (a.date > b.date) return 1 * dir
+                // milestones sort before tasks at same date
+                if (a.type === 'milestone' && b.type !== 'milestone') return -1
+                if (a.type !== 'milestone' && b.type === 'milestone') return 1
+                return 0
+              })
+              return merged.map(entry =>
+                entry.type === 'milestone' ? (
+                  <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} />
+                ) : (
+                  <TaskRow key={entry.item.id} task={entry.item} columns={columns}
+                    assets={assets} phases={phases} members={members}
+                    assetById={assetById} phaseById={phaseById} memberById={memberById}
+                    ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                    isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
+                )
+              )
+            }
+            // No date sort — milestones first, then tasks
+            return (
+              <>
+                {milestones.map(ms => (
+                  <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                ))}
+                {tasks.map(t => (
+                  <TaskRow key={t.id} task={t} columns={columns}
+                    assets={assets} phases={phases} members={members}
+                    assetById={assetById} phaseById={phaseById} memberById={memberById}
+                    ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+                    isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
+                ))}
+              </>
+            )
+          })()}
           <AddRowButton onAdd={() => onAddTask()} />
         </>
       )}
+
     </div>
+  )
+}
+
+// ── Bulk-action dropdown for floating bar ──
+function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
+  return (
+    <select
+      defaultValue=""
+      onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
+      className="px-2 py-1 text-[10px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
+    >
+      <option value="" disabled>{label}</option>
+      {allowEmpty && <option value="">None</option>}
+      {options.map(o => <option key={o} value={o}>{(labels?.[o] || o).replace(/_/g, ' ')}</option>)}
+    </select>
   )
 }
 
@@ -835,7 +989,7 @@ function buildGroupPatch(groupBy, targetKey) {
 }
 
 // ── Task group with header + add-row + drop target ──
-function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick }) {
+function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick, selected, toggleOne }) {
   const [dragOver, setDragOver] = useState(false)
   const dragCountRef = useRef(0)
 
@@ -942,7 +1096,8 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
             <TaskRow key={t.id} task={t} columns={columns}
               assets={assets} phases={phases} members={members}
               assetById={assetById} phaseById={phaseById} memberById={memberById}
-              ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)} />
+              ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+              isSelected={selected?.has(t.id)} onToggleSelect={() => toggleOne?.(t.id)} />
           ))}
           <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
         </>
@@ -986,8 +1141,129 @@ function PhaseInlineEdit({ value, onCommit, accent }) {
 }
 
 
+// ── Milestone row — visually distinct with diamond icon + amber accent ──
+function MilestoneRow({ milestone, columns, ctx }) {
+  const [hovered, setHovered] = useState(false)
+  const [editTitle, setEditTitle] = useState(false)
+  const [localTitle, setLocalTitle] = useState(milestone.title)
+  const [editDate, setEditDate] = useState(false)
+  const [localDate, setLocalDate] = useState(milestone.date || '')
+  const isProjectBound = milestone.isProjectBound
+
+  function commitTitle() {
+    if (localTitle !== milestone.title && !isProjectBound) {
+      ctx?.updateMilestone?.(milestone.id, { title: localTitle })
+    }
+    setEditTitle(false)
+  }
+  function commitDate() {
+    if (localDate !== milestone.date && !isProjectBound) {
+      ctx?.updateMilestone?.(milestone.id, { date: localDate })
+    }
+    setEditDate(false)
+  }
+  function handleDelete() {
+    if (isProjectBound) return
+    if (!confirm('Delete this milestone?')) return
+    ctx?.deleteMilestone?.(milestone.id)
+  }
+
+  return (
+    <div
+      className="flex items-center transition-colors"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        borderBottom: '1px solid #44403c',
+        backgroundColor: hovered ? 'rgba(245, 158, 11, 0.08)' : 'rgba(245, 158, 11, 0.04)',
+        borderLeft: `3px solid ${milestone.color || '#f59e0b'}`,
+      }}
+    >
+      {/* Checkbox spacer */}
+      <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
+        <Diamond className="w-3.5 h-3.5" style={{ color: milestone.color || '#f59e0b' }} />
+      </div>
+      {columns.map(c => {
+        if (c.key === 'title') {
+          return (
+            <div key={c.key} className="flex items-center gap-2 px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
+              <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: milestone.color || '#f59e0b', fill: milestone.color || '#f59e0b' }} />
+              {editTitle && !isProjectBound ? (
+                <input type="text" value={localTitle} autoFocus
+                  onChange={e => setLocalTitle(e.target.value)}
+                  onBlur={commitTitle}
+                  onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
+                  className="flex-1 px-1 py-0.5 text-[12px] font-mono font-semibold rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
+                />
+              ) : (
+                <span
+                  className="text-[12px] font-mono font-semibold truncate cursor-pointer"
+                  style={{ color: '#f59e0b' }}
+                  onClick={() => !isProjectBound && setEditTitle(true)}
+                  title={milestone.description || milestone.title}
+                >
+                  {milestone.title}
+                </span>
+              )}
+              {isProjectBound && (
+                <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded" style={{ color: '#78716c', backgroundColor: '#292524', border: '1px solid #3a3733' }}>bound</span>
+              )}
+            </div>
+          )
+        }
+        if (c.key === 'start_date' || c.key === 'end_date') {
+          return (
+            <div key={c.key} className="px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
+              {c.key === 'start_date' ? (
+                editDate && !isProjectBound ? (
+                  <input type="date" value={localDate} autoFocus
+                    onChange={e => setLocalDate(e.target.value)}
+                    onBlur={commitDate}
+                    onKeyDown={e => { if (e.key === 'Enter') commitDate(); if (e.key === 'Escape') { setLocalDate(milestone.date); setEditDate(false) } }}
+                    className="w-full px-1 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
+                  />
+                ) : (
+                  <span
+                    className="text-[11px] font-mono cursor-pointer"
+                    style={{ color: '#f59e0b' }}
+                    onClick={() => !isProjectBound && setEditDate(true)}
+                  >
+                    {milestone.date || '—'}
+                  </span>
+                )
+              ) : (
+                <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>—</span>
+              )}
+            </div>
+          )
+        }
+        if (c.key === '_actions') {
+          return (
+            <div key={c.key} className="flex items-center justify-center px-2" style={{ flex: c.flex, minWidth: 0 }}>
+              {!isProjectBound && hovered && (
+                <button type="button" onClick={handleDelete}
+                  className="p-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#78716c' }}>
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )
+        }
+        // Empty cell for other columns
+        return (
+          <div key={c.key} className="px-3.5 py-2" style={{ flex: c.flex, minWidth: 0 }}>
+            <span className="text-[11px] font-mono" style={{ color: '#3a3733' }}>—</span>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ── Single task row ──
-function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick }) {
+function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
 
   function handleUpdate(patch) { ctx?.updateTask?.(task.id, patch) }
@@ -1025,7 +1301,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
             className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: sc }}>
-            {TASK_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
+            {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
           </select>
         )
       }
@@ -1035,7 +1311,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
           <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
             className="px-1.5 py-1 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
             style={{ ...flatSelect, color: pc }}>
-            {PRIORITIES.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
+            {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
           </select>
         )
       }
@@ -1098,10 +1374,20 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       onDragStart={handleDragStart}
       style={{
         borderBottom: '1px solid #292524',
-        backgroundColor: hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
+        backgroundColor: isSelected ? 'rgba(234, 88, 12, 0.1)' : hovered ? 'rgba(41, 37, 36, 0.5)' : 'transparent',
         transition: 'background-color 150ms ease',
       }}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      {/* Checkbox */}
+      <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
+        <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
+          className="p-0.5 rounded hover:bg-stone-700 transition-colors"
+          style={{ opacity: isSelected || hovered ? 1 : 0, transition: 'opacity 150ms ease' }}>
+          {isSelected
+            ? <CheckSquare className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
+            : <Square className="w-3.5 h-3.5" style={{ color: '#57534e' }} />}
+        </button>
+      </div>
       {columns.map(c => (
         <div key={c.key} className="px-3.5 py-2 flex items-center" style={{ flex: c.flex, minWidth: 0, overflow: 'hidden' }}>
           {renderCell(c)}

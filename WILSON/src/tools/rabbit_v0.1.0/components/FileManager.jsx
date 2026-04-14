@@ -139,12 +139,12 @@ export default function FileManager({
         const folderRoot = project?.folder_root
         let destDir
         if (folderRoot) {
-          destDir = folderRoot.replace(/\\/g, '/') + '/' + assetSlug
+          destDir = folderRoot.replace(/\\/g, '/') + '/ASSETS/' + assetSlug
         } else {
           // Fallback: use the files config default root
           const cfg = await api.readFilesConfig()
           if (cfg?.defaultRootDir) {
-            destDir = cfg.defaultRootDir.replace(/\\/g, '/') + '/' + projectSlug + '/' + assetSlug
+            destDir = cfg.defaultRootDir.replace(/\\/g, '/') + '/' + projectSlug + '/ASSETS/' + assetSlug
           }
         }
 
@@ -210,11 +210,11 @@ export default function FileManager({
     const folderRoot = project?.folder_root
     let folderPath
     if (folderRoot) {
-      folderPath = folderRoot + '\\' + assetSlug
+      folderPath = folderRoot + '\\ASSETS\\' + assetSlug
     } else {
       const cfg = await api.readFilesConfig()
       if (cfg?.defaultRootDir) {
-        folderPath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + assetSlug
+        folderPath = cfg.defaultRootDir + '\\' + projectSlug + '\\ASSETS\\' + assetSlug
       }
     }
     if (folderPath) {

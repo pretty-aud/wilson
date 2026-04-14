@@ -27,7 +27,7 @@ do $$ begin
     'blocked',           -- upstream blocker
     'on_hold',           -- ShotGrid hld  (paused by decision)
     'pending_review',    -- ShotGrid rev  (submitted, awaiting feedback)
-    'revisions',         -- cbb / retake  (notes received, iterating)
+    'needs_revisions',   -- cbb / retake  (notes received, iterating)
     'approved',          -- internal supervisor approved
     'final',             -- ShotGrid fin  (client/director final)
     'omitted'            -- ShotGrid omt  (cut from project)
