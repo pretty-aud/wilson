@@ -157,15 +157,15 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Eye className="w-5 h-5" style={{ color: '#fb923c' }} />
-          <span className="text-[13px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
+          <span className="text-[13.5px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
             Client View
           </span>
-          <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>
+          <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
             Clean estimate for client presentation
           </span>
         </div>
         <button type="button" onClick={handlePrint}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <Printer className="w-3.5 h-3.5" /> Print / Export
         </button>
@@ -176,15 +176,15 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         <h2 className="text-lg font-mono font-bold uppercase tracking-wider mb-1" style={{ color: '#1c1917' }}>
           {project?.name || 'Project'}
         </h2>
-        <p className="text-[11px] font-mono mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
+        <p className="text-[11.5px] font-mono mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
 
-        <div className="flex gap-8 mb-5 text-[11px] font-mono">
+        <div className="flex gap-8 mb-5 text-[11.5px] font-mono">
           <div>
-            <span className="text-[9px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Project Code</span>
+            <span className="text-[9.5px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Project Code</span>
             <span style={{ color: '#1c1917' }}>{project?.code || '--'}</span>
           </div>
           <div>
-            <span className="text-[9px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Date</span>
+            <span className="text-[9.5px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Date</span>
             <span style={{ color: '#1c1917' }}>{new Date().toLocaleDateString()}</span>
           </div>
         </div>
@@ -193,10 +193,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         <table className="w-full" style={{ borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid #1c1917' }}>
-              <th className="text-left text-[9px] font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-left text-[9.5px] font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
                 Item
               </th>
-              <th className="text-right text-[9px] font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
+              <th className="text-right text-[9.5px] font-mono uppercase tracking-widest py-2 px-3" style={{ color: '#44403c' }}>
                 Estimate
               </th>
             </tr>
@@ -204,8 +204,8 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
           <tbody>
             {clientLineItems.map(row => (
               <tr key={row.label} style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-[11px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
-                <td className="text-[11px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-[11.5px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>{row.label}</td>
+                <td className="text-[11.5px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(row.estimate, currency)}
                 </td>
               </tr>
@@ -214,10 +214,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Contingency as a flat dollar line item — NO percentage shown */}
             {contingencyAmt > 0 && (
               <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-[11px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-[11.5px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>
                   Contingency
                 </td>
-                <td className="text-[11px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-[11.5px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(contingencyAmt, currency)}
                 </td>
               </tr>
@@ -226,10 +226,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
             {/* Markup as "Production Fee" — NO percentage shown */}
             {markupAmt > 0 && (
               <tr style={{ borderBottom: '1px solid #e7e5e4' }}>
-                <td className="text-[11px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-[11.5px] font-mono py-2 px-3" style={{ color: '#1c1917' }}>
                   Production Fee
                 </td>
-                <td className="text-[11px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
+                <td className="text-[11.5px] font-mono text-right py-2 px-3" style={{ color: '#1c1917' }}>
                   {fmtCurrency(markupAmt, currency)}
                 </td>
               </tr>
@@ -237,8 +237,8 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
             {/* Grand total */}
             <tr style={{ borderTop: '2px solid #1c1917' }}>
-              <td className="text-[13px] font-mono font-bold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
-              <td className="text-[13px] font-mono font-bold text-right py-3 px-3" style={{ color: '#1c1917' }}>
+              <td className="text-[13.5px] font-mono font-bold py-3 px-3" style={{ color: '#1c1917' }}>Total</td>
+              <td className="text-[13.5px] font-mono font-bold text-right py-3 px-3" style={{ color: '#1c1917' }}>
                 {fmtCurrency(grandTotal, currency)}
               </td>
             </tr>
@@ -247,10 +247,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
 
         {/* Note + Signature area */}
         <div className="mt-8">
-          <p className="text-[10px] font-mono mb-1" style={{ color: '#78716c' }}>Note:</p>
+          <p className="text-[10.5px] font-mono mb-1" style={{ color: '#78716c' }}>Note:</p>
           <div className="h-16 rounded-sm mb-8" style={{ border: '1px solid #e7e5e4' }} />
 
-          <div className="flex flex-col gap-4 text-[10px] font-mono" style={{ color: '#1c1917' }}>
+          <div className="flex flex-col gap-4 text-[10.5px] font-mono" style={{ color: '#1c1917' }}>
             <div className="flex items-end gap-2">
               <span>Estimate Approved by:</span>
               <div className="flex-1" style={{ borderBottom: '1px solid #1c1917', height: 18 }} />

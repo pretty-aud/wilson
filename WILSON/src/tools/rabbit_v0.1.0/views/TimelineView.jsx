@@ -119,19 +119,22 @@ const RABBIT_SETTINGS_KEY = 'rabbit-timeline-settings-v1'
 // Users can edit these defaults in the RABBIT system settings panel.
 export const PROJECT_TYPE_LIST = [
   'commercial', 'film', 'series', 'music_video', 'branded_content',
-  'social', 'animation', 'documentary', 'other',
+  'social', 'animation', 'documentary', 'video_game', 'interactive_experience', 'experiential_activation', 'other',
 ]
 
 export const DEFAULT_PROJECT_TYPE_TEMPLATES = {
-  commercial:      { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  film:            { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  series:          { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  music_video:     { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  branded_content: { scenes_enabled: false, levels_enabled: false, experiences_enabled: true  },
-  social:          { scenes_enabled: false, levels_enabled: false, experiences_enabled: false },
-  animation:       { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  documentary:     { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false },
-  other:           { scenes_enabled: false, levels_enabled: false, experiences_enabled: false },
+  commercial:               { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  film:                     { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  series:                   { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  music_video:              { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  branded_content:          { scenes_enabled: false, levels_enabled: false, experiences_enabled: true,  uses_realtime_engine: false },
+  social:                   { scenes_enabled: false, levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  animation:                { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  documentary:              { scenes_enabled: true,  levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
+  video_game:               { scenes_enabled: false, levels_enabled: true,  experiences_enabled: false, uses_realtime_engine: true  },
+  interactive_experience:   { scenes_enabled: false, levels_enabled: true,  experiences_enabled: true,  uses_realtime_engine: true  },
+  experiential_activation:  { scenes_enabled: false, levels_enabled: false, experiences_enabled: true,  uses_realtime_engine: false },
+  other:                    { scenes_enabled: false, levels_enabled: false, experiences_enabled: false, uses_realtime_engine: false },
 }
 
 const DEFAULT_SETTINGS = {
@@ -568,7 +571,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   if (!project) {
     return (
       <div className="h-full flex items-center justify-center" style={{ backgroundColor: '#1c1917' }}>
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
+        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           No project loaded
         </span>
       </div>
@@ -992,7 +995,7 @@ const OverviewPane = forwardRef(function OverviewPane({
       style={{
         height: OVERVIEW_HEIGHT,
         backgroundColor: '#1c1917',
-        borderBottom: '2px solid #44403c',
+        borderBottom: '1px solid #292524',
         overflow: 'hidden',
       }}
     >
@@ -1001,8 +1004,8 @@ const OverviewPane = forwardRef(function OverviewPane({
         className="relative w-full"
         style={{
           height: OVERVIEW_HEADER,
-          backgroundColor: '#292524',
-          borderBottom: '1px solid #44403c',
+          backgroundColor: '#1c1917',
+          borderBottom: '1px solid #292524',
         }}
       >
         {ticks.map(tick => (
@@ -1011,10 +1014,10 @@ const OverviewPane = forwardRef(function OverviewPane({
             className="absolute top-0 bottom-0 flex flex-col justify-end pb-0.5 px-1"
             style={{
               left: tick.offset * dayPx,
-              borderLeft: tick.major ? '2px solid #57534e' : '1px solid #44403c',
+              borderLeft: tick.major ? '1px solid #44403c' : '1px solid #292524',
             }}
           >
-            <span className="text-[9px] font-mono whitespace-nowrap" style={{ color: tick.major ? '#fb923c' : '#78716c' }}>
+            <span className="text-[9.5px] font-mono whitespace-nowrap" style={{ color: tick.major ? '#a8a29e' : '#57534e' }}>
               {tick.label}
             </span>
           </div>
@@ -1038,6 +1041,21 @@ const OverviewPane = forwardRef(function OverviewPane({
         onWheel={handleWheel}
       >
         <div className="relative h-full" style={{ minHeight: innerH }}>
+          {/* Month boundary divider lines — extend through the full
+              minimap body so months are clearly separated. */}
+          {ticks.map(tick => (
+            <div
+              key={`mb-${tick.key}`}
+              className="absolute top-0 bottom-0 pointer-events-none"
+              style={{
+                left: tick.offset * dayPx,
+                width: 1,
+                backgroundColor: tick.major ? '#44403c' : '#292524',
+                opacity: tick.major ? 0.7 : 0.5,
+              }}
+            />
+          ))}
+
           {/* Today line — only drawn when today lies inside the
               minimap's current visible span. */}
           {todayLeft >= 0 && todayLeft <= span.days * dayPx && (
@@ -1146,9 +1164,9 @@ const OverviewPane = forwardRef(function OverviewPane({
                 // under the OverviewPane's own border-bottom).
                 top: 1,
                 bottom: 1,
-                border: '2px solid #fb923c',
-                backgroundColor: 'rgba(251, 146, 60, 0.10)',
-                boxShadow: '0 0 0 1px rgba(28,25,23,0.6) inset',
+                border: '1px solid rgba(251, 146, 60, 0.5)',
+                backgroundColor: 'rgba(251, 146, 60, 0.06)',
+                borderRadius: 2,
                 zIndex: 5,
               }}
               onMouseDown={handleFrameMouseDown}
@@ -1247,29 +1265,29 @@ const OverviewPane = forwardRef(function OverviewPane({
             <>
               <div className="flex items-center gap-1.5">
                 <Diamond className="w-3 h-3 flex-shrink-0" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }} />
-                <div className="text-[11px] font-bold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
+                <div className="text-[11.5px] font-bold truncate" style={{ color: hoverPopup.row.milestone?.color || '#f59e0b' }}>
                   {hoverPopup.row.label || 'Untitled milestone'}
                 </div>
               </div>
               {hoverPopup.row.milestone?.description && (
-                <div className="text-[10px] mt-1 truncate" style={{ color: '#d6d3d1' }}>{hoverPopup.row.milestone.description}</div>
+                <div className="text-[10.5px] mt-1 truncate" style={{ color: '#d6d3d1' }}>{hoverPopup.row.milestone.description}</div>
               )}
-              <div className="text-[10px] mt-0.5" style={{ color: '#a8a29e' }}>
+              <div className="text-[10.5px] mt-0.5" style={{ color: '#a8a29e' }}>
                 {hoverPopup.row.start ? formatTooltipDate(hoverPopup.row.start) : '— no date —'}
               </div>
               {hoverPopup.row.milestone?.isProjectBound && (
-                <div className="text-[9px] mt-0.5 uppercase" style={{ color: '#78716c' }}>project bound</div>
+                <div className="text-[9.5px] mt-0.5 uppercase" style={{ color: '#78716c' }}>project bound</div>
               )}
             </>
           ) : (
             <>
-              <div className="text-[11px] font-bold uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
+              <div className="text-[11.5px] font-bold uppercase tracking-wider truncate" style={{ color: '#fb923c' }}>
                 {hoverPopup.row.label || 'Untitled phase'}
               </div>
-              <div className="text-[10px] mt-1" style={{ color: '#d6d3d1' }}>
+              <div className="text-[10.5px] mt-1" style={{ color: '#d6d3d1' }}>
                 {hoverPopup.row.taskCount ?? 0} task{(hoverPopup.row.taskCount ?? 0) === 1 ? '' : 's'}
               </div>
-              <div className="text-[10px]" style={{ color: '#a8a29e' }}>
+              <div className="text-[10.5px]" style={{ color: '#a8a29e' }}>
                 {hoverPopup.row.start && hoverPopup.row.end
                   ? `${formatTooltipDate(hoverPopup.row.start)} → ${formatTooltipDate(hoverPopup.row.end)}`
                   : '— no dates —'}
@@ -2073,19 +2091,19 @@ function DetailPane({
           className="flex-shrink-0 sticky left-0 z-20"
           style={{
             width: LABEL_W,
-            backgroundColor: '#292524',
-            borderRight: '1px solid #44403c',
+            backgroundColor: '#1c1917',
+            borderRight: '1px solid #292524',
           }}
         >
           <div
             className="flex items-end px-3 pb-2 sticky top-0 z-10"
             style={{
               height: HEADER_PX,
-              borderBottom: '1px solid #57534e',
-              backgroundColor: '#44403c',
+              borderBottom: '1px solid #292524',
+              backgroundColor: '#1c1917',
             }}
           >
-            <span className="text-[10px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>
+            <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#57534e' }}>
               Phase / Task
             </span>
           </div>
@@ -2127,14 +2145,14 @@ function DetailPane({
                   className="relative flex items-center cursor-pointer transition-colors"
                   style={{
                     height: rowPx,
-                    borderBottom: '1px dashed #44403c',
+                    borderBottom: '1px solid transparent',
                     backgroundColor: isReparentHoverDz
                       ? '#7c2d12'
-                      : (isDzHover ? 'rgba(234, 88, 12, 0.08)' : 'transparent'),
+                      : (isDzHover ? 'rgba(234, 88, 12, 0.06)' : 'transparent'),
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
                     outline: isReparentHoverDz ? '2px dashed #fb923c' : undefined,
-                    opacity: isDzHover || isReparentHoverDz ? 1 : 0.5,
+                    opacity: isDzHover || isReparentHoverDz ? 1 : 0.4,
                   }}
                   title="Click to add a new task to this phase"
                 >
@@ -2143,7 +2161,7 @@ function DetailPane({
                     style={{ color: isDzHover ? '#fb923c' : '#78716c' }}
                   />
                   <span
-                    className="text-[11px] font-mono italic"
+                    className="text-[11.5px] font-mono italic"
                     style={{ color: isDzHover ? '#fdba74' : '#78716c' }}
                   >
                     New task…
@@ -2167,17 +2185,17 @@ function DetailPane({
                 key={r.key}
                 data-phase-drop-target={dropTargetId || undefined}
                 draggable={false}
-                className={`relative flex items-center hover:bg-stone-700 transition-colors ${isTaskRow ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+                className={`relative flex items-center hover:bg-stone-800/50 transition-colors ${isTaskRow ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
                 style={{
                   height: rowPx,
-                  borderBottom: '1px solid #1c1917',
+                  borderBottom: r.kind === 'phase' ? '1px solid #292524' : '1px solid #1c1917',
                   backgroundColor: isHoverTarget
                     ? '#7c2d12'
-                    : (r.kind === 'phase'
-                        ? (r.isSubgroup ? '#33302d' : '#44403c')
-                        : '#292524'),
-                  borderLeft: r.isSubgroup ? '3px solid #b45309' : undefined,
-                  paddingLeft: r.isSubgroup ? (5 + depth * INDENT_UNIT + 20) : (8 + depth * INDENT_UNIT + 20),
+                    : 'transparent',
+                  borderLeft: r.kind === 'phase'
+                    ? (r.isSubgroup ? '2px solid #78716c' : '2px solid #fb923c')
+                    : '2px solid transparent',
+                  paddingLeft: (6 + depth * INDENT_UNIT + 20),
                   paddingRight: 8,
                   outline: isHoverTarget ? '2px dashed #fb923c' : undefined,
                   userSelect: 'none',
@@ -2197,13 +2215,13 @@ function DetailPane({
                       e.stopPropagation()
                       onToggleCollapse?.(r.phase)
                     }}
-                    className="absolute flex items-center justify-center rounded-sm hover:bg-stone-600"
+                    className="absolute flex items-center justify-center rounded-sm hover:bg-stone-800"
                     style={{
-                      left: r.isSubgroup ? (3 + depth * INDENT_UNIT) : (6 + depth * INDENT_UNIT),
+                      left: 4 + depth * INDENT_UNIT,
                       top: (rowPx - 16) / 2,
                       width: 16,
                       height: 16,
-                      color: r.isSubgroup ? '#b45309' : '#fb923c',
+                      color: r.isSubgroup ? '#78716c' : '#fb923c',
                       zIndex: 2,
                     }}
                     title={r.collapsed ? 'Expand' : 'Collapse'}
@@ -2214,12 +2232,12 @@ function DetailPane({
                   </button>
                 )}
                 <span
-                  className={`text-[11px] font-mono truncate ${
+                  className={`text-[11.5px] font-mono truncate ${
                     r.kind === 'phase'
-                      ? (r.isSubgroup ? 'font-semibold' : 'font-bold uppercase tracking-wider')
+                      ? (r.isSubgroup ? 'font-medium' : 'font-semibold')
                       : ''
                   }`}
-                  style={{ color: r.kind === 'phase' ? (r.isSubgroup ? '#d6d3d1' : '#fb923c') : '#d6d3d1' }}
+                  style={{ color: r.kind === 'phase' ? '#fb923c' : '#78716c' }}
                 >
                   {r.label}
                 </span>
@@ -2235,8 +2253,8 @@ function DetailPane({
             className="relative sticky top-0 z-10"
             style={{
               height: HEADER_PX,
-              borderBottom: '1px solid #57534e',
-              backgroundColor: '#44403c',
+              borderBottom: '1px solid #292524',
+              backgroundColor: '#1c1917',
             }}
           >
             {ticks.map(tick => {
@@ -2249,20 +2267,14 @@ function DetailPane({
                     left: dayToX(tick.offset),
                     display: 'flex',
                     flexDirection: 'column',
-                    // Major lines (month-1st in week/day, year-1st in month/quarter)
-                    // are wider + brighter so they visually break up the header.
                     borderLeft: tick.major
-                      ? '2px solid #78716c'
-                      : '1px solid #57534e',
+                      ? '1px solid #44403c'
+                      : '1px solid #292524',
                   }}
                 >
-                  {/* Two-tier header: month/quarter label sits near the
-                      top of the header bar, day label hugs the bottom.
-                      The flex spacer pushes them apart so they never
-                      overlap even on a 44px-tall header. */}
                   {tick.topLabel && (
                     <span
-                      className="text-[9px] font-mono font-bold whitespace-nowrap"
+                      className="text-[9.5px] font-mono font-medium whitespace-nowrap"
                       style={{ color: '#fb923c', marginTop: 4, lineHeight: 1 }}
                     >
                       {tick.topLabel}
@@ -2270,8 +2282,8 @@ function DetailPane({
                   )}
                   <span style={{ flex: 1 }} />
                   <span
-                    className="text-[9px] font-mono whitespace-nowrap"
-                    style={{ color: tick.major ? '#d6d3d1' : '#a8a29e', marginBottom: 4 }}
+                    className="text-[9.5px] font-mono whitespace-nowrap"
+                    style={{ color: tick.major ? '#78716c' : '#57534e', marginBottom: 4 }}
                   >
                     {tick.label}
                   </span>
@@ -2304,7 +2316,7 @@ function DetailPane({
                     style={{
                       left: dayToX(i),
                       width: dayPx,
-                      backgroundColor: dow === 0 ? 'rgba(120, 113, 108, 0.18)' : 'rgba(120, 113, 108, 0.13)',
+                      backgroundColor: dow === 0 ? 'rgba(120, 113, 108, 0.10)' : 'rgba(120, 113, 108, 0.06)',
                     }}
                   />
                 )
@@ -2323,9 +2335,9 @@ function DetailPane({
                     className="absolute top-0 bottom-0 pointer-events-none"
                     style={{
                       left: dayToX(i),
-                      width: 2,
-                      backgroundColor: '#78716c',
-                      opacity: 0.85,
+                      width: 1,
+                      backgroundColor: '#57534e',
+                      opacity: 0.5,
                     }}
                   />
                 )
@@ -2340,8 +2352,8 @@ function DetailPane({
                     style={{
                       left: dayToX(i),
                       width: 1,
-                      backgroundColor: '#57534e',
-                      opacity: 0.7,
+                      backgroundColor: '#44403c',
+                      opacity: 0.4,
                     }}
                   />
                 )
@@ -2354,8 +2366,8 @@ function DetailPane({
                   style={{
                     left: dayToX(i),
                     width: 1,
-                    backgroundColor: isWeek ? '#57534e' : '#44403c',
-                    opacity: 0.6,
+                    backgroundColor: isWeek ? '#44403c' : '#292524',
+                    opacity: 0.4,
                   }}
                 />
               )
@@ -2507,7 +2519,7 @@ function DetailPane({
                         }}
                       >
                         <span
-                          className="text-[10px] font-mono italic truncate px-2"
+                          className="text-[10.5px] font-mono italic truncate px-2"
                           style={{ color: '#fdba74' }}
                         >
                           + New task
@@ -3532,7 +3544,7 @@ function DetailBar({
       <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: 'ew-resize' }} />
       {width > 32 && (
         <span
-          className={`text-[10px] font-mono truncate pointer-events-none overflow-hidden ${
+          className={`text-[10.5px] font-mono truncate pointer-events-none overflow-hidden ${
             subgroupStyle ? 'font-semibold' : (phaseStyle ? 'font-bold uppercase tracking-wider' : '')
           }`}
           style={{ color: tone.fg }}
@@ -3615,11 +3627,11 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           style={{ borderBottom: '1px solid #fb923c', backgroundColor: '#7c2d12' }}
         >
           <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#fed7aa' }} />
-          <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fed7aa' }}>
+          <span className="text-[10.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fed7aa' }}>
             Task outside phase window
           </span>
         </div>
-        <div className="px-4 py-4 flex flex-col gap-3 text-[11px] font-mono" style={{ color: '#d6d3d1' }}>
+        <div className="px-4 py-4 flex flex-col gap-3 text-[11.5px] font-mono" style={{ color: '#d6d3d1' }}>
           <p>
             <span style={{ color: '#fb923c' }}>{pendingExtend.taskTitle}</span> sits outside
             the dates of its phase <span style={{ color: '#fb923c' }}>{pendingExtend.phaseName}</span>.
@@ -3633,7 +3645,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onClampTask}
-            className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
           >
             Clamp task
@@ -3641,7 +3653,7 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
           <button
             type="button"
             onClick={onExtendPhase}
-            className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
           >
             Extend phase
@@ -3841,7 +3853,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
               ? <Boxes className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
               : <CalendarDays className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />
           }
-          <span className="text-[10px] font-mono uppercase tracking-widest font-bold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
+          <span className="text-[10.5px] font-mono uppercase tracking-widest font-bold" style={{ color: isMilestone ? '#f59e0b' : '#fb923c' }}>
             {isMilestone
               ? (isEditingExisting ? 'Edit key date' : 'New key date')
               : isAsset
@@ -3893,7 +3905,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                       className="w-8 h-8 rounded-sm border-0 cursor-pointer"
                       style={{ backgroundColor: '#1c1917' }}
                     />
-                    <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
+                    <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>{draft.color || '#f59e0b'}</span>
                   </div>
                 </Field>
               </div>
@@ -4053,7 +4065,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                 </Field>
               </div>
               <div
-                className="text-[10px] font-mono"
+                className="text-[10.5px] font-mono"
                 style={{ color: '#78716c' }}
               >
                 Phases always have a start and end date — the bar you see
@@ -4266,7 +4278,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
                 if (!parentAsset) return null
                 return (
                   <div className="mt-3 pt-3" style={{ borderTop: '1px solid #44403c' }}>
-                    <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+                    <div className="text-[9.5px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
                       Asset: {parentAsset.name || 'Untitled'}
                     </div>
                     <FileManager
@@ -4288,7 +4300,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
 
           {error && (
             <div
-              className="text-[11px] font-mono p-2 rounded-sm"
+              className="text-[11.5px] font-mono p-2 rounded-sm"
               style={{ backgroundColor: '#1c1917', color: '#fca5a5', border: '1px solid #7f1d1d' }}
             >
               {error}
@@ -4305,7 +4317,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
               type="button"
               onClick={handleDelete}
               disabled={saving}
-              className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+              className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
               style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
             >
               <Trash2 className="w-3 h-3" />
@@ -4317,7 +4329,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
               type="button"
               onClick={() => !saving && onClose()}
               disabled={saving}
-              className="px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+              className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
             >
               Cancel
@@ -4326,7 +4338,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+              className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
             >
               <Save className="w-3 h-3" />
@@ -4352,7 +4364,7 @@ function emptyMilestoneDraft({ date, phase_id } = {}) {
 function Field({ label, children }) {
   return (
     <div>
-      <label className="block text-[10px] font-mono uppercase tracking-widest mb-1" style={{ color: '#a8a29e' }}>
+      <label className="block text-[10.5px] font-mono uppercase tracking-widest mb-1" style={{ color: '#a8a29e' }}>
         {label}
       </label>
       {children}
@@ -4489,61 +4501,50 @@ function DetailZoomToolbar({
   return (
     <div
       className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#292524' }}
+      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
     >
-      {/* Undo / redo — leftmost so they're always in the same spot
-          regardless of which other controls are visible. Disabled
-          buttons gray out but stay in place so the layout doesn't
-          shift as history fills and empties. */}
-      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+      {/* Undo / redo */}
+      <div className="flex items-center gap-0.5">
         <button
           type="button"
           onClick={onUndo}
           disabled={!canUndo}
-          className="px-2 py-1 flex items-center gap-1"
+          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
           style={{
-            color: canUndo ? '#fff7ed' : '#57534e',
-            backgroundColor: canUndo ? '#1c1917' : '#292524',
-            borderRight: '1px solid #44403c',
+            color: canUndo ? '#d6d3d1' : '#44403c',
             cursor: canUndo ? 'pointer' : 'not-allowed',
           }}
           title="Undo (Ctrl+Z)"
         >
-          <Undo2 className="w-3 h-3" />
+          <Undo2 className="w-3.5 h-3.5" />
         </button>
         <button
           type="button"
           onClick={onRedo}
           disabled={!canRedo}
-          className="px-2 py-1 flex items-center gap-1"
+          className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
           style={{
-            color: canRedo ? '#fff7ed' : '#57534e',
-            backgroundColor: canRedo ? '#1c1917' : '#292524',
+            color: canRedo ? '#d6d3d1' : '#44403c',
             cursor: canRedo ? 'pointer' : 'not-allowed',
           }}
           title="Redo (Ctrl+Shift+Z)"
         >
-          <Redo2 className="w-3 h-3" />
+          <Redo2 className="w-3.5 h-3.5" />
         </button>
       </div>
 
-      <span
-        className="text-[10px] font-mono uppercase tracking-wider"
-        style={{ color: '#a8a29e' }}
-      >
-        Detail zoom
-      </span>
-      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+
+      <div className="flex items-center gap-1">
         {ZOOM_LEVELS.map(z => (
           <button
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider"
+            className="px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{
-              color: zoomId === z.id ? '#fff7ed' : '#a8a29e',
-              backgroundColor: zoomId === z.id ? '#ea580c' : '#1c1917',
-              borderRight: '1px solid #44403c',
+              color: zoomId === z.id ? '#fff7ed' : '#78716c',
+              backgroundColor: zoomId === z.id ? '#ea580c' : 'transparent',
             }}
             title={`Switch the detail gantt to ${z.label} zoom`}
           >
@@ -4551,27 +4552,25 @@ function DetailZoomToolbar({
           </button>
         ))}
       </div>
-      {/* Center-on-today button — snaps the detail viewport so today
-          sits in the middle of the visible window. Useful after the
-          user has panned far away or zoomed out / in. */}
+
+      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+
       <button
         type="button"
         onClick={onCenterToday}
-        className="flex items-center gap-1 px-2 py-1 rounded-sm hover:bg-stone-700 transition-colors"
-        style={{
-          border: '1px solid #44403c',
-          color: '#a8a29e',
-          backgroundColor: '#1c1917',
-        }}
+        className="flex items-center gap-1 px-2 py-1 rounded-sm hover:bg-stone-800 transition-colors"
+        style={{ color: '#78716c' }}
         title="Center the detail timeline on today"
       >
         <Crosshair className="w-3 h-3" />
-        <span className="text-[10px] font-mono uppercase tracking-wider">Today</span>
+        <span className="text-[10.5px] font-mono uppercase tracking-wider">Today</span>
       </button>
+
+      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
 
       {/* Group-by selector */}
       {onGroupByChange && (
-        <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+        <div className="flex items-center gap-0.5">
           {[
             { id: 'phase',      icon: Layers,   title: 'Group by phase' },
             { id: 'team',       icon: Users,    title: 'Group by team member' },
@@ -4579,45 +4578,36 @@ function DetailZoomToolbar({
             ...(project?.scenes_enabled ? [{ id: 'scene', icon: Film, title: 'Group by scene' }] : []),
             ...(project?.levels_enabled ? [{ id: 'level', icon: Gamepad2, title: 'Group by level' }] : []),
             ...(project?.experiences_enabled ? [{ id: 'experience', icon: Sparkles, title: 'Group by experience' }] : []),
-          ].map((g, i, arr) => {
+          ].map((g) => {
             const Icon = g.icon
             return (
               <button
                 key={g.id}
                 type="button"
                 onClick={() => onGroupByChange(g.id)}
-                className="px-2 py-1 flex items-center justify-center"
+                className="p-1.5 rounded-sm transition-colors hover:bg-stone-800"
                 style={{
-                  color: groupBy === g.id ? '#fff7ed' : '#a8a29e',
-                  backgroundColor: groupBy === g.id ? '#ea580c' : '#1c1917',
-                  borderRight: i < arr.length - 1 ? '1px solid #44403c' : 'none',
+                  color: groupBy === g.id ? '#fb923c' : '#57534e',
                 }}
                 title={g.title}
               >
-                <Icon className="w-3 h-3" />
+                <Icon className="w-3.5 h-3.5" />
               </button>
             )
           })}
         </div>
       )}
 
-      {/* Sort by date — ascending / descending. Affects both the
-          minimap and the detail pane row order. */}
-      <span
-        className="text-[10px] font-mono uppercase tracking-wider ml-2"
-        style={{ color: '#a8a29e' }}
-      >
-        Sort
-      </span>
-      <div className="flex rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
+      <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
+
+      {/* Sort */}
+      <div className="flex items-center gap-0.5">
         <button
           type="button"
           onClick={() => onSortOrderChange?.('asc')}
-          className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider"
+          className="px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
           style={{
-            color: sortOrder === 'asc' ? '#fff7ed' : '#a8a29e',
-            backgroundColor: sortOrder === 'asc' ? '#ea580c' : '#1c1917',
-            borderRight: '1px solid #44403c',
+            color: sortOrder === 'asc' ? '#fb923c' : '#57534e',
           }}
           title="Sort phases and tasks by start date, earliest first"
         >
@@ -4626,10 +4616,9 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={() => onSortOrderChange?.('desc')}
-          className="px-3 py-1 text-[10px] font-mono uppercase tracking-wider"
+          className="px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
           style={{
-            color: sortOrder === 'desc' ? '#fff7ed' : '#a8a29e',
-            backgroundColor: sortOrder === 'desc' ? '#ea580c' : '#1c1917',
+            color: sortOrder === 'desc' ? '#fb923c' : '#57534e',
           }}
           title="Sort phases and tasks by start date, latest first"
         >
@@ -4637,15 +4626,14 @@ function DetailZoomToolbar({
         </button>
       </div>
 
-      {/* + Phase / + Task — moved here from the header strip so
-          they live alongside the other detail-pane controls. */}
-      <div className="ml-auto flex items-center gap-2">
+      {/* + Phase / + Task */}
+      <div className="ml-auto flex items-center gap-1.5">
         {groupBy === 'phase' && (
         <button
           type="button"
           onClick={onNewPhase}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+          style={{ color: '#78716c' }}
         >
           <Plus className="w-3 h-3" />
           Phase
@@ -4654,8 +4642,8 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={onNewMilestone}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#f59e0b', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
+          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+          style={{ color: '#f59e0b' }}
         >
           <Diamond className="w-3 h-3" />
           Key Date
@@ -4663,8 +4651,8 @@ function DetailZoomToolbar({
         <button
           type="button"
           onClick={onNewTask}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+          className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+          style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
         >
           <Plus className="w-3 h-3" />
           Task
@@ -4734,7 +4722,7 @@ function HolidaysEditor({ holidays, onChange }) {
       <label className="block text-sm font-bold mb-1 text-orange-400">
         Holidays / Blocked Days
       </label>
-      <p className="text-[10px] text-stone-500 mb-3">
+      <p className="text-[10.5px] text-stone-500 mb-3">
         Dates listed here are excluded from the working-day count.
         Import a CSV (YYYY-MM-DD,Title per line) or add individual dates.
       </p>
@@ -4745,19 +4733,19 @@ function HolidaysEditor({ holidays, onChange }) {
           type="date"
           value={newDate}
           onChange={(e) => setNewDate(e.target.value)}
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11px] font-mono text-stone-300 focus:outline-none focus:border-orange-500"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500"
         />
         <input
           type="text"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Holiday name"
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11px] font-mono text-stone-300 focus:outline-none focus:border-orange-500 flex-1 min-w-0"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500 flex-1 min-w-0"
         />
         <button
           type="button"
           onClick={() => { if (newDate) { addDate(newDate, newTitle); setNewDate(''); setNewTitle('') } }}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
+          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm flex-shrink-0"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
         >
           <Plus className="w-3 h-3" />
@@ -4771,7 +4759,7 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={() => fileRef.current?.click()}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Upload className="w-3 h-3" />
@@ -4780,13 +4768,13 @@ function HolidaysEditor({ holidays, onChange }) {
         <button
           type="button"
           onClick={handleExport}
-          className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}
         >
           <Download className="w-3 h-3" />
           Export CSV
         </button>
-        <span className="text-[10px] font-mono text-stone-500 ml-auto">
+        <span className="text-[10.5px] font-mono text-stone-500 ml-auto">
           {sorted.length} date{sorted.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -4797,7 +4785,7 @@ function HolidaysEditor({ holidays, onChange }) {
         style={{ maxHeight: 200, backgroundColor: '#0c0a09' }}
       >
         {sorted.length === 0 ? (
-          <div className="px-3 py-4 text-[10px] text-stone-600 text-center font-mono">
+          <div className="px-3 py-4 text-[10.5px] text-stone-600 text-center font-mono">
             No holidays configured
           </div>
         ) : (
@@ -4806,10 +4794,10 @@ function HolidaysEditor({ holidays, onChange }) {
               key={iso}
               className="flex items-center gap-2 px-3 py-1 border-b border-stone-800 last:border-b-0 hover:bg-stone-900"
             >
-              <span className="text-[11px] font-mono text-stone-400 flex-shrink-0" style={{ width: 90 }}>
+              <span className="text-[11.5px] font-mono text-stone-400 flex-shrink-0" style={{ width: 90 }}>
                 {iso}
               </span>
-              <span className="text-[11px] font-mono text-stone-300 truncate flex-1 min-w-0">
+              <span className="text-[11.5px] font-mono text-stone-300 truncate flex-1 min-w-0">
                 {title || ''}
               </span>
               <button
@@ -4921,7 +4909,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className={`text-[10px] uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
+            <span className={`text-[10.5px] uppercase tracking-wide ${isLocked ? 'text-stone-500' : 'text-stone-400'}`}>
               {isLocked ? 'Read Only' : 'Editable'}
             </span>
             <button
@@ -4947,7 +4935,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-xs font-bold text-stone-300">Show weekends</div>
-                    <p className="text-[10px] text-stone-500 mt-1">
+                    <p className="text-[10.5px] text-stone-500 mt-1">
                       When OFF, Saturday + Sunday columns are hidden from the day-view gantt entirely.
                       When ON, weekends get a soft tint so they read as non-work days.
                     </p>
@@ -4964,7 +4952,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               </div>
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
                 <label className="block text-sm font-bold mb-2 text-orange-400">About</label>
-                <p className="text-[10px] text-stone-500">
+                <p className="text-[10.5px] text-stone-500">
                   RABBIT is WILSON's resource allocation tool. Settings are scoped to the
                   current browser profile and persist via localStorage.
                 </p>
@@ -4973,13 +4961,13 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               {/* ── Task Templates ── */}
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
                 <label className="block text-sm font-bold mb-2 text-orange-400">Task Templates</label>
-                <p className="text-[10px] text-stone-500 mb-3">
+                <p className="text-[10.5px] text-stone-500 mb-3">
                   Create and manage reusable task templates that can be applied when creating new assets.
                 </p>
                 <button
                   type="button"
                   onClick={() => setShowTemplateManager(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-700"
                   style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
                 >
                   <ListChecks className="w-3.5 h-3.5" />
@@ -4990,17 +4978,17 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               {/* ── Project Type Defaults ── */}
               <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
                 <label className="block text-sm font-bold mb-2 text-orange-400">Project Type Defaults</label>
-                <p className="text-[10px] text-stone-500 mb-3">
+                <p className="text-[10.5px] text-stone-500 mb-3">
                   When creating a new project, these databases will be toggled on by default based on the project type.
                   You can override these per-project in the Project Control Panel.
                 </p>
                 <div className="rounded-sm overflow-hidden" style={{ border: '1px solid #44403c' }}>
                   {/* Header row */}
                   <div className="flex items-center px-3 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c' }}>
-                    <span className="flex-1 text-[10px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Type</span>
-                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scenes</span>
-                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Levels</span>
-                    <span className="w-16 text-[10px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Exp.</span>
+                    <span className="flex-1 text-[10.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Type</span>
+                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Scenes</span>
+                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Levels</span>
+                    <span className="w-16 text-[10.5px] font-mono uppercase tracking-wider font-bold text-center" style={{ color: '#78716c' }}>Exp.</span>
                   </div>
                   {/* Rows — one per project type */}
                   {PROJECT_TYPE_LIST.map(type => {
@@ -5008,7 +4996,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                     return (
                       <div key={type} className="flex items-center px-3 py-1.5 hover:bg-stone-800/40 transition-colors"
                         style={{ borderBottom: '1px solid #292524' }}>
-                        <span className="flex-1 text-[11px] font-mono capitalize" style={{ color: '#d6d3d1' }}>
+                        <span className="flex-1 text-[11.5px] font-mono capitalize" style={{ color: '#d6d3d1' }}>
                           {type.replace(/_/g, ' ')}
                         </span>
                         {['scenes_enabled', 'levels_enabled', 'experiences_enabled'].map(field => (
@@ -5037,7 +5025,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                 <button
                   type="button"
                   onClick={() => patchSettings({ projectTypeTemplates: { ...DEFAULT_PROJECT_TYPE_TEMPLATES } })}
-                  className="text-[10px] text-orange-400 hover:text-orange-300 transition-colors mt-2"
+                  className="text-[10.5px] text-orange-400 hover:text-orange-300 transition-colors mt-2"
                 >
                   Reset to defaults
                 </button>
@@ -5063,7 +5051,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                       <span className={`text-xs font-bold uppercase tracking-wide ${promptsLocked ? 'text-stone-500' : 'text-orange-400'}`}>
                         {s.title}
                       </span>
-                      <p className="text-[10px] text-stone-500">{s.desc}</p>
+                      <p className="text-[10.5px] text-stone-500">{s.desc}</p>
                     </div>
                     <ChevronRight
                       className={`w-4 h-4 text-stone-500 transition-transform flex-shrink-0 ${openSection === s.key ? 'rotate-90' : ''}`}
@@ -5085,14 +5073,14 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                             setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))
                           }
                           disabled={promptsLocked}
-                          className={`text-[10px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                          className={`text-[10.5px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
                         >
                           Reset to default
                         </button>
                         <button
                           onClick={savePrompts}
                           disabled={promptsLocked}
-                          className={`text-[10px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
+                          className={`text-[10.5px] ${promptsLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}
                         >
                           Save
                         </button>
@@ -5107,7 +5095,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
 
         {/* Footer */}
         <div className="px-4 py-3 border-t-2 border-stone-600 flex-shrink-0 flex items-center justify-between gap-3">
-          <p className="text-[10px] text-stone-500 flex-1">
+          <p className="text-[10.5px] text-stone-500 flex-1">
             Changes are applied immediately. Use &quot;Reset to default&quot; to restore
             original settings.
           </p>
@@ -5116,7 +5104,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
               type="button"
               onClick={onOpenHelp}
               title="Open RABBIT help & documentation"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[10px] font-bold uppercase tracking-wide transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[10.5px] font-bold uppercase tracking-wide transition-colors text-orange-400 border border-orange-500/40 bg-stone-900 hover:bg-stone-700 hover:text-orange-300 flex-shrink-0"
             >
               <HelpCircle className="w-3.5 h-3.5" />
               Help
@@ -5163,7 +5151,7 @@ export function HelpModal({ helpPage, setHelpPage, onClose }) {
                 <button
                   key={item.id}
                   onClick={() => setHelpPage(item.id)}
-                  className={`w-full text-left px-3 py-1.5 text-[11px] transition-colors ${
+                  className={`w-full text-left px-3 py-1.5 text-[11.5px] transition-colors ${
                     helpPage === item.id
                       ? 'bg-stone-800 text-orange-400 font-bold border-l-2 border-orange-500'
                       : 'text-stone-400 hover:bg-stone-800 hover:text-stone-300 border-l-2 border-transparent'
@@ -5213,7 +5201,7 @@ function ZoomControls({ zoomId, onChange }) {
             key={z.id}
             type="button"
             onClick={() => onChange(z.id)}
-            className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider"
+            className="px-2 py-0.5 text-[10.5px] font-mono uppercase tracking-wider"
             style={{
               color: zoomId === z.id ? '#fff7ed' : '#a8a29e',
               backgroundColor: zoomId === z.id ? '#ea580c' : '#1c1917',
@@ -5280,11 +5268,11 @@ function SummaryBand({
   return (
     <div
       className="flex items-center gap-2 px-6 py-2 flex-shrink-0"
-      style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}
+      style={{ borderBottom: '1px solid #292524', backgroundColor: '#1c1917' }}
     >
       {/* Title */}
-      <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
-      <span className="text-[11px] font-mono uppercase tracking-widest font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
+      <CalendarDays className="w-4 h-4 flex-shrink-0" style={{ color: '#57534e' }} />
+      <span className="text-[11.5px] font-mono uppercase tracking-widest font-medium flex-shrink-0" style={{ color: '#78716c' }}>
         Timeline
       </span>
 
@@ -5310,7 +5298,7 @@ function SummaryBand({
             type="button"
             onClick={onMinimapFitProject}
             title="Fit minimap to project start/end"
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Maximize2 className="w-3 h-3" />
@@ -5320,16 +5308,16 @@ function SummaryBand({
             type="button"
             onClick={onMinimapCenterToday}
             title="Center minimap on today"
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
             style={{ color: '#a8a29e', backgroundColor: '#292524', border: '1px solid #44403c' }}
           >
             <Crosshair className="w-3 h-3" />
             Today
           </button>
-          <span className="text-[9px] font-mono uppercase tracking-wider ml-1" style={{ color: '#78716c' }}>
+          <span className="text-[9.5px] font-mono uppercase tracking-wider ml-1" style={{ color: '#78716c' }}>
             Zoom
           </span>
-          <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>6mo</span>
+          <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>6mo</span>
           <div className="relative" style={{ width: 195, height: 22 }}>
             <input
               type="range"
@@ -5385,9 +5373,9 @@ function SummaryBand({
               })}
             </div>
           </div>
-          <span className="text-[10px] font-mono" style={{ color: '#78716c' }}>5yr</span>
+          <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>5yr</span>
           <span
-            className="text-[11px] font-mono tabular-nums"
+            className="text-[11.5px] font-mono tabular-nums"
             style={{ color: '#fb923c', minWidth: 48, textAlign: 'right' }}
           >
             {zoomLabel}
@@ -5400,16 +5388,13 @@ function SummaryBand({
 
 function SummaryTile({ icon: Icon, label, value, tone }) {
   const colors = tone === 'danger'
-    ? { bg: '#1c1917', border: '#7f1d1d', text: '#fca5a5' }
-    : { bg: '#292524', border: '#44403c', text: '#d6d3d1' }
+    ? { value: '#fca5a5', icon: '#ef4444', label: '#fca5a5' }
+    : { value: '#fb923c', icon: '#57534e', label: '#d6d3d1' }
   return (
-    <div
-      className="flex items-center gap-1.5 px-2 py-1 rounded-sm"
-      style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}
-    >
-      <Icon className="w-3 h-3" style={{ color: '#fb923c' }} />
-      <span className="text-[11px] font-mono font-bold" style={{ color: colors.text }}>{value}</span>
-      <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>{label}</span>
+    <div className="flex items-center gap-1.5 px-1.5 py-1">
+      <Icon className="w-3 h-3" style={{ color: colors.icon }} />
+      <span className="text-[11.5px] font-mono font-medium" style={{ color: colors.value }}>{value}</span>
+      <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: colors.label }}>{label}</span>
     </div>
   )
 }

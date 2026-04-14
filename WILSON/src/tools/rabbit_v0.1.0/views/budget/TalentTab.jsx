@@ -11,8 +11,20 @@
 // Popovers render position:fixed so they escape the table frame.
 
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Star, Plus, X, Trash2, RotateCcw } from 'lucide-react'
+import { Star, Plus, X, Trash2, RotateCcw, Paperclip, FolderOpen } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
+
+const BASE_URL = 'http://localhost:19854/api/rabbit'
+
+const TALENT_TYPE_OPTIONS = [
+  { value: 'actor',            label: 'Actor' },
+  { value: 'voice_actor',     label: 'Voice Actor' },
+  { value: 'extra',           label: 'Extra' },
+  { value: 'background',      label: 'Background' },
+  { value: 'stunt_performer', label: 'Stunt Performer' },
+  { value: 'motion_capture',  label: 'Motion Capture Performer' },
+  { value: 'other',           label: 'Other' },
+]
 
 function fmtCurrency(val, currency = 'USD') {
   const n = Number(val) || 0
@@ -31,7 +43,8 @@ function columnLabel(index, mode, projectStart) {
 }
 
 // ── Bid zone widths (px) ──────────────────────────────────
-const W_NAME   = 200
+const W_NAME   = 180
+const W_TTYPE  = 100
 const W_RATE   = 80
 const W_DAYS   = 60
 const W_SUB    = 88
@@ -40,7 +53,7 @@ const W_BID    = 96
 const W_MARGIN = 80
 const W_CONT   = 80
 const W_DEL    = 36
-const BID_W    = W_NAME + W_RATE + W_DAYS + W_SUB + W_AGPCT + W_BID + W_MARGIN + W_CONT + W_DEL
+const BID_W    = W_NAME + W_TTYPE + W_RATE + W_DAYS + W_SUB + W_AGPCT + W_BID + W_MARGIN + W_CONT + W_DEL
 // ── Actual zone widths ────────────────────────────────────
 const W_DIV   = 3
 const W_ACT   = 88
@@ -48,9 +61,12 @@ const W_VAR   = 80
 const W_COL   = 72
 
 // ── Fixed-position popover (renders outside any overflow container) ──
-function ActualPopover({ pos, actual, colLabel, lineName, currency, onSave, onDelete, onClose }) {
+function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, onSave, onDelete, onClose }) {
   const [value, setValue]     = useState(actual?.value ?? '')
   const [invoice, setInvoice] = useState(actual?.invoice_number || '')
+  const [attachName, setAttachName] = useState(actual?.attachment_name || '')
+  const [attachPath, setAttachPath] = useState(actual?.attachment_path || '')
+  const [copying, setCopying] = useState(false)
   const ref = useRef(null)
 
   useEffect(() => {
@@ -59,16 +75,49 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, onSave, onDe
     return () => document.removeEventListener('mousedown', onClick)
   }, [onClose])
 
-  // Clamp so popover doesn't go off screen
-  const popW = 260
-  const popH = 220
+  const popW = 280
+  const popH = 320
   const left = Math.min(pos.x, window.innerWidth - popW - 12)
   const top  = pos.y + pos.h + 4 + popH > window.innerHeight
-    ? pos.y - popH - 4   // flip above if no room below
-    : pos.y + pos.h + 4  // below the cell
+    ? pos.y - popH - 4
+    : pos.y + pos.h + 4
+
+  async function handleAttach() {
+    const api = window.rabbitDesktop
+    if (!api?.pickFiles) return
+    const files = await api.pickFiles()
+    if (!files?.length) return
+    setCopying(true)
+    try {
+      const res = await fetch(`${BASE_URL}/projects/${projectId}/invoice-folder`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'talent', memberName: lineName }),
+      })
+      const { folderPath } = await res.json()
+      const srcPath = files[0]
+      const fileName = srcPath.split(/[\\/]/).pop()
+      await api.copyFile({ sourcePath: srcPath, destDir: folderPath, destFileName: fileName })
+      const finalPath = folderPath + '\\' + fileName
+      setAttachName(fileName)
+      setAttachPath(finalPath)
+    } catch (err) {
+      console.error('attach invoice failed:', err)
+    } finally {
+      setCopying(false)
+    }
+  }
+
+  function handleOpenFolder() {
+    if (attachPath) window.rabbitDesktop?.openInExplorer?.({ filePath: attachPath })
+  }
 
   function handleSave() {
-    onSave({ value: Number(value) || 0, invoice_number: invoice.trim() || null })
+    onSave({
+      value: Number(value) || 0,
+      invoice_number: invoice.trim() || null,
+      attachment_name: attachName || null,
+      attachment_path: attachPath || null,
+    })
   }
 
   return (
@@ -76,30 +125,54 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, onSave, onDe
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[9px] font-mono uppercase tracking-widest truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
+        <span className="text-[9.5px] font-mono uppercase tracking-widest truncate" style={{ color: '#fb923c' }}>{lineName} / {colLabel}</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
+        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
         <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
+        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
         <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)} placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
+      </div>
+      {/* Invoice file attachment */}
+      <div className="flex flex-col gap-0.5">
+        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice File</label>
+        {attachName ? (
+          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+            <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
+            <span className="flex-1 text-[10.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{attachName}</span>
+            <button type="button" onClick={handleOpenFolder} className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Show in explorer">
+              <FolderOpen className="w-3 h-3" style={{ color: '#a8a29e' }} />
+            </button>
+            <button type="button" onClick={() => { setAttachName(''); setAttachPath('') }}
+              className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Remove attachment">
+              <X className="w-3 h-3" style={{ color: '#ef4444' }} />
+            </button>
+          </div>
+        ) : (
+          <button type="button" onClick={handleAttach} disabled={copying}
+            className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono rounded-sm transition-colors hover:bg-stone-700"
+            style={{ border: '1px solid #44403c', color: '#a8a29e' }}>
+            <Paperclip className="w-3 h-3" />
+            {copying ? 'Copying...' : 'Attach Invoice'}
+          </button>
+        )}
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={handleSave}
-          className="flex-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider font-bold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         {actual?.id && onDelete && (
           <button type="button" onClick={() => onDelete(actual.id)}
-            className="px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
             style={{ color: '#ef4444', border: '1px solid #7f1d1d' }}>Clear</button>
         )}
       </div>
@@ -138,7 +211,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261', textAlign: type === 'number' ? 'right' : 'left' }}
       />
     )
@@ -146,7 +219,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
 
   return (
     <button type="button" onClick={start} disabled={disabled}
-      className="w-full text-left px-1 py-0.5 text-[11px] font-mono rounded-sm transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
+      className="w-full text-left px-1 py-0.5 text-[11.5px] font-mono rounded-sm transition-colors hover:bg-stone-800 truncate disabled:cursor-not-allowed"
       style={{ color: value ? '#d6d3d1' : '#57534e', textAlign: type === 'number' ? 'right' : 'left' }}>
       {type === 'number' ? (value || placeholder || '\u2014') : (value || placeholder || '\u2014')}
     </button>
@@ -182,37 +255,37 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
       style={{ backgroundColor: '#292524', border: '2px solid #ea580c', width: popW,
         top, left, boxShadow: '0 12px 40px rgba(0,0,0,0.6)' }}>
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
+        <span className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Margin & Contingency</span>
         <button type="button" onClick={onClose} className="p-0.5 hover:bg-stone-700 rounded transition-colors">
           <X className="w-3 h-3" style={{ color: '#a8a29e' }} />
         </button>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
+        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Margin %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
-          <span className="text-[10px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
+          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
       </div>
       <div className="flex flex-col gap-0.5">
-        <label className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
+        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Contingency %</label>
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
-          <span className="text-[10px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
+          <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={() => onSave({ margin_pct: Number(margin) || 0, contingency_pct: Number(cont) || 0 })}
-          className="flex-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider font-bold rounded-sm"
+          className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"
           style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>Save</button>
         <button type="button" onClick={() => { setMargin(String(defaultMargin)); setCont(String(defaultCont)) }}
-          className="flex items-center gap-1 px-2 py-1.5 text-[10px] font-mono uppercase tracking-wider rounded-sm"
+          className="flex items-center gap-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Default
         </button>
@@ -223,21 +296,14 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
 
 export default function TalentTab({ budgetHook, project, expenses, currency }) {
   const {
-    lines, linesBySheet, lineComputations, actualsByLine,
+    lines, lineComputations, actualsByLine,
     addLine, updateLine, deleteLine, upsertActual, deleteActual, loading,
   } = budgetHook
 
-  const talentLines = linesBySheet.talent || {}
   const allTalent = (lines || []).filter(l => l.sheet === 'talent' && !l.is_section_header)
   const hasLines = allTalent.length > 0
 
-  const departments = useMemo(() => {
-    const deptSet = new Set(['Talent', 'Background'])
-    for (const line of lines.filter(l => l.sheet === 'talent')) {
-      if (line.department) deptSet.add(line.department)
-    }
-    return [...deptSet]
-  }, [lines])
+  // No more department grouping — all talent in one flat list
 
   const columnMode   = project?.budget_actual_column_mode || 'fortnightly'
   const columnCount  = Number(project?.budget_actual_column_count ?? 10)
@@ -251,6 +317,15 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   const [openPopover, setOpenPopover] = useState(null)
   // Margin/contingency popover: { lineId, x, y, h }
   const [mcPopover, setMcPopover] = useState(null)
+  // Expanded detail rows
+  const [expandedRows, setExpandedRows] = useState(new Set())
+  function toggleExpand(id) {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
 
   const totals = useMemo(() => {
     let bid = 0, sub = 0, actual = 0, marginT = 0, contT = 0
@@ -266,30 +341,9 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     return { subtotal: sub, bid, actual, variance: actual - bid, marginTotal: marginT, contTotal: contT }
   }, [allTalent, lineComputations, defaultMarginPct, defaultContPct])
 
-  const deptGroups = useMemo(() => {
-    const groups = []
-    for (const dept of departments) {
-      const rows = (talentLines[dept] || []).filter(l => !l.is_section_header)
-      if (rows.length === 0) continue
-      const sub = rows.reduce((s, l) => s + (lineComputations[l.id]?.subtotal || 0), 0)
-      const bid = rows.reduce((s, l) => s + (lineComputations[l.id]?.bidTotal || 0), 0)
-      const actual = rows.reduce((s, l) => s + (lineComputations[l.id]?.actualTotal || 0), 0)
-      let marginT = 0, contT = 0
-      for (const l of rows) {
-        const bt = lineComputations[l.id]?.bidTotal || 0
-        const mPct = l.margin_pct != null ? Number(l.margin_pct) : defaultMarginPct
-        const cPct = l.contingency_pct != null ? Number(l.contingency_pct) : defaultContPct
-        marginT += bt * mPct / 100
-        contT   += bt * cPct / 100
-      }
-      groups.push({ department: dept, rows, subtotal: sub, bid, actual, variance: actual - bid, marginTotal: marginT, contTotal: contT })
-    }
-    return groups
-  }, [departments, talentLines, lineComputations, defaultMarginPct, defaultContPct])
-
-  async function handleAddTalent(department = 'Talent') {
-    const existing = allTalent.filter(l => l.department === department).length
-    await addLine({ sheet: 'talent', department, label: `${department} ${existing + 1}`, sort_order: existing + 1 })
+  async function handleAddTalent() {
+    const existing = allTalent.length
+    await addLine({ sheet: 'talent', department: 'Talent', label: `Talent ${existing + 1}`, sort_order: existing + 1, talent_type: 'actor' })
   }
 
   const handleActualSave = useCallback(async (lineId, colIdx, data) => {
@@ -297,7 +351,10 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     const existing = lineActuals.find(a => a.column_index === colIdx)
     await upsertActual?.({
       ...(existing || {}), line_id: lineId, column_index: colIdx,
-      value: data.value, invoice_number: data.invoice_number, source: 'manual',
+      value: data.value, invoice_number: data.invoice_number,
+      attachment_name: data.attachment_name || null,
+      attachment_path: data.attachment_path || null,
+      source: 'manual',
     })
     setOpenPopover(null)
   }, [actualsByLine, upsertActual])
@@ -347,7 +404,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>Loading talent...</span>
+        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>Loading talent...</span>
       </div>
     )
   }
@@ -356,22 +413,15 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-4">
         <Star className="w-10 h-10" style={{ color: '#44403c' }} />
-        <span className="text-[11px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>No talent budget lines yet</span>
-        <p className="text-[10px] font-mono text-center max-w-md" style={{ color: '#78716c' }}>
-          Add talent and background performers manually. Agent representation fees are set per row.
+        <span className="text-[11.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>No talent budget lines yet</span>
+        <p className="text-[10.5px] font-mono text-center max-w-md" style={{ color: '#78716c' }}>
+          Add talent performers manually. Use the Talent Type column to tag each performer. Agent representation fees are set per row.
         </p>
-        <div className="flex items-center gap-2">
-          <button type="button" onClick={() => handleAddTalent('Talent')}
-            className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <Plus className="w-3.5 h-3.5" /> Add Talent
-          </button>
-          <button type="button" onClick={() => handleAddTalent('Background')}
-            className="flex items-center gap-1.5 px-4 py-2 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-            style={{ color: '#fde68a', backgroundColor: '#44403c', border: '1px solid #57534e' }}>
-            <Plus className="w-3.5 h-3.5" /> Add Background
-          </button>
-        </div>
+        <button type="button" onClick={handleAddTalent}
+          className="flex items-center gap-1.5 px-4 py-2 text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
+          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+          <Plus className="w-3.5 h-3.5" /> Add Talent
+        </button>
       </div>
     )
   }
@@ -392,227 +442,213 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
 
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-3 px-1 flex-wrap">
-        <button type="button" onClick={() => handleAddTalent('Talent')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
+        <button type="button" onClick={handleAddTalent}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm"
           style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
           <Plus className="w-3.5 h-3.5" /> Add Talent
         </button>
-        <button type="button" onClick={() => handleAddTalent('Background')}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-          style={{ color: '#fde68a', backgroundColor: '#44403c', border: '1px solid #57534e' }}>
-          <Plus className="w-3.5 h-3.5" /> Add Background
-        </button>
-        <span className="text-[10px] font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
+        <span className="text-[10.5px] font-mono" style={{ color: '#57534e' }}>Agent fees are per-row</span>
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Margin: {defaultMarginPct}%
           </span>
         )}
         {(defaultMarginPct > 0 || defaultContPct > 0) && (
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
+          <span className="text-[10.5px] font-mono px-2 py-0.5 rounded-sm" style={{ color: '#fb923c', border: '1px solid #7c2d12' }}>
             Contingency: {defaultContPct}%
           </span>
         )}
         <button type="button" onClick={resetAllMarginCont}
-          className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
+          className="flex items-center gap-1 px-2 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700 transition-colors"
           style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
           <RotateCcw className="w-3 h-3" /> Reset M/C
         </button>
       </div>
 
-      {/* ── Unified table ── */}
+      {/* ── Unified table (flat — no department groups) ── */}
       <div className="rounded-sm" style={{ border: '1px solid #44403c' }}>
         <div style={{ minWidth: totalW }}>
 
           {/* ═══ HEADER ROW ═══ */}
           <div className="flex" style={{ backgroundColor: '#292524', borderBottom: '2px solid #57534e' }}>
-            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Name</span></div>
-            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Rate</span></div>
-            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Days</span></div>
-            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Subtotal</span></div>
-            <div style={{ width: W_AGPCT }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Agent %</span></div>
-            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Margin</span></div>
-            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Conting.</span></div>
-            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Bid Total</span></div>
+            <div style={{ width: W_NAME }} className="px-3 py-2"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Name</span></div>
+            <div style={{ width: W_TTYPE }} className="px-2 py-2"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Type</span></div>
+            <div style={{ width: W_RATE }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Rate</span></div>
+            <div style={{ width: W_DAYS }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Days</span></div>
+            <div style={{ width: W_SUB }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Subtotal</span></div>
+            <div style={{ width: W_AGPCT }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Agent %</span></div>
+            <div style={{ width: W_MARGIN }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Margin</span></div>
+            <div style={{ width: W_CONT }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Conting.</span></div>
+            <div style={{ width: W_BID }}  className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#fb923c' }}>Bid Total</span></div>
             <div style={{ width: W_DEL }} />
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Actual</span></div>
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Variance</span></div>
+            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Actual</span></div>
+            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2 text-right"><span className="text-[9.5px] font-mono uppercase tracking-widest font-bold" style={{ color: '#38bdf8' }}>Variance</span></div>
             {colHeaders.map((label, i) => (
               <div key={i} style={{ width: W_COL, backgroundColor: '#1f1d1a' }} className="px-1 py-2 text-center">
-                <span className="text-[8px] font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>{label}</span>
+                <span className="text-[8.5px] font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>{label}</span>
               </div>
             ))}
           </div>
 
-          {/* ═══ DEPARTMENT GROUPS ═══ */}
-          {deptGroups.map(group => (
-            <div key={group.department}>
+          {/* ═══ TALENT ROWS (flat list) ═══ */}
+          {allTalent.map(line => {
+            const comp = lineComputations[line.id] || {}
+            const lineActuals = actualsByLine?.[line.id] || []
+            const isExpanded = expandedRows.has(line.id)
 
-              {/* ── Department header ── */}
-              <div className="flex" style={{ borderBottom: '1px solid #44403c' }}>
-                <div style={{ width: BID_W, backgroundColor: '#292524' }} className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>{group.department}</span>
-                  <span className="text-[9px] font-mono" style={{ color: '#78716c' }}>{group.rows.length}</span>
-                </div>
-                <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }}><div className="px-2 py-1.5" /></div>
-              </div>
-
-              {/* ── Talent rows ── */}
-              {group.rows.map(line => {
-                const comp = lineComputations[line.id] || {}
-                const lineActuals = actualsByLine?.[line.id] || []
-
-                return (
-                  <div key={line.id} className="flex transition-colors hover:brightness-110 group" style={{ borderBottom: '1px solid #3a3733' }}>
-                    {/* Bid cells */}
-                    <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 flex items-center">
+            return (
+              <div key={line.id}>
+                <div className="flex transition-colors hover:brightness-110 group/trow" style={{ borderBottom: '1px solid #3a3733' }}>
+                  {/* Name — click to expand detail */}
+                  <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 flex items-center gap-1">
+                    <button type="button" onClick={() => toggleExpand(line.id)} className="flex-shrink-0 p-0.5 rounded hover:bg-stone-700 transition-colors">
+                      {isExpanded
+                        ? <svg className="w-3 h-3" style={{ color: '#fb923c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 9l-7 7-7-7"/></svg>
+                        : <svg className="w-3 h-3" style={{ color: '#78716c' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 5l7 7-7 7"/></svg>}
+                    </button>
+                    <div className="flex-1 min-w-0">
                       <InlineCell value={line.label} placeholder="Name..." onChange={v => updateLine(line.id, { label: v })} />
                     </div>
-                    <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                      <InlineCell value={line.rate} type="number" placeholder="0" onChange={v => updateLine(line.id, { rate: v })} />
-                    </div>
-                    <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                      <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
-                    </div>
-                    <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11px] font-mono text-right flex items-center justify-end">
-                      <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? fmtCurrency(comp.subtotal, currency) : '\u2014'}</span>
-                    </div>
-                    <div style={{ width: W_AGPCT, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
-                      <InlineCell value={line.talent_agency_fee_pct} type="number" placeholder="0" onChange={v => updateLine(line.id, { talent_agency_fee_pct: v })} />
-                    </div>
-                    {(() => {
-                      const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
-                      const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
-                      const mAmt = (comp.bidTotal || 0) * mPct / 100
-                      const cAmt = (comp.bidTotal || 0) * cPct / 100
-                      return (<>
-                        <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10px] font-mono text-right flex items-center justify-end">
-                          <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                            className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
-                            style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                            {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
-                          </button>
-                        </div>
-                        <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10px] font-mono text-right flex items-center justify-end">
-                          <button type="button" onClick={e => handleMcCellClick(e, line.id)}
-                            className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
-                            style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
-                            {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
-                          </button>
-                        </div>
-                      </>)
-                    })()}
-                    <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11px] font-mono text-right font-bold flex items-center justify-end">
-                      <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? fmtCurrency(comp.bidTotal, currency) : '\u2014'}</span>
-                    </div>
-                    <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                    {/* Divider */}
-                    <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                    {/* Actual cells */}
-                    <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11px] font-mono text-right flex items-center justify-end">
-                      <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? fmtCurrency(comp.actualTotal, currency) : '\u2014'}</span>
-                    </div>
-                    <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11px] font-mono text-right flex items-center justify-end">
-                      <span style={{
-                        color: (comp.bidTotal > 0 || comp.actualTotal > 0)
-                          ? (comp.variance > 0 ? '#fca5a5' : comp.variance < 0 ? '#86efac' : '#78716c')
-                          : '#57534e',
-                      }}>
-                        {comp.bidTotal > 0 || comp.actualTotal > 0
-                          ? `${comp.variance > 0 ? '+' : ''}${fmtCurrency(comp.variance, currency)}`
-                          : '\u2014'}
-                      </span>
-                    </div>
-                    {/* Period cells — click opens fixed popover */}
-                    {colHeaders.map((label, colIdx) => {
-                      const cellActual = lineActuals.find(a => a.column_index === colIdx)
-                      return (
-                        <div key={colIdx} style={{ width: W_COL, backgroundColor: '#1a1915' }}
-                          className="px-1 py-2 flex items-center justify-center">
-                          <button type="button"
-                            onClick={e => handleCellClick(e, line.id, colIdx)}
-                            className="w-full text-[10px] font-mono rounded-sm py-0.5 transition-colors hover:bg-stone-700"
-                            style={{
-                              color: cellActual?.value ? '#d6d3d1' : '#44403c',
-                              border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
-                              backgroundColor: cellActual?.value ? '#292524' : 'transparent',
-                            }}>
-                            {cellActual?.value ? fmtCurrency(cellActual.value, currency) : '\u00B7'}
-                          </button>
-                        </div>
-                      )
-                    })}
                   </div>
-                )
-              })}
+                  {/* Talent Type dropdown */}
+                  <div style={{ width: W_TTYPE, backgroundColor: '#1c1917' }} className="px-1 py-2 flex items-center">
+                    <select value={line.talent_type || 'actor'}
+                      onChange={e => updateLine(line.id, { talent_type: e.target.value })}
+                      className="w-full px-1 py-0.5 text-[10px] font-mono rounded-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500 appearance-none"
+                      style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#d6d3d1' }}>
+                      {TALENT_TYPE_OPTIONS.map(t => (
+                        <option key={t.value} value={t.value}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ width: W_RATE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
+                    <InlineCell value={line.rate} type="number" placeholder="0" onChange={v => updateLine(line.id, { rate: v })} />
+                  </div>
+                  <div style={{ width: W_DAYS, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
+                    <InlineCell value={line.days} type="number" placeholder="0" onChange={v => updateLine(line.id, { days: v })} />
+                  </div>
+                  <div style={{ width: W_SUB, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                    <span style={{ color: comp.subtotal > 0 ? '#a8a29e' : '#57534e' }}>{comp.subtotal > 0 ? fmtCurrency(comp.subtotal, currency) : '\u2014'}</span>
+                  </div>
+                  <div style={{ width: W_AGPCT, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center justify-end">
+                    <InlineCell value={line.talent_agency_fee_pct} type="number" placeholder="0" onChange={v => updateLine(line.id, { talent_agency_fee_pct: v })} />
+                  </div>
+                  {(() => {
+                    const mPct = line.margin_pct != null ? Number(line.margin_pct) : defaultMarginPct
+                    const cPct = line.contingency_pct != null ? Number(line.contingency_pct) : defaultContPct
+                    const mAmt = (comp.bidTotal || 0) * mPct / 100
+                    const cAmt = (comp.bidTotal || 0) * cPct / 100
+                    return (<>
+                      <div style={{ width: W_MARGIN, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10.5px] font-mono text-right flex items-center justify-end">
+                        <button type="button" onClick={e => handleMcCellClick(e, line.id)}
+                          className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                          style={{ color: mAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
+                          {mAmt > 0 ? `+${fmtCurrency(mAmt, currency)}` : '\u2014'}
+                        </button>
+                      </div>
+                      <div style={{ width: W_CONT, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[10.5px] font-mono text-right flex items-center justify-end">
+                        <button type="button" onClick={e => handleMcCellClick(e, line.id)}
+                          className="px-1 py-0.5 rounded-sm transition-colors hover:bg-stone-700"
+                          style={{ color: cAmt > 0 ? '#fb923c' : '#57534e', border: '1px solid #33302e' }}>
+                          {cAmt > 0 ? `+${fmtCurrency(cAmt, currency)}` : '\u2014'}
+                        </button>
+                      </div>
+                    </>)
+                  })()}
+                  <div style={{ width: W_BID, backgroundColor: '#1c1917' }} className="px-2 py-2 text-[11.5px] font-mono text-right font-bold flex items-center justify-end">
+                    <span style={{ color: comp.bidTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.bidTotal > 0 ? fmtCurrency(comp.bidTotal, currency) : '\u2014'}</span>
+                  </div>
+                  <div style={{ width: W_DEL, backgroundColor: '#1c1917' }} className="flex items-center justify-center opacity-0 group-hover/trow:opacity-100 transition-opacity">
+                    <button type="button" onClick={() => deleteLine(line.id)} className="p-1 rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#ef4444' }}>
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {/* Divider */}
+                  <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
+                  {/* Actual cells */}
+                  <div style={{ width: W_ACT, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                    <span style={{ color: comp.actualTotal > 0 ? '#d6d3d1' : '#57534e' }}>{comp.actualTotal > 0 ? fmtCurrency(comp.actualTotal, currency) : '\u2014'}</span>
+                  </div>
+                  <div style={{ width: W_VAR, backgroundColor: '#1a1915' }} className="px-2 py-2 text-[11.5px] font-mono text-right flex items-center justify-end">
+                    <span style={{
+                      color: (comp.bidTotal > 0 || comp.actualTotal > 0)
+                        ? (comp.variance > 0 ? '#fca5a5' : comp.variance < 0 ? '#86efac' : '#78716c')
+                        : '#57534e',
+                    }}>
+                      {comp.bidTotal > 0 || comp.actualTotal > 0
+                        ? `${comp.variance > 0 ? '+' : ''}${fmtCurrency(comp.variance, currency)}`
+                        : '\u2014'}
+                    </span>
+                  </div>
+                  {/* Period cells — click opens fixed popover */}
+                  {colHeaders.map((label, colIdx) => {
+                    const cellActual = lineActuals.find(a => a.column_index === colIdx)
+                    const hasAttach = !!cellActual?.attachment_name
+                    return (
+                      <div key={colIdx} style={{ width: W_COL, backgroundColor: '#1a1915' }}
+                        className="px-1 py-2 flex items-center justify-center">
+                        <button type="button"
+                          onClick={e => handleCellClick(e, line.id, colIdx)}
+                          className="relative w-full text-[10.5px] font-mono rounded-sm py-0.5 transition-colors hover:bg-stone-700"
+                          style={{
+                            color: cellActual?.value ? '#d6d3d1' : '#44403c',
+                            border: `1px solid ${cellActual?.value ? '#57534e' : '#33302e'}`,
+                            backgroundColor: cellActual?.value ? '#292524' : 'transparent',
+                          }}>
+                          {cellActual?.value ? fmtCurrency(cellActual.value, currency) : '\u00B7'}
+                          {hasAttach && <Paperclip className="absolute top-0 right-0.5 w-2.5 h-2.5" style={{ color: '#fb923c' }} />}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
 
-              {/* ── Department subtotal ── */}
-              <div className="flex" style={{ borderBottom: '2px solid #44403c' }}>
-                <div style={{ width: W_NAME + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-1.5 text-[10px] font-mono font-bold">
-                  <span style={{ color: '#a8a29e' }}>{group.department} total</span>
-                </div>
-                <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{ color: '#a8a29e' }}>{fmtCurrency(group.subtotal, currency)}</span>
-                </div>
-                <div style={{ width: W_AGPCT, backgroundColor: '#292524' }} />
-                <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{ color: group.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{group.marginTotal > 0 ? `+${fmtCurrency(group.marginTotal, currency)}` : '\u2014'}</span>
-                </div>
-                <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{ color: group.contTotal > 0 ? '#fb923c' : '#57534e' }}>{group.contTotal > 0 ? `+${fmtCurrency(group.contTotal, currency)}` : '\u2014'}</span>
-                </div>
-                <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{ color: '#d6d3d1' }}>{fmtCurrency(group.bid, currency)}</span>
-                </div>
-                <div style={{ width: W_DEL, backgroundColor: '#292524' }} />
-                <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-                <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{ color: '#38bdf8' }}>{group.actual > 0 ? fmtCurrency(group.actual, currency) : '\u2014'}</span>
-                </div>
-                <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-1.5 text-[10px] font-mono text-right font-bold">
-                  <span style={{
-                    color: group.variance > 0 ? '#fca5a5' : group.variance < 0 ? '#86efac' : '#78716c',
-                  }}>
-                    {group.bid > 0 || group.actual > 0
-                      ? `${group.variance > 0 ? '+' : ''}${fmtCurrency(group.variance, currency)}`
-                      : '\u2014'}
-                  </span>
-                </div>
-                <div className="flex-1" style={{ backgroundColor: '#1f1d1a' }} />
+                {/* ── Expandable talent detail row ── */}
+                {isExpanded && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5 px-6 py-2.5" style={{ backgroundColor: '#1a1815', borderBottom: '1px solid #3a3733' }}>
+                    <TalentDetailField label="Union / Guild #" value={line.union_id} placeholder="SAG-AFTRA #"
+                      onChange={v => updateLine(line.id, { union_id: v })} />
+                    <TalentDetailField label="Agency" value={line.agency_name} placeholder="Agency name"
+                      onChange={v => updateLine(line.id, { agency_name: v })} />
+                    <TalentDetailField label="Agent" value={line.agent_name} placeholder="Agent name"
+                      onChange={v => updateLine(line.id, { agent_name: v })} />
+                    <TalentDetailField label="Phone" value={line.phone} placeholder="Phone"
+                      onChange={v => updateLine(line.id, { phone: v })} />
+                    <TalentDetailField label="Email" value={line.email} placeholder="Email"
+                      onChange={v => updateLine(line.id, { email: v })} />
+                    <TalentDetailField label="Notes" value={line.description} placeholder="Notes..."
+                      onChange={v => updateLine(line.id, { description: v })} wide />
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* ═══ GRAND TOTAL ═══ */}
           <div className="flex" style={{ borderTop: '2px solid #fb923c' }}>
-            <div style={{ width: W_NAME + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-[12px] font-mono font-bold uppercase tracking-wider">
+            <div style={{ width: W_NAME + W_TTYPE + W_RATE + W_DAYS, backgroundColor: '#292524' }} className="px-3 py-2.5 text-[12.5px] font-mono font-bold uppercase tracking-wider">
               <span style={{ color: '#fb923c' }}>Grand Total</span>
             </div>
-            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11px] font-mono text-right font-bold">
+            <div style={{ width: W_SUB, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
               <span style={{ color: '#a8a29e' }}>{fmtCurrency(totals.subtotal, currency)}</span>
             </div>
             <div style={{ width: W_AGPCT, backgroundColor: '#292524' }} />
-            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11px] font-mono text-right font-bold">
+            <div style={{ width: W_MARGIN, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
               <span style={{ color: totals.marginTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.marginTotal > 0 ? `+${fmtCurrency(totals.marginTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11px] font-mono text-right font-bold">
+            <div style={{ width: W_CONT, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[11.5px] font-mono text-right font-bold">
               <span style={{ color: totals.contTotal > 0 ? '#fb923c' : '#57534e' }}>{totals.contTotal > 0 ? `+${fmtCurrency(totals.contTotal, currency)}` : '\u2014'}</span>
             </div>
-            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[12px] font-mono text-right font-bold">
+            <div style={{ width: W_BID, backgroundColor: '#292524' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
               <span style={{ color: '#d6d3d1' }}>{fmtCurrency(totals.bid, currency)}</span>
             </div>
             <div style={{ width: W_DEL, backgroundColor: '#292524' }} />
             <div style={{ width: W_DIV, backgroundColor: '#fb923c' }} />
-            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12px] font-mono text-right font-bold">
+            <div style={{ width: W_ACT, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
               <span style={{ color: '#d6d3d1' }}>{totals.actual > 0 ? fmtCurrency(totals.actual, currency) : '\u2014'}</span>
             </div>
-            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12px] font-mono text-right font-bold">
+            <div style={{ width: W_VAR, backgroundColor: '#1f1d1a' }} className="px-2 py-2.5 text-[12.5px] font-mono text-right font-bold">
               <span style={{
                 color: totals.variance > 0 ? '#fca5a5' : totals.variance < 0 ? '#86efac' : '#a8a29e',
               }}>
@@ -635,6 +671,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
           colLabel={colHeaders[openPopover.colIdx]}
           lineName={popoverLine.label}
           currency={currency}
+          projectId={project?.id}
           onSave={data => handleActualSave(openPopover.lineId, openPopover.colIdx, data)}
           onDelete={id => { deleteActual?.(id); setOpenPopover(null) }}
           onClose={() => setOpenPopover(null)}
@@ -659,6 +696,41 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
   )
 }
 
+// ── Talent detail inline field (expandable row) ──
+function TalentDetailField({ label, value, placeholder, onChange, wide }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (editing && ref.current) { ref.current.focus(); ref.current.select() }
+  }, [editing])
+
+  function start() { setDraft(String(value ?? '')); setEditing(true) }
+  function commit() {
+    setEditing(false)
+    if (draft !== (value ?? '')) onChange(draft)
+  }
+
+  return (
+    <div className={`flex flex-col gap-0.5 ${wide ? 'flex-1 min-w-[200px]' : ''}`} style={{ width: wide ? undefined : 150 }}>
+      <span className="text-[8.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>{label}</span>
+      {editing ? (
+        <input ref={ref} type="text" value={draft} onChange={e => setDraft(e.target.value)}
+          onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
+          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#d6d3d1' }} />
+      ) : (
+        <button type="button" onClick={start}
+          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm text-left truncate transition-colors hover:bg-stone-800"
+          style={{ color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
+          {value || placeholder || '\u2014'}
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ── Summary tile (matches BigTile: expenses colors, crew sizing) ──
 function SummaryTile({ label, value, tone = 'neutral' }) {
   const colors = {
@@ -669,7 +741,7 @@ function SummaryTile({ label, value, tone = 'neutral' }) {
   return (
     <div className="flex-1 min-w-[120px] flex flex-col rounded-sm px-4 py-3"
       style={{ backgroundColor: colors.bg, border: `1px solid ${colors.border}` }}>
-      <span className="text-[9px] font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
+      <span className="text-[11.5px] font-mono uppercase tracking-widest block mb-1" style={{ color: colors.label }}>{label}</span>
       <span className="text-xl font-mono font-bold" style={{ color: colors.text }}>{value}</span>
     </div>
   )
