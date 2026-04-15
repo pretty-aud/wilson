@@ -15,7 +15,7 @@ RABBIT (Resource Allocation, Budgeting & Breakdown Intake Tool) is a WILSON tool
   - `ProjectSummaryView` (header, phases, next-up, at-risk, budget)
   - `ProjectAssetsView` (table + gallery, inline edit, status warning modal)
   - `TimelineView` (synthetic Gantt with 5 zoom levels and critical-path highlight)
-  - `BudgetView` (Summary / By Phase / By Role / By Asset / Custom — wired to the workspace rate card)
+  - `BudgetView` — spreadsheet-style budget with Crew/Team, Talent, and Expenses/Travel tabs plus a Topsheet rollup. Each row carries bid (rate × days × qty) + actuals (per-column invoices/timecards) + variance. Agency fees apply additively: the global project % and any per-row talent rep % both stack. Topsheet groups talent lines by `talent_type` (Actors, Voice Actors, Extras, Backgrounds, Stunt Performers, Motion Capture Performers, Others). Wired to the workspace rate card.
 - **Components** (`components/`): `ProjectPicker`, `ViewTabs`, `CurrencyDisplay`, `AssetStatusWarningModal`.
 
 The workspace rate card lives outside the rabbit folder at `src/components/RateCard/` because it's intended to be reused by other tools. Settings hosts a RABBIT tab for adapter mode + default currency + default rate card.

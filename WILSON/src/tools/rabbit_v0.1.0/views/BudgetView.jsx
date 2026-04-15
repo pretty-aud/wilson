@@ -955,26 +955,36 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
     return { departments, total }
   }, [teamMembers, rateCard?.entries, roleRates, tasks, lines, lineComputations, agencyEnabled, agencyPct])
 
-  // ── Talent: from budget lines ──
+  // ── Talent: from budget lines (grouped by talent_type) ──
   const talentData = useMemo(() => {
-    const deptMap = {}
+    const TALENT_TYPE_PLURAL = {
+      actor:            'Actors',
+      voice_actor:      'Voice Actors',
+      extra:            'Extras',
+      background:       'Backgrounds',
+      stunt_performer:  'Stunt Performers',
+      motion_capture:   'Motion Capture Performers',
+      other:            'Others',
+    }
+    const typeMap = {}
     for (const line of lines.filter(l => l.sheet === 'talent' && !l.is_section_header)) {
-      const dept = line.department || 'Uncategorized'
-      if (!deptMap[dept]) deptMap[dept] = { department: dept, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
+      const type = line.talent_type || 'other'
+      const label = TALENT_TYPE_PLURAL[type] || 'Others'
+      if (!typeMap[type]) typeMap[type] = { type, label, subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 }
       const comp = lineComputations[line.id]
       if (comp) {
-        deptMap[dept].subtotal += comp.subtotal
-        deptMap[dept].agencyFee += comp.agencyFee
-        deptMap[dept].bidTotal += comp.bidTotal
-        deptMap[dept].actualTotal += comp.actualTotal
+        typeMap[type].subtotal += comp.subtotal
+        typeMap[type].agencyFee += comp.agencyFee
+        typeMap[type].bidTotal += comp.bidTotal
+        typeMap[type].actualTotal += comp.actualTotal
       }
     }
-    const departments = Object.values(deptMap).sort((a, b) => b.bidTotal - a.bidTotal)
-    const total = departments.reduce((acc, d) => ({
+    const types = Object.values(typeMap).sort((a, b) => b.bidTotal - a.bidTotal)
+    const total = types.reduce((acc, d) => ({
       subtotal: acc.subtotal + d.subtotal, agencyFee: acc.agencyFee + d.agencyFee,
       bidTotal: acc.bidTotal + d.bidTotal, actualTotal: acc.actualTotal + d.actualTotal,
     }), { subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0 })
-    return { departments, total }
+    return { types, departments: types, total }
   }, [lines, lineComputations])
 
   // ── Expenses: from expenses system ──
@@ -1061,11 +1071,11 @@ function TopsheetRollup({ budgetHook, project, currency, tasks, roleRates, rateC
         )}
 
         {/* ── Talent ── */}
-        {talentData.departments.length > 0 && (
+        {talentData.types.length > 0 && (
           <>
             <SectionHeader label="Talent" icon={<Star className="w-3.5 h-3.5" style={{ color: '#fb923c' }} />} />
-            {talentData.departments.map(d => (
-              <DataRow key={d.department} label={d.department} indent subtotal={d.subtotal} agencyFee={d.agencyFee} bidTotal={d.bidTotal} actualTotal={d.actualTotal} />
+            {talentData.types.map(t => (
+              <DataRow key={t.type} label={t.label} indent subtotal={t.subtotal} agencyFee={t.agencyFee} bidTotal={t.bidTotal} actualTotal={t.actualTotal} />
             ))}
             <DataRow label="Talent total" bold subtotal={talentData.total.subtotal} agencyFee={talentData.total.agencyFee} bidTotal={talentData.total.bidTotal} actualTotal={talentData.total.actualTotal} />
           </>

@@ -243,13 +243,16 @@ export function useBudgetLines() {
         ? cost * (line.is_na_days ? 1 : days) * (line.is_na_qty ? 1 : qty)
         : rate * days * qty
 
-      // Agency fee
+      // Agency fee — global project agency fee and per-row talent rep fee
+      // are separate concerns and apply additively.
       let agencyFee = 0
+      // Global project agency fee (applies to crew + talent + expenses unless opted out)
+      if (agencyOn && !line.agency_opt_out) {
+        agencyFee += subtotal * agencyPct
+      }
+      // Per-row talent agent representation fee (in addition to global)
       if (line.sheet === 'talent' && line.talent_agency_fee_pct != null) {
-        // Talent uses its own agent representation fee
-        agencyFee = subtotal * (Number(line.talent_agency_fee_pct) / 100)
-      } else if (agencyOn && !line.agency_opt_out) {
-        agencyFee = subtotal * agencyPct
+        agencyFee += subtotal * (Number(line.talent_agency_fee_pct) / 100)
       }
 
       const bidTotal = subtotal + agencyFee
