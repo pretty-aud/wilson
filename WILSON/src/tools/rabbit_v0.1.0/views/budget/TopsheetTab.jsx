@@ -45,6 +45,35 @@ export default function TopsheetTab({ budgetHook, project, currency }) {
     return Object.values(map).sort((a, b) => b.bidTotal - a.bidTotal)
   }, [lines, lineComputations])
 
+  // Roll up talent lines by talent_type (plural labels)
+  const TALENT_TYPE_PLURAL = {
+    actor:            'Actors',
+    voice_actor:      'Voice Actors',
+    extra:            'Extras',
+    background:       'Backgrounds',
+    stunt_performer:  'Stunt Performers',
+    motion_capture:   'Motion Capture Performers',
+    other:            'Others',
+  }
+  const talentTypeRollup = useMemo(() => {
+    const map = {}
+    for (const line of lines) {
+      if (line.is_section_header) continue
+      if (line.sheet !== 'talent') continue
+      const type = line.talent_type || 'other'
+      if (!map[type]) map[type] = { type, label: TALENT_TYPE_PLURAL[type] || 'Others', subtotal: 0, agencyFee: 0, bidTotal: 0, actualTotal: 0, variance: 0 }
+      const comp = lineComputations[line.id]
+      if (comp) {
+        map[type].subtotal    += comp.subtotal
+        map[type].agencyFee   += comp.agencyFee
+        map[type].bidTotal    += comp.bidTotal
+        map[type].actualTotal += comp.actualTotal
+        map[type].variance    += comp.variance
+      }
+    }
+    return Object.values(map).sort((a, b) => b.bidTotal - a.bidTotal)
+  }, [lines, lineComputations])
+
   // Grand totals
   const totals = useMemo(() => {
     let subtotal = 0, agency = 0, bid = 0, actual = 0
@@ -131,41 +160,84 @@ export default function TopsheetTab({ budgetHook, project, currency }) {
           </div>
 
           {/* Department rows */}
-          {departmentRollup.map(row => (
-            <div key={row.department} className="grid gap-0"
-              style={{
-                gridTemplateColumns: agencyEnabled
-                  ? '2fr repeat(5, 1fr)'
-                  : '2fr repeat(4, 1fr)',
-                borderBottom: '1px solid #3a3733',
-                backgroundColor: '#1c1917',
-              }}>
-              <div className="px-3 py-2 text-[11px] font-mono font-bold" style={{ color: '#d6d3d1', borderRight: '1px solid #3a3733' }}>
-                {row.department}
-              </div>
-              <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
-                {fmtCurrency(row.subtotal, currency)}
-              </div>
-              {agencyEnabled && (
-                <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
-                  {fmtCurrency(row.agencyFee, currency)}
+          {departmentRollup.map(row => {
+            const isTalent = row.department === 'Talent'
+            return (
+              <div key={row.department}>
+                {/* Talent per-type breakdown (appears above the Talent total row) */}
+                {isTalent && talentTypeRollup.map(t => (
+                  <div key={`talent-type-${t.type}`} className="grid gap-0"
+                    style={{
+                      gridTemplateColumns: agencyEnabled
+                        ? '2fr repeat(5, 1fr)'
+                        : '2fr repeat(4, 1fr)',
+                      borderBottom: '1px solid #3a3733',
+                      backgroundColor: '#1a1815',
+                    }}>
+                    <div className="pl-8 pr-3 py-1.5 text-[10.5px] font-mono" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
+                      {t.label}
+                    </div>
+                    <div className="px-3 py-1.5 text-[10.5px] font-mono text-right" style={{ color: '#78716c', borderRight: '1px solid #3a3733' }}>
+                      {fmtCurrency(t.subtotal, currency)}
+                    </div>
+                    {agencyEnabled && (
+                      <div className="px-3 py-1.5 text-[10.5px] font-mono text-right" style={{ color: '#78716c', borderRight: '1px solid #3a3733' }}>
+                        {fmtCurrency(t.agencyFee, currency)}
+                      </div>
+                    )}
+                    <div className="px-3 py-1.5 text-[10.5px] font-mono text-right" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
+                      {fmtCurrency(t.bidTotal, currency)}
+                    </div>
+                    <div className="px-3 py-1.5 text-[10.5px] font-mono text-right" style={{ color: t.actualTotal ? '#a8a29e' : '#57534e', borderRight: '1px solid #3a3733' }}>
+                      {t.actualTotal ? fmtCurrency(t.actualTotal, currency) : '\u2014'}
+                    </div>
+                    <div className="px-3 py-1.5 text-[10.5px] font-mono text-right" style={{
+                      color: t.variance > 0 ? '#fca5a5' : t.variance < 0 ? '#86efac' : '#57534e',
+                    }}>
+                      {t.bidTotal > 0 || t.actualTotal > 0
+                        ? `${t.variance > 0 ? '+' : ''}${fmtCurrency(t.variance, currency)}`
+                        : '\u2014'}
+                    </div>
+                  </div>
+                ))}
+
+                {/* Department total row */}
+                <div className="grid gap-0"
+                  style={{
+                    gridTemplateColumns: agencyEnabled
+                      ? '2fr repeat(5, 1fr)'
+                      : '2fr repeat(4, 1fr)',
+                    borderBottom: '1px solid #3a3733',
+                    backgroundColor: '#1c1917',
+                  }}>
+                  <div className="px-3 py-2 text-[11px] font-mono font-bold" style={{ color: '#d6d3d1', borderRight: '1px solid #3a3733' }}>
+                    {row.department}
+                  </div>
+                  <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
+                    {fmtCurrency(row.subtotal, currency)}
+                  </div>
+                  {agencyEnabled && (
+                    <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: '#a8a29e', borderRight: '1px solid #3a3733' }}>
+                      {fmtCurrency(row.agencyFee, currency)}
+                    </div>
+                  )}
+                  <div className="px-3 py-2 text-[11px] font-mono text-right font-bold" style={{ color: '#d6d3d1', borderRight: '1px solid #3a3733' }}>
+                    {fmtCurrency(row.bidTotal, currency)}
+                  </div>
+                  <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: row.actualTotal ? '#d6d3d1' : '#57534e', borderRight: '1px solid #3a3733' }}>
+                    {row.actualTotal ? fmtCurrency(row.actualTotal, currency) : '\u2014'}
+                  </div>
+                  <div className="px-3 py-2 text-[11px] font-mono text-right" style={{
+                    color: row.variance > 0 ? '#fca5a5' : row.variance < 0 ? '#86efac' : '#78716c',
+                  }}>
+                    {row.bidTotal > 0 || row.actualTotal > 0
+                      ? `${row.variance > 0 ? '+' : ''}${fmtCurrency(row.variance, currency)}`
+                      : '\u2014'}
+                  </div>
                 </div>
-              )}
-              <div className="px-3 py-2 text-[11px] font-mono text-right font-bold" style={{ color: '#d6d3d1', borderRight: '1px solid #3a3733' }}>
-                {fmtCurrency(row.bidTotal, currency)}
               </div>
-              <div className="px-3 py-2 text-[11px] font-mono text-right" style={{ color: row.actualTotal ? '#d6d3d1' : '#57534e', borderRight: '1px solid #3a3733' }}>
-                {row.actualTotal ? fmtCurrency(row.actualTotal, currency) : '\u2014'}
-              </div>
-              <div className="px-3 py-2 text-[11px] font-mono text-right" style={{
-                color: row.variance > 0 ? '#fca5a5' : row.variance < 0 ? '#86efac' : '#78716c',
-              }}>
-                {row.bidTotal > 0 || row.actualTotal > 0
-                  ? `${row.variance > 0 ? '+' : ''}${fmtCurrency(row.variance, currency)}`
-                  : '\u2014'}
-              </div>
-            </div>
-          ))}
+            )
+          })}
 
           {/* Subtotal row */}
           <div className="grid gap-0" style={{
