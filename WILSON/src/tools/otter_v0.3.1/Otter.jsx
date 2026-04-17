@@ -46,7 +46,7 @@ function NodeTypeBadge({ type }) {
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
 // ═══════════════════════════════════════════════════════════════════
-export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onContextChange }) {
+export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
   // ── Navigation state ──
   const [currentView, setCurrentView] = useState('library');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -307,6 +307,20 @@ export default function Otter({ apiKey, onNavigate, openSettingsTrigger = 0, onC
     agent.registerTool('otter', toolInterface);
     return () => agent.unregisterTool('otter');
   }, [agent, activeSoftwareSlug, activeSubjectSlug, selectedLessonId, activeSubject]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Tell the agent system this tool is in the foreground whenever
+  // the OTTER page is visible. Mirrors the pattern used by RABBIT —
+  // the all-pages-rendered layout means we can't rely on mount/unmount,
+  // we have to gate on currentPage. Without this, activeTool stays
+  // pinned to whatever tool was visited last (e.g. 'rabbit'), which
+  // causes the PET agent to respond as the wrong tool and refuse
+  // OTTER-only actions like course generation.
+  useEffect(() => {
+    if (!agent) return;
+    if (currentPage === 'otter') {
+      agent.setActiveTool?.('otter');
+    }
+  }, [agent, currentPage]);
 
   // ═══════════════════════════════════════════════════════════════
   //  DATA LOADERS — in-memory cache for instant UI
