@@ -134,6 +134,8 @@ export default function App() {
 
   // Nav menu state (for DOG hamburger)
   const [showNavMenu, setShowNavMenu] = useState(false);
+  // Nav strip resources sub-column state
+  const [navResourcesOpen, setNavResourcesOpen] = useState(false);
 
   // Triggers to open tool settings panels from nav strip
   const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
@@ -813,80 +815,60 @@ export default function App() {
   const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, help: 100 };
   const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
 
-  // Build contextual nav strip items based on current page
+  // Close the resources sub-column when the nav menu closes or page changes
+  useEffect(() => {
+    if (!showNavMenu) setNavResourcesOpen(false);
+  }, [showNavMenu]);
+  useEffect(() => {
+    setNavResourcesOpen(false);
+  }, [currentPage]);
+
+  const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
+  const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
+
+  // Main nav strip: always includes HOME + tools + RESOURCES trigger + SYSTEM SETTINGS
+  // (context-aware: omits whichever page the user is currently on)
   const getNavStripItems = () => {
     const items = [];
+    items.push({ label: 'HOME', action: () => closeNavAndGo('home') });
 
-    // HOME — always shown
-    items.push({ label: 'HOME', action: () => { setShowNavMenu(false); navigateTo('home'); } });
+    if (currentPage !== 'dog')    items.push({ label: 'D.O.G.',    action: () => closeNavAndGo('dog') });
+    if (currentPage !== 'otter')  items.push({ label: 'O.T.T.E.R.',  action: () => closeNavAndGo('otter') });
+    if (currentPage !== 'rabbit') items.push({ label: 'R.A.B.B.I.T.', action: () => closeNavAndGo('rabbit') });
 
-    if (currentPage === 'settings') {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-    } else if (currentPage === 'project-manager') {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (currentPage === 'rate-card') {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (currentPage === 'team-members') {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (isDog) {
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenSettingsTrigger(prev => prev + 1); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (isOtter) {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenOtterSettingsTrigger(prev => prev + 1); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (isRabbit) {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SETTINGS', action: () => { setShowNavMenu(false); setOpenRabbitSettingsTrigger(prev => prev + 1); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
-    } else if (currentPage === 'help') {
-      items.push({ label: 'D.O.G.', action: () => { setShowNavMenu(false); navigateTo('dog'); } });
-      items.push({ label: 'O.T.T.E.R.', action: () => { setShowNavMenu(false); navigateTo('otter'); } });
-      items.push({ label: 'R.A.B.B.I.T.', action: () => { setShowNavMenu(false); navigateTo('rabbit'); } });
-      items.push({ label: 'PROJECTS', action: () => { setShowNavMenu(false); navigateTo('project-manager'); } });
-      items.push({ label: 'RATE CARD', action: () => { setShowNavMenu(false); navigateTo('rate-card'); } });
-      items.push({ label: 'TEAM MEMBERS', action: () => { setShowNavMenu(false); navigateTo('team-members'); } });
-      items.push({ label: 'SYSTEM SETTINGS', action: () => { setShowNavMenu(false); navigateTo('settings'); } });
+    // Page-specific SETTINGS for tool pages
+    if (isDog)    items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenSettingsTrigger) });
+    if (isOtter)  items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenOtterSettingsTrigger) });
+    if (isRabbit) items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenRabbitSettingsTrigger) });
+
+    // RESOURCES trigger (toggles sub-column; no direct navigation)
+    items.push({ label: 'RESOURCES', isResourcesTrigger: true });
+
+    // SYSTEM SETTINGS (hide when already on Settings)
+    if (currentPage !== 'settings') {
+      items.push({ label: 'SYSTEM SETTINGS', action: () => closeNavAndGo('settings') });
     }
 
     return items;
   };
 
+  // Sub-column items shown when RESOURCES is expanded
+  const getResourcesNavItems = () => {
+    const all = [
+      { id: 'project-manager', label: 'PROJECTS' },
+      { id: 'rate-card',       label: 'RATE CARD' },
+      { id: 'team-members',    label: 'TEAM MEMBERS' },
+      { id: 'help',            label: 'HELP' },
+    ];
+    return all
+      .filter(i => i.id !== currentPage)
+      .map(i => ({ label: i.label, action: () => closeNavAndGo(i.id) }));
+  };
+
   const getNavStripHeight = () => {
-    const count = getNavStripItems().length;
+    const mainCount = getNavStripItems().length;
+    const resCount = getResourcesNavItems().length;
+    const count = Math.max(mainCount, resCount);
     return count * 24 + (count - 1) * 16 + 48;
   };
 
@@ -920,6 +902,7 @@ export default function App() {
         <Otter
           apiKey={anthropicApiKey}
           onNavigate={navigateTo}
+          currentPage={currentPage}
           openSettingsTrigger={openOtterSettingsTrigger}
           onContextChange={setOtterContext}
         />
@@ -1083,23 +1066,76 @@ export default function App() {
             transition: `height ${isAnimating ? '600ms' : '400ms'} ${EASE}`,
             flexShrink: 0,
             display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-end',
-            justifyContent: 'center',
-            gap: '16px',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+            gap: '48px',
             paddingRight: '48px',
             zIndex: 9,
           }}>
-            {getNavStripItems().map((item) => (
-              <button
-                key={item.label}
-                onClick={item.action}
-                className="text-white font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
-                style={{ fontSize: '16px' }}
-              >
-                {item.label}
-              </button>
-            ))}
+            {/* Resources sub-column — slides in from the left of the main strip */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: '16px',
+              maxWidth: navResourcesOpen ? '320px' : '0',
+              opacity: navResourcesOpen ? 1 : 0,
+              transform: navResourcesOpen ? 'translateX(0)' : 'translateX(-24px)',
+              transition: 'max-width 300ms ease, opacity 250ms ease, transform 300ms ease',
+              pointerEvents: navResourcesOpen ? 'auto' : 'none',
+              overflow: 'hidden',
+            }}>
+              {getResourcesNavItems().map((item) => (
+                <button
+                  key={item.label}
+                  onClick={item.action}
+                  className="text-white font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
+                  style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Main nav strip column */}
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              gap: '16px',
+            }}>
+              {getNavStripItems().map((item) => {
+                const isTrigger = item.isResourcesTrigger;
+                const dimmed = navResourcesOpen && !isTrigger;
+                return (
+                  <button
+                    key={item.label}
+                    onClick={() => {
+                      if (isTrigger) {
+                        setNavResourcesOpen(prev => !prev);
+                        return;
+                      }
+                      if (navResourcesOpen) {
+                        // First click just dismisses the resources column
+                        setNavResourcesOpen(false);
+                        return;
+                      }
+                      item.action();
+                    }}
+                    className="font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
+                    style={{
+                      fontSize: '16px',
+                      whiteSpace: 'nowrap',
+                      color: '#fff',
+                      opacity: dimmed ? 0.35 : 1,
+                      transition: 'opacity 200ms ease',
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* ===== Dark page border — when on DOG or OTTER page and idle ===== */}
