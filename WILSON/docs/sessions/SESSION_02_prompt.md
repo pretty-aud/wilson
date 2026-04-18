@@ -26,6 +26,7 @@ Vertical-slice test (must pass before Session 2 starts):
 - **PITR deferred.** `wilson-prod` is on Free tier; PITR costs +$100/mo. Session 9 adds a nightly `pg_dump` to Backblaze B2 + documented restore runbook. TPN TS-2.x still passes with documented, tested backups. Remove PITR from the Session 1 verification list permanently.
 - **Legacy `supabase.json` adapter fallback still present.** `src/tools/rabbit_v0.1.0/adapters/supabaseAdapter.js` falls back to the old per-project `supabase.json` if no authenticated session — Session 2 removes this fallback.
 - **Single-workspace-only login in v1.** `LoginScreen` does not yet surface a workspace picker on multi-workspace users; resolver returns "not found" when the match is ambiguous. Session 2 adds the "Switch workspace" UI and the multi-workspace chooser.
+- **LoginScreen aesthetic does not match WILSON.** The Session 1 `src/cloud/auth/LoginScreen.jsx` is a dark-panel placeholder. It must be redesigned in Session 2 to match the original `src/components/PasswordScreen.jsx` — orange (`#ea580c`) top/bottom compressing panels, light orange (`#f4a261`) reveal background, logo card → login transition with `cubic-bezier(0.4, 0, 0.2, 1)` easing, blinking cursor, the same reveal phases (logo-hold → compress → input → expand-to-app). Both the `NewCompanyWizard` and `NewUserWelcome` flows from Session 2 must use the same visual language so the three entry points (login / new company / new user) feel like one cohesive experience.
 
 ## Session 2 goal
 
@@ -52,6 +53,16 @@ Every RABBIT table has RLS locked down, an RLS test suite runs in CI, single-use
 6. **New User Welcome flow** after admin-initiated invite (one-time password flow lands in Session 3). Wizard captures display_name, pronouns, title, avatar. Persists into `workspace_members` + uploads avatar to Supabase Storage.
 
 7. **"Switch workspace" UI.** When `workspace_ids` on the JWT has more than one entry, show a chooser in the Settings → General tab. Calls `issue-session` with the chosen id; refreshSession picks up the new workspace.
+
+8. **Aesthetic unification of auth + onboarding screens.** Rebuild `src/cloud/auth/LoginScreen.jsx` to match the visual language of `src/components/PasswordScreen.jsx`:
+   - Orange (`#ea580c`) top + bottom bars that compress from full height toward center, mirroring the in-app page transitions.
+   - Light orange (`#f4a261`) content background that fades in behind the input after the startup logo holds and exits.
+   - Logo startup card (`<img src="/logo.png" />`) full-bleed orange on first paint, then exits via `cubic-bezier(0.4,0,0.2,1)` ease.
+   - Input row with blinking `_` cursor matching the terminal-style typography of the original.
+   - Two-step username → password transition: the bars stay compressed, only the label and input swap underneath the title.
+   - Same easing + durations as `App.jsx` nav transitions (600ms compress, 400ms title-hold, 250ms fade).
+   - `NewCompanyWizard` and `NewUserWelcome` use the same chrome — orange bars top/bottom, light orange fill, logo-card intro — so the three entry surfaces feel like one flow with different contents.
+   - Extract the shared chrome into `src/cloud/auth/AuthShell.jsx` so later wizards (password reset in Session 3, forgot-username) inherit it for free.
 
 ### Non-goals for Session 2
 
