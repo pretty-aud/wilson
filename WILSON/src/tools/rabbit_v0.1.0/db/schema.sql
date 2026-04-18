@@ -62,6 +62,12 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ─── Workspaces (reserved for multi-user v0.2) ────────────────────────
+-- NOTE (2026-04 multi-user migration): the production `workspaces` table is
+-- owned by supabase/migrations/0001_workspaces_and_users.sql, which adds
+-- slug + storage_mode + audit columns. This CREATE TABLE is kept for
+-- standalone RABBIT installs (Electron local IndexedDB → PostgREST test
+-- harness) and coexists via IF NOT EXISTS + the ALTER TABLE in migration
+-- 0001 filling in the newer columns on upgrade.
 create table if not exists workspaces (
   id          uuid primary key default gen_random_uuid(),
   name        text not null,
@@ -69,9 +75,32 @@ create table if not exists workspaces (
 );
 
 -- Seed a single default workspace row for v0.1 single-user mode.
+-- slug is nullable in the RABBIT-only schema, but required by the
+-- multi-user migration; supplying 'default' keeps both paths happy.
+insert into workspaces (id, name, slug)
+select '00000000-0000-0000-0000-000000000001', 'Default Workspace', 'default'
+where not exists (
+  select 1 from workspaces where id = '00000000-0000-0000-0000-000000000001'
+)
+and exists (
+  select 1 from information_schema.columns
+   where table_schema = 'public'
+     and table_name   = 'workspaces'
+     and column_name  = 'slug'
+);
+
+-- Fallback for pure-RABBIT installs where 0001 never ran (no slug column).
 insert into workspaces (id, name)
-values ('00000000-0000-0000-0000-000000000001', 'Default Workspace')
-on conflict do nothing;
+select '00000000-0000-0000-0000-000000000001', 'Default Workspace'
+where not exists (
+  select 1 from workspaces where id = '00000000-0000-0000-0000-000000000001'
+)
+and not exists (
+  select 1 from information_schema.columns
+   where table_schema = 'public'
+     and table_name   = 'workspaces'
+     and column_name  = 'slug'
+);
 
 -- ─── Users (reserved for multi-user v0.2) ─────────────────────────────
 create table if not exists users (

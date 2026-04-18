@@ -14,8 +14,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:dev": "vite build --mode development",
     "preview": "vite preview",
-    "electron:dev": "npm run build && electron .",
+    "electron:dev": "npm run build:dev && electron .",
     "electron:start": "electron .",
     "package": "npm run build && electron-forge package",
     "make": "npm run build && electron-forge make"

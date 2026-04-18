@@ -14,7 +14,7 @@ max_rows = 1000
 [db]
 port = 54322
 shadow_port = 54320
-major_version = 15
+major_version = 17
 
 [studio]
 enabled = true
@@ -25,23 +25,29 @@ enabled = true
 site_url = "http://localhost:5203"
 additional_redirect_urls = ["http://localhost:5203"]
 jwt_expiry = 3600
-enable_signup = false  # Admin-only user creation for WILSON; no self-signup.
-enable_confirmations = false
+# Admin-only user creation for WILSON; no self-signup.
+enable_signup = false
 
 [auth.email]
 enable_signup = false
 double_confirm_changes = true
 enable_confirmations = false
 
-# Custom Access Token hook — bakes workspace_id + app_role into JWT app_metadata
-# on every token issuance. Deployed via `supabase functions deploy issue-session`
-# and configured in Dashboard → Auth → Hooks.
+# Custom Access Token hook — bakes workspace_id + app_role into JWT
+# app_metadata on every token issuance. This block is documentation only;
+# the hook must also be toggled on in Dashboard → Auth → Hooks →
+# Custom Access Token Hook (point at public.custom_access_token_hook).
 [auth.hook.custom_access_token]
 enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
 
-[functions]
-verify_jwt = false  # per-function; resolve-login is intentionally public
+# Per-function JWT verification. resolve-login is intentionally public
+# (it's the pre-auth lookup); issue-session requires a valid JWT.
+[functions.resolve-login]
+verify_jwt = false
+
+[functions.issue-session]
+verify_jwt = true
 
 [analytics]
 enabled = false
