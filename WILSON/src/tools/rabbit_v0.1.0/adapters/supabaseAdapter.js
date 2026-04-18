@@ -4,14 +4,15 @@
 //
 // This is the recommended cloud backend for RABBIT.
 //
-// Config: read from {userData}/rabbit-data/supabase.json via the
-//         IPC bridge `window.electronAPI.rabbit.readSupabaseConfig()`.
+// Config: pulled from the shared authenticated client at
+//         src/cloud/auth/supabaseClient.js. That client is configured
+//         at build time by VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY
+//         and receives its session from the Electron main process over
+//         the safeStorage-backed IPC in src/cloud/auth/session.js.
 //
-// File shape: { url, anon_key, service_role_key? }
-//
-// Service role key is optional in v0.1 — single-user mode runs fine
-// against the anon key alone with RLS disabled. db/README.md
-// documents the v0.2 plan to flip RLS on with auth.uid() rules.
+//         There is no adapter-owned credential state. If the user is
+//         not logged in, getClient() returns null and every adapter
+//         call throws with a "no active session" message.
 //
 // Storage bucket: 'rabbit-files' (must exist; see db/README.md §3).
 //   Upload key pattern: projects/{project_id}/{entity}/{id}/{filename}
@@ -21,78 +22,42 @@
 // scoped to that project_id. The collab UI in v0.2 will consume
 // these — RABBIT v0.1 wires them so the cost of opting in later
 // is a single feature flag.
+//
+// History: the Session 1 scaffolding kept a per-project `supabase.json`
+// fallback so pre-migration tenants could keep running. Session 2
+// removed that fallback: every query now carries the user's JWT and
+// is scoped by RLS (see supabase/migrations/0004_rls_rabbit.sql).
 
-import { createClient } from '@supabase/supabase-js';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient.js';
 
 // ───────────────────────────────────────────────────────────────
-// Module-level singleton (one client per app session)
-//
-// As of Session 1 of the multi-user migration, the adapter PREFERS the
-// shared authenticated client from src/cloud/auth/supabaseClient.js so
-// that every query carries the user's JWT and RLS can enforce
-// workspace isolation. The legacy "per-project supabase.json" path is
-// kept as a fallback for users who haven't migrated yet; it returns an
-// anon-only client which will only succeed against RLS-disabled tables.
-// The fallback is removed in Session 2.
+// Module-level singleton. One cached client reference per app session;
+// auth state lives on the shared client itself, not in this module.
 // ───────────────────────────────────────────────────────────────
 let cachedClient = null;
-let cachedConfig = null;
 let lastError    = null;
 let lastSyncAt   = null;
-let configLoaded = false;
-
-async function loadConfig() {
-  if (configLoaded) return cachedConfig;
-  configLoaded = true;
-  try {
-    const cfg = await window.electronAPI?.rabbit?.readSupabaseConfig?.();
-    if (cfg && cfg.url && cfg.anon_key) {
-      cachedConfig = cfg;
-    } else {
-      cachedConfig = null;
-    }
-  } catch (err) {
-    lastError = err.message || String(err);
-    cachedConfig = null;
-  }
-  return cachedConfig;
-}
 
 async function getClient() {
   if (cachedClient) return cachedClient;
-
-  // Preferred path: reuse the authenticated client from the cloud auth
-  // module. Requires VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY in the env.
-  // The shared client has a session attached (set by LoginScreen via
-  // setSession), so every request is scoped to the logged-in user by RLS.
   try {
     const { data } = await sharedAuthedClient.auth.getSession();
     if (data?.session) {
       cachedClient = sharedAuthedClient;
       return cachedClient;
     }
-  } catch { /* fall through */ }
-
-  // Legacy fallback: {userData}/rabbit-data/supabase.json. Removed in
-  // Session 2 once every tenant is on the shared client.
-  const cfg = await loadConfig();
-  if (!cfg) return null;
-  cachedClient = createClient(cfg.url, cfg.anon_key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { params: { eventsPerSecond: 10 } },
-  });
-  return cachedClient;
+  } catch (err) {
+    lastError = err.message || String(err);
+  }
+  return null;
 }
 
 /**
- * Reset all cached state. Used by the Settings panel after the user
- * writes a new supabase.json so the next call rebuilds the client.
+ * Reset the cached client reference. Call after logout or workspace
+ * switch so the next adapter call re-reads the shared session.
  */
 export function resetSupabaseAdapter() {
   cachedClient = null;
-  cachedConfig = null;
-  configLoaded = false;
   lastError    = null;
   lastSyncAt   = null;
 }
@@ -114,8 +79,8 @@ async function requireClient() {
   const client = await getClient();
   if (!client) {
     throw new Error(
-      '[supabase] no Supabase config found. Open Settings → RABBIT and connect your project, ' +
-      'or write {userData}/rabbit-data/supabase.json directly. See src/tools/rabbit_v0.1.0/db/README.md.'
+      '[supabase] no active session. Sign in via the login screen; the ' +
+      'Supabase adapter has no per-project credential override.'
     );
   }
   return client;
@@ -137,12 +102,11 @@ export function supabaseAdapter() {
 
     // ── Status ────────────────────────────────────────────────
     async status() {
-      const cfg = await loadConfig();
-      if (!cfg) {
-        return { online: false, lastSyncAt: null, error: lastError || 'no config' };
+      const client = await getClient();
+      if (!client) {
+        return { online: false, lastSyncAt: null, error: lastError || 'no active session' };
       }
       try {
-        const client = await getClient();
         // Cheap connectivity check — list one project header.
         const { error } = await client
           .from('projects')

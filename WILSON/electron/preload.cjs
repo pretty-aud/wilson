@@ -30,12 +30,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // ── RABBIT config bridge ──
-  // Used by the Supabase adapter to read/write credentials stored
-  // at {userData}/rabbit-data/supabase.json.
+  // Supabase credentials are centralised: the shared client in
+  // src/cloud/auth/supabaseClient.js is configured by VITE_SUPABASE_URL
+  // + VITE_SUPABASE_ANON_KEY at build time, and receives its session via
+  // the safeStorage-backed session IPC (contextBridge `wilsonSession`).
+  // The Session 1 per-project supabase.json fallback was removed in
+  // Session 2; the read/write/clear handlers were deleted from main.cjs.
   rabbit: {
-    readSupabaseConfig:  ()    => ipcRenderer.invoke('rabbit:read-supabase-config'),
-    writeSupabaseConfig: (cfg) => ipcRenderer.invoke('rabbit:write-supabase-config', cfg),
-    clearSupabaseConfig: ()    => ipcRenderer.invoke('rabbit:clear-supabase-config'),
     readGdriveConfig:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-config'),
     writeGdriveConfig:   (cfg) => ipcRenderer.invoke('rabbit:write-gdrive-config', cfg),
     readGdriveTokens:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-tokens'),
@@ -43,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearGdrive:         ()    => ipcRenderer.invoke('rabbit:clear-gdrive'),
 
     // ── File management ──
+    archiveLocalData:     ()    => ipcRenderer.invoke('rabbit:archive-local-data'),
     readFilesConfig:      ()    => ipcRenderer.invoke('rabbit:read-files-config'),
     writeFilesConfig:     (cfg) => ipcRenderer.invoke('rabbit:write-files-config', cfg),
     pickDirectory:        ()    => ipcRenderer.invoke('rabbit:pick-directory'),

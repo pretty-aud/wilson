@@ -1865,23 +1865,23 @@ async function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// ── RABBIT config IPC (Supabase + future Drive credentials) ──
-// These read/write small JSON files inside the rabbit-data root.
-// Express routes for actual project data live in §3 (Local Server adapter).
-ipcMain.handle('rabbit:read-supabase-config', () => {
-  const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
-  return readJSON(cfgPath, null);
-});
-ipcMain.handle('rabbit:write-supabase-config', (_event, cfg) => {
-  if (!cfg || typeof cfg !== 'object') throw new Error('rabbit:write-supabase-config: payload must be an object');
-  writeJSON(path.join(getRabbitDataDir(), 'supabase.json'), cfg);
-  return { ok: true };
-});
-ipcMain.handle('rabbit:clear-supabase-config', () => {
-  const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
-  if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
-  return { ok: true };
-});
+// ── RABBIT config IPC ──
+// Supabase credentials used to live here as read/write/clear handlers
+// against {userData}/rabbit-data/supabase.json. Session 2 removed that
+// per-project fallback — the shared auth client is the only source of
+// Supabase credentials now. See src/cloud/auth/supabaseClient.js.
+// Best-effort cleanup for stale pre-Session-2 config files is handled
+// on app startup (see cleanupLegacySupabaseConfig below).
+
+// One-shot cleanup: delete any pre-Session-2 supabase.json left on disk
+// so nothing stale can be loaded. Idempotent; safe on every launch.
+// Must run after app.whenReady() because getRabbitDataDir → app.getPath.
+function cleanupLegacySupabaseConfig() {
+  try {
+    const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
+    if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
+  } catch { /* best-effort; never block startup */ }
+}
 
 // ── RABBIT Google Drive credentials IPC ──
 // gdrive-config.json holds { clientId, clientSecret, redirectUri, rootFolderId }
@@ -1914,6 +1914,46 @@ ipcMain.handle('rabbit:clear-gdrive', () => {
 
 // ── RABBIT file management IPC ──────────────────────────────
 // Config: read/write the default root directory for project files.
+// ── Data migration: archive + clear local rabbit-data ──
+// Fired by MigrationPanel after a successful cloud migration. Snapshots the
+// entire rabbit-data tree (minus binary files; they're already in Storage)
+// to a timestamped bundle under rabbit-data/archives/, then removes the
+// live projects/ and thumbnails/ subtrees. Idempotent.
+ipcMain.handle('rabbit:archive-local-data', () => {
+  try {
+    const rabbitDir = getRabbitDataDir();
+    const projectsDir = path.join(rabbitDir, 'projects');
+    const thumbsDir   = path.join(rabbitDir, 'thumbnails');
+    const archivesDir = path.join(rabbitDir, 'archives');
+    if (!fs.existsSync(archivesDir)) fs.mkdirSync(archivesDir, { recursive: true });
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const snapshot = { archivedAt: ts, projects: [] };
+
+    if (fs.existsSync(projectsDir)) {
+      for (const projectId of fs.readdirSync(projectsDir)) {
+        const pjson = path.join(projectsDir, projectId, 'project.json');
+        if (!fs.existsSync(pjson)) continue;
+        try {
+          const bundle = JSON.parse(fs.readFileSync(pjson, 'utf-8'));
+          snapshot.projects.push(bundle);
+        } catch { /* corrupt bundle — skip */ }
+      }
+    }
+
+    const archivePath = path.join(archivesDir, `rabbit-data-${ts}.json`);
+    fs.writeFileSync(archivePath, JSON.stringify(snapshot, null, 2), 'utf-8');
+
+    // Clear live stores. Binary files are already uploaded to Supabase Storage.
+    fs.rmSync(projectsDir, { recursive: true, force: true });
+    fs.rmSync(thumbsDir,   { recursive: true, force: true });
+
+    return { ok: true, archivePath, projectCount: snapshot.projects.length };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+});
+
 ipcMain.handle('rabbit:read-files-config', () => readFilesConfig());
 ipcMain.handle('rabbit:write-files-config', (_event, cfg) => {
   if (!cfg || typeof cfg !== 'object') throw new Error('payload must be an object');
@@ -2130,7 +2170,10 @@ ipcMain.handle('zoom-out', () => {
 ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.setZoomLevel(0); return 0; } });
 ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents.getZoomLevel(); return 0; });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  cleanupLegacySupabaseConfig();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (localServer) localServer.close();

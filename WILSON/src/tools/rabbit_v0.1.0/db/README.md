@@ -52,35 +52,30 @@ service-role key is NOT required and an anon key alone is enough. This is fine
 because the only client is the user's local Electron app — there is no shared
 multi-tenant traffic.
 
-> **TODO (v0.2):** turn RLS on with `created_by = auth.uid()` rules and require
-> users to sign in via Supabase Auth. The schema is already prepared for this:
-> `projects.created_by`, `comments.author_user_id`, `tasks.assigned_user_id`,
-> and `files.id` are all designed to scope cleanly per-user once
-> `auth.uid()` is populated. See `RABBIT_v0.6_post_build_notes.md` § "Multi-user
-> auth" in `Claude_Work/` for the full v0.2 plan.
+> **Multi-user RLS is live (Session 2, 2026-04).** Every RABBIT table is now
+> `FORCE ROW LEVEL SECURITY` on `current_workspace_id()` + active membership.
+> See `supabase/migrations/0004_rls_rabbit.sql` for the full policy sweep and
+> `supabase/tests/rls/*.sql` for the pgTAP coverage.
 
 ## 5. Tell WILSON about your project
 
-WILSON expects the credentials at:
+Supabase credentials are centralised at build time, not per-project. WILSON's
+shared client (`src/cloud/auth/supabaseClient.js`) reads two variables from the
+environment:
 
 ```
-{Electron userData}/rabbit-data/supabase.json
+VITE_SUPABASE_URL       = https://abcdefghij.supabase.co
+VITE_SUPABASE_ANON_KEY  = eyJhbGciOiJIUzI1NiIsInR...
 ```
 
-The shape is:
+Populate these in `.env.local` during development; CI sets them as repo
+secrets. The session itself is persisted by the main process via Electron's
+`safeStorage` (see `electron/main.cjs` → `wilson:session-save`), so the
+renderer never handles the encrypted blob directly.
 
-```json
-{
-  "url":               "https://abcdefghij.supabase.co",
-  "anon_key":          "eyJhbGciOiJIUzI1NiIsInR...",
-  "service_role_key":  null
-}
-```
-
-You can write this file directly, or use the **RABBIT settings** panel (added in
-Session 3) which exposes a Connect form. The renderer reads the file via the
-IPC bridge `rabbit:read-supabase-config` and writes it via
-`rabbit:write-supabase-config`. Both are wired in `electron/main.cjs`.
+The Session 1 per-project `{userData}/rabbit-data/supabase.json` fallback was
+removed in Session 2; a one-shot cleanup in `electron/main.cjs` deletes any
+stale file left over from earlier installs.
 
 ## 6. Realtime (free, opt-in)
 
