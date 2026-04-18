@@ -177,6 +177,28 @@ CREATE TRIGGER trg_comments_populate_workspace
 -- 4. AUDIT TRIGGERS — attach fn_audit_touch (from 0001) to every mutable table
 -- =============================================================================
 
+-- 4a. Ensure every audited table has the columns fn_audit_touch writes to.
+-- The base schema (0000) only gives `projects` all four columns; the rest
+-- (phases, assets, tasks, etc.) have some or none, which would make the
+-- trigger throw "record has no field" at runtime. Adding them idempotently
+-- here so the trigger always has a column to set.
+DO $$
+DECLARE
+  t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['projects','phases','assets','tasks','files',
+                           'comments','rate_cards','rate_card_entries',
+                           'asset_versions','task_dependencies','task_links',
+                           'ingestion_runs','ingestion_chunks']
+  LOOP
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS created_by UUID', t);
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS updated_by UUID', t);
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now()', t);
+    EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()', t);
+  END LOOP;
+END $$;
+
+-- 4b. Attach the audit trigger.
 DO $$
 DECLARE
   t TEXT;

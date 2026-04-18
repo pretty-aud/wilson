@@ -95,33 +95,15 @@ create table if not exists workspaces (
   created_at  timestamptz not null default now()
 );
 
--- Seed a single default workspace row for v0.1 single-user mode.
--- slug is nullable in the RABBIT-only schema, but required by the
--- multi-user migration; supplying 'default' keeps both paths happy.
-insert into workspaces (id, name, slug)
-select '00000000-0000-0000-0000-000000000001', 'Default Workspace', 'default'
-where not exists (
-  select 1 from workspaces where id = '00000000-0000-0000-0000-000000000001'
-)
-and exists (
-  select 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name   = 'workspaces'
-     and column_name  = 'slug'
-);
-
--- Fallback for pure-RABBIT installs where 0001 never ran (no slug column).
-insert into workspaces (id, name)
-select '00000000-0000-0000-0000-000000000001', 'Default Workspace'
-where not exists (
-  select 1 from workspaces where id = '00000000-0000-0000-0000-000000000001'
-)
-and not exists (
-  select 1 from information_schema.columns
-   where table_schema = 'public'
-     and table_name   = 'workspaces'
-     and column_name  = 'slug'
-);
+-- NOTE: the standalone schema.sql (src/tools/rabbit_v0.1.0/db/schema.sql)
+-- seeds a hardcoded default workspace row here for single-user installs.
+-- That seed is intentionally OMITTED from this migration:
+--   (a) multi-user deployments provision workspaces via the new-company
+--       wizard; there is no "default" tenant.
+--   (b) migration 0004 drops the hardcoded workspace_id DEFAULT on
+--       projects + rate_cards precisely so callers must supply one.
+-- The conditional INSERTs in schema.sql fail at parse time here anyway
+-- because the slug column is created by 0001, not 0000.
 
 -- ─── Users (reserved for multi-user v0.2) ─────────────────────────────
 create table if not exists users (
