@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import LoginScreen from './cloud/auth/LoginScreen'
+import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
+import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import Home from './components/Home'
@@ -129,6 +131,11 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
+  const [authMode, setAuthMode] = useState('login'); // 'login' | 'new-company'
+  const [prefilledUsername, setPrefilledUsername] = useState('');
+  // Set to a membership record when the signed-in user still has
+  // onboarded_at = null; cleared once NewUserWelcome saves the profile.
+  const [pendingOnboarding, setPendingOnboarding] = useState(null);
   const [currentPage, setCurrentPage] = useState('home');
 
   // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
@@ -187,6 +194,40 @@ export default function App() {
   const handleAuth = useCallback(() => {
     setAuthed(true);
   }, []);
+
+  // Whenever the user is authenticated, check their workspace_members row for
+  // the active workspace. If onboarded_at is null, surface NewUserWelcome so
+  // they can fill in display_name/pronouns/title/avatar before entering the app.
+  useEffect(() => {
+    if (!authed) { setPendingOnboarding(null); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        const userId = session.user?.id;
+        // JWT app_metadata.workspace_id is set by custom_access_token_hook.
+        const workspaceId = session.user?.app_metadata?.workspace_id ?? null;
+        if (!userId || !workspaceId) return;
+
+        const { data, error } = await supabase
+          .from('workspace_members')
+          .select('workspace_id, user_id, display_name, onboarded_at')
+          .eq('user_id',      userId)
+          .eq('workspace_id', workspaceId)
+          .maybeSingle();
+        if (cancelled || error || !data) return;
+        if (data.onboarded_at == null) {
+          setPendingOnboarding({
+            workspace_id: data.workspace_id,
+            user_id:      data.user_id,
+            display_name: data.display_name ?? '',
+          });
+        }
+      } catch { /* non-fatal; user can still use the app without onboarding */ }
+    })();
+    return () => { cancelled = true; };
+  }, [authed]);
 
   // Sign out: clear the local session + reset auth state. Exposed on window
   // for the next-session Settings panel to wire up; doesn't affect the UI yet.
@@ -1277,13 +1318,38 @@ export default function App() {
       )}
 
       {/* Auth overlay — Supabase username → password. Wait for the initial
-          session check so returning users don't briefly see the login form. */}
-      {showOverlay && sessionChecked && (
+          session check so returning users don't briefly see the login form.
+          The "new company?" link on LoginScreen flips authMode to 'new-company'
+          which mounts NewCompanyWizard in the same slot; on success the wizard
+          hands back the username so LoginScreen reopens pre-filled. */}
+      {showOverlay && sessionChecked && authMode === 'login' && (
         <LoginScreen
+          prefilledUsername={prefilledUsername}
+          onCreateCompany={() => setAuthMode('new-company')}
           onAuthenticated={() => {
             handleAuth();
             handleAnimationComplete();
           }}
+        />
+      )}
+      {showOverlay && sessionChecked && authMode === 'new-company' && (
+        <NewCompanyWizard
+          onCancel={() => setAuthMode('login')}
+          onProvisioned={(payload) => {
+            setPrefilledUsername(payload?.username ?? '')
+            setAuthMode('login')
+          }}
+        />
+      )}
+
+      {/* First-login profile capture. Shown on top of the authenticated app
+          so the user sees the chrome animate in once (from LoginScreen) and
+          then slides straight into the welcome wizard without blanking the
+          screen. */}
+      {authed && pendingOnboarding && (
+        <NewUserWelcome
+          membership={pendingOnboarding}
+          onComplete={() => setPendingOnboarding(null)}
         />
       )}
 

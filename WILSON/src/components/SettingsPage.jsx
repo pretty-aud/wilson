@@ -9,6 +9,8 @@ import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
+import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
+import MigrationPanel from '../cloud/migrate/MigrationPanel'
 
 
 export default function SettingsPage({
@@ -336,6 +338,10 @@ export default function SettingsPage({
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'general' && (
             <>
+              {/* Active workspace switcher — hidden unless the user belongs
+                  to more than one workspace. */}
+              <WorkspaceSwitcher />
+
               {/* API Key Section */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
@@ -722,6 +728,9 @@ export default function SettingsPage({
                   </span>
                 </div>
               </div>
+
+              {/* Cloud migration tool — dry-run + migrate + archive local */}
+              <MigrationPanel />
 
               {/* Default currency */}
               <div>
