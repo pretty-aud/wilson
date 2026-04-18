@@ -1,7 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
-import PasswordScreen from './components/PasswordScreen'
+import LoginScreen from './cloud/auth/LoginScreen'
+import { loadSession, clearSession } from './cloud/auth/sessionStorage'
+import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
@@ -89,13 +91,15 @@ const PAGE_BARS = {
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
 
-// Check session via file-backed API (survives app restarts, expires after 1 hour)
+// Hydrate a persisted Supabase session (safeStorage in Electron, localStorage in
+// `vite dev`). Returns the live session if hydration succeeded, null otherwise.
 async function checkSessionValid() {
   try {
-    const res = await fetch('/api/auth/session');
-    const data = await res.json();
-    return data.valid === true;
-  } catch { return false; }
+    const saved = await loadSession();
+    if (!saved) return null;
+    const session = await hydrateSupabase(saved);
+    return session ?? null;
+  } catch { return null; }
 }
 
 const EASE = 'cubic-bezier(0.4,0,0.2,1)';
@@ -165,10 +169,11 @@ export default function App() {
     try { localStorage.setItem('wilson-api-key', anthropicApiKey); } catch {}
   }, [anthropicApiKey]);
 
-  // Check persisted session on mount (survives app restart, 1-hour expiry)
+  // Check persisted Supabase session on mount. `session` carries the JWT that
+  // RLS uses to gate every request; losing it means logged-out state.
   useEffect(() => {
-    checkSessionValid().then(valid => {
-      if (valid) {
+    checkSessionValid().then(session => {
+      if (session) {
         setAuthed(true);
         setShowOverlay(false);
       }
@@ -176,10 +181,24 @@ export default function App() {
     });
   }, []);
 
-  const handleAuth = () => {
-    // Auth timestamp is now set server-side in /api/auth/verify
+  // Invoked by <LoginScreen/> on successful signInWithPassword. The session
+  // has already been persisted by LoginScreen via sessionStorage.saveSession,
+  // so we only need to flip the gate here.
+  const handleAuth = useCallback(() => {
     setAuthed(true);
-  };
+  }, []);
+
+  // Sign out: clear the local session + reset auth state. Exposed on window
+  // for the next-session Settings panel to wire up; doesn't affect the UI yet.
+  useEffect(() => {
+    window.wilsonSignOut = async () => {
+      try { await supabase.auth.signOut(); } catch { /* swallow */ }
+      await clearSession();
+      setAuthed(false);
+      setShowOverlay(true);
+    };
+    return () => { delete window.wilsonSignOut; };
+  }, []);
 
   const handleAnimationComplete = () => {
     setShowOverlay(false);
@@ -1257,12 +1276,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Auth overlay — wait for session check before showing */}
+      {/* Auth overlay — Supabase username → password. Wait for the initial
+          session check so returning users don't briefly see the login form. */}
       {showOverlay && sessionChecked && (
-        <PasswordScreen
-          onSuccess={handleAuth}
-          onAnimationComplete={handleAnimationComplete}
-          isRevealing={authed}
+        <LoginScreen
+          onAuthenticated={() => {
+            handleAuth();
+            handleAnimationComplete();
+          }}
         />
       )}
 

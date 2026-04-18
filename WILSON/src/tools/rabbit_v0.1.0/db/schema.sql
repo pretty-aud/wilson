@@ -292,3 +292,36 @@ do $$ begin
   create trigger assets_touch    before update on assets    for each row execute function touch_updated_at();
   create trigger tasks_touch     before update on tasks     for each row execute function touch_updated_at();
 exception when duplicate_object then null; end $$;
+
+-- ─── Audit columns (Session 1 of multi-user migration) ──────────────
+-- Added to every mutable RABBIT table now, even though the edit-history UI
+-- lands in Session 5. Backfilling later is expensive, so we take the hit
+-- once, here. `created_by` / `updated_by` reference auth.users on cloud
+-- deployments; on the local IndexedDB / Express adapter they stay NULL
+-- until that user signs in for the first time and the migration tool
+-- (Session 2) attributes historical rows to them.
+do $$
+declare t text;
+begin
+  foreach t in array array['projects','phases','assets','tasks','files',
+                           'comments','rate_cards','rate_card_entries',
+                           'asset_versions','task_dependencies','task_links',
+                           'ingestion_runs','ingestion_chunks']
+  loop
+    execute format('alter table %I add column if not exists last_updated_by uuid', t);
+    execute format('alter table %I add column if not exists last_updated_at timestamptz default now()', t);
+    execute format('alter table %I add column if not exists deleted_at timestamptz', t);
+    execute format('alter table %I add column if not exists deleted_by uuid', t);
+  end loop;
+end $$;
+
+-- Keep last_updated_at in sync with updated_at on the existing touch tables.
+create or replace function touch_last_updated() returns trigger language plpgsql as $$
+begin new.last_updated_at := now(); return new; end $$;
+
+do $$ begin
+  create trigger projects_touch_last before update on projects for each row execute function touch_last_updated();
+  create trigger phases_touch_last   before update on phases   for each row execute function touch_last_updated();
+  create trigger assets_touch_last   before update on assets   for each row execute function touch_last_updated();
+  create trigger tasks_touch_last    before update on tasks    for each row execute function touch_last_updated();
+exception when duplicate_object then null; end $$;

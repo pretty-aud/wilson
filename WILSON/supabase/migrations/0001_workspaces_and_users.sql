@@ -17,18 +17,46 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS public.workspaces (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name         TEXT NOT NULL,
-  slug         TEXT UNIQUE NOT NULL
-    CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,62}$'),
-  storage_mode TEXT NOT NULL DEFAULT 'central'
-    CHECK (storage_mode IN ('central', 'byos')),
-  storage_config JSONB,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  created_by   UUID,
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_by   UUID,
-  deleted_at   TIMESTAMPTZ,
-  deleted_by   UUID
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- If the RABBIT base schema (src/tools/rabbit_v0.1.0/db/schema.sql) was applied
+-- first, the `workspaces` table exists with only the 3 columns above. Add the
+-- rest idempotently, and backfill the slug from the name so the unique/check
+-- constraints succeed against pre-existing rows.
+ALTER TABLE public.workspaces
+  ADD COLUMN IF NOT EXISTS slug           TEXT,
+  ADD COLUMN IF NOT EXISTS storage_mode   TEXT NOT NULL DEFAULT 'central',
+  ADD COLUMN IF NOT EXISTS storage_config JSONB,
+  ADD COLUMN IF NOT EXISTS created_by     UUID,
+  ADD COLUMN IF NOT EXISTS updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_by     UUID,
+  ADD COLUMN IF NOT EXISTS deleted_at     TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS deleted_by     UUID;
+
+-- Backfill slug for any pre-existing rows whose slug is NULL.
+UPDATE public.workspaces
+   SET slug = regexp_replace(lower(name), '[^a-z0-9]+', '-', 'g')
+ WHERE slug IS NULL;
+
+-- Enforce slug non-null + shape + uniqueness after backfill.
+ALTER TABLE public.workspaces
+  ALTER COLUMN slug SET NOT NULL;
+
+DO $$ BEGIN
+  ALTER TABLE public.workspaces
+    ADD CONSTRAINT workspaces_slug_shape_chk
+      CHECK (slug ~ '^[a-z0-9][a-z0-9-]{1,62}$');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+DO $$ BEGIN
+  ALTER TABLE public.workspaces
+    ADD CONSTRAINT workspaces_storage_mode_chk
+      CHECK (storage_mode IN ('central', 'byos'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS workspaces_slug_unique
+  ON public.workspaces (slug);
 
 CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON public.workspaces (slug)
   WHERE deleted_at IS NULL;

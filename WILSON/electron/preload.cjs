@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// ── Cloud session bridge ──
+// Persists the Supabase session via main process safeStorage (Electron's
+// OS-native keychain wrapper). Renderer never sees the encryption key.
+contextBridge.exposeInMainWorld('wilsonSession', {
+  save:  (session) => ipcRenderer.invoke('wilson:session-save', session),
+  load:  ()        => ipcRenderer.invoke('wilson:session-load'),
+  clear: ()        => ipcRenderer.invoke('wilson:session-clear'),
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  sentryTest: () => ipcRenderer.invoke('wilson:sentry-test'),
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),

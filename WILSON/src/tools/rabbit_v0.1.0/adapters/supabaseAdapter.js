@@ -23,9 +23,18 @@
 // is a single feature flag.
 
 import { createClient } from '@supabase/supabase-js';
+import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient.js';
 
 // ───────────────────────────────────────────────────────────────
 // Module-level singleton (one client per app session)
+//
+// As of Session 1 of the multi-user migration, the adapter PREFERS the
+// shared authenticated client from src/cloud/auth/supabaseClient.js so
+// that every query carries the user's JWT and RLS can enforce
+// workspace isolation. The legacy "per-project supabase.json" path is
+// kept as a fallback for users who haven't migrated yet; it returns an
+// anon-only client which will only succeed against RLS-disabled tables.
+// The fallback is removed in Session 2.
 // ───────────────────────────────────────────────────────────────
 let cachedClient = null;
 let cachedConfig = null;
@@ -52,6 +61,21 @@ async function loadConfig() {
 
 async function getClient() {
   if (cachedClient) return cachedClient;
+
+  // Preferred path: reuse the authenticated client from the cloud auth
+  // module. Requires VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY in the env.
+  // The shared client has a session attached (set by LoginScreen via
+  // setSession), so every request is scoped to the logged-in user by RLS.
+  try {
+    const { data } = await sharedAuthedClient.auth.getSession();
+    if (data?.session) {
+      cachedClient = sharedAuthedClient;
+      return cachedClient;
+    }
+  } catch { /* fall through */ }
+
+  // Legacy fallback: {userData}/rabbit-data/supabase.json. Removed in
+  // Session 2 once every tenant is on the shared client.
   const cfg = await loadConfig();
   if (!cfg) return null;
   cachedClient = createClient(cfg.url, cfg.anon_key, {

@@ -1,12 +1,34 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
 const sharp = require('sharp');
+const { loadEnv } = require('./env.cjs');
+const { initMainSentry } = require('./sentry.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
+
+// Load env BEFORE anything reads process.env. In dev this reads
+// .env.development from the repo root; packaged builds read
+// userData/env.json so operators can swap envs without a rebuild.
+const REPO_ROOT = path.resolve(__dirname, '..');
+loadEnv(app, REPO_ROOT);
+
+// Main-process Sentry — must come after loadEnv so the DSN is present.
+const _mainSentry = initMainSentry();
+
+// Expose a main-process test-exception path for the Session 1 verification.
+// Call it from a DevTools console via: await window.electronAPI.sentryTest?.()
+ipcMain.handle('wilson:sentry-test', () => {
+  try {
+    throw new Error('[wilson-main-test] ' + new Date().toISOString());
+  } catch (err) {
+    if (_mainSentry.enabled) _mainSentry.Sentry.captureException(err);
+    return { sent: _mainSentry.enabled, error: err.message };
+  }
+});
 
 // ═══════════════════════════════════════════════════════════════════
 //  O.T.T.E.R. DATA DIRECTORY — stored in Electron userData
@@ -2040,6 +2062,52 @@ ipcMain.handle('rabbit:ensure-project-folder', (_event, { rootDir, projectSlug }
   const folderPath = path.join(rootDir, projectSlug);
   if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
   return { ok: true, folderPath };
+});
+
+// ═══════════════════════════════════════════════════════════════════
+//  SUPABASE SESSION PERSISTENCE (safeStorage-encrypted)
+// ═══════════════════════════════════════════════════════════════════
+// Stored at userData/session.enc. Encrypted with the OS keychain
+// (DPAPI on Windows, Keychain on macOS, libsecret on Linux). If
+// safeStorage is unavailable on this host (headless Linux without a
+// keyring), we refuse to persist rather than silently fall back to
+// plaintext — the renderer handles the null-session case cleanly.
+function getSessionPath() {
+  return path.join(app.getPath('userData'), 'session.enc');
+}
+
+ipcMain.handle('wilson:session-save', async (_e, session) => {
+  if (!session) return { ok: false, reason: 'empty' };
+  if (!safeStorage.isEncryptionAvailable()) return { ok: false, reason: 'no_keychain' };
+  try {
+    const encrypted = safeStorage.encryptString(JSON.stringify(session));
+    fs.writeFileSync(getSessionPath(), encrypted);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: 'write_failed', message: String(err?.message || err) };
+  }
+});
+
+ipcMain.handle('wilson:session-load', async () => {
+  try {
+    const file = getSessionPath();
+    if (!fs.existsSync(file)) return null;
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    const buf = fs.readFileSync(file);
+    return JSON.parse(safeStorage.decryptString(buf));
+  } catch {
+    return null;
+  }
+});
+
+ipcMain.handle('wilson:session-clear', async () => {
+  try {
+    const file = getSessionPath();
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: 'unlink_failed', message: String(err?.message || err) };
+  }
 });
 
 // Window control IPC handlers
