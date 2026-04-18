@@ -2,3 +2,24 @@ node_modules/
 dist/
 out/
 *.exe
+
+# Env files — never commit. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+
+# Supabase CLI local artifacts
+.supabase/
+supabase/.temp/
+
+# Local encrypted Supabase access token (created by developer for CLI ops)
+.supabase-access-token
+
+# Sentry native debug symbols
+.sentryclirc
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
