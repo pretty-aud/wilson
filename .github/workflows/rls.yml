@@ -2,18 +2,20 @@
 # .github/workflows/rls.yml
 # Session 2 — RLS coverage + pgTAP suite for the RABBIT database.
 #
+# Repo layout note: the app lives in a WILSON/ subdirectory under the git
+# root. `defaults.run.working-directory: WILSON` makes every bash step run
+# inside that subdir so paths match the local dev experience.
+#
 # What this runs:
 #   1. Supabase CLI boots a local Postgres with every migration in
-#      supabase/migrations/ applied.
+#      WILSON/supabase/migrations/ applied.
 #   2. `supabase test db` runs pg_prove against every file in
-#      supabase/tests/rls/*.sql — one test per RABBIT table, 4 probes each.
+#      WILSON/supabase/tests/rls/*.sql — one test per RABBIT table.
 #   3. A bash coverage guard fails the job if a table in the RLS allowlist
-#      is missing its dedicated test file. This is what satisfies the
-#      "new table without an RLS test file fails CI" exit criterion.
+#      is missing its dedicated test file.
 #
-# Scope: every push to feat/* and every PR. We intentionally do NOT run on
-# pushes to main — the branch protection rules require the PR to be green,
-# so running again on the post-merge commit is redundant.
+# Scope: every push to feat/* and every PR. Intentionally NOT on pushes to
+# main — branch protection makes that redundant.
 # =============================================================================
 
 name: RLS tests
@@ -32,6 +34,9 @@ jobs:
     name: pgTAP (Supabase local DB)
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: WILSON
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +67,7 @@ jobs:
           done
           if [ "${#MISSING[@]}" -ne 0 ]; then
             echo "::error::Tables without an RLS test file: ${MISSING[*]}"
-            echo "Expected pattern: supabase/tests/rls/NN_<table>.sql"
+            echo "Expected pattern: WILSON/supabase/tests/rls/NN_<table>.sql"
             exit 1
           fi
           echo "RLS test coverage OK for ${#RLS_TABLES[@]} tables."
