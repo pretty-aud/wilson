@@ -1,0 +1,82 @@
+# =============================================================================
+# .github/workflows/rls.yml
+# Session 2 — RLS coverage + pgTAP suite for the RABBIT database.
+#
+# What this runs:
+#   1. Supabase CLI boots a local Postgres with every migration in
+#      supabase/migrations/ applied.
+#   2. `supabase test db` runs pg_prove against every file in
+#      supabase/tests/rls/*.sql — one test per RABBIT table, 4 probes each.
+#   3. A bash coverage guard fails the job if a table in the RLS allowlist
+#      is missing its dedicated test file. This is what satisfies the
+#      "new table without an RLS test file fails CI" exit criterion.
+#
+# Scope: every push to feat/* and every PR. We intentionally do NOT run on
+# pushes to main — the branch protection rules require the PR to be green,
+# so running again on the post-merge commit is redundant.
+# =============================================================================
+
+name: RLS tests
+
+on:
+  push:
+    branches:
+      - 'feat/**'
+  pull_request:
+    branches:
+      - main
+      - 'feat/**'
+
+jobs:
+  pgtap:
+    name: pgTAP (Supabase local DB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Coverage guard — runs BEFORE spinning up Postgres so we fail fast.
+      # RLS_TABLES is the allowlist of every RABBIT table under RLS. Adding a
+      # new table to migration 0004 without a test file in supabase/tests/rls/
+      # will cause this step to fail. Keep this list in sync with the
+      # post-condition block at the bottom of 0004_rls_rabbit.sql.
+      - name: Enforce per-table test coverage
+        run: |
+          set -euo pipefail
+          RLS_TABLES=(
+            projects phases assets tasks files
+            comments rate_cards rate_card_entries
+            asset_versions task_dependencies task_links
+            ingestion_runs ingestion_chunks
+          )
+          MISSING=()
+          for t in "${RLS_TABLES[@]}"; do
+            if ! ls supabase/tests/rls/*_"${t}".sql >/dev/null 2>&1; then
+              MISSING+=("${t}")
+            fi
+          done
+          if [ "${#MISSING[@]}" -ne 0 ]; then
+            echo "::error::Tables without an RLS test file: ${MISSING[*]}"
+            echo "Expected pattern: supabase/tests/rls/NN_<table>.sql"
+            exit 1
+          fi
+          echo "RLS test coverage OK for ${#RLS_TABLES[@]} tables."
+
+      - name: Start Supabase local DB
+        run: supabase start --exclude realtime,storage-api,imgproxy,edge-runtime,studio,mailpit
+
+      - name: Run pgTAP suite
+        run: supabase test db
+
+      - name: Capture logs on failure
+        if: failure()
+        run: supabase logs db || true
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup
