@@ -1,30 +1,32 @@
 // =============================================================================
-// LoginScreen — terminal-aesthetic username-first sign-in, built on AuthShell.
+// LoginScreen — terminal-aesthetic sign-in, built on AuthShell.
 //
-// Three stages:
-//   1. 'username'  — single input, posted to /functions/v1/resolve-login.
-//                    Server returns { exists, email } in constant time.
-//                    We do NOT differentiate "not found" from "rate-limited"
-//                    in UI copy (matches the resolver's constant-time guarantee).
-//   2. 'password'  — same input becomes a password field. On submit we call
-//                    supabase.auth.signInWithPassword({ email, password }).
-//                    If the user has exactly one workspace membership we skip
-//                    straight to the reveal. Otherwise we advance to stage 3.
-//   3. 'workspace' — list of the user's active workspaces. Arrow keys move the
+// Two stages:
+//   1. 'auth'      — single form with USERNAME + PASSWORD + SIGN IN button.
+//                    On submit:
+//                      a. POST /functions/v1/resolve-login with the username →
+//                         { exists, email }. Server replies in constant time.
+//                      b. supabase.auth.signInWithPassword({ email, password }).
+//                         If username was unknown, we sign in against an
+//                         unreachable fake email so request timing still looks
+//                         like a real attempt (prevents username enumeration).
+//                      c. Fetch workspace memberships. One workspace → reveal
+//                         the app; more than one → advance to stage 2.
+//   2. 'workspace' — list of the user's active workspaces. Arrow keys move the
 //                    cursor, Enter selects. `issue-session` sets the active
 //                    workspace; refreshSession picks up the new JWT claims.
 //
 // Security notes:
 //   - The same generic error ("Sign-in failed. Check username and password.")
 //     is used for every failure mode below rate-limiting.
-//   - On username-not-found we still transition to the password stage and
-//     attempt auth with a fake email so UI timing doesn't leak usernames.
+//   - Response-body shape + timing are uniform across found / not-found /
+//     rate-limited (the Edge Function's job; we just mirror that here).
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
-import AuthShell, { AUTH_TEXT_STYLE, AuthCursor } from './AuthShell'
+import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -78,30 +80,26 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
   const [revealing, setRevealing] = useState(false)
 
   // ── Auth flow state ───────────────────────────────────────────────────
-  const [stage, setStage]                 = useState('username')
-  const [username, setUsername]           = useState(prefilledUsername ?? '')
-  const [password, setPassword]           = useState('')
-  const [resolvedEmail, setResolvedEmail] = useState(null)
-  const [error, setError]                 = useState('')
-  const [busy, setBusy]                   = useState(false)
-  const [pendingSession, setPendingSession] = useState(null) // captured post-signIn
+  // stage: 'auth' (single form with username + password) | 'workspace' (chooser)
+  const [stage, setStage]                   = useState('auth')
+  const [username, setUsername]             = useState(prefilledUsername ?? '')
+  const [password, setPassword]             = useState('')
+  const [error, setError]                   = useState('')
+  const [busy, setBusy]                     = useState(false)
+  const [pendingSession, setPendingSession] = useState(null)
   const [workspaces, setWorkspaces]         = useState([])
   const [workspaceIndex, setWorkspaceIndex] = useState(0)
   const [stageFade, setStageFade]           = useState(1)
 
-  // Final session to hand off to the parent once the reveal finishes.
   const finalSessionRef = useRef(null)
-  const inputRef = useRef(null)
+  const usernameInputRef = useRef(null)
 
-  // Focus the input whenever the stage enters 'username' or 'password'.
+  // Focus username when the shell settles and whenever we return to auth stage.
   useEffect(() => {
-    if (!ready) return
-    if (stage === 'username' || stage === 'password') {
-      inputRef.current?.focus()
-    }
+    if (ready && stage === 'auth') usernameInputRef.current?.focus()
   }, [ready, stage])
 
-  // Fade the stage row when it swaps. The bars stay put (owned by AuthShell).
+  // Fade on stage transitions (only matters for auth → workspace swap).
   useEffect(() => {
     setStageFade(0)
     const t = setTimeout(() => setStageFade(1), 150)
@@ -109,59 +107,54 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
   }, [stage])
 
   // ── Handlers ──────────────────────────────────────────────────────────
-  const handleUsernameSubmit = useCallback(async (e) => {
+  const completeSignIn = useCallback(async (session, workspaceId) => {
+    try {
+      let effectiveSession = session
+      // Only round-trip through issue-session + refresh when the user is
+      // explicitly choosing a different workspace. For a single-workspace
+      // user the custom_access_token_hook has already baked the right
+      // workspace_id into the token returned by signInWithPassword; extra
+      // calls would just burn a request and (per Session 1) currently 401.
+      if (workspaceId) {
+        await issueSession(session.access_token, workspaceId)
+        const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
+        if (!refreshErr && refreshed?.session) effectiveSession = refreshed.session
+      }
+      await saveSession({
+        access_token:  effectiveSession.access_token,
+        refresh_token: effectiveSession.refresh_token,
+        expires_at:    effectiveSession.expires_at,
+        user:          effectiveSession.user,
+      })
+      finalSessionRef.current = effectiveSession
+      setRevealing(true)
+    } catch (err) {
+      console.warn('[wilson] completeSignIn failed:', err?.message ?? err)
+      setError(GENERIC_ERROR)
+      setBusy(false)
+    }
+  }, [])
+
+  // Single submit handler: resolve username → email → signInWithPassword →
+  // either reveal (1 workspace) or advance to chooser (>1 workspace).
+  const handleAuthSubmit = useCallback(async (e) => {
     e?.preventDefault()
     if (busy) return
     const u = username.trim().toLowerCase()
-    if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(u)) {
+    if (!/^[a-z0-9][a-z0-9._-]{1,31}$/.test(u) || password.length === 0) {
       setError(GENERIC_ERROR)
       return
     }
     setBusy(true)
     setError('')
     try {
-      const { exists, email } = await resolveLogin({ username: u })
-      // Always advance — never reveal whether the username existed.
-      setResolvedEmail(exists ? email : null)
-      setStage('password')
-    } catch {
-      setError(GENERIC_ERROR)
-    } finally {
-      setBusy(false)
-    }
-  }, [busy, username])
+      const { exists, email: resolved } = await resolveLogin({ username: u })
+      // If resolver says "not found", sign in with an unreachable email so the
+      // request timing still looks like a real attempt (prevents username
+      // enumeration via response time).
+      const email = exists ? resolved : `__miss+${crypto.randomUUID()}@invalid.local`
 
-  const completeSignIn = useCallback(async (session, workspaceId) => {
-    await issueSession(session.access_token, workspaceId)
-    const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
-    const finalSession = refreshErr ? session : refreshed.session
-    if (!finalSession) {
-      setError(GENERIC_ERROR)
-      setBusy(false)
-      return
-    }
-    await saveSession({
-      access_token:  finalSession.access_token,
-      refresh_token: finalSession.refresh_token,
-      expires_at:    finalSession.expires_at,
-      user:          finalSession.user,
-    })
-    finalSessionRef.current = finalSession
-    setRevealing(true)
-  }, [])
-
-  const handlePasswordSubmit = useCallback(async (e) => {
-    e?.preventDefault()
-    if (busy) return
-    setBusy(true)
-    setError('')
-    try {
-      // If resolver said "not found", submit against an unreachable email so
-      // auth timing still mirrors a real attempt.
-      const email = resolvedEmail ?? `__miss+${crypto.randomUUID()}@invalid.local`
-      const { data, error: signInErr } = await supabase.auth.signInWithPassword({
-        email, password,
-      })
+      const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
       if (signInErr || !data.session) {
         setError(GENERIC_ERROR)
         setBusy(false)
@@ -169,7 +162,6 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
       }
       setPendingSession(data.session)
 
-      // How many workspaces does this user belong to?
       const ws = await fetchUserWorkspaces()
       if (ws.length > 1) {
         setWorkspaces(ws)
@@ -177,14 +169,13 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
         setStage('workspace')
         setBusy(false)
       } else {
-        // 0 or 1 workspaces — let issue-session pick the default and move on.
         await completeSignIn(data.session, null)
       }
     } catch {
       setError(GENERIC_ERROR)
       setBusy(false)
     }
-  }, [busy, password, resolvedEmail, completeSignIn])
+  }, [busy, username, password, completeSignIn])
 
   const handleWorkspaceChoose = useCallback(async (wsId) => {
     if (busy || !pendingSession) return
@@ -192,12 +183,6 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
     setError('')
     await completeSignIn(pendingSession, wsId)
   }, [busy, pendingSession, completeSignIn])
-
-  const backToUsername = useCallback(() => {
-    setStage('username')
-    setPassword('')
-    setError('')
-  }, [])
 
   // Arrow-key navigation for the workspace chooser.
   useEffect(() => {
@@ -220,14 +205,30 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
   }, [stage, workspaces, workspaceIndex, handleWorkspaceChoose])
 
   // ── Render helpers ────────────────────────────────────────────────────
+  // Native caret in white — browsers blink it gently; disappears when the
+  // input isn't focused. Text is lowercased-normal (not uppercase) so the
+  // typed value reads naturally against the uppercase labels above.
   const inputStyle = {
     ...AUTH_TEXT_STYLE,
+    fontSize: '17px',
+    fontWeight: 400,
+    textTransform: 'none',
+    letterSpacing: '0.02em',
     background: 'transparent',
     border: 'none',
+    borderBottom: '1px solid rgba(255,255,255,0.55)',
     outline: 'none',
-    caretColor: 'transparent', // native caret hidden; we render AuthCursor
+    caretColor: '#fff',
     textAlign: 'center',
-    width: '18ch',
+    width: '22ch',
+    padding: '4px 0 6px',
+  }
+  const labelStyle = {
+    ...AUTH_TEXT_STYLE,
+    fontSize: '11px',
+    fontWeight: 600,
+    opacity: 0.8,
+    letterSpacing: '0.22em',
   }
 
   return (
@@ -236,24 +237,25 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
       onIntroComplete={() => setReady(true)}
       onAnimationComplete={() => onAuthenticated?.(finalSessionRef.current)}
       showLogoIntro
-      playStartupSound={false}
+      playStartupSound={true}
     >
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '18px', minWidth: '320px',
+        gap: '16px', minWidth: '320px',
         opacity: stageFade, transition: 'opacity 150ms ease-out',
       }}>
-        {/* Static title — present on every stage so only the label+input
-            swap underneath, per the Session 2 aesthetic spec. */}
-        <div style={AUTH_TEXT_STYLE}>LOGIN</div>
+        {/* Static title. In reveal, the parent fades the whole block. */}
+        <div style={{ ...AUTH_TEXT_STYLE, fontSize: '24px', letterSpacing: '0.18em' }}>
+          LOGIN
+        </div>
 
-        {stage === 'username' && (
-          <form onSubmit={handleUsernameSubmit}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', opacity: 0.8 }}>USERNAME</div>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
+        {stage === 'auth' && (
+          <form onSubmit={handleAuthSubmit}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={labelStyle}>USERNAME</div>
               <input
-                ref={inputRef}
+                ref={usernameInputRef}
                 type="text"
                 autoComplete="username"
                 value={username}
@@ -262,44 +264,11 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
                 style={inputStyle}
                 aria-label="Username"
               />
-              <AuthCursor />
             </div>
-            {onCreateCompany && (
-              <button
-                type="button"
-                onClick={onCreateCompany}
-                style={{
-                  marginTop: '14px', background: 'transparent', border: 'none',
-                  color: '#fff', fontFamily: 'monospace', fontSize: '11px',
-                  textDecoration: 'underline', cursor: 'pointer', padding: 0,
-                  opacity: 0.75,
-                }}
-              >
-                new company?
-              </button>
-            )}
-          </form>
-        )}
 
-        {stage === 'password' && (
-          <form onSubmit={handlePasswordSubmit}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', opacity: 0.8 }}>
-              PASSWORD <span style={{ opacity: 0.6 }}>· {username}</span>
-              <button
-                type="button" onClick={backToUsername}
-                style={{
-                  marginLeft: '8px', background: 'transparent', border: 'none',
-                  color: '#fff', fontFamily: 'monospace', fontSize: '11px',
-                  textDecoration: 'underline', cursor: 'pointer', padding: 0,
-                }}
-              >
-                change
-              </button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={labelStyle}>PASSWORD</div>
               <input
-                ref={inputRef}
                 type="password"
                 autoComplete="current-password"
                 value={password}
@@ -308,8 +277,52 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
                 style={inputStyle}
                 aria-label="Password"
               />
-              <AuthCursor />
             </div>
+
+            <button
+              type="submit"
+              disabled={busy}
+              style={{
+                ...AUTH_TEXT_STYLE,
+                fontSize: '12px',
+                fontWeight: 600,
+                letterSpacing: '0.18em',
+                marginTop: '6px',
+                background: '#fff',
+                border: 'none',
+                color: '#ea580c',
+                padding: '10px 34px',
+                borderRadius: '2px',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.55 : 1,
+                transition: 'opacity 150ms ease-out, transform 100ms ease-out',
+              }}
+              onMouseDown={(e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)')}
+              onMouseUp={(e)   => (e.currentTarget.style.transform = 'scale(1)')}
+              onMouseLeave={(e)=> (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              {busy ? 'Signing in…' : 'Sign in'}
+            </button>
+
+            {onCreateCompany && (
+              <button
+                type="button"
+                onClick={onCreateCompany}
+                style={{
+                  background: 'transparent', border: 'none',
+                  color: '#fff',
+                  fontFamily: AUTH_TEXT_STYLE.fontFamily,
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '0.04em',
+                  textDecoration: 'underline',
+                  cursor: 'pointer', padding: 0,
+                  opacity: 0.75, marginTop: '4px',
+                }}
+              >
+                New company?
+              </button>
+            )}
           </form>
         )}
 

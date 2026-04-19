@@ -1832,6 +1832,9 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs'),
+      // Allow the startup chime (AuthShell / PasswordScreen) to play without
+      // requiring a user gesture. Chrome's default blocks autoplay.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

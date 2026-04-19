@@ -41,6 +41,10 @@ const IDLE_HOLD_MS      = 1000
 const SPLIT_HOLD_MS     = 1600
 const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
 const REVEAL_BAR_HEIGHT = '268px'
+// Split-phase bar height: leaves ~44vh (~400px on 900px window) of
+// light-orange content area — comfortably fits LOGIN + 2 labels +
+// 2 inputs + button + link without overflowing into the orange bars.
+const SPLIT_BAR_HEIGHT  = '28vh'
 
 const COLOR_ORANGE       = '#ea580c'
 const COLOR_ORANGE_LIGHT = '#f4a261'
@@ -106,20 +110,23 @@ export default function AuthShell({
     }
 
     // Move to logo-hold once the fade-in completes.
-    const tHold = setTimeout(() => {
+    setTimeout(() => {
       if (phaseRef.current === 'logo-in') setPhase('logo-hold')
     }, LOGO_FADE_IN_MS)
 
     // Safety fallback in case the chime never fires (no audio, no user
     // gesture, autoplay blocked, or playStartupSound=false).
-    const tSafety = setTimeout(() => {
+    setTimeout(() => {
       if (!chimeEnded) advanceFromHold()
     }, LOGO_FADE_IN_MS + LOGO_HOLD_MS)
 
-    return () => {
-      clearTimeout(tHold)
-      clearTimeout(tSafety)
-    }
+    // NOTE: cleanup intentionally does NOT clearTimeout these. React 18
+    // StrictMode runs setup → cleanup → setup on every effect, and a
+    // clearing cleanup combined with the logoStartedRef guard means the
+    // second setup early-returns without rescheduling, leaving the shell
+    // permanently stuck on the logo. The inner phaseRef guards make
+    // late-firing timers safe no-ops.
+    return () => {}
   }, [phase, playStartupSound])
 
   // ── logo-out → idle ───────────────────────────────────────────────────
@@ -140,32 +147,38 @@ export default function AuthShell({
   useEffect(() => {
     if (phase !== 'split' || introFiredRef.current) return
     introFiredRef.current = true
-    // Fire after the compress transition settles so the caller doesn't
-    // see the 20px push happening under their newly-rendered content.
-    const t = setTimeout(() => onIntroComplete?.(), SPLIT_HOLD_MS)
-    return () => clearTimeout(t)
+    // Fire after the split transition settles so the caller doesn't
+    // see the panels still animating under their newly-rendered content.
+    setTimeout(() => onIntroComplete?.(), SPLIT_HOLD_MS)
+    // Empty cleanup: StrictMode re-runs setup → cleanup → setup; a
+    // clearTimeout cleanup combined with the introFiredRef guard would
+    // cancel the first run's timer and then early-return on the second,
+    // so onIntroComplete would never fire → LoginScreen never renders.
+    // (Same bug pattern as the logo-in effect above.)
+    return () => {}
   }, [phase, onIntroComplete])
 
   // ── isRevealing prop → drive the end animation ────────────────────────
+  // Compresses bars from SPLIT_BAR_HEIGHT (~28vh) down to REVEAL_BAR_HEIGHT
+  // (268px) — which matches PAGE_BARS.home.top/bottom in App.jsx — then
+  // hands off to the parent via onAnimationComplete. We intentionally do
+  // NOT fade the bars/bg to 0: App.jsx's root div is dark-orange, so a
+  // panels-fade would flash that orange between our final state and Home's
+  // first paint. Keeping the bars at full opacity means Home's matching
+  // orange 268px bars take over invisibly.
   useEffect(() => {
     if (!isRevealing || revealStartedRef.current) return
     revealStartedRef.current = true
     setPhase('revealing')
 
-    const tFade = setTimeout(() => {
-      setBgVisible(false)
-      setPanelsVisible(false)
-    }, 1000)
-
-    const tDone = setTimeout(() => {
+    setTimeout(() => {
       setPhase('done')
       onAnimationComplete?.()
-    }, 1800)
+    }, 1000)
 
-    return () => {
-      clearTimeout(tFade)
-      clearTimeout(tDone)
-    }
+    // Empty cleanup — avoids the StrictMode "cancel then early-return"
+    // deadlock when combined with revealStartedRef.
+    return () => {}
   }, [isRevealing, onAnimationComplete])
 
   if (phase === 'done') return null
@@ -211,17 +224,22 @@ export default function AuthShell({
         }} />
       )}
 
-      {/* Top orange panel — compresses from 50vh to REVEAL_BAR_HEIGHT. */}
+      {/* Top orange panel — initially 50vh (bars touch at the middle, full-
+          orange look), then animates down to SPLIT_BAR_HEIGHT as we enter
+          the split phase, revealing the light-orange content area. On
+          reveal, compresses further to REVEAL_BAR_HEIGHT. */}
       {!isLogoPhase && (
         <div style={{
           position: 'fixed', top: 0, left: 0, right: 0,
           backgroundColor: COLOR_ORANGE, zIndex: 52,
-          height: isReveal ? REVEAL_BAR_HEIGHT : '50vh',
-          transform: isReveal ? 'translateY(0)' : (isSplit ? 'translateY(-20px)' : 'translateY(0)'),
+          height: isReveal
+            ? REVEAL_BAR_HEIGHT
+            : (phase === 'idle' ? '50vh' : SPLIT_BAR_HEIGHT),
+          transform: 'translateY(0)',
           opacity: panelsVisible ? 1 : 0,
           transition: isReveal
-            ? `height 1000ms ${REVEAL_EASE}, transform 1000ms ${REVEAL_EASE}, opacity 800ms ease-out`
-            : `transform 600ms ${REVEAL_EASE}`,
+            ? `height 1000ms ${REVEAL_EASE}, opacity 800ms ease-out`
+            : `height 900ms ${REVEAL_EASE}`,
           pointerEvents: 'none',
         }} />
       )}
@@ -231,26 +249,34 @@ export default function AuthShell({
         <div style={{
           position: 'fixed', bottom: 0, left: 0, right: 0,
           backgroundColor: COLOR_ORANGE, zIndex: 52,
-          height: isReveal ? REVEAL_BAR_HEIGHT : '50vh',
-          transform: isReveal ? 'translateY(0)' : (isSplit ? 'translateY(20px)' : 'translateY(0)'),
+          height: isReveal
+            ? REVEAL_BAR_HEIGHT
+            : (phase === 'idle' ? '50vh' : SPLIT_BAR_HEIGHT),
+          transform: 'translateY(0)',
           opacity: panelsVisible ? 1 : 0,
           transition: isReveal
-            ? `height 1000ms ${REVEAL_EASE}, transform 1000ms ${REVEAL_EASE}, opacity 800ms ease-out`
-            : `transform 600ms ${REVEAL_EASE}`,
+            ? `height 1000ms ${REVEAL_EASE}, opacity 800ms ease-out`
+            : `height 900ms ${REVEAL_EASE}`,
           pointerEvents: 'none',
         }} />
       )}
 
-      {/* Center content slot — rendered once bars have arrived. Children
-          sit above the panels (zIndex 53) and fade out during reveal. */}
-      {showContent && (
+      {/* Center content slot — mounted as soon as the logo is gone so the
+          opacity transition has an "from 0" state to animate from when
+          phase flips to 'split'. Pointer events disabled until visible so
+          the hidden slot can't intercept clicks. */}
+      {!isLogoPhase && (
         <div style={{
           position: 'fixed', top: '50%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 53,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          opacity: isReveal ? 0 : 1,
-          transition: isReveal ? 'opacity 250ms ease-out' : 'none',
-          // Callers style their own typography; AuthShell stays neutral.
+          opacity: isReveal ? 0 : (isSplit ? 1 : 0),
+          pointerEvents: isSplit && !isReveal ? 'auto' : 'none',
+          // Fade in 400ms after split begins so the bars are noticeably
+          // open before text appears.
+          transition: isReveal
+            ? 'opacity 250ms ease-out'
+            : 'opacity 500ms ease-out 400ms',
         }}>
           {children}
         </div>
@@ -259,16 +285,16 @@ export default function AuthShell({
   )
 }
 
-// ── Reusable terminal-style typography ──────────────────────────────────────
-// Helper callers can spread onto a <span> or <label> to match the
-// PasswordScreen vibe without re-typing the style each time.
+// ── Reusable typography ─────────────────────────────────────────────────────
+// Modern geometric sans-serif via the OS-preferred system font stack.
+// Callers can override fontSize / letterSpacing / fontWeight locally.
 export const AUTH_TEXT_STYLE = {
   color: '#fff',
-  fontWeight: 'bold',
+  fontWeight: 600,
   textTransform: 'uppercase',
-  letterSpacing: '0.15em',
+  letterSpacing: '0.12em',
   fontSize: '20.5px',
-  fontFamily: 'monospace',
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
 }
 
 // Reusable blinking cursor glyph. Relies on @keyframes blink in src/index.css.

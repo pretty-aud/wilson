@@ -31,6 +31,8 @@ import React, {
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { selectAdapter, ADAPTER_MODES } from '../adapters';
+import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
+import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
 import {
   selectAssetsByPhase,
@@ -253,6 +255,38 @@ export function RabbitProvider({ children }) {
     })();
     return () => { cancelled = true; };
     // Bootstrap intentionally runs once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-poll the adapter whenever the shared Supabase auth state changes.
+  // The boot effect above runs once at mount (often before sign-in), so its
+  // status check lands "offline" and listProjects never fires. Without this
+  // listener the user would sign in successfully but RABBIT would stay empty
+  // until they switched adapter modes or reloaded. onAuthStateChange fires
+  // for SIGNED_IN, TOKEN_REFRESHED, and SIGNED_OUT; we re-sync for all three.
+  useEffect(() => {
+    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange(async (event) => {
+      if (!adapterRef.current) return;
+      if (adapterRef.current.mode !== 'supabase') return;
+      // Drop the adapter's cached client reference so getClient() re-reads
+      // the latest session on the next call.
+      resetSupabaseAdapter();
+      try {
+        const status = await adapterRef.current.status();
+        setAdapterStatus(status);
+        if (status.online && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+          const list = await adapterRef.current.listProjects();
+          setProjectsIndex(indexById(list));
+        } else if (event === 'SIGNED_OUT') {
+          setProjectsIndex({});
+          setBundle(EMPTY_BUNDLE);
+          setActiveProjectIdState(null);
+        }
+      } catch (err) {
+        setAdapterStatus({ online: false, lastSyncAt: null, error: err.message || String(err) });
+      }
+    });
+    return () => { sub?.subscription?.unsubscribe?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
