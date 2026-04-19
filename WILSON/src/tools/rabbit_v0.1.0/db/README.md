@@ -77,7 +77,69 @@ The Session 1 per-project `{userData}/rabbit-data/supabase.json` fallback was
 removed in Session 2; a one-shot cleanup in `electron/main.cjs` deletes any
 stale file left over from earlier installs.
 
-## 6. Realtime (free, opt-in)
+## 6. Email delivery (Resend)
+
+WILSON sends three kinds of transactional mail: **invites**, **password
+resets**, and **email-change confirmations**. The templates live at
+`supabase/templates/*.html` (source of truth) and the send path goes
+through Supabase Auth → SMTP → **Resend**.
+
+### Why Resend
+
+Chosen in Session 3 over Postmark and SES on DX grounds: API-key-only
+setup, React Email compatibility, 3k/month free tier, no sandbox-exit
+paperwork. Deliverability is comparable to Postmark for volumes under
+10k/month. If we exceed that or a TPN-audited customer insists on SES,
+swap the SMTP creds and leave templates + call sites untouched.
+
+### One-time per-environment setup
+
+Run this for each of `wilson-dev`, `wilson-staging`, `wilson-prod`.
+
+1. **Resend account & domain.** Create an account at
+   <https://resend.com>. Add the sending domain (`mail.wilsonapp.com` is
+   the current choice). Resend will show three DNS records:
+   - `TXT` at `mail` — SPF (`v=spf1 include:amazonses.com ~all`)
+   - `TXT` at `resend._domainkey.mail` — DKIM public key
+   - `TXT` at `_dmarc.mail` — DMARC (`v=DMARC1; p=none; rua=mailto:postmaster@wilsonapp.com`)
+   Add all three to the DNS provider; propagation usually takes under 5
+   minutes. Resend's domain status must go green before the next step.
+2. **Create an SMTP credential.** In Resend → API Keys → *Create SMTP
+   credential*. Copy the generated password (it's the only time Resend
+   shows it).
+3. **Paste into Supabase.** Dashboard → Auth → SMTP Settings:
+   - Host: `smtp.resend.com`
+   - Port: `465`
+   - Username: `resend`
+   - Password: *paste the Resend SMTP password*
+   - Sender name: `WILSON`
+   - Sender email: `wilson@mail.wilsonapp.com`
+   Save. "Enable custom SMTP" toggles to green.
+4. **Upload templates.** Dashboard → Auth → Email Templates. For each of
+   *Invite user*, *Reset password*, *Change email address*: paste the
+   contents of the matching file under `supabase/templates/`. Subject
+   lines in the UI must match the `subject` fields in
+   `supabase/config.toml` → `[auth.email.template.*]`. Save.
+5. **Smoke test.** Trigger a password reset against your own account via
+   the ForgotPasswordWizard. Expect delivery to the inbox within 30
+   seconds and a working recovery link.
+
+### Local development
+
+`supabase/config.toml` pins `[auth.email.smtp] enabled = false` so
+`supabase start` routes mail to the local **mailpit** server at
+<http://localhost:54324>. This is deliberate — no real email is ever
+sent from a developer machine. To preview a template visually without
+triggering the flow, open the HTML file directly in a browser.
+
+### Editing templates
+
+Treat `supabase/templates/*.html` as the source of truth. After editing
+any template, re-upload it to each hosted environment via the Dashboard
+(no CLI push for templates today). A future Session 9 automation will
+sync these via the Management API.
+
+## 7. Realtime (free, opt-in)
 
 The Supabase adapter wires `subscribeProjectChanges()` to a Realtime
 subscription on `projects`, `phases`, `assets`, and `tasks`. RABBIT v0.1 does
@@ -85,7 +147,7 @@ not yet consume the events visually — they are wired so collaboration UI in
 v0.2 can flip a single feature flag and start receiving updates. No extra
 setup is needed; Supabase enables Realtime on every table by default.
 
-## 7. Migrations
+## 8. Migrations
 
 For v0.1 there is exactly one migration — `schema.sql`. There is no
 migrations runner. When the schema needs to evolve, append a new file

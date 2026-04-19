@@ -31,7 +31,48 @@ enable_signup = false
 [auth.email]
 enable_signup = false
 double_confirm_changes = true
+# We control email delivery end-to-end (Resend), so the built-in confirmation
+# workflow stays off — invites + password resets use custom flows.
 enable_confirmations = false
+
+# ── Email templates (Session 3) ──────────────────────────────────────────
+# Subject lines + HTML bodies. Supabase substitutes {{ .ConfirmationURL }},
+# {{ .Email }}, {{ .Data.foo }} etc. when rendering.
+#
+# `content_path` paths are resolved relative to supabase/ — i.e. the files
+# live at supabase/templates/*.html. On hosted projects (wilson-dev /
+# staging / prod) these templates are uploaded via the Dashboard → Auth →
+# Email Templates UI; this block configures local development and serves
+# as the canonical source-of-truth.
+[auth.email.template.invite]
+subject = "You're invited to {{ .Data.company_name }} on WILSON"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.recovery]
+subject = "Reset your WILSON password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new email for WILSON"
+content_path = "./supabase/templates/email_change.html"
+
+# ── SMTP (Resend) ────────────────────────────────────────────────────────
+# Local development uses mailpit (default). For hosted environments the
+# SMTP creds are set in Dashboard → Auth → SMTP Settings using a Resend
+# SMTP token — see WILSON/src/tools/rabbit_v0.1.0/db/README.md §6 for the
+# step-by-step. This [auth.email.smtp] block only activates against hosted
+# if you run `supabase db push --linked`; for dev we intentionally leave
+# `enabled = false` so local development never touches real email.
+[auth.email.smtp]
+enabled = false
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+# `pass` must be a Resend SMTP token (not an API key). Injected via the
+# SUPABASE_AUTH_SMTP_PASS secret when Supabase picks this up in hosted.
+pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+admin_email = "wilson@wilsonapp.com"
+sender_name = "WILSON"
 
 # Custom Access Token hook — bakes workspace_id + app_role into JWT
 # app_metadata on every token issuance. This block is documentation only;
@@ -57,6 +98,12 @@ verify_jwt = false
 # provision-workspace is the pre-auth self-serve company onboarding endpoint.
 # Like resolve-login, it's called before the user has any JWT.
 [functions.provision-workspace]
+verify_jwt = false
+
+# invite-member validates the caller's JWT in-function via
+# admin.auth.getUser(token) (same reason as issue-session — Edge gateway
+# can't validate ES256). The function then enforces app_role=admin.
+[functions.invite-member]
 verify_jwt = false
 
 [analytics]

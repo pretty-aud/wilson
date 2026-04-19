@@ -8,15 +8,18 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import {
-  Users, Plus, Search, Trash2, X, ChevronDown,
+  Users, Plus, Search, Trash2, X, ChevronDown, UserPlus,
 } from 'lucide-react'
 import { useTeamMembers, PRONOUN_OPTIONS, EMPLOYMENT_TYPES } from './useTeamMembers'
+import PermissionGate from '../../permissions/PermissionGate'
+import InviteMemberDialog from '../../cloud/auth/InviteMemberDialog'
 
 export default function TeamMembersPage() {
   const tm = useTeamMembers()
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [departments, setDepartments] = useState([])
+  const [inviteOpen, setInviteOpen] = useState(false)
 
   // Load departments from settings
   useEffect(() => {
@@ -77,6 +80,16 @@ export default function TeamMembersPage() {
         >
           <Plus className="w-3 h-3" /> Add Member
         </button>
+        <PermissionGate requires="member.invite">
+          <button
+            type="button"
+            onClick={() => setInviteOpen(true)}
+            className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+            style={{ backgroundColor: '#ea580c', color: '#fff' }}
+          >
+            <UserPlus className="w-3 h-3" /> Invite User
+          </button>
+        </PermissionGate>
         <select
           value={deptFilter}
           onChange={(e) => setDeptFilter(e.target.value)}
@@ -158,6 +171,19 @@ export default function TeamMembersPage() {
           {tm.error}
         </div>
       )}
+
+      <InviteMemberDialog
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onInvited={() => {
+          // No local-state change required — the invited workspace_member row
+          // doesn't appear in useTeamMembers (which tracks the RABBIT team
+          // members entity, distinct from auth.users). Session 4's Team UI
+          // rework joins the two; until then the admin just sees the success
+          // modal and closes.
+          setInviteOpen(false)
+        }}
+      />
     </div>
   )
 }

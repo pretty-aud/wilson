@@ -74,7 +74,7 @@ async function fetchUserWorkspaces() {
   return data ?? []
 }
 
-export default function LoginScreen({ onAuthenticated, onCreateCompany, prefilledUsername }) {
+export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgotPassword, prefilledUsername }) {
   // ── Shell phase gate ───────────────────────────────────────────────────
   const [ready, setReady]         = useState(false)
   const [revealing, setRevealing] = useState(false)
@@ -303,6 +303,26 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, prefille
             >
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
+
+            {onForgotPassword && (
+              <button
+                type="button"
+                onClick={onForgotPassword}
+                style={{
+                  background: 'transparent', border: 'none',
+                  color: '#fff',
+                  fontFamily: AUTH_TEXT_STYLE.fontFamily,
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  letterSpacing: '0.04em',
+                  textDecoration: 'underline',
+                  cursor: 'pointer', padding: 0,
+                  opacity: 0.6, marginTop: '2px',
+                }}
+              >
+                Forgot password?
+              </button>
+            )}
 
             {onCreateCompany && (
               <button

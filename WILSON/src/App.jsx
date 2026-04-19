@@ -2,6 +2,8 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
 import LoginScreen from './cloud/auth/LoginScreen'
+import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
+import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
 import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
@@ -131,7 +133,21 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
-  const [authMode, setAuthMode] = useState('login'); // 'login' | 'new-company'
+  // 'login' (default) | 'new-company' | 'forgot-password' | 'recovery'
+  // 'recovery' is the landing mode when a user clicks the reset link in the
+  // recovery email — the URL fragment carries access_token+refresh_token and
+  // ResetPasswordWizard installs that session, prompts for a new password,
+  // then signs the user out and returns them to 'login'.
+  const [authMode, setAuthMode] = useState(() => {
+    if (typeof window === 'undefined') return 'login'
+    const hash = window.location.hash || ''
+    // Supabase recovery lands at /#/recovery#access_token=... — if either
+    // shape is present, enter the wizard.
+    if (hash.startsWith('#/recovery') || hash.includes('type=recovery')) {
+      return 'recovery'
+    }
+    return 'login'
+  });
   const [prefilledUsername, setPrefilledUsername] = useState('');
   // Set to a membership record when the signed-in user still has
   // onboarded_at = null; cleared once NewUserWelcome saves the profile.
@@ -1326,6 +1342,7 @@ export default function App() {
         <LoginScreen
           prefilledUsername={prefilledUsername}
           onCreateCompany={() => setAuthMode('new-company')}
+          onForgotPassword={() => setAuthMode('forgot-password')}
           onAuthenticated={() => {
             handleAuth();
             handleAnimationComplete();
@@ -1337,6 +1354,24 @@ export default function App() {
           onCancel={() => setAuthMode('login')}
           onProvisioned={(payload) => {
             setPrefilledUsername(payload?.username ?? '')
+            setAuthMode('login')
+          }}
+        />
+      )}
+      {showOverlay && sessionChecked && authMode === 'forgot-password' && (
+        <ForgotPasswordWizard
+          onBackToLogin={() => setAuthMode('login')}
+        />
+      )}
+      {showOverlay && sessionChecked && authMode === 'recovery' && (
+        <ResetPasswordWizard
+          onDone={() => {
+            // Clear the recovery fragment from the URL so a reload won't
+            // re-enter the wizard, then return to the login form.
+            try {
+              const { pathname, search } = window.location
+              window.history.replaceState(null, '', `${pathname}${search}`)
+            } catch { /* non-critical */ }
             setAuthMode('login')
           }}
         />

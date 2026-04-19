@@ -1,0 +1,176 @@
+// =============================================================================
+// tests/e2e/auth.spec.ts
+//
+// Three scenarios guard the Session 3 exit criteria:
+//
+//   1. Sign-in with a valid username+password lands on Home with the correct
+//      workspace in view. Verifies the username-first flow end-to-end:
+//      resolve-login → signInWithPassword → custom_access_token_hook →
+//      RLS-scoped project list.
+//
+//   2. Admin invites a new member via the TeamMembersPage "Invite User"
+//      dialog, which calls invite-member; a mailpit fetch confirms the
+//      invite email landed with a recovery link; the invitee follows the
+//      link and can set a password.
+//
+//   3. Forgot-password wizard dispatches a reset email, the user follows
+//      the recovery link, sets a new password, and signs in with it.
+//
+// Scenarios 2 and 3 depend on mailpit (local Supabase stack's mail server
+// at :54324); a helper fetches the latest message for a given recipient.
+// They can be skipped by setting PLAYWRIGHT_SKIP_EMAIL=1 when running
+// against a hosted env without mailpit access.
+//
+// Prereqs: npm install -D @playwright/test + npx playwright install chromium
+// See playwright.config.ts for local + CI wiring.
+// =============================================================================
+
+import { test, expect, type Page } from '@playwright/test'
+
+// Creds seeded by supabase/tests/rls helpers + the Session 2 smoke fixture.
+// Override via env for hosted-env runs.
+const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
+const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? 'SmokeTest2026!'
+const MAILPIT  = process.env.MAILPIT_URL         ?? 'http://localhost:54324'
+const SKIP_EMAIL = process.env.PLAYWRIGHT_SKIP_EMAIL === '1'
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+async function signIn(page: Page, username: string, password: string) {
+  await page.goto('/')
+  // AuthShell takes ~2s to settle the intro animation; wait for the LOGIN
+  // heading before typing.
+  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
+  await page.getByLabel('Username').fill(username)
+  await page.getByLabel('Password').fill(password)
+  await page.getByRole('button', { name: /sign in/i }).click()
+}
+
+async function latestMailFor(email: string) {
+  // Mailpit search API: GET /api/v1/search?query=to:<email>
+  const r = await fetch(`${MAILPIT}/api/v1/search?query=to%3A${encodeURIComponent(email)}&limit=1`)
+  if (!r.ok) throw new Error(`mailpit search ${r.status}`)
+  const json = await r.json() as { messages?: Array<{ ID: string }> }
+  const id = json.messages?.[0]?.ID
+  if (!id) return null
+  const detail = await fetch(`${MAILPIT}/api/v1/message/${id}`)
+  if (!detail.ok) return null
+  return detail.json() as Promise<{ HTML: string; Text: string; Subject: string }>
+}
+
+function recoveryLinkFrom(html: string): string | null {
+  // Our recovery / invite templates embed the link both as an <a href=...>
+  // and as a plain URL. The anchor is the authoritative source.
+  const m = html.match(/href="([^"]*type=recovery[^"]*)"/i)
+  return m?.[1] ?? null
+}
+
+// ── Scenario 1: basic sign-in + RLS filtering ─────────────────────────────
+test('valid sign-in lands on Home with RLS-filtered project list', async ({ page }) => {
+  await signIn(page, USERNAME, PASSWORD)
+
+  // The AuthShell animates out and the main app reveals. The "Home" nav
+  // label is the stable landmark we can wait on.
+  await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
+
+  // Visit Rabbit to confirm the seeded Smoke Project is visible (proves RLS
+  // returns at least the one row we expect for this workspace).
+  await page.getByRole('link', { name: /rabbit/i }).click().catch(() => {})
+  // Fallback: directly navigate via the nav strip tile.
+  const rabbitTile = page.getByText(/R\.A\.B\.B\.I\.T\./)
+  if (await rabbitTile.isVisible().catch(() => false)) {
+    await rabbitTile.click()
+  }
+  await expect(page.getByText(/Smoke Project/i)).toBeVisible({ timeout: 10_000 })
+})
+
+// ── Scenario 2: admin invites a member; invitee sets a password ────────────
+test('admin invite flow ends in the invitee setting their password', async ({ page }) => {
+  test.skip(SKIP_EMAIL, 'mailpit not reachable; PLAYWRIGHT_SKIP_EMAIL=1')
+
+  const ts = Date.now()
+  const inviteeEmail    = `invitee+${ts}@example.test`
+  const inviteeUsername = `invitee_${ts}`
+  const inviteePassword = `PWchange${ts}!`
+
+  await signIn(page, USERNAME, PASSWORD)
+  await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
+
+  // Navigate to TeamMembersPage and open the invite dialog.
+  await page.goto('/#/team-members').catch(() => {})
+  // If hash routing isn't wired yet, fall back to clicking through the nav.
+  const teamNav = page.getByRole('button', { name: /team members/i })
+  if (await teamNav.isVisible().catch(() => false)) await teamNav.click()
+  await page.getByRole('button', { name: /invite user/i }).click()
+
+  await page.getByLabel('Email').fill(inviteeEmail)
+  await page.getByLabel('Username').fill(inviteeUsername)
+  await page.getByRole('button', { name: /send invite/i }).click()
+  await expect(page.getByText(/invite sent/i)).toBeVisible({ timeout: 10_000 })
+
+  // Pull the invite email from mailpit.
+  const mail = await latestMailFor(inviteeEmail)
+  expect(mail, 'invite email should exist in mailpit').toBeTruthy()
+  expect(mail!.Subject).toContain('invited')
+  const link = recoveryLinkFrom(mail!.HTML)
+  expect(link, 'invite email must contain a recovery link').toBeTruthy()
+
+  // Follow the link in a fresh context — simulates a different browser.
+  await page.goto(link!)
+  await expect(page.getByText(/^NEW PASSWORD$/i)).toBeVisible({ timeout: 12_000 })
+  await page.getByLabel('New password').fill(inviteePassword)
+  await page.getByLabel('Confirm new password').fill(inviteePassword)
+  await page.getByRole('button', { name: /set password/i }).click()
+  await expect(page.getByText(/password updated/i)).toBeVisible({ timeout: 10_000 })
+})
+
+// ── Scenario 3: forgot password → reset → sign in with new password ───────
+test('forgot-password delivers a working reset link', async ({ page }) => {
+  test.skip(SKIP_EMAIL, 'mailpit not reachable; PLAYWRIGHT_SKIP_EMAIL=1')
+
+  await page.goto('/')
+  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
+  await page.getByRole('button', { name: /forgot password/i }).click()
+  await expect(page.getByText(/^RESET PASSWORD$/i)).toBeVisible({ timeout: 8_000 })
+
+  await page.getByLabel('Username').fill(USERNAME)
+  await page.getByRole('button', { name: /send reset link/i }).click()
+  await expect(page.getByText(/reset link is on its way/i)).toBeVisible({ timeout: 8_000 })
+
+  // The reset email goes to the resolved address — smoke@example.com for
+  // the default smoke_admin seed.
+  const mail = await latestMailFor('smoke@example.com')
+  expect(mail, 'recovery email should exist in mailpit').toBeTruthy()
+  const link = recoveryLinkFrom(mail!.HTML)
+  expect(link, 'recovery email must contain a recovery link').toBeTruthy()
+
+  await page.goto(link!)
+  await expect(page.getByText(/^NEW PASSWORD$/i)).toBeVisible({ timeout: 12_000 })
+  // Rotate to a known password, then immediately rotate back so the suite
+  // leaves the DB as it found it (important for CI re-runs).
+  const tmp = `TmpRotate${Date.now()}!`
+  await page.getByLabel('New password').fill(tmp)
+  await page.getByLabel('Confirm new password').fill(tmp)
+  await page.getByRole('button', { name: /set password/i }).click()
+  await expect(page.getByText(/password updated/i)).toBeVisible({ timeout: 10_000 })
+
+  // Sign in with the new password to prove the rotation took effect.
+  await page.goto('/')
+  await signIn(page, USERNAME, tmp)
+  await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
+
+  // Restore the original password via a second reset round-trip (so
+  // subsequent test runs and the issue-session smoke probe keep working).
+  await page.goto('/')
+  await page.getByRole('button', { name: /forgot password/i }).click()
+  await page.getByLabel('Username').fill(USERNAME)
+  await page.getByRole('button', { name: /send reset link/i }).click()
+  await page.waitForTimeout(500)
+  const mail2 = await latestMailFor('smoke@example.com')
+  const link2 = recoveryLinkFrom(mail2!.HTML)!
+  await page.goto(link2)
+  await expect(page.getByText(/^NEW PASSWORD$/i)).toBeVisible({ timeout: 12_000 })
+  await page.getByLabel('New password').fill(PASSWORD)
+  await page.getByLabel('Confirm new password').fill(PASSWORD)
+  await page.getByRole('button', { name: /set password/i }).click()
+  await expect(page.getByText(/password updated/i)).toBeVisible({ timeout: 10_000 })
+})

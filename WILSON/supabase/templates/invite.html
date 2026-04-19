@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+  WILSON invite email.
+
+  Template variables (Supabase GoTrue):
+    {{ .ConfirmationURL }}    recovery link that, when followed, lets the
+                              invitee set their password via the
+                              ResetPasswordWizard
+    {{ .Email }}              the invitee's email address
+    {{ .Data.company_name }}  workspace name (set by invite-member Edge Fn)
+    {{ .Data.inviter_name }}  who sent the invite
+    {{ .Data.username }}      the workspace-scoped username assigned to them
+
+  Styling is inline-only — no <style> blocks — because a meaningful share
+  of business mail clients (Outlook, older Gmail web) strip or scope them.
+  Colors mirror the LoginScreen: orange #ea580c, cream #f4a261.
+-->
+<head>
+  <meta charset="utf-8" />
+  <title>You're invited to {{ .Data.company_name }}</title>
+</head>
+<body style="margin:0;padding:0;background:#f4a261;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td align="center" style="padding:32px 16px;">
+        <table role="presentation" width="520" cellpadding="0" cellspacing="0" border="0"
+               style="background:#ffffff;border-radius:4px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+          <tr>
+            <td style="background:#ea580c;padding:22px 28px;">
+              <div style="color:#ffffff;font-weight:600;letter-spacing:0.16em;font-size:14px;text-transform:uppercase;">WILSON</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:28px 28px 8px;">
+              <h1 style="margin:0 0 12px 0;font-size:20px;font-weight:600;letter-spacing:0.02em;color:#111827;">
+                You've been invited to {{ .Data.company_name }}.
+              </h1>
+              <p style="margin:0 0 16px 0;font-size:15px;line-height:1.55;">
+                {{ .Data.inviter_name }} added you as a team member. Your WILSON username is
+                <strong style="font-family:Menlo,Consolas,monospace;color:#ea580c;">{{ .Data.username }}</strong>.
+              </p>
+              <p style="margin:0 0 24px 0;font-size:15px;line-height:1.55;">
+                Set your password to finish activating the account. The link below is valid for 24 hours.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" style="padding:0 28px 28px;">
+              <a href="{{ .ConfirmationURL }}"
+                 style="display:inline-block;background:#ea580c;color:#ffffff;padding:12px 28px;font-size:14px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;border-radius:2px;">
+                Set my password
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 28px 28px;">
+              <p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280;">
+                If the button doesn't work, paste this URL into your browser:<br/>
+                <span style="word-break:break-all;color:#1f2937;">{{ .ConfirmationURL }}</span>
+              </p>
+              <p style="margin:16px 0 0 0;font-size:12px;line-height:1.5;color:#6b7280;">
+                Not expecting this invite? You can ignore this message — no account will be created until you follow the link.
+              </p>
+            </td>
+          </tr>
+        </table>
+        <div style="color:#7c2d12;font-size:11px;letter-spacing:0.08em;margin-top:18px;">
+          SENT BY WILSON · PETAL STUDIOS
+        </div>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
