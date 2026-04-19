@@ -11,9 +11,12 @@
 // Public endpoint. Rate-limited aggressively (3/h/IP) because workspace
 // creation is a high-cost action.
 //
-// Not atomic — Supabase has no transaction across Auth + Postgres. On
-// partial failure we make a best-effort cleanup before returning an error.
-// A proper transactional PL/pgSQL RPC is queued for Session 3.
+// Near-atomic: Supabase has no transaction across Auth + Postgres, so the
+// auth.users row is still created by a separate admin API call. Once that
+// succeeds, the workspace + membership creation is a single SQL transaction
+// via public.provision_workspace_and_admin() (migration 0009). On RPC
+// failure we clean up the orphan auth user; on success there is nothing to
+// clean up because the DB side is all-or-nothing.
 // =============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
@@ -118,15 +121,14 @@ function validate(body: Body): ValidateResult {
   }
 }
 
-// Best-effort cleanup after partial failure. We never surface cleanup errors
-// because they're secondary to the real failure the caller will see.
-async function cleanup(admin: ReturnType<typeof createClient>, workspaceId: string | null, userId: string | null) {
-  try {
-    if (workspaceId) await admin.from('workspaces').delete().eq('id', workspaceId)
-  } catch { /* swallow */ }
+// Best-effort cleanup of the orphan auth user after a DB-side failure. The
+// RPC handles workspace + membership atomically, so if it throws, neither
+// row was committed — the only thing left dangling is the auth.users row
+// created in the preceding step.
+async function cleanupAuthUser(admin: ReturnType<typeof createClient>, userId: string | null) {
   try {
     if (userId) await admin.auth.admin.deleteUser(userId)
-  } catch { /* swallow */ }
+  } catch { /* swallow — secondary to the real failure */ }
 }
 
 Deno.serve(async (req: Request) => {
@@ -151,7 +153,10 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
 
-  // 1. Pre-flight: slug already taken? (unique index catches it too; nicer UX.)
+  // 1. Pre-flight: slug already taken? The RPC also enforces this, but
+  //    checking here lets us return 409 before creating the auth user —
+  //    otherwise we'd have to roll back the user on slug_taken, which is
+  //    correct but wasteful.
   const { data: slugHit } = await admin
     .from('workspaces')
     .select('id')
@@ -159,18 +164,10 @@ Deno.serve(async (req: Request) => {
     .maybeSingle()
   if (slugHit) return reply({ error: 'slug_taken' }, 409)
 
-  // 2. Create the workspace. No RLS bypass needed — we're service_role.
-  const { data: ws, error: wsErr } = await admin
-    .from('workspaces')
-    .insert({ name: company_name, slug })
-    .select('id, slug')
-    .single()
-  if (wsErr || !ws) {
-    return reply({ error: 'workspace_create_failed', detail: wsErr?.message ?? 'unknown' }, 500)
-  }
-
-  // 3. Create the admin auth user. email_confirm=true because Session 2 has
-  //    no email infra; Session 3 will switch this to the invite flow.
+  // 2. Create the admin auth user. email_confirm=true because Session 2 has
+  //    no email infra; Session 3's invite flow uses a different path entirely
+  //    (invite-member Edge Function), so this self-serve path keeps the
+  //    inline confirm for first-admin-of-a-new-company provisioning.
   const { data: createdUser, error: userErr } = await admin.auth.admin.createUser({
     email,
     password,
@@ -178,40 +175,47 @@ Deno.serve(async (req: Request) => {
     user_metadata: { display_name },
   })
   if (userErr || !createdUser.user) {
-    await cleanup(admin, ws.id, null)
     const taken = /already\s*exists|duplicate/i.test(userErr?.message ?? '')
     return reply({ error: taken ? 'email_taken' : 'user_create_failed', detail: userErr?.message ?? 'unknown' }, taken ? 409 : 500)
   }
 
-  // 4. Membership row (admin).
-  const { error: memErr } = await admin
-    .from('workspace_members')
-    .insert({
-      workspace_id: ws.id,
-      user_id:      createdUser.user.id,
-      app_role:     'admin',
-      username,
-      display_name,
-      is_active:    true,
-    })
-  if (memErr) {
-    await cleanup(admin, ws.id, createdUser.user.id)
-    // Username uniqueness within workspace is enforced by a unique index.
-    const taken = /duplicate|unique/i.test(memErr.message)
-    return reply({ error: taken ? 'username_taken' : 'membership_create_failed', detail: memErr.message }, taken ? 409 : 500)
+  // 3. Atomic workspace + membership creation via the PL/pgSQL RPC
+  //    (migration 0009). The function does its own validation and raises
+  //    'slug_taken' / 'username shape invalid' / etc. as plain exceptions.
+  const { data: rpcRows, error: rpcErr } = await admin.rpc(
+    'provision_workspace_and_admin',
+    {
+      p_workspace_name: company_name,
+      p_slug:           slug,
+      p_admin_user_id:  createdUser.user.id,
+      p_admin_username: username,
+      p_admin_display:  display_name,
+    },
+  )
+
+  if (rpcErr || !rpcRows || (Array.isArray(rpcRows) && rpcRows.length === 0)) {
+    await cleanupAuthUser(admin, createdUser.user.id)
+    const msg = rpcErr?.message ?? 'unknown'
+    if (/slug_taken/.test(msg))       return reply({ error: 'slug_taken',       detail: msg }, 409)
+    if (/username shape/.test(msg))   return reply({ error: 'username_invalid', detail: msg }, 400)
+    if (/duplicate|unique/i.test(msg)) return reply({ error: 'username_taken',  detail: msg }, 409)
+    return reply({ error: 'provision_failed', detail: msg }, 500)
   }
 
-  // 5. Pre-populate app_metadata.workspace_id so the first JWT the user ever
+  const row = Array.isArray(rpcRows) ? rpcRows[0] : rpcRows
+  const workspaceId = row.workspace_id as string
+
+  // 4. Pre-populate app_metadata.workspace_id so the first JWT the user ever
   //    receives carries the right workspace. Matches what issue-session does.
   try {
     await admin.auth.admin.updateUserById(createdUser.user.id, {
-      app_metadata: { workspace_id: ws.id },
+      app_metadata: { workspace_id: workspaceId },
     })
   } catch { /* best-effort; custom_access_token_hook would still pick it up */ }
 
   return reply({
-    workspace_id:   ws.id,
-    workspace_slug: ws.slug,
+    workspace_id:   workspaceId,
+    workspace_slug: row.workspace_slug,
     user_id:        createdUser.user.id,
   }, 201)
 })

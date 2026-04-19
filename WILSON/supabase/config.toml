@@ -42,12 +42,22 @@ enabled = true
 uri = "pg-functions://postgres/public/custom_access_token_hook"
 
 # Per-function JWT verification. resolve-login is intentionally public
-# (it's the pre-auth lookup); issue-session requires a valid JWT.
+# (it's the pre-auth lookup). issue-session validates the caller's JWT
+# inside the function via admin.auth.getUser(token) — the Edge gateway's
+# built-in verify_jwt only supports HS256 and rejects this project's
+# ES256-signed JWTs with UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM before
+# the function even runs, so we opt out of infra-level verification and
+# rely on GoTrue (which handles ES256 correctly) to validate the token.
 [functions.resolve-login]
 verify_jwt = false
 
 [functions.issue-session]
-verify_jwt = true
+verify_jwt = false
+
+# provision-workspace is the pre-auth self-serve company onboarding endpoint.
+# Like resolve-login, it's called before the user has any JWT.
+[functions.provision-workspace]
+verify_jwt = false
 
 [analytics]
 enabled = false

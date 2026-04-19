@@ -85,3 +85,58 @@ jobs:
       - name: Stop Supabase
         if: always()
         run: supabase stop --no-backup
+
+  # ---------------------------------------------------------------------------
+  # issue-session smoke — guards the Session 3 fix that moved JWT verification
+  # from the Edge gateway (which only supports HS256 and rejected this project's
+  # ES256 tokens) into the function itself via admin.auth.getUser(token).
+  #
+  # Local Supabase uses HS256, so this regression can ONLY be caught by probing
+  # the real wilson-dev project. Requires four repo secrets — if any are
+  # missing (e.g. PRs from forks) the job self-skips instead of failing.
+  #
+  #   DEV_SUPABASE_URL         https://<ref>.supabase.co
+  #   DEV_SUPABASE_ANON_KEY    project anon key
+  #   DEV_PROBE_USERNAME       workspace-scoped username of the test user
+  #   DEV_PROBE_PASSWORD       that user's password
+  # ---------------------------------------------------------------------------
+  issue-session-smoke:
+    name: issue-session smoke (wilson-dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets availability
+        id: secrets
+        env:
+          DEV_SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          DEV_SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          DEV_PROBE_USERNAME: ${{ secrets.DEV_PROBE_USERNAME }}
+          DEV_PROBE_PASSWORD: ${{ secrets.DEV_PROBE_PASSWORD }}
+        run: |
+          if [ -z "${DEV_SUPABASE_URL}" ] || [ -z "${DEV_SUPABASE_ANON_KEY}" ] \
+            || [ -z "${DEV_PROBE_USERNAME}" ] || [ -z "${DEV_PROBE_PASSWORD}" ]; then
+            echo "One or more DEV_* secrets missing — skipping smoke probe."
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install jq + curl
+        if: steps.secrets.outputs.has_secrets == 'true'
+        run: sudo apt-get update && sudo apt-get install -y jq curl
+
+      - name: Probe issue-session
+        if: steps.secrets.outputs.has_secrets == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          PROBE_USERNAME: ${{ secrets.DEV_PROBE_USERNAME }}
+          PROBE_PASSWORD: ${{ secrets.DEV_PROBE_PASSWORD }}
+        run: |
+          chmod +x scripts/probes/issue-session.sh
+          scripts/probes/issue-session.sh

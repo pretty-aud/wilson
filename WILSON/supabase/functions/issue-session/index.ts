@@ -41,7 +41,11 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Caller must be authenticated.
+  // The Edge gateway's built-in verify_jwt is disabled for this function in
+  // config.toml — it only supports HS256 and this project's JWTs are ES256,
+  // which the gateway rejects with UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM
+  // before our code runs. We validate the token ourselves via
+  // admin.auth.getUser(token), which routes through GoTrue and handles ES256.
   const authHeader = req.headers.get('authorization') ?? ''
   const token = authHeader.toLowerCase().startsWith('bearer ')
     ? authHeader.slice(7)
@@ -53,11 +57,12 @@ Deno.serve(async (req: Request) => {
     })
   }
 
-  // Resolve user from their JWT.
-  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
-  const { data: me, error: meErr } = await userClient.auth.getUser()
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
+
+  // Resolve (and verify) the user via the service-role admin client with the
+  // token passed as an explicit argument. This hits GoTrue's user-by-JWT
+  // endpoint, which correctly validates ES256 JWTs in the Edge runtime.
+  const { data: me, error: meErr } = await admin.auth.getUser(token)
   if (meErr || !me.user) {
     return new Response(JSON.stringify({ error: 'unauthorized' }), {
       status: 401,
@@ -71,8 +76,6 @@ Deno.serve(async (req: Request) => {
   } catch {
     body = {}
   }
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
 
   // Collect the user's memberships.
   const { data: memberships, error: memErr } = await admin
