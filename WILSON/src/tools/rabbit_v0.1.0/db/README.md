@@ -470,3 +470,73 @@ those. Clients only ever WRITE presence (extension='presence'); data
 broadcasts come from the trigger alone. projects/tasks rows reach both
 their project topic (0016) and the workspace topic — double delivery is
 absorbed by the client's stale guard / debounced refetch.
+
+## 18. Session 9 — Admin Terminal server core (0020 + 0021)
+
+**Per-user rate-card grants (locked §10-A).** `workspace_members` gains
+`grant_rate_card_view` / `grant_rate_card_edit`. Effective access =
+role matrix OR grant, evaluated by `has_rate_card_grant(kind)` against the
+LIVE row (SECURITY DEFINER — revokes bite immediately, no token TTL
+window). All four `rce_*` policies now also require
+`has_active_membership`; the read arm is admin/manager-or-view-grant, the
+write arms admin-or-edit-grant. Grants are admin-only edits: the 0010
+guard trigger raises 'self-grant change not allowed' on self-flips and
+managers stay limited to title+department. Client mirror:
+`useRateCardAccess` (role ∪ own-row grants, live off the workspace
+channel); `workspace_directory()` returns both flags (0021 recreate).
+
+**Deactivated-member read alignment (closes the 0018 divergence).**
+`projects_select`, `rate_cards_select`, `project_members_select`, the
+workspace arm of `ws_members_select`, and `ws_members_admin_write` now
+require `has_active_membership()`. Leaf tables (phases/assets/tasks/files/
+comments/versions/deps/links/ingestion) inherit through their caller-RLS
+EXISTS joins on the spine. The self arm of `ws_members_select` stays open
+(own row remains visible). pgTAP 20 probe 20 flipped (channel ≡ table
+reads — both deny now); 23 probe 12's message records the alignment.
+
+**Last-admin protection.** `trg_ws_members_last_admin_guard`
+(BEFORE UPDATE OR DELETE, SECURITY DEFINER, FOR UPDATE-locked peer count)
+raises 'cannot demote or deactivate the last active admin'. No admin or
+service_role bypass — Edge Functions lean on it as the backstop. Escape
+hatch for operator tooling: `SET LOCAL wilson.bypass_last_admin_guard='on'`.
+Workspace hard-delete cascades are exempt (parent row already gone).
+
+**Auto-staffing (locked §10-B).** `projects.producer_id` / `director_id`
+(plain UUIDs, indexed — cloud parity with the local-mode fields).
+`trg_projects_auto_staff` seats creator + producer as project managers on
+INSERT / producer change, ON CONFLICT DO NOTHING, membership-checked,
+best-effort (never aborts the write). It SKIPS auth-less inserts
+(`auth.uid() IS NULL`): pgTAP fixtures and service scripts stay unstaffed
+per 0013's unstaffed-open contract; real client creates always staff.
+
+**Workspace admin writes.** `workspaces_admin_update` (admin + active
+membership) with `fn_workspaces_client_guard` making slug / id /
+created_at / deleted_at immutable from clients ('workspace slug is
+immutable' — resolve-login depends on it).
+
+**app_events (0021).** Append-only log stream for the terminal
+(`event_type` auth/admin/error/system/update/storage/realtime, `code`
+`WIL-####`, severity, JSONB context). ENABLE+FORCE RLS: active members
+INSERT into their own workspace — but the 'admin' stream and WIL-41xx
+codes are reserved for server-stamped Edge Function writes (service_role
+BYPASSRLS); actor identity is stamped by a BEFORE INSERT trigger either
+way. SELECT is admin-only. No UPDATE/DELETE policies;
+`purge_app_events()` + pg_cron 'wilson-purge-app-events' 04:51 UTC keep
+90 days (0012 pattern). Client reporter: `src/cloud/errorCodes.js`
+(registry + best-effort insert + Sentry mirror, TPN: no customer content).
+
+**Admin Edge Functions.** `admin-create-user` (show-once credentials,
+optional email w/ synthesized fallback), `admin-reset-password`
+(show-once), `admin-set-active` (deactivate = is_active=false + GoTrue ban
+when no other active membership + best-effort session logout + claim
+repoint; RLS alignment cuts data access instantly), `admin-user-security`
+(MFA/ban/last-sign-in read). Shared guard `_shared/adminGuard.ts`:
+verify_jwt=false (ES256), token-payload claims (NOT the getUser record —
+app_role is hook-minted, never persisted), LIVE admin-row check, and MFA
+step-up (enrolled admins must present aal2). invite-member gained the
+same token-decode + live-row check; provision-workspace gained the
+initial-team `invites[]` (≤19, per-item results, last-XFF limiter + hourly
+invite budget — durable limiter is S11 TPN work).
+
+pgTAP: 24_admin_grants.sql (32 probes) + 25_app_events.sql (13 probes);
+rls.yml RLS_TABLES += app_events, replay += 24/25.

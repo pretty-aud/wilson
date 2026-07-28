@@ -78,10 +78,34 @@ Deno.serve(async (req: Request) => {
   const { data: caller, error: callerErr } = await admin.auth.getUser(token)
   if (callerErr || !caller.user) return reply({ error: 'unauthorized' }, 401)
 
+  // Session 9: claims live in the TOKEN payload (custom_access_token_hook),
+  // not the getUser() record — decode the already-validated JWT.
+  const payload = (() => {
+    try {
+      const part = token.split('.')[1] ?? ''
+      const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
+      return JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
+    } catch { return {} }
+  })()
+  const pmd = payload.app_metadata ?? {}
   const md = caller.user.app_metadata ?? {}
-  const callerWorkspaceId = typeof md.workspace_id === 'string' ? md.workspace_id : null
-  const callerRole        = typeof md.app_role      === 'string' ? md.app_role      : null
+  const callerWorkspaceId =
+    typeof pmd.workspace_id === 'string' ? pmd.workspace_id :
+    typeof md.workspace_id === 'string' ? md.workspace_id : null
+  const callerRole = typeof pmd.app_role === 'string' ? pmd.app_role : null
   if (!callerWorkspaceId || callerRole !== 'admin') {
+    return reply({ error: 'forbidden' }, 403)
+  }
+
+  // Session 9: live-row check — claims outlive a demotion/deactivation by up
+  // to the token TTL; the membership row is authoritative.
+  const { data: callerRow } = await admin
+    .from('workspace_members')
+    .select('app_role, is_active')
+    .eq('workspace_id', callerWorkspaceId)
+    .eq('user_id', caller.user.id)
+    .maybeSingle()
+  if (!callerRow || !callerRow.is_active || callerRow.app_role !== 'admin') {
     return reply({ error: 'forbidden' }, 403)
   }
 

@@ -18,6 +18,7 @@
 
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AuthShell, { AUTH_TEXT_STYLE, AuthCursor } from '../auth/AuthShell'
+import { parseInviteList } from '../auth/inviteParsing'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -49,7 +50,9 @@ async function provisionWorkspace(payload) {
 export default function NewCompanyWizard({ onProvisioned, onCancel }) {
   const [ready, setReady]         = useState(false)
   const [revealing, setRevealing] = useState(false)
-  const [step, setStep]           = useState('company') // 'company' | 'profile' | 'submit'
+  // 'company' | 'profile' | 'team' (Session 9, Slack-style initial invites)
+  // | 'team-results' (only when some invites fail) | 'submit'
+  const [step, setStep]           = useState('company')
   const [stepFade, setStepFade]   = useState(1)
 
   // Form state
@@ -61,6 +64,12 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
   const [displayName, setDisplayName] = useState('')
   const [password, setPassword]       = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
+
+  // Session 9: Slack-style initial team (locked §10-D). Free-text paste,
+  // parsed leniently; invites ride the provision-workspace call server-side
+  // because no JWT exists until the admin signs in.
+  const [inviteText, setInviteText]       = useState('')
+  const [inviteResults, setInviteResults] = useState(null)
 
   // Submission state
   const [busy, setBusy]     = useState(false)
@@ -113,7 +122,7 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
     setStep('profile')
   }, [companyValid])
 
-  const handleProfileSubmit = useCallback(async (e) => {
+  const handleProfileSubmit = useCallback((e) => {
     e?.preventDefault()
     if (!profileValid) {
       const reason =
@@ -125,6 +134,12 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
       return
     }
     setError('')
+    setStep('team')
+  }, [profileValid, password, passwordConfirm, email])
+
+  // One provision call, with or without the initial-team invites.
+  const runProvision = useCallback(async (invites) => {
+    setError('')
     setBusy(true)
     setStep('submit')
     try {
@@ -135,6 +150,7 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
         email:        email.trim().toLowerCase(),
         password,
         display_name: displayName.trim() || username.trim(),
+        ...(invites.length > 0 ? { invites } : {}),
       })
       if (!ok) {
         const msg =
@@ -154,13 +170,36 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
         username: username.trim().toLowerCase(),
         workspace_slug: data.workspace_slug,
       }
+      // Partial invite failures pause on a results screen; clean runs (or
+      // no invites) reveal straight away.
+      const results = Array.isArray(data.invites) ? data.invites : []
+      const failed = results.filter(r => r.status === 'failed')
+      if (failed.length > 0) {
+        setInviteResults(results)
+        setBusy(false)
+        setStep('team-results')
+        return
+      }
       setRevealing(true)
     } catch (err) {
       setError(`NETWORK ERROR: ${err.message || 'unknown'}`)
       setBusy(false)
       setStep('profile')
     }
-  }, [profileValid, companyName, slug, username, email, password, passwordConfirm, displayName])
+  }, [companyName, slug, username, email, password, displayName])
+
+  const handleTeamSubmit = useCallback((e) => {
+    e?.preventDefault()
+    if (busy) return
+    // Server caps at 19 per batch — refuse instead of silently dropping.
+    const { entries } = parseInviteList(inviteText)
+    if (entries.length > 19) {
+      setError('MAX 19 INVITES PER BATCH — TRIM THE LIST.')
+      return
+    }
+    setError('')
+    runProvision(entries.map(en => ({ email: en.email, username: en.username, app_role: 'user' })))
+  }, [busy, inviteText, runProvision])
 
   // ── Render helpers ────────────────────────────────────────────────────
   const inputStyle = {
@@ -277,6 +316,74 @@ export default function NewCompanyWizard({ onProvisioned, onCancel }) {
           </form>
         )}
 
+        {step === 'team' && (
+          <form onSubmit={handleTeamSubmit}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+            <FieldLabel>INVITE YOUR TEAM (OPTIONAL)</FieldLabel>
+            <textarea
+              autoFocus
+              value={inviteText}
+              onChange={(e) => setInviteText(e.target.value)}
+              disabled={busy}
+              placeholder={'PASTE EMAILS — COMMAS, SPACES\nOR NEW LINES ALL WORK'}
+              rows={5}
+              aria-label="Team member emails"
+              style={{
+                fontFamily: AUTH_TEXT_STYLE.fontFamily,
+                fontSize: '12px',
+                letterSpacing: '0.06em',
+                color: '#fff',
+                background: 'rgba(255,255,255,0.12)',
+                border: '1px solid rgba(255,255,255,0.4)',
+                borderRadius: '2px',
+                outline: 'none',
+                padding: '10px 12px',
+                width: '34ch',
+                resize: 'none',
+                textTransform: 'none',
+              }}
+            />
+            {(() => {
+              const { entries, invalid } = parseInviteList(inviteText)
+              if (!inviteText.trim()) return (
+                <SmallHint>EACH PERSON GETS AN EMAIL INVITE TO SET A PASSWORD</SmallHint>
+              )
+              return (
+                <SmallHint>
+                  {entries.length} INVITE{entries.length === 1 ? '' : 'S'} READY
+                  {invalid.length > 0 ? ` · ${invalid.length} IGNORED (BAD SHAPE)` : ''}
+                  {entries.length > 19 ? ' · MAX 19 PER BATCH' : ''}
+                </SmallHint>
+              )
+            })()}
+            <WizardButton disabled={busy}>CREATE COMPANY</WizardButton>
+            <WizardLink onClick={() => { if (!busy) runProvision([]) }}>skip — just me for now</WizardLink>
+            <WizardLink onClick={() => { if (!busy) setStep('profile') }}>back</WizardLink>
+          </form>
+        )}
+
+        {step === 'team-results' && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px' }}>
+            <FieldLabel>WORKSPACE CREATED — SOME INVITES FAILED</FieldLabel>
+            <div style={{ maxHeight: '180px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+              {(inviteResults ?? []).map((r, i) => (
+                <div key={`${r.email}-${i}`} style={{
+                  ...AUTH_TEXT_STYLE,
+                  fontSize: '10px',
+                  fontWeight: 400,
+                  letterSpacing: '0.06em',
+                  color: r.status === 'invited' ? '#dcfce7' : '#fee2e2',
+                  textTransform: 'none',
+                }}>
+                  {r.email} — {r.status === 'invited' ? 'invited' : (r.error ?? 'failed')}
+                </div>
+              ))}
+            </div>
+            <SmallHint>YOU CAN RE-INVITE ANYONE FROM THE ADMIN TERMINAL</SmallHint>
+            <WizardButton onClick={() => setRevealing(true)}>CONTINUE</WizardButton>
+          </div>
+        )}
+
         {step === 'submit' && (
           <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px' }}>
             PROVISIONING WORKSPACE<AuthCursor />
@@ -310,10 +417,11 @@ function SmallHint({ children }) {
   )
 }
 
-function WizardButton({ children, disabled }) {
+function WizardButton({ children, disabled, onClick }) {
   return (
     <button
-      type="submit"
+      type={onClick ? 'button' : 'submit'}
+      onClick={onClick}
       disabled={disabled}
       style={{
         ...AUTH_TEXT_STYLE,

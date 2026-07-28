@@ -12,6 +12,9 @@ import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
 import MigrationPanel from '../cloud/migrate/MigrationPanel'
+import { MfaSecuritySection } from '../cloud/auth/MfaSection'
+import VersionPanel from './settings/VersionPanel'
+import StorageConnections from './settings/StorageConnections'
 
 
 export default function SettingsPage({
@@ -340,7 +343,12 @@ export default function SettingsPage({
           {/*  Dashboard mounts)                                         */}
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'profile' && (
-            <ProfileSection />
+            <>
+              <ProfileSection />
+              {/* Session 9: TOTP management (locked #9 — required for
+                  admins, offered to everyone). */}
+              <MfaSecuritySection />
+            </>
           )}
 
           {/* ═══════════════════════════════════════════════════════════ */}
@@ -351,6 +359,9 @@ export default function SettingsPage({
               {/* Active workspace switcher — hidden unless the user belongs
                   to more than one workspace. */}
               <WorkspaceSwitcher />
+
+              {/* Session 9: version + auto-update surface. */}
+              <VersionPanel />
 
               {/* API Key Section */}
               <div>
@@ -740,6 +751,9 @@ export default function SettingsPage({
               </div>
 
               {/* Cloud migration tool — dry-run + migrate + archive local */}
+              {/* Session 9: per-provider connection details (locked #14). */}
+              <StorageConnections />
+
               <MigrationPanel />
 
               {/* Default currency */}

@@ -11,7 +11,9 @@ import {
   ListChecks,
   Users,
   LayoutDashboard,
+  Terminal,
 } from 'lucide-react'
+import { usePermissions } from '../permissions'
 
 // Sentinel id used for the inline Resources column trigger.
 // This is NOT a navigable page — it toggles the right column.
@@ -34,12 +36,26 @@ const RESOURCES_ITEMS = [
   { id: 'help',            label: 'Help',            Icon: HelpCircle },
 ]
 
+// Session 9: the Admin Terminal entry is spliced in for admins only. The
+// keyboard handler indexes into the SAME array the buttons render from, so
+// gating must swap the array — hiding one button would desync arrow keys.
+const RESOURCES_ITEMS_ADMIN = [
+  ...RESOURCES_ITEMS.slice(0, 3),
+  { id: 'admin-terminal', label: 'Admin Terminal', Icon: Terminal },
+  RESOURCES_ITEMS[3],
+]
+
 const HIGHLIGHT_BG = 'rgba(154, 100, 56, 0.65)'
 const MAIN_PADDING = 'clamp(2rem, 20%, 16rem)'
 const RESOURCES_PADDING = 'clamp(1rem, 3%, 2.5rem)'
 const EASE_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)'
 
 export default function Home({ onNavigate, currentPage }) {
+  const perms = usePermissions()
+  // One list for BOTH mouse and keyboard (see RESOURCES_ITEMS_ADMIN note).
+  const resourcesItems = perms.ready && perms.role === 'admin'
+    ? RESOURCES_ITEMS_ADMIN
+    : RESOURCES_ITEMS
   const [resourcesOpen, setResourcesOpen] = useState(false)
   const [activeColumn, setActiveColumn] = useState('main') // 'main' | 'resources'
   const [selectedIndex, setSelectedIndex] = useState(null)
@@ -78,6 +94,8 @@ export default function Home({ onNavigate, currentPage }) {
   }, [onNavigate, resourcesOpen, openResources, closeResources])
 
   const handleResourceItemClick = useCallback((item) => {
+    // A role flip can shrink resourcesItems under a stale selectedIndex.
+    if (!item) return
     onNavigate(item.id)
   }, [onNavigate])
 
@@ -114,15 +132,15 @@ export default function Home({ onNavigate, currentPage }) {
       e.preventDefault()
       setActiveColumn('resources')
       setSelectedIndex(prev =>
-        prev === null ? 0 : (prev + 1) % RESOURCES_ITEMS.length,
+        prev === null ? 0 : (prev + 1) % resourcesItems.length,
       )
     } else if (e.key === 'ArrowUp') {
       e.preventDefault()
       setActiveColumn('resources')
       setSelectedIndex(prev =>
         prev === null
-          ? RESOURCES_ITEMS.length - 1
-          : (prev - 1 + RESOURCES_ITEMS.length) % RESOURCES_ITEMS.length,
+          ? resourcesItems.length - 1
+          : (prev - 1 + resourcesItems.length) % resourcesItems.length,
       )
     } else if (
       e.key === 'Enter' &&
@@ -130,12 +148,13 @@ export default function Home({ onNavigate, currentPage }) {
       selectedIndex !== null
     ) {
       e.preventDefault()
-      handleResourceItemClick(RESOURCES_ITEMS[selectedIndex])
+      handleResourceItemClick(resourcesItems[selectedIndex])
     }
   }, [
     selectedIndex,
     activeColumn,
     resourcesOpen,
+    resourcesItems,
     handleMainItemClick,
     handleResourceItemClick,
     closeResources,
@@ -249,7 +268,7 @@ export default function Home({ onNavigate, currentPage }) {
           className="flex flex-col gap-4 py-6 flex-1"
           style={{ justifyContent: 'center', minHeight: '100%' }}
         >
-          {RESOURCES_ITEMS.map((item, index) => {
+          {resourcesItems.map((item, index) => {
             const highlighted =
               activeColumn === 'resources' && selectedIndex === index
             const { Icon } = item

@@ -106,5 +106,21 @@ verify_jwt = false
 [functions.invite-member]
 verify_jwt = false
 
+# Session 9 Admin Terminal functions: all validate the caller's ES256 JWT
+# in-function via admin.auth.getUser(token) + a LIVE workspace_members row
+# check + MFA step-up (see _shared/adminGuard.ts). Same gateway opt-out
+# rationale as issue-session.
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-reset-password]
+verify_jwt = false
+
+[functions.admin-set-active]
+verify_jwt = false
+
+[functions.admin-user-security]
+verify_jwt = false
+
 [analytics]
 enabled = false

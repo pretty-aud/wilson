@@ -28,6 +28,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('zoom-reset-notify', handler);
     return () => ipcRenderer.removeListener('zoom-reset-notify', handler);
   },
+  // Session 9 auto-update (electron/updater.cjs). Status events:
+  // { state, info?, progress?, error? } — see updater.cjs header.
+  updates: {
+    getState: () => ipcRenderer.invoke('wilson:update-state'),
+    check: () => ipcRenderer.invoke('wilson:update-check'),
+    download: () => ipcRenderer.invoke('wilson:update-download'),
+    install: () => ipcRenderer.invoke('wilson:update-install'),
+    onStatus: (callback) => {
+      const handler = (_event, status) => callback(status);
+      ipcRenderer.on('wilson:update-status', handler);
+      return () => ipcRenderer.removeListener('wilson:update-status', handler);
+    },
+  },
 
   // ── RABBIT config bridge ──
   // Supabase credentials are centralised: the shared client in

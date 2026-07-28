@@ -113,7 +113,7 @@ function EditCell({
 // ─── Burden / Overhead cell ───
 // Shows value + type toggle (% / $) + computed amount.
 // When null and dept default exists, shows the default indicator.
-function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType, currency, deptPct }) {
+function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType, currency, deptPct, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const ref = useRef(null)
@@ -127,6 +127,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
   const usingDeptDefault = !hasValue && deptPct != null
 
   function start() {
+    if (readOnly) return
     setDraft(value != null ? String(value) : '')
     setEditing(true)
   }
@@ -204,7 +205,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
 }
 
 // ─── Inline currency dropdown ───
-function CurrencyCell({ value, onCommit }) {
+function CurrencyCell({ value, onCommit, readOnly = false }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const wrapRef = useRef(null)
@@ -229,7 +230,7 @@ function CurrencyCell({ value, onCommit }) {
     <div className="relative" ref={wrapRef}>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => { if (!readOnly) setOpen(o => !o) }}
         className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-50 transition-colors flex items-center justify-center gap-0.5"
         style={{ color: '#1c1917', minHeight: '28px' }}
       >
@@ -295,10 +296,11 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
 }
 
 // ─── Budget tier select ───
-function TierSelect({ value, onChange }) {
+function TierSelect({ value, onChange, readOnly = false }) {
   return (
     <select
       value={value || ''}
+      disabled={readOnly}
       onChange={e => onChange(e.target.value || null)}
       className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-50 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
@@ -409,6 +411,9 @@ export default function RateCardTable({
   deleteEntry,
   updateDeptDefault,
   makeSlug,
+  // Session 9: per-user grants can confer VIEW without EDIT — RLS would
+  // reject the writes anyway; this keeps the UI honest about it.
+  readOnly = false,
 }) {
   const isInternal = cardType === 'internal'
 
@@ -497,7 +502,7 @@ export default function RateCardTable({
   }
 
   async function commitDraft() {
-    if (!draft.role_label?.trim()) return
+    if (readOnly || !draft.role_label?.trim()) return
     const toCreate = { ...draft }
     setDraft(emptyDraft)
     try { await addEntry(toCreate) } catch { /* surfaced via hook */ }
@@ -505,6 +510,7 @@ export default function RateCardTable({
 
   // ── Handlers ──
   async function handleUpdate(row, patch) {
+    if (readOnly) return
     // Ghost rows (internal card, no entry yet) — create on first edit
     if (row._hasEntry === false && row.id?.startsWith('_ghost_')) {
       const full = { ...row, ...patch }
@@ -518,7 +524,7 @@ export default function RateCardTable({
   }
 
   async function handleDuplicate(row) {
-    if (row._hasEntry === false) return
+    if (readOnly || row._hasEntry === false) return
     const copy = { ...row }
     delete copy.id; delete copy._member; delete copy._hasEntry
     copy.role_label = `${row.role_label || ''} (copy)`
@@ -527,7 +533,7 @@ export default function RateCardTable({
   }
 
   async function handleDelete(row) {
-    if (row._hasEntry === false) return
+    if (readOnly || row._hasEntry === false) return
     try { await deleteEntry(row.id) } catch { /* surfaced via hook */ }
   }
 
@@ -714,6 +720,7 @@ export default function RateCardTable({
                               value={row.role_label}
                               onCommit={v => handleUpdate(row, { role_label: v, role_slug: makeSlug(v) })}
                               placeholder={isInternal ? 'Title...' : 'Role...'}
+                              readOnly={readOnly}
                             />
                           )}
                         </td>
@@ -723,7 +730,7 @@ export default function RateCardTable({
                           <DepartmentSelect
                             value={row.department}
                             onChange={v => handleUpdate(row, { department: v })}
-                            readOnly={isInternal && !!row._member}
+                            readOnly={readOnly || (isInternal && !!row._member)}
                           />
                         </td>
 
@@ -737,6 +744,7 @@ export default function RateCardTable({
                             placeholder="—"
                             align="right"
                             mono
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -752,6 +760,7 @@ export default function RateCardTable({
                             })}
                             currency={row.currency}
                             deptPct={dd.burden_pct}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -767,6 +776,7 @@ export default function RateCardTable({
                             })}
                             currency={row.currency}
                             deptPct={dd.overhead_pct}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -788,6 +798,7 @@ export default function RateCardTable({
                           <CurrencyCell
                             value={row.currency}
                             onCommit={v => handleUpdate(row, { currency: v })}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -797,6 +808,7 @@ export default function RateCardTable({
                             value={row.region}
                             onCommit={v => handleUpdate(row, { region: v || null })}
                             placeholder="—"
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -805,12 +817,13 @@ export default function RateCardTable({
                           <TierSelect
                             value={row.project_size}
                             onChange={v => handleUpdate(row, { project_size: v })}
+                            readOnly={readOnly}
                           />
                         </td>
 
                         {/* Actions */}
                         <td style={{ ...td, paddingRight: 6 }}>
-                          {!isGhost ? (
+                          {!isGhost && !readOnly ? (
                             <RowActions
                               onDuplicate={() => handleDuplicate(row)}
                               onDelete={() => handleDelete(row)}
@@ -825,7 +838,7 @@ export default function RateCardTable({
             })}
 
             {/* ── Draft row (general card only) ── */}
-            {!isInternal && (
+            {!isInternal && !readOnly && (
               <tr style={{ backgroundColor: '#fff7ed' }}>
                 <td style={td}>
                   <EditCell

@@ -31,6 +31,8 @@ export const ROLES = Object.freeze(['admin', 'manager', 'user'])
 // passed to can() throw at development time (dev-build) and return false
 // in production. Keep this list alphabetised.
 export const ACTIONS = Object.freeze([
+  'admin.terminal.access',
+  'member.grants.change',
   'member.invite',
   'member.profile.edit_others',
   'member.remove',
@@ -48,6 +50,8 @@ export const ACTIONS = Object.freeze([
 // role -> Set<action>. Built once from a human-readable table.
 const ALLOW = {
   admin:   new Set([
+    'admin.terminal.access',
+    'member.grants.change',
     'member.invite',
     'member.profile.edit_others',
     'member.remove',

@@ -2176,6 +2176,19 @@ ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents
 app.whenReady().then(() => {
   cleanupLegacySupabaseConfig();
   createWindow();
+  // Session 9 auto-update (electron-updater; feed = WILSON_UPDATE_URL from
+  // env.json in packaged builds). Init AFTER createWindow so status pushes
+  // have somewhere to land; the renderer re-syncs via wilson:update-state.
+  try {
+    const { initUpdater } = require('./updater.cjs');
+    initUpdater({
+      app,
+      getWebContents: () => mainWindow?.webContents ?? null,
+      getMainWindow: () => mainWindow ?? null,
+    });
+  } catch (err) {
+    console.warn('[wilson] updater init failed:', err?.message ?? err);
+  }
 });
 
 app.on('window-all-closed', () => {

@@ -12,6 +12,8 @@ import { can, atLeast, ROLES, ACTIONS } from './roleMatrix'
 
 // action -> roles allowed. Every action in ACTIONS must appear exactly once.
 const EXPECTED = {
+  'admin.terminal.access':       ['admin'],
+  'member.grants.change':        ['admin'],
   'member.invite':               ['admin'],
   'member.profile.edit_others':  ['admin', 'manager'],
   'member.remove':               ['admin'],

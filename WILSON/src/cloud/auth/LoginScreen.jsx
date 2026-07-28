@@ -80,7 +80,8 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
   const [revealing, setRevealing] = useState(false)
 
   // ── Auth flow state ───────────────────────────────────────────────────
-  // stage: 'auth' (single form with username + password) | 'workspace' (chooser)
+  // stage: 'auth' (username + password) | 'mfa' (Session 9 TOTP challenge,
+  // between password success and everything else) | 'workspace' (chooser)
   const [stage, setStage]                   = useState('auth')
   const [username, setUsername]             = useState(prefilledUsername ?? '')
   const [password, setPassword]             = useState('')
@@ -90,13 +91,17 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
   const [workspaces, setWorkspaces]         = useState([])
   const [workspaceIndex, setWorkspaceIndex] = useState(0)
   const [stageFade, setStageFade]           = useState(1)
+  const [mfaFactorId, setMfaFactorId]       = useState(null)
+  const [mfaCode, setMfaCode]               = useState('')
 
   const finalSessionRef = useRef(null)
   const usernameInputRef = useRef(null)
+  const mfaInputRef = useRef(null)
 
   // Focus username when the shell settles and whenever we return to auth stage.
   useEffect(() => {
     if (ready && stage === 'auth') usernameInputRef.current?.focus()
+    if (ready && stage === 'mfa') mfaInputRef.current?.focus()
   }, [ready, stage])
 
   // Fade on stage transitions (only matters for auth → workspace swap).
@@ -162,6 +167,24 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
       }
       setPendingSession(data.session)
 
+      // Session 9 (locked #9): enrolled users clear the TOTP challenge
+      // BEFORE workspace resolution or reveal — the challenge upgrades the
+      // session to aal2, which the admin Edge Functions require.
+      try {
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+          const { data: factors } = await supabase.auth.mfa.listFactors()
+          const totp = (factors?.totp ?? []).find(f => f.status === 'verified')
+          if (totp) {
+            setMfaFactorId(totp.id)
+            setMfaCode('')
+            setStage('mfa')
+            setBusy(false)
+            return
+          }
+        }
+      } catch { /* unenrolled (or MFA API unavailable) → proceed as aal1 */ }
+
       const ws = await fetchUserWorkspaces()
       if (ws.length > 1) {
         setWorkspaces(ws)
@@ -176,6 +199,55 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
       setBusy(false)
     }
   }, [busy, username, password, completeSignIn])
+
+  // TOTP verify → the SDK swaps in an aal2 session; continue exactly where
+  // the password path left off (chooser vs reveal).
+  const handleMfaSubmit = useCallback(async (e) => {
+    e?.preventDefault()
+    if (busy || !mfaFactorId) return
+    const code = mfaCode.replace(/\s+/g, '')
+    if (!/^[0-9]{6}$/.test(code)) {
+      setError('CODE REJECTED. TRY AGAIN.')
+      return
+    }
+    setBusy(true)
+    setError('')
+    try {
+      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId })
+      if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
+      const { error: vErr } = await supabase.auth.mfa.verify({
+        factorId: mfaFactorId,
+        challengeId: ch.id,
+        code,
+      })
+      if (vErr) {
+        setError('CODE REJECTED. TRY AGAIN.')
+        setMfaCode('')
+        setBusy(false)
+        return
+      }
+      const { data: fresh } = await supabase.auth.getSession()
+      const session = fresh?.session
+      if (!session) {
+        setError(GENERIC_ERROR)
+        setBusy(false)
+        return
+      }
+      setPendingSession(session)
+      const ws = await fetchUserWorkspaces()
+      if (ws.length > 1) {
+        setWorkspaces(ws)
+        setWorkspaceIndex(0)
+        setStage('workspace')
+        setBusy(false)
+      } else {
+        await completeSignIn(session, null)
+      }
+    } catch {
+      setError('CODE REJECTED. TRY AGAIN.')
+      setBusy(false)
+    }
+  }, [busy, mfaFactorId, mfaCode, completeSignIn])
 
   const handleWorkspaceChoose = useCallback(async (wsId) => {
     if (busy || !pendingSession) return
@@ -343,6 +415,54 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
                 New company?
               </button>
             )}
+          </form>
+        )}
+
+        {stage === 'mfa' && (
+          <form onSubmit={handleMfaSubmit}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+              <div style={labelStyle}>AUTHENTICATOR CODE</div>
+              <input
+                ref={mfaInputRef}
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={7}
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9\s]/g, ''))}
+                disabled={busy}
+                style={{ ...inputStyle, letterSpacing: '0.35em', textAlign: 'center' }}
+                aria-label="Authenticator code"
+              />
+            </div>
+            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', fontWeight: 400, opacity: 0.7, letterSpacing: '0.08em' }}>
+              ENTER THE 6-DIGIT CODE FROM YOUR AUTHENTICATOR APP
+            </div>
+            <button
+              type="submit"
+              disabled={busy}
+              style={{
+                ...AUTH_TEXT_STYLE,
+                fontSize: '12px',
+                fontWeight: 600,
+                letterSpacing: '0.18em',
+                marginTop: '6px',
+                background: '#fff',
+                border: 'none',
+                color: '#ea580c',
+                padding: '10px 34px',
+                borderRadius: '2px',
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.55 : 1,
+                transition: 'opacity 150ms ease-out, transform 100ms ease-out',
+              }}
+              onMouseDown={(e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)')}
+              onMouseUp={(e)   => (e.currentTarget.style.transform = 'scale(1)')}
+              onMouseLeave={(e)=> (e.currentTarget.style.transform = 'scale(1)')}
+            >
+              {busy ? 'Verifying…' : 'Verify'}
+            </button>
           </form>
         )}
 

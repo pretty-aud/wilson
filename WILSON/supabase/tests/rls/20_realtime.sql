@@ -162,10 +162,11 @@ SELECT tests.login_as(
   '11111111-1111-1111-1111-111111111111'
 );
 
--- projects_select has no has_active_membership clause (deferred to S9), so
--- the topic gate deliberately matches: this pins parity, not aspiration.
+-- Session 9 alignment: projects_select now carries has_active_membership,
+-- and the topic gate (SECURITY INVOKER ≡ projects_select) follows. This
+-- still pins PARITY — channel access equals table reads — both now deny.
 SELECT is(public.can_read_project_topic('aaaa1111-0000-0000-0000-000000000001'),
-  true, 'inactive member mirrors table-read behavior (S9 closes both together)');
+  false, 'inactive member is denied — table reads aligned with the channel (S9)');
 
 -- ── probe 21: cross-workspace persona ────────────────────────────────────
 SELECT set_config('request.jwt.claims', '{}', true);

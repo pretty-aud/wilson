@@ -14,7 +14,12 @@ import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
 import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
 import DashboardPage from './components/Dashboard/DashboardPage'
+import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
 import HelpPage from './components/HelpPage'
+import UpdatePrompt from './components/UpdatePrompt'
+import { MfaEnrollGate } from './cloud/auth/MfaSection'
+import { updatesSupported, checkForUpdates, onUpdateStatus, getSkippedVersion } from './cloud/updates'
+import { usePermissions } from './permissions'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
 import Rabbit from './tools/rabbit_v0.1.0'
@@ -79,6 +84,7 @@ const PAGE_TITLES = {
   'rate-card': 'RATE CARD',
   'team-members': 'TEAM MEMBERS',
   dashboard: 'DASHBOARD',
+  'admin-terminal': 'ADMIN TERMINAL',
   help: 'HELP',
 };
 
@@ -94,6 +100,7 @@ const PAGE_BARS = {
   'rate-card':        { top: '200px', bottom: '150px' },
   'team-members':     { top: '200px', bottom: '150px' },
   dashboard:          { top: '200px', bottom: '150px' },
+  'admin-terminal':   { top: '200px', bottom: '150px' },
   help:               { top: '140px', bottom: '100px' },
 };
 
@@ -156,6 +163,11 @@ export default function App() {
   // Set to a membership record when the signed-in user still has
   // onboarded_at = null; cleared once NewUserWelcome saves the profile.
   const [pendingOnboarding, setPendingOnboarding] = useState(null);
+  // Session 9 gates layered after onboarding: admins must enroll MFA
+  // (locked #9); a fresh release offers Update / Skip at sign-in.
+  const [pendingMfaEnroll, setPendingMfaEnroll] = useState(false);
+  const [updateOffer, setUpdateOffer] = useState(null);
+  const perms = usePermissions();
   const [currentPage, setCurrentPage] = useState('home');
 
   // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
@@ -247,6 +259,45 @@ export default function App() {
       } catch { /* non-fatal; user can still use the app without onboarding */ }
     })();
     return () => { cancelled = true; };
+  }, [authed]);
+
+  // Session 9 (locked #9): admin tiers without a verified TOTP factor get
+  // the enrollment gate. Role comes from usePermissions (JWT-decoded) — the
+  // getSession() user record only carries what was persisted to
+  // raw_app_meta_data, and app_role never is (review finding). Enrolled
+  // users are already challenged at sign-in by LoginScreen regardless.
+  useEffect(() => {
+    if (!authed || !perms.ready) { if (!authed) setPendingMfaEnroll(false); return; }
+    const adminTier = perms.role === 'admin' || perms.isPlatformOperator;
+    if (!adminTier) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase.auth.mfa.listFactors();
+        if (cancelled || error) return;
+        const verified = (data?.totp ?? []).some(f => f.status === 'verified');
+        if (!verified) setPendingMfaEnroll(true);
+      } catch { /* gate is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [authed, perms.ready, perms.role, perms.isPlatformOperator]);
+
+  // Session 9: version check at sign-in (locked #10). The updater pushes
+  // 'available' after our check; skipped versions stay quiet until the next
+  // release. Settings > General owns the manual path.
+  useEffect(() => {
+    if (!authed) { setUpdateOffer(null); return; }
+    if (!updatesSupported()) return undefined;
+    let cancelled = false;
+    const unsub = onUpdateStatus((s) => {
+      if (cancelled) return;
+      if (s.state === 'available') {
+        const v = s.info?.version ?? null;
+        if (v && v !== getSkippedVersion()) setUpdateOffer({ version: v });
+      }
+    });
+    checkForUpdates();
+    return () => { cancelled = true; unsub(); };
   }, [authed]);
 
   // Sign out: clear the local session + reset auth state. Exposed on window
@@ -892,7 +943,7 @@ export default function App() {
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar
-  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, dashboard: 150, help: 100 };
+  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, dashboard: 150, 'admin-terminal': 150, help: 100 };
   const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
 
   // Close the resources sub-column when the nav menu closes or page changes
@@ -939,6 +990,9 @@ export default function App() {
       { id: 'project-manager', label: 'PROJECTS' },
       { id: 'rate-card',       label: 'RATE CARD' },
       { id: 'team-members',    label: 'TEAM MEMBERS' },
+      // Session 9: admin-only surface — filtered from the ARRAY (not hidden
+      // per-button) so keyboard/mouse share one list.
+      ...(perms.role === 'admin' ? [{ id: 'admin-terminal', label: 'ADMIN TERMINAL' }] : []),
       { id: 'help',            label: 'HELP' },
     ];
     return all
@@ -1020,6 +1074,9 @@ export default function App() {
       <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <DashboardPage />
       </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'admin-terminal' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <AdminTerminalPage />
+      </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <HelpPage />
       </div>
@@ -1091,7 +1148,7 @@ export default function App() {
       );
     }
 
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'help') {
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
       const pageLabel = PAGE_TITLES[currentPage] || currentPage;
       return (
         <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
@@ -1393,6 +1450,19 @@ export default function App() {
         <NewUserWelcome
           membership={pendingOnboarding}
           onComplete={() => setPendingOnboarding(null)}
+        />
+      )}
+
+      {/* Session 9: admin MFA enrollment gate (after onboarding clears). */}
+      {authed && !pendingOnboarding && pendingMfaEnroll && (
+        <MfaEnrollGate onComplete={() => setPendingMfaEnroll(false)} />
+      )}
+
+      {/* Session 9: login-time update prompt (never stacked on the gates). */}
+      {authed && !pendingOnboarding && !pendingMfaEnroll && updateOffer && (
+        <UpdatePrompt
+          version={updateOffer.version}
+          onDismiss={() => setUpdateOffer(null)}
         />
       )}
 

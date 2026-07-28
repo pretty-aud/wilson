@@ -201,7 +201,7 @@ SELECT tests.login_as(
 );
 
 SELECT is(public.can_read_workspace_topic('11111111-1111-1111-1111-111111111111'),
-  false, 'inactive member is denied the workspace topic (deliberately stricter than table reads; S9 aligns those)');
+  false, 'inactive member is denied the workspace topic (table reads aligned in S9 — 0020)');
 
 -- ── probe 13: cross-workspace persona ────────────────────────────────────
 SELECT set_config('request.jwt.claims', '{}', true);

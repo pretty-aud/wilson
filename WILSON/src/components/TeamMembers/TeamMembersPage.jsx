@@ -15,15 +15,19 @@
 // All edits are enforced DB-side (RLS + the 0010 guard trigger); the UI
 // checks are presentation only.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Users, Search, Trash2, X, UserPlus, Eye, RotateCcw,
 } from 'lucide-react'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
 import { useRateCard, computeEntryTotal } from '../RateCard/useRateCard'
+import { useRateCardAccess } from '../RateCard/useRateCardAccess'
 import { atLeast } from '../../permissions/roleMatrix'
 import PermissionGate from '../../permissions/PermissionGate'
 import InviteMemberDialog from '../../cloud/auth/InviteMemberDialog'
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { supabase } from '../../cloud/auth/supabaseClient'
+import { adminSetActive, isMissingFunction } from '../../cloud/adminApi'
 
 const VIEW_STORAGE_KEY = 'wilson.team-members.view'
 const VIEWS = [
@@ -74,6 +78,93 @@ export default function TeamMembersPage() {
     }).catch(() => setDepartments(DEFAULT_DEPARTMENTS))
   }, [])
 
+  // Session 9: workspace-channel liveness + grant-aware rate access.
+  const rabbit = useRabbit()
+  const subscribeWorkspaceEvents = rabbit?.subscribeWorkspaceEvents
+  const rateAccess = useRateCardAccess(subscribeWorkspaceEvents)
+  const [adminError, setAdminError] = useState(null)
+
+  // Roster liveness (§6 gap #13): workspace_members events → debounced
+  // reload. Refs keep the subscription stable across re-renders; RESYNC
+  // closes the missed-events window after every channel (re)join.
+  const wmReloadRef = useRef(wm.reload)
+  useEffect(() => { wmReloadRef.current = wm.reload }, [wm.reload])
+  useEffect(() => {
+    if (typeof subscribeWorkspaceEvents !== 'function') return undefined
+    let timer = null
+    const unsub = subscribeWorkspaceEvents((evt) => {
+      if (evt.op !== 'RESYNC' && evt.table !== 'workspace_members') return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; wmReloadRef.current?.() }, 400)
+    })
+    return () => { if (timer) clearTimeout(timer); unsub() }
+  }, [subscribeWorkspaceEvents])
+
+  // Assigned-projects column (§10-E): project_members with embedded titles,
+  // live off the same channel. Missing-table tolerance keeps pre-0013 envs
+  // rendering the placeholder.
+  const [assignments, setAssignments] = useState(() => new Map())
+  const assignSeqRef = useRef(0)
+  const assignMountedRef = useRef(true)
+  useEffect(() => {
+    assignMountedRef.current = true
+    return () => { assignMountedRef.current = false }
+  }, [])
+  useEffect(() => {
+    if (!wm.workspaceId) { setAssignments(new Map()); return }
+    let timer = null
+    const load = async () => {
+      const seq = ++assignSeqRef.current
+      try {
+        const { data, error } = await supabase
+          .from('project_members')
+          .select('user_id, project_id, projects(title, deleted_at)')
+          .eq('workspace_id', wm.workspaceId)
+        if (!assignMountedRef.current || seq !== assignSeqRef.current) return
+        if (error) { setAssignments(new Map()); return }
+        const map = new Map()
+        for (const row of data || []) {
+          if (row.projects?.deleted_at) continue
+          const list = map.get(row.user_id) || []
+          list.push(row.projects?.title || 'Untitled')
+          map.set(row.user_id, list)
+        }
+        setAssignments(map)
+      } catch {
+        if (assignMountedRef.current && seq === assignSeqRef.current) setAssignments(new Map())
+      }
+    }
+    load()
+    if (typeof subscribeWorkspaceEvents !== 'function') return undefined
+    const unsub = subscribeWorkspaceEvents((evt) => {
+      const relevant = evt.op === 'RESYNC'
+        || evt.table === 'project_members' || evt.table === 'projects'
+      if (!relevant) return
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { timer = null; load() }, 400)
+    })
+    return () => { if (timer) clearTimeout(timer); unsub() }
+  }, [wm.workspaceId, subscribeWorkspaceEvents])
+
+  // Producer / Creative-Director highlight (§10-B): both ids live on the
+  // project rows, which the provider's projectsIndex keeps live-merged.
+  const staffBadgesByUser = useMemo(() => {
+    const idx = rabbit?.projectsIndex || {}
+    const map = new Map()
+    for (const p of Object.values(idx)) {
+      if (!p || p.deleted_at) continue
+      if (p.producer_id) {
+        const s = map.get(p.producer_id) || new Set()
+        s.add('PRODUCER'); map.set(p.producer_id, s)
+      }
+      if (p.director_id) {
+        const s = map.get(p.director_id) || new Set()
+        s.add('DIRECTOR'); map.set(p.director_id, s)
+      }
+    }
+    return map
+  }, [rabbit?.projectsIndex])
+
   // The rate columns read the INTERNAL rate card (per-member entries). The
   // hook instance is local to this page, so switching its active card does
   // not disturb the Rate Card page. The flip effect lives below the view
@@ -95,7 +186,8 @@ export default function TeamMembersPage() {
   const isAdminView   = activeView === 'admin'
   const showEmail     = activeView !== 'user'
   const showStatus    = isAdminView
-  const showRate      = isAdminView && wm.can('rate_card.view')
+  // Session 9: rate access = role matrix OR per-user grants (live rows).
+  const showRate      = isAdminView && rateAccess.canView
   const showActions   = isAdminView && wm.can('member.remove')
   // Title/department inline editing: admin + manager working views only.
   // The User view is strictly read-only (it previews what a user sees).
@@ -103,7 +195,7 @@ export default function TeamMembersPage() {
   // Editing also requires the internal card to exist — writes land on
   // whatever card is active, and without the internal card they would hit
   // the General card (or vanish).
-  const canEditRate    = showRate && wm.can('rate_card.edit') && !!internalCard
+  const canEditRate    = showRate && rateAccess.canEdit && !!internalCard
 
   // Flip this page's rate-card hook to the INTERNAL card — gated on
   // showRate so non-admin clients never fetch per-person wage entries.
@@ -268,15 +360,40 @@ export default function TeamMembersPage() {
                   canEditRate={canEditRate}
                   showActions={showActions}
                   rateEntry={entryByUserId.get(m.user_id) || null}
+                  staffBadges={[...(staffBadgesByUser.get(m.user_id) || [])]}
+                  assignedProjects={assignments.get(m.user_id) || []}
                   onUpdate={(patch) => wm.updateMember(m.user_id, patch).catch(() => {})}
                   onSetRole={(app_role) => wm.setRole(m.user_id, app_role).catch(() => {})}
                   onEditRate={() => setRateModal({ member: m, entry: entryByUserId.get(m.user_id) || null })}
                   onDeactivate={() => {
-                    if (window.confirm(`Deactivate "${m.display_name || m.username}"? They keep their account but lose workspace access.`)) {
-                      wm.setActive(m.user_id, false).catch(() => {})
-                    }
+                    // Session 9: the Edge Function adds token revocation +
+                    // last-admin protection. Fall back to the direct update
+                    // ONLY when the function isn't deployed (bare 404) —
+                    // a 404 with { error: 'not_found' } is a real business
+                    // error, and a network failure must not silently skip
+                    // the revocation the confirm dialog just promised.
+                    if (!window.confirm(`Deactivate "${m.display_name || m.username}"? Access cuts immediately; they are signed out everywhere within the hour.`)) return
+                    setAdminError(null)
+                    adminSetActive(m.user_id, false).then((res) => {
+                      if (res.ok) { wm.reload(); return }
+                      if (isMissingFunction(res)) {
+                        wm.setActive(m.user_id, false).catch(() => {})
+                        return
+                      }
+                      setAdminError(res.data.friendly)
+                    })
                   }}
-                  onReactivate={() => wm.setActive(m.user_id, true).catch(() => {})}
+                  onReactivate={() => {
+                    setAdminError(null)
+                    adminSetActive(m.user_id, true).then((res) => {
+                      if (res.ok) { wm.reload(); return }
+                      if (isMissingFunction(res)) {
+                        wm.setActive(m.user_id, true).catch(() => {})
+                        return
+                      }
+                      setAdminError(res.data.friendly)
+                    })
+                  }}
                 />
               ))}
             </tbody>
@@ -287,6 +404,12 @@ export default function TeamMembersPage() {
       {pageError && (
         <div className="mt-2 text-xs font-mono" style={{ color: '#dc2626' }}>
           {pageError}
+        </div>
+      )}
+
+      {adminError && (
+        <div className="mt-2 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.1)', color: '#dc2626' }}>
+          {adminError}
         </div>
       )}
 
@@ -340,18 +463,34 @@ function MemberRow({
   member, isSelf, departments,
   canEditProfile, roleEditable,
   showEmail, showStatus, showRate, canEditRate, showActions,
-  rateEntry,
+  rateEntry, staffBadges = [], assignedProjects = [],
   onUpdate, onSetRole, onEditRate, onDeactivate, onReactivate,
 }) {
   const inactive = !member.is_active
+  // §10-B: producers / creative directors get a highlighted row + badge.
+  const highlighted = !inactive && staffBadges.length > 0
   return (
-    <tr style={{ borderBottom: '1px solid #e7e5e4', opacity: inactive ? 0.5 : 1 }}>
+    <tr style={{
+      borderBottom: '1px solid #e7e5e4',
+      opacity: inactive ? 0.5 : 1,
+      backgroundColor: highlighted ? 'rgba(244, 162, 97, 0.14)' : undefined,
+    }}>
       <TdLight>
         <div className="flex items-center gap-2">
           <Avatar member={member} />
           <span className="text-xs font-mono truncate" style={{ color: '#1c1917' }}>
             {member.display_name || member.username || '--'}
           </span>
+          {staffBadges.map(b => (
+            <span
+              key={b}
+              className="text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm flex-shrink-0"
+              style={{ backgroundColor: '#f4a261', color: '#7c2d12' }}
+              title={b === 'PRODUCER' ? 'Producer on at least one project' : 'Director on at least one project'}
+            >
+              {b}
+            </span>
+          ))}
           {isSelf && (
             <span className="text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm" style={{ backgroundColor: '#ea580c', color: '#fff' }}>
               you
@@ -432,10 +571,22 @@ function MemberRow({
         </TdLight>
       )}
       <TdLight>
-        {/* Project assignments join in Session 6 (RABBIT project_members). */}
-        <span className="text-xs font-mono" style={{ color: '#a8a29e' }} title="Project assignments land in Session 6.">
-          --
-        </span>
+        {/* §10-E: live project assignments (project_members via the
+            workspace channel). */}
+        {assignedProjects.length > 0 ? (
+          <span
+            className="text-xs font-mono"
+            style={{ color: '#1c1917' }}
+            title={assignedProjects.join(', ')}
+          >
+            {assignedProjects.slice(0, 2).join(', ')}
+            {assignedProjects.length > 2 ? ` +${assignedProjects.length - 2}` : ''}
+          </span>
+        ) : (
+          <span className="text-xs font-mono" style={{ color: '#a8a29e' }} title="No project assignments">
+            --
+          </span>
+        )}
       </TdLight>
       {showActions && (
         <TdLight>

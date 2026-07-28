@@ -24,7 +24,8 @@ import { useRef, useState, useMemo } from 'react'
 import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle, Lock } from 'lucide-react'
 import { useRateCard } from './useRateCard'
 import { useRosterMembers } from '../TeamMembers/useRosterMembers'
-import { usePermissions } from '../../permissions/usePermissions'
+import { useRateCardAccess } from './useRateCardAccess'
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
 import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
@@ -55,12 +56,14 @@ export default function RateCardPage() {
   // written by the Team Members page (member_id = user_id) resolve here
   // instead of orphaning.
   const { members: teamMembers, mode: rosterMode, loading: teamLoading } = useRosterMembers()
-  const perms = usePermissions()
+  const rabbit = useRabbit()
 
-  // 0015 matrix parity: in cloud mode rate_card_entries are RLS-scoped to
-  // admin + manager ('rate_card.view'). Show a notice instead of letting
-  // the RLS-empty table masquerade as "no data".
-  const rateCardRestricted = rosterMode === 'supabase' && perms.ready && !perms.can('rate_card.view')
+  // 0020 matrix parity: role matrix OR per-user grants (view/edit), live off
+  // the workspace channel. Show a notice instead of letting the RLS-empty
+  // table masquerade as "no data"; a view-only grant renders read-only.
+  const access = useRateCardAccess(rabbit?.subscribeWorkspaceEvents)
+  const rateCardRestricted = rosterMode === 'supabase' && access.ready && !access.canView
+  const rateReadOnly = rosterMode === 'supabase' && access.ready && !access.canEdit
 
   // ─── Derive active card type ───
   const generalCard = rateCards.find(c => c.type === 'general') || null
@@ -320,24 +323,36 @@ export default function RateCardPage() {
                   with a warning indicator.
                 </div>
 
-                {/* Import for internal card */}
-                <div className="pt-2 border-t" style={{ borderColor: '#f4a261' }}>
-                  <div
-                    className="text-[10px] font-mono uppercase tracking-widest mb-2"
-                    style={{ color: '#7c2d12' }}
-                  >
-                    Import rates
+                {/* Import for internal card (hidden on view-only grants) */}
+                {!rateReadOnly && (
+                  <div className="pt-2 border-t" style={{ borderColor: '#f4a261' }}>
+                    <div
+                      className="text-[10px] font-mono uppercase tracking-widest mb-2"
+                      style={{ color: '#7c2d12' }}
+                    >
+                      Import rates
+                    </div>
+                    <ImporterCard
+                      label="CSV / XLSX"
+                      note="Bulk-set member rates"
+                      onClick={() => { setImportError(null); sheetInputRef.current?.click() }}
+                    />
                   </div>
-                  <ImporterCard
-                    label="CSV / XLSX"
-                    note="Bulk-set member rates"
-                    onClick={() => { setImportError(null); sheetInputRef.current?.click() }}
-                  />
-                </div>
+                )}
               </>
             ) : (
               <>
-                {/* ── Import options for general card ── */}
+                {/* ── Import options for general card (hidden on view-only) ── */}
+                {rateReadOnly ? (
+                  <div
+                    className="p-3 rounded-sm text-[11px] font-mono leading-relaxed"
+                    style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                  >
+                    View-only access — rate edits and imports are
+                    limited to admins and edit-granted members.
+                  </div>
+                ) : (
+                <>
                 <ImporterCard
                   label="CSV / XLSX"
                   note="Click to pick a spreadsheet"
@@ -353,6 +368,8 @@ export default function RateCardPage() {
                   note="Paste a public sheet URL"
                   onClick={() => { setImportError(null); setGSheetPromptOpen(true) }}
                 />
+                </>
+                )}
 
                 <div
                   className="mt-4 p-3 rounded-sm text-[11px] font-mono leading-relaxed"
@@ -380,8 +397,9 @@ export default function RateCardPage() {
               addEntry={addEntry}
               updateEntry={updateEntry}
               deleteEntry={deleteEntry}
-              updateDeptDefault={updateDeptDefault}
+              updateDeptDefault={rateReadOnly ? undefined : updateDeptDefault}
               makeSlug={makeSlug}
+              readOnly={rateReadOnly}
             />
           ) : (
             <div className="h-full flex items-center justify-center">
