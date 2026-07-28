@@ -153,3 +153,29 @@ For v0.1 there is exactly one migration — `schema.sql`. There is no
 migrations runner. When the schema needs to evolve, append a new file
 (`schema_v0.2.sql`, etc.) and a CHANGELOG entry. Do not edit `schema.sql`
 in-place after a release ships.
+
+## 9. Member directory & profiles (Session 4, migration 0010)
+
+The Team Members page and the Settings → Profile editor read and write
+`public.workspace_members` directly (multi-user path; the RABBIT
+`team_members` JSON entity remains only for RABBIT's internal views until
+project assignment unifies in Session 6).
+
+- **Listing** goes through the `workspace_directory()` RPC (SECURITY
+  DEFINER, migration 0010). It joins `auth.users` for email — email is
+  returned only to admin/manager callers, plus each caller's own row. The
+  UI falls back to a plain `workspace_members` SELECT (no emails) when the
+  RPC isn't deployed in an environment yet.
+- **Write scopes** (enforced by RLS + the `trg_ws_members_self_guard`
+  trigger, NOT by the UI): admins edit anything inside their workspace;
+  managers may change only `title` + `department` on other members;
+  everyone edits their own profile fields but never their own `app_role`,
+  `username`, or `workspace_id`.
+- **`user-avatars` path convention** (0009 storage policies): objects MUST
+  be keyed `{workspace_id}/{user_id}/{filename}` —
+  `storage.foldername(name)` is a 1-indexed `text[]`, and the policies pin
+  `[1]` to the caller's active workspace and `[2]` to `auth.uid()`. Any
+  caller using a different prefix is silently rejected with a
+  row-level-security error. NewUserWelcome and ProfileSection both build
+  paths as `{workspace_id}/{user_id}/{ts}-{sanitized-filename}`; keep new
+  callers on that shape.

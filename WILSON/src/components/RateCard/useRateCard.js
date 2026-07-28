@@ -103,8 +103,13 @@ export function useRateCard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // StrictMode-safe: the body must reset to true — setup → cleanup → setup
+  // reuses the same ref, and a cleanup-only effect strands it at false.
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load rate cards on mount + on adapter mode change ──
   const loadRateCards = useCallback(async () => {
@@ -160,7 +165,11 @@ export function useRateCard() {
               is_default: false,
             })
             if (internalCard) cards.push(internalCard)
-          } catch {}
+          } catch (err) {
+            // Surface it — a silently-missing internal card makes member-rate
+            // writes land on the General card (see TeamMembersPage guard).
+            if (mountedRef.current) setError(err.message || String(err))
+          }
         }
       }
       if (!mountedRef.current) return
@@ -189,13 +198,18 @@ export function useRateCard() {
     const adapter = getAdapter()
     if (!adapter) return
     setLoading(true)
+    // Stale-response guard: the active card can change while a fetch is in
+    // flight (e.g. the Team Members page flips general → internal right
+    // after load). Without this, a slow response for the OLD card would
+    // overwrite the new card's entries/defaults.
+    let stale = false
     // Load entries and dept defaults in parallel
     Promise.all([
       adapter.listRateCardEntries(activeRateCardId),
       adapter.listDeptDefaults ? adapter.listDeptDefaults(activeRateCardId) : Promise.resolve([]),
     ])
       .then(([rows, defaults]) => {
-        if (!mountedRef.current) return
+        if (!mountedRef.current || stale) return
         // Migrate: entries with day_rate but no wage → set wage = day_rate
         const migrated = (Array.isArray(rows) ? rows : []).map(e => {
           if (e.wage == null && e.day_rate != null) return { ...e, wage: e.day_rate }
@@ -205,11 +219,12 @@ export function useRateCard() {
         setDeptDefaults(Array.isArray(defaults) ? defaults : [])
       })
       .catch(err => {
-        if (mountedRef.current) setError(err.message || String(err))
+        if (mountedRef.current && !stale) setError(err.message || String(err))
       })
       .finally(() => {
-        if (mountedRef.current) setLoading(false)
+        if (mountedRef.current && !stale) setLoading(false)
       })
+    return () => { stale = true }
   }, [activeRateCardId, getAdapter])
 
   // ── Compute day_rate (total) for each entry for backward compat ──

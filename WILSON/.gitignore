@@ -27,3 +27,7 @@ Thumbs.db
 # Per-developer Claude Code config (launch.json, local skills).
 # Not part of the canonical repo.
 .claude/
+
+# Playwright output
+test-results/
+playwright-report/

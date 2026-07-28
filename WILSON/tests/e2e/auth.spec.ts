@@ -64,23 +64,31 @@ function recoveryLinkFrom(html: string): string | null {
   return m?.[1] ?? null
 }
 
-// ── Scenario 1: basic sign-in + RLS filtering ─────────────────────────────
-test('valid sign-in lands on Home with RLS-filtered project list', async ({ page }) => {
+// ── Scenario 1: basic sign-in + RLS-scoped directory ──────────────────────
+test('valid sign-in lands on Home with an RLS-scoped member directory', async ({ page }) => {
   await signIn(page, USERNAME, PASSWORD)
 
   // The AuthShell animates out and the main app reveals. The "Home" nav
   // label is the stable landmark we can wait on.
   await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
 
-  // Visit Rabbit to confirm the seeded Smoke Project is visible (proves RLS
-  // returns at least the one row we expect for this workspace).
-  await page.getByRole('link', { name: /rabbit/i }).click().catch(() => {})
-  // Fallback: directly navigate via the nav strip tile.
-  const rabbitTile = page.getByText(/R\.A\.B\.B\.I\.T\./)
-  if (await rabbitTile.isVisible().catch(() => false)) {
-    await rabbitTile.click()
-  }
-  await expect(page.getByText(/Smoke Project/i)).toBeVisible({ timeout: 10_000 })
+  // Resources → Team Members. The page reads workspace_members through the
+  // workspace_directory RPC (Session 4), so a visible roster row proves the
+  // whole chain: resolve-login → signInWithPassword →
+  // custom_access_token_hook → RLS/RPC-scoped directory read.
+  //
+  // (The original RABBIT "Smoke Project" assertion needs the supabase
+  // adapter, which browser-mode RABBIT doesn't default to — that check
+  // returns with the web-build session.)
+  //
+  // Selector note: the top nav-strip duplicates menu labels but sits under
+  // an overlay that eats pointer events; only the real menu tiles contain a
+  // sprite with role img — filter on that.
+  await page.getByRole('button', { name: 'Resources' }).filter({ has: page.getByRole('img') }).click()
+  await page.getByRole('button', { name: /team members/i }).filter({ has: page.getByRole('img') }).click()
+  // WILSON's page transition (compress → title-hold → expand) takes ~2.1s,
+  // then the directory RPC round-trips.
+  await expect(page.getByText(USERNAME).first()).toBeVisible({ timeout: 20_000 })
 })
 
 // ── Scenario 2: admin invites a member; invitee sets a password ────────────
@@ -95,11 +103,11 @@ test('admin invite flow ends in the invitee setting their password', async ({ pa
   await signIn(page, USERNAME, PASSWORD)
   await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
 
-  // Navigate to TeamMembersPage and open the invite dialog.
-  await page.goto('/#/team-members').catch(() => {})
-  // If hash routing isn't wired yet, fall back to clicking through the nav.
-  const teamNav = page.getByRole('button', { name: /team members/i })
-  if (await teamNav.isVisible().catch(() => false)) await teamNav.click()
+  // Navigate to TeamMembersPage: it lives in Home's Resources submenu.
+  // Same img-filter trick as scenario 1 — the nav-strip titles duplicate the
+  // menu labels but sit under an overlay.
+  await page.getByRole('button', { name: 'Resources' }).filter({ has: page.getByRole('img') }).click()
+  await page.getByRole('button', { name: /team members/i }).filter({ has: page.getByRole('img') }).click()
   await page.getByRole('button', { name: /invite user/i }).click()
 
   await page.getByLabel('Email').fill(inviteeEmail)

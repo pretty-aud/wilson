@@ -140,3 +140,98 @@ jobs:
         run: |
           chmod +x scripts/probes/issue-session.sh
           scripts/probes/issue-session.sh
+
+  # ---------------------------------------------------------------------------
+  # unit — Vitest over renderer modules (Session 4). First suite:
+  # src/permissions/roleMatrix.test.js. No Supabase, no secrets.
+  # ---------------------------------------------------------------------------
+  unit:
+    name: Vitest (renderer units)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: WILSON/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Vitest
+        run: npm test
+
+  # ---------------------------------------------------------------------------
+  # e2e-auth — Playwright auth flows against wilson-dev (Session 4).
+  #
+  # Reuses the DEV_* secrets from issue-session-smoke: the Vite dev server is
+  # built pointing at wilson-dev (VITE_* env), and the sign-in scenario runs
+  # as the seeded smoke_admin. Email-dependent scenarios (invite,
+  # forgot-password) need mailpit and are skipped via PLAYWRIGHT_SKIP_EMAIL=1;
+  # a local-Supabase + mailpit variant is queued for the web-build session.
+  # Self-skips when secrets are missing (fork PRs), same as the smoke job.
+  # ---------------------------------------------------------------------------
+  e2e-auth:
+    name: Playwright auth (wilson-dev)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: WILSON
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check secrets availability
+        id: secrets
+        env:
+          DEV_SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          DEV_SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          DEV_PROBE_USERNAME: ${{ secrets.DEV_PROBE_USERNAME }}
+          DEV_PROBE_PASSWORD: ${{ secrets.DEV_PROBE_PASSWORD }}
+        run: |
+          if [ -z "${DEV_SUPABASE_URL}" ] || [ -z "${DEV_SUPABASE_ANON_KEY}" ] \
+            || [ -z "${DEV_PROBE_USERNAME}" ] || [ -z "${DEV_PROBE_PASSWORD}" ]; then
+            echo "One or more DEV_* secrets missing — skipping Playwright job."
+            echo "has_secrets=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_secrets=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.has_secrets == 'true'
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: WILSON/package-lock.json
+
+      - name: Install dependencies
+        if: steps.secrets.outputs.has_secrets == 'true'
+        run: npm ci
+
+      - name: Install Chromium
+        if: steps.secrets.outputs.has_secrets == 'true'
+        run: npx playwright install chromium --with-deps
+
+      - name: Run Playwright
+        if: steps.secrets.outputs.has_secrets == 'true'
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.DEV_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
+          WILSON_E2E_USERNAME: ${{ secrets.DEV_PROBE_USERNAME }}
+          WILSON_E2E_PASSWORD: ${{ secrets.DEV_PROBE_PASSWORD }}
+          PLAYWRIGHT_SKIP_EMAIL: '1'
+        run: npx playwright test
+
+      - name: Upload traces on failure
+        if: failure() && steps.secrets.outputs.has_secrets == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: WILSON/test-results/
+          retention-days: 7

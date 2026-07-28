@@ -5,6 +5,7 @@ import { useAgent } from '../agent/AgentProvider'
 import CurrencyPicker from './settings/CurrencyPicker'
 import TaskTemplateManager from './TaskTemplates/TaskTemplateManager'
 import AgentSkillsSection from './settings/AgentSkillsSection'
+import ProfileSection from './settings/ProfileSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
@@ -303,6 +304,7 @@ export default function SettingsPage({
 
   const tabs = [
     { key: 'general', label: 'General' },
+    { key: 'profile', label: 'Profile' },
     { key: 'rabbit',  label: 'RABBIT' },
     { key: 'teams',   label: 'Teams' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
@@ -332,6 +334,14 @@ export default function SettingsPage({
           </div>
 
           <div className="space-y-8">
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  PROFILE TAB (Session 4 — same component the Session 8     */}
+          {/*  Dashboard mounts)                                         */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'profile' && (
+            <ProfileSection />
+          )}
 
           {/* ═══════════════════════════════════════════════════════════ */}
           {/*  GENERAL TAB                                              */}

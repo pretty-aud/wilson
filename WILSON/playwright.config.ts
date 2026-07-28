@@ -9,12 +9,12 @@
 //   npx playwright install chromium
 //
 // Running:
-//   npm run dev         # terminal 1 — serves the renderer at :5203
-//   npx playwright test # terminal 2 — exercises the flows
+//   npx playwright test   # webServer below auto-starts `npm run dev` at :5203
+//                         # (reuses an already-running dev server locally)
 //
-// CI integration is queued for Session 4 — the config supports it today via
-// PLAYWRIGHT_BASE_URL / PROBE_* env vars wired the same way as the
-// issue-session smoke job in .github/workflows/rls.yml.
+// CI (Session 4): the e2e-auth job in .github/workflows/rls.yml runs this
+// against wilson-dev with VITE_* env from the DEV_* repo secrets and
+// PLAYWRIGHT_SKIP_EMAIL=1 (no mailpit in that job).
 // =============================================================================
 
 import { defineConfig, devices } from '@playwright/test'
@@ -23,7 +23,9 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5203'
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30_000,
+  // WILSON's auth shell + page transitions are deliberately slow (~6s logo
+  // intro, ~4s reveal, 2.1s page swaps) — 30s total was too tight in practice.
+  timeout: 60_000,
   expect: { timeout: 5_000 },
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -33,6 +35,9 @@ export default defineConfig({
 
   use: {
     baseURL: BASE_URL,
+    // Without this, a click on a locator that never matches blocks until the
+    // TEST timeout — cap individual actions so fallbacks actually run.
+    actionTimeout: 10_000,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
@@ -43,4 +48,14 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
+
+  // Auto-start the Vite dev server. Vite inherits VITE_SUPABASE_URL /
+  // VITE_SUPABASE_ANON_KEY from the process env (CI) or .env.development
+  // (local). reuseExistingServer keeps the two-terminal workflow viable.
+  webServer: {
+    command: 'npm run dev',
+    url: BASE_URL,
+    reuseExistingServer: !process.env.CI,
+    timeout: 120_000,
+  },
 })

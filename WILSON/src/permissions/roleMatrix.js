@@ -19,11 +19,10 @@
 // Project-level roles (Manager / Reviewer / Member on a specific project)
 // are a Session 6 concern and live in a separate matrix.
 //
-// Adding a new action: add a key to ACTIONS below, then add it to the role
-// sets that should be allowed. A Vitest suite covering the expected
-// assignment for every action is pending (tracked in the Session 3 → 4
-// handoff) — until it lands, any edit to this matrix should be paired with
-// a manual smoke test of the affected UI.
+// Adding a new action: add a key to ACTIONS below (keep it alphabetised),
+// add it to the role sets that should be allowed, and mirror it in the
+// EXPECTED table in roleMatrix.test.js — the suite fails on any mismatch,
+// including forgotten test entries.
 // =============================================================================
 
 export const ROLES = Object.freeze(['admin', 'manager', 'user'])
@@ -33,6 +32,7 @@ export const ROLES = Object.freeze(['admin', 'manager', 'user'])
 // in production. Keep this list alphabetised.
 export const ACTIONS = Object.freeze([
   'member.invite',
+  'member.profile.edit_others',
   'member.remove',
   'member.role.change',
   'project.create',
@@ -47,6 +47,7 @@ export const ACTIONS = Object.freeze([
 const ALLOW = {
   admin:   new Set([
     'member.invite',
+    'member.profile.edit_others',
     'member.remove',
     'member.role.change',
     'project.create',
@@ -57,6 +58,7 @@ const ALLOW = {
     'workspace.settings.write',
   ]),
   manager: new Set([
+    'member.profile.edit_others',
     'project.create',
     'rate_card.view',
     'workspace.settings.read',

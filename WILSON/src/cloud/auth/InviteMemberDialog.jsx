@@ -102,7 +102,10 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
       }
 
       setSuccess({ email: emailV, username: usernameV })
-      onInvited?.(json)
+      // The 201 body has no display_name (the Edge Function defaults it to
+      // the username server-side) — pass along what the admin typed so the
+      // Team Members list can show the real name without a refetch.
+      onInvited?.({ ...json, display_name: displayV || null })
       setBusy(false)
     } catch (err) {
       setError(err?.message ?? 'Unknown error.')

@@ -45,8 +45,13 @@ export function useTeamMembers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // StrictMode-safe: the body must reset to true — setup → cleanup → setup
+  // reuses the same ref, and a cleanup-only effect strands it at false.
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load members on mount + on adapter mode change ──
   const loadMembers = useCallback(async () => {
