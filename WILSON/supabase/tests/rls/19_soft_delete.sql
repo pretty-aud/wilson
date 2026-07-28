@@ -263,6 +263,11 @@ SELECT throws_ok(
 );
 
 -- ── probes 22-25: comments + rate cards soft-delete via RPC ──────────────
+-- De-auth first: tests.login_as needs the tests schema, which only the
+-- runner can touch.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
 SELECT tests.login_as(
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   '11111111-1111-1111-1111-111111111111'
@@ -291,6 +296,9 @@ SELECT is(
 );
 
 -- ── probe 26: cross-workspace restore is refused ─────────────────────────
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
 SELECT tests.login_as(
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
   '22222222-2222-2222-2222-222222222222'
