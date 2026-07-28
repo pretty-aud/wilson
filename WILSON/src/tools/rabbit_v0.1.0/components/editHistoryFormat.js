@@ -18,6 +18,13 @@ export const ACTION_META = {
   delete: { label: 'Deleted', color: '#fca5a5' },
 }
 
+// Soft delete / restore (Session 6, migration 0014): the deleted_at flip is
+// captured as an ordinary 'update' diff, and HIDDEN_FIELDS suppresses the
+// raw deleted_at/deleted_by lines — without the entryActionMeta() relabel
+// the row would render as an empty edit. RESTORE_META has no matching DB
+// action; it exists only for this client-side relabel.
+export const RESTORE_META = { label: 'Restored', color: '#4ade80' }
+
 // Friendly singular labels for the 13 RABBIT entity_type table names.
 export const ENTITY_LABELS = {
   projects:          'project',
@@ -65,6 +72,33 @@ export function diffLines(entry) {
       from: displayValue(entry.diff[k]?.old),
       to:   displayValue(entry.diff[k]?.new),
     }))
+}
+
+/**
+ * Soft-delete transition inside an 'update' row: 'deleted' when the diff
+ * flips deleted_at null→set, 'restored' for set→null, else null.
+ */
+export function softDeleteTransition(entry) {
+  if (!entry || entry.action !== 'update') return null
+  const d = entry.diff?.deleted_at
+  if (!d || typeof d !== 'object') return null
+  const wasLive = d.old === null || d.old === undefined
+  const isLive  = d.new === null || d.new === undefined
+  if (wasLive && !isLive) return 'deleted'
+  if (!wasLive && isLive) return 'restored'
+  return null
+}
+
+/**
+ * Action meta for a history row — ACTION_META keyed by action, except the
+ * soft-delete transitions, which relabel as Deleted (delete styling) /
+ * Restored.
+ */
+export function entryActionMeta(entry) {
+  const transition = softDeleteTransition(entry)
+  if (transition === 'deleted')  return ACTION_META.delete
+  if (transition === 'restored') return RESTORE_META
+  return ACTION_META[entry?.action] || { label: entry?.action || '', color: '#a8a29e' }
 }
 
 /**

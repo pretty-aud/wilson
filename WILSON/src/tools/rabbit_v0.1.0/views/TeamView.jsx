@@ -14,6 +14,12 @@
 //
 // Only members assigned to this project can be selected as
 // task assignees or reviewers in the Timeline and Assets views.
+//
+// Session 6: in supabase mode this view manages the project_members roster
+// (migration 0013) via ProjectMembersPanel below — project-level
+// manager / reviewer / member seats with projectRoleMatrix-parity gating.
+// The legacy team_assignments UI is untouched and still drives the
+// local_server / google_drive modes.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -23,6 +29,9 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useWorkspaceMembers } from '../../../components/TeamMembers/useWorkspaceMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject } from '../../../permissions/projectRoleMatrix'
 
 const ROLE_COLORS = {
   member:   { fg: '#d6d3d1', bg: '#1c1917', border: '#44403c' },
@@ -98,6 +107,7 @@ export default function TeamView() {
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
 
   const project = ctx?.project
+  const cloudMode = ctx?.adapterMode === 'supabase'
   const teamAssignments = ctx?.teamAssignments || []
   const tasks = ctx?.tasks || []
 
@@ -419,6 +429,14 @@ export default function TeamView() {
     )
   }
 
+  // ── Cloud branch (Session 6) ──
+  // Supabase mode staffs projects through project_members (0013), not the
+  // legacy team_assignments JSON. Everything below this return is the
+  // local/drive UI, kept exactly as it was.
+  if (cloudMode) {
+    return <ProjectMembersPanel ctx={ctx} />
+  }
+
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── Toolbar ── */}
@@ -579,6 +597,254 @@ export default function TeamView() {
           onClose={() => setShowPicker(false)}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Cloud roster panel (Supabase project_members, Session 6) ───
+//
+// One card = the whole roster (common region). The add-member picker sits
+// first in the card (serial position), each row groups avatar + name +
+// username + title tight on the left (proximity), the role select carries
+// a one-line description of the selected role (exactly 3 choices, default
+// 'member'), and remove is a subdued icon at the far right, well away from
+// the select (Fitts). Mutations go through the provider's optimistic
+// project-member API; the DB (0013 RLS) is the real gate — canOnProject()
+// here is presentation only. Non-managers get the read-only list.
+
+const PROJECT_ROLE_OPTIONS = [
+  { value: 'member',   label: 'Member',   desc: 'Edits project content' },
+  { value: 'manager',  label: 'Manager',  desc: 'Edits everything and manages this roster' },
+  { value: 'reviewer', label: 'Reviewer', desc: 'Read-only, can comment' },
+]
+const PROJECT_ROLE_RANK = { manager: 0, member: 1, reviewer: 2 }
+
+function ProjectMembersPanel({ ctx }) {
+  const perms = usePermissions()
+  const dir = useWorkspaceMembers()
+  const [search, setSearch] = useState('')
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const pickerRef = useRef(null)
+
+  const projectMembers = ctx?.projectMembers || []
+  const canManage = canOnProject({
+    appRole:     perms.role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed:   ctx?.projectIsStaffed,
+  }, 'project.roster.manage')
+
+  // user_id → directory row (display_name / username / title / avatar)
+  const dirById = useMemo(() => {
+    const map = {}
+    for (const m of dir.members) map[m.user_id] = m
+    return map
+  }, [dir.members])
+
+  const seatedIds = useMemo(
+    () => new Set(projectMembers.map(pm => pm.user_id)),
+    [projectMembers],
+  )
+
+  // Active directory members without a seat yet, narrowed by the search box.
+  const available = useMemo(() => {
+    const s = search.trim().toLowerCase()
+    return dir.members.filter(m => {
+      if (seatedIds.has(m.user_id) || m.is_active === false) return false
+      if (!s) return true
+      return (m.display_name || '').toLowerCase().includes(s)
+        || (m.username || '').toLowerCase().includes(s)
+        || (m.title || '').toLowerCase().includes(s)
+    })
+  }, [dir.members, seatedIds, search])
+
+  // Managers first, then members, then reviewers; name within each.
+  const seated = useMemo(() => {
+    return [...projectMembers].sort((a, b) => {
+      const ra = PROJECT_ROLE_RANK[a.project_role] ?? 9
+      const rb = PROJECT_ROLE_RANK[b.project_role] ?? 9
+      if (ra !== rb) return ra - rb
+      const na = (dirById[a.user_id]?.display_name || dirById[a.user_id]?.username || '').toLowerCase()
+      const nb = (dirById[b.user_id]?.display_name || dirById[b.user_id]?.username || '').toLowerCase()
+      return na.localeCompare(nb)
+    })
+  }, [projectMembers, dirById])
+
+  // Close the picker dropdown on outside click (same pattern as the saved
+  // views dropdown below).
+  useEffect(() => {
+    if (!pickerOpen) return
+    function handleClick(e) {
+      if (pickerRef.current && !pickerRef.current.contains(e.target)) setPickerOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [pickerOpen])
+
+  async function handleAdd(userId) {
+    if (!ctx?.addProjectMember) return
+    setSearch('')
+    setPickerOpen(false)
+    try {
+      await ctx.addProjectMember(userId, 'member')
+    } catch (err) {
+      console.error('[TeamView] add project member failed:', err)
+    }
+  }
+
+  async function handleSeatRoleChange(userId, role) {
+    if (!ctx?.updateProjectMemberRole) return
+    try {
+      await ctx.updateProjectMemberRole(userId, role)
+    } catch (err) {
+      console.error('[TeamView] project role change failed:', err)
+    }
+  }
+
+  async function handleSeatRemove(userId, name) {
+    if (!ctx?.removeProjectMember) return
+    if (!window.confirm(`Remove "${name}" from this project's roster?`)) return
+    try {
+      await ctx.removeProjectMember(userId)
+    } catch (err) {
+      console.error('[TeamView] remove project member failed:', err)
+    }
+  }
+
+  return (
+    <div className="h-full overflow-auto" style={{ backgroundColor: '#1c1917' }}>
+      <div className="max-w-2xl mx-auto px-6 py-6">
+        {/* ── Roster card ── */}
+        <div className="rounded-sm" style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}>
+          <div className="flex items-center gap-2 px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
+            <Users className="w-4 h-4 flex-shrink-0" style={{ color: '#fb923c' }} />
+            <span className="text-xs font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>
+              Project Roster
+            </span>
+            <span className="ml-auto text-[10.5px] font-mono" style={{ color: '#78716c' }}>
+              {seated.length} seat{seated.length === 1 ? '' : 's'}
+            </span>
+          </div>
+
+          {/* Add-member picker — first thing in the card */}
+          {canManage && (
+            <div ref={pickerRef} className="relative px-4 py-3" style={{ borderBottom: '1px solid #44403c' }}>
+              <div className="flex items-center gap-2 px-2 rounded-sm" style={{ border: '1px solid #44403c', backgroundColor: '#1c1917' }}>
+                <UserPlus className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fb923c' }} />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setPickerOpen(true) }}
+                  onFocus={() => setPickerOpen(true)}
+                  placeholder="Add member — search the workspace directory…"
+                  className="flex-1 py-1.5 text-[11.5px] font-mono bg-transparent focus:outline-none"
+                  style={{ color: '#d6d3d1' }}
+                />
+              </div>
+              {pickerOpen && (
+                <div className="absolute left-4 right-4 mt-1 z-40 rounded-sm shadow-2xl overflow-y-auto"
+                  style={{ backgroundColor: '#292524', border: '1px solid #44403c', maxHeight: 220 }}>
+                  {dir.loading ? (
+                    <div className="px-3 py-2 text-[10.5px] font-mono italic" style={{ color: '#57534e' }}>
+                      Loading directory…
+                    </div>
+                  ) : available.length === 0 ? (
+                    <div className="px-3 py-2 text-[10.5px] font-mono italic" style={{ color: '#57534e' }}>
+                      {search.trim() ? 'No matches.' : 'Every active workspace member is already on the roster.'}
+                    </div>
+                  ) : (
+                    available.map(m => (
+                      <button
+                        key={m.user_id}
+                        type="button"
+                        onClick={() => handleAdd(m.user_id)}
+                        className="flex items-center gap-2.5 w-full px-3 py-2 text-left hover:bg-stone-700 transition-colors"
+                        style={{ borderBottom: '1px solid #1c1917' }}
+                      >
+                        <MemberAvatar member={{ name: m.display_name || m.username }} size={24} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-mono" style={{ color: '#d6d3d1' }}>
+                            {m.display_name || m.username || 'Unnamed'}
+                          </div>
+                          <div className="text-[10.5px] font-mono truncate" style={{ color: '#78716c' }}>
+                            {[m.username ? `@${m.username}` : null, m.title].filter(Boolean).join(' — ') || '--'}
+                          </div>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Seats (or the unstaffed explainer) */}
+          {seated.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 px-6 py-10 text-center">
+              <Users className="w-6 h-6" style={{ color: '#57534e' }} />
+              <span className="text-[11.5px] font-mono italic" style={{ color: '#78716c' }}>
+                No roster yet — everyone in the workspace can edit this project. Add members to restrict it.
+              </span>
+            </div>
+          ) : (
+            seated.map(pm => {
+              const m = dirById[pm.user_id]
+              const name = m?.display_name || m?.username || 'Unknown member'
+              const role = pm.project_role || 'member'
+              const roleDef = PROJECT_ROLE_OPTIONS.find(o => o.value === role) || PROJECT_ROLE_OPTIONS[0]
+              const roleColor = ROLE_COLORS[role] || ROLE_COLORS.member
+              return (
+                <div key={pm.user_id} className="flex items-center gap-3 px-4 py-3" style={{ borderBottom: '1px solid #1c1917' }}>
+                  {/* identity cluster */}
+                  <MemberAvatar member={{ name }} size={28} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-mono" style={{ color: '#d6d3d1' }}>{name}</div>
+                    <div className="text-[10.5px] font-mono truncate" style={{ color: '#78716c' }}>
+                      {[m?.username ? `@${m.username}` : null, m?.title].filter(Boolean).join(' — ') || '--'}
+                    </div>
+                  </div>
+                  {/* role control (read-only badge for non-managers) */}
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {canManage ? (
+                      <select
+                        value={role}
+                        onChange={e => handleSeatRoleChange(pm.user_id, e.target.value)}
+                        className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                        style={{ backgroundColor: roleColor.bg, color: roleColor.fg, border: `1px solid ${roleColor.border}` }}
+                      >
+                        {PROJECT_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    ) : (
+                      <span className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm"
+                        style={{ backgroundColor: roleColor.bg, color: roleColor.fg, border: `1px solid ${roleColor.border}` }}>
+                        {roleDef.label}
+                      </span>
+                    )}
+                    <span className="text-[9.5px] font-mono" style={{ color: '#57534e' }}>{roleDef.desc}</span>
+                  </div>
+                  {/* remove — far right, clear of the role select */}
+                  {canManage && (
+                    <button
+                      type="button"
+                      onClick={() => handleSeatRemove(pm.user_id, name)}
+                      className="p-1 ml-3 rounded-sm hover:bg-stone-700 transition-colors flex-shrink-0"
+                      title="Remove from roster"
+                      style={{ color: '#57534e' }}
+                    >
+                      <UserMinus className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {dir.error && (
+          <div className="mt-2 text-[10.5px] font-mono" style={{ color: '#fca5a5' }}>
+            Directory unavailable: {dir.error}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

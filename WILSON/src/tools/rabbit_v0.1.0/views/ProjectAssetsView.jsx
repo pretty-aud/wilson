@@ -37,6 +37,7 @@ import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
 import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
@@ -183,9 +184,16 @@ export default function ProjectAssetsView() {
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only
   // hides the affordance below manager.
-  const { can } = usePermissions()
+  const { can, role } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyAssetId, setHistoryAssetId] = useState(null)
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // hides write affordances for staffed-project reviewers.
+  const canWrite = canOnProject(
+    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
+    'project.entity.write'
+  )
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -473,11 +481,13 @@ export default function ProjectAssetsView() {
             {processed.length}/{assets.length}
           </span>
 
-          <button type="button" onClick={handleAddAsset}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <Plus className="w-3.5 h-3.5" /> New asset
-          </button>
+          {canWrite && (
+            <button type="button" onClick={handleAddAsset}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+              <Plus className="w-3.5 h-3.5" /> New asset
+            </button>
+          )}
         </div>
       </div>
 
@@ -504,6 +514,7 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            canWrite={canWrite}
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             collapsedGroups={collapsedGroups}
@@ -537,6 +548,7 @@ export default function ProjectAssetsView() {
                   phaseById={phaseById}
                   taskCountByAsset={taskCountByAsset}
                   ctx={ctx}
+                  canWrite={canWrite}
                   thumbRevision={thumbRevision}
                   onThumbChanged={() => setThumbRevision(r => r + 1)}
                   onWarningClick={(id) => setWarningAssetId(id)}
@@ -552,6 +564,7 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            canWrite={canWrite}
             thumbRevision={thumbRevision}
             onThumbChanged={() => setThumbRevision(r => r + 1)}
             onWarningClick={(id) => setWarningAssetId(id)}
@@ -757,7 +770,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW (flex-based, matching Tasks tab)
 // ═════════════════════════════════════════════════════
-function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick }) {
+function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, canWrite, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
 
   // ── Multi-select state ──
@@ -781,9 +794,12 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
     for (const id of selected) ctx?.updateAsset?.(id, patch)
     clearSelection()
   }
+  // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   function bulkDelete() {
     if (!window.confirm(`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?`)) return
-    for (const id of selected) ctx?.deleteAsset?.(id)
+    // Batch deletes reject on partial failure — the provider already
+    // records the error in its state, so just swallow the rejection.
+    ctx?.deleteAssets?.([...selected])?.catch(() => {})
     clearSelection()
   }
 
@@ -820,16 +836,20 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
-            </button>
+            {canWrite && (
+              <>
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+                <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
+                <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <button type="button" onClick={bulkDelete}
+                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+                  style={{ color: '#fca5a5' }}>
+                  <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
+                </button>
+              </>
+            )}
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -891,7 +911,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   thumbSize={thumbSize}
                   thumbRevision={thumbRevision}
                   onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-                  onDelete={() => ctx.deleteAsset(a.id)}
+                  onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
                   onWarningClick={() => onWarningClick?.(a.id)}
                   onDetailClick={() => onDetailClick?.(a.id)}
                   onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
@@ -916,7 +936,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-            onDelete={() => ctx.deleteAsset(a.id)}
+            onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
             onWarningClick={() => onWarningClick?.(a.id)}
             onDetailClick={() => onDetailClick?.(a.id)}
             onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
@@ -1072,12 +1092,14 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
                 <History className="w-3.5 h-3.5" />
               </button>
             )}
-            <button type="button"
-              onClick={() => { if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) onDelete() }}
-              className="p-1 rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {onDelete && (
+              // Soft delete — no confirm; the shell-level undo toast covers it.
+              <button type="button" onClick={onDelete}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#fca5a5' }}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )
       default:
@@ -1160,7 +1182,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
 // ═════════════════════════════════════════════════════
 // GALLERY VIEW
 // ═════════════════════════════════════════════════════
-function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
+function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
@@ -1180,7 +1202,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, thumbRevision,
           warning={ctx?.selectAssetStatusWarning?.(a)}
           thumbRevision={thumbRevision}
           onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-          onDelete={() => ctx.deleteAsset(a.id)}
+          onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
           onWarningClick={() => onWarningClick?.(a.id)}
           onDetailClick={() => onDetailClick?.(a.id)}
           onThumbChanged={onThumbChanged}
@@ -1285,13 +1307,15 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
         <span className="text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
           {taskCount} task{taskCount === 1 ? '' : 's'}
         </span>
-        <button type="button"
-          onClick={() => { if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) onDelete() }}
-          className="p-0.5 rounded hover:bg-stone-700 transition-colors"
-          title="Delete asset"
-          style={{ color: '#fca5a5' }}>
-          <Trash2 className="w-3 h-3" />
-        </button>
+        {onDelete && (
+          // Soft delete — no confirm; the shell-level undo toast covers it.
+          <button type="button" onClick={onDelete}
+            className="p-0.5 rounded hover:bg-stone-700 transition-colors"
+            title="Delete asset"
+            style={{ color: '#fca5a5' }}>
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
       </div>
     </div>
   )

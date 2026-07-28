@@ -391,11 +391,11 @@ export default function ProjectDetailPanel({
         {/* ── Divider ── */}
         <div style={L.divider} />
 
-        {/* ── Danger zone ──────────────────────────────── */}
+        {/* ── Danger zone (null onRequestDelete hides it — permission-gated) ── */}
         {deleteConfirm ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <span style={{ fontSize: 14, color: '#dc2626', fontWeight: 700 }}>
-              Delete this project permanently?
+              Delete this project?
             </span>
             <button
               onClick={onDelete}
@@ -419,7 +419,7 @@ export default function ProjectDetailPanel({
               Cancel
             </button>
           </div>
-        ) : (
+        ) : onRequestDelete ? (
           <button
             onClick={onRequestDelete}
             className="flex items-center gap-2 rounded-sm transition-colors"
@@ -432,7 +432,7 @@ export default function ProjectDetailPanel({
             <Trash2 size={15} />
             Delete Project
           </button>
-        )}
+        ) : null}
 
         {/* Errors / warnings */}
         {saveError && (

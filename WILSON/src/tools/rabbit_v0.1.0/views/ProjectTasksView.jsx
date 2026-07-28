@@ -35,8 +35,9 @@ import {
   Clock, CalendarDays, History,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 
@@ -129,7 +130,11 @@ function fmt(s) { return (s || '').replace(/_/g, ' ') }
 // ─────────────────────────────────────────────────────
 export default function ProjectTasksView() {
   const ctx = useRabbit()
-  const tm  = useTeamMembers()
+  // Assignee resolution goes through the unified roster (Session 6) —
+  // auth users in cloud mode, legacy team members locally. Mirrors
+  // TaskDetailPopup so the ids shown here match what it writes to
+  // task.assignee_id.
+  const { members: rosterMembers, mode: rosterMode } = useRosterMembers()
   const tasks   = ctx?.tasks   || []
   const assets  = ctx?.assets  || []
   const phases  = ctx?.phases  || []
@@ -147,12 +152,20 @@ export default function ProjectTasksView() {
   }, [phases])
 
   const memberById = useMemo(() => {
-    const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m
-  }, [tm.members])
+    const m = {}; for (const mb of rosterMembers) m[mb.id] = mb; return m
+  }, [rosterMembers])
 
   const projectMembers = useMemo(() => {
+    if (rosterMode === 'supabase') {
+      // Cloud — project staffing lives in project_members (auth user_ids).
+      // Unstaffed projects fall back to the whole workspace roster.
+      if (!ctx?.projectIsStaffed) return rosterMembers
+      const staffedIds = new Set((ctx?.projectMembers || []).map(pm => pm.user_id))
+      return rosterMembers.filter(m => staffedIds.has(m.id))
+    }
+    // Local / drive — legacy RABBIT team assignments.
     return teamAssignments.map(a => memberById[a.member_id]).filter(Boolean)
-  }, [teamAssignments, memberById])
+  }, [rosterMode, rosterMembers, ctx?.projectIsStaffed, ctx?.projectMembers, teamAssignments, memberById])
 
   // ── View state ──
   const [viewMode, setViewMode] = useState('table') // table | kanban
@@ -180,9 +193,16 @@ export default function ProjectTasksView() {
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only
   // hides the affordance below manager.
-  const { can } = usePermissions()
+  const { can, role } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyTaskId, setHistoryTaskId] = useState(null)
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // hides write affordances for staffed-project reviewers.
+  const canWrite = canOnProject(
+    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
+    'project.entity.write'
+  )
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -559,25 +579,29 @@ export default function ProjectTasksView() {
             {processed.length}/{tasks.length}
           </span>
 
-          {/* Phase create */}
-          <button type="button" onClick={() => setShowPhaseCreate(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            <Plus className="w-3.5 h-3.5" /> Phase
-          </button>
+          {canWrite && (
+            <>
+              {/* Phase create */}
+              <button type="button" onClick={() => setShowPhaseCreate(true)}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+                <Plus className="w-3.5 h-3.5" /> Phase
+              </button>
 
-          {/* Key date create */}
-          <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
-            <Diamond className="w-3.5 h-3.5" /> Key Date
-          </button>
+              {/* Key date create */}
+              <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
+                className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
+                <Diamond className="w-3.5 h-3.5" /> Key Date
+              </button>
 
-          <button type="button" onClick={() => handleAddTask()}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <Plus className="w-3.5 h-3.5" /> New task
-          </button>
+              <button type="button" onClick={() => handleAddTask()}
+                className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
+                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+                <Plus className="w-3.5 h-3.5" /> New task
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -611,6 +635,7 @@ export default function ProjectTasksView() {
             collapsedGroups={collapsedGroups}
             toggleGroup={toggleGroup}
             ctx={ctx}
+            canWrite={canWrite}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
             onHistoryClick={canViewHistory ? (id) => setHistoryTaskId(id) : null}
@@ -629,6 +654,7 @@ export default function ProjectTasksView() {
             phaseById={phaseById}
             memberById={memberById}
             ctx={ctx}
+            canWrite={canWrite}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
           />
@@ -836,7 +862,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW
 // ═════════════════════════════════════════════════════
-function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title',    flex: 3 },
     { key: 'status',      label: 'Status',   flex: 1.2 },
@@ -871,9 +897,12 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     for (const id of selected) ctx?.updateTask?.(id, patch)
     clearSelection()
   }
+  // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   function bulkDelete() {
     if (!window.confirm(`Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`)) return
-    for (const id of selected) ctx?.deleteTask?.(id)
+    // Batch deletes reject on partial failure — the provider already
+    // records the error in its state, so just swallow the rejection.
+    ctx?.deleteTasks?.([...selected])?.catch(() => {})
     clearSelection()
   }
 
@@ -898,17 +927,21 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
             <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <BulkSelect label="Status" options={TASK_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <BulkSelect label="Priority" options={PRIORITIES} onPick={v => bulkUpdate({ priority: v })} />
-            <BulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
-            <BulkSelect label="Assignee" options={members.map(m => m.id)} labels={members.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ assignee_id: v || null })} allowEmpty />
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
-            </button>
+            {canWrite && (
+              <>
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <BulkSelect label="Status" options={TASK_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+                <BulkSelect label="Priority" options={PRIORITIES} onPick={v => bulkUpdate({ priority: v })} />
+                <BulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+                <BulkSelect label="Assignee" options={members.map(m => m.id)} labels={members.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ assignee_id: v || null })} allowEmpty />
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <button type="button" onClick={bulkDelete}
+                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+                  style={{ color: '#fca5a5' }}>
+                  <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
+                </button>
+              </>
+            )}
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -943,7 +976,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
             {milestones.length > 0 && (
               <div className="flex flex-col gap-1">
                 {milestones.map(ms => (
-                  <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                  <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} canWrite={canWrite} />
                 ))}
               </div>
             )}
@@ -952,7 +985,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                 assets={assets} phases={phases} members={members}
                 assetById={assetById} phaseById={phaseById} memberById={memberById}
                 collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-                ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick} onHistoryClick={onHistoryClick}
+                ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} onHistoryClick={onHistoryClick}
                 selected={selected} toggleOne={toggleOne} />
             ))}
           </>
@@ -978,12 +1011,12 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                 })
                 return merged.map(entry =>
                   entry.type === 'milestone' ? (
-                    <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} />
+                    <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} canWrite={canWrite} />
                   ) : (
                     <TaskRow key={entry.item.id} task={entry.item} columns={columns}
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
-                      ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                      ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(entry.item.id)}
                       onHistoryClick={onHistoryClick ? () => onHistoryClick(entry.item.id) : null}
                       isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
                   )
@@ -993,20 +1026,20 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
               return (
                 <>
                   {milestones.map(ms => (
-                    <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                    <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} canWrite={canWrite} />
                   ))}
                   {tasks.map(t => (
                     <TaskRow key={t.id} task={t} columns={columns}
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
-                      ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+                      ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)}
                       onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
                       isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
                   ))}
                 </>
               )
             })()}
-            <AddRowButton onAdd={() => onAddTask()} />
+            {canWrite && <AddRowButton onAdd={() => onAddTask()} />}
           </>
         )}
       </div>
@@ -1043,7 +1076,7 @@ function buildGroupPatch(groupBy, targetKey) {
 }
 
 // ── Task group with header + add-row + drop target ──
-function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick, onHistoryClick, selected, toggleOne }) {
+function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, selected, toggleOne }) {
   const [dragOver, setDragOver] = useState(false)
   const dragCountRef = useRef(0)
 
@@ -1150,11 +1183,11 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
             <TaskRow key={t.id} task={t} columns={columns}
               assets={assets} phases={phases} members={members}
               assetById={assetById} phaseById={phaseById} memberById={memberById}
-              ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+              ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)}
               onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
               isSelected={selected?.has(t.id)} onToggleSelect={() => toggleOne?.(t.id)} />
           ))}
-          <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
+          {canWrite && <AddRowButton onAdd={() => onAddTask(groupDefaults())} />}
         </div>
       )}
     </div>
@@ -1197,7 +1230,7 @@ function PhaseInlineEdit({ value, onCommit, accent }) {
 
 
 // ── Milestone row — visually distinct with diamond icon + amber accent ──
-function MilestoneRow({ milestone, columns, ctx }) {
+function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   const [hovered, setHovered] = useState(false)
   const [editTitle, setEditTitle] = useState(false)
   const [localTitle, setLocalTitle] = useState(milestone.title)
@@ -1217,10 +1250,14 @@ function MilestoneRow({ milestone, columns, ctx }) {
     }
     setEditDate(false)
   }
+  // Soft delete — no confirm; the shell-level undo toast covers it.
   function handleDelete() {
     if (isProjectBound) return
-    if (!confirm('Delete this milestone?')) return
-    ctx?.deleteMilestone?.(milestone.id)
+    // Milestones are hard-deleted with no undo path (local entity, not one of
+    // the 7 soft-delete tables) — the confirm stays until they get one.
+    if (window.confirm(`Delete milestone "${milestone.title || 'Untitled'}"?`)) {
+      ctx?.deleteMilestone?.(milestone.id)
+    }
   }
 
   return (
@@ -1298,7 +1335,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
         if (c.key === '_actions') {
           return (
             <div key={c.key} className="flex items-center justify-center px-2" style={{ flex: c.flex, minWidth: 0 }}>
-              {!isProjectBound && hovered && (
+              {canWrite && !isProjectBound && hovered && (
                 <button type="button" onClick={handleDelete}
                   className="p-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#78716c' }}>
                   <Trash2 className="w-3 h-3" />
@@ -1319,15 +1356,12 @@ function MilestoneRow({ milestone, columns, ctx }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
+function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
 
   function handleUpdate(patch) { ctx?.updateTask?.(task.id, patch) }
-  function handleDelete() {
-    if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) {
-      ctx?.deleteTask?.(task.id)
-    }
-  }
+  // Soft delete — no confirm; the shell-level undo toast covers it.
+  function handleDelete() { ctx?.deleteTask?.(task.id) }
 
   // Borderless select — transparent until hover/focus
   const flatSelect = {
@@ -1416,11 +1450,13 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
                 <History className="w-3.5 h-3.5" />
               </button>
             )}
-            <button type="button" onClick={handleDelete}
-              className="p-1 rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {canWrite && (
+              <button type="button" onClick={handleDelete}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#fca5a5' }}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )
       default:
@@ -1487,20 +1523,20 @@ function AddRowButton({ onAdd }) {
 // • Prägnanz — clean cards with left accent bar, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, onAddTask, onDetailClick }) {
+function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   return (
     <div className="flex gap-4 p-5 h-full overflow-x-auto">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
           assets={assets} phases={phases} members={members}
           assetById={assetById} phaseById={phaseById} memberById={memberById}
-          ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick} />
+          ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, onAddTask, onDetailClick }) {
+function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   const [addTitle, setAddTitle] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef(null)
@@ -1567,10 +1603,12 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
             {group.tasks.length}
           </span>
         </div>
-        <button type="button" onClick={() => onAddTask(groupDefaults())}
-          className="p-1 rounded hover:bg-stone-600 transition-colors" style={{ color: '#a8a29e' }}>
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        {canWrite && (
+          <button type="button" onClick={() => onAddTask(groupDefaults())}
+            className="p-1 rounded hover:bg-stone-600 transition-colors" style={{ color: '#a8a29e' }}>
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* ── Card list ── */}
@@ -1578,27 +1616,29 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
         {group.tasks.map(t => (
           <KanbanCard key={t.id} task={t}
             assetById={assetById} phaseById={phaseById} memberById={memberById}
-            ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)} />
+            ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)} />
         ))}
 
         {/* Inline add — dashed border invites input */}
-        <input ref={inputRef} type="text" value={addTitle} onChange={e => setAddTitle(e.target.value)}
-          placeholder="+ Add task..."
-          onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
-          onBlur={commitAdd}
-          className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
-          style={{
-            color: '#a8a29e',
-            backgroundColor: 'transparent',
-            border: '1px dashed #44403c',
-            flexShrink: 0,
-          }} />
+        {canWrite && (
+          <input ref={inputRef} type="text" value={addTitle} onChange={e => setAddTitle(e.target.value)}
+            placeholder="+ Add task..."
+            onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
+            onBlur={commitAdd}
+            className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
+            style={{
+              color: '#a8a29e',
+              backgroundColor: 'transparent',
+              border: '1px dashed #44403c',
+              flexShrink: 0,
+            }} />
+        )}
       </div>
     </div>
   )
 }
 
-function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick }) {
+function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onDetailClick }) {
   const [hovered, setHovered] = useState(false)
   const sc = statusColor(task.status)
   const pc = priorityColor(task.priority)
@@ -1637,12 +1677,14 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
             style={{ color: '#fb923c' }}>
             <FileText className="w-3 h-3" />
           </button>
-          <button type="button" onClick={() => {
-            if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) ctx?.deleteTask?.(task.id)
-          }} className="p-0.5 rounded hover:bg-stone-600 transition-colors"
-            style={{ color: '#ef4444' }}>
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {canWrite && (
+            // Soft delete — no confirm; the shell-level undo toast covers it.
+            <button type="button" onClick={() => ctx?.deleteTask?.(task.id)}
+              className="p-0.5 rounded hover:bg-stone-600 transition-colors"
+              style={{ color: '#ef4444' }}>
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 

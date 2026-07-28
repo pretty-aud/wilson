@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { History, RefreshCw, X } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import {
-  ACTION_META, ENTITY_LABELS,
+  ENTITY_LABELS, entryActionMeta,
   diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
 } from './editHistoryFormat'
 
@@ -126,7 +126,8 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
 }
 
 function HistoryEntry({ entry }) {
-  const meta = ACTION_META[entry.action] || { label: entry.action, color: '#a8a29e' }
+  // entryActionMeta classifies soft-delete transitions as Deleted / Restored.
+  const meta = entryActionMeta(entry) || { label: entry.action, color: '#a8a29e' }
   const lines = diffLines(entry)
   const summary = entry.action !== 'update' ? snapshotSummary(entry) : null
 

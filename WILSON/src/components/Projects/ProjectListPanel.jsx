@@ -5,6 +5,9 @@
 // No card container — table flows directly on the warm page bg.
 // Moderate warm brown tones for header/rows. Content uses full
 // available width for a spacious feel.
+//
+// onCreate / onRequestDelete are nullable (Session 6): null hides the
+// affordance — cloud mode gates them by app role, local mode passes both.
 
 import { Plus, Trash2 } from 'lucide-react'
 
@@ -48,18 +51,20 @@ export default function ProjectListPanel({
               Create and manage your projects, upload reference documents and visual assets
             </p>
           </div>
-          <button
-            onClick={onCreate}
-            className="flex items-center gap-2 rounded-sm transition-colors"
-            style={{
-              backgroundColor: '#ea580c', color: '#fff',
-              padding: '10px 20px', fontSize: 13, fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}
-          >
-            <Plus size={16} />
-            New Project
-          </button>
+          {onCreate && (
+            <button
+              onClick={onCreate}
+              className="flex items-center gap-2 rounded-sm transition-colors"
+              style={{
+                backgroundColor: '#ea580c', color: '#fff',
+                padding: '10px 20px', fontSize: 13, fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}
+            >
+              <Plus size={16} />
+              New Project
+            </button>
+          )}
         </div>
 
         {projects.length === 0 ? (
@@ -81,17 +86,19 @@ export default function ProjectListPanel({
             <p style={{ fontSize: 13, color: '#7c4f1f', marginBottom: 20 }}>
               Create your first project to get started
             </p>
-            <button
-              onClick={onCreate}
-              className="rounded-sm transition-colors"
-              style={{
-                backgroundColor: '#ea580c', color: '#fff',
-                padding: '10px 24px', fontSize: 14, fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}
-            >
-              Create Project
-            </button>
+            {onCreate && (
+              <button
+                onClick={onCreate}
+                className="rounded-sm transition-colors"
+                style={{
+                  backgroundColor: '#ea580c', color: '#fff',
+                  padding: '10px 24px', fontSize: 14, fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}
+              >
+                Create Project
+              </button>
+            )}
           </div>
         ) : (
           /* Project table — flows on page */
@@ -199,20 +206,22 @@ export default function ProjectListPanel({
                   {formatDate(project.endDate || project.end_date)}
                 </span>
 
-                {/* Delete */}
+                {/* Delete — span stays for grid alignment when hidden */}
                 <span style={{ padding: '14px 10px', display: 'flex', justifyContent: 'center' }}>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); onRequestDelete(project.id) }}
-                    style={{
-                      color: '#9a6438', padding: 4, borderRadius: 3,
-                      border: 'none', background: 'none', cursor: 'pointer',
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                    onMouseLeave={e => e.currentTarget.style.color = '#9a6438'}
-                    title="Delete project"
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  {onRequestDelete && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onRequestDelete(project.id) }}
+                      style={{
+                        color: '#9a6438', padding: 4, borderRadius: 3,
+                        border: 'none', background: 'none', cursor: 'pointer',
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                      onMouseLeave={e => e.currentTarget.style.color = '#9a6438'}
+                      title="Delete project"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </span>
               </div>
             ))}

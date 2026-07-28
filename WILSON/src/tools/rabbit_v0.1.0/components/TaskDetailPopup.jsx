@@ -18,8 +18,10 @@ import {
   Gamepad2, Sparkles, Boxes, FolderOpen,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import FileManager from './FileManager'
 
 // ── Constants ──
@@ -65,15 +67,28 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const shots = ctx?.shots || []
   const levels = ctx?.levels || []
   const experiences = ctx?.experiences || []
-  const teamAssignments = ctx?.teamAssignments || []
 
-  const tm = useTeamMembers()
-  const memberById = useMemo(() => {
-    const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m
-  }, [tm.members])
-  const projectMembers = useMemo(() => {
-    return teamAssignments.map(a => memberById[a.member_id]).filter(Boolean)
-  }, [teamAssignments, memberById])
+  // Assignee/reviewer options come from the unified roster (Session 6) —
+  // auth users in cloud mode, team members locally. Selections write the
+  // canonical task.assignee_id / task.reviewer_id columns.
+  const { members: rosterMembers, mode: rosterMode } = useRosterMembers()
+
+  // In local_server mode the selects honor the documented TeamView
+  // contract — only PROJECT-ASSIGNED members are offered, not the whole
+  // workspace. Cloud mode stays on the full roster.
+  const assignableMembers = useMemo(() => {
+    if (rosterMode !== 'local_server') return rosterMembers
+    const assignedIds = new Set((ctx?.teamAssignments || []).map(a => a.member_id))
+    return rosterMembers.filter(m => assignedIds.has(m.id))
+  }, [rosterMode, rosterMembers, ctx?.teamAssignments])
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // hides the delete affordance for staffed-project reviewers.
+  const { role } = usePermissions()
+  const canWrite = canOnProject(
+    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
+    'project.entity.write'
+  )
 
   const rc = useRateCard()
   const roleEntries = useMemo(() => {
@@ -381,7 +396,16 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
-                  {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <FieldLabel>Reviewer</FieldLabel>
+                <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: task.reviewer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  <option value="">--</option>
+                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </div>
               <div>
@@ -505,12 +529,15 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) { ctx?.deleteTask?.(task.id); onClose() } }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
-            <Trash2 className="w-3.5 h-3.5" /> Delete task
-          </button>
+          {canWrite ? (
+            // Soft delete — no confirm; the shell-level undo toast covers it.
+            <button type="button"
+              onClick={() => { ctx?.deleteTask?.(task.id); onClose() }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
+              style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete task
+            </button>
+          ) : <span />}
           <button type="button" onClick={onClose}
             className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>

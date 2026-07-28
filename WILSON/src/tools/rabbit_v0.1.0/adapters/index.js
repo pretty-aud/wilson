@@ -107,6 +107,27 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  *   Supabase-only (DB-trigger capture, migration 0012); local_server and
  *   google_drive resolve to [] so the drawer can render an empty state.
  *
+ * @property {(id: string) => Promise<void>}                        restoreProject
+ * @property {(id: string) => Promise<void>}                        restorePhase
+ * @property {(id: string) => Promise<void>}                        restoreAsset
+ * @property {(id: string) => Promise<void>}                        restoreTask
+ * @property {(id: string) => Promise<void>}                        restoreFile
+ * @property {(id: string) => Promise<void>}                        restoreComment
+ * @property {(id: string) => Promise<void>}                        restoreRateCard
+ *   Supabase-only (soft delete, migration 0014): delete* on the 7
+ *   user-facing tables sets deleted_at and restore* clears it (deleted_by
+ *   is stamped/cleared by a DB trigger). local_server keeps hard deletes
+ *   and does NOT implement restore* — callers feature-detect with
+ *   `typeof adapter.restoreX === 'function'`.
+ *
+ * @property {(projectId: string) => Promise<object[]>}             listProjectMembers
+ * @property {(row: object) => Promise<object>}                     upsertProjectMember
+ * @property {(projectId: string, userId: string) => Promise<void>} removeProjectMember
+ *   Supabase-only (project roster, migration 0013); local_server does not
+ *   implement them (feature-detect), google_drive lists []. upsertProjectMember
+ *   takes { project_id, user_id, project_role } — never send workspace_id,
+ *   a BEFORE INSERT trigger derives it from the project.
+ *
  * @property {(run: object) => Promise<object>}                     createIngestionRun
  * @property {(runId: string, patch: object) => Promise<object>}    updateIngestionRun
  * @property {(runId: string) => Promise<object[]>}                 listIngestionChunks

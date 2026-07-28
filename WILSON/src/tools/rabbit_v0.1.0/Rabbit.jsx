@@ -214,6 +214,11 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
       {/* ── Background ingestion toast ── */}
       <IngestionToast onJumpToReview={handleJumpToReview} />
 
+      {/* NOTE: the undo toast (soft-delete forgiveness window) is
+          mounted once at the App.jsx level, inside <RabbitProvider>,
+          so it stays visible when deletes fire from pages that keep
+          this shell display:none (e.g. ProjectsPage). */}
+
       {/* ── Adapter status dot ── */}
       {/* Replaces the old header adapter pill. A single 10px
           circle pinned to the bottom-right corner of the frame,

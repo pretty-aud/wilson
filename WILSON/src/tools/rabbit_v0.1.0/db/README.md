@@ -215,3 +215,88 @@ adapter involvement. Revert/undo is deliberately absent until Session 7.
   drawer itself also carries an "unavailable in this mode" notice for
   mixed setups where a signed-in user switches adapters.) Local parity is
   a candidate for the Session 6 identity unification work.
+
+## 11. Project roles (Session 6, migration 0013)
+
+`public.project_members` holds one row per seat: `(project_id, user_id)`
+→ `project_role` (`manager` | `reviewer` | `member`). A composite FK to
+`workspace_members(workspace_id, user_id)` guarantees seats belong to
+real workspace members and cascades them away on workspace removal.
+
+The gating rule lives in one DB helper, `can_write_project()`, and is
+mirrored client-side in `src/permissions/projectRoleMatrix.js` — change
+them in lockstep:
+
+- app `admin`/`manager` (JWT `app_role`) bypass project gating entirely;
+- an **unstaffed** project (zero seats) stays open to every active
+  member — every pre-Session-6 project is unstaffed, so adding the
+  feature changed nothing until someone staffs a roster;
+- staffed: project `manager`/`member` write entities; `reviewer` reads
+  and comments only (`can_comment_project()`);
+- rosters are workspace-visible; managed by app admin/manager or the
+  project's manager (`can_manage_project_roster()`). Initial staffing is
+  therefore an app-admin/manager act.
+
+Every project-scoped entity write policy (assets, tasks, files, phases,
+comments, versions, deps, links, ingestion) now carries the gate.
+Matrix-parity tightening on `projects` itself: INSERT admin+manager
+(`project.create`), hard DELETE admin only (`project.delete`).
+`rate_cards`/`rate_card_entries` are workspace-level, not project-scoped.
+
+Known gaps: roster changes are NOT edit-history captured (0012's
+`entity_type` CHECK locks the 13 RABBIT tables; project_members is
+auth-layer, like workspace_members). Legacy local-mode team_assignments
+remain untouched — TeamView branches by adapter mode.
+
+## 12. Soft delete + undo (Session 6, migration 0014)
+
+The 7 user-facing tables (`projects`, `phases`, `assets`, `tasks`,
+`files`, `comments`, `rate_cards`) soft-delete through two SECURITY
+DEFINER RPCs — `soft_delete_row()` / `restore_soft_deleted()` — which
+re-check workspace + membership + the project gate, then flip
+`deleted_at`; a trigger (`fn_soft_delete_stamp`) stamps `deleted_by` and
+clears it on restore. Plain UPDATEs cannot do either direction: SELECT
+policies apply to both sides of an UPDATE that reads the table, so
+setting `deleted_at` makes the new row invisible (RLS violation) and a
+hidden row can't even be targeted for restore (silent 0-row no-op).
+The 6 leaf/link tables stay hard-delete — their UNIQUE constraints
+(`(asset_id, version_no)`, `(predecessor_id, successor_id)`) would
+collide with recreated rows; in-session undo for them is the provider's
+inverse-op history stack.
+
+- **No propagation writes.** SELECT policies filter `deleted_at IS NULL`
+  plus a live-parent EXISTS that runs under the caller's RLS, so hiding
+  a parent transitively hides the subtree (assets→projects,
+  tasks→assets, files→projects, comments→polymorphic parent). Soft
+  delete touches one row; restore clears one row and the subtree
+  reappears.
+- **Projects are admin-only** to delete or restore (trigger-enforced:
+  `only workspace admins can delete or restore projects`).
+- **Undo UI**: deletes show a bottom-center toast with an 8s Undo window
+  (pause on hover). Undo restores the row (cloud) or replays inverse ops
+  (local). Row-level confirms are gone; bulk and project deletes keep
+  their confirm step.
+- **Retention**: `purge_soft_deleted()` (service_role-only) hard-deletes
+  rows soft-deleted >30 days ago, cascading each subtree; scheduled
+  nightly where pg_cron exists (`wilson-purge-soft-deleted`, 04:47 UTC).
+- **Edit history** records the transition as an `update` diff; the
+  drawer labels it Deleted / Restored (`editHistoryFormat.js`).
+- **Known gap**: storage blobs for soft-deleted `files` rows are no
+  longer removed at delete time (the row must stay restorable) and the
+  SQL purge can't reach the storage API — blob GC is deferred to the
+  hardening sessions. Hard-deleting files via purge orphans blobs.
+
+## 13. Rate-entry identity + role scoping (Session 6, migration 0015)
+
+`rate_card_entries` gained the columns the client always wrote in local
+mode (`member_id`, `wage`, `burden`, `burden_type`, `overhead`,
+`overhead_type`, `department`) — cloud-mode upserts previously died with
+PGRST204. `member_id` canonically holds an **auth user id**
+(`workspace_members.user_id`) in cloud mode; the client resolves people
+through `useRosterMembers()` (directory in cloud, legacy JSON locally),
+which closes the Session-4 orphan-rows problem.
+
+RLS is now role-scoped (the Session-4 deferral): SELECT admin+manager
+(`rate_card.view` parity), writes admin only (`rate_card.edit` parity).
+Plain members get an empty list via PostgREST; the Rate Card page shows
+a permission notice instead of an empty table.

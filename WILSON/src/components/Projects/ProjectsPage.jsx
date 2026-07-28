@@ -24,6 +24,7 @@
 
 import { useState, useCallback } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
@@ -43,6 +44,13 @@ export default function ProjectsPage({ onNavigate }) {
   const updateProject = ctx?.updateProject
   const deleteProject = ctx?.deleteProject
   const setActiveProject = ctx?.setActiveProject
+
+  // Create/delete affordances (Session 6) — DB-side RLS is the real gate;
+  // cloud mode hides them below the matrix roles, local mode stays open.
+  const { can } = usePermissions()
+  const cloud = ctx?.adapterMode === 'supabase'
+  const canCreate = !cloud || can('project.create')
+  const canDelete = !cloud || can('project.delete')
 
   const projects = Object.values(projectsIndex).sort((a, b) => {
     const ad = a.updated_at ? new Date(a.updated_at).getTime() : 0
@@ -265,7 +273,7 @@ export default function ProjectsPage({ onNavigate }) {
         onOpenInRabbit={() => onNavigate?.('rabbit')}
         onDelete={() => handleDeleteProject(activeProject.id)}
         deleteConfirm={deleteConfirm === activeProject.id}
-        onRequestDelete={() => setDeleteConfirm(activeProject.id)}
+        onRequestDelete={canDelete ? () => setDeleteConfirm(activeProject.id) : null}
         onCancelDelete={() => setDeleteConfirm(null)}
         allFiles={allFiles}
         onFileUpdate={handleFileUpdate}
@@ -281,11 +289,11 @@ export default function ProjectsPage({ onNavigate }) {
   return (
     <ProjectListPanel
       projects={projects}
-      onCreate={() => setView('create')}
+      onCreate={canCreate ? () => setView('create') : null}
       onOpen={handleOpen}
       onUpdateStatus={(id, status) => updateProject?.(id, { status })}
       deleteConfirm={deleteConfirm}
-      onRequestDelete={(id) => setDeleteConfirm(id)}
+      onRequestDelete={canDelete ? (id) => setDeleteConfirm(id) : null}
       onConfirmDelete={(id) => handleDeleteProject(id)}
       onCancelDelete={() => setDeleteConfirm(null)}
       saveError={saveError}

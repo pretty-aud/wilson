@@ -27,6 +27,17 @@
 // fallback so pre-migration tenants could keep running. Session 2
 // removed that fallback: every query now carries the user's JWT and
 // is scoped by RLS (see supabase/migrations/0004_rls_rabbit.sql).
+//
+// Soft delete (Session 6, migration 0014): the 7 user-facing tables
+// (projects, phases, assets, tasks, files, comments, rate_cards) enter
+// and leave the trash ONLY via the SECURITY DEFINER RPCs
+// soft_delete_row() / restore_soft_deleted(). Plain UPDATEs cannot do
+// either: SELECT policies apply to both sides of an UPDATE that reads
+// the table, so setting deleted_at makes the NEW row invisible (RLS
+// violation) and a hidden row can't be targeted for restore (0-row
+// no-op). deleted_by is stamped/cleared server-side by
+// fn_soft_delete_stamp. Link/leaf tables (task_dependencies,
+// task_links, rate_card_entries) stay hard-delete.
 
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient.js';
 
@@ -167,7 +178,14 @@ export function supabaseAdapter() {
 
     async deleteProject(id) {
       const client = await requireClient();
-      unwrap(await client.from('projects').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'projects', p_id: id }));
+    },
+
+    async restoreProject(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'projects', p_id: id }));
     },
 
     // ── Phases ────────────────────────────────────────────────
@@ -182,7 +200,13 @@ export function supabaseAdapter() {
     },
     async deletePhase(id) {
       const client = await requireClient();
-      unwrap(await client.from('phases').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'phases', p_id: id }));
+    },
+    async restorePhase(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'phases', p_id: id }));
     },
 
     // ── Assets ────────────────────────────────────────────────
@@ -197,7 +221,13 @@ export function supabaseAdapter() {
     },
     async deleteAsset(id) {
       const client = await requireClient();
-      unwrap(await client.from('assets').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'assets', p_id: id }));
+    },
+    async restoreAsset(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'assets', p_id: id }));
     },
 
     // ── Tasks ─────────────────────────────────────────────────
@@ -212,7 +242,13 @@ export function supabaseAdapter() {
     },
     async deleteTask(id) {
       const client = await requireClient();
-      unwrap(await client.from('tasks').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'tasks', p_id: id }));
+    },
+    async restoreTask(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'tasks', p_id: id }));
     },
 
     // ── Dependencies ──────────────────────────────────────────
@@ -296,12 +332,16 @@ export function supabaseAdapter() {
 
     async deleteFile(id) {
       const client = await requireClient();
-      // Best-effort: fetch the row first so we can also remove the storage object.
-      const { data: row } = await client.from('files').select('storage_path').eq('id', id).maybeSingle();
-      if (row?.storage_path) {
-        await client.storage.from('rabbit-files').remove([row.storage_path]).catch(() => {});
-      }
-      unwrap(await client.from('files').delete().eq('id', id));
+      // Storage blob intentionally left in place — the row must stay
+      // restorable; blob GC is a documented known gap (db/README.md).
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'files', p_id: id }));
+    },
+
+    async restoreFile(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
     },
 
     // ── Asset versions ────────────────────────────────────────
@@ -330,7 +370,13 @@ export function supabaseAdapter() {
     },
     async deleteComment(id) {
       const client = await requireClient();
-      unwrap(await client.from('comments').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'comments', p_id: id }));
+    },
+    async restoreComment(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'comments', p_id: id }));
     },
 
     // ── Edit history (Session 5, migration 0012) ──────────────
@@ -357,6 +403,46 @@ export function supabaseAdapter() {
       lastError  = null;
       lastSyncAt = new Date();
       return data ?? [];
+    },
+
+    // ── Project members (Session 6, migration 0013) ───────────
+    // Roster rows: { project_id, user_id, workspace_id, project_role }.
+    // user_id is a canonical auth user id (workspace_members.user_id).
+    async listProjectMembers(projectId) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('project_members')
+        .select('*')
+        .eq('project_id', projectId);
+      if (error) {
+        // Environment predates migration 0013 — treat as "unstaffed"
+        // rather than breaking the roster UI (same tolerance as
+        // listEditHistory above).
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+    async upsertProjectMember({ project_id, user_id, project_role }) {
+      const client = await requireClient();
+      // workspace_id is intentionally NOT sent — the BEFORE INSERT
+      // trigger derives it from the project (0013).
+      return unwrap(await client
+        .from('project_members')
+        .upsert({ project_id, user_id, project_role }, { onConflict: 'project_id,user_id' })
+        .select()
+        .single());
+    },
+    async removeProjectMember(projectId, userId) {
+      const client = await requireClient();
+      unwrap(await client
+        .from('project_members')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('user_id', userId));
     },
 
     // ── Ingestion runs + chunks ───────────────────────────────
@@ -392,7 +478,13 @@ export function supabaseAdapter() {
     },
     async deleteRateCard(id) {
       const client = await requireClient();
-      unwrap(await client.from('rate_cards').delete().eq('id', id));
+      unwrap(await client.rpc('soft_delete_row', { p_table: 'rate_cards', p_id: id }));
+    },
+    async restoreRateCard(id) {
+      const client = await requireClient();
+      // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
+      // policies apply to the WHERE clause) and would no-op. See 0014.
+      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'rate_cards', p_id: id }));
     },
     async listRateCardEntries(rateCardId) {
       const client = await requireClient();

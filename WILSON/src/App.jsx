@@ -24,6 +24,7 @@ import {
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
+import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
 // Wrapper that bridges AgentProvider context to SettingsPage
 function SettingsPageWithAgent(props) {
@@ -1469,6 +1470,12 @@ export default function App() {
         </div>
       )}
     </div>
+    {/* ── Undo toast (soft-delete forgiveness window) ──
+        Mounted at app level, not inside the RABBIT shell, because
+        deletes can fire from pages (e.g. ProjectsPage) where the
+        Rabbit page div is display:none. position:fixed, reads
+        useRabbit() — must stay the single instance. */}
+    <UndoToast />
     </RabbitProvider>
     </AgentProvider>
   );

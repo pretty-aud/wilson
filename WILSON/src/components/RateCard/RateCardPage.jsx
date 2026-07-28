@@ -21,9 +21,10 @@
 // The table adapts its columns and behavior based on cardType.
 
 import { useRef, useState, useMemo } from 'react'
-import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle } from 'lucide-react'
+import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle, Lock } from 'lucide-react'
 import { useRateCard } from './useRateCard'
-import { useTeamMembers } from '../TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../TeamMembers/useRosterMembers'
+import { usePermissions } from '../../permissions/usePermissions'
 import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
 import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
@@ -49,7 +50,17 @@ export default function RateCardPage() {
     makeSlug,
   } = useRateCard()
 
-  const { members: teamMembers, loading: teamLoading } = useTeamMembers()
+  // Session 6 identity seam: the roster hook resolves members per adapter
+  // mode — in cloud mode ids are auth user_ids, so internal-card entries
+  // written by the Team Members page (member_id = user_id) resolve here
+  // instead of orphaning.
+  const { members: teamMembers, mode: rosterMode, loading: teamLoading } = useRosterMembers()
+  const perms = usePermissions()
+
+  // 0015 matrix parity: in cloud mode rate_card_entries are RLS-scoped to
+  // admin + manager ('rate_card.view'). Show a notice instead of letting
+  // the RLS-empty table masquerade as "no data".
+  const rateCardRestricted = rosterMode === 'supabase' && perms.ready && !perms.can('rate_card.view')
 
   // ─── Derive active card type ───
   const generalCard = rateCards.find(c => c.type === 'general') || null
@@ -208,7 +219,9 @@ export default function RateCardPage() {
               style={tabStyle('internal')}
             >
               Internal
-              {teamStats.unrated > 0 && (
+              {/* entries are RLS-empty when restricted — the badge would
+                  falsely flag every member as unrated */}
+              {!rateCardRestricted && teamStats.unrated > 0 && (
                 <span
                   className="px-1.5 py-0.5 text-[9px] rounded-full font-bold"
                   style={{ backgroundColor: '#fbbf24', color: '#7c2d12' }}
@@ -240,7 +253,15 @@ export default function RateCardPage() {
         </div>
       )}
 
-      {/* ── Two-column body ── */}
+      {/* ── Two-column body (or the permission notice) ── */}
+      {rateCardRestricted ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <Lock className="w-6 h-6" style={{ color: '#f4a261' }} />
+          <span className="text-xs font-mono" style={{ color: '#7c2d12' }}>
+            Rate cards are visible to admins and managers.
+          </span>
+        </div>
+      ) : (
       <div className="flex-1 flex overflow-hidden">
         {/* ── Left panel ── */}
         <div
@@ -371,6 +392,7 @@ export default function RateCardPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Hidden file inputs ── */}
       <input

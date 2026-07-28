@@ -32,6 +32,23 @@ WITH upd AS (
 SELECT is((SELECT count(*)::int FROM upd), 0, 'user_a cannot UPDATE workspace B project');
 
 -- ── probe 4: audit column populates on INSERT ──────────────────────────────
+-- 0013 tightened projects INSERT to app admin/manager; tests.login_as
+-- carries no app_role claim, so the write needs inline admin claims
+-- (17_edit_history.sql pattern).
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', '11111111-1111-1111-1111-111111111111',
+      'app_role',     'admin'
+    )
+  )::text,
+  true
+);
+SELECT set_config('role', 'authenticated', true);
+
 INSERT INTO public.projects (id, workspace_id, title)
 VALUES ('aaaa1111-0000-0000-0000-000000000099',
         '11111111-1111-1111-1111-111111111111',

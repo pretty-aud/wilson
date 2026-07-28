@@ -135,17 +135,26 @@ export function RabbitProvider({ children }) {
   // so history closures can call the current implementation rather
   // than a stale captured one.
   const mutationsRef = useRef({});
+  // Monotonic token per pushed entry so the undo toast can target the
+  // exact entry it belongs to (see undoHistoryEntry below).
+  const historyTokenRef = useRef(0);
 
   function pushHistory(entry) {
-    if (historyRef.current.suspended) return;
+    if (historyRef.current.suspended) return null;
+    const token = ++historyTokenRef.current;
+    entry.token = token;
     if (historyRef.current.batch) {
+      // Batched sub-entries lose their identity when combined — the
+      // returned token won't resolve in undoHistoryEntry (no-op), which
+      // is the safe outcome for a toast fired mid-batch.
       historyRef.current.batch.entries.push(entry);
-      return;
+      return token;
     }
     historyRef.current.undo.push(entry);
     if (historyRef.current.undo.length > HISTORY_CAP) historyRef.current.undo.shift();
     historyRef.current.redo.length = 0;
     setHistoryVersion(v => v + 1);
+    return token;
   }
 
   const runBatch = useCallback(async (fn) => {
@@ -160,6 +169,7 @@ export function RabbitProvider({ children }) {
         // Combined undoOps run in REVERSE order so the latest sub-op
         // gets undone first; redoOps run in original order.
         const combined = {
+          token:   ++historyTokenRef.current,
           undoOps: b.entries.slice().reverse().flatMap(e => e.undoOps),
           redoOps: b.entries.flatMap(e => e.redoOps),
         };
@@ -203,13 +213,56 @@ export function RabbitProvider({ children }) {
     setHistoryVersion(v => v + 1);
   }, []);
 
+  // Targeted undo — used by the undo toast so a toast click and a
+  // Ctrl+Z can't double-fire the same entry. If the entry is still in
+  // the undo stack, remove it and run its undoOps; if it has already
+  // been undone (or aged past HISTORY_CAP), no-op.
+  const undoHistoryEntry = useCallback(async (token) => {
+    if (token == null) return;
+    const idx = historyRef.current.undo.findIndex(e => e.token === token);
+    if (idx === -1) return;
+    const [entry] = historyRef.current.undo.splice(idx, 1);
+    historyRef.current.suspended = true;
+    try {
+      for (const op of entry.undoOps) await op();
+    } catch (err) {
+      // A failed undo must not read as success: put the entry back at
+      // its original index so the toast / Ctrl+Z can retry, and rethrow
+      // so the caller sees the failure.
+      historyRef.current.undo.splice(idx, 0, entry);
+      setHistoryVersion(v => v + 1);
+      throw err;
+    } finally {
+      historyRef.current.suspended = false;
+    }
+    historyRef.current.redo.push(entry);
+    if (historyRef.current.redo.length > HISTORY_CAP) historyRef.current.redo.shift();
+    setHistoryVersion(v => v + 1);
+  }, []);
+
   const clearHistory = useCallback(() => {
     historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
     setHistoryVersion(v => v + 1);
+    // A stale toast must not outlive the history it points into.
+    setUndoToast(null);
   }, []);
 
   const canUndo = historyVersion >= 0 && historyRef.current.undo.length > 0;
   const canRedo = historyVersion >= 0 && historyRef.current.redo.length > 0;
+
+  // ── undo toast ──────────────────────────────────────────
+  // One toast at a time — a new one replaces the previous (keyed so
+  // the countdown restarts). Shape: { key, message, onUndo } | null.
+  // Rendered by components/UndoToast.jsx at the Rabbit shell level;
+  // every soft/undoable delete shows one instead of a confirm dialog.
+  const [undoToast, setUndoToast] = useState(null);
+  const undoToastKeyRef = useRef(0);
+
+  const showUndoToast = useCallback((message, onUndo) => {
+    setUndoToast({ key: ++undoToastKeyRef.current, message, onUndo });
+  }, []);
+
+  const dismissUndoToast = useCallback(() => setUndoToast(null), []);
 
   // ── intake state (minimal — pipeline lives in intake/) ──
   const [activeIngestion, setActiveIngestion] = useState(null);
@@ -301,6 +354,8 @@ export function RabbitProvider({ children }) {
     // Clear undo history — old ops belong to the previous adapter.
     historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
     setHistoryVersion(v => v + 1);
+    // A stale toast must not outlive the history it points into.
+    dismissUndoToast();
     await saveRabbitSettings({ adapterMode: nextMode, activeProjectId: null });
     try {
       const status = await adapterRef.current.status();
@@ -312,7 +367,7 @@ export function RabbitProvider({ children }) {
     } catch (err) {
       setError(err.message || String(err));
     }
-  }, []);
+  }, [dismissUndoToast]);
 
   // ── refresh ─────────────────────────────────────────────
   const refreshProjectsIndex = useCallback(async () => {
@@ -333,6 +388,8 @@ export function RabbitProvider({ children }) {
     // Clear undo history — old ops belong to the previous project.
     historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
     setHistoryVersion(v => v + 1);
+    // A stale toast must not outlive the history it points into.
+    dismissUndoToast();
     if (!projectId) {
       setBundle(EMPTY_BUNDLE);
       return;
@@ -346,7 +403,114 @@ export function RabbitProvider({ children }) {
     } finally {
       setLoadingProject(false);
     }
+  }, [dismissUndoToast]);
+
+  // ── project roster (Session 6, supabase mode only) ──────
+  // project_members rows for the ACTIVE project. Empty everywhere
+  // else: local/drive modes have no roster, and an empty roster IS
+  // the "unstaffed → open to every active member" gating state, so
+  // legacy flows are unaffected. Mutations are optimistic with
+  // snapshot rollback, like the other mutators.
+  const [projectMembers, setProjectMembers] = useState([]);
+  const [authUserId, setAuthUserId] = useState(null);
+
+  // StrictMode-safe mounted flag — same pattern as useWorkspaceMembers:
+  // the effect BODY must reset the flag to true, because StrictMode runs
+  // setup → cleanup → setup on the same instance.
+  const rosterMountedRef = useRef(true);
+  // Monotonic request sequence — a stale roster response from a rapid
+  // project switch must never land over a newer one.
+  const rosterReqSeqRef = useRef(0);
+  useEffect(() => {
+    rosterMountedRef.current = true;
+    return () => { rosterMountedRef.current = false; };
   }, []);
+
+  const refreshProjectMembers = useCallback(async () => {
+    const seq = ++rosterReqSeqRef.current;
+    if (adapterMode !== 'supabase' || !activeProjectId
+        || typeof adapterRef.current?.listProjectMembers !== 'function') {
+      setProjectMembers([]);
+      return;
+    }
+    try {
+      // The signed-in auth uid rides along so myProjectRole can be
+      // derived — same shared-session read the other cloud code uses.
+      const [{ data: sess }, rows] = await Promise.all([
+        sharedAuthedClient.auth.getSession(),
+        adapterRef.current.listProjectMembers(activeProjectId),
+      ]);
+      if (!rosterMountedRef.current || seq !== rosterReqSeqRef.current) return;
+      setAuthUserId(sess?.session?.user?.id ?? null);
+      setProjectMembers(Array.isArray(rows) ? rows : []);
+    } catch {
+      if (rosterMountedRef.current && seq === rosterReqSeqRef.current) setProjectMembers([]);
+    }
+  }, [adapterMode, activeProjectId]);
+
+  useEffect(() => { refreshProjectMembers(); }, [refreshProjectMembers]);
+
+  const addProjectMember = useCallback(async (userId, role = 'member') => {
+    if (adapterMode !== 'supabase' || !activeProjectId) return null;
+    if (typeof adapterRef.current?.upsertProjectMember !== 'function') return null;
+    const draft = { project_id: activeProjectId, user_id: userId, project_role: role };
+    const snapshot = projectMembers;
+    setProjectMembers(prev => [...prev.filter(m => m.user_id !== userId), draft]);
+    try {
+      const saved = await adapterRef.current.upsertProjectMember(draft);
+      if (rosterMountedRef.current && saved) {
+        setProjectMembers(prev => prev.map(m => m.user_id === userId ? { ...m, ...saved } : m));
+      }
+      return saved || draft;
+    } catch (err) {
+      if (rosterMountedRef.current) setProjectMembers(snapshot);
+      setError(err.message || String(err));
+      throw err;
+    }
+  }, [adapterMode, activeProjectId, projectMembers]);
+
+  const updateProjectMemberRole = useCallback(async (userId, role) => {
+    if (adapterMode !== 'supabase' || !activeProjectId) return null;
+    if (typeof adapterRef.current?.upsertProjectMember !== 'function') return null;
+    const snapshot = projectMembers;
+    setProjectMembers(prev => prev.map(m => m.user_id === userId ? { ...m, project_role: role } : m));
+    try {
+      const saved = await adapterRef.current.upsertProjectMember({
+        project_id: activeProjectId, user_id: userId, project_role: role,
+      });
+      if (rosterMountedRef.current && saved) {
+        setProjectMembers(prev => prev.map(m => m.user_id === userId ? { ...m, ...saved } : m));
+      }
+      return saved;
+    } catch (err) {
+      if (rosterMountedRef.current) setProjectMembers(snapshot);
+      setError(err.message || String(err));
+      throw err;
+    }
+  }, [adapterMode, activeProjectId, projectMembers]);
+
+  const removeProjectMember = useCallback(async (userId) => {
+    if (adapterMode !== 'supabase' || !activeProjectId) return;
+    if (typeof adapterRef.current?.removeProjectMember !== 'function') return;
+    const snapshot = projectMembers;
+    setProjectMembers(prev => prev.filter(m => m.user_id !== userId));
+    try {
+      await adapterRef.current.removeProjectMember(activeProjectId, userId);
+    } catch (err) {
+      if (rosterMountedRef.current) setProjectMembers(snapshot);
+      setError(err.message || String(err));
+      throw err;
+    }
+  }, [adapterMode, activeProjectId, projectMembers]);
+
+  // Derived: my seat on the active project (null when unstaffed or not
+  // rostered) + whether the project is staffed at all. Mirrors the DB
+  // helpers project_role_for() / project_is_staffed() (0013).
+  const myProjectRole = useMemo(() => {
+    if (!authUserId) return null;
+    return projectMembers.find(m => m.user_id === authUserId)?.project_role ?? null;
+  }, [projectMembers, authUserId]);
+  const projectIsStaffed = projectMembers.length > 0;
 
   // ── optimistic CRUD helper ──────────────────────────────
   // Applies a local mutation, calls the adapter, rolls back on error.
@@ -402,6 +566,10 @@ export function RabbitProvider({ children }) {
 
   const deleteProject = useCallback(async (id) => {
     if (!adapterRef.current) throw new Error('no adapter');
+    // Supabase soft-deletes (0014) and can restore; local mode keeps
+    // today's hard delete with no history entry.
+    const canSoftDelete = typeof adapterRef.current.restoreProject === 'function';
+    const removedEntry = projectsIndex[id] || null;
     await adapterRef.current.deleteProject(id);
     setProjectsIndex(idx => {
       const next = { ...idx };
@@ -412,7 +580,25 @@ export function RabbitProvider({ children }) {
       setActiveProjectIdState(null);
       setBundle(EMPTY_BUNDLE);
     }
-  }, [activeProjectId]);
+    if (canSoftDelete) {
+      const token = pushHistory({
+        undoOps: [async () => {
+          // Restore clears deleted_at server-side; reinstate the index
+          // entry locally. The bundle reloads on demand when the user
+          // re-opens the project.
+          await adapterRef.current.restoreProject(id);
+          if (removedEntry) setProjectsIndex(idx => ({ ...idx, [id]: removedEntry }));
+        }],
+        redoOps: [() => mutationsRef.current.deleteProject(id)],
+      });
+      if (token != null) {
+        showUndoToast(
+          `Deleted project "${removedEntry?.title || 'Untitled'}"`,
+          () => undoHistoryEntry(token),
+        );
+      }
+    }
+  }, [activeProjectId, projectsIndex, showUndoToast, undoHistoryEntry]);
 
   // ── Phases ──────────────────────────────────────────────
   // Adapter-first: call the adapter, then merge the returned row
@@ -460,18 +646,30 @@ export function RabbitProvider({ children }) {
 
   const deletePhase = useCallback(async (id) => {
     const oldPhase = bundleRef.current.phases.find(p => p.id === id);
+    // Soft-aware: supabase soft-deletes (0014) so undo restores the DB
+    // row and reinstates the captured row locally; local mode keeps the
+    // re-insert undo path.
+    const canSoftDelete = typeof adapterRef.current?.restorePhase === 'function';
     const result = await optimistic(
       prev => ({ ...prev, phases: prev.phases.filter(p => p.id !== id) }),
       () => adapterRef.current.deletePhase(id, activeProjectId),
     );
     if (oldPhase) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.addPhase(oldPhase)],
+      const token = pushHistory({
+        undoOps: canSoftDelete
+          ? [async () => {
+              await adapterRef.current.restorePhase(id);
+              setBundle(prev => ({ ...prev, phases: [...prev.phases, oldPhase] }));
+            }]
+          : [() => mutationsRef.current.addPhase(oldPhase)],
         redoOps: [() => mutationsRef.current.deletePhase(id)],
       });
+      if (token != null) {
+        showUndoToast(`Deleted phase "${oldPhase.name || 'Untitled'}"`, () => undoHistoryEntry(token));
+      }
     }
     return result;
-  }, [optimistic, activeProjectId]);
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
 
   const reorderPhases = useCallback((orderedIds) => optimistic(
     prev => ({
@@ -536,21 +734,102 @@ export function RabbitProvider({ children }) {
     // deleteAsset cascades locally onto tasks (see mutator). Capture
     // those tasks too so undo restores them.
     const removedTasks = bundleRef.current.tasks.filter(t => t.asset_id === id);
+    // Soft-aware: a supabase soft delete touches only the asset row —
+    // the children were never deleted in the DB, so undo restores the
+    // asset and reinstates the captured rows straight into local state
+    // (no re-insert mutations). Local mode keeps the re-insert path.
+    const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
     const result = await optimistic(
       prev => ({ ...prev, assets: prev.assets.filter(a => a.id !== id), tasks: prev.tasks.filter(t => t.asset_id !== id) }),
       () => adapterRef.current.deleteAsset(id, activeProjectId),
     );
     if (oldAsset) {
-      pushHistory({
-        undoOps: [
-          () => mutationsRef.current.addAsset(oldAsset),
-          ...removedTasks.map(t => () => mutationsRef.current.addTask(t)),
-        ],
+      const token = pushHistory({
+        undoOps: canSoftDelete
+          ? [async () => {
+              await adapterRef.current.restoreAsset(id);
+              setBundle(prev => ({
+                ...prev,
+                assets: [...prev.assets, oldAsset],
+                tasks:  [...prev.tasks, ...removedTasks],
+              }));
+            }]
+          : [
+              () => mutationsRef.current.addAsset(oldAsset),
+              ...removedTasks.map(t => () => mutationsRef.current.addTask(t)),
+            ],
         redoOps: [() => mutationsRef.current.deleteAsset(id)],
       });
+      if (token != null) {
+        showUndoToast(`Deleted asset "${oldAsset.name || 'Untitled'}"`, () => undoHistoryEntry(token));
+      }
     }
     return result;
-  }, [optimistic, activeProjectId]);
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  // Bulk delete — one adapter loop, ONE combined history entry, ONE
+  // toast, instead of the N-toasts/N-entries a view-side loop over
+  // deleteAsset would produce.
+  const deleteAssets = useCallback(async (ids = []) => {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const canSoftDelete = typeof adapterRef.current?.restoreAsset === 'function';
+    const removed = ids
+      .map(id => ({
+        asset: bundleRef.current.assets.find(a => a.id === id),
+        tasks: bundleRef.current.tasks.filter(t => t.asset_id === id),
+      }))
+      .filter(r => r.asset);
+    if (removed.length === 0) return;
+    const idSet = new Set(removed.map(r => r.asset.id));
+    const result = await optimistic(
+      prev => ({
+        ...prev,
+        assets: prev.assets.filter(a => !idSet.has(a.id)),
+        tasks:  prev.tasks.filter(t => !idSet.has(t.asset_id)),
+      }),
+      async () => {
+        // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
+        // rows already soft-deleted server-side, then rethrow for rollback.
+        const done = [];
+        try {
+          for (const r of removed) {
+            await adapterRef.current.deleteAsset(r.asset.id, activeProjectId);
+            done.push(r.asset.id);
+          }
+        } catch (err) {
+          if (canSoftDelete) {
+            await Promise.allSettled(done.map(id => adapterRef.current.restoreAsset(id)));
+          }
+          throw err;
+        }
+      },
+    );
+    const token = pushHistory({
+      undoOps: canSoftDelete
+        ? [async () => {
+            for (const r of removed) await adapterRef.current.restoreAsset(r.asset.id);
+            setBundle(prev => ({
+              ...prev,
+              assets: [...prev.assets, ...removed.map(r => r.asset)],
+              tasks:  [...prev.tasks, ...removed.flatMap(r => r.tasks)],
+            }));
+          }]
+        : removed.slice().reverse().flatMap(r => [
+            () => mutationsRef.current.addAsset(r.asset),
+            ...r.tasks.map(t => () => mutationsRef.current.addTask(t)),
+          ]),
+      redoOps: [() => mutationsRef.current.deleteAssets([...idSet])],
+    });
+    if (token != null) {
+      showUndoToast(
+        removed.length === 1
+          ? `Deleted asset "${removed[0].asset.name || 'Untitled'}"`
+          : `Deleted ${removed.length} assets`,
+        () => undoHistoryEntry(token),
+      );
+    }
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
 
   // ── Scenes ─────────────────────────────────────────────
   const addScene = useCallback(async (scene) => {
@@ -885,6 +1164,11 @@ export function RabbitProvider({ children }) {
     const removedDeps = bundleRef.current.dependencies.filter(
       d => d.predecessor_id === id || d.successor_id === id,
     );
+    // Soft-aware: supabase soft-deletes only the task row — dependency
+    // rows survive in the DB (they're only hidden transitively), so
+    // undo restores the task and reinstates the captured rows straight
+    // into local state. Local mode keeps the re-insert undo path.
+    const canSoftDelete = typeof adapterRef.current?.restoreTask === 'function';
     const result = await optimistic(
       prev => ({
         ...prev,
@@ -894,23 +1178,102 @@ export function RabbitProvider({ children }) {
       () => adapterRef.current.deleteTask(id, activeProjectId),
     );
     if (oldTask) {
-      pushHistory({
-        undoOps: [
-          () => mutationsRef.current.addTask(oldTask),
-          ...removedDeps.map(d => async () => {
-            // Re-insert the dependency row directly (preserves id +
-            // kind), bypassing the link* helpers' fresh-uuid path.
-            await optimistic(
-              prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
-              () => adapterRef.current.upsertDependency(d),
-            );
-          }),
-        ],
+      const token = pushHistory({
+        undoOps: canSoftDelete
+          ? [async () => {
+              await adapterRef.current.restoreTask(id);
+              setBundle(prev => ({
+                ...prev,
+                tasks:        [...prev.tasks, oldTask],
+                dependencies: [...prev.dependencies, ...removedDeps],
+              }));
+            }]
+          : [
+              () => mutationsRef.current.addTask(oldTask),
+              ...removedDeps.map(d => async () => {
+                // Re-insert the dependency row directly (preserves id +
+                // kind), bypassing the link* helpers' fresh-uuid path.
+                await optimistic(
+                  prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
+                  () => adapterRef.current.upsertDependency(d),
+                );
+              }),
+            ],
         redoOps: [() => mutationsRef.current.deleteTask(id)],
       });
+      if (token != null) {
+        showUndoToast(`Deleted task "${oldTask.title || 'Untitled'}"`, () => undoHistoryEntry(token));
+      }
     }
     return result;
-  }, [optimistic, activeProjectId]);
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  // Bulk delete — see deleteAssets. One combined entry, one toast.
+  const deleteTasks = useCallback(async (ids = []) => {
+    if (!Array.isArray(ids) || ids.length === 0) return;
+    const canSoftDelete = typeof adapterRef.current?.restoreTask === 'function';
+    const idSet = new Set(ids);
+    const removedTasks = bundleRef.current.tasks.filter(t => idSet.has(t.id));
+    const removedDeps = bundleRef.current.dependencies.filter(
+      d => idSet.has(d.predecessor_id) || idSet.has(d.successor_id),
+    );
+    if (removedTasks.length === 0) return;
+    const result = await optimistic(
+      prev => ({
+        ...prev,
+        tasks: prev.tasks.filter(t => !idSet.has(t.id)),
+        dependencies: prev.dependencies.filter(
+          d => !idSet.has(d.predecessor_id) && !idSet.has(d.successor_id),
+        ),
+      }),
+      async () => {
+        // Bulk delete is all-or-nothing: on a mid-loop failure, restore the
+        // rows already soft-deleted server-side, then rethrow for rollback.
+        const done = [];
+        try {
+          for (const t of removedTasks) {
+            await adapterRef.current.deleteTask(t.id, activeProjectId);
+            done.push(t.id);
+          }
+        } catch (err) {
+          if (canSoftDelete) {
+            await Promise.allSettled(done.map(id => adapterRef.current.restoreTask(id)));
+          }
+          throw err;
+        }
+      },
+    );
+    const token = pushHistory({
+      undoOps: canSoftDelete
+        ? [async () => {
+            for (const t of removedTasks) await adapterRef.current.restoreTask(t.id);
+            setBundle(prev => ({
+              ...prev,
+              tasks:        [...prev.tasks, ...removedTasks],
+              dependencies: [...prev.dependencies, ...removedDeps],
+            }));
+          }]
+        : [
+            ...removedTasks.slice().reverse().map(t => () => mutationsRef.current.addTask(t)),
+            ...removedDeps.map(d => async () => {
+              await optimistic(
+                prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
+                () => adapterRef.current.upsertDependency(d),
+              );
+            }),
+          ],
+      redoOps: [() => mutationsRef.current.deleteTasks(removedTasks.map(t => t.id))],
+    });
+    if (token != null) {
+      showUndoToast(
+        removedTasks.length === 1
+          ? `Deleted task "${removedTasks[0].title || 'Untitled'}"`
+          : `Deleted ${removedTasks.length} tasks`,
+        () => undoHistoryEntry(token),
+      );
+    }
+    return result;
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
 
   // ── Dependencies ────────────────────────────────────────
   // The `dependencies` array carries BOTH task→task and phase→phase
@@ -1293,15 +1656,18 @@ export function RabbitProvider({ children }) {
   // ── Mutations ref refresh ───────────────────────────────
   // History closures call into mutationsRef.current so they always
   // hit the latest mutator implementation, not a captured stale one.
+  mutationsRef.current.deleteProject = deleteProject;
   mutationsRef.current.addPhase     = addPhase;
   mutationsRef.current.updatePhase  = updatePhase;
   mutationsRef.current.deletePhase  = deletePhase;
   mutationsRef.current.addAsset     = addAsset;
   mutationsRef.current.updateAsset  = updateAsset;
   mutationsRef.current.deleteAsset  = deleteAsset;
+  mutationsRef.current.deleteAssets = deleteAssets;
   mutationsRef.current.addTask      = addTask;
   mutationsRef.current.updateTask   = updateTask;
   mutationsRef.current.deleteTask   = deleteTask;
+  mutationsRef.current.deleteTasks  = deleteTasks;
   mutationsRef.current.linkTasks    = linkTasks;
   mutationsRef.current.linkPhases   = linkPhases;
   mutationsRef.current.unlinkTasks  = unlinkTasks;
@@ -1395,14 +1761,27 @@ export function RabbitProvider({ children }) {
     cancelBackgroundIngestion,
     dismissBackgroundIngestion,
 
+    // project roster (supabase mode; [] / null elsewhere)
+    projectMembers,
+    refreshProjectMembers,
+    addProjectMember,
+    updateProjectMemberRole,
+    removeProjectMember,
+    myProjectRole,
+    projectIsStaffed,
+
+    // undo toast
+    undoToast,
+    dismissUndoToast,
+
     // actions
     createProject,
     updateProject,
     deleteProject,
     setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,
-    addAsset, updateAsset, deleteAsset, reorderAssets,
-    addTask, updateTask, deleteTask,
+    addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
+    addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
@@ -1425,10 +1804,13 @@ export function RabbitProvider({ children }) {
     activeProjectId, projectsIndex, bundle, loadingProject, error, activeIngestion,
     startIngestion, acceptIngestion, discardIngestion,
     ingestionRun, startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
+    projectMembers, refreshProjectMembers, addProjectMember, updateProjectMemberRole,
+    removeProjectMember, myProjectRole, projectIsStaffed,
+    undoToast, dismissUndoToast,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,
-    addAsset, updateAsset, deleteAsset, reorderAssets,
-    addTask, updateTask, deleteTask,
+    addAsset, updateAsset, deleteAsset, deleteAssets, reorderAssets,
+    addTask, updateTask, deleteTask, deleteTasks,
     linkTasks, linkPhases, unlinkTasks, unlinkDependency,
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
