@@ -18,6 +18,7 @@ const EXPECTED = {
   'member.role.change':          ['admin'],
   'project.create':              ['admin', 'manager'],
   'project.delete':              ['admin'],
+  'rabbit.history.view':         ['admin', 'manager'],
   'rate_card.edit':              ['admin'],
   'rate_card.view':              ['admin', 'manager'],
   'workspace.settings.read':     ['admin', 'manager', 'user'],

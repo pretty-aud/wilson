@@ -253,6 +253,7 @@ export function googleDriveAdapter() {
     listAssetVersions:    readOnly('listAssetVersions'),
     createComment:        readOnly('createComment'),
     listComments:         readOnly('listComments'),
+    listEditHistory:      async () => [],  // no capture in drive mode
     deleteComment:        readOnly('deleteComment'),
     createIngestionRun:   readOnly('createIngestionRun'),
     updateIngestionRun:   readOnly('updateIngestionRun'),

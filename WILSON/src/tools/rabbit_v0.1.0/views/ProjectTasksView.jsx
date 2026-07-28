@@ -32,11 +32,13 @@ import {
   Table as TableIcon, Columns3, ArrowUpDown, Layers, Diamond,
   ChevronDown, ChevronRight, Save, BookmarkPlus,
   GripVertical, MoreHorizontal, CheckSquare, Square, MinusSquare,
-  Clock, CalendarDays,
+  Clock, CalendarDays, History,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+import EditHistoryDrawer from '../components/EditHistoryDrawer'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -175,6 +177,12 @@ export default function ProjectTasksView() {
 
   // Task detail popup
   const [detailTaskId, setDetailTaskId] = useState(null)
+
+  // Edit history (Session 5) — DB-side RLS is the real gate; this only
+  // hides the affordance below manager.
+  const { can } = usePermissions()
+  const canViewHistory = can('rabbit.history.view')
+  const [historyTaskId, setHistoryTaskId] = useState(null)
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -605,6 +613,7 @@ export default function ProjectTasksView() {
             ctx={ctx}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
+            onHistoryClick={canViewHistory ? (id) => setHistoryTaskId(id) : null}
             milestones={allMilestones}
             sortField={sortField}
             sortDir={sortDir}
@@ -680,6 +689,16 @@ export default function ProjectTasksView() {
           taskId={detailTaskId}
           ctx={ctx}
           onClose={() => setDetailTaskId(null)}
+        />
+      )}
+
+      {/* ── Edit history drawer ── */}
+      {historyTaskId && (
+        <EditHistoryDrawer
+          entityType="tasks"
+          entityId={historyTaskId}
+          entityLabel={tasks.find(t => t.id === historyTaskId)?.title}
+          onClose={() => setHistoryTaskId(null)}
         />
       )}
     </div>
@@ -817,7 +836,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW
 // ═════════════════════════════════════════════════════
-function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title',    flex: 3 },
     { key: 'status',      label: 'Status',   flex: 1.2 },
@@ -828,7 +847,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     { key: 'start_date',  label: 'Start',    flex: 1 },
     { key: 'end_date',    label: 'End',      flex: 1 },
     { key: 'bid_days',    label: 'Bid',      flex: 0.6 },
-    { key: '_actions',    label: '',         flex: 0.4 },
+    { key: '_actions',    label: '',         flex: onHistoryClick ? 0.7 : 0.4 },
   ]
 
   // ── Multi-select state ──
@@ -933,7 +952,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                 assets={assets} phases={phases} members={members}
                 assetById={assetById} phaseById={phaseById} memberById={memberById}
                 collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-                ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick}
+                ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick} onHistoryClick={onHistoryClick}
                 selected={selected} toggleOne={toggleOne} />
             ))}
           </>
@@ -965,6 +984,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
                       ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                      onHistoryClick={onHistoryClick ? () => onHistoryClick(entry.item.id) : null}
                       isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
                   )
                 )
@@ -980,6 +1000,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
                       ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+                      onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
                       isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
                   ))}
                 </>
@@ -1022,7 +1043,7 @@ function buildGroupPatch(groupBy, targetKey) {
 }
 
 // ── Task group with header + add-row + drop target ──
-function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick, selected, toggleOne }) {
+function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick, onHistoryClick, selected, toggleOne }) {
   const [dragOver, setDragOver] = useState(false)
   const dragCountRef = useRef(0)
 
@@ -1130,6 +1151,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
               assets={assets} phases={phases} members={members}
               assetById={assetById} phaseById={phaseById} memberById={memberById}
               ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+              onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
               isSelected={selected?.has(t.id)} onToggleSelect={() => toggleOne?.(t.id)} />
           ))}
           <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
@@ -1297,7 +1319,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick, isSelected, onToggleSelect }) {
+function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
 
   function handleUpdate(patch) { ctx?.updateTask?.(task.id, patch) }
@@ -1386,6 +1408,14 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <div className="flex items-center"
             style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+            {onHistoryClick && (
+              <button type="button" onClick={onHistoryClick}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                title="View edit history"
+                style={{ color: '#a8a29e' }}>
+                <History className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button type="button" onClick={handleDelete}
               className="p-1 rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#fca5a5' }}>

@@ -203,6 +203,11 @@ export function localServerAdapter() {
     },
     deleteComment: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/comments/${id}`, { method: 'DELETE' }),
 
+    // ── Edit history ──────────────────────────────────────────
+    // No capture in local mode (DB-trigger feature, supabase only).
+    // Empty result → the drawer shows its "unavailable in this mode" note.
+    listEditHistory: async () => [],
+
     // ── Ingestion runs + chunks ───────────────────────────────
     createIngestionRun: (run) => jfetch(`${BASE}/projects/${run.project_id}/ingestion-runs`, {
       method:  'POST',

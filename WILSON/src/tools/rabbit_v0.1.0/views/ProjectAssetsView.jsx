@@ -28,7 +28,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,
-  Table as TableIcon, LayoutGrid, X, FileText, ImagePlus, ImageOff,
+  Table as TableIcon, LayoutGrid, X, FileText, ImagePlus, ImageOff, History,
   Layers, ArrowUpDown, ChevronDown, ChevronRight,
   Save, BookmarkPlus, CheckSquare, Square, MinusSquare,
   Film, Clapperboard, Gamepad2, Sparkles,
@@ -36,7 +36,9 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
+import { usePermissions } from '../../../permissions/usePermissions'
 import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
+import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
 import FileManager from '../components/FileManager'
 
@@ -178,6 +180,12 @@ export default function ProjectAssetsView() {
   const [warningAssetId, setWarningAssetId] = useState(null)
   const [detailAssetId, setDetailAssetId]   = useState(null)
   const [thumbRevision, setThumbRevision]   = useState(0)
+
+  // Edit history (Session 5) — DB-side RLS is the real gate; this only
+  // hides the affordance below manager.
+  const { can } = usePermissions()
+  const canViewHistory = can('rabbit.history.view')
+  const [historyAssetId, setHistoryAssetId] = useState(null)
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -504,6 +512,7 @@ export default function ProjectAssetsView() {
             onThumbChanged={() => setThumbRevision(r => r + 1)}
             onWarningClick={(id) => setWarningAssetId(id)}
             onDetailClick={(id) => setDetailAssetId(id)}
+            onHistoryClick={canViewHistory ? (id) => setHistoryAssetId(id) : null}
           />
         ) : groups ? (
           // Gallery — grouped
@@ -603,6 +612,15 @@ export default function ProjectAssetsView() {
             if (assetId) setDetailAssetId(assetId)
           }}
           onClose={() => setShowNewAssetPopup(false)}
+        />
+      )}
+
+      {historyAssetId && (
+        <EditHistoryDrawer
+          entityType="assets"
+          entityId={historyAssetId}
+          entityLabel={assets.find(a => a.id === historyAssetId)?.name}
+          onClose={() => setHistoryAssetId(null)}
         />
       )}
 
@@ -739,7 +757,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW (flex-based, matching Tasks tab)
 // ═════════════════════════════════════════════════════
-function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick }) {
+function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
 
   // ── Multi-select state ──
@@ -778,7 +796,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
     { key: 'due_date',    label: 'Due',         flex: 1 },
     { key: 'description', label: 'Description', flex: 1.5 },
     { key: 'tasks',       label: 'Tasks',       flex: 0.6 },
-    { key: '_actions',    label: '',            flex: 0.4 },
+    { key: '_actions',    label: '',            flex: onHistoryClick ? 0.7 : 0.4 },
   ]
 
   if (assets.length === 0 && (!groups || groups.length === 0)) {
@@ -876,6 +894,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   onDelete={() => ctx.deleteAsset(a.id)}
                   onWarningClick={() => onWarningClick?.(a.id)}
                   onDetailClick={() => onDetailClick?.(a.id)}
+                  onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
                   onThumbChanged={onThumbChanged}
                   isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
                 />
@@ -900,6 +919,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             onDelete={() => ctx.deleteAsset(a.id)}
             onWarningClick={() => onWarningClick?.(a.id)}
             onDetailClick={() => onDetailClick?.(a.id)}
+            onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
             onThumbChanged={onThumbChanged}
             isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
           />
@@ -927,7 +947,7 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
 
 
 // ── Single asset row (flex-based, matching task rows) ──
-function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, isSelected, onToggleSelect }) {
+function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
   const hasThumbnail = !!asset.thumbnail_image
   const effectiveH = hasThumbnail ? rowH : BASE_ROW_H
@@ -1044,6 +1064,14 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center"
             style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+            {onHistoryClick && (
+              <button type="button" onClick={onHistoryClick}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                title="View edit history"
+                style={{ color: '#a8a29e' }}>
+                <History className="w-3.5 h-3.5" />
+              </button>
+            )}
             <button type="button"
               onClick={() => { if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) onDelete() }}
               className="p-1 rounded hover:bg-stone-700 transition-colors"

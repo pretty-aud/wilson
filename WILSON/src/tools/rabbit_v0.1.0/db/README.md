@@ -179,3 +179,39 @@ project assignment unifies in Session 6).
   row-level-security error. NewUserWelcome and ProfileSection both build
   paths as `{workspace_id}/{user_id}/{ts}-{sanitized-filename}`; keep new
   callers on that shape.
+
+## 10. Edit history (Session 5, migration 0012)
+
+Every mutation of the 13 RABBIT tables in supabase mode writes an
+append-only row to `public.edit_history` — who (`actor_user_id` +
+`actor_label` captured at write time), what (`entity_type`/`entity_id` +
+per-field `diff`), when (`created_at`). Capture is a single generic
+`AFTER INSERT/UPDATE/DELETE` trigger (`fn_edit_history_capture`), so it
+covers every client — Electron, web, Edge Functions, raw SQL — with no
+adapter involvement. Revert/undo is deliberately absent until Session 7.
+
+- **Reads** are RLS-gated: admin + manager, own workspace only, active
+  membership required. Below-manager members write history but cannot
+  read it. The UI additionally gates the drawer on `rabbit.history.view`.
+- **Writes** are impossible for client roles: no INSERT/UPDATE/DELETE
+  policies exist and the 0011 default-privilege grants are revoked.
+  Only the SECURITY DEFINER trigger path inserts.
+- **Diffs**: `create` → `{"new": {...}}`, `delete` → `{"old": {...}}`,
+  `update` → `{"col": {"old": ..., "new": ...}}` per changed field.
+  Audit-touch columns (`updated_at/by`, `last_updated_at/by`) are
+  excluded; touch-only updates write nothing.
+- **Retention** is 90 days (locked decision), enforced by
+  `purge_edit_history()` (service_role-only). Hosted envs schedule it
+  nightly via pg_cron (`wilson-purge-edit-history`, 04:43 UTC); the CI
+  local stack has no pg_cron, so pgTAP calls the function directly.
+- **Known gap**: direct service_role writes to the seven tables without
+  a `workspace_id` column (phases, asset_versions, task_dependencies,
+  task_links, rate_card_entries, ingestion_runs, ingestion_chunks) skip
+  capture when the parent row can't resolve a workspace and no JWT claim
+  is present. Cascade deletes from signed-in users ARE captured.
+- **local_server / google_drive modes**: no capture. In practice the
+  History button never renders there — the `rabbit.history.view` gate
+  needs a Supabase-session role, which pure local mode doesn't have. (The
+  drawer itself also carries an "unavailable in this mode" notice for
+  mixed setups where a signed-in user switches adapters.) Local parity is
+  a candidate for the Session 6 identity unification work.

@@ -103,6 +103,10 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  * @property {(entityType: string, entityId: string) => Promise<object[]>} listComments
  * @property {(id: string) => Promise<void>}                        deleteComment
  *
+ * @property {(entityType: string, entityId: string) => Promise<object[]>} listEditHistory
+ *   Supabase-only (DB-trigger capture, migration 0012); local_server and
+ *   google_drive resolve to [] so the drawer can render an empty state.
+ *
  * @property {(run: object) => Promise<object>}                     createIngestionRun
  * @property {(runId: string, patch: object) => Promise<object>}    updateIngestionRun
  * @property {(runId: string) => Promise<object[]>}                 listIngestionChunks

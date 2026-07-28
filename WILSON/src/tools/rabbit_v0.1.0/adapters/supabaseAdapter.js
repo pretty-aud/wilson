@@ -333,6 +333,32 @@ export function supabaseAdapter() {
       unwrap(await client.from('comments').delete().eq('id', id));
     },
 
+    // ── Edit history (Session 5, migration 0012) ──────────────
+    // Read-only: the table is populated by DB triggers and RLS limits
+    // reads to admin/manager within their workspace. entityType is the
+    // table name ('assets', 'tasks', ...).
+    async listEditHistory(entityType, entityId) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('edit_history')
+        .select('*')
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      if (error) {
+        // Environment predates migration 0012 — treat as "no history yet"
+        // rather than breaking the drawer (same tolerance as the
+        // workspace_directory() fallback in useWorkspaceMembers).
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
     // ── Ingestion runs + chunks ───────────────────────────────
     async createIngestionRun(run) {
       const client = await requireClient();
