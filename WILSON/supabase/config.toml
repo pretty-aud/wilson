@@ -71,7 +71,7 @@ user = "resend"
 # `pass` must be a Resend SMTP token (not an API key). Injected via the
 # SUPABASE_AUTH_SMTP_PASS secret when Supabase picks this up in hosted.
 pass = "env(SUPABASE_AUTH_SMTP_PASS)"
-admin_email = "wilson@wilsonapp.com"
+admin_email = "wilson@mail.petalstudios.co"
 sender_name = "WILSON"
 
 # Custom Access Token hook — bakes workspace_id + app_role into JWT

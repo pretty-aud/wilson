@@ -97,11 +97,11 @@ swap the SMTP creds and leave templates + call sites untouched.
 Run this for each of `wilson-dev`, `wilson-staging`, `wilson-prod`.
 
 1. **Resend account & domain.** Create an account at
-   <https://resend.com>. Add the sending domain (`mail.wilsonapp.com` is
+   <https://resend.com>. Add the sending domain (`mail.petalstudios.co` is
    the current choice). Resend will show three DNS records:
    - `TXT` at `mail` — SPF (`v=spf1 include:amazonses.com ~all`)
    - `TXT` at `resend._domainkey.mail` — DKIM public key
-   - `TXT` at `_dmarc.mail` — DMARC (`v=DMARC1; p=none; rua=mailto:postmaster@wilsonapp.com`)
+   - `TXT` at `_dmarc.mail` — DMARC (`v=DMARC1; p=none; rua=mailto:postmaster@petalstudios.co`)
    Add all three to the DNS provider; propagation usually takes under 5
    minutes. Resend's domain status must go green before the next step.
 2. **Create an SMTP credential.** In Resend → API Keys → *Create SMTP
@@ -113,7 +113,7 @@ Run this for each of `wilson-dev`, `wilson-staging`, `wilson-prod`.
    - Username: `resend`
    - Password: *paste the Resend SMTP password*
    - Sender name: `WILSON`
-   - Sender email: `wilson@mail.wilsonapp.com`
+   - Sender email: `wilson@mail.petalstudios.co`
    Save. "Enable custom SMTP" toggles to green.
 4. **Upload templates.** Dashboard → Auth → Email Templates. For each of
    *Invite user*, *Reset password*, *Change email address*: paste the

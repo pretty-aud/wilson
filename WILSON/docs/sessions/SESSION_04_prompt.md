@@ -45,14 +45,12 @@ Branch: **`feat/multi-user-v1`**. Session 3 landed in two commits:
 
 ## Must-do before writing code
 
-1. **Resend configuration.** The SMTP creds + DNS records live outside the repo. Before invites/resets will actually deliver mail, complete §6 of `src/tools/rabbit_v0.1.0/db/README.md`: verify `mail.wilsonapp.com` on Resend, create an SMTP credential, paste it into Supabase Dashboard → Auth → SMTP Settings for each env, and upload the three templates from `supabase/templates/`. Session 3 staged the config but did **not** perform these external steps.
-2. **GitHub repo secrets for the issue-session CI job.** Without these the `issue-session-smoke` job skips silently:
-   - `DEV_SUPABASE_URL` = `https://eqjzmnvkrakroyqxfsvw.supabase.co`
-   - `DEV_SUPABASE_ANON_KEY` = (from `.env.development`)
-   - `DEV_PROBE_USERNAME` = `smoke_admin`
-   - `DEV_PROBE_PASSWORD` = `SmokeTest2026!`
-3. **Install Playwright.** `npm install -D @playwright/test && npx playwright install chromium`. The spec file exists; Session 4 should wire a CI job alongside the pgTAP one.
-4. **Install Vitest.** Not yet present. `roleMatrix.js` has a placeholder comment pointing at a future unit suite. Session 4 (or whenever convenient) lands `vitest` + `src/permissions/roleMatrix.test.js` + a CI step.
+> **All completed 2026-07-27:**
+> 1. ~~Resend configuration~~ — ✅ Domain `mail.petalstudios.co` verified on Resend. SMTP creds + 3 email templates pasted into all 3 Supabase envs (dev/staging/prod).
+> 2. ~~GitHub repo secrets~~ — ✅ All 4 secrets added (`DEV_SUPABASE_URL`, `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`).
+> 3. ~~Deploy to staging + prod~~ — ✅ Migrations + all 4 Edge Functions deployed to wilson-staging and wilson-prod. Custom access token hook enabled on both.
+> 4. **Install Playwright.** `@playwright/test` is in package.json but `npx playwright install chromium` may not have run. Session 4 should wire a CI job alongside the pgTAP one.
+> 5. **Install Vitest.** Not yet present. Session 4 lands `vitest` + `src/permissions/roleMatrix.test.js` + a CI step.
 
 ## Known rough edges from Session 3
 
