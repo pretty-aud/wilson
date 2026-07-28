@@ -91,8 +91,13 @@ jobs:
           sudo apt-get install -y postgresql-client >/dev/null 2>&1 || true
           for f in supabase/tests/rls/03_assets.sql supabase/tests/rls/14_ws_members_self.sql; do
             echo "=== psql replay: $f ==="
-            PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
-              -v ON_ERROR_STOP=1 -e -f "$f" 2>&1 | tail -40 || true
+            OUT=$(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
+              -v ON_ERROR_STOP=1 -e -f "$f" 2>&1 | tail -40 || true)
+            echo "$OUT"
+            # Surface the SQL error as an annotation — annotations are
+            # readable via the public API, full logs are not.
+            ERR=$(echo "$OUT" | grep -E 'ERROR|FATAL|could not|psql:' | tail -3 | tr '\n' ' ')
+            echo "::error title=pgTAP replay ${f}::${ERR:-replay produced no ERROR lines — file may have passed under raw psql}"
           done
 
       - name: Stop Supabase
