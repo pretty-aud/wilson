@@ -78,28 +78,27 @@ SELECT throws_ok(
 
 -- Optimistic-concurrency contract: a stale-version save matches zero rows —
 -- the client-side signal to merge the remote Yjs snapshot and retry.
-SELECT is(
-  (WITH u AS (
-     UPDATE public.notes
-        SET ydoc_state = 'c3RhbGU=', version = 8
-      WHERE id = 'da000000-0000-0000-0000-000000000001'
-        AND version = 7
-     RETURNING 1)
-   SELECT count(*)::int FROM u),
-  0, 'stale-version save matches zero rows (conflict signal)'
-);
+-- (Data-modifying CTEs must sit at the TOP level of the statement.)
+WITH u AS (
+  UPDATE public.notes
+     SET ydoc_state = 'c3RhbGU=', version = 8
+   WHERE id = 'da000000-0000-0000-0000-000000000001'
+     AND version = 7
+  RETURNING 1)
+SELECT is(count(*)::int, 0,
+  'stale-version save matches zero rows (conflict signal)')
+  FROM u;
 
 -- probe 7: the correctly-versioned save lands.
-SELECT is(
-  (WITH u AS (
-     UPDATE public.notes
-        SET ydoc_state = 'Zment', version = 1
-      WHERE id = 'da000000-0000-0000-0000-000000000001'
-        AND version = 0
-     RETURNING version)
-   SELECT count(*)::int FROM u),
-  1, 'correctly-versioned save matches exactly one row'
-);
+WITH u AS (
+  UPDATE public.notes
+     SET ydoc_state = 'Zment', version = 1
+   WHERE id = 'da000000-0000-0000-0000-000000000001'
+     AND version = 0
+  RETURNING version)
+SELECT is(count(*)::int, 1,
+  'correctly-versioned save matches exactly one row')
+  FROM u;
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -124,23 +123,21 @@ SELECT is(
   0, 'same-workspace member cannot see another member''s note'
 );
 
-SELECT is(
-  (WITH u AS (
-     UPDATE public.notes SET title = 'hijack'
-      WHERE id = 'da000000-0000-0000-0000-000000000001'
-     RETURNING 1)
-   SELECT count(*)::int FROM u),
-  0, 'same-workspace member cannot update another member''s note'
-);
+WITH u AS (
+  UPDATE public.notes SET title = 'hijack'
+   WHERE id = 'da000000-0000-0000-0000-000000000001'
+  RETURNING 1)
+SELECT is(count(*)::int, 0,
+  'same-workspace member cannot update another member''s note')
+  FROM u;
 
-SELECT is(
-  (WITH d AS (
-     DELETE FROM public.notes
-      WHERE id = 'da000000-0000-0000-0000-000000000001'
-     RETURNING 1)
-   SELECT count(*)::int FROM d),
-  0, 'same-workspace member cannot delete another member''s note'
-);
+WITH d AS (
+  DELETE FROM public.notes
+   WHERE id = 'da000000-0000-0000-0000-000000000001'
+  RETURNING 1)
+SELECT is(count(*)::int, 0,
+  'same-workspace member cannot delete another member''s note')
+  FROM d;
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;

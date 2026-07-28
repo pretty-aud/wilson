@@ -82,14 +82,14 @@ SELECT is(
   0, 'same-workspace member sees none of another member''s options'
 );
 
-SELECT is(
-  (WITH u AS (
-     UPDATE public.note_subjects SET label = 'hijack'
-      WHERE id = 'd5000000-0000-0000-0000-000000000001'
-     RETURNING 1)
-   SELECT count(*)::int FROM u),
-  0, 'same-workspace member cannot update another member''s option'
-);
+-- (Data-modifying CTEs must sit at the TOP level of the statement.)
+WITH u AS (
+  UPDATE public.note_subjects SET label = 'hijack'
+   WHERE id = 'd5000000-0000-0000-0000-000000000001'
+  RETURNING 1)
+SELECT is(count(*)::int, 0,
+  'same-workspace member cannot update another member''s option')
+  FROM u;
 
 -- Per-owner uniqueness: the SAME label is fine for a DIFFERENT owner.
 SELECT lives_ok(

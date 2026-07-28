@@ -70,8 +70,8 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0016`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 7 close-out. No backlog.
+- **Migrations `0000`–`0019`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 8 close-out. No backlog.
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace`, `invite-member`.
 - **Email:** Resend SMTP via `mail.petalstudios.co` (DNS at Squarespace);
@@ -84,11 +84,17 @@ Core capabilities of v1.0.0:
   policy against the NEW row of every UPDATE — soft-delete transitions would be
   withheld from collaborators. Broadcast authorizes once at channel join
   (`can_read_project_topic()`, SECURITY INVOKER ≡ `projects_select`), private
-  topic `rabbit:project:{id}`, full old/new rows. Reference:
-  `src/tools/rabbit_v0.1.0/db/README.md` §14.
+  topic `rabbit:project:{id}`, full old/new rows. Session 8 added the
+  workspace topic `rabbit:workspace:{id}` (0018: projects / workspace_members
+  / assigned-tasks / assets transitive-hide / project_members;
+  `can_read_workspace_topic()` = membership + active — deliberately stricter
+  than table reads for deactivated members until S9 aligns those).
+  Reference: `src/tools/rabbit_v0.1.0/db/README.md` §14 + §17.
 - **Merge model: LWW per field** (pending-field sets + `updated_at` stale
-  guard, `state/realtimeMerge.js`); **Yjs enters only for long-form text**
-  (Notes, Session 8).
+  guard, `state/realtimeMerge.js`); **Yjs lives ONLY in Notes** (Session 8):
+  note bodies are Yjs snapshots (base64 + optimistic `version` column,
+  merge-on-conflict retry — multi-device safe with no Yjs server; db/README
+  §16).
 - **Postgres lesson that shaped 0014/0016:** SELECT policies apply to BOTH
   sides of an UPDATE that reads the table — soft delete/restore must go through
   SECURITY DEFINER RPCs, and realtime must not re-evaluate per-row.
@@ -105,9 +111,9 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–20` (runs in CI local stack;
+- **pgTAP RLS suite** `supabase/tests/rls/01–23` (runs in CI local stack;
   realtime probes environment-tolerant).
-- **Vitest** 182/182 green end of S7. **Playwright** auth/permissions e2e.
+- **Vitest** 209/209 green end of S8. **Playwright** auth/permissions e2e.
 - CI workflow at the **git root**: `.github/workflows/rls.yml` (git root is
   `Dev_Work\wilson\`, one level ABOVE `WILSON/`). Failure-only psql replay
   surfaces real SQL errors as annotations.
@@ -176,46 +182,46 @@ deployed to all three envs**.
 | 5 | 2026-07-28 | Edit history (0012): append-only capture triggers on 13 tables, RLS, 90-day purge cron; EditHistoryDrawer; `listEditHistory` on adapters | `51403d3` |
 | 6 | 2026-07-28 | Project roles (0013: manager/reviewer/member + helper family gating writes), soft-delete + undo (0014), rate-entry identity (0015); undo toast; roster UI; 12/12 review findings fixed | `324a44c`, `848d225` |
 | 7 | 2026-07-28 | Realtime live sync (0016 broadcast) + presence + LWW merge layer + revert-to-state; 11 review findings fixed | `338c90e`, `4375872` |
+| 8 | 2026-07-28 | Dashboard (cross-project task table/kanban/gallery + TaskDetailPopup reuse) + Notes (TipTap v3 + Yjs snapshot-merge-write, owner-only, no admin bypass) + workspace channel (0018: projects/members/assigned-tasks/assets/project_members) + avatar remove + avatars in presence chips + task UI/DB parity (0019: tasks.notes, 'urgent'); 9/9 review findings + 8 minors fixed | `1ef4d10`, `156a74e` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 8–11 remain** (Session 10 was added 2026-07-28 by the web-parity
-decision — see §5/§10). Session 8 has NOT started (working tree clean, no S8
-commits). Launch prompt ready: `docs/sessions/SESSION_08_prompt.md`.
+**Sessions 9–11 remain** (Session 10 was added 2026-07-28 by the web-parity
+decision — see §5/§10). Launch prompt ready:
+`docs/sessions/SESSION_09_prompt.md`.
 
 ---
 
 ## 5. Remaining sessions
 
-### Session 8 — Dashboard + Notes (TipTap) ← NEXT
+### Session 8 — Dashboard + Notes (TipTap/Yjs) ✅ DONE (2026-07-28)
 
-Launch prompt: `docs/sessions/SESSION_08_prompt.md`. Scope from the brief +
-master plan:
+All four core blocks landed (`1ef4d10` + docs; §4 ledger row 8):
 
-- **Dashboard page** on Home below the tools: the user's personal cross-tool
-  surface (v1 = RABBIT data only). Task views styled like the RABBIT task view
-  but in WILSON app colors: **table, kanban, gallery**, with the same popups /
-  functionality (TaskDetailPopup reuse). Shows only the user's own assignments
-  (`tasks.assignee_id` / `reviewer_id` landed in 0013).
-- **Notes**: per-user rich-text notes on **TipTap** (headers, bold, underline,
-  bullets, links — Notion-style editing). Subject field = dropdown with
-  **user-defined options**; date field; sorting/filtering/grouping.
-  **Yjs enters here** (locked decision #6) — even single-author notes need it
-  for the multi-device case.
-- **Profile**: edit personal data (pronouns etc.) reusing S4 `ProfileSection`;
-  avatar upload / replace / delete.
-- **Candidate (carry-forward #1):** workspace-level broadcast channel so the
-  projects index / dashboard stay live (currently only the OPEN project's topic
-  is subscribed).
-- **Scope CONFIRMED full (2026-07-28)** — every bullet above is in, including
-  the workspace channel. Avatars: **central Supabase Storage bucket** (§10-F).
-- **Stretch** (§10-C, non-blocking): field-level cell presence (Notion-style
-  "who's on this cell") riding the S7 presence channel — only if the core
-  blocks land.
+- **Dashboard page** (`src/components/Dashboard/`, page id `dashboard`, Home
+  entry below the tools): table/kanban/gallery over the user's cross-project
+  assignments, sorting/filtering/grouping (incl. project + my-role),
+  TaskDetailPopup reused via synthetic per-project ctx (FileManager
+  suppressed; asset field read-only there), project-role write gating via
+  `projectRoleMatrix`, WILSON light tokens, zero budget surfaces.
+- **Notes** (Dashboard tab): TipTap v3, Yjs note bodies with
+  snapshot-merge-write (`ydoc_state` + `version` guard; bounded
+  merge-on-conflict retry) — multi-device, no clobber, no Yjs server.
+  Owner-only RLS with **NO admin bypass**; not history-captured; never
+  broadcast; hard delete v1. User-defined subject options with rename
+  cascade; date field; sort/filter/group.
+- **Profile**: ProfileSection reused on the Dashboard; avatar Remove/Discard
+  added; real avatars in RABBIT + Dashboard presence chips. Rides the
+  EXISTING `user-avatars` bucket (0009) — §10-F satisfied by reuse, no new
+  bucket (the brief's assumption predated 0009).
+- **Workspace channel** (0018) — carry-forward #1 CLOSED; see §2.
+- **Stretch NOT started:** field-level cell presence (→ S9+, earliest S10).
 
-### Session 9 — Company Admin Terminal + MFA + Auto-Update Infra
+### Session 9 — Company Admin Terminal + MFA + Auto-Update Infra ← NEXT
+
+Launch prompt: `docs/sessions/SESSION_09_prompt.md`.
 
 From the brief (Admin Terminal + credentials sections) + locked decisions:
 
@@ -286,10 +292,10 @@ tables + storage with an ownership model:
 
 ---
 
-## 6. Carry-forward gaps (live list, end of Session 7)
+## 6. Carry-forward gaps (live list, end of Session 8)
 
-1. Projects INDEX updates live only for the OPEN project — workspace channel is
-   the S8-native fix.
+1. ~~Projects INDEX updates live only for the OPEN project~~ — **CLOSED S8**
+   (workspace channel, 0018).
 2. Token-refresh-while-project-trashed can miss that project's restore event
    (documented in 0016 header; catches up on next open).
 3. Revert covers projects/phases/assets/tasks only; hard-deleted projects can't
@@ -298,15 +304,27 @@ tables + storage with an ownership model:
    parent purge cascades it anyway).
 5. Milestones / scenes / levels / experiences have no cloud tables yet (S2
    deferral) — not broadcast, not history-captured.
-6. Storage blob GC — file rows soft-delete but blobs persist (S9/S10).
+6. Storage blob GC — file rows soft-delete but blobs persist (S9/S10; now also
+   includes removed-avatar orphans when the best-effort delete fails).
 7. Roster (project_members) changes are not edit-history captured.
 8. Legacy `useTeamMembers` still used by Timeline/Scenes/Levels/Experiences/
    Budget/Intake views.
 9. `public.users` drop + `schema.sql` retirement — needs the standalone-RABBIT
    decision first (deliberately retained).
 10. Milestones have no undo path (kept confirm dialog).
-11. pgTAP 20's realtime probes are lenient in CI by design (no realtime
+11. pgTAP 20/23's realtime probes are lenient in CI by design (no realtime
     service in the CI stack); hosted coverage = live probes.
+12. **NEW (S8):** Notes have no cross-device LIVE list refresh (deliberate —
+    notes ride no channel; the version guard still makes concurrent edits
+    lossless; list refreshes on load/reload). Candidate: per-user topic later.
+13. **NEW (S8):** TeamMembersPage does not yet consume workspace_members
+    events (the Dashboard presence strip does) — S9 roster polish wires it.
+14. **NEW (S8):** A workspace-less JWT (deactivated everywhere mid-session)
+    inserting a note fails 23502 (NOT NULL) instead of a clean 42501 —
+    cosmetic; the Dashboard already requires an active workspace to render.
+15. **NEW (S8):** Deactivated members: workspace channel DENIES (0018) while
+    table reads still allow until refresh — deliberate divergence, pinned by
+    pgTAP 23 probe 12; S9's token revocation + SELECT-policy sweep aligns.
 
 ---
 
@@ -331,8 +349,8 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Producer + Creative Director row highlight; producer/creator auto-manager | Not found in S4–S7 records | ⬜ S9 — confirmed wanted (2026-07-28) |
 | Budget snapshot card managers-only; members never see financial data | Rate-entry RLS closed (0015); budget-tab gating rides the project-role sweep | 🔶 ❓ |
 | Summary strip shows only YOUR projects | 0013: staffed projects gated; **unstaffed = open to all** (backward compat) | 🔶 (matrix-complete once legacy projects are staffed) |
-| Real-time co-editing, see others live | S7 broadcast + LWW merge + presence chips/LIVE pill | ✅ (field-level cell presence: S8+ stretch — 2026-07-28) |
-| Personal Dashboard (RABBIT views + notes + profile + avatar) | Session 8 | ⬜ S8 |
+| Real-time co-editing, see others live | S7 broadcast + LWW merge + presence chips/LIVE pill (now with avatars) | ✅ (field-level cell presence: stretch, not started — S9+/S10) |
+| Personal Dashboard (RABBIT views + notes + profile + avatar) | S8: Dashboard page (table/kanban/gallery + popup reuse), Notes (TipTap+Yjs), ProfileSection + avatar remove, workspace channel | ✅ ❓ in-app verify owed |
 | New company setup wizard (+ create several users at once) | S2 `NewCompanyWizard`; bulk initial users via invites | ✅ / ⬜ S9 Slack-style multi-invite (2026-07-28) |
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
@@ -422,6 +440,24 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **D.O.G. web clarification:** no local-file access needed — web D.O.G.
   works off the open project's cloud files; light lift, lands with the S11
   web build (see locked #17).
+
+### Resolved 2026-07-28 (Session 8 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **Avatars ride the EXISTING `user-avatars` bucket (0009)** — the §10-F
+  "central Supabase Storage" decision was already implemented in S4;
+  creating the brief's new `avatars` bucket would have broken ProfileSection,
+  NewUserWelcome and the `isOwnAvatarUrl` render guard. No new bucket.
+- **Notes v1 exclusions** (db/README §16): owner-only with NO admin bypass;
+  hard delete + confirm (no trash); not edit-history captured; never on any
+  realtime topic. Multi-device safety = Yjs snapshot-merge-write, not live
+  sync.
+- **Task UI/DB parity fixes (0019)**: `tasks.notes` column added; `'urgent'`
+  added to `task_priority` ('critical' remains, unused) — both were
+  pre-existing cloud landmines reachable from RABBIT's own popup.
+- **Workspace channel strictness**: deactivated members are denied the
+  channel while table reads still allow them — safe-direction divergence,
+  pinned by pgTAP 23, aligned in S9.
 
 ### Still open
 
