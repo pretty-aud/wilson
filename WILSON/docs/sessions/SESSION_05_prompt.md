@@ -79,6 +79,15 @@ Branch: **`feat/multi-user-v1`**. Session 4 landed in two commits:
 - [ ] CI green (pgTAP incl. new history tests, Vitest, Playwright).
 - [ ] `docs/sessions/SESSION_06_prompt.md` drafted; `wilson_multi_user_plan.md` memory refreshed.
 
+## Token discipline (standing rule from Session 4)
+
+Session 4's review workflow burned ~3.2M subagent tokens and hit the session cap twice. Rules for this and every future session:
+
+- **Hard cap: no more than 15 agents at once** (one workflow's total agent count included — size fan-outs accordingly).
+- Finders must paste the relevant code excerpts INTO their findings so verifiers don't independently re-read the diff/repo (~100k tokens per agent otherwise).
+- **Never resume a workflow whose early stages are nondeterministic fan-outs** — resume caching is call-order-prefix based and pipeline interleaving breaks it, silently re-running everything. Salvage completed results from the output file/journal and verify stragglers inline instead.
+- Prefer inline verification by the main session (code already in context) over spawning verify agents when there are only a handful of claims.
+
 ## Reminder
 
 Per the standing rule: **no code changes before branch is confirmed.** First tool call: `git status` on `feat/multi-user-v1`, verify clean, then read `163892d` before starting.
