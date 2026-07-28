@@ -139,13 +139,13 @@ any template, re-upload it to each hosted environment via the Dashboard
 (no CLI push for templates today). A future Session 9 automation will
 sync these via the Management API.
 
-## 7. Realtime (free, opt-in)
+## 7. Realtime (live since Session 7)
 
-The Supabase adapter wires `subscribeProjectChanges()` to a Realtime
-subscription on `projects`, `phases`, `assets`, and `tasks`. RABBIT v0.1 does
-not yet consume the events visually — they are wired so collaboration UI in
-v0.2 can flip a single feature flag and start receiving updates. No extra
-setup is needed; Supabase enables Realtime on every table by default.
+Superseded by §14. `subscribeProjectChanges()` now joins the private
+broadcast channel `rabbit:project:{id}` (migration 0016) and the client
+consumes the events — live sync is on by default in cloud mode. The
+original postgres_changes scaffolding described here was replaced; §14
+explains why.
 
 ## 8. Migrations
 
@@ -300,3 +300,101 @@ RLS is now role-scoped (the Session-4 deferral): SELECT admin+manager
 (`rate_card.view` parity), writes admin only (`rate_card.edit` parity).
 Plain members get an empty list via PostgREST; the Rate Card page shows
 a permission notice instead of an empty table.
+
+## 14. Realtime live sync (Session 7, migration 0016)
+
+Live sync uses **broadcast-from-database**, not postgres_changes. The
+reason is the Session 6 lesson resurfacing on the realtime path:
+postgres_changes authorizes each event by evaluating the SUBSCRIBER's
+SELECT policy against the NEW row of every UPDATE, so a soft delete
+(`deleted_at` set → row invisible under the §12 policies) is **withheld
+from every other client** — collaborators would keep stale rows forever.
+Broadcast delivers full old/new rows for every write and authorizes the
+channel ONCE at join.
+
+Pieces:
+
+- **`fn_realtime_broadcast()`** — one generic AFTER INSERT/UPDATE/DELETE
+  trigger on the 10 project-scoped tables (`projects`, `phases`,
+  `assets`, `tasks`, `files`, `comments`, `task_dependencies`,
+  `task_links`, `asset_versions`, `project_members`). Resolves the row's
+  project (own column, or parent join for the link tables) and calls
+  `realtime.broadcast_changes('rabbit:project:' || project_id, TG_OP, …)`.
+  Same resilience contract as the §10 capture trigger: a broadcast
+  failure NEVER aborts the write, and environments without the realtime
+  schema (the db-only CI stack — `supabase start --exclude realtime`)
+  skip silently.
+- **`can_read_project_topic(uuid)`** — SECURITY INVOKER on purpose: the
+  check is "can the caller SELECT this project row", so `projects_select`
+  is the single source of truth and channel access can never drift from
+  table visibility. A trashed project's topic therefore denies (re)joins
+  while trashed; a subscriber who stays joined still hears the restore.
+- **realtime.messages policies** — `rabbit_project_topic_read` (SELECT,
+  broadcast + presence) and `rabbit_project_topic_presence_write`
+  (INSERT, presence only — clients never send data broadcasts; the
+  SECURITY DEFINER trigger is the only writer). `fn_try_uuid()` guards
+  the topic-suffix cast so a hand-crafted topic can't error the policy.
+- **Client** — the adapter normalizes events to
+  `{ table, op, record, oldRecord }`; the pure merge layer
+  (`state/realtimeMerge.js`) applies them with **LWW per field**: writes
+  go up as per-field patches (`patchPhase/patchAsset/patchTask`, plus
+  patch-shaped `updateProject`), and incoming rows replace local state
+  field-by-field EXCEPT fields with an in-flight local write. Remote
+  soft-deletes mirror the local cascade shapes (asset → its tasks,
+  task → its dependency edges); remote restores refetch the bundle
+  (children were only hidden transitively, never deleted). On channel
+  rejoin after a drop the client refetches to close the missed-events
+  window. Presence ("who ELSE has this project open" — the local user is
+  filtered out) rides the same channel and renders next to the adapter
+  dot.
+
+No publication or REPLICA IDENTITY management is involved —
+`broadcast_changes` reads trigger NEW/OLD, not the WAL.
+
+**Partition provisioning (verified live on wilson-dev, 2026-07-28):** on a
+hosted project whose Realtime tenant has never been active,
+`realtime.messages` has NO partitions and `realtime.send()` drops every
+row with only a WARNING — DB-side broadcasts silently vanish. The FIRST
+websocket connection activates the tenant and the janitor creates the
+partitions; from then on broadcasts land (probed empirically: send → 0
+rows before any connection, 1 row after a single anon channel join).
+This is self-healing in practice — broadcasts only matter when a
+subscriber exists, and a subscriber existing implies the tenant is
+active — but after deploying 0016 to a fresh environment, do not expect
+`realtime.messages` rows until a client has connected at least once.
+
+Two operational notes: (1) the `realtime.messages` channel policies are
+created only when that table exists at migration time — a stack that
+gains the realtime service AFTER 0016 was applied must re-apply 0016
+(it is idempotent; pgTAP 20 probe 22 reporting `missing` is the
+detector for that state). (2) pgTAP's partition detection is empirical
+(a `realtime.send` probe), because stale historical partitions would
+otherwise read as "routable".
+
+Known gaps: the projects INDEX only updates live for the OPEN project's
+topic (create/rename/delete of other projects lands on next refresh);
+a client whose token refreshes while its project sits in the trash can
+miss that project's restore event (catches up on next open).
+
+## 15. Revert-to-state (Session 7)
+
+The Edit History drawer (§10) gained per-entry revert, gated by
+`rabbit.history.revert` (admin + manager, mirrors `.view`). A revert is
+an ORDINARY write through the provider mutators — captured in history
+itself, undoable with Ctrl+Z, and subject to the same RLS as any edit.
+Mapping (`components/editHistoryRevert.js`, pure + unit-tested):
+
+| History entry            | Revert action                                  |
+|--------------------------|------------------------------------------------|
+| update (plain diff)      | inverse patch — every diffed field back to `.old` |
+| update (Deleted label)   | restore via `restore_soft_deleted()`           |
+| update (Restored label)  | soft delete via `soft_delete_row()`            |
+| create                   | soft delete                                    |
+| delete (hard, pre-§12 or purge) | recreate from the `{old}` snapshot, id preserved |
+
+Under LWW-per-field a revert applies the inverse of ONE entry as the
+newest write — it does not rewind later edits to other fields. Audit,
+tenancy and trash columns never ride an inverse patch (`deleted_at` is
+RPC-only per §12). Supported entity types: projects, phases, assets,
+tasks (full mutator coverage); hard-deleted projects cannot be recreated
+(a fresh id would orphan the subtree).

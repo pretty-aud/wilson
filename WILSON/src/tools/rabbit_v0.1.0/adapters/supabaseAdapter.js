@@ -17,11 +17,15 @@
 // Storage bucket: 'rabbit-files' (must exist; see db/README.md §3).
 //   Upload key pattern: projects/{project_id}/{entity}/{id}/{filename}
 //
-// Realtime: subscribeProjectChanges() opens one channel per project
-// and subscribes to postgres_changes on phases/assets/tasks/files
-// scoped to that project_id. The collab UI in v0.2 will consume
-// these — RABBIT v0.1 wires them so the cost of opting in later
-// is a single feature flag.
+// Realtime (Session 7, migration 0016): subscribeProjectChanges() joins
+// the PRIVATE broadcast channel `rabbit:project:{id}`. Events originate
+// from the fn_realtime_broadcast DB trigger (broadcast-from-database),
+// NOT postgres_changes — under the 0014 soft-delete SELECT policies a
+// postgres_changes subscriber would never receive the "row was trashed"
+// UPDATE (the new row fails their SELECT policy), so collaborators would
+// keep stale rows forever. Broadcast delivers full old/new rows for every
+// write; channel access is authorized at join by the realtime.messages
+// policies (can_read_project_topic). Presence rides the same channel.
 //
 // History: the Session 1 scaffolding kept a per-project `supabase.json`
 // fallback so pre-migration tenants could keep running. Session 2
@@ -104,6 +108,35 @@ function sanitize(obj, drop = []) {
   return out;
 }
 
+// Columns a per-field patch must never carry: identity/tenancy, audit
+// stamps, and the trash columns (RPC-only under the 0014 policies — a
+// plain UPDATE with deleted_at either 42501s or silently no-ops).
+const PATCH_DROP = [
+  'id', 'workspace_id', 'created_at', 'created_by',
+  'updated_at', 'updated_by', 'last_updated_at', 'last_updated_by',
+  'deleted_at', 'deleted_by',
+];
+
+// Session 7 (LWW per field, locked decision): updates send ONLY the changed
+// columns. The pre-S7 shape — upserting the caller's whole merged row —
+// silently clobbered every field a collaborator changed since this client's
+// last read. patchRow is the generic engine behind the per-table patch*
+// methods the provider prefers when present.
+async function patchRow(table, id, patch) {
+  const client = await requireClient();
+  const row = sanitize(patch, PATCH_DROP);
+  // Views clear fields by passing undefined (e.g. drag to the 'Unassigned'
+  // group). JSON serialization would silently DROP those keys, turning the
+  // gesture into an empty PATCH body (PostgREST error) — send NULL instead,
+  // which is what "clear this field" means.
+  for (const k of Object.keys(row)) {
+    if (row[k] === undefined) row[k] = null;
+  }
+  // Nothing left after sanitize → no-op rather than an empty PATCH.
+  if (Object.keys(row).length === 0) return null;
+  return unwrap(await client.from(table).update(row).eq('id', id).select().single());
+}
+
 // ───────────────────────────────────────────────────────────────
 // Adapter factory
 // ───────────────────────────────────────────────────────────────
@@ -172,7 +205,7 @@ export function supabaseAdapter() {
 
     async updateProject(id, patch) {
       const client = await requireClient();
-      const row = sanitize(patch, ['id', 'created_at', 'updated_at']);
+      const row = sanitize(patch, PATCH_DROP);
       return unwrap(await client.from('projects').update(row).eq('id', id).select().single());
     },
 
@@ -185,7 +218,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'projects', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'projects', p_id: id }));
     },
 
     // ── Phases ────────────────────────────────────────────────
@@ -198,6 +234,7 @@ export function supabaseAdapter() {
       const row = sanitize(phase, ['created_at', 'updated_at']);
       return unwrap(await client.from('phases').upsert(row).select().single());
     },
+    async patchPhase(id, patch) { return patchRow('phases', id, patch); },
     async deletePhase(id) {
       const client = await requireClient();
       unwrap(await client.rpc('soft_delete_row', { p_table: 'phases', p_id: id }));
@@ -206,7 +243,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'phases', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'phases', p_id: id }));
     },
 
     // ── Assets ────────────────────────────────────────────────
@@ -219,6 +259,7 @@ export function supabaseAdapter() {
       const row = sanitize(asset, ['created_at', 'updated_at']);
       return unwrap(await client.from('assets').upsert(row).select().single());
     },
+    async patchAsset(id, patch) { return patchRow('assets', id, patch); },
     async deleteAsset(id) {
       const client = await requireClient();
       unwrap(await client.rpc('soft_delete_row', { p_table: 'assets', p_id: id }));
@@ -227,7 +268,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'assets', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'assets', p_id: id }));
     },
 
     // ── Tasks ─────────────────────────────────────────────────
@@ -240,6 +284,7 @@ export function supabaseAdapter() {
       const row = sanitize(task, ['created_at', 'updated_at']);
       return unwrap(await client.from('tasks').upsert(row).select().single());
     },
+    async patchTask(id, patch) { return patchRow('tasks', id, patch); },
     async deleteTask(id) {
       const client = await requireClient();
       unwrap(await client.rpc('soft_delete_row', { p_table: 'tasks', p_id: id }));
@@ -248,7 +293,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'tasks', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'tasks', p_id: id }));
     },
 
     // ── Dependencies ──────────────────────────────────────────
@@ -341,7 +389,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
     },
 
     // ── Asset versions ────────────────────────────────────────
@@ -376,7 +427,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'comments', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'comments', p_id: id }));
     },
 
     // ── Edit history (Session 5, migration 0012) ──────────────
@@ -484,7 +538,10 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Via RPC: a plain UPDATE cannot see soft-deleted rows (SELECT
       // policies apply to the WHERE clause) and would no-op. See 0014.
-      unwrap(await client.rpc('restore_soft_deleted', { p_table: 'rate_cards', p_id: id }));
+      // Returns the RPC's boolean: false = row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'rate_cards', p_id: id }));
     },
     async listRateCardEntries(rateCardId) {
       const client = await requireClient();
@@ -519,35 +576,105 @@ export function supabaseAdapter() {
     async upsertMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
     async deleteMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
 
-    // ── Realtime ──────────────────────────────────────────────
-    // Wires postgres_changes on the four core tables scoped to a
-    // single project_id. The collab UI in v0.2 can flip a feature
-    // flag to start consuming these events without any wiring work.
-    subscribeProjectChanges(projectId, callback) {
+    // ── Realtime (Session 7, migration 0016) ──────────────────
+    // Joins the private broadcast channel `rabbit:project:{id}` fed by the
+    // fn_realtime_broadcast trigger. Events are normalized for the pure
+    // merge layer (state/realtimeMerge.js):
+    //   callback({ table, op: 'INSERT'|'UPDATE'|'DELETE', record, oldRecord })
+    //
+    // opts:
+    //   onStatus(status)      — channel lifecycle ('SUBSCRIBED', 'CLOSED',
+    //                           'CHANNEL_ERROR', 'TIMED_OUT'); the provider
+    //                           refetches after a re-subscribe to close the
+    //                           missed-events window.
+    //   onPresence(users)     — flattened presence list [{ user_id, label }];
+    //                           enables presence tracking when provided.
+    //
+    // Returns an unsubscribe function; always safe to call.
+    subscribeProjectChanges(projectId, callback, opts = {}) {
       let cancelled = false;
       let channel = null;
+      let client = null;
 
       (async () => {
-        const client = await getClient();
+        client = await getClient();
         if (!client || cancelled) return;
-        channel = client
-          .channel(`rabbit-project-${projectId}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${projectId}` },
-              (payload) => callback({ table: 'projects', ...payload }))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'phases', filter: `project_id=eq.${projectId}` },
-              (payload) => callback({ table: 'phases', ...payload }))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'assets', filter: `project_id=eq.${projectId}` },
-              (payload) => callback({ table: 'assets', ...payload }))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks', filter: `project_id=eq.${projectId}` },
-              (payload) => callback({ table: 'tasks', ...payload }))
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'files', filter: `project_id=eq.${projectId}` },
-              (payload) => callback({ table: 'files', ...payload }))
-          .subscribe();
+
+        // Private channels authorize against realtime.messages RLS with the
+        // caller's JWT — make sure the realtime socket carries it. Recent
+        // supabase-js versions do this on auth change; this is the cheap
+        // defensive path for a socket opened before sign-in finished.
+        try { await client.realtime.setAuth(); } catch { /* non-fatal */ }
+        if (cancelled) return;
+
+        let presenceMeta = null;
+        if (opts.onPresence) {
+          try {
+            const { data } = await client.auth.getSession();
+            const user = data?.session?.user;
+            if (user) {
+              presenceMeta = {
+                user_id: user.id,
+                label: user.user_metadata?.display_name
+                    || user.user_metadata?.username
+                    || user.email
+                    || 'Member',
+              };
+            }
+          } catch { /* presence stays anonymous-less; channel still works */ }
+        }
+        if (cancelled) return;
+
+        channel = client.channel(`rabbit:project:${projectId}`, {
+          config: {
+            private: true,
+            ...(presenceMeta ? { presence: { key: presenceMeta.user_id } } : {}),
+          },
+        });
+
+        for (const op of ['INSERT', 'UPDATE', 'DELETE']) {
+          channel.on('broadcast', { event: op }, (msg) => {
+            const p = msg?.payload;
+            if (!p || !p.table) return;
+            callback({
+              table:     p.table,
+              op:        p.operation || op,
+              record:    p.record ?? null,
+              oldRecord: p.old_record ?? null,
+            });
+          });
+        }
+
+        if (opts.onPresence) {
+          channel.on('presence', { event: 'sync' }, () => {
+            try {
+              const state = channel.presenceState();
+              const users = Object.values(state).flat()
+                .map(m => ({ user_id: m.user_id, label: m.label }))
+                // "Who ELSE has this project open" — the caller's own
+                // tracked meta comes back in the sync state; showing a
+                // chip to a solo user would fake a teammate.
+                .filter(u => u.user_id && u.user_id !== presenceMeta?.user_id);
+              opts.onPresence(users);
+            } catch { /* presence display is best-effort */ }
+          });
+        }
+
+        channel.subscribe(async (status) => {
+          if (cancelled) return;
+          try { opts.onStatus?.(status); } catch { /* observer errors stay theirs */ }
+          if (status === 'SUBSCRIBED' && presenceMeta) {
+            try { await channel.track(presenceMeta); } catch { /* best-effort */ }
+          }
+        });
       })();
 
       return () => {
         cancelled = true;
-        if (channel) channel.unsubscribe();
+        if (channel) {
+          try { channel.unsubscribe(); } catch { /* already down */ }
+          try { client?.removeChannel?.(channel); } catch { /* already gone */ }
+        }
       };
     },
   };

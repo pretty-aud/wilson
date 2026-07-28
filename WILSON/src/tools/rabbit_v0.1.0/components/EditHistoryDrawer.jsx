@@ -1,31 +1,41 @@
 // =============================================================================
 // EditHistoryDrawer — right-side drawer showing edit_history rows for one
-// RABBIT entity (Session 5, migration 0012). Read-only by design: revert
-// arrives with Realtime in Session 7.
+// RABBIT entity (Session 5, migration 0012). Session 7 adds per-entry
+// "revert to this state": plain edits apply an inverse patch, Deleted
+// entries restore via the trash RPC, Created/Restored entries soft-delete
+// again, hard-delete snapshots recreate the row with its original id.
+// Every revert routes through the ordinary provider mutators, so it is
+// captured in history itself and undoable like any other edit.
 //
 // Data comes from adapter.listEditHistory(entityType, entityId) — supabase
 // mode only; local_server / google_drive resolve to [] and we show the
 // mode notice instead of an empty timeline. RLS already scopes reads to
-// admin/manager in their own workspace; the rabbit.history.view gate on the
-// opener button is presentation-only, per the permissions layer's contract.
+// admin/manager in their own workspace; the rabbit.history.view/.revert
+// gates on the UI are presentation-only, per the permissions layer's
+// contract — the entity write policies are the enforcement.
 //
 // z-[70]: above the entity detail popups (z-50) and their nested pickers
 // (z-[60]) so History can be opened on top of either.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { History, RefreshCw, X } from 'lucide-react'
+import { History, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+import { usePermissions } from '../../../permissions/usePermissions'
 import {
   ENTITY_LABELS, entryActionMeta,
   diffLines, snapshotSummary, formatHistoryTimestamp, actorName,
 } from './editHistoryFormat'
+import { canRevertEntry, revertActionLabel } from './editHistoryRevert'
 
 export default function EditHistoryDrawer({ entityType, entityId, entityLabel, onClose }) {
-  const { getAdapter, adapterMode } = useRabbit()
+  const { getAdapter, adapterMode, revertHistoryEntry } = useRabbit()
+  const { can } = usePermissions()
   const [entries, setEntries] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
+  const [revertingId, setRevertingId] = useState(null)
+  const [revertError, setRevertError] = useState(null)
   const mountedRef = useRef(true)
 
   const load = useCallback(async () => {
@@ -50,6 +60,23 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
   }, [load])
 
   const cloudMode = adapterMode === 'supabase'
+  const mayRevert = cloudMode
+    && typeof revertHistoryEntry === 'function'
+    && can('rabbit.history.revert')
+
+  const handleRevert = useCallback(async (entry) => {
+    if (revertingId != null) return
+    setRevertingId(entry.id)
+    setRevertError(null)
+    try {
+      await revertHistoryEntry(entry)
+      if (mountedRef.current) await load() // the revert wrote new history
+    } catch (err) {
+      if (mountedRef.current) setRevertError(err.message || String(err))
+    } finally {
+      if (mountedRef.current) setRevertingId(null)
+    }
+  }, [revertingId, revertHistoryEntry, load])
 
   return (
     <>
@@ -103,7 +130,21 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
             </div>
           ) : (
             <>
-              {entries.map(entry => <HistoryEntry key={entry.id} entry={entry} />)}
+              {revertError && (
+                <div className="text-[11px] font-mono px-3 py-2 rounded"
+                  style={{ color: '#fca5a5', backgroundColor: 'rgba(153,27,27,0.15)', border: '1px solid #7f1d1d' }}>
+                  Revert failed: {revertError}
+                </div>
+              )}
+              {entries.map(entry => (
+                <HistoryEntry
+                  key={entry.id}
+                  entry={entry}
+                  onRevert={mayRevert && canRevertEntry(entry) ? handleRevert : null}
+                  reverting={revertingId === entry.id}
+                  disabled={revertingId != null}
+                />
+              ))}
               {entries.length >= 100 && (
                 <div className="text-[10.5px] font-mono px-3 py-2 text-center" style={{ color: '#78716c' }}>
                   Showing the latest 100 changes — older entries exist within
@@ -117,15 +158,15 @@ export default function EditHistoryDrawer({ entityType, entityId, entityLabel, o
         {/* Footer */}
         <div className="px-4 py-2 flex-shrink-0 text-[10px] font-mono"
           style={{ color: '#57534e', borderTop: '1px solid #44403c' }}>
-          History is kept for 90 days. Restore-from-history arrives with
-          real-time collaboration.
+          History is kept for 90 days. Reverts are ordinary edits — they
+          appear here too, and Ctrl+Z undoes them.
         </div>
       </div>
     </>
   )
 }
 
-function HistoryEntry({ entry }) {
+function HistoryEntry({ entry, onRevert, reverting, disabled }) {
   // entryActionMeta classifies soft-delete transitions as Deleted / Restored.
   const meta = entryActionMeta(entry) || { label: entry.action, color: '#a8a29e' }
   const lines = diffLines(entry)
@@ -145,6 +186,18 @@ function HistoryEntry({ entry }) {
         <span className="text-[10px] font-mono flex-shrink-0" style={{ color: '#78716c' }}>
           {formatHistoryTimestamp(entry.created_at)}
         </span>
+        {onRevert && (
+          <button
+            type="button"
+            onClick={() => onRevert(entry)}
+            disabled={disabled}
+            title={revertActionLabel(entry)}
+            className="p-1 rounded hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-40"
+            style={{ color: '#fb923c' }}
+          >
+            <RotateCcw className={`w-3.5 h-3.5${reverting ? ' animate-spin' : ''}`} />
+          </button>
+        )}
       </div>
 
       {summary && (

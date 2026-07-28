@@ -44,6 +44,8 @@ import {
   selectVarianceForAsset,
   selectVarianceForProject,
 } from './selectors';
+import { applyRealtimeEvent } from './realtimeMerge';
+import { buildRevertPlan } from '../components/editHistoryRevert';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -131,6 +133,14 @@ export function RabbitProvider({ children }) {
   const [historyVersion, setHistoryVersion] = useState(0);
   const bundleRef = useRef(bundle);
   useEffect(() => { bundleRef.current = bundle; }, [bundle]);
+  // Serializes full-bundle loads (setActiveProject + reloadActiveProject):
+  // only the newest load may land, so a slow stale snapshot can't wipe
+  // fresher state — e.g. realtime events or a post-join refetch that
+  // completed while the original loadProject was still in flight.
+  const bundleLoadSeqRef = useRef(0);
+  // True while the realtime channel is SUBSCRIBED — lets optimistic()
+  // schedule a reconvergence refetch after a rollback.
+  const realtimeLiveRef = useRef(false);
   // mutationsRef holds the latest version of every public mutator
   // so history closures can call the current implementation rather
   // than a stale captured one.
@@ -241,7 +251,15 @@ export function RabbitProvider({ children }) {
   }, []);
 
   const clearHistory = useCallback(() => {
-    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    // Preserve `suspended`: clearHistory can fire (remote project trash,
+    // project switch) while an undo/redo replay is mid-await — resetting
+    // the flag would let the replayed mutators push entries into the
+    // fresh stack (adversarial-review finding).
+    historyRef.current = {
+      undo: [], redo: [],
+      suspended: historyRef.current.suspended,
+      batch: null,
+    };
     setHistoryVersion(v => v + 1);
     // A stale toast must not outlive the history it points into.
     setUndoToast(null);
@@ -352,7 +370,12 @@ export function RabbitProvider({ children }) {
     setBundle(EMPTY_BUNDLE);
     setActiveProjectIdState(null);
     // Clear undo history — old ops belong to the previous adapter.
-    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    // (suspended preserved — see clearHistory.)
+    historyRef.current = {
+      undo: [], redo: [],
+      suspended: historyRef.current.suspended,
+      batch: null,
+    };
     setHistoryVersion(v => v + 1);
     // A stale toast must not outlive the history it points into.
     dismissUndoToast();
@@ -386,7 +409,12 @@ export function RabbitProvider({ children }) {
     setActiveProjectIdState(projectId);
     if (persist) saveRabbitSettings({ activeProjectId: projectId });
     // Clear undo history — old ops belong to the previous project.
-    historyRef.current = { undo: [], redo: [], suspended: false, batch: null };
+    // (suspended preserved — see clearHistory.)
+    historyRef.current = {
+      undo: [], redo: [],
+      suspended: historyRef.current.suspended,
+      batch: null,
+    };
     setHistoryVersion(v => v + 1);
     // A stale toast must not outlive the history it points into.
     dismissUndoToast();
@@ -395,9 +423,14 @@ export function RabbitProvider({ children }) {
       return;
     }
     setLoadingProject(true);
+    const loadSeq = ++bundleLoadSeqRef.current;
     try {
       const next = await adapterRef.current.loadProject(projectId);
-      setBundle({ ...EMPTY_BUNDLE, ...next });
+      // A newer load (rapid project switch, post-join realtime refetch)
+      // supersedes this snapshot — never land stale data over it.
+      if (loadSeq === bundleLoadSeqRef.current) {
+        setBundle({ ...EMPTY_BUNDLE, ...next });
+      }
     } catch (err) {
       setError(err.message || String(err));
     } finally {
@@ -512,6 +545,190 @@ export function RabbitProvider({ children }) {
   }, [projectMembers, authUserId]);
   const projectIsStaffed = projectMembers.length > 0;
 
+  // ── LWW pending-field registry (Session 7) ──────────────
+  // Fields with an in-flight local write, per row. The realtime merge
+  // keeps the LOCAL value for exactly these fields when a broadcast
+  // lands mid-write; every other field takes the incoming row (per-field
+  // last-writer-wins, with the DB as the arbiter). Counted rather than
+  // boolean: two rapid writes to the same field can overlap.
+  const pendingWritesRef = useRef(new Map());
+
+  const notePendingFields = useCallback((table, id, fields) => {
+    const map = pendingWritesRef.current;
+    const key = `${table}:${id}`;
+    const entry = map.get(key) || new Map();
+    for (const f of fields) entry.set(f, (entry.get(f) || 0) + 1);
+    map.set(key, entry);
+  }, []);
+
+  const clearPendingFields = useCallback((table, id, fields) => {
+    const map = pendingWritesRef.current;
+    const key = `${table}:${id}`;
+    const entry = map.get(key);
+    if (!entry) return;
+    for (const f of fields) {
+      const n = (entry.get(f) || 0) - 1;
+      if (n <= 0) entry.delete(f); else entry.set(f, n);
+    }
+    if (entry.size === 0) map.delete(key);
+  }, []);
+
+  const pendingFieldsFor = useCallback((table, id) => {
+    const entry = pendingWritesRef.current.get(`${table}:${id}`);
+    return entry && entry.size > 0 ? new Set(entry.keys()) : null;
+  }, []);
+
+  // ── realtime live sync (Session 7, migration 0016) ──────
+  // One private broadcast channel per open project. Events flow through
+  // the pure merge layer (state/realtimeMerge.js); side effects come back
+  // as descriptors and are executed by the drain effect below. Status:
+  // 'off' (not cloud / no project) → 'connecting' → 'live' | 'error'.
+  const [realtimeStatus, setRealtimeStatus] = useState('off');
+  const [presentUsers, setPresentUsers] = useState([]);
+  const realtimeSeqRef = useRef(0);
+  const refetchTimerRef = useRef(null);
+  const pendingEffectsRef = useRef([]);
+  const [effectTick, setEffectTick] = useState(0);
+
+  // Full bundle refetch for the open project WITHOUT the history/toast
+  // teardown setActiveProject does. Used for remote restores (hidden
+  // children reappear server-side only) and post-reconnect convergence.
+  // Reads the id from a ref so closures captured in undo/redo ops or a
+  // pending debounce can never reload a project the user already left.
+  const activeProjectIdRef = useRef(activeProjectId);
+  useEffect(() => { activeProjectIdRef.current = activeProjectId; }, [activeProjectId]);
+
+  const reloadActiveProject = useCallback(async () => {
+    const pid = activeProjectIdRef.current;
+    if (!adapterRef.current || !pid) return null;
+    const loadSeq = ++bundleLoadSeqRef.current;
+    try {
+      const next = await adapterRef.current.loadProject(pid);
+      // The user may have switched projects (or a newer load started)
+      // while the fetch was in flight — landing stale data would show
+      // the wrong project or wipe fresher state.
+      if (activeProjectIdRef.current !== pid || loadSeq !== bundleLoadSeqRef.current) {
+        return null;
+      }
+      setBundle({ ...EMPTY_BUNDLE, ...next });
+      // Callers (revert's restore path) inspect the fresh bundle
+      // directly — bundleRef only catches up after the next commit.
+      return next;
+    } catch (err) {
+      setError(err.message || String(err));
+      return null;
+    }
+  }, []);
+
+  const scheduleRealtimeRefetch = useCallback(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      reloadActiveProject();
+    }, 400);
+  }, [reloadActiveProject]);
+
+  // Events apply inside the functional updater so two broadcasts landing
+  // in one tick can't stomp each other. Effects are captured by ref —
+  // they are all idempotent (refetch is debounced, roster refresh and
+  // teardown re-run safely), so a StrictMode double-invoke is harmless.
+  const handleRealtimeEvent = useCallback((evt) => {
+    setBundle(prev => {
+      const { bundle: next, effects } = applyRealtimeEvent(prev, evt, {
+        pendingFields: pendingFieldsFor,
+      });
+      if (effects.length > 0) pendingEffectsRef.current.push(...effects);
+      return next;
+    });
+    setEffectTick(t => t + 1);
+  }, [pendingFieldsFor]);
+
+  useEffect(() => {
+    const effects = pendingEffectsRef.current;
+    if (effects.length === 0) return;
+    pendingEffectsRef.current = [];
+    let roster = false;
+    let refetch = false;
+    for (const eff of effects) {
+      if (eff.type === 'roster') {
+        roster = true;
+      } else if (eff.type === 'refetch') {
+        refetch = true;
+      } else if (eff.type === 'project-patch' && eff.record?.id) {
+        setProjectsIndex(idx => ({
+          ...idx,
+          [eff.record.id]: { ...(idx[eff.record.id] || {}), ...eff.record },
+        }));
+      } else if (eff.type === 'project-trashed' && eff.id) {
+        setProjectsIndex(idx => {
+          const next = { ...idx };
+          delete next[eff.id];
+          return next;
+        });
+        if (eff.id === activeProjectId) {
+          // Mirror the local deleteProject teardown: close the project.
+          // Undo entries and toasts point at rows that just left this
+          // client's world — clearHistory also drops the stale toast.
+          setActiveProjectIdState(null);
+          setBundle(EMPTY_BUNDLE);
+          clearHistory();
+        }
+      }
+    }
+    if (roster) refreshProjectMembers();
+    if (refetch) scheduleRealtimeRefetch();
+  }, [effectTick, activeProjectId, clearHistory, refreshProjectMembers, scheduleRealtimeRefetch]);
+
+  useEffect(() => {
+    if (adapterMode !== 'supabase' || !activeProjectId
+        || typeof adapterRef.current?.subscribeProjectChanges !== 'function') {
+      setRealtimeStatus('off');
+      setPresentUsers([]);
+      return undefined;
+    }
+    const seq = ++realtimeSeqRef.current;
+    setRealtimeStatus('connecting');
+    const unsubscribe = adapterRef.current.subscribeProjectChanges(
+      activeProjectId,
+      (evt) => {
+        if (seq !== realtimeSeqRef.current) return; // late event from a torn-down channel
+        handleRealtimeEvent(evt);
+      },
+      {
+        onStatus: (status) => {
+          if (seq !== realtimeSeqRef.current) return;
+          if (status === 'SUBSCRIBED') {
+            // Refetch on EVERY join, first included: writes committed
+            // between the loadProject snapshot and the join complete
+            // are otherwise silently missing (adversarial-review
+            // finding — the missed-events window exists on first join
+            // exactly as on rejoin).
+            scheduleRealtimeRefetch();
+            realtimeLiveRef.current = true;
+            setRealtimeStatus('live');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            setRealtimeStatus('error');
+          } else if (status === 'CLOSED') {
+            setRealtimeStatus(s => (s === 'live' ? 'connecting' : s));
+          }
+        },
+        onPresence: (users) => {
+          if (seq === realtimeSeqRef.current) setPresentUsers(users);
+        },
+      },
+    );
+    return () => {
+      realtimeSeqRef.current++;
+      realtimeLiveRef.current = false;
+      unsubscribe();
+      if (refetchTimerRef.current) {
+        clearTimeout(refetchTimerRef.current);
+        refetchTimerRef.current = null;
+      }
+      setPresentUsers([]);
+    };
+  }, [adapterMode, activeProjectId, handleRealtimeEvent, scheduleRealtimeRefetch]);
+
   // ── optimistic CRUD helper ──────────────────────────────
   // Applies a local mutation, calls the adapter, rolls back on error.
   // Reads the snapshot from bundleRef so the closure stays stable
@@ -525,10 +742,14 @@ export function RabbitProvider({ children }) {
       return result;
     } catch (err) {
       setBundle(snapshot);
+      // The snapshot predates any realtime events merged during the
+      // in-flight write — with live sync up, a failed local write must
+      // not erase collaborators' changes; refetch to reconverge.
+      if (realtimeLiveRef.current) scheduleRealtimeRefetch();
       setError(err.message || String(err));
       throw err;
     }
-  }, []);
+  }, [scheduleRealtimeRefetch]);
 
   // ── Projects (mutators on the index, not the bundle) ────
   const createProject = useCallback(async (payload) => {
@@ -553,7 +774,16 @@ export function RabbitProvider({ children }) {
 
   const updateProject = useCallback(async (id, patch) => {
     if (!adapterRef.current) throw new Error('no adapter');
-    const updated = await adapterRef.current.updateProject(id, patch);
+    // adapter.updateProject is already patch-shaped (only the given
+    // columns go over the wire) — pending tracking is all LWW needs here.
+    const fields = Object.keys(patch);
+    notePendingFields('projects', id, fields);
+    let updated;
+    try {
+      updated = await adapterRef.current.updateProject(id, patch);
+    } finally {
+      clearPendingFields('projects', id, fields);
+    }
     setProjectsIndex(idx => ({
       ...idx,
       [id]: { ...(idx[id] || {}), ...updated },
@@ -562,7 +792,7 @@ export function RabbitProvider({ children }) {
       setBundle(prev => ({ ...prev, project: { ...prev.project, ...updated } }));
     }
     return updated;
-  }, [activeProjectId]);
+  }, [activeProjectId, notePendingFields, clearPendingFields]);
 
   const deleteProject = useCallback(async (id) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -617,7 +847,15 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertPhase(row);
     const finalRow = created || row;
-    setBundle(prev => ({ ...prev, phases: [...prev.phases, finalRow] }));
+    // Upsert, not append: with live sync up, our own INSERT's broadcast
+    // echo can land BEFORE the adapter call resolves — a plain append
+    // would leave a permanent duplicate id (adversarial-review finding).
+    setBundle(prev => ({
+      ...prev,
+      phases: prev.phases.some(p => p.id === finalRow.id)
+        ? prev.phases.map(p => (p.id === finalRow.id ? { ...p, ...finalRow } : p))
+        : [...prev.phases, finalRow],
+    }));
     pushHistory({
       undoOps: [() => mutationsRef.current.deletePhase(finalRow.id)],
       redoOps: [() => mutationsRef.current.addPhase(finalRow)],
@@ -631,10 +869,22 @@ export function RabbitProvider({ children }) {
     if (oldPhase) {
       for (const k of Object.keys(patch)) oldValues[k] = oldPhase[k];
     }
-    const result = await optimistic(
-      prev => ({ ...prev, phases: prev.phases.map(p => p.id === id ? { ...p, ...patch } : p) }),
-      () => adapterRef.current.upsertPhase({ ...bundleRef.current.phases.find(p => p.id === id), ...patch, id }),
-    );
+    // LWW per field (Session 7): prefer the patch method — a whole-row
+    // upsert would overwrite every field a collaborator changed since
+    // this client's last read of the row.
+    const fields = Object.keys(patch);
+    notePendingFields('phases', id, fields);
+    let result;
+    try {
+      result = await optimistic(
+        prev => ({ ...prev, phases: prev.phases.map(p => p.id === id ? { ...p, ...patch } : p) }),
+        () => typeof adapterRef.current.patchPhase === 'function'
+          ? adapterRef.current.patchPhase(id, patch)
+          : adapterRef.current.upsertPhase({ ...bundleRef.current.phases.find(p => p.id === id), ...patch, id }),
+      );
+    } finally {
+      clearPendingFields('phases', id, fields);
+    }
     if (oldPhase) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updatePhase(id, oldValues)],
@@ -642,7 +892,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deletePhase = useCallback(async (id) => {
     const oldPhase = bundleRef.current.phases.find(p => p.id === id);
@@ -682,10 +932,24 @@ export function RabbitProvider({ children }) {
     async () => {
       for (let i = 0; i < orderedIds.length; i++) {
         const phase = bundle.phases.find(p => p.id === orderedIds[i]);
-        if (phase) await adapterRef.current.upsertPhase({ ...phase, sort_order: i });
+        if (!phase) continue;
+        // Patch only sort_order where possible (LWW per field) — a
+        // whole-row upsert here would clobber concurrent field edits.
+        // Pending registration keeps in-flight order safe from
+        // concurrent broadcasts (same contract as updatePhase).
+        notePendingFields('phases', phase.id, ['sort_order']);
+        try {
+          if (typeof adapterRef.current.patchPhase === 'function') {
+            await adapterRef.current.patchPhase(phase.id, { sort_order: i });
+          } else {
+            await adapterRef.current.upsertPhase({ ...phase, sort_order: i });
+          }
+        } finally {
+          clearPendingFields('phases', phase.id, ['sort_order']);
+        }
       }
     },
-  ), [optimistic, bundle.phases]);
+  ), [optimistic, bundle.phases, notePendingFields, clearPendingFields]);
 
   // ── Assets ──────────────────────────────────────────────
   // See addPhase — same adapter-first pattern.
@@ -702,7 +966,13 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertAsset(row);
     const finalRow = created || row;
-    setBundle(prev => ({ ...prev, assets: [...prev.assets, finalRow] }));
+    // Upsert, not append — see addPhase (broadcast echo race).
+    setBundle(prev => ({
+      ...prev,
+      assets: prev.assets.some(a => a.id === finalRow.id)
+        ? prev.assets.map(a => (a.id === finalRow.id ? { ...a, ...finalRow } : a))
+        : [...prev.assets, finalRow],
+    }));
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteAsset(finalRow.id)],
       redoOps: [() => mutationsRef.current.addAsset(finalRow)],
@@ -716,10 +986,20 @@ export function RabbitProvider({ children }) {
     if (oldAsset) {
       for (const k of Object.keys(patch)) oldValues[k] = oldAsset[k];
     }
-    const result = await optimistic(
-      prev => ({ ...prev, assets: prev.assets.map(a => a.id === id ? { ...a, ...patch } : a) }),
-      () => adapterRef.current.upsertAsset({ ...bundleRef.current.assets.find(a => a.id === id), ...patch, id }),
-    );
+    // LWW per field — see updatePhase.
+    const fields = Object.keys(patch);
+    notePendingFields('assets', id, fields);
+    let result;
+    try {
+      result = await optimistic(
+        prev => ({ ...prev, assets: prev.assets.map(a => a.id === id ? { ...a, ...patch } : a) }),
+        () => typeof adapterRef.current.patchAsset === 'function'
+          ? adapterRef.current.patchAsset(id, patch)
+          : adapterRef.current.upsertAsset({ ...bundleRef.current.assets.find(a => a.id === id), ...patch, id }),
+      );
+    } finally {
+      clearPendingFields('assets', id, fields);
+    }
     if (oldAsset) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateAsset(id, oldValues)],
@@ -727,7 +1007,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteAsset = useCallback(async (id) => {
     const oldAsset = bundleRef.current.assets.find(a => a.id === id);
@@ -1111,10 +1391,21 @@ export function RabbitProvider({ children }) {
     async () => {
       for (let i = 0; i < orderedIds.length; i++) {
         const asset = bundle.assets.find(a => a.id === orderedIds[i]);
-        if (asset) await adapterRef.current.upsertAsset({ ...asset, sort_order: i });
+        if (!asset) continue;
+        // Patch only sort_order where possible — see reorderPhases.
+        notePendingFields('assets', asset.id, ['sort_order']);
+        try {
+          if (typeof adapterRef.current.patchAsset === 'function') {
+            await adapterRef.current.patchAsset(asset.id, { sort_order: i });
+          } else {
+            await adapterRef.current.upsertAsset({ ...asset, sort_order: i });
+          }
+        } finally {
+          clearPendingFields('assets', asset.id, ['sort_order']);
+        }
       }
     },
-  ), [optimistic, bundle.assets]);
+  ), [optimistic, bundle.assets, notePendingFields, clearPendingFields]);
 
   // ── Tasks ───────────────────────────────────────────────
   // See addPhase — same adapter-first pattern.
@@ -1130,7 +1421,13 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertTask(row);
     const finalRow = created || row;
-    setBundle(prev => ({ ...prev, tasks: [...prev.tasks, finalRow] }));
+    // Upsert, not append — see addPhase (broadcast echo race).
+    setBundle(prev => ({
+      ...prev,
+      tasks: prev.tasks.some(t => t.id === finalRow.id)
+        ? prev.tasks.map(t => (t.id === finalRow.id ? { ...t, ...finalRow } : t))
+        : [...prev.tasks, finalRow],
+    }));
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteTask(finalRow.id)],
       redoOps: [() => mutationsRef.current.addTask(finalRow)],
@@ -1144,10 +1441,20 @@ export function RabbitProvider({ children }) {
     if (oldTask) {
       for (const k of Object.keys(patch)) oldValues[k] = oldTask[k];
     }
-    const result = await optimistic(
-      prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
-      () => adapterRef.current.upsertTask({ ...bundleRef.current.tasks.find(t => t.id === id), ...patch, id }),
-    );
+    // LWW per field — see updatePhase.
+    const fields = Object.keys(patch);
+    notePendingFields('tasks', id, fields);
+    let result;
+    try {
+      result = await optimistic(
+        prev => ({ ...prev, tasks: prev.tasks.map(t => t.id === id ? { ...t, ...patch } : t) }),
+        () => typeof adapterRef.current.patchTask === 'function'
+          ? adapterRef.current.patchTask(id, patch)
+          : adapterRef.current.upsertTask({ ...bundleRef.current.tasks.find(t => t.id === id), ...patch, id }),
+      );
+    } finally {
+      clearPendingFields('tasks', id, fields);
+    }
     if (oldTask) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateTask(id, oldValues)],
@@ -1155,7 +1462,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteTask = useCallback(async (id) => {
     const oldTask = bundleRef.current.tasks.find(t => t.id === id);
@@ -1436,7 +1743,13 @@ export function RabbitProvider({ children }) {
   const uploadFile = useCallback(async (file, scope = {}) => {
     if (!adapterRef.current || !activeProjectId) throw new Error('no project');
     const created = await adapterRef.current.uploadFile(activeProjectId, scope, file);
-    setBundle(prev => ({ ...prev, files: [...prev.files, created] }));
+    // Upsert, not append — see addPhase (broadcast echo race).
+    setBundle(prev => ({
+      ...prev,
+      files: prev.files.some(f => f.id === created.id)
+        ? prev.files.map(f => (f.id === created.id ? { ...f, ...created } : f))
+        : [...prev.files, created],
+    }));
     return created;
   }, [activeProjectId]);
 
@@ -1653,9 +1966,128 @@ export function RabbitProvider({ children }) {
     setIngestionRun(null);
   }, []);
 
+  // ── revert-to-state (Session 7) ─────────────────────────
+  // Executes buildRevertPlan(entry) through the ordinary mutators, so a
+  // revert is optimistic, adapter-synced, captured in edit history AND
+  // undoable — deliberately no bespoke DB machinery. Under LWW-per-field
+  // this applies the inverse of ONE entry as the newest write; it does
+  // not rewind later edits to other fields.
+  const revertHistoryEntry = useCallback(async (entry) => {
+    const plan = buildRevertPlan(entry);
+    if (plan.kind === 'noop') return plan;
+    if (plan.kind === 'unsupported') {
+      throw new Error(plan.reason || 'This change cannot be reverted.');
+    }
+    const { table, id } = plan;
+    const findLocal = () => {
+      switch (table) {
+        case 'projects': return projectsIndex[id]
+          || (bundleRef.current.project?.id === id ? bundleRef.current.project : null);
+        case 'phases': return bundleRef.current.phases.find(r => r.id === id);
+        case 'assets': return bundleRef.current.assets.find(r => r.id === id);
+        case 'tasks':  return bundleRef.current.tasks.find(r => r.id === id);
+        default:       return null;
+      }
+    };
+    const m = mutationsRef.current;
+
+    if (plan.kind === 'inverse-patch') {
+      if (!findLocal()) {
+        throw new Error('That entity is deleted or unavailable — restore it before reverting field changes.');
+      }
+      if (table === 'projects') {
+        await m.updateProject(id, plan.patch);
+        // updateProject deliberately pushes no history (it serves DOG and
+        // the Projects pages too) — push the revert's own entry here so
+        // the drawer's "Ctrl+Z undoes them" contract holds for projects.
+        pushHistory({
+          undoOps: [() => mutationsRef.current.updateProject(id, plan.forwardPatch)],
+          redoOps: [() => mutationsRef.current.updateProject(id, plan.patch)],
+        });
+      }
+      else if (table === 'phases') await m.updatePhase(id, plan.patch);
+      else if (table === 'assets') await m.updateAsset(id, plan.patch);
+      else if (table === 'tasks')  await m.updateTask(id, plan.patch);
+      return plan;
+    }
+
+    if (plan.kind === 'soft-delete') {
+      if (!findLocal()) {
+        throw new Error('That entity is already deleted or unavailable.');
+      }
+      if (table === 'projects')    await m.deleteProject(id);
+      else if (table === 'phases') await m.deletePhase(id);
+      else if (table === 'assets') await m.deleteAsset(id);
+      else if (table === 'tasks')  await m.deleteTask(id);
+      return plan;
+    }
+
+    if (plan.kind === 'restore') {
+      const restoreFns = {
+        projects: adapterRef.current?.restoreProject,
+        phases:   adapterRef.current?.restorePhase,
+        assets:   adapterRef.current?.restoreAsset,
+        tasks:    adapterRef.current?.restoreTask,
+      };
+      const restore = restoreFns[table];
+      if (typeof restore !== 'function') {
+        throw new Error('This adapter cannot restore from the trash.');
+      }
+      const doRestore = async () => {
+        const restored = await restore.call(adapterRef.current, id);
+        // The RPC returns false when the row was ALREADY live (someone
+        // restored it first). Treating that as success would push an
+        // undo entry whose Ctrl+Z soft-deletes a live entity the user
+        // never touched (adversarial-review finding).
+        if (restored === false) {
+          throw new Error('Nothing to restore — that entity is already live (someone may have restored it first).');
+        }
+        // The row and its transitively hidden children reappear
+        // server-side only — refetch to pick them up.
+        if (table === 'projects') await refreshProjectsIndex();
+        return reloadActiveProject();
+      };
+      const fresh = await doRestore();
+      // A restore can succeed in the DB yet stay invisible when a PARENT
+      // is still in the trash (0014 hides subtrees via live-parent SELECT
+      // policies, and the trash RPC does not check parent liveness).
+      // Surface that instead of reporting a revert that changed nothing.
+      const collection = { phases: 'phases', assets: 'assets', tasks: 'tasks' }[table];
+      if (fresh && collection
+          && !(fresh[collection] || []).some(r => r.id === id)) {
+        throw new Error('Restored in the database, but still hidden — a parent entity is in the trash. Restore the parent to make it visible.');
+      }
+      // Symmetric undo: trash it again. The delete mutators run with
+      // history suspended during replay, so no double-push / stray toast.
+      pushHistory({
+        undoOps: [async () => {
+          if (table === 'projects')    await mutationsRef.current.deleteProject(id);
+          else if (table === 'phases') await mutationsRef.current.deletePhase(id);
+          else if (table === 'assets') await mutationsRef.current.deleteAsset(id);
+          else if (table === 'tasks')  await mutationsRef.current.deleteTask(id);
+        }],
+        redoOps: [doRestore],
+      });
+      return plan;
+    }
+
+    if (plan.kind === 'recreate') {
+      if (findLocal()) {
+        throw new Error('That entity already exists — nothing to recreate.');
+      }
+      if (table === 'phases')      await m.addPhase(plan.row);
+      else if (table === 'assets') await m.addAsset(plan.row);
+      else if (table === 'tasks')  await m.addTask(plan.row);
+      return plan;
+    }
+
+    throw new Error(`Unknown revert plan: ${plan.kind}`);
+  }, [projectsIndex, refreshProjectsIndex, reloadActiveProject]);
+
   // ── Mutations ref refresh ───────────────────────────────
   // History closures call into mutationsRef.current so they always
   // hit the latest mutator implementation, not a captured stale one.
+  mutationsRef.current.updateProject = updateProject;
   mutationsRef.current.deleteProject = deleteProject;
   mutationsRef.current.addPhase     = addPhase;
   mutationsRef.current.updatePhase  = updatePhase;
@@ -1770,6 +2202,14 @@ export function RabbitProvider({ children }) {
     myProjectRole,
     projectIsStaffed,
 
+    // realtime (Session 7; 'off' outside cloud mode)
+    realtimeStatus,
+    presentUsers,
+    reloadActiveProject,
+
+    // revert-to-state (Session 7)
+    revertHistoryEntry,
+
     // undo toast
     undoToast,
     dismissUndoToast,
@@ -1806,6 +2246,7 @@ export function RabbitProvider({ children }) {
     ingestionRun, startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
     projectMembers, refreshProjectMembers, addProjectMember, updateProjectMemberRole,
     removeProjectMember, myProjectRole, projectIsStaffed,
+    realtimeStatus, presentUsers, reloadActiveProject, revertHistoryEntry,
     undoToast, dismissUndoToast,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,

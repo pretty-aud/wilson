@@ -37,6 +37,7 @@ export const ACTIONS = Object.freeze([
   'member.role.change',
   'project.create',
   'project.delete',
+  'rabbit.history.revert',
   'rabbit.history.view',
   'rate_card.edit',
   'rate_card.view',
@@ -53,6 +54,7 @@ const ALLOW = {
     'member.role.change',
     'project.create',
     'project.delete',
+    'rabbit.history.revert',
     'rabbit.history.view',
     'rate_card.edit',
     'rate_card.view',
@@ -62,6 +64,7 @@ const ALLOW = {
   manager: new Set([
     'member.profile.edit_others',
     'project.create',
+    'rabbit.history.revert',
     'rabbit.history.view',
     'rate_card.view',
     'workspace.settings.read',

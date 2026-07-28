@@ -226,6 +226,12 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
           if one appears. Red = offline, green = online. Hovering
           reveals the adapter mode + status text. */}
       <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
+
+      {/* ── Realtime presence strip (Session 7) ── */}
+      <RealtimePresenceStrip
+        realtimeStatus={ctx?.realtimeStatus}
+        users={ctx?.presentUsers}
+      />
     </div>
   )
 }
@@ -256,6 +262,62 @@ function AdapterStatusDot({ mode, status }) {
         zIndex: 50,
       }}
     />
+  )
+}
+
+// ─── Realtime presence strip ───
+// Sits beside the adapter dot: a LIVE/SYNC pill plus up to five
+// initial chips for who else has this project open (Session 7
+// presence, cloud mode only — hidden when realtime is off).
+function RealtimePresenceStrip({ realtimeStatus, users }) {
+  if (!realtimeStatus || realtimeStatus === 'off') return null
+  const pill = {
+    live:       { label: 'LIVE', color: '#fb923c' },
+    connecting: { label: 'SYNC', color: '#78716c' },
+    error:      { label: 'SYNC ERR', color: '#ef4444' },
+  }[realtimeStatus] || { label: realtimeStatus.toUpperCase(), color: '#78716c' }
+  const list = Array.isArray(users) ? users : []
+  const shown = list.slice(0, 5)
+  const overflow = list.length - shown.length
+  const initials = (label) => (label || '?')
+    .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
+  return (
+    <div
+      className="absolute flex items-center gap-1 pointer-events-auto"
+      style={{ left: 26, bottom: 13, zIndex: 50 }}
+    >
+      <span
+        className="text-[8.5px] font-mono uppercase tracking-wider font-bold px-1 py-px rounded-sm"
+        title={realtimeStatus === 'live'
+          ? 'Live sync connected — edits from teammates appear instantly'
+          : realtimeStatus === 'error'
+            ? 'Live sync error — changes still save; the view refreshes on reconnect'
+            : 'Connecting live sync…'}
+        style={{ color: pill.color, border: `1px solid ${pill.color}`, opacity: 0.85 }}
+      >
+        {pill.label}
+      </span>
+      {shown.map(u => (
+        <span
+          key={u.user_id || u.label}
+          title={u.label || 'Member'}
+          className="flex items-center justify-center rounded-full text-[8px] font-mono font-bold"
+          style={{
+            width: 16, height: 16,
+            color: '#fff7ed',
+            backgroundColor: '#57534e',
+            border: '1px solid #78716c',
+          }}
+        >
+          {initials(u.label)}
+        </span>
+      ))}
+      {overflow > 0 && (
+        <span className="text-[8.5px] font-mono" style={{ color: '#78716c' }}>
+          +{overflow}
+        </span>
+      )}
+    </div>
   )
 }
 
