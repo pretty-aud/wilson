@@ -44,7 +44,7 @@ import {
   selectVarianceForAsset,
   selectVarianceForProject,
 } from './selectors';
-import { applyRealtimeEvent } from './realtimeMerge';
+import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
@@ -655,10 +655,15 @@ export function RabbitProvider({ children }) {
       } else if (eff.type === 'refetch') {
         refetch = true;
       } else if (eff.type === 'project-patch' && eff.record?.id) {
-        setProjectsIndex(idx => ({
-          ...idx,
-          [eff.record.id]: { ...(idx[eff.record.id] || {}), ...eff.record },
-        }));
+        setProjectsIndex(idx => {
+          // Same stale guard as the workspace path (Session 8): the same
+          // projects event arrives on BOTH channels, and cross-channel
+          // ordering isn't guaranteed — a stale row processed last must
+          // not clobber the fresher merge.
+          const cur = idx[eff.record.id];
+          if (cur && isStaleIncoming(cur, eff.record)) return idx;
+          return { ...idx, [eff.record.id]: { ...(cur || {}), ...eff.record } };
+        });
       } else if (eff.type === 'project-trashed' && eff.id) {
         setProjectsIndex(idx => {
           const next = { ...idx };
@@ -728,6 +733,135 @@ export function RabbitProvider({ children }) {
       setPresentUsers([]);
     };
   }, [adapterMode, activeProjectId, handleRealtimeEvent, scheduleRealtimeRefetch]);
+
+  // ── workspace realtime (Session 8, migration 0018) ──────
+  // One private channel per signed-in workspace, independent of the open
+  // project. Carries projects (index liveness), workspace_members
+  // (roster/avatar liveness) and assigned-task events (Dashboard).
+  // projects events merge straight into projectsIndex here; every event is
+  // also fanned out to registered listeners (Dashboard's useMyTasks,
+  // roster hooks) — the provider does not know their state shapes.
+  const [workspaceRealtimeStatus, setWorkspaceRealtimeStatus] = useState('off');
+  const [workspacePresentUsers, setWorkspacePresentUsers] = useState([]);
+  const wsRealtimeSeqRef = useRef(0);
+  const wsListenersRef = useRef(new Set());
+  const wsIndexRefetchTimerRef = useRef(null);
+
+  const subscribeWorkspaceEvents = useCallback((cb) => {
+    wsListenersRef.current.add(cb);
+    return () => { wsListenersRef.current.delete(cb); };
+  }, []);
+
+  const scheduleProjectsIndexRefetch = useCallback(() => {
+    if (wsIndexRefetchTimerRef.current) clearTimeout(wsIndexRefetchTimerRef.current);
+    wsIndexRefetchTimerRef.current = setTimeout(() => {
+      wsIndexRefetchTimerRef.current = null;
+      refreshProjectsIndex();
+    }, 400);
+  }, [refreshProjectsIndex]);
+
+  const handleWorkspaceEvent = useCallback((evt) => {
+    // Index liveness: projects events land whether or not the project is
+    // open. Trash arrives as an UPDATE with deleted_at set (broadcast rows
+    // are full rows — remove, never merge). The open project's own channel
+    // delivers the same event; isStaleIncoming + spread-merge make the
+    // double delivery idempotent, and active-project teardown stays with
+    // the per-project channel (single owner).
+    if (evt.table === 'projects') {
+      const rec = evt.record;
+      if (evt.op === 'DELETE' || (rec && rec.deleted_at)) {
+        const gone = rec?.id ?? evt.oldRecord?.id;
+        if (gone) {
+          setProjectsIndex(idx => {
+            if (!(gone in idx)) return idx;
+            const next = { ...idx };
+            delete next[gone];
+            return next;
+          });
+        }
+      } else if (rec?.id) {
+        setProjectsIndex(idx => {
+          const cur = idx[rec.id];
+          if (cur && isStaleIncoming(cur, rec)) return idx;
+          return { ...idx, [rec.id]: { ...(cur || {}), ...rec } };
+        });
+      }
+    }
+    for (const cb of wsListenersRef.current) {
+      try { cb(evt); } catch { /* listener errors stay theirs */ }
+    }
+  }, []);
+
+  // The channel key is the workspace id from the JWT claims (frozen shape).
+  // Kept in state via the auth listener so sign-in AFTER mount still
+  // subscribes, while token refreshes (same workspace) don't tear the
+  // channel down — the id doesn't change, so the effect doesn't re-run.
+  const [wsAuthKey, setWsAuthKey] = useState(null);
+  useEffect(() => {
+    let disposed = false;
+    sharedAuthedClient.auth.getSession()
+      .then(({ data }) => {
+        if (!disposed) setWsAuthKey(data?.session?.user?.app_metadata?.workspace_id ?? null);
+      })
+      .catch(() => { /* signed out — stays null */ });
+    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange((_evt, session) => {
+      setWsAuthKey(session?.user?.app_metadata?.workspace_id ?? null);
+    });
+    return () => {
+      disposed = true;
+      sub?.subscription?.unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (adapterMode !== 'supabase' || !wsAuthKey
+        || typeof adapterRef.current?.subscribeWorkspaceChanges !== 'function') {
+      setWorkspaceRealtimeStatus('off');
+      setWorkspacePresentUsers([]);
+      return undefined;
+    }
+    const seq = ++wsRealtimeSeqRef.current;
+    setWorkspaceRealtimeStatus('connecting');
+    const unsubscribe = adapterRef.current.subscribeWorkspaceChanges(
+      wsAuthKey,
+      (evt) => {
+        if (seq !== wsRealtimeSeqRef.current) return; // late event from a torn-down channel
+        handleWorkspaceEvent(evt);
+      },
+      {
+        onStatus: (status) => {
+          if (seq !== wsRealtimeSeqRef.current) return;
+          if (status === 'SUBSCRIBED') {
+            // Refetch on EVERY join, first included — the missed-events
+            // window exists here exactly as on the project channel.
+            // Listeners get a synthetic 'resync' hint so the Dashboard can
+            // refetch its own data too.
+            scheduleProjectsIndexRefetch();
+            for (const cb of wsListenersRef.current) {
+              try { cb({ table: null, op: 'RESYNC', record: null, oldRecord: null }); } catch { /* theirs */ }
+            }
+            setWorkspaceRealtimeStatus('live');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            setWorkspaceRealtimeStatus('error');
+          } else if (status === 'CLOSED') {
+            setWorkspaceRealtimeStatus(s => (s === 'live' ? 'connecting' : s));
+          }
+        },
+        onPresence: (users) => {
+          if (seq === wsRealtimeSeqRef.current) setWorkspacePresentUsers(users);
+        },
+      },
+    );
+    return () => {
+      wsRealtimeSeqRef.current++;
+      unsubscribe();
+      if (wsIndexRefetchTimerRef.current) {
+        clearTimeout(wsIndexRefetchTimerRef.current);
+        wsIndexRefetchTimerRef.current = null;
+      }
+      setWorkspacePresentUsers([]);
+    };
+  }, [adapterMode, wsAuthKey, handleWorkspaceEvent, scheduleProjectsIndexRefetch]);
 
   // ── optimistic CRUD helper ──────────────────────────────
   // Applies a local mutation, calls the adapter, rolls back on error.
@@ -2207,6 +2341,11 @@ export function RabbitProvider({ children }) {
     presentUsers,
     reloadActiveProject,
 
+    // workspace realtime (Session 8; 'off' outside cloud mode)
+    workspaceRealtimeStatus,
+    workspacePresentUsers,
+    subscribeWorkspaceEvents,
+
     // revert-to-state (Session 7)
     revertHistoryEntry,
 
@@ -2247,6 +2386,7 @@ export function RabbitProvider({ children }) {
     projectMembers, refreshProjectMembers, addProjectMember, updateProjectMemberRole,
     removeProjectMember, myProjectRole, projectIsStaffed,
     realtimeStatus, presentUsers, reloadActiveProject, revertHistoryEntry,
+    workspaceRealtimeStatus, workspacePresentUsers, subscribeWorkspaceEvents,
     undoToast, dismissUndoToast,
     createProject, updateProject, deleteProject, setActiveProject,
     addPhase, updatePhase, deletePhase, reorderPhases,

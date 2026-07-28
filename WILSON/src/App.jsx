@@ -13,6 +13,7 @@ import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
 import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import DashboardPage from './components/Dashboard/DashboardPage'
 import HelpPage from './components/HelpPage'
 import DeckOutlineGenerator from './tools/deck-outline-generator_v0.514'
 import Otter from './tools/otter_v0.3.1'
@@ -77,6 +78,7 @@ const PAGE_TITLES = {
   'project-manager': 'PROJECTS',
   'rate-card': 'RATE CARD',
   'team-members': 'TEAM MEMBERS',
+  dashboard: 'DASHBOARD',
   help: 'HELP',
 };
 
@@ -91,6 +93,7 @@ const PAGE_BARS = {
   'project-manager':  { top: '200px', bottom: '150px' },
   'rate-card':        { top: '200px', bottom: '150px' },
   'team-members':     { top: '200px', bottom: '150px' },
+  dashboard:          { top: '200px', bottom: '150px' },
   help:               { top: '140px', bottom: '100px' },
 };
 
@@ -889,7 +892,7 @@ export default function App() {
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar
-  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, help: 100 };
+  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, dashboard: 150, help: 100 };
   const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
 
   // Close the resources sub-column when the nav menu closes or page changes
@@ -912,6 +915,7 @@ export default function App() {
     if (currentPage !== 'dog')    items.push({ label: 'D.O.G.',    action: () => closeNavAndGo('dog') });
     if (currentPage !== 'otter')  items.push({ label: 'O.T.T.E.R.',  action: () => closeNavAndGo('otter') });
     if (currentPage !== 'rabbit') items.push({ label: 'R.A.B.B.I.T.', action: () => closeNavAndGo('rabbit') });
+    if (currentPage !== 'dashboard') items.push({ label: 'DASHBOARD', action: () => closeNavAndGo('dashboard') });
 
     // Page-specific SETTINGS for tool pages
     if (isDog)    items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenSettingsTrigger) });
@@ -1013,6 +1017,9 @@ export default function App() {
       <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <TeamMembersPage />
       </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+        <DashboardPage />
+      </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <HelpPage />
       </div>
@@ -1084,7 +1091,7 @@ export default function App() {
       );
     }
 
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'help') {
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'help') {
       const pageLabel = PAGE_TITLES[currentPage] || currentPage;
       return (
         <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>

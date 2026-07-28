@@ -17,6 +17,11 @@ export default defineConfig({
     tailwindcss(),
     react(),
   ],
+  resolve: {
+    // A second yjs copy (hoisting or CJS+ESM pair) breaks the CRDT's
+    // instanceof checks — "Yjs was already imported". Keep one resolution.
+    dedupe: ['yjs', 'y-protocols'],
+  },
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
     __WILSON_VERSION__: JSON.stringify(wilsonVersion),

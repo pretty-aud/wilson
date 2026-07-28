@@ -142,6 +142,38 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  * @property {(id: string) => Promise<void>}                        deleteRateCardEntry
  *
  * @property {(projectId: string, callback: (event: object) => void) => () => void} subscribeProjectChanges
+ *
+ * @property {() => Promise<object[]>}                               listMyTasks
+ * @property {(projectIds: string[]) => Promise<object[]>}           listPhasesByProjects
+ * @property {(projectIds: string[]) => Promise<object[]>}           listProjectMembersByProjects
+ *   Supabase-only (Session 8 Dashboard): listMyTasks returns every task
+ *   where the signed-in user is assignee or reviewer, across all visible
+ *   projects, with project/asset embeds for labels. local_server and
+ *   google_drive do not implement them (feature-detect) — the Dashboard
+ *   shows an empty state outside cloud mode.
+ *
+ * @property {() => Promise<object[]>}                               listNotes
+ * @property {(id: string) => Promise<object|null>}                  getNote
+ * @property {(fields: object) => Promise<object>}                   createNote
+ * @property {(id: string, patch: object) => Promise<object>}        patchNote
+ * @property {(id: string, args: {ydocState: string, bodyPreview: string, expectedVersion: number}) => Promise<object|null>} saveNoteDoc
+ * @property {(id: string) => Promise<void>}                         deleteNote
+ * @property {() => Promise<object[]>}                               listNoteSubjects
+ * @property {(row: {label: string, position?: number}) => Promise<object>} createNoteSubject
+ * @property {(id: string, patch: object) => Promise<object>}        patchNoteSubject
+ * @property {(id: string) => Promise<void>}                         deleteNoteSubject
+ * @property {(oldLabel: string, newLabel: string) => Promise<string[]>} retagNoteSubject
+ *   Supabase-only (Session 8 Notes, migration 0017). Owner-only RLS.
+ *   saveNoteDoc is the ONLY path that may write ydoc_state/version — it
+ *   returns null when the version guard missed (another device saved
+ *   first); callers merge the remote snapshot and retry. patchNote is
+ *   metadata-only (title/subject/note_date/body_preview).
+ *
+ * @property {(workspaceId: string, callback: (event: object) => void) => () => void} subscribeWorkspaceChanges
+ *   Supabase-only (Session 8, migration 0018): private channel
+ *   `rabbit:workspace:{id}` carrying projects / workspace_members /
+ *   assigned-task events for index + Dashboard liveness. Same event
+ *   shape and opts contract as subscribeProjectChanges.
  */
 
 /** @type {Record<string, () => RabbitAdapter>} */

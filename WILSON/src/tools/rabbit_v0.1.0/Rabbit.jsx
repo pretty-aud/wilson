@@ -36,6 +36,8 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
+import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
+import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
 import ViewTabs from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
 import IngestionToast from './components/IngestionToast'
@@ -270,6 +272,17 @@ function AdapterStatusDot({ mode, status }) {
 // initial chips for who else has this project open (Session 7
 // presence, cloud mode only — hidden when realtime is off).
 function RealtimePresenceStrip({ realtimeStatus, users }) {
+  // Session 8: presence meta only carries { user_id, label } — join the
+  // roster so chips can show real avatars where members uploaded one.
+  // Hook order: called unconditionally, before the early return.
+  const { members: rosterMembers } = useRosterMembers()
+  const avatarByUserId = useMemo(() => {
+    const out = {}
+    for (const m of rosterMembers || []) {
+      if (m.avatar_url) out[m.id] = m.avatar_url
+    }
+    return out
+  }, [rosterMembers])
   if (!realtimeStatus || realtimeStatus === 'off') return null
   const pill = {
     live:       { label: 'LIVE', color: '#fb923c' },
@@ -297,21 +310,33 @@ function RealtimePresenceStrip({ realtimeStatus, users }) {
       >
         {pill.label}
       </span>
-      {shown.map(u => (
-        <span
-          key={u.user_id || u.label}
-          title={u.label || 'Member'}
-          className="flex items-center justify-center rounded-full text-[8px] font-mono font-bold"
-          style={{
-            width: 16, height: 16,
-            color: '#fff7ed',
-            backgroundColor: '#57534e',
-            border: '1px solid #78716c',
-          }}
-        >
-          {initials(u.label)}
-        </span>
-      ))}
+      {shown.map(u => {
+        const avatar = avatarByUserId[u.user_id]
+        return isOwnAvatarUrl(avatar) ? (
+          <img
+            key={u.user_id || u.label}
+            src={avatar}
+            alt=""
+            title={u.label || 'Member'}
+            className="rounded-full object-cover"
+            style={{ width: 16, height: 16, border: '1px solid #78716c' }}
+          />
+        ) : (
+          <span
+            key={u.user_id || u.label}
+            title={u.label || 'Member'}
+            className="flex items-center justify-center rounded-full text-[8px] font-mono font-bold"
+            style={{
+              width: 16, height: 16,
+              color: '#fff7ed',
+              backgroundColor: '#57534e',
+              border: '1px solid #78716c',
+            }}
+          >
+            {initials(u.label)}
+          </span>
+        )
+      })}
       {overflow > 0 && (
         <span className="text-[8.5px] font-mono" style={{ color: '#78716c' }}>
           +{overflow}

@@ -371,10 +371,10 @@ detector for that state). (2) pgTAP's partition detection is empirical
 (a `realtime.send` probe), because stale historical partitions would
 otherwise read as "routable".
 
-Known gaps: the projects INDEX only updates live for the OPEN project's
-topic (create/rename/delete of other projects lands on next refresh);
-a client whose token refreshes while its project sits in the trash can
-miss that project's restore event (catches up on next open).
+Known gaps: a client whose token refreshes while its project sits in the
+trash can miss that project's restore event (catches up on next open).
+(The Session 7 "projects INDEX only updates live for the OPEN project"
+gap is CLOSED by the Session 8 workspace channel — §17.)
 
 ## 15. Revert-to-state (Session 7)
 
@@ -398,3 +398,75 @@ tenancy and trash columns never ride an inverse patch (`deleted_at` is
 RPC-only per §12). Supported entity types: projects, phases, assets,
 tasks (full mutator coverage); hard-deleted projects cannot be recreated
 (a fresh id would orphan the subtree).
+
+## 16. Notes + Dashboard (Session 8, migrations 0017/0019)
+
+`notes` + `note_subjects` are OWNER-ONLY tables (every verb requires
+`workspace_id = current_workspace_id() AND owner_id = auth.uid()`), with
+deliberately NO app-role bypass: a workspace admin cannot read another
+member's notes. `owner_id`/`workspace_id` fill from column defaults
+(`auth.uid()` / `current_workspace_id()`); WITH CHECK pins both on every
+write, so a note can never be re-pointed at another owner or workspace.
+
+The note body is a **Yjs snapshot** (`ydoc_state`, base64 text — the ONLY
+place Yjs is used, per the locked decision; RABBIT entity fields stay
+LWW-per-field). Multi-device safety is snapshot-merge-write, enforced by
+the `version` column:
+
+    UPDATE notes SET ydoc_state=$1, version = v+1 WHERE id=$2 AND version = v
+
+A zero-row result means another device saved first; the client merges the
+remote snapshot into its local Y.Doc (Yjs updates are commutative and
+idempotent) and retries with the fresh version (`saveNoteDoc` +
+`noteSync.saveWithMerge`, bounded). `saveNoteDoc` is the ONLY writer of
+`ydoc_state`/`version`; `patchNote` is metadata-only.
+
+Deliberate exclusions: not edit-history captured (0012's entity CHECK
+stays locked — project_members precedent), never broadcast on any
+realtime topic (owner-private content), hard delete + UI confirm in v1
+(no `deleted_at`; the trash RPCs' allowlist does not include notes).
+
+`0019_task_ui_parity.sql` closed two pre-existing UI/DB mismatches the
+Dashboard would have tripped: `tasks.notes` (TaskDetailPopup always wrote
+it; cloud mode raised PGRST204) and the `'urgent'` label on
+`task_priority` (UI vocabulary; the enum only had `'critical'`, which
+stays but is unused).
+
+The Dashboard's cross-project "my tasks" read is one indexed query on
+`tasks.assignee_id / reviewer_id` (0013) — RLS supplies workspace
+scoping, trash hiding and trashed-parent hiding; no per-project bundle
+loads. Rate/budget data never rides it (rate_card_entries stay RLS-empty
+for the `user` role, and the Dashboard renders no budget columns).
+
+## 17. Workspace channel (Session 8, migration 0018)
+
+Closes the §14 known gap: private topic `rabbit:workspace:{workspace_id}`
+carries, via `fn_workspace_realtime_broadcast()` (same resilience contract
+as §14 — catalog probe, catch-all WARNING, never aborts the write):
+
+  * `projects` — index liveness (create/rename/trash/restore land without
+    the project being open); the provider merges these into projectsIndex
+    with the same stale guard, and the per-project channel remains the
+    single owner of active-project teardown.
+  * `workspace_members` — roster / profile / avatar liveness.
+  * `tasks` — Dashboard liveness, ONLY when assignee_id or reviewer_id is
+    set on either side of the write (unassigned churn stays off the
+    channel; the per-project topic still carries it for the open project).
+  * `assets` — the transitive-hide path (adversarial-review finding):
+    trashing/restoring an asset hides/reveals its tasks via tasks_select's
+    live-parent EXISTS without touching any tasks row. UPDATEs broadcast
+    only on deleted_at / name / phase_id changes — reorder churn stays off
+    the channel.
+  * `project_members` — role/staffing liveness for the Dashboard's write
+    gating (myProjectRole / projectIsStaffed).
+
+Join authorization: `can_read_workspace_topic()` = workspace match +
+`has_active_membership()`. Everything the channel broadcasts is
+workspace-visible for SELECT (projects/tasks reads have no staffing
+gate), so channel access ≡ table visibility — with ONE deliberate
+divergence, pinned by pgTAP 23: a DEACTIVATED member is denied this
+channel even though table reads still allow them until Session 9 aligns
+those. Clients only ever WRITE presence (extension='presence'); data
+broadcasts come from the trigger alone. projects/tasks rows reach both
+their project topic (0016) and the workspace topic — double delivery is
+absorbed by the client's stale guard / debounced refetch.

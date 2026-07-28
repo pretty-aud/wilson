@@ -10,6 +10,7 @@ import {
   DollarSign,
   ListChecks,
   Users,
+  LayoutDashboard,
 } from 'lucide-react'
 
 // Sentinel id used for the inline Resources column trigger.
@@ -20,6 +21,8 @@ const MAIN_ITEMS = [
   { id: 'dog',              label: 'D.O.G.',          Icon: Layers },
   { id: 'otter',            label: 'O.T.T.E.R.',      Icon: GraduationCap },
   { id: 'rabbit',           label: 'R.A.B.B.I.T.',    Icon: ListChecks },
+  // Session 8: the personal cross-tool surface, below the tools.
+  { id: 'dashboard',        label: 'Dashboard',        Icon: LayoutDashboard },
   { id: RESOURCES_SENTINEL, label: 'Resources',        Icon: BookOpen },
   { id: 'settings',         label: 'System Settings',  Icon: Settings },
 ]
@@ -148,13 +151,18 @@ export default function Home({ onNavigate, currentPage }) {
     <div className="h-full overflow-hidden flex">
       {/* ── Left column: main items ── */}
       <div
-        className="flex flex-col gap-4 py-6"
+        className="flex flex-col gap-3 py-6 wilson-light-scroll"
         style={{
           position: 'relative',
           width: resourcesOpen ? '25%' : '100%',
           flexShrink: 0,
           flexGrow: 0,
-          justifyContent: 'center',
+          // 'safe center' + scroll: with six items (Session 8 added
+          // Dashboard) plain centering clips both ends on short windows
+          // with no way to reach them — safe centering degrades to
+          // flex-start and the column scrolls instead.
+          justifyContent: 'safe center',
+          overflowY: 'auto',
           minHeight: '100%',
           transition: `width 300ms ${EASE_CURVE}`,
         }}
@@ -182,12 +190,13 @@ export default function Home({ onNavigate, currentPage }) {
                   setSelectedIndex(null)
                 }
               }}
-              className="flex items-center gap-5 pr-8 py-4 transition-all duration-200"
+              className="flex items-center gap-5 pr-8 py-3 transition-all duration-200"
               style={{
                 paddingLeft: MAIN_PADDING,
                 backgroundColor: highlighted ? HIGHLIGHT_BG : 'transparent',
                 opacity: grayed ? 0.3 : 1,
                 cursor: grayed ? 'default' : 'pointer',
+                flexShrink: 0,
               }}
             >
               <Icon

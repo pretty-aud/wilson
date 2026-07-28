@@ -499,6 +499,220 @@ export function supabaseAdapter() {
         .eq('user_id', userId));
     },
 
+    // ── Dashboard: cross-project "my tasks" (Session 8) ───────
+    // One indexed query over tasks.assignee_id / reviewer_id (0013) —
+    // RLS supplies workspace scoping, trash hiding and trashed-parent
+    // hiding for free. Embeds carry the labels the Dashboard renders so
+    // no per-project bundle load is needed.
+    async listMyTasks() {
+      const client = await requireClient();
+      const { data: sess } = await client.auth.getSession();
+      const uid = sess?.session?.user?.id;
+      if (!uid) return [];
+      const { data, error } = await client
+        .from('tasks')
+        .select('*, project:projects(id,title,status), asset:assets(id,name,phase_id)')
+        .or(`assignee_id.eq.${uid},reviewer_id.eq.${uid}`);
+      if (error) {
+        // Environment predates migration 0013 — no assignment columns,
+        // so "my tasks" is correctly empty (same tolerance family as
+        // listEditHistory).
+        if (error.code === '42P01' || error.code === 'PGRST205'
+            || error.code === '42703' || error.code === 'PGRST204') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
+    // Phase labels for the Dashboard's phase grouping (assets carry
+    // phase_id; the names live here).
+    async listPhasesByProjects(projectIds) {
+      if (!projectIds?.length) return [];
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('phases')
+        .select('id, name, project_id, sort_order')
+        .in('project_id', projectIds);
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
+    // Roster rows for a set of projects — the Dashboard derives
+    // myProjectRole + projectIsStaffed per task's project from these
+    // (rosters are workspace-visible, 0013).
+    async listProjectMembersByProjects(projectIds) {
+      if (!projectIds?.length) return [];
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('project_members')
+        .select('project_id, user_id, project_role')
+        .in('project_id', projectIds);
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
+    // ── Notes (Session 8, migration 0017) ─────────────────────
+    // Owner-only rows (RLS: workspace + owner_id = auth.uid(), no admin
+    // bypass). The body is a Yjs snapshot in ydoc_state (base64 text);
+    // `version` is the optimistic-concurrency counter. The list read
+    // deliberately EXCLUDES ydoc_state — snapshots can be large and the
+    // list only needs metadata + body_preview.
+    async listNotes() {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('notes')
+        .select('id, title, subject, note_date, body_preview, version, created_at, updated_at')
+        .order('updated_at', { ascending: false });
+      if (error) {
+        // Environment predates migration 0017 — no notes yet.
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
+    async getNote(id) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('notes')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') return null;
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? null;
+    },
+
+    async createNote(fields = {}) {
+      const client = await requireClient();
+      // owner_id / workspace_id fill from column defaults (auth.uid() /
+      // current_workspace_id()); version starts at 0.
+      const row = sanitize(fields, [
+        'id', 'owner_id', 'workspace_id', 'version',
+        'created_at', 'created_by', 'updated_at', 'updated_by',
+      ]);
+      return unwrap(await client.from('notes').insert(row).select().single());
+    },
+
+    // Metadata-only patch (title / subject / note_date / body_preview).
+    // NEVER send ydoc_state or version through here — body saves go
+    // through saveNoteDoc so the version guard can't be bypassed.
+    async patchNote(id, patch) {
+      return patchRow('notes', id, sanitize(patch, ['owner_id', 'ydoc_state', 'version']));
+    },
+
+    // Version-guarded Yjs snapshot save. Returns the updated
+    // { id, version, updated_at } row, or NULL when the guard missed —
+    // another device saved first; the caller merges the remote snapshot
+    // into its local Y.Doc (updates are commutative + idempotent) and
+    // retries with the fresh version.
+    async saveNoteDoc(id, { ydocState, bodyPreview, expectedVersion }) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('notes')
+        .update({
+          ydoc_state:   ydocState,
+          body_preview: bodyPreview ?? '',
+          version:      expectedVersion + 1,
+        })
+        .eq('id', id)
+        .eq('version', expectedVersion)
+        .select('id, version, updated_at');
+      if (error) {
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return (data ?? []).length > 0 ? data[0] : null;
+    },
+
+    // Hard delete (v1: notes have no trash — confirm in the UI).
+    async deleteNote(id) {
+      const client = await requireClient();
+      unwrap(await client.from('notes').delete().eq('id', id));
+    },
+
+    // ── Note subjects (Session 8, migration 0017) ─────────────
+    async listNoteSubjects() {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('note_subjects')
+        .select('*')
+        .order('position')
+        .order('label');
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return data ?? [];
+    },
+
+    async createNoteSubject({ label, position = 0 }) {
+      const client = await requireClient();
+      return unwrap(await client
+        .from('note_subjects')
+        .insert({ label, position })
+        .select()
+        .single());
+    },
+
+    async patchNoteSubject(id, patch) {
+      return patchRow('note_subjects', id, sanitize(patch, ['owner_id']));
+    },
+
+    // Rename cascade: notes store the subject as a plain label, so renaming
+    // an option must re-tag the owner's notes or they silently fall out of
+    // the renamed filter/group (review finding). RLS owner-scopes the
+    // UPDATE for free. Returns the re-tagged note ids.
+    async retagNoteSubject(oldLabel, newLabel) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('notes')
+        .update({ subject: newLabel })
+        .eq('subject', oldLabel)
+        .select('id');
+      if (error) {
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message || String(error);
+        throw new Error(`[supabase] ${lastError}`);
+      }
+      lastError  = null;
+      lastSyncAt = new Date();
+      return (data ?? []).map(r => r.id);
+    },
+
+    async deleteNoteSubject(id) {
+      const client = await requireClient();
+      unwrap(await client.from('note_subjects').delete().eq('id', id));
+    },
+
     // ── Ingestion runs + chunks ───────────────────────────────
     async createIngestionRun(run) {
       const client = await requireClient();
@@ -654,6 +868,97 @@ export function supabaseAdapter() {
                 // "Who ELSE has this project open" — the caller's own
                 // tracked meta comes back in the sync state; showing a
                 // chip to a solo user would fake a teammate.
+                .filter(u => u.user_id && u.user_id !== presenceMeta?.user_id);
+              opts.onPresence(users);
+            } catch { /* presence display is best-effort */ }
+          });
+        }
+
+        channel.subscribe(async (status) => {
+          if (cancelled) return;
+          try { opts.onStatus?.(status); } catch { /* observer errors stay theirs */ }
+          if (status === 'SUBSCRIBED' && presenceMeta) {
+            try { await channel.track(presenceMeta); } catch { /* best-effort */ }
+          }
+        });
+      })();
+
+      return () => {
+        cancelled = true;
+        if (channel) {
+          try { channel.unsubscribe(); } catch { /* already down */ }
+          try { client?.removeChannel?.(channel); } catch { /* already gone */ }
+        }
+      };
+    },
+
+    // ── Workspace realtime (Session 8, migration 0018) ────────
+    // Joins the private broadcast channel `rabbit:workspace:{id}` fed by
+    // fn_workspace_realtime_broadcast — projects (index liveness),
+    // workspace_members (roster/avatar liveness) and assigned tasks
+    // (Dashboard liveness). Same event shape and lifecycle contract as
+    // subscribeProjectChanges; presence here means "who's online in the
+    // workspace" and is keyed by auth user id like the project channel.
+    subscribeWorkspaceChanges(workspaceId, callback, opts = {}) {
+      let cancelled = false;
+      let channel = null;
+      let client = null;
+
+      (async () => {
+        client = await getClient();
+        if (!client || cancelled || !workspaceId) return;
+
+        // Private channels authorize against realtime.messages RLS with the
+        // caller's JWT — make sure the realtime socket carries it.
+        try { await client.realtime.setAuth(); } catch { /* non-fatal */ }
+        if (cancelled) return;
+
+        let presenceMeta = null;
+        if (opts.onPresence) {
+          try {
+            const { data } = await client.auth.getSession();
+            const user = data?.session?.user;
+            if (user) {
+              presenceMeta = {
+                user_id: user.id,
+                label: user.user_metadata?.display_name
+                    || user.user_metadata?.username
+                    || user.email
+                    || 'Member',
+              };
+            }
+          } catch { /* presence stays anonymous-less; channel still works */ }
+        }
+        if (cancelled) return;
+
+        channel = client.channel(`rabbit:workspace:${workspaceId}`, {
+          config: {
+            private: true,
+            ...(presenceMeta ? { presence: { key: presenceMeta.user_id } } : {}),
+          },
+        });
+
+        for (const op of ['INSERT', 'UPDATE', 'DELETE']) {
+          channel.on('broadcast', { event: op }, (msg) => {
+            const p = msg?.payload;
+            if (!p || !p.table) return;
+            callback({
+              table:     p.table,
+              op:        p.operation || op,
+              record:    p.record ?? null,
+              oldRecord: p.old_record ?? null,
+            });
+          });
+        }
+
+        if (opts.onPresence) {
+          channel.on('presence', { event: 'sync' }, () => {
+            try {
+              const state = channel.presenceState();
+              const users = Object.values(state).flat()
+                .map(m => ({ user_id: m.user_id, label: m.label }))
+                // "Who ELSE is online" — filter the local user like the
+                // project channel does.
                 .filter(u => u.user_id && u.user_id !== presenceMeta?.user_id);
               opts.onPresence(users);
             } catch { /* presence display is best-effort */ }

@@ -176,6 +176,48 @@ export default function ProfileSection({ onSaved }) {
     }
   }
 
+  // Session 8: avatar removal. A pending (unsaved) pick just gets
+  // discarded; a stored avatar clears avatar_url and best-effort deletes
+  // the blob (user_avatars_delete_own policy). The row update is the
+  // source of truth — a failed blob delete only leaves an orphan object,
+  // same known-gap family as the rabbit-files GC.
+  async function handleRemoveAvatar() {
+    if (busy || !row) return
+    if (avatarFile) { setAvatarFile(null); setError(''); return }
+    if (!row.avatar_url) return
+    setBusy(true)
+    setError('')
+    try {
+      const prefix = `/storage/v1/object/public/${AVATAR_BUCKET}/`
+      const i = (row.avatar_url || '').indexOf(prefix)
+      if (i !== -1) {
+        // Parse + remove together: a malformed percent-sequence must only
+        // cost us the blob cleanup, never the avatar_url reset below.
+        try {
+          const objectPath = decodeURIComponent(row.avatar_url.slice(i + prefix.length))
+          await supabase.storage.from(AVATAR_BUCKET).remove([objectPath])
+        } catch { /* orphan blob only */ }
+      }
+      const { data, error: updErr } = await supabase
+        .from('workspace_members')
+        .update({ avatar_url: null })
+        .eq('workspace_id', row.workspace_id)
+        .eq('user_id', row.user_id)
+        .select()
+        .maybeSingle()
+      if (updErr) throw updErr
+      const next = data || { ...row, avatar_url: null }
+      setRow(next)
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 2500)
+      onSaved?.(next)
+    } catch (err) {
+      setError(err?.message || String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const inputStyle = {
     backgroundColor: 'rgba(120, 70, 30, 0.55)',
     color: '#fde8d0',
@@ -239,15 +281,28 @@ export default function ProfileSection({ onSaved }) {
             onChange={handleFilePick}
             className="hidden"
           />
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-          >
-            {shownAvatar ? 'Change avatar' : 'Upload avatar'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={busy}
+              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+              style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
+            >
+              {shownAvatar ? 'Change avatar' : 'Upload avatar'}
+            </button>
+            {shownAvatar && (
+              <button
+                type="button"
+                onClick={handleRemoveAvatar}
+                disabled={busy}
+                className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+                style={{ backgroundColor: 'transparent', color: '#dc2626', border: '1px solid #dc2626' }}
+              >
+                {avatarFile ? 'Discard' : 'Remove'}
+              </button>
+            )}
+          </div>
           <p className="text-[10px] mt-1.5" style={{ color: '#78716c' }}>
             PNG, JPEG, WEBP, or GIF · under 2 MB{avatarFile ? ` · ${avatarFile.name}` : ''}
           </p>
