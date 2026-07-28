@@ -48,7 +48,9 @@ at join. `db/README.md` §14 is the reference; §15 covers revert.
 - Migration 0016 live on wilson-dev; rolled-back live probe: 7 writes → 7 broadcasts, correct topics, full old/new payloads, soft-delete transition + link-table DELETE-via-parent-join delivered.
 - **Partition discovery (important):** a hosted project whose Realtime tenant was never active has NO `realtime.messages` partitions — `realtime.send` drops rows with only a WARNING. First websocket connect activates the tenant and provisions partitions (verified empirically: 0 rows before, 1 after a single anon channel join). Self-healing, but don't expect broadcast rows on a fresh env until a client connects.
 - Adversarial review: 4 finders → 13 findings → 8 confirmed (3 major: first-join missed-events window, optimistic-rollback erasing merged events, INSERT-echo duplicates) + 3 unverified — ALL 11 fixed pre-commit; 2 refuted with documented traces.
-- CI + staging/prod deploy status: see the session close-out commit(s) after this file.
+- **CI green on `338c90e`** (first run, no retries — the environment-tolerant pgTAP probes behaved as designed on the realtime-less CI stack).
+- **0016 deployed to ALL THREE envs** (dev → CI green → staging → prod, dry-run before each push); 10 triggers + 2 realtime.messages policies verified on each via `pg_trigger`/`pg_policies` counts. CLI re-linked to wilson-dev. **No migration backlog for Session 8.**
+- Browser verification of live sync / presence / revert UI not performed by the agent (sign-in requires credentials the agent must not enter); eyeball once signed in with TWO windows: edit an asset field in one → it appears in the other (LIVE pill bottom-left, teammate chip visible); delete a task in one → it vanishes in the other; History drawer → revert an edit (entry appears as a new edit, Ctrl+Z undoes it).
 
 ## Known gaps & deferred items (carry-forward list)
 
