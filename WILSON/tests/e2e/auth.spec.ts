@@ -43,6 +43,11 @@ async function signIn(page: Page, username: string, password: string) {
   await page.getByLabel('Username').fill(username)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: /sign in/i }).click()
+  // Session 9: unenrolled admins get the MFA enrollment gate right after
+  // reveal — its overlay eats every click below it. The probe admin stays
+  // unenrolled (a TOTP secret in CI is S11 work), so defer per sign-in.
+  const defer = page.getByRole('button', { name: /set up later/i })
+  await defer.click({ timeout: 12_000 }).catch(() => { /* not an admin, or already enrolled */ })
 }
 
 async function latestMailFor(email: string) {

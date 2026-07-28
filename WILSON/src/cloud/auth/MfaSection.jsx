@@ -206,7 +206,11 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
 }
 
 // ── Post-login gate for admin tiers ──────────────────────────────────────
-export function MfaEnrollGate({ onComplete }) {
+// v1 allows a per-sign-in deferral ("asks again next sign-in") — the gate
+// re-fires on every login until a verified factor exists. Hard, no-deferral
+// enforcement lands with the S11 TPN pass (needs the CI probe admin
+// enrolled first). Enrolled admins are already challenged at sign-in.
+export function MfaEnrollGate({ onComplete, onDefer }) {
   const [revealing, setRevealing] = useState(false)
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 60 }}>
@@ -224,17 +228,30 @@ export function MfaEnrollGate({ onComplete }) {
             YOU&apos;LL BE ASKED FOR A CODE AT EVERY SIGN-IN.
           </div>
           <MfaEnrollPanel dark onEnrolled={() => setRevealing(true)} />
-          <button
-            type="button"
-            onClick={() => window.wilsonSignOut?.()}
-            style={{
-              background: 'transparent', border: 'none', color: '#fff',
-              fontFamily: AUTH_TEXT_STYLE.fontFamily, fontSize: '11px',
-              textDecoration: 'underline', cursor: 'pointer', opacity: 0.6,
-            }}
-          >
-            Sign out instead
-          </button>
+          <div style={{ display: 'flex', gap: '18px' }}>
+            <button
+              type="button"
+              onClick={() => onDefer?.()}
+              style={{
+                background: 'transparent', border: 'none', color: '#fff',
+                fontFamily: AUTH_TEXT_STYLE.fontFamily, fontSize: '11px',
+                textDecoration: 'underline', cursor: 'pointer', opacity: 0.6,
+              }}
+            >
+              Set up later
+            </button>
+            <button
+              type="button"
+              onClick={() => window.wilsonSignOut?.()}
+              style={{
+                background: 'transparent', border: 'none', color: '#fff',
+                fontFamily: AUTH_TEXT_STYLE.fontFamily, fontSize: '11px',
+                textDecoration: 'underline', cursor: 'pointer', opacity: 0.6,
+              }}
+            >
+              Sign out instead
+            </button>
+          </div>
         </div>
       </AuthShell>
     </div>

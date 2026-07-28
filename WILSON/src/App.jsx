@@ -1453,9 +1453,13 @@ export default function App() {
         />
       )}
 
-      {/* Session 9: admin MFA enrollment gate (after onboarding clears). */}
+      {/* Session 9: admin MFA enrollment gate (after onboarding clears).
+          Deferral is per sign-in — it re-fires every login until enrolled. */}
       {authed && !pendingOnboarding && pendingMfaEnroll && (
-        <MfaEnrollGate onComplete={() => setPendingMfaEnroll(false)} />
+        <MfaEnrollGate
+          onComplete={() => setPendingMfaEnroll(false)}
+          onDefer={() => setPendingMfaEnroll(false)}
+        />
       )}
 
       {/* Session 9: login-time update prompt (never stacked on the gates). */}

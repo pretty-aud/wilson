@@ -70,10 +70,14 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0019`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 8 close-out. No backlog.
+- **Migrations `0000`–`0021`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 9 close-out. No backlog.
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
-  `provision-workspace`, `invite-member`.
+  `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
+  and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
+  `admin-reset-password`, `admin-set-active`, `admin-user-security`
+  (verify_jwt=false; claims from the TOKEN payload; live-row admin check;
+  MFA aal2 step-up).
 - **Email:** Resend SMTP via `mail.petalstudios.co` (DNS at Squarespace);
   invite / recovery / email-change templates uploaded to all three envs.
 
@@ -111,9 +115,9 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–23` (runs in CI local stack;
+- **pgTAP RLS suite** `supabase/tests/rls/01–25` (runs in CI local stack;
   realtime probes environment-tolerant).
-- **Vitest** 209/209 green end of S8. **Playwright** auth/permissions e2e.
+- **Vitest** 224/224 green end of S9. **Playwright** auth/permissions e2e.
 - CI workflow at the **git root**: `.github/workflows/rls.yml` (git root is
   `Dev_Work\wilson\`, one level ABOVE `WILSON/`). Failure-only psql replay
   surfaces real SQL errors as annotations.
@@ -126,6 +130,7 @@ Core capabilities of v1.0.0:
 |---|---|---|
 | `wilson-purge-edit-history` | 04:43 | 90-day edit-history retention |
 | `wilson-purge-soft-deleted` | 04:47 | 30-day trash sweep |
+| `wilson-purge-app-events` | 04:51 | 90-day admin-log retention (S9) |
 
 ---
 
@@ -183,14 +188,15 @@ deployed to all three envs**.
 | 6 | 2026-07-28 | Project roles (0013: manager/reviewer/member + helper family gating writes), soft-delete + undo (0014), rate-entry identity (0015); undo toast; roster UI; 12/12 review findings fixed | `324a44c`, `848d225` |
 | 7 | 2026-07-28 | Realtime live sync (0016 broadcast) + presence + LWW merge layer + revert-to-state; 11 review findings fixed | `338c90e`, `4375872` |
 | 8 | 2026-07-28 | Dashboard (cross-project task table/kanban/gallery + TaskDetailPopup reuse) + Notes (TipTap v3 + Yjs snapshot-merge-write, owner-only, no admin bypass) + workspace channel (0018: projects/members/assigned-tasks/assets/project_members) + avatar remove + avatars in presence chips + task UI/DB parity (0019: tasks.notes, 'urgent'); 9/9 review findings + 8 minors fixed; CI green on `0567581` (npm-10 lockfile + top-level DML-CTE fixes); 0017–0019 deployed dev+staging+prod | `1ef4d10`, `156a74e`, `0567581` |
+| 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 9–11 remain** (Session 10 was added 2026-07-28 by the web-parity
+**Sessions 10–11 remain** (Session 10 was added 2026-07-28 by the web-parity
 decision — see §5/§10). Launch prompt ready:
-`docs/sessions/SESSION_09_prompt.md`.
+`docs/sessions/SESSION_10_prompt.md`.
 
 ---
 
@@ -219,43 +225,40 @@ All four core blocks landed (`1ef4d10` + docs; §4 ledger row 8):
 - **Workspace channel** (0018) — carry-forward #1 CLOSED; see §2.
 - **Stretch NOT started:** field-level cell presence (→ S9+, earliest S10).
 
-### Session 9 — Company Admin Terminal + MFA + Auto-Update Infra ← NEXT
+### Session 9 — Company Admin Terminal + MFA + Auto-Update Infra ✅ DONE (2026-07-28)
 
-Launch prompt: `docs/sessions/SESSION_09_prompt.md`.
+All blocks landed (`44d0de8` + `6182aa5`; §4 ledger row 9; db/README §18):
 
-From the brief (Admin Terminal + credentials sections) + locked decisions:
+- **Admin Terminal** (`src/components/AdminTerminal/`, admin-gated, ≥5 UX
+  laws applied per the 2026-07-28 requirement — seven, named in each file
+  header and the close-out): Users (roster, role, grant toggles w/ confirm,
+  show-once reset, deactivate/reactivate), Add People (multi-invite +
+  create-with-password → show-once CredentialsPopup), Company, Logs
+  (app_events + activity), Diagnostics (error codes WIL-####).
+- **Per-user rate-card grants** (0020, §10-A): live-row `has_rate_card_grant`
+  in the rce_* policies; client `useRateCardAccess`; view-only grants render
+  the rate card read-only.
+- **Read alignment** (0020, closed §6 #15): spine SELECTs +
+  ws_members workspace-arm + ws_members_admin_write require
+  has_active_membership; last-admin guard (locked, GUC escape for S10
+  operator tooling); auto-staffing (producer/creator → project managers,
+  client creates only); workspaces admin-rename w/ immutable slug.
+- **MFA** (locked #9): LoginScreen TOTP stage → aal2; admin enroll gate;
+  Settings security section; Edge Functions enforce aal2 for enrolled
+  admins.
+- **Auto-update** (locked #10/#15): electron-updater + generic B2 feed
+  (WILSON_UPDATE_URL runtime override); NSIS channel via electron-builder
+  (`npm run dist`); login Update/Skip; Settings version panel.
+- **Backups** (locked #11): `.github/workflows/backups.yml` nightly
+  pg_dump (postgres:17) → B2 — needs B2 secrets before first run (owed).
+- **Logs & error codes** (0021): app_events append-only stream (admin
+  stream server-reserved), 90-day purge cron, `src/cloud/errorCodes.js`.
+- **Roster polish** (§10-B/E, closed §6 #13): assigned-projects column,
+  roster liveness, producer/CD highlight; NewCompanyWizard team step
+  (provision-workspace invites[], §10-D).
+- Adversarial review: 16 findings — 15 fixed, 1 documented skip.
 
-- **Admin Terminal** (company-admin tier, UX-laws treatment — invoke the
-  `laws-of-ux` skill and deliberately apply ≥5 laws, named at close-out;
-  Audrey, 2026-07-28): create users
-  (**show-once credentials + copy-to-clipboard popup**), reset passwords,
-  deactivate/reactivate (+ token revocation — deferred from S4), last-admin
-  protection; manage teams, company name/details; **per-user grants beyond
-  role: rate-card view/edit toggles with admin confirm flow (REINSTATED per
-  the brief — §10-A)**.
-- **Multi-invite (Slack-style, §10-D):** adapt the single-user invite flow to
-  batch — add many people at once, like adding members to a new Slack channel.
-  Applies to both the NewCompanyWizard initial team and the admin terminal.
-- **Roster polish (§10-B/E):** producer + creative-director row highlight;
-  producer/creator auto-staffed as project manager on creation; Team Members
-  page gains an **assigned-projects column** built on `project_members`.
-- **Logs & diagnostics**: viewer over the audit/edit-history infrastructure —
-  who changed what, auth events, API/error states; **error-code system** so
-  users can report issues and the admin can see where the problem lies; debug
-  panel.
-- **Backend storage connection UI** in system settings — v1.0 providers
-  CONFIRMED (locked #14): local / local server, Supabase Storage, Google
-  Drive. AWS S3 + Hetzner (one S3-compatible adapter) move post-1.0.
-- **MFA for all admin tiers** (Supabase Auth MFA).
-- **Auto-update**: electron-updater + hosted builds; version check at login →
-  update / skip prompt; Settings shows current version + "check for updates";
-  backend keeps latest build + links to previous builds.
-- **Backups**: nightly `pg_dump` → Backblaze B2 (locked #11).
-- Deferred-in: storage blob GC (with S11), roster edit-history capture,
-  legacy `useTeamMembers` sweep (Timeline/Scenes/Levels/Experiences/Budget/
-  Intake still on the legacy hook).
-
-### Session 10 — O.T.T.E.R. cloud content model (NEW — added 2026-07-28)
+### Session 10 — O.T.T.E.R. cloud content model ← NEXT
 
 Prerequisite for all-three-tools web parity (locked #16/#17). O.T.T.E.R.
 content moves from local-disk JSON (`otter-data/`) to workspace-tenanted cloud
@@ -319,14 +322,24 @@ tables + storage with an ownership model:
 12. **NEW (S8):** Notes have no cross-device LIVE list refresh (deliberate —
     notes ride no channel; the version guard still makes concurrent edits
     lossless; list refreshes on load/reload). Candidate: per-user topic later.
-13. **NEW (S8):** TeamMembersPage does not yet consume workspace_members
-    events (the Dashboard presence strip does) — S9 roster polish wires it.
+13. ~~TeamMembersPage does not consume workspace_members events~~ —
+    **CLOSED S9** (roster liveness + assigned-projects column).
 14. **NEW (S8):** A workspace-less JWT (deactivated everywhere mid-session)
     inserting a note fails 23502 (NOT NULL) instead of a clean 42501 —
     cosmetic; the Dashboard already requires an active workspace to render.
-15. **NEW (S8):** Deactivated members: workspace channel DENIES (0018) while
-    table reads still allow until refresh — deliberate divergence, pinned by
-    pgTAP 23 probe 12; S9's token revocation + SELECT-policy sweep aligns.
+15. ~~Deactivated members: channel/table-read divergence~~ — **CLOSED S9**
+    (0020 alignment; pgTAP 20 probe 20 flipped, channel ≡ table reads).
+16. **NEW (S9):** Edge-Function rate limiting is in-memory + last-XFF only
+    (provision-workspace invite budget included) — durable DB-backed
+    limiter is S11 TPN work.
+17. **NEW (S9):** adminGuard MFA step-up fails OPEN if listFactors errors
+    (documented skip; GoTrue still challenges enrolled users at sign-in).
+18. **NEW (S9):** electron-updater ships only via the electron-builder NSIS
+    channel (`npm run dist`); Forge/Squirrel builds report 'unsupported'.
+    Local node_modules lacks electron-updater/electron-builder until an
+    install succeeds on this machine (npm TLS issue; lockfile is complete).
+19. **NEW (S9):** legacy useTeamMembers sweep still pending (was #8; now
+    also feeds the producer/CD highlight only via projectsIndex ids).
 
 ---
 
@@ -341,26 +354,26 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Revert project to a selected state | S7 `revertHistoryEntry` + drawer buttons | 🔶 projects/phases/assets/tasks only (#3 in §6) |
 | "Last updated by/at" on ALL project databases | Audit columns (0004) + triggers | ✅ |
 | Undo file/row deletes | S6 soft delete (0014) + undo toast + 30-day trash | ✅ (blob GC pending) |
-| Team member page shows assigned projects | `project_members` data exists (0013) | ⬜ S9 — confirmed (2026-07-28) |
+| Team member page shows assigned projects | S9: live assigned-projects column (workspace channel) | ✅ |
 | App roles admin/manager/user + dropdown in Team Members (WILSON, not RABBIT) | S3 permissions framework + S4 role dropdown | ✅ |
-| Admin per-user extra grants (rate-card view/edit toggles w/ confirm) | Rate card currently ROLE-based: SELECT admin+manager, write admin (0015) | ⬜ S9 — REINSTATED per brief (2026-07-28) |
+| Admin per-user extra grants (rate-card view/edit toggles w/ confirm) | 0020 grants + has_rate_card_grant + terminal toggles w/ confirm | ✅ |
 | Admin can SEE member passwords | **Changed**: show-once at creation + reset-only (locked #8) | ✳ |
-| Copy-credentials popup on user creation | S9 admin terminal | ⬜ S9 |
+| Copy-credentials popup on user creation | S9 CredentialsPopup (show-once, copy-both) | ✅ ❓ in-app verify owed |
 | Username-first login; creator username `Audrey` | S2/S3 AuthShell + resolve-login | ✅ |
 | Project roles manager/reviewer/member; write gating incl. approve/complete reviewer-only; members no budget/intake | 0013 helper family + `projectRoleMatrix` | ✅ policies · ❓ per-tab UI sweep (budget/intake/timeline view-only nuances) |
-| Producer + Creative Director row highlight; producer/creator auto-manager | Not found in S4–S7 records | ⬜ S9 — confirmed wanted (2026-07-28) |
+| Producer + Creative Director row highlight; producer/creator auto-manager | 0020 producer/director cols + auto-staff trigger + roster badges | ✅ |
 | Budget snapshot card managers-only; members never see financial data | Rate-entry RLS closed (0015); budget-tab gating rides the project-role sweep | 🔶 ❓ |
 | Summary strip shows only YOUR projects | 0013: staffed projects gated; **unstaffed = open to all** (backward compat) | 🔶 (matrix-complete once legacy projects are staffed) |
 | Real-time co-editing, see others live | S7 broadcast + LWW merge + presence chips/LIVE pill (now with avatars) | ✅ (field-level cell presence: stretch, not started — S9+/S10) |
 | Personal Dashboard (RABBIT views + notes + profile + avatar) | S8: Dashboard page (table/kanban/gallery + popup reuse), Notes (TipTap+Yjs), ProfileSection + avatar remove, workspace channel | ✅ ❓ in-app verify owed |
-| New company setup wizard (+ create several users at once) | S2 `NewCompanyWizard`; bulk initial users via invites | ✅ / ⬜ S9 Slack-style multi-invite (2026-07-28) |
+| New company setup wizard (+ create several users at once) | S9 team step → provision-workspace invites[] (Slack-style) | ✅ |
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
-| Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | Adapters exist for local/Supabase/Drive (v0.6); connection UI in S9 | ⬜ S9 — v1.0: local/Supabase/Drive (locked #14); S3/Hetzner post-1.0 |
+| Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
 | Per-company Claude API key, admin-administered | S11 operator console | ⬜ S11 |
-| Session system (auth, edit attribution, audit, multi-device, revocation) | Supabase Auth JWT + `issue-session` ES256 + `actor_label` audit + presence | ✅ core · ⬜ session list/revoke UI (S9) |
-| App version hosting, update-check at login w/ update/skip, Settings version panel | S9 auto-update block | ⬜ S9 |
-| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 + S10 split (two-tier, locked #5) | ⬜ |
+| Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
+| App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
+| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes); operator tier = S11 | ✅ company · ⬜ operator |
 | express-session + connect-pg-simple suggestion | Superseded by Supabase Auth | ✳ (locked #1) |
 
 ---
@@ -402,12 +415,13 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–08 present) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–10 present) |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
 | GitHub secrets | `DEV_SUPABASE_URL`, `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD` |
-| Cron jobs | `wilson-purge-edit-history` 04:43 UTC · `wilson-purge-soft-deleted` 04:47 UTC (all envs) |
+| Cron jobs | `wilson-purge-edit-history` 04:43 · `wilson-purge-soft-deleted` 04:47 · `wilson-purge-app-events` 04:51 UTC (all envs) |
+| Backups workflow | `.github/workflows/backups.yml` (git root) — needs B2_* + BACKUP_*_DB_URL secrets |
 | Auto-memory | `~\.claude\projects\C--Users-Audrey-Documents-My-Work-Dev-Work-Claude-Work\memory\wilson_multi_user_plan.md` |
 
 ---
@@ -460,6 +474,29 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **Workspace channel strictness**: deactivated members are denied the
   channel while table reads still allow them — safe-direction divergence,
   pinned by pgTAP 23, aligned in S9.
+
+### Resolved 2026-07-28 (Session 9 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **Auto-staffing scope**: the 0020 trigger seats creator+producer on
+  CLIENT creates only (`auth.uid() IS NULL` skips) — fixtures, migrations
+  and service scripts keep 0013's unstaffed-open contract. Consequence:
+  projects created in-app are staffed from birth, so plain members no
+  longer get write access to NEW projects they aren't seated on (this IS
+  the §10-B intent; legacy projects unchanged).
+- **Edge-Function claims**: app_role/workspace_id are read from the TOKEN
+  payload, never `getUser().app_metadata` (only workspace_id is persisted
+  there). All admin functions + invite-member also re-check the LIVE
+  membership row.
+- **app_events streams**: the 'admin' event type + WIL-41xx codes are
+  server-reserved (clients can't forge audit lines); client reporter uses
+  the error/system/update streams.
+- **Auto-update channel**: NSIS via electron-builder is the ONLY
+  auto-updatable artifact; Forge/Squirrel stays for dev packaging and
+  degrades gracefully ('unsupported').
+- **Show-once credentials**: admin-created users may have NO real email
+  (synthesized non-deliverable address) — password resets are then
+  admin-only by design.
 
 ### Still open
 
