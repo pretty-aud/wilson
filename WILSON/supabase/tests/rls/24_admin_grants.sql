@@ -340,21 +340,31 @@ UPDATE public.workspace_members
    AND workspace_id = '11111111-1111-1111-1111-111111111111';
 
 -- ── probes 24-27: auto-staffing ──────────────────────────────────────────
--- The trigger deliberately skips auth-less (runner/service) inserts, so
--- these probes run as user_c — the path real clients take.
+-- The trigger deliberately skips auth-less (runner/service) inserts, and
+-- projects_insert (0013) requires an admin/manager CLAIM — so these probes
+-- run as user_d with manager claims, the path real clients take.
+-- created_by is stamped by the audit trigger (auth.uid() = user_d).
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
-SELECT tests.login_as(
-  'cccccccc-cccc-cccc-cccc-cccccccccccc',
-  '11111111-1111-1111-1111-111111111111'
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub',  'dddddddd-dddd-dddd-dddd-dddddddddddd',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', '11111111-1111-1111-1111-111111111111',
+      'app_role',     'manager'
+    )
+  )::text,
+  true
 );
+SELECT set_config('role', 'authenticated', true);
 
-INSERT INTO public.projects (id, workspace_id, title, created_by, producer_id)
+INSERT INTO public.projects (id, workspace_id, title, producer_id)
 VALUES ('aaaa1111-0000-0000-0000-000000002401',
         '11111111-1111-1111-1111-111111111111',
         'Auto-staffed (24)',
-        'cccccccc-cccc-cccc-cccc-cccccccccccc',
-        'dddddddd-dddd-dddd-dddd-dddddddddddd');
+        'cccccccc-cccc-cccc-cccc-cccccccccccc');
 
 SELECT is(
   (SELECT count(*)::int FROM public.project_members
@@ -376,11 +386,10 @@ SELECT is(
     WHERE project_id = 'aaaa1111-0000-0000-0000-000000002401'),
   3, 'producer change seats the new producer (existing seats kept)');
 
-INSERT INTO public.projects (id, workspace_id, title, created_by, producer_id)
+INSERT INTO public.projects (id, workspace_id, title, producer_id)
 VALUES ('aaaa1111-0000-0000-0000-000000002402',
         '11111111-1111-1111-1111-111111111111',
         'Ghost producer (24)',
-        'cccccccc-cccc-cccc-cccc-cccccccccccc',
         '99999999-9999-9999-9999-999999999999');
 
 SELECT is(
