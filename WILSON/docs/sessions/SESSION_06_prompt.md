@@ -8,7 +8,7 @@
 
 ## Where Session 5 left the repo
 
-Branch: **`feat/multi-user-v1`**. Session 5 landed Edit History (no revert) in one commit (see git log — docs commit may follow it).
+Branch: **`feat/multi-user-v1`**. Session 5 landed Edit History (no revert) as **`51403d3`** (full session) plus a docs/status follow-up commit.
 
 ### Migration history
 
@@ -35,7 +35,9 @@ Branch: **`feat/multi-user-v1`**. Session 5 landed Edit History (no revert) in o
 - Migration 0012 applied to **wilson-dev**; live probe (create → update → no-op update → delete on a scratch project) produced exactly 3 history rows with correct per-field diffs, noise columns excluded, no-op skipped; probe rows cleaned up.
 - pg_cron job `wilson-purge-edit-history` confirmed scheduled on wilson-dev via `cron.job`.
 - Vitest 53/53; `vite build` green.
-- Deploys + CI status: **fill in from the Session 5 close-out summary / Actions tab** (0012 → staging + prod after CI green was the plan).
+- **CI green on `51403d3`** — all four jobs (pgTAP incl. the new 17-file suite on a fresh 0000→0012 stack, Vitest, Playwright auth, smoke).
+- **0012 deployed to ALL THREE envs** (dev → CI green → staging → prod, dry-run before each push); pg_cron job `wilson-purge-edit-history` confirmed present on dev, staging, AND prod via `cron.job`. CLI re-linked to wilson-dev. **No migration backlog for Session 6** — first time since Session 3.
+- Sessions 4+5 deferred deploys (0010/0011 → staging+prod) were also completed this session, at its start.
 - Browser verification of the drawer was **not** performed by the agent (signing in requires credentials the agent must not enter); DB layer verified directly, auth path covered by CI Playwright. Eyeball the drawer once in your signed-in app: Assets or Tasks table → hover a row → History (clock) icon.
 
 ## Known gaps & deferred items (carry-forward list)
