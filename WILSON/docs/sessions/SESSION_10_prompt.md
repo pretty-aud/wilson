@@ -30,7 +30,7 @@
     SELECTs + ws_members workspace-arm + ws_members_admin_write now require
     `has_active_membership`; channel ≡ table reads (pgTAP 20 probe 20
     flipped). Last-admin guard (FOR UPDATE-locked, GUC escape hatch
-    `wilson.bypass_last_admin_guard` for the S10 operator console).
+    `wilson.bypass_last_admin_guard` for the S12 operator console).
   - **Auto-staffing** (0020): `projects.producer_id/director_id` are now
     CLOUD columns; creator+producer auto-seated as project managers on
     client creates ONLY (`auth.uid() IS NULL` skips — fixtures/scripts stay
@@ -78,7 +78,7 @@ parity (locked #16/#17). O.T.T.E.R. content moves from local-disk JSON
   schema is open.
 - Deferred-in candidates: roster edit-history capture (§6 #7), legacy
   `useTeamMembers` sweep (§6 #8), storage blob GC design (§6 #6, lands
-  w/ S11).
+  w/ S12).
 
 ## Expected DB work (migration 0022+, pgTAP 26+)
 
@@ -130,9 +130,18 @@ parity (locked #16/#17). O.T.T.E.R. content moves from local-disk JSON
 
 ## Non-goals (S10)
 
-- Operator console, web build (all 3 tools), final TPN hardening (**S11**).
-- Field-level cell presence (stretch since S8 — earliest S11 now).
-- Durable Edge-Function rate limiting (S11 TPN).
+> Re-plan (Audrey, 2026-07-28, post-S9): the remainder is now THREE smaller
+> sessions for Opus 5 — S10 (this one), S11 web build + hosting/routing,
+> S12 operator console + TPN + v1.0.0. Hosting is path-based (locked #18):
+> `petalstudios.co/wilson`, `/wilson/<tool>`, operator console at
+> `petalstudios.co/wilsonadmin`. NONE of that is S10 work — but new cloud
+> tables you add here will be read from the web build in S11, so keep RLS
+> browser-safe (no Electron-only assumptions in policies or RPCs).
+
+- Web build, base-path routing, web sessions, deploy (**S11**).
+- Operator console (/wilsonadmin), final TPN hardening, v1.0.0 (**S12**).
+- Field-level cell presence (stretch since S8 — earliest S12 now).
+- Durable Edge-Function rate limiting (S12 TPN).
 - No cloud tables for milestones/scenes/levels/experiences (unchanged).
 
 ## Close-out ritual (MASTER_PLAN §8 — do ALL of it)

@@ -168,6 +168,23 @@ Core capabilities of v1.0.0:
     wiki. **D.O.G. needs NO content model or local-file access:** web D.O.G.
     generates off the open project's cloud files. — decided/clarified
     2026-07-28
+18. **Web hosting is PATH-BASED on the apex domain** (Audrey, 2026-07-28):
+    the app lives at `petalstudios.co/wilson`, every page/tool gets a path
+    under it (`/wilson/dog`, `/wilson/otter`, `/wilson/rabbit`,
+    `/wilson/dashboard`, `/wilson/admin-terminal`, …), and the PLATFORM
+    OPERATOR console is a separate surface at `petalstudios.co/wilsonadmin`
+    (interpretation flagged in §10 — company Admin Terminal stays an
+    in-app page under /wilson). Implications owned by S11/S12: web vite
+    build with `base: '/wilson/'` (Electron keeps `./`), URL ↔ page sync
+    over the existing all-pages-rendered shell (no router rewrite), SPA
+    fallback rewrites for `/wilson/*` and `/wilsonadmin/*`, Supabase auth
+    `site_url`/`additional_redirect_urls` + `WILSON_SITE_URL` move to
+    `https://petalstudios.co/wilson` (recovery/invite links become
+    `/wilson/#/recovery`), per-surface session isolation between /wilson
+    and /wilsonadmin, and a host/proxy that can route apex-domain paths
+    (DNS sits at Squarespace, which cannot serve an SPA under a path —
+    needs Cloudflare-or-similar in front, or moving the domain's hosting;
+    Audrey decision owed before S11 deploy).
 
 ---
 
@@ -194,8 +211,9 @@ Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 10–11 remain** (Session 10 was added 2026-07-28 by the web-parity
-decision — see §5/§10). Launch prompt ready:
+**Sessions 10–12 remain** (re-split 2026-07-28: the old Session 11 was
+broken into web build (S11) and operator console + TPN + v1.0.0 (S12) for
+smaller sessions on Opus 5 — see §5/§10). Launch prompt ready:
 `docs/sessions/SESSION_10_prompt.md`.
 
 ---
@@ -280,22 +298,44 @@ tables + storage with an ownership model:
 - Resolve `public.users` drop + `schema.sql` retirement (§6 #9) while the
   schema is open — this is the standalone-RABBIT decision's natural home.
 
-### Session 11 — Platform Operator Console + Web Build + Final TPN Hardening
+### Session 11 — Web Build + Hosting/Routing (all three tools)
 
-- **Operator console** (platform tier, `is_platform_operator`): create/manage
-  companies (workspaces), administer **per-company Claude API keys** (empty
-  input per company; operator can populate), cross-company session/usage
-  logs, build-links management.
-- **Web build — ALL THREE TOOLS** (locked #16), riding the S10 content model:
-  RABBIT + Dashboard + O.T.T.E.R. + D.O.G. in the browser. D.O.G. is the
-  light one — project-file-driven, no local files (web path: Edge-Function
-  Anthropic proxy so the key never ships to a browser).
+Path-based hosting per locked #18. Scope (kept deliberately smaller for
+the Opus 5 session split):
+
+- **Web vite target**: `base: '/wilson/'` build variant (Electron build
+  keeps `./`); feature detection for the browser (no electronAPI: updater
+  panel degrades, local/Drive storage cards inform, safeStorage bridge
+  absent → web session strategy per the supabaseClient comment).
+- **URL ↔ page sync**: map the existing `currentPage` state onto
+  `/wilson/{dog,otter,rabbit,dashboard,settings,project-manager,
+  rate-card,team-members,admin-terminal,help}` with history API — the
+  all-pages-rendered shell stays; deep links + SPA fallback rewrites.
+- **Auth on the web**: `WILSON_SITE_URL` → `https://petalstudios.co/wilson`
+  on all three envs; Supabase `site_url`/`additional_redirect_urls`
+  updated; recovery/invite emails land on `/wilson/#/recovery`; session
+  persistence for browsers (locked follow-up from Session 2's
+  `persistSession:false` note).
+- **Web D.O.G.** (locked #17): Edge-Function Anthropic proxy so the key
+  never ships to a browser; generates off the open project's cloud files.
+- **Deploy target**: static hosting + rewrites for `/wilson/*`; the
+  apex-domain proxy decision (Cloudflare vs moved hosting) is owed by
+  Audrey before this session's deploy step.
+- O.T.T.E.R./RABBIT web smoke passes; Playwright web-path lane.
+
+### Session 12 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
+
+- **Operator console** (platform tier, `is_platform_operator`, separate
+  surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
+  companies (workspaces), administer **per-company Claude API keys**,
+  cross-company session/usage logs, build-links management. Session
+  isolation from /wilson (separate storage scope; operator sign-in only).
 - **Final TPN hardening**: re-run `tpn-compliance-audit` against the
-  `TPN_AUDIT/` baseline (FINDINGS/RECOMMENDATIONS/REMEDIATION_PLAN committed at
-  `1ce18ec`); close remaining items.
-- Remaining deferrals sweep (§6), storage blob GC, v1.0.0 version cut.
-
----
+  `TPN_AUDIT/` baseline (committed at `1ce18ec`); close remaining items —
+  durable Edge-Function rate limiting (§6 #16), hard no-deferral admin MFA
+  gate once the CI probe admin is enrolled (§6 #17), storage blob GC
+  (§6 #6).
+- Remaining deferrals sweep (§6), v1.0.0 version cut.
 
 ## 6. Carry-forward gaps (live list, end of Session 8)
 
@@ -497,6 +537,22 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **Show-once credentials**: admin-created users may have NO real email
   (synthesized non-deliverable address) — password resets are then
   admin-only by design.
+
+### Resolved 2026-07-28 (Audrey, post-Session 9)
+
+- **Remaining work re-split into THREE smaller sessions** (S10 O.T.T.E.R.
+  content · S11 web build + hosting/routing · S12 operator console + TPN +
+  v1.0.0) — sized for the switch to Opus 5.
+- **Hosting paths locked (#18)**: `petalstudios.co/wilson` (app),
+  `/wilson/<tool-or-page>` (pages), `petalstudios.co/wilsonadmin`
+  (operator console). **Interpretation to confirm with Audrey:**
+  `/wilsonadmin` is read as the PLATFORM OPERATOR console; the company
+  Admin Terminal remains an in-app page at `/wilson/admin-terminal`. If
+  she meant the company terminal instead, S12's surface swaps
+  accordingly.
+- Apex-domain path routing prerequisite (proxy vs hosting move) is an
+  Audrey infra decision owed before the S11 deploy step (DNS currently at
+  Squarespace).
 
 ### Still open
 
