@@ -225,7 +225,9 @@ Launch prompt: `docs/sessions/SESSION_09_prompt.md`.
 
 From the brief (Admin Terminal + credentials sections) + locked decisions:
 
-- **Admin Terminal** (company-admin tier, UX-laws treatment): create users
+- **Admin Terminal** (company-admin tier, UX-laws treatment — invoke the
+  `laws-of-ux` skill and deliberately apply ≥5 laws, named at close-out;
+  Audrey, 2026-07-28): create users
   (**show-once credentials + copy-to-clipboard popup**), reset passwords,
   deactivate/reactivate (+ token revocation — deferred from S4), last-admin
   protection; manage teams, company name/details; **per-user grants beyond

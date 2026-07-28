@@ -56,6 +56,18 @@ multi-invite + roster polish.** Highlights (full detail in the plan):
   with the workspace channel's stricter gate — pgTAP 20 probe 20 + 23 probe 12
   pin both sides), last-admin protection, teams/company details, **per-user
   rate-card view/edit toggles w/ admin confirm (REINSTATED — §10-A)**.
+  **UX requirement (Audrey, 2026-07-28): invoke the `laws-of-ux` skill BEFORE
+  designing the Admin Terminal UI, and apply MORE laws than the skill's
+  baseline asks — at least FIVE, chosen deliberately and named in the
+  close-out summary with where each one landed.** Strong candidates for an
+  admin surface: Hick's Law (prune choices per screen — the terminal has many
+  actions), Fitts's Law (big, close targets for frequent actions; destructive
+  ones small/far), Jakob's Law (follow familiar admin-console conventions),
+  Miller's Law (chunk the user list / settings into digestible groups),
+  Doherty Threshold (<400ms feedback — optimistic UI + spinners on RPCs),
+  Postel's Law (forgiving inputs for usernames/emails), and the Peak-End Rule
+  (the show-once-credentials popup is the peak moment — make it excellent).
+  All of it still inside the WILSON visual language (tokens, no new colors).
 - **Slack-style multi-invite** (NewCompanyWizard + terminal — §10-D).
 - **Roster polish (§10-B/E):** producer/CD row highlight; producer/creator
   auto-manager staffing; Team Members assigned-projects column
