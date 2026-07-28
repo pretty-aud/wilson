@@ -43,7 +43,7 @@ Branch: **`feat/multi-user-v1`**. Session 4 landed in two commits:
 ## Must-do before writing code
 
 1. **Check the first CI run of `163892d`** (Actions tab): pgTAP now includes `16_member_directory.sql` (12 probes) — it has NOT run locally (no Docker on this machine). Also confirm the new `unit` + `e2e-auth` jobs pass; `e2e-auth` is the first CI Playwright run ever.
-2. **Deploy 0010 to staging + prod.** Only wilson-dev has it. Same recipe as SESSION_03_TO_04_CHECKLIST §2 (`supabase link` → `supabase db push --linked` for `rzkirvkotslbovzbsdfh` then `rqyriuyldhovirbuievt`; re-link to wilson-dev after). No new Edge Functions this session.
+2. **Deploy 0010 + 0011 to staging + prod.** Only wilson-dev has them. Same recipe as SESSION_03_TO_04_CHECKLIST §2 (`supabase link` → `supabase db push --linked` for `rzkirvkotslbovzbsdfh` then `rqyriuyldhovirbuievt`; re-link to wilson-dev after). No new Edge Functions this session. (0011 is the explicit role-grants migration — the July 2026 local-stack image dropped the default privileges hosted envs have; it's a no-op on hosted but keeps every environment identical.)
 
 ## Known rough edges from Session 4 (review findings deliberately deferred)
 
