@@ -133,8 +133,9 @@ parity (locked #16/#17). O.T.T.E.R. content moves from local-disk JSON
 > Re-plan (Audrey, 2026-07-28, post-S9): the remainder is now THREE smaller
 > sessions for Opus 5 — S10 (this one), S11 web build + hosting/routing,
 > S12 operator console + TPN + v1.0.0. Hosting is path-based (locked #18):
-> `petalstudios.co/wilson`, `/wilson/<tool>`, operator console at
-> `petalstudios.co/wilsonadmin`. NONE of that is S10 work — but new cloud
+> `/wilson`, `/wilson/<tool>`, operator console at `/wilsonadmin` —
+> PATH SHAPE locked, domain flexible (S11 ships to a test host; the
+> petalstudios.co cutover is post-v1.0). NONE of that is S10 work — but new cloud
 > tables you add here will be read from the web build in S11, so keep RLS
 > browser-safe (no Electron-only assumptions in policies or RPCs).
 

@@ -318,9 +318,10 @@ the Opus 5 session split):
   `persistSession:false` note).
 - **Web D.O.G.** (locked #17): Edge-Function Anthropic proxy so the key
   never ships to a browser; generates off the open project's cloud files.
-- **Deploy target**: static hosting + rewrites for `/wilson/*`; the
-  apex-domain proxy decision (Cloudflare vs moved hosting) is owed by
-  Audrey before this session's deploy step.
+- **Deploy target**: a TEST host (any static host with SPA rewrites)
+  serving the locked path shape — `<test-host>/wilson` +
+  `<test-host>/wilsonadmin`; Audrey needs it reachable for post-session
+  testing. `petalstudios.co` cutover is post-v1.0 production work.
 - O.T.T.E.R./RABBIT web smoke passes; Playwright web-path lane.
 
 ### Session 12 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
@@ -543,16 +544,14 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **Remaining work re-split into THREE smaller sessions** (S10 O.T.T.E.R.
   content · S11 web build + hosting/routing · S12 operator console + TPN +
   v1.0.0) — sized for the switch to Opus 5.
-- **Hosting paths locked (#18)**: `petalstudios.co/wilson` (app),
-  `/wilson/<tool-or-page>` (pages), `petalstudios.co/wilsonadmin`
-  (operator console). **Interpretation to confirm with Audrey:**
-  `/wilsonadmin` is read as the PLATFORM OPERATOR console; the company
-  Admin Terminal remains an in-app page at `/wilson/admin-terminal`. If
-  she meant the company terminal instead, S12's surface swaps
-  accordingly.
-- Apex-domain path routing prerequisite (proxy vs hosting move) is an
-  Audrey infra decision owed before the S11 deploy step (DNS currently at
-  Squarespace).
+- **Hosting paths locked (#18)**: `/wilson` (app), `/wilson/<tool-or-page>`
+  (pages), `/wilsonadmin` (operator console). **CONFIRMED by Audrey:**
+  `/wilsonadmin` = the PLATFORM OPERATOR console; the company Admin
+  Terminal remains an in-app page at `/wilson/admin-terminal`.
+- **Domain relaxed (Audrey):** hosting does NOT need to be at
+  `petalstudios.co` — S11 ships to a test host with the locked path shape
+  so she can test after the sessions; the production domain cutover is
+  post-v1.0.
 
 ### Still open
 
