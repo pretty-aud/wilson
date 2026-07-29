@@ -146,7 +146,15 @@ Do this twice: once for **wilson-prod**, once for **wilson-staging**.
 
 10. B2 → bucket → **Lifecycle Settings** → custom rule:
     - File path prefix: `db/`
-    - Keep only the last version, delete after **30** days
+    - Keep only the last version, delete after **90** days
+
+    **Why 90 and not 30** (Audrey, 2026-07-29 — "stick to using B2 for longer
+    retention"): Supabase Pro already keeps 7 days of daily backups on-platform,
+    so B2's job is the retention window Supabase does *not* cover. Thirty days
+    barely extends it. The cost of going further is negligible — a compressed
+    dump is single-digit MB, so two environments × 365 days lands around 7 GB,
+    inside B2's 10 GB free tier. Raise it further if you like; unlike Object
+    Lock, lifecycle rules can be changed at any time.
 
     The workflow deliberately doesn't delete old files itself: if the CI key
     were ever stolen, a key with delete rights could wipe the whole backup

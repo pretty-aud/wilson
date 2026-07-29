@@ -153,8 +153,17 @@ Core capabilities of v1.0.0:
    passwords" — that is not securable.)
 9. **MFA for all admin tiers** (S9).
 10. **electron-updater + S3-compatible hosting** for auto-update (S9).
-11. **PITR permanently deferred** ($100/mo) — replaced by nightly `pg_dump` to
-    Backblaze B2 (S9).
+11. **PITR permanently deferred** ($100/mo). **Refined 2026-07-29:** the
+    backup story is two layers, not one. Supabase **Pro already includes daily
+    backups with 7-day retention** on-platform — the S9 note that pg_dump
+    "replaces PITR" understated what was already there. The nightly `pg_dump`
+    to Backblaze B2 exists for the two things Supabase's own backups cannot do:
+    it is **off-platform** (a suspended account, billing lapse or compromise
+    takes the database *and* its backups together) and it holds **long
+    retention** (7 days catches "we broke something Tuesday"; it does not catch
+    corruption noticed a month later). B2 lifecycle window is therefore 90 days,
+    not 30 — a compressed dump is single-digit MB, so even a year of dailies
+    across both envs sits inside B2's free tier.
 12. **Frozen JWT claim shape** (§2).
 13. **Realtime = broadcast-from-database** (§2 — never postgres_changes).
 14. **BYO storage v1.0 = local / local server + Supabase Storage + Google
