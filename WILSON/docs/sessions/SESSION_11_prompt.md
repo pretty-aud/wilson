@@ -1,4 +1,10 @@
-# SESSION 11 launch prompt — O.T.T.E.R. UI + Web Build
+# SESSION 11 launch prompt — O.T.T.E.R. UI
+
+> **Re-planned 2026-07-29 (Audrey).** This session was originally "O.T.T.E.R. UI
+> + web build". The web build is now **Session 12** — S11 was double-booked with
+> two full sessions of work, which is how S10 ended up delivering half its scope.
+> Four sessions remain: **S11 O.T.T.E.R. UI · S12 web build · S13 file lifecycle
+> & data stewardship · S14 operator console + TPN + v1.0.0.**
 
 > Paste into a new Claude Code conversation from the WILSON repo.
 > **Master plan: `docs/MASTER_PLAN.md` — read §2–§6 and §10 BEFORE any code.**
@@ -34,9 +40,7 @@
 - **Migration tool** — `src/cloud/migrate/runOtterMigration.js`.
 - Adversarial review: 15 findings, all fixed (see the commit body).
 
-## Session 11 goal — TWO blocks
-
-### Block A — the O.T.T.E.R. UI (carried from S10, NOT started)
+## Session 11 goal — the O.T.T.E.R. UI (carried from S10, NOT started)
 
 Everything below is **server-complete and pgTAP-pinned**; none of it is on
 screen. This is Audrey's explicitly requested feature set (2026-07-28) and
@@ -84,28 +88,14 @@ should land BEFORE the web build, because the web build just re-hosts it.
 
 Apply the **laws-of-ux skill** (≥5 named laws, as S9's Admin Terminal did).
 
-### Block B — web build + hosting/routing (original S11 scope, locked #18)
+## What moved OUT of this session
 
-- **Web vite target**: `base: '/wilson/'` variant (Electron keeps `./`);
-  feature-detect the browser (updater panel degrades, storage cards inform,
-  no safeStorage bridge).
-- **URL ↔ page sync** onto the existing all-pages-rendered shell; SPA fallback
-  rewrites for `/wilson/*` and `/wilsonadmin/*`. No router rewrite.
-- **Auth on the web**: `WILSON_SITE_URL` → the test host; Supabase
-  `site_url`/`additional_redirect_urls`; browser session persistence
-  (Session 2's `persistSession:false` note).
-- **Web D.O.G.**: Edge-Function Anthropic proxy so the key never ships to a
-  browser; generates off the open project's cloud files.
-- **Deploy to a TEST host** with the locked path shape (`<host>/wilson`,
-  `<host>/wilsonadmin`). `petalstudios.co` cutover is post-v1.0.
-
-**Known web blocker to fix in Block B** (§6 #21): `Otter.jsx`'s mount effect
-loads the course list *inside* the `fetch('/api/otter-settings')` success
-chain. That route is correctly NOT an adapter route, so on the web it 404s (or
-returns `index.html`), the outer `.catch(() => {})` swallows it, and
-`loadSoftwareList()` never runs — the library renders empty with no error.
-Decouple the data load, and give `/api/otter-settings`, `/api/agent-skills`,
-`/api/migration-needed`, `/api/migrate`, `/api/fetch-url` browser fallbacks.
+- **Web build + hosting/routing** → **S12** (MASTER_PLAN §5). Do not start it
+  here; finishing the UI properly is this session's whole job.
+- Note while you work: §6 #21 (O.T.T.E.R. renders an empty library on the web,
+  because `loadSoftwareList()` only runs inside the
+  `fetch('/api/otter-settings')` success chain) is an **S12** fix. Don't
+  restructure the mount effect for it now unless you are already in that code.
 
 ## Traps & discipline (inherited — full list in MASTER_PLAN §8)
 
@@ -148,16 +138,19 @@ Decouple the data load, and give `/api/otter-settings`, `/api/agent-skills`,
 
 ## Non-goals (S11)
 
-- Operator console (`/wilsonadmin`), final TPN hardening, v1.0.0 (**S12**).
-- Field-level cell presence (stretch since S8 — earliest S12).
-- Durable Edge-Function rate limiting (S12 TPN).
+- **Web build, base-path routing, web sessions, deploy** (**S12**).
+- **CSV export, file audit, storage relink, `rabbit-files` bucket, blob GC**
+  (**S13** — file lifecycle & data stewardship).
+- Operator console (`/wilsonadmin`), final TPN hardening, v1.0.0 (**S14**).
+- Field-level cell presence (stretch since S8 — earliest S14).
+- Durable Edge-Function rate limiting (S14 TPN).
 - Realtime for O.T.T.E.R. content (deliberately excluded — db/README §19).
 
 ## Close-out ritual (MASTER_PLAN §8 — do ALL of it)
 
 Feature commit → CI green → deploy any new migrations to staging + prod
 (dry-run each) → deploy any new/edited Edge Functions → re-link CLI to
-`wilson-dev` → write `docs/sessions/SESSION_12_prompt.md` → update
-`docs/MASTER_PLAN.md` (§4 ledger, §5 scope, §6 gaps, §7 statuses, §10) →
-update the Claude auto-memory → docs commit + push → list Audrey's owed
-browser checks.
+`wilson-dev` → write `docs/sessions/SESSION_12_prompt.md` (**web build**, scope
+in MASTER_PLAN §5) → update `docs/MASTER_PLAN.md` (§4 ledger, §5 scope, §6 gaps,
+§7 statuses, §10) → update the Claude auto-memory → docs commit + push → list
+Audrey's owed browser checks.

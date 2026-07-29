@@ -186,6 +186,14 @@ Core capabilities of v1.0.0:
     (DNS sits at Squarespace, which cannot serve an SPA under a path —
     needs Cloudflare-or-similar in front, or moving the domain's hosting;
     Audrey decision owed before S11 deploy).
+19. **Four sessions remain** (Audrey, 2026-07-29): S11 O.T.T.E.R. UI · S12 web
+    build · S13 file lifecycle & data stewardship · S14 operator console + TPN
+    + v1.0.0. See §5 and §10.
+20. **B2 never holds customer content** — database dumps and update installers
+    only. Project files live in the company's own storage (locked #14) and are
+    their backup responsibility; WILSON keeps only the metadata that points at
+    them. **O.T.T.E.R. content is excluded from any company-wide export**
+    (§10, 2026-07-29). — decided 2026-07-29
 
 ---
 
@@ -303,7 +311,14 @@ mounting the migration panel. → **S11 Block A**, specced in
 (`gh` unauthenticated). Migrations 0022–0023 ARE deployed to dev + staging +
 prod (dry-run each, `public.users` confirmed empty on all three first).
 
-### Session 11 — O.T.T.E.R. UI + Web Build ← NEXT
+> **Re-planned 2026-07-29 (Audrey).** Four sessions remain, not two. S11 was
+> carrying both the O.T.T.E.R. UI and the web build — two full sessions — and
+> S10 had already shown what that costs. Split them, and add S13 for the file
+> lifecycle work (below), which is mostly TPN work pulled forward rather than
+> new scope: **S11 O.T.T.E.R. UI · S12 web build · S13 file lifecycle & data
+> stewardship · S14 operator console + TPN + v1.0.0.**
+
+### Session 11 — O.T.T.E.R. UI ← NEXT
 
 Prerequisite for all-three-tools web parity (locked #16/#17). O.T.T.E.R.
 content moves from local-disk JSON (`otter-data/`) to workspace-tenanted cloud
@@ -351,7 +366,42 @@ the Opus 5 session split):
   testing. `petalstudios.co` cutover is post-v1.0 production work.
 - O.T.T.E.R./RABBIT web smoke passes; Playwright web-path lane.
 
-### Session 12 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
+### Session 13 — File lifecycle & data stewardship (NEW, 2026-07-29)
+
+Everything about what happens to files and data over time. Roughly 60% of this
+is TPN work in friendlier clothing — the `TPN_AUDIT/FINDINGS.md` entries on
+audit trails, retention and proof-of-deletion (TPN-LOG-004 and the
+"delete is an unlink with no certificate, no checksum, no audit trail" finding)
+all land here rather than in S14.
+
+- **Storage relink** — the ShotGrid/Blender "find missing files" model, and the
+  reason this session exists: point WILSON at a moved folder, it walks the
+  tree, matches dangling `files` rows by filename (size + mime as tiebreak),
+  shows a preview table of proposed remaps, and applies them on confirm.
+  **`local_server` first** (the case where folders actually move), with the
+  matcher written provider-agnostically so `google_drive` can follow.
+  Backstory: `files` already carries `storage_provider` + a *relative*
+  `storage_path` (Drive file id / bare filename / bucket path), so a DB restore
+  plus reconnected storage already resolves — relink is for when identifiers
+  **drift** (a Drive file deleted and re-uploaded gets a new id; a folder moves).
+- **CSV / spreadsheet export** — **both tiers** (Audrey): per-page export
+  buttons now (this project's tasks, this rate card, this roster) *and* a full
+  workspace takeout as a zip of one CSV per table. `xlsx` is already a
+  dependency (rate-card importers), so this is mostly wiring.
+  **O.T.T.E.R. is EXCLUDED from the company takeout** — see §10.
+- **File audit (Notion-style)** — mostly UI over data already captured:
+  `files` is in 0012's edit-history entity CHECK, and `app_events` (0021)
+  carries the system stream. Add storage-lifecycle events (uploaded, moved,
+  relinked, trashed, purged) and a per-file "who touched this, when" view.
+- **`rabbit-files` bucket** — referenced at `supabaseAdapter.js:371` but never
+  created by any migration, so the Supabase-Storage option for project files is
+  half-wired. Create it with path-scoped policies (0009 `user-avatars`
+  pattern), or drop Supabase Storage as a project-files option and keep that
+  bucket for avatars only. Decide explicitly.
+- **Blob GC (§6 #6)** — file rows soft-delete but blobs persist forever, and
+  removed-avatar orphans join them when the best-effort delete fails.
+
+### Session 14 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
 
 - **Operator console** (platform tier, `is_platform_operator`, separate
   surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
@@ -640,6 +690,32 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **An admin cannot grant themselves edit access on a personal course.**
   Without that restriction the "no admin bypass" rule was defeatable in two
   steps (index → self-grant → read). Found by adversarial review.
+
+### Resolved 2026-07-29 (Audrey, post-Session 10 re-plan)
+
+- **FOUR sessions remain, not two** (locked #19): S11 O.T.T.E.R. UI · S12 web
+  build · S13 file lifecycle & data stewardship · S14 operator console + TPN +
+  v1.0.0. S11 had been carrying two full sessions of work.
+- **Storage relink is a first-class feature, modelled on ShotGrid/Blender**
+  (Audrey): find + preview + **apply**, not merely detect. Point it at the new
+  folder and it re-finds the moved assets itself. `local_server` first, matcher
+  written provider-agnostically.
+- **CSV export ships in both tiers** — per-page buttons *and* a full workspace
+  takeout.
+- **O.T.T.E.R. content is EXCLUDED from the company-wide takeout.** Audrey's
+  reason: courses are educational and may encode internal practice the company
+  does not want leaving. There is a second, independent reason that points the
+  same way — **personal courses are private even from admins** (0022), so a
+  company takeout that swept in O.T.T.E.R. would become an admin backdoor into
+  exactly the content Session 10 made unreadable to them. The existing
+  per-user `/api/export-all` stays: exporting *your own* courses is fine; a
+  company-wide export of *everyone's* is not.
+- **B2 holds no customer content** — nightly `pg_dump` + auto-update installers
+  only (locked #15). Project files stay in the company's chosen storage
+  (locked #14), which is what makes a database-only backup sufficient: `files`
+  rows carry `storage_provider` + a relative `storage_path`, so restore + a
+  reconnected storage resolves. Confirmed 2026-07-29 by inspecting the schema
+  and all three adapters.
 
 ### Still open
 
