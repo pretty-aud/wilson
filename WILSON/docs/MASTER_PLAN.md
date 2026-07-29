@@ -484,6 +484,17 @@ all land here rather than in S14.
     adapter now returns a clean 403 rather than a fabricated success, so
     nothing is lost silently — but the control should not be there.
     → S11 Block A, item 7.
+24. **NEW (S10): the S9 backup workflow could never have run.** `backups.yml`
+    was committed to `feat/multi-user-v1` only. GitHub fires `schedule`
+    workflows *exclusively* from the DEFAULT branch and only surfaces the
+    `workflow_dispatch` button for workflows present there — so the nightly
+    pg_dump had two independent reasons never to execute, and the missing B2
+    secrets were only the visible one. Fixed by PR branch
+    `chore/enable-db-backups`, which puts that single file on `main`.
+    **Lesson for any future scheduled workflow: it must live on the default
+    branch or it is decoration.** (`rls.yml` is unaffected — `push` and
+    `pull_request` run from the branch where the event happened, which is why
+    CI has worked throughout.)
 23. **NEW (S10): CI unverified for `31586d5`.** `gh` is not authenticated on
     the session machine. Everything was verified directly against Postgres 17
     on wilson-dev (94/94 pgTAP probes, plan counts exact) + Vitest 256/256 +

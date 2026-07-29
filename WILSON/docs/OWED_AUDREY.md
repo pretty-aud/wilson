@@ -129,8 +129,23 @@ Do this twice: once for **wilson-prod**, once for **wilson-staging**.
 
 ### Part D — Test it immediately
 
-9. https://github.com/pretty-aud/wilson/actions → **db-backups** in the left
-   sidebar → **Run workflow**. Don't wait for tonight.
+9. **First, merge the workflow onto `main`.** Until then there is nothing to
+   run: GitHub fires `schedule` workflows *only* from the default branch, and
+   only shows the `workflow_dispatch` "Run workflow" button for workflows
+   present there. `backups.yml` shipped in Session 9 onto `feat/multi-user-v1`
+   only, so the nightly job has never executed and would not have executed even
+   with the secrets set — the missing secrets were only half the reason.
+   (`rls.yml` is unaffected: it triggers on `push`/`pull_request`, which run
+   from the branch where the event happened. That is why CI works and backups
+   did not.)
+
+   PR branch `chore/enable-db-backups` is pushed and contains that one file and
+   nothing else:
+   https://github.com/pretty-aud/wilson/pull/new/chore/enable-db-backups
+
+   Then https://github.com/pretty-aud/wilson/actions → **db-backups** in the
+   left sidebar → **Run workflow** (run it from `main`). Don't wait for
+   tonight.
 
    **Success looks like:** each job ends with
    `uploaded db/prod/wilson-prod-20260729-143000.dump.gz (2.1M)`
