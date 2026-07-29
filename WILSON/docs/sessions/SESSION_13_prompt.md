@@ -171,6 +171,21 @@ purchase here:
 - **Mental Model** — this is the review model people already know from pull
   requests: approve / request changes / resubmit. Do not invent new vocabulary.
 
+### Audrey expects to iterate the UI with you AFTER v1
+
+**Audrey, 2026-07-29:** *"regarding UI i can troubleshoot and rework with you in
+testing the first version after we are done here."*
+
+Read that as permission to ship a clean, honest first version rather than
+agonising over the interaction design — she will sit with it and tell you what to
+change. Two practical consequences:
+
+- **Do not gold-plate the dialogs.** Get the states right and the copy plain.
+  Polish is a conversation she has asked to have, not a thing to guess at.
+- **Do put the effort into the parts she CANNOT easily retry**: the apply RPC and
+  the review-window access rule. A confusing button is a five-minute fix after
+  she looks at it; a bad apply writes to the company's canonical course.
+
 ### Sequence that de-risks it
 
 1. Write 0025 and pgTAP 32 **first**, and verify against real Postgres with the
