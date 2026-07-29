@@ -11,9 +11,15 @@
 
 ## Context recap — where Session 11 left the repo
 
-- Branch **`feat/multi-user-v1`**. S11 feature commit `<FEATURE_SHA>`, pushed.
-- Migrations **0000–0024**. **0024 is NEW in S11** — check §4 of the master plan
-  for its deploy state before assuming there is no backlog.
+- Branch **`feat/multi-user-v1`**. S11 feature commit `5707895`, docs close-out
+  `80f9072`, both pushed. **CI green on `5707895`** (all four jobs).
+- Migrations **0000–0024**, all deployed to dev + staging + prod at the S11
+  close-out (0024 was new; dry-run before each env, then verified present with
+  `authenticated` EXECUTE and `anon` denied on all three). **No backlog.**
+- **CI is readable without `gh`.** `pretty-aud/wilson` is a public repo, so
+  `curl https://api.github.com/repos/pretty-aud/wilson/actions/runs?head_sha=<sha>`
+  returns the conclusion, and `.../actions/runs/<id>/jobs` returns per-step
+  results. Do this rather than asking Audrey to check Actions by hand.
 - pgTAP suites 01–31. Vitest **290/290**. `vite build` green.
 - S11 delivered the whole O.T.T.E.R. UI: visibility tiers, filter chips, share +
   editor grants, company-standard designation, the fork offer, change-request
