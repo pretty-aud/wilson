@@ -205,7 +205,45 @@ Do this twice: once for **wilson-prod**, once for **wilson-staging**.
     were ever stolen, a key with delete rights could wipe the whole backup
     history. Lifecycle rules run on Backblaze's side, out of reach of that key.
 
-### Afterwards — prove a restore works
+### The restore drill (repeatable — run it quarterly, and after any change to
+### the backup path)
+
+`.github/workflows/restore-drill.yml` on `main` does this end to end: pulls the
+newest dump from B2, restores it into a scratch database, and verifies the
+result. Manual trigger only.
+
+**The scratch project and its secret are THROWAWAY. Everything else is
+permanent.**
+
+| Thing | Lifetime |
+|---|---|
+| `B2_*` secrets (4) · `BACKUP_*_DB_URL` (2) | permanent |
+| `RESTORE_TARGET_DB_URL` | **delete after each drill** |
+| the scratch Supabase project | **delete after each drill** |
+| `restore-drill.yml` | permanent, inert without the secret |
+
+**To run one:**
+
+1. Create a free-tier Supabase project (`wilson-restore-test` or similar).
+2. Add its session-pooler URI as `RESTORE_TARGET_DB_URL`.
+3. Actions → **db-restore-drill** → Run workflow ·
+   `source_env` = **staging** · `confirm` = **RESTORE**.
+4. Green means: the archive parsed completely, the public schema restored,
+   row counts came back, and `otter_courses` still has FORCE RLS.
+5. **Delete the project and the secret.**
+
+**Why throwaway rather than a standing target.** Free-tier projects pause after
+roughly a week idle, so a kept one would be paused every time you returned to
+it — no friction is actually saved. And it would be sitting on a restored copy
+of real staging data indefinitely, which is the kind of sprawl the S14 TPN pass
+will ask about. Deleting the secret also leaves the drill safely disarmed
+between runs: the job checks for it up front and stops with a clear message.
+
+**It defaults to the STAGING dump on purpose** — identical schema, so it tests
+the mechanism just as well, without duplicating production data into an
+unmanaged project.
+
+### Manual restore, if you ever need one for real
 
 A backup you've never restored isn't a backup. Once it's running, download one
 dump and restore it somewhere scratch:
