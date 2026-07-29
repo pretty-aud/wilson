@@ -21,10 +21,30 @@ import {
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
-import { otterFetch } from './adapters';
+import { otterFetch, otterCloudActive } from './adapters';
 import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
 import { useAgent } from '../../agent';
+// ── Session 11: sharing, tiers, trash and change requests ──
+// Everything below attaches to the EXISTING two-sidebar shell — chips above the
+// existing lists, a menu on the existing rows, dialogs off that menu. The one
+// authorised shell change is the Sidebar 1 collapse (SidebarCollapse.jsx).
+import { usePermissions } from '../../permissions';
+import {
+  useSidebarCollapse, SidebarCollapseButton, SidebarReopenRail,
+} from './components/SidebarCollapse.jsx';
+import CourseFilterChips from './components/CourseFilterChips.jsx';
+import CourseRowMenu from './components/CourseRowMenu.jsx';
+import ShareCourseDialog from './components/ShareCourseDialog.jsx';
+import ChangeRequestDialog from './components/ChangeRequestDialog.jsx';
+import TrashPanel, { TrashSidebarList } from './components/TrashPanel.jsx';
+import {
+  VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge,
+} from './components/CourseBadges.jsx';
+import {
+  courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
+  VISIBILITY_META, filtersFor,
+} from './components/otterSharing.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -187,6 +207,69 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   const [genQueueCancelledRef] = useState(() => ({ current: new Set() }));
   const genAbortControllers = useRef(new Map());
   const [subjectErrors, setSubjectErrors] = useState({});
+
+  // ═══════════════════════════════════════════════════════════════
+  //  SESSION 11 — sharing, tiers, trash, change requests
+  // ═══════════════════════════════════════════════════════════════
+
+  // The one authorised change to the existing shell. Sidebar 2 — Lessons is
+  // deliberately NOT collapsible: if it ever should be, it must reuse this same
+  // hook so O.T.T.E.R. never grows two collapse mechanisms.
+  // The shortcut is gated on O.T.T.E.R. actually being the visible page: this
+  // component stays mounted while the user is in RABBIT, Settings or the Admin
+  // Terminal (App.jsx renders every page and toggles `display`), so an
+  // unconditional window listener would toggle — and persist — a sidebar the
+  // user cannot even see.
+  const sidebar1 = useSidebarCollapse('otter.sidebar1.collapsed', {
+    shortcutEnabled: currentPage === 'otter',
+  });
+
+  const perms = usePermissions();
+  const appRole = perms.role;
+
+  // Cloud vs local. Read from the ADAPTER, not from usePermissions alone: the
+  // Settings mode override can pin local while a session exists, and the
+  // sharing controls must appear exactly when the backend behind them works.
+  const [cloudMode, setCloudMode] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    otterCloudActive().then(v => { if (alive) setCloudMode(v); }).catch(() => {});
+    return () => { alive = false; };
+  }, [perms.ready, perms.workspaceId]);
+
+  // ── Library filter chips (courses; subjects inherit — see CourseFilterChips) ──
+  const [courseFilter, setCourseFilter] = useState('all');
+
+  // Leaving cloud mode hides the chip strip, so any filter still selected would
+  // become a room with no door — most visibly 'trash', which would then render
+  // an empty "Recently deleted" pane forever with no way back to the library.
+  useEffect(() => {
+    if (!cloudMode) setCourseFilter('all');
+  }, [cloudMode]);
+
+  // Same trap one level down: the admin-only chip disappears when an admin is
+  // demoted mid-session.
+  useEffect(() => {
+    if (courseFilter === 'unopenable' && appRole !== 'admin') setCourseFilter('all');
+  }, [courseFilter, appRole]);
+
+  // ── Trash ("Recently deleted" is a filter state, not a view) ──
+  const [trashRows, setTrashRows] = useState([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashBusyId, setTrashBusyId] = useState(null);
+  const [trashError, setTrashError] = useState(null);
+
+  // ── Dialogs off the course row menu ──
+  const [shareDialogCourse, setShareDialogCourse] = useState(null);
+  const [crDialogCourse, setCrDialogCourse] = useState(null);
+  const [sharingNotice, setSharingNotice] = useState(null);
+  // Separate from genError: that one renders only on the prompt screen, and
+  // fork/share can both be triggered from the Library and the sidebar.
+  const [sharingError, setSharingError] = useState(null);
+
+  // ── Tier picker in the existing create-course flow ──
+  const [newCourseVisibility, setNewCourseVisibility] = useState('personal');
+  const [forkBusy, setForkBusy] = useState(false);
 
   // ═══════════════════════════════════════════════════════════════
   //  AGENT INTEGRATION — register tool interface with agent system
@@ -455,6 +538,150 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   }, [activeSoftwareSlug]);
 
   // ═══════════════════════════════════════════════════════════════
+  //  SESSION 11 — derived capability state + sharing handlers
+  // ═══════════════════════════════════════════════════════════════
+
+  // The list row carries the capability flags (they come from
+  // otter_course_index via course.list); the per-course `meta` from course.get
+  // does not have can_write at all. Always ask the list.
+  const activeCourseRow = useMemo(
+    () => softwareList.find(sw => sw.slug === activeSoftwareSlug) || null,
+    [softwareList, activeSoftwareSlug],
+  );
+
+  // Gates every generate/edit affordance. Defaults OPEN so signing out of the
+  // cloud does not disable a single-user local install (the Express server
+  // sends no can_write at all).
+  const activeCanWrite = canWriteCourse(activeCourseRow);
+  const activeCanRead  = canReadCourse(activeCourseRow);
+
+  const visibleCourses = useMemo(
+    () => softwareList.filter(sw => courseMatchesFilter(sw, courseFilter)),
+    [softwareList, courseFilter],
+  );
+
+  const filterCounts = useMemo(() => {
+    const counts = {};
+    for (const chip of filtersFor(appRole)) {
+      counts[chip.key] = chip.key === 'trash'
+        ? trashRows.length
+        : softwareList.filter(sw => courseMatchesFilter(sw, chip.key)).length;
+    }
+    return counts;
+  }, [softwareList, appRole, trashRows.length]);
+
+  const loadTrash = useCallback(async () => {
+    if (!cloudMode) { setTrashRows([]); return; }
+    setTrashLoading(true);
+    try {
+      const res = await otterFetch('/api/otter/trash');
+      const data = await res.json();
+      // Every O.T.T.E.R. call site historically ignored res.ok; this one must
+      // not — an unchecked failure here reads as "your trash is empty", which
+      // is the most alarming possible lie for this particular screen.
+      if (!res.ok) throw new Error(data?.error || 'Could not load deleted items');
+      setTrashRows(Array.isArray(data) ? data : []);
+      setTrashError(null);
+    } catch (e) {
+      setTrashRows([]);
+      setTrashError(e.message);
+    } finally {
+      setTrashLoading(false);
+    }
+  }, [cloudMode]);
+
+  // Fetch only when the chip is actually selected — the trash is a rarely-used
+  // surface and this keeps it off the launch path entirely.
+  useEffect(() => {
+    if (courseFilter === 'trash') loadTrash();
+  }, [courseFilter, loadTrash]);
+
+  const restoreTrashRow = useCallback(async (row) => {
+    if (trashBusyId) return;
+    setTrashBusyId(row.id);
+    setTrashError(null);
+    try {
+      const res = await otterFetch('/api/otter/trash/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind: row.kind, id: row.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not restore this');
+      if (!data.restored) throw new Error('This was already restored, or it has been deleted for good.');
+
+      invalidateCache(row.kind === 'subject' ? row.course_id : row.id);
+      await Promise.all([loadTrash(), loadSoftwareList()]);
+      // Peak-End: land the user back ON the thing they just rescued rather
+      // than on a list that is now one item shorter.
+      if (row.kind === 'course') {
+        selectSoftware(row.id, true);
+        setCourseFilter('all');
+        setCurrentView('library');
+      } else if (row.course_id === activeSoftwareSlug) {
+        selectSoftware(row.course_id, true);
+      }
+    } catch (e) {
+      setTrashError(e.message);
+    } finally {
+      setTrashBusyId(null);
+    }
+  }, [trashBusyId, loadTrash, loadSoftwareList, invalidateCache, selectSoftware, activeSoftwareSlug]);
+
+  // A course row came back from the server after a write. Merge what it
+  // actually says — NEVER what we sent — then re-read the list so the
+  // capability flags (which only otter_course_index computes) stay correct.
+  const handleCourseChanged = useCallback((row) => {
+    if (!row?.slug) return;
+    setSoftwareList(prev => prev.map(sw => (sw.slug === row.slug ? { ...sw, ...row } : sw)));
+    setShareDialogCourse(prev => (prev && prev.slug === row.slug ? { ...prev, ...row } : prev));
+    // The change-request dialog holds its own SNAPSHOT taken from softwareList
+    // when the menu item fired. It branches on course.visibility to decide
+    // whether to offer "also share my copy", so leaving it stale means a course
+    // the user just shared still shows the share-it checkbox — and ticking it
+    // would issue a redundant PATCH.
+    setCrDialogCourse(prev => (prev && prev.slug === row.slug ? { ...prev, ...row } : prev));
+    if (softwareCacheRef.current[row.slug]) {
+      softwareCacheRef.current[row.slug].meta = { ...softwareCacheRef.current[row.slug].meta, ...row };
+    }
+    if (activeSoftwareSlug === row.slug) setActiveSoftware(m => ({ ...m, ...row }));
+    loadSoftwareList();
+  }, [activeSoftwareSlug, loadSoftwareList]);
+
+  // "Use the company standard instead of generating one." Always yields a
+  // PERSONAL copy owned by the caller, so the official version stays pristine
+  // and an admin edit never changes a course underneath someone mid-study.
+  const forkCourse = useCallback(async (course, newName) => {
+    if (forkBusy) return null;
+    setForkBusy(true);
+    setSharingNotice(null);
+    setSharingError(null);
+    try {
+      const res = await otterFetch(`/api/otter/courses/${course.slug}/fork`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName ?? null }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not copy this course');
+      await loadSoftwareList();
+      selectSoftware(data.slug, true);
+      setCourseFilter('all');
+      setCurrentView('library');
+      setSharingNotice(`Copied "${data.name}" into your own courses. Edit it however you like.`);
+      return data;
+    } catch (e) {
+      // Surfaced on BOTH the prompt screen (where the fork offer lives) and the
+      // Library (where the row menu lives) — a fork can be started from either.
+      setSharingError(e.message);
+      setGenError(e.message);
+      return null;
+    } finally {
+      setForkBusy(false);
+    }
+  }, [forkBusy, loadSoftwareList, selectSoftware]);
+
+  // ═══════════════════════════════════════════════════════════════
   //  LOAD SETTINGS & DATA ON MOUNT
   // ═══════════════════════════════════════════════════════════════
   useEffect(() => {
@@ -718,10 +945,20 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           body: JSON.stringify({
             name: parsed.software_name || softwareNameInput.trim(),
             type: parsed.type || 'software',
-            skill_level: skillLevel
+            skill_level: skillLevel,
+            // Session 11 tier picker. The DATABASE decides whether the caller
+            // may have this tier; we send the choice and read back the answer.
+            visibility: newCourseVisibility,
           })
         });
         const meta = await metaRes.json();
+        // Creating a course can now genuinely fail (a refused tier is an error,
+        // not a downgrade). Unchecked, `meta.slug` would be undefined and every
+        // subject below would POST to /api/software/undefined/subjects — the
+        // exact silent-success failure the adapter work exists to prevent.
+        if (!metaRes.ok || !meta?.slug) {
+          throw new Error(meta?.error || 'Could not create the course.');
+        }
         slug = meta.slug;
       }
 
@@ -788,7 +1025,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       setGenerating(false);
       setGenPhase('');
     }
-  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, apiKey, referenceUrls]);
+  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, apiKey, referenceUrls, newCourseVisibility]);
 
   // ═══════════════════════════════════════════════════════════════
   //  SUBJECT CONTENT GENERATION (for stubs)
@@ -1611,10 +1848,16 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           body: JSON.stringify({
             name: parsed.software_name || softwareName.trim(),
             type: parsed.type || 'software',
-            skill_level: skillLevel
+            skill_level: skillLevel,
+            // The agent has no tier picker to read; courses it creates are born
+            // personal, which is also what otter_courses_insert defaults to.
+            visibility: 'personal',
           })
         });
         const meta = await metaRes.json();
+        if (!metaRes.ok || !meta?.slug) {
+          throw new Error(meta?.error || 'Could not create the course.');
+        }
         slug = meta.slug;
       }
 
@@ -1844,6 +2087,29 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     }
   }, [quizStarted, currentView]);
 
+  // Picking a chip filters the LIBRARY, so it must also SHOW the library.
+  // Without this the chip changed the sidebar list while the main pane stayed
+  // on whatever view the user was in — and since every banner for these flows
+  // (trash restore, fork, share) renders inside renderLibrary(), which sits in
+  // a `hidden` wrapper unless currentView === 'library', a failed restore
+  // produced no feedback anywhere at all.
+  //
+  // Defined HERE, after navigateTo, deliberately: hoisting it up with the other
+  // Session 11 handlers would put navigateTo in its dependency array before the
+  // const is initialised, which is a temporal-dead-zone ReferenceError at first
+  // render, not a lint nit.
+  //
+  // navigateTo rather than setCurrentView so the in-progress-quiz guard still
+  // gets its say — and the filter only changes if the user agrees to leave.
+  const selectCourseFilter = useCallback((key) => {
+    navigateTo('library', () => {
+      setCourseFilter(key);
+      setTrashError(null);
+      setSharingError(null);
+      setSharingNotice(null);
+    });
+  }, [navigateTo]);
+
   const confirmLeaveQuiz = useCallback(() => {
     if (showQuizLeaveConfirm) {
       if (showQuizLeaveConfirm.extraActions) showQuizLeaveConfirm.extraActions();
@@ -2038,6 +2304,10 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   // ═══════════════════════════════════════════════════════════════
   const deleteSoftware = useCallback(async (slug) => {
     await otterFetch(`/api/software/${slug}`, { method: 'DELETE' });
+    // Session 11: in cloud mode this is otter_soft_delete_row — a 30-day trash,
+    // not a destruction. Keep the "Recently deleted" list honest immediately so
+    // the course the user just removed is visibly recoverable.
+    if (cloudMode) loadTrash();
     if (activeSoftwareSlug === slug) {
       setActiveSoftwareSlug(null);
       setActiveSoftware(null);
@@ -2053,7 +2323,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     invalidateCache(slug);
     loadSoftwareList();
     setShowDeleteConfirm(null);
-  }, [activeSoftwareSlug, loadSoftwareList, invalidateCache]);
+  }, [activeSoftwareSlug, loadSoftwareList, invalidateCache, cloudMode, loadTrash]);
 
   // ═══════════════════════════════════════════════════════════════
   //  DELETE SUBJECT (with undo support)
@@ -2680,6 +2950,32 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       {showClearConfirm && renderClearConfirm()}
       {showDuplicateModal && renderDuplicateModal()}
 
+      {/* ── SESSION 11 DIALOGS ──
+          Both open from the course row's actions menu, in the style of
+          RABBIT's EditHistoryDrawer. Conditionally RENDERED, not hidden:
+          ShareCourseDialog mounts useWorkspaceMembers, which fires a
+          workspace_directory RPC — that must not run for every user on
+          every launch (the AdminTerminalBody lesson). */}
+      {shareDialogCourse && (
+        <ShareCourseDialog
+          course={shareDialogCourse}
+          role={appRole}
+          userId={perms.userId}
+          onClose={() => setShareDialogCourse(null)}
+          onCourseChanged={handleCourseChanged}
+        />
+      )}
+      {crDialogCourse && (
+        <ChangeRequestDialog
+          course={crDialogCourse}
+          standardName={
+            softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
+          }
+          onClose={() => setCrDialogCourse(null)}
+          onCourseChanged={handleCourseChanged}
+        />
+      )}
+
       {/* ── SEARCH MODAL ── */}
       {showSearchModal && renderSearchModal()}
 
@@ -2950,55 +3246,125 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   //  SIDEBAR 1 — Software & Subjects
   // ═══════════════════════════════════════════════════════════════
   function renderSoftwareSidebar() {
+    // Collapsed: a persistent full-height rail. Never hover-only, and the
+    // chevron sits where the collapse button was, so the control does not move.
+    if (sidebar1.collapsed) {
+      return <SidebarReopenRail onExpand={sidebar1.expand} label="Show courses" />;
+    }
+
     return (
       <aside className="w-[200px] shrink-0 bg-stone-800 border-r-2 border-stone-600 overflow-hidden flex flex-col">
+        <SidebarCollapseButton onCollapse={sidebar1.toggle} label="Hide courses" />
         <button
           onClick={() => { setPromptMode('course'); setGenError(null); setCurrentView('prompt'); }}
           className="w-full flex items-center justify-center gap-1.5 py-2.5 text-sm font-bold text-white bg-orange-600 hover:bg-orange-700 border-b-2 border-stone-600 transition-colors shrink-0"
         >
           <Plus className="w-4 h-4" /> New
         </button>
+        {/* Tier filters. Cloud only: signed out there is one user, one tier and
+            no trash, so a chip strip would be pure noise in local mode. */}
+        {cloudMode && (
+          <CourseFilterChips
+            value={courseFilter}
+            onChange={selectCourseFilter}
+            role={appRole}
+            counts={filterCounts}
+          />
+        )}
         <div className="flex-1 overflow-y-auto">
-          {softwareList.length === 0 ? (
+          {courseFilter === 'trash' ? (
+            <TrashSidebarList
+              rows={trashRows}
+              loading={trashLoading}
+              busyId={trashBusyId}
+              error={trashError}
+              onDismissError={() => setTrashError(null)}
+              onRestore={restoreTrashRow}
+            />
+          ) : softwareList.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
               <Plus className="w-8 h-8 text-stone-600 mb-2" />
               <p className="text-stone-500 text-xs mb-3">No courses yet</p>
               <p className="text-stone-600 text-[10px]">Click &quot;New&quot; above to create your first course</p>
             </div>
+          ) : visibleCourses.length === 0 ? (
+            // A filter that silently shows an empty column reads as data loss.
+            <div className="flex flex-col items-center justify-center py-8 px-3 text-center">
+              <p className="text-stone-500 text-xs mb-2">Nothing here yet</p>
+              <button
+                onClick={() => setCourseFilter('all')}
+                className="text-orange-400 hover:text-orange-300 text-[10px] underline"
+              >
+                Show all courses
+              </button>
+            </div>
           ) : (
-            [...softwareList].sort((a, b) => {
+            [...visibleCourses].sort((a, b) => {
               const aIsLang = a.type === 'coding_language' ? 1 : 0;
               const bIsLang = b.type === 'coding_language' ? 1 : 0;
               return aIsLang - bIsLang;
             }).map(sw => {
               const isExpanded = expandedSoftware === sw.slug;
               const isActive = activeSoftwareSlug === sw.slug;
+              // A metadata-only row (an admin looking at a colleague's personal
+              // course) has nothing to open — selecting it would fire reads that
+              // RLS refuses. It stays visible and inert.
+              const openable = canReadCourse(sw);
+              const rowCanWrite = canWriteCourse(sw);
               return (
                 <div key={sw.slug}>
-                  <button
-                    onClick={() => {
-                      if (isExpanded) {
-                        setExpandedSoftware(null);
-                      } else {
-                        setExpandedSoftware(sw.slug);
-                        if (activeSoftwareSlug !== sw.slug) selectSoftware(sw.slug);
-                      }
-                      if (activeSoftwareSlug !== sw.slug || !isExpanded) {
-                        selectSoftware(sw.slug);
-                        setCurrentView('library');
-                      }
-                    }}
-                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors hover:bg-stone-700"
+                  {/* Was a single full-width <button>; it is now a row so the
+                      actions menu can sit beside the label. Same padding, same
+                      border, same hover — visually unchanged. */}
+                  <div
+                    className="group/course w-full flex items-center transition-colors hover:bg-stone-700"
                     style={{ borderBottom: '1px solid rgba(87,83,78,0.3)' }}
                   >
-                    {isExpanded
-                      ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
-                      : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
-                    }
-                    <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${isActive ? 'text-orange-400' : 'text-stone-400'}`}>
-                      {sw.name}
-                    </span>
-                  </button>
+                    <button
+                      onClick={() => {
+                        if (!openable) return;
+                        if (isExpanded) {
+                          setExpandedSoftware(null);
+                        } else {
+                          setExpandedSoftware(sw.slug);
+                          if (activeSoftwareSlug !== sw.slug) selectSoftware(sw.slug);
+                        }
+                        if (activeSoftwareSlug !== sw.slug || !isExpanded) {
+                          selectSoftware(sw.slug);
+                          setCurrentView('library');
+                        }
+                      }}
+                      disabled={!openable}
+                      title={openable ? sw.name : `${sw.name} — private to ${sw.owner_label || 'its owner'}`}
+                      className="flex-1 min-w-0 text-left pl-3 pr-1 py-2.5 flex items-center gap-2 disabled:cursor-default"
+                    >
+                      {!openable
+                        ? <span className="w-3 h-3 flex-shrink-0" />
+                        : isExpanded
+                          ? <ChevronDown className="w-3 h-3 text-orange-400 flex-shrink-0" />
+                          : <ChevronRight className="w-3 h-3 text-stone-500 flex-shrink-0" />
+                      }
+                      <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${
+                        !openable ? 'text-stone-600' : isActive ? 'text-orange-400' : 'text-stone-400'
+                      }`}>
+                        {sw.name}
+                      </span>
+                      {cloudMode && <VisibilityBadge visibility={sw.visibility} compact />}
+                    </button>
+                    {cloudMode && (
+                      <span className="opacity-0 group-hover/course:opacity-100 focus-within:opacity-100 transition-opacity pr-1">
+                        <CourseRowMenu
+                          course={sw}
+                          role={appRole}
+                          compact
+                          onShare={setShareDialogCourse}
+                          onSuggestChange={setCrDialogCourse}
+                          onFork={(c) => forkCourse(c)}
+                          onTrash={(c) => setShowDeleteConfirm(c.slug)}
+                        />
+                      </span>
+                    )}
+                  </div>
                   {isExpanded && (
                     <div style={{ backgroundColor: 'rgba(0,0,0,0.12)' }}>
                       {subjectList.map(sub => {
@@ -3029,26 +3395,38 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
                                 {isStub && <span className="text-stone-600 ml-1">[outline]</span>}
                               </span>
                             </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
-                              }}
-                              className="opacity-0 group-hover/sub:opacity-100 p-1 mr-1 text-stone-600 hover:text-red-400 transition-all shrink-0"
-                              title="Delete subject"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                            {/* Session 11 item 7: the adapter now returns a
+                                clean 403 instead of a fabricated success, but
+                                the control should not be here at all. */}
+                            {rowCanWrite && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setShowDeleteSubjectConfirm({ softwareSlug: sw.slug, subjectSlug: sub.slug, title: sub.title });
+                                }}
+                                className="opacity-0 group-hover/sub:opacity-100 p-1 mr-1 text-stone-600 hover:text-red-400 transition-all shrink-0"
+                                title="Delete subject"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
-                      <button
-                        onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                        className="w-full text-left py-1.5 text-[10px] text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
-                        style={{ paddingLeft: '24px', paddingRight: '8px' }}
-                      >
-                        <Plus className="w-2.5 h-2.5" /> Add subject
-                      </button>
+                      {rowCanWrite ? (
+                        <button
+                          onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
+                          className="w-full text-left py-1.5 text-[10px] text-stone-600 hover:text-stone-400 transition-colors flex items-center gap-1"
+                          style={{ paddingLeft: '24px', paddingRight: '8px' }}
+                        >
+                          <Plus className="w-2.5 h-2.5" /> Add subject
+                        </button>
+                      ) : (
+                        // Answers the question the missing buttons raise.
+                        <p className="py-1.5 text-[10px] text-stone-600 italic" style={{ paddingLeft: '24px', paddingRight: '8px' }}>
+                          Read only — study it, or make your own copy.
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3195,21 +3573,89 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     );
   }
 
+  // Outcome of a sharing/fork action, shown wherever those actions can be
+  // started. Nothing in this session may fail silently — that is the whole
+  // lesson the Session 10 adapter work was built around.
+  function renderSharingBanner() {
+    if (!sharingNotice && !sharingError) return null;
+    if (sharingError) {
+      return (
+        <div className="mb-4 bg-red-900/30 border-2 border-red-700 rounded-sm p-3 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <p className="text-red-300 text-sm flex-1">{sharingError}</p>
+          <button onClick={() => setSharingError(null)} className="text-red-400 hover:text-red-200 text-xs font-bold">
+            Dismiss
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div className="mb-4 bg-green-900/25 border-2 border-green-800 rounded-sm p-3 flex items-center gap-2">
+        <Check className="w-4 h-4 text-green-400 shrink-0" />
+        <p className="text-green-300 text-sm flex-1">{sharingNotice}</p>
+        <button onClick={() => setSharingNotice(null)} className="text-green-400 hover:text-green-200 text-xs font-bold">
+          Dismiss
+        </button>
+      </div>
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════
   //  LIBRARY VIEW
   // ═══════════════════════════════════════════════════════════════
   function renderLibrary() {
+    // "Recently deleted" is a FILTER STATE on this same pane, not a new view.
+    if (courseFilter === 'trash') {
+      return (
+        <TrashPanel
+          rows={trashRows}
+          loading={trashLoading}
+          busyId={trashBusyId}
+          error={trashError}
+          onRestore={restoreTrashRow}
+          onDismissError={() => setTrashError(null)}
+        />
+      );
+    }
+
     if (activeSoftwareSlug && activeSoftware) {
       return (
         <div className="h-full overflow-y-auto p-6">
           <div className="max-w-6xl mx-auto">
+            {renderSharingBanner()}
             <div className="flex items-center justify-between mb-6">
-              <div>
-                <h2 className="text-2xl font-bold text-orange-400">{activeSoftware.name}</h2>
-                <p className="text-stone-500 text-sm">{subjectList.length} subjects -- Click to study, hover to manage or remove</p>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-2xl font-bold text-orange-400">{activeSoftware.name}</h2>
+                  {cloudMode && <VisibilityBadge visibility={activeCourseRow?.visibility} />}
+                  {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
+                  {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
+                </div>
+                <p className="text-stone-500 text-sm flex items-center gap-2">
+                  <span>
+                    {subjectList.length} subjects
+                    {activeCanWrite ? ' -- Click to study, hover to manage or remove' : ' -- Click to study'}
+                  </span>
+                  {cloudMode && <OwnerBadge course={activeCourseRow} />}
+                </p>
               </div>
               <div className="flex items-center gap-3">
-                {subjectList.some(s => s.is_stub) && (
+                {/* activeCourseRow is looked up in softwareList while this pane
+                    branches on activeSoftware, and the two can briefly disagree
+                    (a course removed from the index by another device, an
+                    in-flight reload). Rendering the menu against null would give
+                    every action an undefined course. */}
+                {cloudMode && activeCourseRow && (
+                  <CourseRowMenu
+                    course={activeCourseRow}
+                    role={appRole}
+                    onShare={setShareDialogCourse}
+                    onSuggestChange={setCrDialogCourse}
+                    onFork={(c) => forkCourse(c)}
+                    onTrash={(c) => setShowDeleteConfirm(c.slug)}
+                  />
+                )}
+                {activeCanWrite && subjectList.some(s => s.is_stub) && (
                   <button
                     onClick={() => {
                       const stubs = subjectList.filter(s => s.is_stub && !generatingSubjects.has(s.slug));
@@ -3225,18 +3671,33 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
                     Generate All Outlines
                   </button>
                 )}
-                <button
-                  onClick={() => setShowImportModal(true)}
-                  className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm"
-                >
-                  <Upload className="w-4 h-4" /> Import
-                </button>
-                <button
-                  onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
-                  className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
-                >
-                  <Plus className="w-5 h-5" /> Add Subject
-                </button>
+                {activeCanWrite && (
+                  <button
+                    onClick={() => setShowImportModal(true)}
+                    className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-1.5 rounded-sm hover:bg-stone-600 transition-colors text-sm"
+                  >
+                    <Upload className="w-4 h-4" /> Import
+                  </button>
+                )}
+                {activeCanWrite ? (
+                  <button
+                    onClick={() => { setPromptMode('subject'); setGenError(null); setCurrentView('prompt'); }}
+                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]"
+                  >
+                    <Plus className="w-5 h-5" /> Add Subject
+                  </button>
+                ) : activeCanRead && cloudMode && (
+                  // The useful action on a course you cannot edit: take your own
+                  // copy. Turns a dead end into the flow the model intends.
+                  <button
+                    onClick={() => forkCourse(activeCourseRow)}
+                    disabled={forkBusy}
+                    className="flex items-center gap-2 bg-orange-600 text-white px-4 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 transition-colors font-bold shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] disabled:opacity-50"
+                  >
+                    {forkBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <FolderOpen className="w-5 h-5" />}
+                    Make my own copy
+                  </button>
+                )}
               </div>
             </div>
             {subjectList.length === 0 ? (
@@ -3266,13 +3727,15 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
                         <span className="bg-stone-700 px-2 py-0.5 rounded-sm text-orange-400 uppercase font-bold text-[10px]">{sub.skill_level}</span>
                         {sub.is_stub && <span className="bg-stone-700 text-stone-400 text-[10px] uppercase font-bold px-1.5 py-0.5 rounded-sm border border-stone-600">Outline</span>}
                       </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
-                        className="p-1 text-stone-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-sm hover:bg-stone-700"
-                        title="Delete subject"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {activeCanWrite && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowDeleteSubjectConfirm({ softwareSlug: activeSoftwareSlug, subjectSlug: sub.slug, title: sub.title }); }}
+                          className="p-1 text-stone-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all rounded-sm hover:bg-stone-700"
+                          title="Delete subject"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                     {/* Body */}
                     <div className="flex flex-col flex-1 px-4 py-3 min-h-0">
@@ -3284,7 +3747,13 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
                         title={sub.description}
                       >{sub.description}</p>
                       <div className="flex-1" />
-                      {sub.is_stub ? (
+                      {sub.is_stub && !activeCanWrite ? (
+                        // An outline you cannot fill in. Saying so beats a
+                        // Generate button that the database will refuse.
+                        <p className="mt-2 text-stone-600 text-[11px] italic">
+                          Outline only — the owner hasn&apos;t written this yet.
+                        </p>
+                      ) : sub.is_stub ? (
                         <div className="mt-2">
                           {subjectErrors[sub.slug] && !generatingSubjects.has(sub.slug) && (
                             <p className="text-red-400 text-[10px] mb-1 truncate" title={subjectErrors[sub.slug]}>
@@ -3320,14 +3789,15 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       );
     }
 
-    // No software selected: show all software cards
-    const sorted = [...softwareList].sort((a, b) => {
+    // No software selected: show all software cards, scoped by the active chip.
+    const sorted = [...visibleCourses].sort((a, b) => {
       if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '');
       return new Date(b.created_at || 0) - new Date(a.created_at || 0);
     });
     return (
       <div className="h-full overflow-y-auto p-6">
         <div className="max-w-6xl mx-auto">
+          {renderSharingBanner()}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-orange-400">Course Library</h2>
             <div className="flex items-center gap-3">
@@ -3346,7 +3816,24 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
               </button>
             </div>
           </div>
-          {sorted.length === 0 ? (
+          {sorted.length === 0 && softwareList.length > 0 ? (
+            // Courses exist, this filter just matched none of them. Saying
+            // "No courses yet" here would read as data loss.
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
+              <h3 className="text-xl font-bold text-orange-400 mb-2">Nothing under this filter</h3>
+              <p className="text-stone-500 mb-6 max-w-md">
+                You have {softwareList.length} course{softwareList.length === 1 ? '' : 's'}, but none match
+                &ldquo;{filtersFor(appRole).find(f => f.key === courseFilter)?.label ?? courseFilter}&rdquo;.
+              </p>
+              <button
+                onClick={() => setCourseFilter('all')}
+                className="flex items-center gap-2 bg-stone-700 text-stone-300 border-2 border-stone-600 px-4 py-2 rounded-sm hover:bg-stone-600 transition-colors font-bold"
+              >
+                Show all courses
+              </button>
+            </div>
+          ) : sorted.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-center">
               <BookOpen className="w-16 h-16 text-stone-600 mb-4" />
               <h3 className="text-xl font-bold text-orange-400 mb-2">No courses yet</h3>
@@ -3361,17 +3848,46 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           ) : (() => {
             const languages = sorted.filter(sw => sw.type === 'coding_language');
             const software = sorted.filter(sw => sw.type !== 'coding_language');
-            const renderCard = (sw) => (
-              <div
-                key={sw.slug}
-                className="bg-stone-800 border-2 border-stone-600 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] hover:border-orange-500 transition-colors cursor-pointer group relative"
-                onClick={() => { selectSoftware(sw.slug); setCurrentView('library'); }}
-              >
-                <h3 className="text-white font-bold text-lg leading-tight pr-6 group-hover:text-orange-400 transition-colors mb-2">{sw.name}</h3>
-                <div className="flex items-center gap-3 text-xs text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
-                {sw.created_at && <p className="text-stone-600 text-xs mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
-              </div>
-            );
+            const renderCard = (sw) => {
+              const openable = canReadCourse(sw);
+              return (
+                <div
+                  key={sw.slug}
+                  className={`bg-stone-800 border-2 rounded-sm p-4 shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] transition-colors group relative ${
+                    openable
+                      ? 'border-stone-600 hover:border-orange-500 cursor-pointer'
+                      : 'border-dashed border-stone-700 cursor-default'
+                  }`}
+                  onClick={() => { if (openable) { selectSoftware(sw.slug); setCurrentView('library'); } }}
+                >
+                  {cloudMode && (
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                      <CourseRowMenu
+                        course={sw}
+                        role={appRole}
+                        onShare={setShareDialogCourse}
+                        onSuggestChange={setCrDialogCourse}
+                        onFork={(c) => forkCourse(c)}
+                        onTrash={(c) => setShowDeleteConfirm(c.slug)}
+                      />
+                    </div>
+                  )}
+                  <h3 className={`font-bold text-lg leading-tight pr-6 transition-colors mb-2 ${
+                    openable ? 'text-white group-hover:text-orange-400' : 'text-stone-500'
+                  }`}>{sw.name}</h3>
+                  {cloudMode && (
+                    <div className="flex items-center gap-1.5 flex-wrap mb-2">
+                      <VisibilityBadge visibility={sw.visibility} />
+                      <MetadataOnlyBadge course={sw} />
+                      <ReadOnlyBadge course={sw} />
+                      <OwnerBadge course={sw} />
+                    </div>
+                  )}
+                  <div className="flex items-center gap-3 text-xs text-stone-500 mt-2"><span>{sw.subject_count} subjects</span></div>
+                  {sw.created_at && <p className="text-stone-600 text-xs mt-2">{new Date(sw.created_at).toLocaleDateString()}</p>}
+                </div>
+              );
+            };
             return (
               <div className="space-y-8">
                 {software.length > 0 && (
@@ -3411,6 +3927,10 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     const filteredSoftware = softwareNameLower ? softwareList.filter(sw => sw.name.toLowerCase().includes(softwareNameLower)) : softwareList;
     const exactMatch = softwareList.find(sw => sw.name.toLowerCase() === softwareNameLower);
     const isExistingSoftware = !!exactMatch;
+    // Matched by lowercased NAME — the same key Otter.jsx has always used to
+    // recognise an existing course, so the offer lines up with what the user
+    // believes they are naming.
+    const standardMatch = findStandardByName(softwareList, softwareNameInput);
 
     return (
       <div className="h-full overflow-y-auto p-6">
@@ -3467,6 +3987,85 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
                   </div>
                 )}
                 {isExistingSoftware && <p className="text-orange-400/70 text-xs mt-1">Existing course -- new subjects will be added, basics skipped.</p>}
+
+                {/* ── The fork offer ──────────────────────────────────────────
+                    Inline in the flow the user is already in, the moment the
+                    name they typed matches a company standard — not an
+                    interstitial, and not a modal that interrupts typing.
+                    Generating a course costs real API spend and produces a
+                    second, divergent version of something the company has
+                    already settled; this is the cheaper and better answer.
+                    (Von Restorff: the ONE highlighted block on this screen.) */}
+                {cloudMode && standardMatch && !standardMatch.is_own && (
+                  <div className="mt-3 bg-orange-600/10 border-2 border-orange-600/50 rounded-sm p-3">
+                    <div className="flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 text-orange-400 mt-0.5 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-orange-300 text-xs font-bold mb-0.5">
+                          Your company already has a course for this
+                        </p>
+                        <p className="text-stone-400 text-[11px] mb-2">
+                          &ldquo;{standardMatch.name}&rdquo; is the company standard
+                          ({standardMatch.subject_count} subjects). Start from that instead of
+                          generating a new one — you get your own copy to edit, and you can send
+                          your improvements back.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => forkCourse(standardMatch)}
+                            disabled={forkBusy || generating}
+                            className="flex items-center gap-1.5 bg-orange-600 text-white border-2 border-orange-700 px-3 py-1.5 rounded-sm hover:bg-orange-700 transition-colors text-[11px] font-bold disabled:opacity-50"
+                          >
+                            {forkBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+                            Use the company standard
+                          </button>
+                          <span className="text-stone-600 text-[10px] self-center">
+                            or carry on below to generate your own
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Tier picker ────────────────────────────────────────────────
+                One more FIELD in the existing create flow, not a new step or a
+                wizard. Cloud only — signed out there is exactly one person who
+                can see anything, so the question is meaningless.
+                Hick's Law: two options for everyone; company standard is set
+                afterwards from the course's own menu, by an admin, rather than
+                being a third choice everyone has to reason past here. */}
+            {isCourseMode && cloudMode && !isExistingSoftware && (
+              <div className="mb-4">
+                <label className="block text-xs font-bold text-orange-400 mb-1 uppercase tracking-wide">
+                  Who is this for?
+                </label>
+                <div className="flex gap-3">
+                  {['personal', 'shared'].map(tier => {
+                    const meta = VISIBILITY_META[tier];
+                    const active = newCourseVisibility === tier;
+                    return (
+                      <button
+                        key={tier}
+                        onClick={() => setNewCourseVisibility(tier)}
+                        disabled={generating}
+                        className={`flex-1 p-3 rounded-sm border-2 transition-colors text-left ${
+                          active
+                            ? 'bg-orange-600/15 border-orange-500 text-white'
+                            : 'bg-stone-900 border-stone-600 text-stone-400 hover:border-stone-500'
+                        }`}
+                      >
+                        <div className="font-bold text-sm">{active ? '● ' : '○ '}{meta.label}</div>
+                        <div className="text-xs mt-1 text-stone-400">{meta.blurb}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-stone-600 text-[10px] mt-1">
+                  You can change this later from the course&apos;s menu.
+                </p>
               </div>
             )}
 
@@ -4577,15 +5176,38 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     );
   }
 
+  // Session 11: this dialog existed but was UNREACHABLE — nothing ever set
+  // showDeleteConfirm truthy, so there was no way to remove a course at all.
+  // The course row menu now opens it. Its copy also had to change: in cloud
+  // mode the DELETE routes to otter_soft_delete_row, which is a 30-day trash,
+  // so "permanently ... cannot be undone" was simply false and would have
+  // scared people off a reversible action.
   function renderDeleteConfirm() {
+    const course = softwareList.find(sw => sw.slug === showDeleteConfirm);
     return (
-      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]">
-          <h3 className="text-white font-bold text-lg mb-2">Delete Course</h3>
-          <p className="text-stone-400 text-sm mb-6">This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.</p>
+      <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center" onClick={() => setShowDeleteConfirm(null)}>
+        <div className="bg-stone-800 border-2 border-stone-600 rounded-sm p-6 w-[400px] shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)]" onClick={e => e.stopPropagation()}>
+          <h3 className="text-white font-bold text-lg mb-2">
+            {cloudMode ? 'Move to trash' : 'Delete course'}
+          </h3>
+          <p className="text-stone-400 text-sm mb-6">
+            {cloudMode ? (
+              <>
+                <span className="text-stone-300 font-bold">{course?.name ?? 'This course'}</span> and
+                its subjects will move to Recently deleted. You can restore it for 30 days, after
+                which it is deleted for good.
+                {course?.visibility === 'company_standard' &&
+                  ' It will also stop being offered as the company standard.'}
+              </>
+            ) : (
+              'This will permanently delete this course and all its subjects, progress, and hotkeys. This cannot be undone.'
+            )}
+          </p>
           <div className="flex gap-2">
             <button onClick={() => setShowDeleteConfirm(null)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
-            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">Delete</button>
+            <button onClick={() => deleteSoftware(showDeleteConfirm)} className="flex-1 bg-red-700 text-white border-2 border-red-800 py-2 rounded-sm hover:bg-red-800 transition-colors text-sm font-bold">
+              {cloudMode ? 'Move to trash' : 'Delete'}
+            </button>
           </div>
         </div>
       </div>

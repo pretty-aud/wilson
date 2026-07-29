@@ -35,6 +35,9 @@ const SUBJECT_LIST_COLS =
 const SUBJECT_FULL_COLS =
   `${SUBJECT_LIST_COLS}, estimated_hours, sections, section_outlines, sources, prerequisites, created_at, updated_at`
 
+/** The 0022 CHECK constraint, mirrored so a typo fails here rather than at the DB. */
+const VISIBILITIES = new Set(['personal', 'shared', 'company_standard'])
+
 class OtterCloudError extends Error {
   constructor(message, status = 500) {
     super(message)
@@ -93,6 +96,40 @@ async function currentUserId() {
   return data?.user?.id ?? null
 }
 
+/**
+ * The caller's workspace, read from the TOKEN payload (the Session 9
+ * Edge-Function rule: app_metadata on the user object is not authoritative).
+ *
+ * Needed because ONE table breaks the pattern every other O.T.T.E.R. table
+ * follows. otter_courses, otter_subjects, otter_progress and
+ * otter_change_requests all declare
+ *   workspace_id UUID NOT NULL DEFAULT public.current_workspace_id()
+ * so omitting it lets the database stamp tenancy from the JWT and a client
+ * cannot get it wrong. `otter_course_editors` declares a bare
+ * `workspace_id UUID NOT NULL` with NO default — it needs the column for its
+ * composite FK to workspace_members, and 0022 never gave it one.
+ * fn_otter_editor_grant_workspace is a VALIDATOR, not a defaulter: it compares
+ * NEW.workspace_id against the course's and raises if they differ. A NULL is
+ * "different", so an insert that omits the column fails every time with
+ * `P0001 editor grant workspace does not match the course workspace` — verified
+ * directly against Postgres 17 on wilson-dev.
+ *
+ * Every pgTAP fixture supplies the column explicitly, which is exactly why the
+ * suites pass while the client path is dead.
+ */
+async function currentWorkspaceId() {
+  const { data } = await supabase.auth.getSession()
+  const token = data?.session?.access_token
+  if (!token) return null
+  try {
+    const payload = JSON.parse(
+      atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')))
+    return payload?.app_metadata?.workspace_id ?? null
+  } catch {
+    return null
+  }
+}
+
 export const supabaseOtterAdapter = {
   mode: 'supabase',
 
@@ -123,8 +160,13 @@ export const supabaseOtterAdapter = {
           name,
           course_type: body?.type || 'software',
           skill_level: body?.skill_level || 'beginner',
-          // New courses are always born personal; sharing is an explicit act.
-          visibility: body?.visibility === 'shared' ? 'shared' : 'personal',
+          // Session 11: the tier picker sends what the user chose and the
+          // DATABASE decides whether they may have it. otter_courses_insert
+          // refuses company_standard to non-admins outright (an error, not a
+          // silent downgrade), so the client must not pre-filter the value —
+          // doing so would hide a real refusal behind a fake success. Anything
+          // unrecognised still falls back to personal.
+          visibility: VISIBILITIES.has(body?.visibility) ? body.visibility : 'personal',
         })
         .select('id, name, course_type, skill_level, visibility, owner_id, source_course_id, created_at')
         .single())
@@ -375,6 +417,214 @@ export const supabaseOtterAdapter = {
       quiz_attempts: body?.attempts ?? [],
     }, { onConflict: 'course_id,user_id' }))
     return { ok: true }
+  },
+
+  // ── trash (Session 11, migration 0024) ────────────────────────────────────
+
+  // Reads otter_trash_index() rather than otter_courses: every SELECT policy
+  // on these tables begins `deleted_at IS NULL`, so a table read can never see
+  // a trashed row. That is the whole reason 0024 exists.
+  async 'trash.list'() {
+    const rows = unwrap(await supabase.rpc('otter_trash_index')) ?? []
+    return rows.map(r => ({
+      id: r.id,
+      kind: r.kind,
+      course_id: r.course_id,
+      course_name: r.course_name,
+      name: r.name,
+      slug: r.slug,
+      visibility: r.visibility,
+      owner_id: r.owner_id,
+      owner_label: r.owner_label,
+      is_own: r.is_own,
+      subject_count: r.subject_count ?? 0,
+      deleted_at: r.deleted_at,
+      deleted_by_label: r.deleted_by_label,
+      purges_at: r.purges_at,
+    }))
+  },
+
+  async 'trash.restore'({ body }) {
+    const table = body?.kind === 'subject' ? 'otter_subjects' : 'otter_courses'
+    const id = body?.id
+    if (!id) throw new OtterCloudError('id required', 400)
+    const { data, error } = await supabase.rpc('otter_restore_row', { p_table: table, p_id: id })
+    if (error) {
+      // otter_courses_owner_slug_uidx is PARTIAL (WHERE deleted_at IS NULL), so
+      // restoring collides only when the owner has since made a new course of
+      // the same name. Postgres reports a bare 23505; the user needs the reason.
+      if (error.code === '23505') {
+        throw new OtterCloudError(
+          'You already have a course with this name. Rename that one first, then restore.', 409)
+      }
+      throw new OtterCloudError(error.message, 500)
+    }
+    // The RPC returns false when it matched nothing — already restored, or
+    // purged out from under the list. Not an error, but not a success either.
+    return { ok: data === true, restored: data === true }
+  },
+
+  // ── forking (Session 11) ──────────────────────────────────────────────────
+
+  // "Use the company standard instead of generating." Always yields a PERSONAL
+  // copy owned by the caller (enforced inside otter_fork_course), so taking a
+  // copy can never republish anything.
+  async 'course.fork'({ slug, body }) {
+    const newId = unwrap(await supabase.rpc('otter_fork_course', {
+      p_course_id: slug,
+      p_new_name: body?.name ?? null,
+    }))
+    if (!newId) throw new OtterCloudError('fork failed', 500)
+    return supabaseOtterAdapter['course.get']({ slug: newId })
+  },
+
+  // ── editor grants (Session 11) ────────────────────────────────────────────
+
+  // Two round trips rather than a PostgREST embed. otter_course_editors joins
+  // workspace_members on a COMPOSITE key (workspace_id, user_id); relying on
+  // PostgREST to resolve that relationship is a silent-breakage risk for a
+  // label, and the roster is a handful of rows.
+  async 'editors.list'({ slug }) {
+    const grants = unwrap(
+      await supabase.from('otter_course_editors')
+        .select('user_id, granted_by, created_at')
+        .eq('course_id', slug)) ?? []
+    if (grants.length === 0) return []
+    const ids = [...new Set(grants.map(g => g.user_id))]
+    const people = unwrap(
+      await supabase.from('workspace_members')
+        .select('user_id, username, display_name, is_active')
+        .in('user_id', ids)) ?? []
+    const byId = new Map(people.map(p => [p.user_id, p]))
+    return grants.map(g => {
+      const p = byId.get(g.user_id)
+      return {
+        user_id: g.user_id,
+        label: p?.display_name || p?.username || 'Unknown member',
+        is_active: p?.is_active ?? true,
+        granted_by: g.granted_by,
+        created_at: g.created_at,
+      }
+    })
+  },
+
+  async 'editors.add'({ slug, body }) {
+    const userId = body?.user_id
+    if (!userId) throw new OtterCloudError('user_id required', 400)
+    // workspace_id MUST be sent: this table has no DEFAULT for it, unlike every
+    // other O.T.T.E.R. table. See currentWorkspaceId() above. The value is not
+    // trusted — fn_otter_editor_grant_workspace re-checks it against the
+    // course's workspace and raises on a mismatch, and the RLS WITH CHECK
+    // requires `workspace_id = current_workspace_id()` independently.
+    const workspaceId = await currentWorkspaceId()
+    if (!workspaceId) throw new OtterCloudError('not signed in to a workspace', 401)
+    const { error } = await supabase.from('otter_course_editors')
+      .insert({ workspace_id: workspaceId, course_id: slug, user_id: userId })
+    if (error) {
+      if (error.code === '23505') return { ok: true, already: true }
+      // The one refusal worth naming: 0022 forbids an admin granting on a
+      // PERSONAL course (otherwise index -> self-grant -> read defeats the
+      // no-admin-bypass rule). A bare RLS message would read as a bug.
+      if (error.code === '42501') {
+        throw new OtterCloudError(
+          'Only the owner can give someone edit access to a personal course.', 403)
+      }
+      throw new OtterCloudError(error.message, 500)
+    }
+    return { ok: true }
+  },
+
+  async 'editors.remove'({ slug, userId }) {
+    if (!userId) throw new OtterCloudError('user_id required', 400)
+    const rows = unwrap(
+      await supabase.from('otter_course_editors').delete()
+        .eq('course_id', slug).eq('user_id', userId)
+        .select('user_id')) ?? []
+    // A refused DELETE affects 0 rows and returns no error — the same trap as
+    // a refused UPDATE. Report it rather than showing the grant as revoked.
+    if (rows.length === 0) throw new OtterCloudError('not allowed to revoke this grant', 403)
+    return { ok: true }
+  },
+
+  // ── change requests (Session 11) ──────────────────────────────────────────
+
+  // otter_cr_select already scopes this to the proposer, admins, and the target
+  // course's owner, so an unfiltered read returns exactly the caller's queue.
+  async 'cr.list'() {
+    const rows = unwrap(
+      await supabase.from('otter_change_requests')
+        .select('id, target_course_id, source_course_id, proposed_by, summary, status, reviewed_by, reviewed_at, review_note, created_at, updated_at')
+        .order('created_at', { ascending: false })) ?? []
+    if (rows.length === 0) return []
+
+    // Labels come from the index the caller can already see. A proposer's fork
+    // is PERSONAL, so for a reviewing admin source_name is legitimately absent —
+    // that is the honest answer, not a lookup failure.
+    const courses = unwrap(await supabase.rpc('otter_course_index')) ?? []
+    const courseById = new Map(courses.map(c => [c.id, c]))
+    const ids = [...new Set(rows.flatMap(r => [r.proposed_by, r.reviewed_by]).filter(Boolean))]
+    const people = ids.length
+      ? (unwrap(await supabase.from('workspace_members')
+          .select('user_id, username, display_name').in('user_id', ids)) ?? [])
+      : []
+    const label = (id) => {
+      const p = people.find(x => x.user_id === id)
+      return p ? (p.display_name || p.username) : null
+    }
+
+    return rows.map(r => ({
+      ...r,
+      target_name: courseById.get(r.target_course_id)?.name ?? null,
+      source_name: courseById.get(r.source_course_id)?.name ?? null,
+      source_readable: courseById.get(r.source_course_id)?.can_read_content === true,
+      proposer_label: label(r.proposed_by),
+      reviewer_label: label(r.reviewed_by),
+    }))
+  },
+
+  async 'cr.create'({ body }) {
+    const summary = (body?.summary ?? '').trim()
+    if (!summary) throw new OtterCloudError('summary required', 400)
+    if (!body?.target_course_id) throw new OtterCloudError('target_course_id required', 400)
+    const { data, error } = await supabase.from('otter_change_requests')
+      .insert({
+        target_course_id: body.target_course_id,
+        source_course_id: body.source_course_id ?? null,
+        summary,
+      })
+      .select('id, status, created_at').single()
+    if (error) {
+      if (error.code === '42501') {
+        throw new OtterCloudError(
+          'Change requests can only be raised against a company standard course.', 403)
+      }
+      throw new OtterCloudError(error.message, 500)
+    }
+    return data
+  },
+
+  // Approve / reject / withdraw / refine. fn_otter_cr_review owns the rules —
+  // it stamps the reviewer, refuses to re-decide a settled request, and strips
+  // review fields a proposer tries to write. The client only sends intent.
+  async 'cr.update'({ id, body }) {
+    const patch = {}
+    if (body?.status != null)      patch.status = body.status
+    if (body?.summary != null)     patch.summary = body.summary
+    if (body?.review_note != null) patch.review_note = body.review_note
+    if (Object.keys(patch).length === 0) throw new OtterCloudError('nothing to update', 400)
+
+    const { data, error } = await supabase.from('otter_change_requests')
+      .update(patch).eq('id', id)
+      .select('id, status, reviewed_by, reviewed_at, review_note, summary').maybeSingle()
+    if (error) {
+      // The trigger raises plain text for a re-decide attempt; pass it through,
+      // it is already written for a human.
+      throw new OtterCloudError(error.message, 409)
+    }
+    // 0 rows = RLS refused. Without this the UI would show a request as
+    // approved while the row never moved (the 204-on-refusal trap).
+    if (!data) throw new OtterCloudError('not allowed to change this request', 403)
+    return data
   },
 
   // ── export ────────────────────────────────────────────────────────────────

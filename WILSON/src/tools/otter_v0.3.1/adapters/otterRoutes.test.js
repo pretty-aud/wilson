@@ -94,6 +94,70 @@ describe('parseOtterRoute — per-user state', () => {
   })
 })
 
+// Session 11. These live under /api/otter/ precisely so they can never be
+// confused with /api/software/:slug — see the comment in the parser.
+describe('parseOtterRoute — Session 11 cloud-only surfaces', () => {
+  const id = '0c000001-0000-0000-0000-000000000001'
+
+  it('routes the trash listing and restore', () => {
+    expect(p('/api/otter/trash', 'GET')).toEqual({ op: 'trash.list', cloudOnly: true })
+    expect(p('/api/otter/trash/restore', 'POST'))
+      .toEqual({ op: 'trash.restore', cloudOnly: true })
+  })
+
+  it('routes forking', () => {
+    expect(p(`/api/otter/courses/${id}/fork`, 'POST'))
+      .toEqual({ op: 'course.fork', slug: id, cloudOnly: true })
+  })
+
+  it('routes editor grants including the per-user revoke', () => {
+    expect(p(`/api/otter/courses/${id}/editors`, 'GET'))
+      .toEqual({ op: 'editors.list', slug: id, cloudOnly: true })
+    expect(p(`/api/otter/courses/${id}/editors`, 'POST'))
+      .toEqual({ op: 'editors.add', slug: id, cloudOnly: true })
+    expect(p(`/api/otter/courses/${id}/editors/user-1`, 'DELETE'))
+      .toEqual({ op: 'editors.remove', slug: id, userId: 'user-1', cloudOnly: true })
+  })
+
+  it('routes change requests', () => {
+    expect(p('/api/otter/change-requests', 'GET')).toEqual({ op: 'cr.list', cloudOnly: true })
+    expect(p('/api/otter/change-requests', 'POST')).toEqual({ op: 'cr.create', cloudOnly: true })
+    expect(p('/api/otter/change-requests/cr-1', 'PATCH'))
+      .toEqual({ op: 'cr.update', id: 'cr-1', cloudOnly: true })
+  })
+
+  it('marks every Session 11 surface cloudOnly so local mode 501s instead of falling through to Express', () => {
+    const paths = [
+      ['/api/otter/trash', 'GET'],
+      ['/api/otter/trash/restore', 'POST'],
+      [`/api/otter/courses/${id}/fork`, 'POST'],
+      [`/api/otter/courses/${id}/editors`, 'GET'],
+      [`/api/otter/courses/${id}/editors`, 'POST'],
+      [`/api/otter/courses/${id}/editors/u`, 'DELETE'],
+      ['/api/otter/change-requests', 'GET'],
+      ['/api/otter/change-requests', 'POST'],
+      ['/api/otter/change-requests/x', 'PATCH'],
+    ]
+    for (const [path, verb] of paths) expect(p(path, verb).cloudOnly).toBe(true)
+  })
+
+  // A course legitimately named "Trash" produces slug "trash" in LOCAL mode.
+  // Keeping the new surfaces off /api/software means that stays unambiguous.
+  it('does not let a course slug collide with the new surfaces', () => {
+    expect(p('/api/software/trash', 'GET')).toEqual({ op: 'course.get', slug: 'trash' })
+    expect(p('/api/software/change-requests', 'GET'))
+      .toEqual({ op: 'course.get', slug: 'change-requests' })
+  })
+
+  it('rejects unsupported verbs and shapes under /api/otter', () => {
+    expect(p('/api/otter/trash', 'DELETE')).toBeNull()
+    expect(p('/api/otter/change-requests/cr-1', 'DELETE')).toBeNull()
+    expect(p(`/api/otter/courses/${id}`, 'GET')).toBeNull()
+    expect(p('/api/otter/nonsense', 'GET')).toBeNull()
+    expect(p('/api/otter', 'GET')).toBeNull()
+  })
+})
+
 describe('parseOtterRoute — non-routes and tolerance', () => {
   it('returns null for anything that is not an O.T.T.E.R. route', () => {
     expect(p('/api/rabbit/projects', 'GET')).toBeNull()

@@ -19,17 +19,25 @@
 // =============================================================================
 
 import { useState } from 'react'
-import { Users, Building2, ScrollText, Activity, Lock, Terminal } from 'lucide-react'
+import {
+  Users, Building2, ScrollText, Activity, Lock, Terminal, GitPullRequestArrow,
+} from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
 import UsersSection from './UsersSection'
 import CompanySection from './CompanySection'
 import LogsSection from './LogsSection'
 import DiagnosticsSection from './DiagnosticsSection'
+import ChangeRequestsSection from './ChangeRequestsSection'
 
+// Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
+// Serial Position keeps the two most-used sections at the ends: Users first,
+// Diagnostics last. Requests sits next to Company because deciding what the
+// company's standard courses say is company administration.
 const NAV = [
   { key: 'users', label: 'Users', icon: Users },
   { key: 'company', label: 'Company', icon: Building2 },
+  { key: 'requests', label: 'Requests', icon: GitPullRequestArrow },
   { key: 'logs', label: 'Logs', icon: ScrollText },
   { key: 'diagnostics', label: 'Diagnostics', icon: Activity },
 ]
@@ -100,6 +108,9 @@ function AdminTerminalBody({ workspaceId }) {
           </div>
           <div className="h-full min-h-0 overflow-y-auto wilson-light-scroll" style={{ display: section === 'company' ? 'block' : 'none' }}>
             <CompanySection isActive={section === 'company'} wm={wm} />
+          </div>
+          <div className="h-full min-h-0" style={{ display: section === 'requests' ? 'block' : 'none' }}>
+            <ChangeRequestsSection isActive={section === 'requests'} />
           </div>
           <div className="h-full min-h-0" style={{ display: section === 'logs' ? 'block' : 'none' }}>
             <LogsSection isActive={section === 'logs'} workspaceId={workspaceId} />

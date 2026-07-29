@@ -58,6 +58,18 @@ async function cloudActive() {
   }
 }
 
+/**
+ * Session 11: the UI needs the SAME answer otterFetch routes on, so that the
+ * sharing / trash / change-request affordances appear exactly when they work.
+ * Deriving it independently (e.g. from usePermissions alone) would drift the
+ * moment someone pins the mode override in Settings — the controls would render
+ * against a backend that has no idea what they are.
+ * @returns {Promise<boolean>}
+ */
+export function otterCloudActive() {
+  return cloudActive()
+}
+
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body ?? null), {
     status,
@@ -85,6 +97,13 @@ export async function otterFetch(input, init) {
   if (!route) return fetch(input, init)
 
   if (!(await cloudActive())) {
+    if (route.cloudOnly) {
+      // Sharing, editor grants, trash and change requests exist only in a
+      // workspace. Express has no such routes, so falling through would return
+      // the local server's HTML 404 to a call site that does not check res.ok.
+      return jsonResponse(
+        { error: 'This O.T.T.E.R. feature needs a signed-in workspace.' }, 501)
+    }
     if (isBrowserBuild()) {
       // Failing loudly beats a confusing 404 from the static host.
       return jsonResponse(

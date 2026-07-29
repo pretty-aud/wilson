@@ -9,7 +9,7 @@
 
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(16);
 
 SELECT * FROM tests.rls_setup();
 
@@ -163,6 +163,40 @@ SELECT tests.login_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
 
 SELECT is((SELECT count(*)::int FROM public.otter_course_editors),
           0, 'another workspace sees no grants');
+
+-- ── workspace_id has NO DEFAULT — the client MUST send it (Session 11) ──────
+-- This table is the one exception to the pattern every other O.T.T.E.R. table
+-- follows. otter_courses, otter_subjects, otter_progress and
+-- otter_change_requests all declare
+--   workspace_id UUID NOT NULL DEFAULT public.current_workspace_id()
+-- so a client can simply omit the column and let the database stamp tenancy
+-- from the JWT. Here the column exists for the composite FK to
+-- workspace_members and 0022 never gave it a default, while
+-- fn_otter_editor_grant_workspace is a VALIDATOR rather than a defaulter — it
+-- compares NEW.workspace_id to the course's and raises when they differ, and a
+-- NULL always differs.
+--
+-- Session 11's adapter shipped an insert that omitted the column, so EVERY
+-- "give someone edit access" failed with a tenancy error that read like a
+-- cross-tenant bug. Fourteen passing probes did not catch it because every
+-- fixture in this file supplies workspace_id by hand — which is exactly why
+-- these two probes assert the schema fact directly.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT is(
+  (SELECT column_default FROM information_schema.columns
+    WHERE table_schema='public' AND table_name='otter_course_editors'
+      AND column_name='workspace_id'),
+  NULL,
+  'otter_course_editors.workspace_id has no default, so every client insert must supply it');
+
+SELECT throws_ok(
+  $$INSERT INTO public.otter_course_editors (course_id, user_id)
+    VALUES ('0c000001-0000-0000-0000-000000000002',
+            'dddddddd-dddd-dddd-dddd-dddddddddddd')$$,
+  'editor grant workspace does not match the course workspace',
+  'omitting workspace_id is refused by the grant-workspace trigger, not defaulted');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -699,7 +699,84 @@ inert: `0011_role_grants.sql` grants ALL on every public table to `anon`, and
 PostgREST was exposing it as an unauthenticated read *and write* endpoint. It
 was empty, so nothing leaked. The migration refuses to run if it finds rows.
 
-pgTAP: `26_otter_courses.sql` (29) · `27_otter_subjects.sql` (18) ·
-`28_otter_progress.sql` (13) · `29_otter_course_editors.sql` (14) ·
+### `otter_course_editors.workspace_id` has NO DEFAULT — clients must send it
+
+The one table that breaks the pattern. `otter_courses`, `otter_subjects`,
+`otter_progress` and `otter_change_requests` all declare
+
+```sql
+workspace_id UUID NOT NULL DEFAULT public.current_workspace_id()
+```
+
+so a client omits the column and the database stamps tenancy from the JWT —
+which is why the adapter's inserts deliberately leave it out everywhere else.
+`otter_course_editors` needs the column for its composite FK to
+`workspace_members` and never got a default, and
+`fn_otter_editor_grant_workspace` is a **validator, not a defaulter**: it
+compares `NEW.workspace_id` against the course's workspace and raises when they
+differ. NULL always differs, so an insert that omits the column fails 100% of
+the time with `P0001 editor grant workspace does not match the course
+workspace` — an error that reads like a cross-tenant bug rather than a missing
+field.
+
+Session 11's adapter shipped exactly that mistake and every "give someone edit
+access" was dead. Ninety-four passing probes did not catch it because every
+pgTAP fixture supplies `workspace_id` by hand. `29_otter_course_editors.sql`
+now asserts the schema fact directly (no default; omitting it throws), so the
+trap cannot silently return.
+
+pgTAP: `26_otter_courses.sql` (33) · `27_otter_subjects.sql` (18) ·
+`28_otter_progress.sql` (13) · `29_otter_course_editors.sql` (16) ·
 `30_otter_change_requests.sql` (16). `rls.yml` RLS_TABLES += the five tables,
 replay list += 26–30.
+
+## 20. O.T.T.E.R. trash index (Session 11, migration 0024)
+
+Session 10 shipped a working trash and no way to look inside it. Every read path
+filters soft-deleted rows out — `otter_courses_select` and
+`otter_subjects_select` both begin `deleted_at IS NULL`, and
+`otter_course_index()` filters them too — so `otter_restore_row()` worked but no
+client could obtain the UUID to pass it. §19's own trash note states the
+consequence: a trashed course "vanishes from its own owner's view … so they
+cannot even find it to restore", and `purge_otter_trash` destroys it 30 days
+later. That is carry-forward gap #20, and it could not be closed in the client.
+
+`otter_trash_index()` is the missing read side, deliberately built as the exact
+sibling of `otter_course_index()`:
+
+- **SECURITY DEFINER**, because it must see rows RLS hides by construction.
+- **Metadata only** — name, slug, tier, owner label, subject count, who deleted
+  it and when, and `purges_at`. No `sections`, no lesson bodies, no reference
+  documents. An admin may restore a colleague's personal course without being
+  able to read a word of it, which keeps 0022's central rule intact. A migration
+  post-condition and pgTAP 31 both assert against the declared `RETURNS TABLE`
+  signature that it never grows a content column.
+- **Live-row membership and role**, never the JWT.
+
+Visibility mirrors `fn_otter_trash_authz` exactly, because anything listed must
+actually be restorable by the caller — divergence would mean either a dead
+Restore button or an unrecoverable course:
+
+| Row | Who sees it |
+|---|---|
+| trashed course | owner, or a workspace admin. **Not** granted editors — 0022 gives them no course-trash rights, so listing one would be an affordance they cannot use. |
+| trashed subject | owner of the parent course, an admin, or a granted editor (trashing a subject is ordinary, reversible editing). |
+
+**One deliberate narrowing.** A subject whose parent course is *also* trashed is
+not listed. `fn_otter_trash_authz` would authorize restoring it, but
+`otter_subjects_select`'s live-parent `EXISTS` would immediately re-hide it, so
+the UI would offer a button that visibly does nothing. Restore the course and
+the subject reappears on its own. This is the O.T.T.E.R. analogue of RABBIT
+carry-forward gap #4 (`19_soft_delete`), closed by construction rather than by
+an error message.
+
+**The one restore that can legitimately fail.** `otter_courses_owner_slug_uidx`
+is partial (`WHERE deleted_at IS NULL`), so if the owner has since created a new
+course with the same slug, restoring the old one raises 23505. `otter_restore_row`
+was deliberately *not* rewritten to catch that — it is deployed to three
+environments — so the client translates the code into "You already have a course
+with this name. Rename that one first, then restore."
+(`supabaseOtterAdapter['trash.restore']`).
+
+pgTAP: `31_otter_trash.sql` (21). No new tables, so `rls.yml` RLS_TABLES is
+unchanged; replay list += 31.

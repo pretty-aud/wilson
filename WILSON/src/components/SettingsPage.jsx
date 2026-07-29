@@ -12,6 +12,7 @@ import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
 import MigrationPanel from '../cloud/migrate/MigrationPanel'
+import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
 import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
@@ -755,6 +756,11 @@ export default function SettingsPage({
               <StorageConnections />
 
               <MigrationPanel />
+
+              {/* Session 11: runOtterMigration.js shipped in S10 with no caller.
+                  Sits beside the RABBIT one so both migrations are found in the
+                  same place. */}
+              <OtterMigrationPanel />
 
               {/* Default currency */}
               <div>

@@ -56,6 +56,62 @@ export function parseOtterRoute(pathname, method = 'GET') {
     return { op: 'export.all' }
   }
 
+  // Session 11 surfaces live under /api/otter/, NOT under /api/software/.
+  // /api/software/:slug already swallows any second segment, so a literal
+  // /api/software/trash would be ambiguous with a course whose slug is
+  // "trash" — impossible in cloud mode (slugs are UUIDs there) but perfectly
+  // possible in local mode, where slug = slugify(name). A separate prefix
+  // removes the question instead of relying on that.
+  //
+  // Every one of these is cloudOnly: the Express server in electron/main.cjs
+  // has no such routes and never will (sharing, grants and change requests are
+  // meaningless without a workspace). otterFetch answers 501 in local mode
+  // rather than letting Express 404 into a call site that does not check res.ok.
+  if (parts[1] === 'otter') {
+    const seg = parts.slice(2).map(decodeURIComponent)
+
+    // /api/otter/trash
+    if (seg.length === 1 && seg[0] === 'trash' && verb === 'GET') {
+      return { op: 'trash.list', cloudOnly: true }
+    }
+    // /api/otter/trash/restore   body: { table, id }
+    if (seg.length === 2 && seg[0] === 'trash' && seg[1] === 'restore' && verb === 'POST') {
+      return { op: 'trash.restore', cloudOnly: true }
+    }
+
+    // /api/otter/courses/:id/{fork,editors[/:userId]}
+    if (seg[0] === 'courses' && seg.length >= 3) {
+      const slug = seg[1]
+      if (seg.length === 3 && seg[2] === 'fork' && verb === 'POST') {
+        return { op: 'course.fork', slug, cloudOnly: true }
+      }
+      if (seg.length === 3 && seg[2] === 'editors') {
+        if (verb === 'GET')  return { op: 'editors.list', slug, cloudOnly: true }
+        if (verb === 'POST') return { op: 'editors.add',  slug, cloudOnly: true }
+        return null
+      }
+      if (seg.length === 4 && seg[2] === 'editors' && verb === 'DELETE') {
+        return { op: 'editors.remove', slug, userId: seg[3], cloudOnly: true }
+      }
+      return null
+    }
+
+    // /api/otter/change-requests[/:id]
+    if (seg[0] === 'change-requests') {
+      if (seg.length === 1) {
+        if (verb === 'GET')  return { op: 'cr.list', cloudOnly: true }
+        if (verb === 'POST') return { op: 'cr.create', cloudOnly: true }
+        return null
+      }
+      if (seg.length === 2 && verb === 'PATCH') {
+        return { op: 'cr.update', id: seg[1], cloudOnly: true }
+      }
+      return null
+    }
+
+    return null
+  }
+
   if (parts[1] !== 'software') return null
 
   const seg = parts.slice(2).map(decodeURIComponent)
