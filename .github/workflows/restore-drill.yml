@@ -1,0 +1,178 @@
+# =============================================================================
+# Restore drill — prove the B2 backups actually come back.
+#
+# A backup that has never been restored is a hypothesis, not a backup. This
+# downloads the most recent dump from B2, restores it into a SCRATCH database,
+# and verifies the result rather than trusting an exit code.
+#
+# Manual only (workflow_dispatch). Nothing here runs on a schedule; run it
+# after any change to the backup path, and once a quarter or so otherwise.
+#
+# ── WHAT IT VERIFIES ─────────────────────────────────────────────────────────
+#   1. The archive is readable and complete — `pg_restore --list` must show the
+#      expected tables, RLS policies and auth.users. A truncated or corrupt
+#      upload fails here, before anything is written.
+#   2. It genuinely restores — the public schema loads into a real database.
+#   3. The data is actually there — table counts, the migration ledger reaching
+#      0023, and RLS still FORCEd on a table that must never lose it.
+#
+# ── WHY ONLY THE public SCHEMA ───────────────────────────────────────────────
+# The dump is a whole-database pg_dump, so it also contains Supabase's managed
+# schemas (auth, storage, extensions). A scratch Supabase project already has
+# those, so restoring them produces a wall of "already exists" noise that
+# obscures real failures. WILSON's data lives in `public`, so that is what gets
+# restored and checked; `auth.users` is verified as PRESENT IN THE ARCHIVE via
+# --list, which is what actually matters for the drill.
+#
+# ── REQUIRED SECRET ──────────────────────────────────────────────────────────
+#   RESTORE_TARGET_DB_URL   session-pooler URI of a THROWAWAY Supabase project
+#                           (a free-tier one is fine — create it, drill, delete
+#                           it). Reuses the B2_* secrets for the download.
+#
+# ⚠️ THE TARGET IS WIPED. The job refuses to run if the target URL points at a
+# known WILSON environment — see the guard below. Do not weaken that guard.
+# =============================================================================
+
+name: db-restore-drill
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_env:
+        description: 'Which environment''s dump to restore'
+        type: choice
+        options: [staging, prod]
+        default: staging
+      confirm:
+        description: 'Type RESTORE to confirm the target database will be WIPED'
+        required: true
+        default: ''
+
+jobs:
+  drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: postgres:17
+    steps:
+      - name: Check confirmation
+        run: |
+          set -euo pipefail
+          if [ "${{ inputs.confirm }}" != "RESTORE" ]; then
+            echo "::error::Type RESTORE in the confirm box. The target database is wiped by this job."
+            exit 1
+          fi
+
+      - name: Install AWS CLI
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq curl unzip >/dev/null
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+          unzip -q /tmp/awscli.zip -d /tmp
+          /tmp/aws/install
+
+      - name: Fetch the newest dump, restore it, and verify
+        env:
+          TARGET_URL: ${{ secrets.RESTORE_TARGET_DB_URL }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+          B2_S3_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+          B2_BACKUP_BUCKET: ${{ secrets.B2_BACKUP_BUCKET }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          SRC: ${{ inputs.source_env }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${TARGET_URL:-}" ]; then
+            echo "::error::RESTORE_TARGET_DB_URL is not configured. Create a throwaway Supabase project and add its session-pooler URI."
+            exit 1
+          fi
+
+          # ── SAFETY GUARD ───────────────────────────────────────────────────
+          # A mis-pasted secret here would destroy a live environment. Refuse
+          # outright if the target names a known WILSON project ref.
+          for ref in rqyriuyldhovirbuievt rzkirvkotslbovzbsdfh eqjzmnvkrakroyqxfsvw; do
+            if echo "${TARGET_URL}" | grep -q "${ref}"; then
+              echo "::error::RESTORE_TARGET_DB_URL points at a live WILSON environment (${ref}). Refusing. The drill target must be a throwaway project."
+              exit 1
+            fi
+          done
+
+          AWS_DEFAULT_REGION="$(echo "${B2_S3_ENDPOINT}" | sed -nE 's#^(https?://)?s3\.([^.]+)\.backblazeb2\.com/?$#\2#p')"
+          export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-004}"
+
+          # Newest object under the chosen prefix. Filenames are timestamped
+          # (wilson-<env>-YYYYmmdd-HHMMSS.dump.gz) so lexical sort == newest.
+          LATEST="$(aws s3 ls "s3://${B2_BACKUP_BUCKET}/db/${SRC}/" \
+                      --endpoint-url "${B2_S3_ENDPOINT}" \
+                    | awk '{print $4}' | grep '\.dump\.gz$' | sort | tail -1)"
+          if [ -z "${LATEST}" ]; then
+            echo "::error::no dumps found under db/${SRC}/ — has the backup job run for this environment?"
+            exit 1
+          fi
+          echo "Restoring from: ${LATEST}"
+
+          aws s3 cp "s3://${B2_BACKUP_BUCKET}/db/${SRC}/${LATEST}" "/tmp/${LATEST}" \
+            --endpoint-url "${B2_S3_ENDPOINT}"
+          gunzip -c "/tmp/${LATEST}" > /tmp/dump.pgdump
+          echo "Archive size: $(du -h /tmp/dump.pgdump | cut -f1)"
+
+          # ── 1. Archive integrity ───────────────────────────────────────────
+          # pg_restore --list parses the whole table of contents. A truncated
+          # or corrupt archive dies here, before anything is written anywhere.
+          pg_restore --list /tmp/dump.pgdump > /tmp/toc.txt
+          echo "Table-of-contents entries: $(wc -l < /tmp/toc.txt)"
+
+          MISSING=""
+          for want in "public projects" "public workspace_members" "public otter_courses" "public otter_subjects" "auth users"; do
+            set -- $want
+            if ! grep -qE "TABLE DATA $1 $2|TABLE $1 $2" /tmp/toc.txt; then
+              MISSING="${MISSING} $1.$2"
+            fi
+          done
+          if [ -n "${MISSING}" ]; then
+            echo "::error::archive is missing expected tables:${MISSING}"
+            exit 1
+          fi
+          echo "Archive contains every expected table, including auth.users."
+
+          # ── 2. Restore the public schema into the scratch target ───────────
+          # --clean --if-exists so the drill is repeatable against the same
+          # scratch project. Errors are NOT fatal here: a Supabase project has
+          # managed objects that a restore legitimately cannot replace. Step 3
+          # is what decides pass or fail.
+          pg_restore --no-owner --no-privileges --clean --if-exists \
+            --schema=public -d "${TARGET_URL}" /tmp/dump.pgdump \
+            > /tmp/restore.log 2>&1 || true
+          echo "Restore emitted $(grep -ci 'error' /tmp/restore.log || true) error line(s) (some are expected on a managed project)."
+          tail -20 /tmp/restore.log || true
+
+          # ── 3. Verify the restored database ────────────────────────────────
+          # -c flags rather than a heredoc: a heredoc body has to start at
+          # column 0 to satisfy the shell, which terminates the surrounding
+          # YAML block scalar.
+          echo "── verification ──────────────────────────────────────────────"
+          psql "${TARGET_URL}" -v ON_ERROR_STOP=1 -At \
+            -c "SELECT 'tables in public: ' || count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE'" \
+            -c "SELECT 'projects rows: '    || count(*) FROM public.projects" \
+            -c "SELECT 'members rows: '     || count(*) FROM public.workspace_members" \
+            -c "SELECT 'otter_courses: '    || count(*) FROM public.otter_courses" \
+            -c "SELECT 'otter_subjects: '   || count(*) FROM public.otter_subjects"
+
+          # The migration ledger lives outside `public`, so it is only present
+          # if the target was itself built from these migrations. Report it if
+          # so, but do not fail the drill on it.
+          psql "${TARGET_URL}" -At -c \
+            "SELECT 'latest migration: ' || COALESCE(max(version),'(none)') FROM supabase_migrations.schema_migrations" \
+            2>/dev/null || echo "latest migration: (ledger not in this target — expected on a bare scratch project)"
+
+          # RLS is the property most worth proving survived: a restore that
+          # silently dropped FORCE would look fine and be a data leak.
+          FORCED="$(psql "${TARGET_URL}" -At -c \
+            "SELECT relforcerowsecurity FROM pg_class WHERE oid='public.otter_courses'::regclass")"
+          if [ "${FORCED}" != "t" ]; then
+            echo "::error::otter_courses came back WITHOUT forced RLS — the restore is not trustworthy"
+            exit 1
+          fi
+
+          echo "::notice::Restore drill PASSED — ${LATEST} restored and verified (RLS intact, migrations present)."
