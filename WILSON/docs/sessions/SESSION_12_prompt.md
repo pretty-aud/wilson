@@ -1,16 +1,19 @@
-# SESSION 12 launch prompt — `ai-proxy` + the web build (+ change-request apply)
+# SESSION 12 launch prompt — `ai-proxy` + the web build
 
 > Paste into a new Claude Code conversation from the WILSON repo.
 > **Master plan: `docs/MASTER_PLAN.md` — read §2–§6 and §10 BEFORE any code.**
 > **First tool call** per standing rule: `git status` on `feat/multi-user-v1`.
 
-> Two sessions remain after this one: **S13 file lifecycle & data stewardship ·
-> S14 operator console + TPN + v1.0.0.**
+> Three sessions remain after this one: **S13 change-request approval · S14 file
+> lifecycle & data stewardship · S15 operator console + TPN + v1.0.0.**
 >
-> **Three new locked decisions came in after S11 closed** (Audrey, 2026-07-29) —
-> read locked **#21** (no API key on any client, one `ai-proxy` for both hosts)
-> and **#22** (approving a change request APPLIES it, additive-only, with an
-> auto-archive) before planning. They are Blocks A and C below.
+> **New since S11 closed:** locked **#21** — no Anthropic API key on any client,
+> on either host, via one `ai-proxy` Edge Function. That is Block A, and it is a
+> hard prerequisite for the web build. Read it before planning.
+>
+> Locked **#22** (approving a change request APPLIES it) was briefly specced as
+> an S12 "Block C". **Audrey moved it to its own session** so this one isn't
+> triple-booked — it is now `SESSION_13_prompt.md`. **Do not pull it back in.**
 
 ---
 
@@ -43,22 +46,19 @@ side; see `db/README.md` §20 and pgTAP `31_otter_trash.sql`.
 
 ---
 
-## Session 12 scope — THREE blocks, in this order
+## Session 12 scope — TWO blocks, in this order
 
-**Read this ordering note before planning.** Audrey asked for the change-request
-work (Block C) to be specced into this session. It is specced in full below. But
-S12 now carries the web build, a new Edge Function and a new migration, and
-double-booking a session is exactly what cost S10 and S11 half their scope.
-
-> **Blocks A and B are one job and must land. If the session runs long, Block C
-> slides to S13 — say so early rather than half-finishing all three.**
+These two are genuinely one job: the web build cannot ship AI features until the
+key stops living on the client, so the proxy comes first.
 
 - **Block A — `ai-proxy`** (locked #21). The Anthropic key must stop reaching
-  clients. This is a hard prerequisite for web D.O.G. *and* web O.T.T.E.R., so
-  it comes first.
-- **Block B — the web build + hosting/routing** (locked #18), including gap #21.
-- **Block C — change-request approval that actually applies** (locked #22),
-  migration 0025.
+  clients. Hard prerequisite for web D.O.G. *and* web O.T.T.E.R.
+- **Block B — the web build + hosting/routing** (locked #18), including the
+  carry-forward gap #21 fix (O.T.T.E.R. renders an empty library on the web).
+
+**Nothing else.** The change-request approval work is S13 and the file-lifecycle
+work is S14. This session was deliberately narrowed to two blocks after it had
+briefly grown a third — resisting that is the point.
 
 ---
 
@@ -182,115 +182,6 @@ for the Electron path.
 
 ---
 
-## Block C — change-request approval that actually applies (migration 0025)
-
-**Audrey, 2026-07-29, verbatim:** *"yes we need to make sure the approval
-automatically updates the course. the admin should be able to review. and approve
-or they should be able to decline for the end user be able to review the decision
-and either accept or do changes the admin is asking for. that said the admin
-should be able to add a note/explanation for the decline that can be shared with
-the user"* and *"we need to allow the admin to review the update. and decide to
-accept it or not. when the user submits the change that should allow the admin to
-see the course now"*.
-
-Two follow-up decisions she made when asked (locked #22):
-
-- **Additive only.** Approval adds new subjects and updates changed ones, and
-  **never deletes**. One approval must not silently strip lessons from
-  everyone's official course. Consequence to state in the UI: a proposer cannot
-  propose a removal — they say so in the summary and the admin deletes by hand.
-- **Auto-archive before every apply.** O.T.T.E.R. is deliberately not
-  edit-history captured (db/README §19), so overwriting lesson text is otherwise
-  unrecoverable. Each approval first snapshots the target to a private copy
-  owned by the approving admin.
-
-### The status flow
-
-```
-open ──approve──►  approved   (terminal, and APPLIES)
-  │
-  └──decline───►  changes_requested   (note REQUIRED)
-                        │
-                        ├── proposer: "Accept the decision" ──► rejected + acknowledged_at
-                        └── proposer: revise + resubmit ──────► open  (revision + 1)
-
-open ──proposer withdraws──► withdrawn   (terminal)
-```
-
-`rejected` stays reachable directly for a flat no. `approved` and `rejected` are
-terminal; nothing else may transition out of them.
-
-### 0025 — what to write
-
-**This is the part that needs care: 0022 actively forbids the flow today.**
-`fn_otter_cr_review` raises `'change request already % — reopen is not
-permitted'` on ANY status change out of a non-`open` state, so the
-revise-and-resubmit loop is impossible until that function is rewritten.
-
-1. **Status CHECK** += `'changes_requested'`.
-2. **New columns:** `applied_at TIMESTAMPTZ`, `applied_by UUID`,
-   `archive_course_id UUID`, `revision INTEGER NOT NULL DEFAULT 1`,
-   `acknowledged_at TIMESTAMPTZ`. Keep `review_note` (already there, and 0022's
-   trigger already stops a proposer forging it — preserve that).
-3. **Rewrite `fn_otter_cr_review`** for the flow above. Preserve everything it
-   already gets right: reviewer stamped server-side from `auth.uid()`, immutable
-   `proposed_by`/`target_course_id`/`workspace_id`, and the rule that a proposer
-   can never write review fields. Add: a decline **requires** a non-empty
-   `review_note`; `changes_requested → open` bumps `revision` and clears
-   `reviewed_by`/`reviewed_at`; only the proposer may set `acknowledged_at`.
-4. **Review-window read access — must go through a DEFINER helper.**
-   `otter_has_open_review_access(p_course_id UUID)` SECURITY DEFINER: true when
-   the caller is a workspace admin or the target course's owner, AND a change
-   request exists with `source_course_id = p_course_id` and
-   `status IN ('open','changes_requested')`. Add `OR
-   public.otter_has_open_review_access(id)` to `otter_courses_select`.
-   > **Do NOT inline `current_app_role()` into that policy.** 0022 ships a
-   > post-condition that RAISES if any SELECT policy on `otter_courses` or
-   > `otter_progress` mentions `current_app_role`, and 0022 is documented as
-   > safe to re-run. Wrapping the role check inside the helper keeps that true
-   > and puts the consented exception in one auditable place.
-   Subjects come along for free — `otter_subjects_select`'s live-parent `EXISTS`
-   runs under the caller's own RLS. Read only: add no write arm, so a reviewer
-   can read a fork but never edit it.
-5. **`otter_cr_apply(p_cr_id UUID) RETURNS UUID`** SECURITY DEFINER, returns the
-   archive course id. One transaction, and the only path in:
-   - re-check the caller is an admin or the target's owner; the request is
-     `open`; the target is still `company_standard`; the source still exists;
-   - **archive** the target (reuse `otter_fork_course`'s copy logic) into a
-     `personal` course owned by the caller, named
-     `<name> (before change #<revision>)`, and record `archive_course_id`;
-   - **apply additively**: for each live subject in the source, match the target
-     by `slug` — INSERT when absent, UPDATE content columns when present.
-     **Never delete.** Do not touch the target's `owner_id`, `workspace_id`,
-     `slug`, `visibility`. Note the BEFORE triggers still fire under DEFINER, so
-     check `fn_otter_pin_subject_identity` does not block a legitimate insert;
-   - stamp `status='approved'`, reviewer, `applied_at`, `applied_by`.
-   - **Subjects only** (§6 #29): the five reference documents have merge
-     semantics that live in client JS (`otterRoutes.js`), and reimplementing
-     them in plpgsql would duplicate load-bearing logic while overwriting them
-     would break additive-only. Say so in the approve dialog.
-6. **pgTAP `32_otter_cr_apply.sql`.** Pin at minimum: every legal transition and
-   every illegal one; a decline without a note is refused; the review window
-   opens on submit and **closes on settle**; an admin still cannot read an
-   unrelated personal course; apply is additive (a subject deleted in the source
-   survives in the target); the archive exists and is owned by the approver;
-   apply is refused on a non-`open` request and on a non-standard target.
-
-### UI
-
-- **Admin Terminal → Requests**: an "Open their course" affordance (it is
-  readable now), Approve (state plainly that it will add/update but not delete,
-  that reference documents are untouched, and that an archive is kept), and
-  Decline with a **required** note.
-- **O.T.T.E.R.'s `ChangeRequestDialog`**: show the decision state — the admin's
-  note, plus "Accept the decision" and "Make the changes and resubmit".
-- **Remove the "also share my copy with the company" checkbox.** Submitting now
-  grants review access automatically, so the checkbox is obsolete and its
-  presence would imply sharing is still required.
-- Not in scope, deliberately (§6 #28): a subject-level **diff** view. Reviewers
-  compare by eye in v1. Flag it to Audrey as the obvious follow-on.
-
----
 
 ## HOW to build it
 
@@ -361,15 +252,14 @@ Invoke the **`laws-of-ux` skill** for any new surface, and name ≥5 laws applie
 - **Per-workspace API keys and the admin UI for them.** Block A ships the
   *resolution seam* (per-workspace → platform fallback) and a single platform
   key. The `workspace_ai_keys` table, Vault encryption and the admin screen land
-  with the operator console in **S14** (locked #21).
-- **A subject-level diff view** for change-request review (§6 #28) — reviewers
-  compare by eye in v1.
-- **Merging the five reference documents** on approval (§6 #29) — subjects only.
+  with the operator console in **S15** (locked #21).
+- **Change-request approval / migration 0025 — that is S13.** It was briefly in
+  this session and was deliberately moved out. Leave it alone.
 - **CSV export, file audit, storage relink, `rabbit-files` bucket, blob GC**
-  (**S13** — file lifecycle & data stewardship).
-- Operator console (`/wilsonadmin`), final TPN hardening, v1.0.0 (**S14**).
-- Field-level cell presence (stretch since S8 — earliest S14).
-- Durable Edge-Function rate limiting (S14 TPN). **But note:** `ai-proxy` is a
+  (**S14** — file lifecycle & data stewardship).
+- Operator console (`/wilsonadmin`), final TPN hardening, v1.0.0 (**S15**).
+- Field-level cell presence (stretch since S8 — earliest S15).
+- Durable Edge-Function rate limiting (S15 TPN). **But note:** `ai-proxy` is a
   spend endpoint, so if per-workspace limiting is cheap to add while you are in
   there, it is worth more here than anywhere else.
 - Realtime for O.T.T.E.R. content (deliberately excluded — db/README §19).
@@ -378,12 +268,12 @@ Invoke the **`laws-of-ux` skill** for any new surface, and name ≥5 laws applie
 
 Feature commit → CI green (**read it from the public REST API — no `gh` auth
 needed**) → deploy any new migrations to staging + prod (dry-run each) → deploy
-`ai-proxy` and any other new/edited Edge Functions **to all three envs**, and set
-`ANTHROPIC_API_KEY` as a secret on each → re-link CLI to `wilson-dev` → write
-`docs/sessions/SESSION_13_prompt.md` (**file lifecycle & data stewardship**, plus
-Block C if it slid) → update `docs/MASTER_PLAN.md` (§4 ledger, §5 scope, §6 gaps,
-§7 statuses, §10) → update the Claude auto-memory → docs commit + push → list
-Audrey's owed browser checks.
+`ai-proxy` and any other new/edited Edge Functions **to all three envs** →
+re-link CLI to `wilson-dev` → **refresh** `docs/sessions/SESSION_13_prompt.md`
+(it already exists — change-request approval; update its context recap with this
+session's SHAs and any new gaps) → update `docs/MASTER_PLAN.md` (§4 ledger, §5
+scope, §6 gaps, §7 statuses, §10) → update the Claude auto-memory → docs commit +
+push → list Audrey's owed browser checks.
 
 **Audrey owes one thing before Block A can be deployed:** an Anthropic API key
 set as the `ANTHROPIC_API_KEY` secret on wilson-dev/staging/prod. She can do that

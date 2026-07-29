@@ -204,9 +204,13 @@ Core capabilities of v1.0.0:
     (DNS sits at Squarespace, which cannot serve an SPA under a path —
     needs Cloudflare-or-similar in front, or moving the domain's hosting;
     Audrey decision owed before S11 deploy).
-19. **Four sessions remain** (Audrey, 2026-07-29): S11 O.T.T.E.R. UI · S12 web
-    build · S13 file lifecycle & data stewardship · S14 operator console + TPN
-    + v1.0.0. See §5 and §10.
+19. **Session plan (revised 2026-07-29, Audrey — a session was ADDED so S12 does
+    not get bloated):** S11 O.T.T.E.R. UI ✅ · **S12 `ai-proxy` + web build** ·
+    **S13 change-request approval (NEW)** · S14 file lifecycle & data
+    stewardship · S15 operator console + TPN + v1.0.0. See §5 and §10.
+    The change-request work was briefly specced as an S12 Block C; Audrey pulled
+    it into its own session rather than triple-book S12 — the same correction
+    that split the old S11 after S10 overran.
 20. **B2 never holds customer content** — database dumps and update installers
     only. Project files live in the company's own storage (locked #14) and are
     their backup responsibility; WILSON keeps only the metadata that points at
@@ -216,7 +220,7 @@ Core capabilities of v1.0.0:
     go through one authenticated Edge Function proxy (`ai-proxy`); Electron uses
     it too, so there is a single code path and no desktop/web divergence. The
     proxy resolves a **per-workspace key with a platform fallback**, which is
-    what makes admin-portal key management (S14 operator console) a config
+    what makes admin-portal key management (S15 operator console) a config
     change rather than a rewrite. The per-user `wilson-api-key` in
     `localStorage` is deleted on upgrade and the Settings key field removed.
     Design detail + the 150s/400s streaming workaround in §10.
@@ -260,9 +264,10 @@ Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 12–14 remain** (locked #19): S12 web build · S13 file lifecycle &
-data stewardship · S14 operator console + TPN + v1.0.0. Launch prompt ready:
-`docs/sessions/SESSION_12_prompt.md`.
+**Sessions 12–15 remain** (locked #19): S12 `ai-proxy` + web build · **S13
+change-request approval (added 2026-07-29)** · S14 file lifecycle & data
+stewardship · S15 operator console + TPN + v1.0.0. Launch prompts ready:
+`docs/sessions/SESSION_12_prompt.md` and `SESSION_13_prompt.md`.
 
 **Migrations 0000–0024 are deployed to dev + staging + prod.** 0024 was pushed
 at the S11 close-out (dry-run before each env; `otter_trash_index()` confirmed
@@ -360,6 +365,8 @@ prod (dry-run each, `public.users` confirmed empty on all three first).
 > lifecycle work (below), which is mostly TPN work pulled forward rather than
 > new scope: **S11 O.T.T.E.R. UI · S12 web build · S13 file lifecycle & data
 > stewardship · S14 operator console + TPN + v1.0.0.**
+> *(Superseded 2026-07-29 post-S11: a fifth session was added — see locked #19.
+> Numbering from S13 onward shifted by one.)*
 
 ### Session 11 — O.T.T.E.R. UI ✅ DONE (2026-07-29)
 
@@ -417,13 +424,32 @@ the Opus 5 session split):
   testing. `petalstudios.co` cutover is post-v1.0 production work.
 - O.T.T.E.R./RABBIT web smoke passes; Playwright web-path lane.
 
-### Session 13 — File lifecycle & data stewardship (NEW, 2026-07-29)
+### Session 13 — Change-request approval that applies (NEW, 2026-07-29)
+
+Locked #22. Was briefly S12 Block C; Audrey gave it its own session so the web
+build isn't triple-booked. Full spec in `docs/sessions/SESSION_13_prompt.md`.
+
+- **Migration 0025** — `changes_requested` status, the revise-and-resubmit loop,
+  a review-window read arm via a SECURITY DEFINER helper, and
+  `otter_cr_apply()`: archive the target, then copy the proposer's subjects in
+  **additively** (add + update, never delete).
+- **UI** — Admin Terminal Requests gains "open their course" + Approve/Decline
+  with a required note; O.T.T.E.R.'s change-request dialog gains the decision
+  state (accept, or revise and resubmit). The now-obsolete "also share my copy"
+  checkbox comes out.
+- **pgTAP 32** — every legal and illegal transition, the review window opening
+  on submit and **closing on settle**, additive-apply proven (a subject the
+  proposer deleted survives in the target), and the archive's existence + owner.
+- Deliberate v1 limits: no subject-level diff view (§6 #28), and the five
+  per-course reference documents are not merged (§6 #29).
+
+### Session 14 — File lifecycle & data stewardship
 
 Everything about what happens to files and data over time. Roughly 60% of this
 is TPN work in friendlier clothing — the `TPN_AUDIT/FINDINGS.md` entries on
 audit trails, retention and proof-of-deletion (TPN-LOG-004 and the
 "delete is an unlink with no certificate, no checksum, no audit trail" finding)
-all land here rather than in S14.
+all land here rather than in S15.
 
 - **Storage relink** — the ShotGrid/Blender "find missing files" model, and the
   reason this session exists: point WILSON at a moved folder, it walks the
@@ -452,7 +478,7 @@ all land here rather than in S14.
 - **Blob GC (§6 #6)** — file rows soft-delete but blobs persist forever, and
   removed-avatar orphans join them when the best-effort delete fails.
 
-### Session 14 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
+### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
 
 - **Operator console** (platform tier, `is_platform_operator`, separate
   surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
@@ -536,19 +562,19 @@ all land here rather than in S14.
     blocker for web D.O.G. *and* web O.T.T.E.R., so it is not optional there).
 26. ~~approving a change request records a decision, it does not merge~~ —
     **RESOLVED 2026-07-29 (Audrey): approval must APPLY the change.** See
-    locked #22 and the S12 Block C spec. Needs migration 0025: the current
+    locked #22 and the **S13** spec. Needs migration 0025: the current
     `fn_otter_cr_review` hard-blocks any transition out of a settled state, so
     the revise-and-resubmit loop cannot exist today.
 27. ~~a reviewer sees the SUMMARY, not the course~~ — **RESOLVED 2026-07-29
     (Audrey): submitting a request must let the admin see the course.**
     Implemented as a scoped, consented read arm, NOT an admin bypass — see the
-    S12 Block C spec for why it has to go through a SECURITY DEFINER helper
+    S13 spec for why it has to go through a SECURITY DEFINER helper
     (0022 has a post-condition that fails the migration if a SELECT policy on
     `otter_courses` mentions `current_app_role()` literally).
 28. **NEW (S11): the admin reviews prose, not a diff.** Even with read access to
     the proposer's course (#27), a reviewer compares two courses by eye. A real
     subject-level diff view is the obvious follow-on and is deliberately NOT in
-    the S12 Block C scope — flagged so it is a choice rather than an oversight.
+    the S13 scope — flagged so it is a choice rather than an oversight.
 29. **NEW (S11): the apply RPC handles SUBJECTS only.** The five per-course
     reference documents (`hotkeys`, `functions`, `nodes`, `reference_urls`,
     `corrections`) have merge semantics that live in client JS
@@ -560,7 +586,7 @@ all land here rather than in S14.
     `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
     Object Lock on, 90-day lifecycle); both prod and staging jobs run green
     with dumps verified present. Original finding retained below because the
-    lesson generalises — relevant to S13/S14 if either adds a GitHub Actions
+    lesson generalises — relevant to S14/S15 if either adds a GitHub Actions
     cron (the existing purge jobs are pg_cron *inside Postgres*, so they are
     unaffected). Original finding: `backups.yml`
     was committed to `feat/multi-user-v1` only. GitHub fires `schedule`
@@ -612,11 +638,11 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
-| Per-company Claude API key, admin-administered | S14 operator console | ⬜ S14 |
+| Per-company Claude API key, admin-administered | S12 `ai-proxy` ships the per-workspace→platform resolution seam; the table + admin UI land with the S15 operator console | 🔶 seam S12 · ⬜ admin UI S15 |
 | O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI**: tier picker, filter chips, share + editor grants, company standard, fork, change requests, trash/restore | ✅ ❓ in-app verify owed |
 | Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
 | App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
-| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); operator tier = S14 | ✅ company · ⬜ operator |
+| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); operator tier = S15 | ✅ company · ⬜ operator |
 | express-session + connect-pg-simple suggestion | Superseded by Supabase Auth | ✳ (locked #1) |
 
 ---
@@ -658,7 +684,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–12 present) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–13 present) |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
@@ -796,9 +822,12 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 
 ### Resolved 2026-07-29 (Audrey, post-Session 10 re-plan)
 
-- **FOUR sessions remain, not two** (locked #19): S11 O.T.T.E.R. UI · S12 web
-  build · S13 file lifecycle & data stewardship · S14 operator console + TPN +
-  v1.0.0. S11 had been carrying two full sessions of work.
+- **FOUR sessions remain, not two**: S11 O.T.T.E.R. UI · S12 web build · S13
+  file lifecycle & data stewardship · S14 operator console + TPN + v1.0.0. S11
+  had been carrying two full sessions of work.
+  **SUPERSEDED later the same day** (see the post-S11 entry below): a FIFTH
+  session was added for change-request approval, so file lifecycle is now S14
+  and the operator console S15. Locked #19 carries the current numbering.
 - **Storage relink is a first-class feature, modelled on ShotGrid/Blender**
   (Audrey): find + preview + **apply**, not merely detect. Point it at the new
   folder and it re-finds the moved assets itself. `local_server` first, matcher
@@ -916,12 +945,16 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   to the review window and read-only. This is a **consented** exception to "a
   personal course is private even from admins", not a bypass: the user chose to
   submit it for review, and access ends when the request settles.
-- **Sequencing (agent recommendation, flagged):** Audrey asked for (2) and (3) to
-  be specced into S12. They are specced there as **Block C**, but S12 is now
-  carrying the web build, the ai-proxy and a new migration. That is the same
-  double-booking that cost S10 and S11 half their scope. **If S12 runs long,
-  Block C slides to S13** — the web build and the proxy are one job and must not
-  be the thing that gets dropped.
+- **Sequencing — RESOLVED by adding a session (Audrey, 2026-07-29).** (2) and (3)
+  were first specced as an S12 "Block C". The agent flagged that S12 would then
+  be carrying the web build, a new Edge Function *and* a new migration — the same
+  double-booking that cost S10 and S11 half their scope. **Audrey's call: give it
+  its own session.** So the change-request work is now **S13**, file lifecycle
+  moves to S14 and the operator console to S15 (locked #19). S12 is back to two
+  blocks that are genuinely one job: the proxy and the web build.
+  Worth keeping as a pattern — this is the third time splitting a session has
+  been the right answer, and the second time it was decided *before* the session
+  rather than after it overran.
 
 ### Still open
 
