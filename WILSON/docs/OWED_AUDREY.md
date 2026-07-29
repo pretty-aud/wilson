@@ -159,9 +159,27 @@ Do this twice: once for **wilson-prod**, once for **wilson-staging**.
 
 ### Part E — Retention (don't skip)
 
-10. B2 → bucket → **Lifecycle Settings** → custom rule:
-    - File path prefix: `db/`
-    - Keep only the last version, delete after **90** days
+10. B2 → bucket → **Lifecycle Settings** → **Use custom lifecycle rules** →
+    **Add Lifecycle Rules**:
+
+    | Field | Value |
+    |---|---|
+    | File Path (`fileNamePrefix`) | `db/` |
+    | Days Till Hide (`daysFromUploadingToHiding`) | `90` |
+    | Days Till Delete (`daysFromHidingToDeleting`) | `1` |
+
+    **Custom rules are required — the simple radio options cannot work here.**
+    B2's lifecycle model is version-based: "keep only the last version" and
+    "keep prior versions for N days" both act on *older versions of the same
+    filename*. Every backup this job writes has a unique timestamped name
+    (`wilson-prod-20260729-143000.dump.gz`), so no file ever has a second
+    version, nothing is ever superseded, and those options would keep
+    everything **forever**.
+
+    The custom rule sidesteps that: hide 90 days after upload, purge a day
+    later — roughly 91 days total. B2 requires at least one of the two fields
+    and rejects `0`, so `1` is the floor for the second stage. `File Path` is a
+    prefix, so `db/` covers both `db/prod/` and `db/staging/`.
 
     **Why 90 and not 30** (Audrey, 2026-07-29 — "stick to using B2 for longer
     retention"): Supabase Pro already keeps 7 days of daily backups on-platform,
