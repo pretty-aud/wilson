@@ -148,6 +148,38 @@ Concrete rules:
 At close-out, list every existing-UI element you touched and why. If that list
 is long, something went wrong.
 
+### 3. The ONE authorised exception — collapsible sidebar
+
+**Audrey, 2026-07-29:** *"For one of the sidebars, let the user hide it and pull
+it back with a button, similar to Claude and Notion."*
+
+This is a change to the existing shell and is **explicitly authorised** — it
+does not contradict rule 2. Nothing else about the shell moves.
+
+- **Target: Sidebar 1 — Software & Subjects** (`Otter.jsx:2950`), the outer
+  navigation column, matching what Claude and Notion collapse. Sidebar 2 —
+  Lessons stays as it is. If it later wants the same treatment, it must reuse
+  the *same* component so O.T.T.E.R. never grows two different collapse
+  mechanisms.
+- **Behaviour:** collapsed = fully hidden (or a thin rail), with a persistent,
+  always-visible affordance to bring it back — never a hover-only target, and
+  never a control that disappears with the thing it reopens. `Ctrl/Cmd + \`
+  is the shortcut both references use; wire it if it is cheap.
+- **Default is EXPANDED**, exactly as today. A user who never touches the
+  button must not be able to tell anything changed.
+- **Persist the state in `localStorage`, not `otter-settings.json`.** The
+  settings file is served by a local-server route that does not exist in the
+  browser (§6 #21), so anything stored there silently stops working in S12.
+  `localStorage` works in both.
+- The main pane must reflow, not letterbox — check the `study` and `subject`
+  views specifically, since those are where the extra width actually pays off.
+
+This is also the one place where the `laws-of-ux` skill has real purchase on an
+existing surface: **Jakob's Law** (users already know this pattern from Claude
+and Notion — match their expectation exactly rather than inventing), **Fitts's
+Law** (the reopen target must be big enough and stay put), and **Miller's Law**
+(fewer simultaneous panes while reading a lesson).
+
 ## What moved OUT of this session
 
 - **Web build + hosting/routing** → **S12** (MASTER_PLAN §5). Do not start it
