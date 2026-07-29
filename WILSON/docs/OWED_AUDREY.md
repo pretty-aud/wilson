@@ -222,8 +222,15 @@ metadata all ride along.
 
 ## 2. CI check for commit `31586d5`
 
-**Status: NOT CHECKED.** The `gh` CLI isn't authenticated on the dev machine,
-so the Session 10 agent could not read the run.
+**Status: ✅ DONE (2026-07-29) — all four jobs green.** pgTAP, issue-session
+smoke, Vitest and Playwright auth all passed on `31586d5`, which confirms
+migrations `0000`–`0023` apply cleanly to an **empty** database in order (not
+just to the already-migrated `wilson-dev` the agent tested against), and that
+the Playwright auth flow still works.
+
+Kept below for the next time a run needs checking. The `gh` CLI still isn't
+authenticated on the dev machine — running `gh auth login` once would let
+Claude read CI runs and open PRs directly instead of handing you URLs.
 
 1. https://github.com/pretty-aud/wilson/actions
 2. Find the run for **`31586d5`** — *"feat(otter): Session 10 — O.T.T.E.R.

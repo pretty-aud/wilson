@@ -501,7 +501,11 @@ all land here rather than in S14.
     branch or it is decoration.** (`rls.yml` is unaffected — `push` and
     `pull_request` run from the branch where the event happened, which is why
     CI has worked throughout.)
-23. **NEW (S10): CI unverified for `31586d5`.** `gh` is not authenticated on
+23. ~~**CI unverified for `31586d5`**~~ — **CLOSED 2026-07-29: all four jobs
+    green** (pgTAP, issue-session smoke, Vitest, Playwright auth). The
+    migrations therefore apply cleanly to an EMPTY database from `0000` to
+    `0023` in order, not just to the already-migrated `wilson-dev`. Original
+    note: `gh` is not authenticated on
     the session machine. Everything was verified directly against Postgres 17
     on wilson-dev (94/94 pgTAP probes, plan counts exact) + Vitest 256/256 +
     vite build, and the migrations are deployed to all three envs — but the
