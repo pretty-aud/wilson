@@ -69,10 +69,11 @@ should land BEFORE the web build, because the web build just re-hosts it.
    company-standard one (`Otter.jsx` matches courses by `name.toLowerCase()`),
    offer `otter_fork_course(course_id)` instead of burning API spend.
 5. **Change requests.** Submit from a forked course (summary = the user's own
-   words on what they changed and why) + an admin review queue
-   (approve/reject with a note). A settled request can never be reopened;
-   only admins/target-course-owners decide; the proposer may refine while open
-   or withdraw.
+   words on what they changed and why) as a **dialog in O.T.T.E.R.**; the
+   **review queue goes in the Admin Terminal**, not O.T.T.E.R. (see the UI
+   constraint below). A settled request can never be reopened; only
+   admins/target-course-owners decide; the proposer may refine while open or
+   withdraw.
 6. **Trash + restore UI.** `otter_soft_delete_row` / `otter_restore_row` exist
    and are wired into `course.delete`, but **there is no trash list and no
    restore path in the client** — a trashed course currently disappears with no
@@ -86,7 +87,66 @@ should land BEFORE the web build, because the web build just re-hosts it.
    nothing calls it — add it beside the RABBIT one in
    `SettingsPage.jsx:757` (`MigrationPanel.jsx` is the pattern).
 
-Apply the **laws-of-ux skill** (≥5 named laws, as S9's Admin Terminal did).
+---
+
+## HOW to build it — read this before writing any JSX
+
+### 1. Invoke the `laws-of-ux` skill first
+
+Call the **`laws-of-ux` skill** before designing any of the new surfaces, and
+name **≥5 laws** you applied — in each file header and again in the close-out,
+exactly as S9's Admin Terminal did.
+
+### 2. Change the existing UI as LITTLE AS POSSIBLE
+
+**Audrey, 2026-07-29: "I like how it works now. I know we need to change it to
+add the new details, but keep the current layout as much as possible."**
+
+This is a hard constraint, and it is deliberately in tension with the skill
+above. Reconcile them like this:
+
+> **Apply the UX laws to the surfaces you are ADDING. For surfaces that already
+> exist, the laws are grounds for a RECOMMENDATION to Audrey at close-out —
+> never grounds for changing it yourself in this session.**
+
+If a law says an existing control is wrong, write that down in the close-out
+list. Do not act on it.
+
+Concrete rules:
+
+- **Do not restructure the shell.** O.T.T.E.R. is two sidebars plus a main
+  pane, driven by one `currentView` state
+  (`library · course · subject · study · quiz · hotkeys · nodes · sources ·
+  validator · prompt`; main layout at `Otter.jsx:2388`, *Sidebar 1 — Software &
+  Subjects* at `:2950`, *Sidebar 2 — Lessons* at `:3064`). Keep all of it.
+- **Add no new `currentView` value** unless there is genuinely nowhere else for
+  something to live. Prefer, in order: an inline control on an existing row →
+  a chip/filter strip above an existing list → a modal or drawer → a new view.
+- **Filters** (mine / shared with me / shared by me / company standard) belong
+  as a compact chip strip at the top of **Sidebar 1**, above the existing
+  course list. Same pattern for subjects in their list. Do not add a filter
+  page.
+- **Tier picker** goes into the EXISTING create-course flow, as one more field
+  — not a new step or wizard.
+- **Share + editor grants** open as a dialog from the course row's existing
+  actions, in the style of RABBIT's `EditHistoryDrawer`. No new view.
+- **Company-standard** shows as a badge on the existing course row; the
+  admin action to set/clear it lives in that row's existing menu.
+- **The fork offer** ("use the company standard instead of generating") appears
+  inline in the flow the user is already in when they name a course that
+  matches a standard one — an inline suggestion, not an interstitial screen.
+- **The admin review queue for change requests should go in the ADMIN TERMINAL**
+  (`src/components/AdminTerminal/`, which already has Users / Add People /
+  Company / Logs / Diagnostics), NOT in O.T.T.E.R. It is admin work, it belongs
+  where admin work lives, and it keeps O.T.T.E.R.'s layout untouched. Only the
+  *submit* side needs to be in O.T.T.E.R., as a dialog.
+- **Do not rename, reorder or restyle any existing control**, and do not
+  "tidy" adjacent code while you are in there.
+- **Trash / "Recently deleted"** — prefer a filter state on the existing course
+  list over a separate screen.
+
+At close-out, list every existing-UI element you touched and why. If that list
+is long, something went wrong.
 
 ## What moved OUT of this session
 

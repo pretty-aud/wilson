@@ -702,6 +702,15 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   written provider-agnostically.
 - **CSV export ships in both tiers** — per-page buttons *and* a full workspace
   takeout.
+- **The O.T.T.E.R. UI must change as LITTLE as possible** (Audrey): "I like how
+  it works now." The new features attach to the existing two-sidebar shell —
+  filter chips above the existing lists, dialogs off existing rows, the tier
+  picker as one more field in the create flow — rather than new views. The
+  `laws-of-ux` skill still gets invoked, but it governs the surfaces being
+  ADDED; where a law disagrees with something that already exists, that is a
+  close-out recommendation for Audrey, not a licence to redesign.
+  Consequence: the change-request **review queue lands in the Admin Terminal**,
+  not in O.T.T.E.R. — it is admin work, and it keeps O.T.T.E.R. untouched.
 - **O.T.T.E.R. content is EXCLUDED from the company-wide takeout.** Audrey's
   reason: courses are educational and may encode internal practice the company
   does not want leaving. There is a second, independent reason that points the
