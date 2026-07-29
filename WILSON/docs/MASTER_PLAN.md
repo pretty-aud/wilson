@@ -484,7 +484,13 @@ all land here rather than in S14.
     adapter now returns a clean 403 rather than a fabricated success, so
     nothing is lost silently — but the control should not be there.
     → S11 Block A, item 7.
-24. **NEW (S10): the S9 backup workflow could never have run.** `backups.yml`
+24. ~~**the S9 backup workflow could never have run**~~ — **CLOSED 2026-07-29.**
+    `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
+    Object Lock on, 90-day lifecycle); both prod and staging jobs run green
+    with dumps verified present. Original finding retained below because the
+    lesson generalises — relevant to S13/S14 if either adds a GitHub Actions
+    cron (the existing purge jobs are pg_cron *inside Postgres*, so they are
+    unaffected). Original finding: `backups.yml`
     was committed to `feat/multi-user-v1` only. GitHub fires `schedule`
     workflows *exclusively* from the DEFAULT branch and only surfaces the
     `workflow_dispatch` button for workflows present there — so the nightly

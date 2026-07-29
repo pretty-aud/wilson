@@ -9,7 +9,19 @@ from the source site into GitHub's secrets box.
 
 ## 1. B2 backup secrets — **do this first**
 
-**Status: NOT DONE.**
+**Status: ✅ DONE (2026-07-29).** Bucket `petal-wilson-backups` created in
+`us-east-005` with SSE-B2 encryption and Object Lock enabled (no retention rule
+set). All six secrets configured. `chore/enable-db-backups` merged to `main`.
+Workflow run manually — **both prod and staging jobs green, dumps verified
+present in the bucket.** 90-day lifecycle rule in place (`db/` · hide 90 ·
+delete 1).
+
+**One thing still outstanding: prove a restore works** — see the end of this
+section. Until a dump has actually been restored once, this is an untested
+backup.
+
+The setup steps below are kept for reference (rebuilding, or a fourth
+environment).
 
 > **Correction (2026-07-29).** An earlier version of this file said there were
 > "no database backups at all". The Supabase org is on **Pro**, which includes
