@@ -70,8 +70,8 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0021`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 9 close-out. No backlog.
+- **Migrations `0000`–`0023`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 10 close-out. No backlog.
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
   and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
@@ -131,6 +131,7 @@ Core capabilities of v1.0.0:
 | `wilson-purge-edit-history` | 04:43 | 90-day edit-history retention |
 | `wilson-purge-soft-deleted` | 04:47 | 30-day trash sweep |
 | `wilson-purge-app-events` | 04:51 | 90-day admin-log retention (S9) |
+| `wilson-purge-otter-trash` | 04:55 | 30-day O.T.T.E.R. trash sweep (S10) |
 
 ---
 
@@ -205,6 +206,7 @@ deployed to all three envs**.
 | 6 | 2026-07-28 | Project roles (0013: manager/reviewer/member + helper family gating writes), soft-delete + undo (0014), rate-entry identity (0015); undo toast; roster UI; 12/12 review findings fixed | `324a44c`, `848d225` |
 | 7 | 2026-07-28 | Realtime live sync (0016 broadcast) + presence + LWW merge layer + revert-to-state; 11 review findings fixed | `338c90e`, `4375872` |
 | 8 | 2026-07-28 | Dashboard (cross-project task table/kanban/gallery + TaskDetailPopup reuse) + Notes (TipTap v3 + Yjs snapshot-merge-write, owner-only, no admin bypass) + workspace channel (0018: projects/members/assigned-tasks/assets/project_members) + avatar remove + avatars in presence chips + task UI/DB parity (0019: tasks.notes, 'urgent'); 9/9 review findings + 8 minors fixed; CI green on `0567581` (npm-10 lockfile + top-level DML-CTE fixes); 0017–0019 deployed dev+staging+prod | `1ef4d10`, `156a74e`, `0567581` |
+| 10 | 2026-07-29 | **O.T.T.E.R. cloud content SERVER model** (0022): otter_courses/subjects/progress/course_editors/change_requests, three visibility tiers (personal/shared/company_standard), live-row DEFINER helpers, identity-pin triggers, OTTER-specific trash RPCs + 30-day purge, otter_fork_course, otter_course_index (metadata-only admin view); `public.users` dropped + schema.sql/seed.sql deleted (0023 — **gap #9 CLOSED**); client adapter seam (`adapters/otterFetch`, 85 call sites); runOtterMigration. pgTAP 26–30 (94 probes) verified against real Postgres on wilson-dev; Vitest 256/256. Review 15/15 fixed. **O.T.T.E.R. UI NOT started → S11 Block A.** | `31586d5` |
 | 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5`, `f942e1e` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
@@ -276,7 +278,32 @@ All blocks landed (`44d0de8` + `6182aa5`; §4 ledger row 9; db/README §18):
   (provision-workspace invites[], §10-D).
 - Adversarial review: 16 findings — 15 fixed, 1 documented skip.
 
-### Session 10 — O.T.T.E.R. cloud content model ← NEXT
+### Session 10 — O.T.T.E.R. cloud content model ✅ SERVER DONE (2026-07-29)
+
+Commit `31586d5`; §4 ledger row 10; full detail in db/README §19.
+
+**Landed:** migrations 0022 (five tables + helpers + trash + fork + index) and
+0023 (public.users dropped, schema.sql/seed.sql deleted — gap #9 CLOSED);
+pgTAP 26–30; the `adapters/otterFetch` client seam over 85 call sites;
+`runOtterMigration.js`.
+
+**Scope grew mid-session (Audrey, 2026-07-28).** The original two-state
+personal/shared model became **three tiers plus two new features**:
+`company_standard` courses, per-user edit grants, forking a standard course to
+a personal copy, and change requests back to the admin. All of that is built
+and pgTAP-pinned on the server.
+
+**NOT started: the O.T.T.E.R. UI.** Tier picker, the mine/shared/standard
+filters, share + editor-grant dialog, company-standard designation, the fork
+offer, change-request submit/review, the trash list, `can_write` gating, and
+mounting the migration panel. → **S11 Block A**, specced in
+`docs/sessions/SESSION_11_prompt.md`.
+
+**Not deployed-verified:** CI could not be read from the session machine
+(`gh` unauthenticated). Migrations 0022–0023 ARE deployed to dev + staging +
+prod (dry-run each, `public.users` confirmed empty on all three first).
+
+### Session 11 — O.T.T.E.R. UI + Web Build ← NEXT
 
 Prerequisite for all-three-tools web parity (locked #16/#17). O.T.T.E.R.
 content moves from local-disk JSON (`otter-data/`) to workspace-tenanted cloud
@@ -355,8 +382,8 @@ the Opus 5 session split):
 7. Roster (project_members) changes are not edit-history captured.
 8. Legacy `useTeamMembers` still used by Timeline/Scenes/Levels/Experiences/
    Budget/Intake views.
-9. `public.users` drop + `schema.sql` retirement — needs the standalone-RABBIT
-   decision first (deliberately retained).
+9. ~~`public.users` drop + `schema.sql` retirement~~ — **CLOSED S10** (0023;
+   Audrey confirmed standalone RABBIT is no longer supported).
 10. Milestones have no undo path (kept confirm dialog).
 11. pgTAP 20/23's realtime probes are lenient in CI by design (no realtime
     service in the CI stack); hosted coverage = live probes.
@@ -381,6 +408,28 @@ the Opus 5 session split):
     install succeeds on this machine (npm TLS issue; lockfile is complete).
 19. **NEW (S9):** legacy useTeamMembers sweep still pending (was #8; now
     also feeds the producer/CD highlight only via projectsIndex ids).
+20. **NEW (S10): O.T.T.E.R. trash has no way out in the client.**
+    `otter_soft_delete_row` is wired to `course.delete`, but nothing lists or
+    restores trashed courses, so a deleted course simply vanishes until the
+    30-day purge destroys it. `otter_restore_row` exists and is pgTAP-pinned.
+    → S11 Block A, item 6.
+21. **NEW (S10): O.T.T.E.R. will render an empty library on the web.**
+    `Otter.jsx`'s mount effect calls `loadSoftwareList()` only inside the
+    `fetch('/api/otter-settings')` success chain. That route is correctly not
+    an adapter route, so in a browser it 404s, the outer `.catch(() => {})`
+    swallows it, and the list never loads. Also affects `/api/agent-skills`,
+    `/api/migration-needed`, `/api/migrate`, `/api/fetch-url`.
+    → S11 Block B.
+22. **NEW (S10): no `can_write` gating in the O.T.T.E.R. UI.** Every
+    generate/edit affordance is offered on any course the user can open. The
+    adapter now returns a clean 403 rather than a fabricated success, so
+    nothing is lost silently — but the control should not be there.
+    → S11 Block A, item 7.
+23. **NEW (S10): CI unverified for `31586d5`.** `gh` is not authenticated on
+    the session machine. Everything was verified directly against Postgres 17
+    on wilson-dev (94/94 pgTAP probes, plan counts exact) + Vitest 256/256 +
+    vite build, and the migrations are deployed to all three envs — but the
+    Actions run itself was never read. **First task of S11.**
 
 ---
 
@@ -552,6 +601,45 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   `petalstudios.co` — S11 ships to a test host with the locked path shape
   so she can test after the sessions; the production domain cutover is
   post-v1.0.
+
+### Resolved 2026-07-28/29 (Audrey, during Session 10)
+
+- **O.T.T.E.R. sharing is THREE tiers, not two** — `personal` (mark a course
+  "just for me"), `shared` ("made for others to share with"), and
+  **`company_standard`**: a company can bless a premade course so a user takes
+  that instead of generating a new one. Refines locked #17.
+- **Owners can grant named individuals edit access** to their course
+  (`otter_course_editors`) — creator + admins + grantees can edit.
+- **Admins can see that a personal course EXISTS, not its contents** —
+  metadata only, via `otter_course_index()`. (The brief's middle option.)
+- **Using a company-standard course FORKS a personal copy**, so the official
+  version stays pristine and admin edits never change a course underneath
+  someone mid-study. The user can then **submit a change request** — their
+  updates plus a written explanation of what they are recommending — for an
+  admin to review.
+- **Soft delete + 30-day trash** for O.T.T.E.R. content (not the notes-v1
+  hard-delete precedent — courses cost real time and API spend to generate).
+- **Standalone RABBIT against your own Supabase project is no longer
+  supported** → `schema.sql` and `seed.sql` deleted, `public.users` dropped.
+  Gap #9 closed after five sessions.
+
+### Resolved 2026-07-29 (Session 10 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **No storage bucket for O.T.T.E.R.** — the tool has zero binary content.
+- **O.T.T.E.R. content rides no realtime topic.** The 0018 workspace channel
+  hands full row payloads to every subscriber, so personal course bodies must
+  never travel on it, and courses are not a live co-editing surface.
+- **In cloud mode the client-facing course "slug" is the course UUID.** On
+  disk a slug was `slugify(name)`, unique only within one user's folder; in a
+  shared workspace two visible courses can legitimately share one. Safe because
+  `Otter.jsx` looks courses up by NAME, never by slug.
+- **Scraped reference page text is not migrated** (url + title only) — a
+  regenerable cache of third-party content that does not belong in a shared
+  multi-tenant database.
+- **An admin cannot grant themselves edit access on a personal course.**
+  Without that restriction the "no admin bypass" rule was defeatable in two
+  steps (index → self-grant → read). Found by adversarial review.
 
 ### Still open
 
