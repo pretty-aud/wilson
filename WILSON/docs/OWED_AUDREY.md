@@ -25,10 +25,35 @@ error every night and has done since Session 9.
 2. **Create the bucket.** B2 → Buckets → Create a Bucket.
    - Name: `wilson-backups` — **bucket names are globally unique across all of
      Backblaze**, so if it's taken try `petal-wilson-backups`.
-   - Files in Bucket: **Private**.
-   - Leave encryption / object-lock at defaults.
+   - Files in Bucket: **Private**
+   - Default Encryption: **Enable** — SSE-B2, Backblaze-managed key. Entirely
+     transparent (no workflow change, uploads and downloads behave the same),
+     costs nothing, and satisfies "backups encrypted at rest" for the S14
+     TPN pass.
+   - Object Lock: **Enable**, but set **no default retention rule**.
 
    → that name is **`B2_BACKUP_BUCKET`**
+
+   **Why Object Lock on, retention off.** Enabling it only makes immutability
+   *available*; with no retention configured, files upload and delete exactly
+   as normal and the lifecycle rule in step 10 is unaffected. What it buys is
+   the option later: Object Lock is WORM, so a retained object cannot be
+   deleted or altered by anyone — including you, including someone holding your
+   keys. That is a stronger version of the concern already written into
+   `backups.yml` ("a compromised CI key with delete rights could otherwise
+   purge history"): a lifecycle rule stops the CI key, Object Lock stops
+   everyone. Enable at creation because **once on it can never be turned off**,
+   so it is free optionality now and friction later.
+
+   > ⚠️ **If you ever do set a retention period, it must be comfortably SHORTER
+   > than the lifecycle window in step 10.** Retention 30 days against a 30-day
+   > lifecycle rule race each other: the delete fails on anything still locked,
+   > files accumulate, and you pay for storage you are not permitted to remove.
+   > 7-day retention with a 30-day lifecycle is a sane pairing.
+   >
+   > B2 offers *Governance* mode (a privileged user can override a lock) and
+   > *Compliance* mode (nobody can, ever, no support ticket). Only choose
+   > Compliance if you are certain.
 
 3. **Endpoint.** Click the bucket; the details panel shows an **Endpoint** like
    `s3.us-west-004.backblazeb2.com`.
