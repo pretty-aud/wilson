@@ -57,15 +57,31 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
           B2_S3_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
           B2_BACKUP_BUCKET: ${{ secrets.B2_BACKUP_BUCKET }}
+          # AWS CLI v2.23+ (Jan 2025) sends x-amz-checksum-crc32 on every
+          # upload by default. Several S3-compatible providers reject the
+          # header outright, and the resulting error names neither the header
+          # nor the checksum — it just looks like a malformed request. B2
+          # supports it now, but asking for checksums only when the operation
+          # actually requires them costs nothing and removes a whole class of
+          # confusing first-run failure.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
         run: |
           set -euo pipefail
           if [ -z "${DB_URL}" ]; then
             echo "::error::secret for ${{ matrix.env_name }} not configured"; exit 1
           fi
+          if [ -z "${B2_S3_ENDPOINT:-}" ] || [ -z "${B2_BACKUP_BUCKET:-}" ]; then
+            echo "::error::B2_S3_ENDPOINT / B2_BACKUP_BUCKET not configured"; exit 1
+          fi
           # SigV4 needs a region and B2 wants it to match the endpoint
-          # (e.g. s3.us-west-004.backblazeb2.com → us-west-004). Derive it;
-          # fall back to a sane default for non-standard endpoints.
-          AWS_DEFAULT_REGION="$(echo "${B2_S3_ENDPOINT}" | sed -nE 's#https?://s3\.([^.]+)\.backblazeb2\.com/?#\1#p')"
+          # (e.g. s3.us-west-004.backblazeb2.com → us-west-004). The scheme is
+          # optional in this match on purpose: an endpoint entered without
+          # https:// would otherwise silently fall through to the default
+          # region and fail as an opaque signature mismatch.
+          AWS_DEFAULT_REGION="$(echo "${B2_S3_ENDPOINT}" | sed -nE 's#^(https?://)?s3\.([^.]+)\.backblazeb2\.com/?$#\2#p')"
+          if [ -z "${AWS_DEFAULT_REGION}" ]; then
+            echo "::warning::could not derive a region from B2_S3_ENDPOINT (${B2_S3_ENDPOINT}) — falling back to us-west-004. If the upload fails to authenticate, this is why."
+          fi
           export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-004}"
           STAMP="$(date -u +%Y%m%d-%H%M%S)"
           FILE="wilson-${{ matrix.env_name }}-${STAMP}.dump.gz"
@@ -74,6 +90,14 @@ jobs:
           # functions, cron metadata all ride along.
           pg_dump "${DB_URL}" -Fc --no-owner | gzip -6 > "/tmp/${FILE}"
           test -s "/tmp/${FILE}"
-          aws s3 cp "/tmp/${FILE}" "s3://${B2_BACKUP_BUCKET}/db/${{ matrix.env_name }}/${FILE}" \
+          KEY="db/${{ matrix.env_name }}/${FILE}"
+          aws s3 cp "/tmp/${FILE}" "s3://${B2_BACKUP_BUCKET}/${KEY}" \
             --endpoint-url "${B2_S3_ENDPOINT}"
-          echo "uploaded db/${{ matrix.env_name }}/${FILE} ($(du -h /tmp/${FILE} | cut -f1))"
+          # Read it back. A backup job that reports success without confirming
+          # the object landed is the one failure mode nobody notices until the
+          # day it matters.
+          if ! aws s3 ls "s3://${B2_BACKUP_BUCKET}/${KEY}" \
+                 --endpoint-url "${B2_S3_ENDPOINT}" | grep -q "${FILE}"; then
+            echo "::error::upload reported success but ${KEY} is not in the bucket"; exit 1
+          fi
+          echo "uploaded ${KEY} ($(du -h /tmp/${FILE} | cut -f1)) — verified present"
