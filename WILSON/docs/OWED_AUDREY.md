@@ -9,7 +9,18 @@ from the source site into GitHub's secrets box.
 
 ## 1. B2 backup secrets — **do this first**
 
-**Status: NOT DONE. There are currently no database backups at all.**
+**Status: NOT DONE.**
+
+> **Correction (2026-07-29).** An earlier version of this file said there were
+> "no database backups at all". The Supabase org is on **Pro**, which includes
+> **daily backups with 7-day retention** as standard — so there is very likely
+> already a same-platform safety net. Confirm it in the dashboard.
+>
+> The B2 job is still worth finishing, for the two things Supabase's own
+> backups cannot do: it is **off-platform** (a suspended account, billing lapse
+> or compromise takes the database *and* its backups together) and it keeps
+> **longer retention** (7 days catches "we broke something on Tuesday"; it does
+> not catch corruption noticed a month later). Important, not urgent.
 
 Point-in-time recovery was permanently deferred as too expensive (locked
 decision #11, ~$100/mo). The replacement is a nightly `pg_dump` to Backblaze B2
@@ -84,9 +95,12 @@ error every night and has done since Session 9.
 
 Do this twice: once for **wilson-prod**, once for **wilson-staging**.
 
-5. Project → Settings → **Database** → connection string section.
+5. Click **`Connect`** in the top bar (next to the branch/environment chip).
+   Supabase moved connection strings there — there is no longer a
+   Settings → Database page in the dashboard nav.
 6. Choose **Session pooler** (not Direct connection, not Transaction pooler),
-   port **5432**. The workflow specifically wants the session pooler.
+   port **5432**, and take the **URI** form. The workflow specifically wants
+   the session pooler.
 7. Copy it. It looks like:
    `postgresql://postgres.abcdefgh:[YOUR-PASSWORD]@aws-0-us-west-1.pooler.supabase.com:5432/postgres`
 
