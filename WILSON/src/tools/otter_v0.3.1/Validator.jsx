@@ -5,6 +5,8 @@ import {
   ArrowRight, RefreshCw
 } from 'lucide-react';
 import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
+// Session 10: content routes go through the adapter seam (see adapters/index.js).
+import { otterFetch } from './adapters';
 
 // ── API helper (model-agnostic) ──────────────────────────────────────────────
 async function callValidatorAPI({ apiKey, model, systemPrompt, messages, tools, signal }) {
@@ -147,7 +149,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
           const cacheKey = `${sw.slug}/${sub.slug}`;
           if (!subjectCacheRef.current[cacheKey]) {
             try {
-              const fullSub = await fetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
+              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
               if (!cancelled) {
                 subjectCacheRef.current[cacheKey] = fullSub;
                 fetched = true;
@@ -293,7 +295,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
         const cacheKey = `${next.softwareSlug}/${next.subjectSlug}`;
         let fullSub = subjectCacheRef.current[cacheKey];
         if (!fullSub) {
-          fullSub = await fetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
+          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
           subjectCacheRef.current[cacheKey] = fullSub;
         }
 
@@ -379,7 +381,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
       const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
       let fullSub = subjectCacheRef.current[cacheKey];
       if (!fullSub) {
-        fullSub = await fetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
+        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
         subjectCacheRef.current[cacheKey] = fullSub;
       }
 
@@ -437,7 +439,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     }
 
     try {
-      await fetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
+      await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),

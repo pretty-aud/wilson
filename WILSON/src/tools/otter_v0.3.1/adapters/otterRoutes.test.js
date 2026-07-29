@@ -1,0 +1,178 @@
+// =============================================================================
+// otterRoutes.test.js — Session 10
+//
+// The route parser is the seam every O.T.T.E.R. read and write passes through
+// in cloud mode, so a mis-parse is a silent data-loss bug. These cover the
+// ordering hazards (literal sub-routes vs :sub), the URL shapes the call sites
+// actually build, and the merge semantics copied out of electron/main.cjs.
+// =============================================================================
+
+import { describe, it, expect } from 'vitest'
+import {
+  parseOtterRoute, slugify, migrateNodesData,
+  mergeHotkeys, mergeFunctions, mergeNodes, mergeCorrections,
+} from './otterRoutes.js'
+
+const p = (path, method) => parseOtterRoute(path, method)
+
+describe('parseOtterRoute — course routes', () => {
+  it('lists and creates courses', () => {
+    expect(p('/api/software', 'GET')).toEqual({ op: 'course.list' })
+    expect(p('/api/software', 'POST')).toEqual({ op: 'course.create' })
+  })
+
+  it('gets and deletes a single course', () => {
+    expect(p('/api/software/blender', 'GET')).toEqual({ op: 'course.get', slug: 'blender' })
+    expect(p('/api/software/blender', 'DELETE')).toEqual({ op: 'course.delete', slug: 'blender' })
+  })
+
+  it('accepts a UUID as the slug (cloud mode uses course ids as opaque keys)', () => {
+    const id = '0c000001-0000-0000-0000-000000000001'
+    expect(p(`/api/software/${id}`, 'GET')).toEqual({ op: 'course.get', slug: id })
+  })
+})
+
+describe('parseOtterRoute — subject routes', () => {
+  it('lists and saves subjects', () => {
+    expect(p('/api/software/blender/subjects', 'GET')).toEqual({ op: 'subject.list', slug: 'blender' })
+    expect(p('/api/software/blender/subjects', 'POST')).toEqual({ op: 'subject.save', slug: 'blender' })
+  })
+
+  it('gets and deletes an individual subject', () => {
+    expect(p('/api/software/blender/subjects/intro', 'GET'))
+      .toEqual({ op: 'subject.get', slug: 'blender', sub: 'intro' })
+    expect(p('/api/software/blender/subjects/intro', 'DELETE'))
+      .toEqual({ op: 'subject.delete', slug: 'blender', sub: 'intro' })
+  })
+
+  // The ordering hazard: these are literal paths, not subject slugs.
+  it('does not mistake renumber/reorder for a subject slug', () => {
+    expect(p('/api/software/blender/subjects/renumber', 'POST'))
+      .toEqual({ op: 'subject.renumber', slug: 'blender' })
+    expect(p('/api/software/blender/subjects/reorder', 'POST'))
+      .toEqual({ op: 'subject.reorder', slug: 'blender' })
+  })
+
+  // Validator.jsx:441 PUTs here; no Express route ever existed, so applying a
+  // validator fix silently 404'd. Cloud mode treats it as the intended save.
+  it('maps the Validator PUT onto a subject save', () => {
+    expect(p('/api/software/blender/subjects/intro', 'PUT'))
+      .toEqual({ op: 'subject.save', slug: 'blender', sub: 'intro' })
+  })
+})
+
+describe('parseOtterRoute — per-course documents', () => {
+  it.each(['hotkeys', 'functions', 'nodes', 'references', 'corrections'])(
+    'reads %s', (doc) => {
+      expect(p(`/api/software/blender/${doc}`, 'GET')).toEqual({ op: 'doc.get', slug: 'blender', doc })
+    })
+
+  it.each(['hotkeys', 'functions', 'nodes', 'corrections'])('merges %s', (doc) => {
+    expect(p(`/api/software/blender/${doc}/merge`, 'POST'))
+      .toEqual({ op: 'doc.merge', slug: 'blender', doc })
+  })
+
+  it('treats a plain POST to references as a whole-document write', () => {
+    expect(p('/api/software/blender/references', 'POST'))
+      .toEqual({ op: 'doc.put', slug: 'blender', doc: 'references' })
+  })
+
+  // The agent saves ONE correction at a time; Express merged by id. Routing
+  // this to doc.put would erase the whole correction memory on every save.
+  it('routes a plain POST to corrections through the MERGE path, not overwrite', () => {
+    expect(p('/api/software/blender/corrections', 'POST'))
+      .toEqual({ op: 'doc.merge', slug: 'blender', doc: 'corrections' })
+  })
+})
+
+describe('parseOtterRoute — per-user state', () => {
+  it('routes progress and quiz history separately from course documents', () => {
+    expect(p('/api/software/blender/progress', 'GET')).toEqual({ op: 'progress.get', slug: 'blender' })
+    expect(p('/api/software/blender/progress', 'POST')).toEqual({ op: 'progress.put', slug: 'blender' })
+    expect(p('/api/software/blender/quiz-history', 'GET')).toEqual({ op: 'quiz.get', slug: 'blender' })
+    expect(p('/api/software/blender/quiz-history', 'POST')).toEqual({ op: 'quiz.put', slug: 'blender' })
+  })
+})
+
+describe('parseOtterRoute — non-routes and tolerance', () => {
+  it('returns null for anything that is not an O.T.T.E.R. route', () => {
+    expect(p('/api/rabbit/projects', 'GET')).toBeNull()
+    expect(p('/api/otter-settings', 'GET')).toBeNull()
+    expect(p('/api/pet', 'GET')).toBeNull()
+    expect(p('/index.html', 'GET')).toBeNull()
+    expect(p(undefined, 'GET')).toBeNull()
+  })
+
+  it('returns null for verbs a route does not support', () => {
+    expect(p('/api/software/blender/subjects', 'DELETE')).toBeNull()
+    expect(p('/api/software', 'PATCH')).toBeNull()
+  })
+
+  it('tolerates absolute URLs, query strings and encoded slugs', () => {
+    expect(p('http://127.0.0.1:53210/api/software/blender/subjects', 'GET'))
+      .toEqual({ op: 'subject.list', slug: 'blender' })
+    expect(p('/api/software/blender?x=1', 'GET')).toEqual({ op: 'course.get', slug: 'blender' })
+    expect(p('/api/software/my%20course', 'GET')).toEqual({ op: 'course.get', slug: 'my course' })
+  })
+
+  it('routes export-all', () => {
+    expect(p('/api/export-all', 'GET')).toEqual({ op: 'export.all' })
+  })
+})
+
+describe('slugify matches the Express implementation', () => {
+  it.each([
+    ['Blender 5.0', 'blender-5-0'],
+    ['  Trailing  ', 'trailing'],
+    ['C++ Basics', 'c-basics'],
+  ])('%s -> %s', (input, expected) => {
+    expect(slugify(input)).toBe(expected)
+  })
+})
+
+describe('merge semantics', () => {
+  it('merges hotkeys by category then action, tolerating name/hotkeys aliases', () => {
+    const existing = { categories: [{ category: 'General', shortcuts: [{ action: 'Save' }] }] }
+    const out = mergeHotkeys(existing, [
+      { name: 'general', hotkeys: [{ action: 'save' }, { action: 'Open' }] },
+    ])
+    expect(out.categories).toHaveLength(1)
+    expect(out.categories[0].shortcuts.map(s => s.action)).toEqual(['Save', 'Open'])
+  })
+
+  it('does not mutate the existing hotkeys document', () => {
+    const existing = { categories: [{ category: 'General', shortcuts: [{ action: 'Save' }] }] }
+    mergeHotkeys(existing, [{ category: 'General', shortcuts: [{ action: 'Open' }] }])
+    expect(existing.categories[0].shortcuts).toHaveLength(1)
+  })
+
+  it('merges functions by category name then function name', () => {
+    const out = mergeFunctions(
+      { categories: [{ name: 'Math', functions: [{ name: 'abs' }] }] },
+      [{ name: 'Math', functions: [{ name: 'abs' }, { name: 'ceil' }] }],
+    )
+    expect(out.categories[0].functions.map(f => f.name)).toEqual(['abs', 'ceil'])
+  })
+
+  it('upgrades legacy node documents to the systems shape', () => {
+    const out = migrateNodesData({ categories: [{ category: 'Shader Basics', nodes: [] }] })
+    expect(out.systems[0].system).toBe('Shader Nodes')
+  })
+
+  it('merges nodes into system > category > node', () => {
+    const out = mergeNodes({ systems: [] }, [
+      { system: 'Geometry Nodes', category: 'Mesh', nodes: [{ name: 'Cube' }] },
+      { system: 'geometry nodes', category: 'mesh', nodes: [{ name: 'cube' }, { name: 'Sphere' }] },
+    ])
+    expect(out.systems).toHaveLength(1)
+    expect(out.systems[0].categories[0].nodes.map(n => n.name)).toEqual(['Cube', 'Sphere'])
+  })
+
+  it('merges corrections by id, updating in place', () => {
+    const out = mergeCorrections(
+      { corrections: [{ id: 'a', text: 'old' }] },
+      [{ id: 'a', text: 'new' }, { id: 'b', text: 'added' }],
+    )
+    expect(out.corrections).toEqual([{ id: 'a', text: 'new' }, { id: 'b', text: 'added' }])
+  })
+})

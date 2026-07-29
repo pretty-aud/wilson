@@ -18,6 +18,10 @@ import {
   MULTIPLE_CHOICE_PROMPT, CODE_IDENTIFICATION_PROMPT, CODE_WRITING_PROMPT, COMPANION_PROMPT,
   NODES_GENERATION_PROMPT
 } from './prompts.js';
+// Session 10: content routes go through the adapter seam instead of straight
+// to the in-app Express server — cloud when signed in, local otherwise, and
+// the only thing that works at all in the Session 11 web build.
+import { otterFetch } from './adapters';
 import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
 import { useAgent } from '../../agent';
@@ -207,7 +211,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       async getAvailableSubjects() {
         if (!activeSoftwareSlug) return [];
         try {
-          const res = await fetch(`/api/software/${activeSoftwareSlug}/subjects`);
+          const res = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`);
           return await res.json();
         } catch { return []; }
       },
@@ -223,7 +227,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       },
       async applyChange(target, changes) {
         // Load the full subject
-        const res = await fetch(`/api/software/${activeSoftwareSlug}/subjects/${target.subject_slug}`);
+        const res = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${target.subject_slug}`);
         if (!res.ok) throw new Error('Failed to load subject');
         const subject = await res.json();
 
@@ -248,7 +252,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         subject.updated_at = new Date().toISOString();
 
         // Save back
-        const saveRes = await fetch(`/api/software/${activeSoftwareSlug}/subjects`, {
+        const saveRes = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(subject),
@@ -262,14 +266,14 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       async getCorrections() {
         if (!activeSoftwareSlug) return [];
         try {
-          const res = await fetch(`/api/software/${activeSoftwareSlug}/corrections`);
+          const res = await otterFetch(`/api/software/${activeSoftwareSlug}/corrections`);
           const data = await res.json();
           return data.corrections || [];
         } catch { return []; }
       },
       async saveCorrection(correction) {
         if (!activeSoftwareSlug) return;
-        await fetch(`/api/software/${activeSoftwareSlug}/corrections`, {
+        await otterFetch(`/api/software/${activeSoftwareSlug}/corrections`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ corrections: [correction] }),
@@ -277,7 +281,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       },
       async getSubjectData(subjectSlug) {
         try {
-          const res = await fetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`);
+          const res = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`);
           if (!res.ok) return null;
           return await res.json();
         } catch { return null; }
@@ -299,7 +303,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         if (!activeSoftwareSlug) return null;
         const cached = softwareCacheRef.current[activeSoftwareSlug];
         if (cached?.meta) return cached.meta;
-        try { return await fetch(`/api/software/${activeSoftwareSlug}`).then(r => r.json()); }
+        try { return await otterFetch(`/api/software/${activeSoftwareSlug}`).then(r => r.json()); }
         catch { return null; }
       },
     };
@@ -342,25 +346,25 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
   const loadSoftwareList = useCallback(async () => {
     try {
-      const res = await fetch('/api/software');
+      const res = await otterFetch('/api/software');
       const data = await res.json();
       setSoftwareList(data);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
           Promise.all([
-            fetch(`/api/software/${sw.slug}`).then(r => r.json()),
-            fetch(`/api/software/${sw.slug}/subjects`).then(r => r.json()),
-            fetch(`/api/software/${sw.slug}/progress`).then(r => r.json()),
-            fetch(`/api/software/${sw.slug}/hotkeys`).then(r => r.json()),
-            fetch(`/api/software/${sw.slug}/functions`).then(r => r.json()).catch(() => ({ categories: [] })),
-            fetch(`/api/software/${sw.slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
-            fetch(`/api/software/${sw.slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
+            otterFetch(`/api/software/${sw.slug}`).then(r => r.json()),
+            otterFetch(`/api/software/${sw.slug}/subjects`).then(r => r.json()),
+            otterFetch(`/api/software/${sw.slug}/progress`).then(r => r.json()),
+            otterFetch(`/api/software/${sw.slug}/hotkeys`).then(r => r.json()),
+            otterFetch(`/api/software/${sw.slug}/functions`).then(r => r.json()).catch(() => ({ categories: [] })),
+            otterFetch(`/api/software/${sw.slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
+            otterFetch(`/api/software/${sw.slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
           ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
             softwareCacheRef.current[sw.slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
             for (const sub of subjects) {
               const cacheKey = `${sw.slug}/${sub.slug}`;
               if (!subjectCacheRef.current[cacheKey]) {
-                fetch(`/api/software/${sw.slug}/subjects/${sub.slug}`)
+                otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`)
                   .then(r => r.json())
                   .then(fullSub => { subjectCacheRef.current[cacheKey] = fullSub; })
                   .catch(() => {});
@@ -387,13 +391,13 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       return;
     }
     Promise.all([
-      fetch(`/api/software/${slug}`).then(r => r.json()),
-      fetch(`/api/software/${slug}/subjects`).then(r => r.json()),
-      fetch(`/api/software/${slug}/progress`).then(r => r.json()),
-      fetch(`/api/software/${slug}/hotkeys`).then(r => r.json()),
-      fetch(`/api/software/${slug}/functions`).then(r => r.json()).catch(() => ({ categories: [] })),
-      fetch(`/api/software/${slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
-      fetch(`/api/software/${slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
+      otterFetch(`/api/software/${slug}`).then(r => r.json()),
+      otterFetch(`/api/software/${slug}/subjects`).then(r => r.json()),
+      otterFetch(`/api/software/${slug}/progress`).then(r => r.json()),
+      otterFetch(`/api/software/${slug}/hotkeys`).then(r => r.json()),
+      otterFetch(`/api/software/${slug}/functions`).then(r => r.json()).catch(() => ({ categories: [] })),
+      otterFetch(`/api/software/${slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
+      otterFetch(`/api/software/${slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
     ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
       softwareCacheRef.current[slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
       setActiveSoftware(meta);
@@ -406,7 +410,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       for (const sub of subjects) {
         const cacheKey = `${slug}/${sub.slug}`;
         if (!subjectCacheRef.current[cacheKey]) {
-          fetch(`/api/software/${slug}/subjects/${sub.slug}`)
+          otterFetch(`/api/software/${slug}/subjects/${sub.slug}`)
             .then(r => r.json())
             .then(fullSub => { subjectCacheRef.current[cacheKey] = fullSub; })
             .catch(() => {});
@@ -428,7 +432,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       }
       return;
     }
-    fetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`)
+    otterFetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`)
       .then(r => r.json())
       .then(data => {
         subjectCacheRef.current[cacheKey] = data;
@@ -444,7 +448,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
   const saveProgress = useCallback(async (progress) => {
     if (!activeSoftwareSlug || !progress) return;
-    await fetch(`/api/software/${activeSoftwareSlug}/progress`, {
+    await otterFetch(`/api/software/${activeSoftwareSlug}/progress`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(progress)
     });
@@ -588,7 +592,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   // Save reference URLs to backend whenever they change
   const saveReferenceUrls = useCallback((urls) => {
     if (!activeSoftwareSlug) return;
-    fetch(`/api/software/${activeSoftwareSlug}/references`, {
+    otterFetch(`/api/software/${activeSoftwareSlug}/references`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ urls })
     }).catch(() => {});
@@ -662,7 +666,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       let existingSubjectTitles = [];
       if (existingMatch) {
         try {
-          const existingSubs = await fetch(`/api/software/${existingMatch.slug}/subjects`).then(r => r.json());
+          const existingSubs = await otterFetch(`/api/software/${existingMatch.slug}/subjects`).then(r => r.json());
           existingSubjectTitles = existingSubs.map(s => s.title);
           userMessage += `\n\nIMPORTANT: This software already has the following subjects — do NOT generate duplicates or basics:\n${existingSubjectTitles.map(t => `- ${t}`).join('\n')}`;
           userMessage += `\nDo NOT include "General Basics" since it already exists. Only generate NEW subjects.`;
@@ -709,7 +713,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         setGenPhase('Adding to existing course...');
       } else {
         setGenPhase('Creating software folder...');
-        const metaRes = await fetch('/api/software', {
+        const metaRes = await otterFetch('/api/software', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: parsed.software_name || softwareNameInput.trim(),
@@ -728,7 +732,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       let existingMaxOrder = 0;
       if (existingMatch) {
         try {
-          const existingSubs = await fetch(`/api/software/${slug}/subjects`).then(r => r.json());
+          const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(r => r.json());
           existingSubs.forEach(s => {
             existingSlugs.add(s.slug);
             if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
@@ -750,7 +754,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         if (existingMatch && sub.title.toLowerCase().includes('general basics')) continue;
 
         orderCounter++;
-        await fetch(`/api/software/${slug}/subjects`, {
+        await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             slug: subSlug,
@@ -831,7 +835,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
     let subTitle = subjectSlug;
     try {
-      const stubPre = await fetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`).then(r => r.json());
+      const stubPre = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`).then(r => r.json());
       subTitle = stubPre.title || subjectSlug;
     } catch { /* use slug */ }
 
@@ -864,7 +868,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     try {
       if (signal.aborted) throw new Error('Cancelled');
 
-      const stubData = await fetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`, { signal }).then(r => r.json());
+      const stubData = await otterFetch(`/api/software/${activeSoftwareSlug}/subjects/${subjectSlug}`, { signal }).then(r => r.json());
 
       if (signal.aborted) throw new Error('Cancelled');
 
@@ -896,16 +900,16 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       // Dedup context: pass existing hotkeys/functions/nodes so AI doesn't duplicate
       try {
         if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await fetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
+          const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
           const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
-          const hkData = softwareHotkeys || await fetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
+          const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
           const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
           if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
         }
         if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await fetch(`/api/software/${activeSoftwareSlug}/nodes`).then(r => r.json());
+          const ndData = softwareNodes || await otterFetch(`/api/software/${activeSoftwareSlug}/nodes`).then(r => r.json());
           const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
           if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
         }
@@ -989,7 +993,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         sources: dedupedSources,
         updated_at: new Date().toISOString(),
       };
-      await fetch(`/api/software/${activeSoftwareSlug}/subjects`, {
+      await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updatedSubject)
       });
@@ -1012,7 +1016,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           });
           categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
         }
-        const hkRes = await fetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
+        const hkRes = await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories })
         });
@@ -1033,7 +1037,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           }))
         })).filter(cat => cat.functions.length > 0);
         if (categories.length > 0) {
-          await fetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
+          await otterFetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ categories })
           });
@@ -1042,7 +1046,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
       // Merge nodes if present
       if (parsed.nodes?.length > 0) {
-        const nodesRes = await fetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
+        const nodesRes = await otterFetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories: parsed.nodes })
         });
@@ -1131,16 +1135,16 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       // Dedup context
       try {
         if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await fetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
+          const fnData = softwareFunctions || await otterFetch(`/api/software/${activeSoftwareSlug}/functions`).then(r => r.json());
           const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
-          const hkData = softwareHotkeys || await fetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
+          const hkData = softwareHotkeys || await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys`).then(r => r.json());
           const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
           if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
         }
         if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await fetch(`/api/software/${activeSoftwareSlug}/nodes`).then(r => r.json());
+          const ndData = softwareNodes || await otterFetch(`/api/software/${activeSoftwareSlug}/nodes`).then(r => r.json());
           const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
           if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
         }
@@ -1224,7 +1228,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         updated_at: new Date().toISOString(),
       };
 
-      await fetch(`/api/software/${activeSoftwareSlug}/subjects`, {
+      await otterFetch(`/api/software/${activeSoftwareSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subject)
       });
@@ -1242,7 +1246,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           });
           categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
         }
-        const hkRes2 = await fetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
+        const hkRes2 = await otterFetch(`/api/software/${activeSoftwareSlug}/hotkeys/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories })
         });
@@ -1262,7 +1266,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           }))
         })).filter(cat => cat.functions.length > 0);
         if (categories.length > 0) {
-          await fetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
+          await otterFetch(`/api/software/${activeSoftwareSlug}/functions/merge`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ categories })
           });
@@ -1271,7 +1275,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
       // Merge nodes if present
       if (parsed.nodes?.length > 0) {
-        const nodesRes = await fetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
+        const nodesRes = await otterFetch(`/api/software/${activeSoftwareSlug}/nodes/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories: parsed.nodes })
         });
@@ -1334,7 +1338,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       // Fetch software metadata fresh
       let swMeta;
       try {
-        swMeta = await fetch(`/api/software/${swSlug}`).then(r => r.json());
+        swMeta = await otterFetch(`/api/software/${swSlug}`).then(r => r.json());
       } catch { swMeta = { name: swSlug, type: 'software' }; }
       const swType = swMeta.type || 'software';
 
@@ -1359,16 +1363,16 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       // Dedup context
       try {
         if (swType === 'coding_language') {
-          const fnData = softwareFunctions || await fetch(`/api/software/${swSlug}/functions`).then(r => r.json());
+          const fnData = softwareFunctions || await otterFetch(`/api/software/${swSlug}/functions`).then(r => r.json());
           const allNames = (fnData?.categories || []).flatMap(c => (c.functions || []).map(f => f.name)).slice(0, 100);
           if (allNames.length > 0) userMessage += `\n\nEXISTING FUNCTIONS (DO NOT DUPLICATE):\n${allNames.map(n => `- ${n}`).join('\n')}\nOnly include functions NOT in this list.\n`;
         } else {
-          const hkData = softwareHotkeys || await fetch(`/api/software/${swSlug}/hotkeys`).then(r => r.json());
+          const hkData = softwareHotkeys || await otterFetch(`/api/software/${swSlug}/hotkeys`).then(r => r.json());
           const allActions = (hkData?.categories || []).flatMap(c => (c.shortcuts || []).map(s => s.action)).slice(0, 100);
           if (allActions.length > 0) userMessage += `\n\nEXISTING HOTKEYS (DO NOT DUPLICATE):\n${allActions.map(a => `- ${a}`).join('\n')}\nOnly include hotkeys NOT in this list.\n`;
         }
         if (swType === 'node_software' || swType === 'software') {
-          const ndData = softwareNodes || await fetch(`/api/software/${swSlug}/nodes`).then(r => r.json());
+          const ndData = softwareNodes || await otterFetch(`/api/software/${swSlug}/nodes`).then(r => r.json());
           const allNodeNames = (ndData?.systems || []).flatMap(s => (s.categories || []).flatMap(c => (c.nodes || []).map(n => n.name))).slice(0, 100);
           if (allNodeNames.length > 0) userMessage += `\n\nEXISTING NODES (DO NOT DUPLICATE):\n${allNodeNames.map(n => `- ${n}`).join('\n')}\nOnly include nodes NOT in this list.\n`;
         }
@@ -1451,7 +1455,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         updated_at: new Date().toISOString(),
       };
 
-      await fetch(`/api/software/${swSlug}/subjects`, {
+      await otterFetch(`/api/software/${swSlug}/subjects`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(subject)
       });
@@ -1469,7 +1473,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           });
           categories = Object.entries(grouped).map(([category, shortcuts]) => ({ category, shortcuts }));
         }
-        const hkRes = await fetch(`/api/software/${swSlug}/hotkeys/merge`, {
+        const hkRes = await otterFetch(`/api/software/${swSlug}/hotkeys/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories })
         });
@@ -1489,7 +1493,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           }))
         })).filter(cat => cat.functions.length > 0);
         if (categories.length > 0) {
-          await fetch(`/api/software/${swSlug}/functions/merge`, {
+          await otterFetch(`/api/software/${swSlug}/functions/merge`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ categories })
           });
@@ -1498,7 +1502,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
       // Merge nodes if present
       if (parsed.nodes?.length > 0) {
-        const nodesRes = await fetch(`/api/software/${swSlug}/nodes/merge`, {
+        const nodesRes = await otterFetch(`/api/software/${swSlug}/nodes/merge`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ categories: parsed.nodes })
         });
@@ -1555,7 +1559,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       let existingSubjectTitles = [];
       if (existingMatch) {
         try {
-          const existingSubs = await fetch(`/api/software/${existingMatch.slug}/subjects`).then(r => r.json());
+          const existingSubs = await otterFetch(`/api/software/${existingMatch.slug}/subjects`).then(r => r.json());
           existingSubjectTitles = existingSubs.map(s => s.title);
           userMessage += `\n\nIMPORTANT: This software already has the following subjects — do NOT generate duplicates or basics:\n${existingSubjectTitles.map(t => `- ${t}`).join('\n')}`;
           userMessage += `\nDo NOT include "General Basics" since it already exists. Only generate NEW subjects.`;
@@ -1602,7 +1606,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         updateGenSubject(tempSlug, { phase: 'Adding to existing course...' });
       } else {
         updateGenSubject(tempSlug, { phase: 'Creating software folder...' });
-        const metaRes = await fetch('/api/software', {
+        const metaRes = await otterFetch('/api/software', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: parsed.software_name || softwareName.trim(),
@@ -1621,7 +1625,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       let existingMaxOrder = 0;
       if (existingMatch) {
         try {
-          const existingSubs = await fetch(`/api/software/${slug}/subjects`).then(r => r.json());
+          const existingSubs = await otterFetch(`/api/software/${slug}/subjects`).then(r => r.json());
           existingSubs.forEach(s => {
             existingSlugs.add(s.slug);
             if (s.subject_order != null && s.subject_order > existingMaxOrder) existingMaxOrder = s.subject_order;
@@ -1643,7 +1647,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         if (existingMatch && sub.title.toLowerCase().includes('general basics')) continue;
 
         orderCounter++;
-        await fetch(`/api/software/${slug}/subjects`, {
+        await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             slug: subSlug,
@@ -1711,7 +1715,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         let full = subjectCacheRef.current[cacheKey];
         if (!full) {
           try {
-            full = await fetch(`/api/software/${swSlug}/subjects/${sub.slug}`).then(r => r.json());
+            full = await otterFetch(`/api/software/${swSlug}/subjects/${sub.slug}`).then(r => r.json());
             subjectCacheRef.current[cacheKey] = full;
           } catch { continue; }
         }
@@ -1863,8 +1867,8 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     await Promise.all(softwareList.map(async (sw) => {
       try {
         const [meta, subjects] = await Promise.all([
-          fetch(`/api/software/${sw.slug}`).then(r => r.json()),
-          fetch(`/api/software/${sw.slug}/subjects`).then(r => r.json()),
+          otterFetch(`/api/software/${sw.slug}`).then(r => r.json()),
+          otterFetch(`/api/software/${sw.slug}/subjects`).then(r => r.json()),
         ]);
         data[sw.slug] = { meta, subjects };
         if (softwareCacheRef.current[sw.slug]) {
@@ -1914,7 +1918,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   //  IMPORT / EXPORT
   // ═══════════════════════════════════════════════════════════════
   const exportAll = useCallback(async () => {
-    const res = await fetch('/api/export-all');
+    const res = await otterFetch('/api/export-all');
     const data = await res.json();
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -1933,25 +1937,25 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       if (data.version === '2.0' && data.software) {
         for (const sw of data.software) {
           if (!sw.meta) continue;
-          await fetch('/api/software', {
+          await otterFetch('/api/software', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: sw.meta.name, type: sw.meta.type, skill_level: sw.meta.skill_level })
           });
           const slug = sw.meta.slug;
           for (const sub of (sw.subjects || [])) {
-            await fetch(`/api/software/${slug}/subjects`, {
+            await otterFetch(`/api/software/${slug}/subjects`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(sub)
             });
           }
           if (sw.hotkeys?.categories?.length) {
-            await fetch(`/api/software/${slug}/hotkeys/merge`, {
+            await otterFetch(`/api/software/${slug}/hotkeys/merge`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ categories: sw.hotkeys.categories })
             });
           }
           if (sw.functions?.categories?.length) {
-            await fetch(`/api/software/${slug}/functions/merge`, {
+            await otterFetch(`/api/software/${slug}/functions/merge`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ categories: sw.functions.categories })
             });
@@ -1962,25 +1966,25 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
               (sys.categories || []).map(cat => ({ ...cat, system: sys.system }))
             );
             if (flatCats.length > 0) {
-              await fetch(`/api/software/${slug}/nodes/merge`, {
+              await otterFetch(`/api/software/${slug}/nodes/merge`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ categories: flatCats })
               });
             }
           } else if (sw.nodes?.categories?.length) {
-            await fetch(`/api/software/${slug}/nodes/merge`, {
+            await otterFetch(`/api/software/${slug}/nodes/merge`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ categories: sw.nodes.categories })
             });
           }
           if (sw.progress) {
-            await fetch(`/api/software/${slug}/progress`, {
+            await otterFetch(`/api/software/${slug}/progress`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(sw.progress)
             });
           }
           // Renumber subjects to ensure consistent ordering after import
-          await fetch(`/api/software/${slug}/subjects/renumber`, { method: 'POST' });
+          await otterFetch(`/api/software/${slug}/subjects/renumber`, { method: 'POST' });
         }
         invalidateCache();
         loadSoftwareList();
@@ -1991,12 +1995,12 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       if (data.lesson) {
         const softwareName = data.lesson.software_or_language || 'Imported';
         const slug = softwareName.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        await fetch('/api/software', {
+        await otterFetch('/api/software', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: softwareName, type: data.lesson.type || 'software', skill_level: data.lesson.skill_level || 'beginner' })
         });
         const subSlug = (data.lesson.title || 'imported').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-        await fetch(`/api/software/${slug}/subjects`, {
+        await otterFetch(`/api/software/${slug}/subjects`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             slug: subSlug,
@@ -2033,7 +2037,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   //  DELETE SOFTWARE
   // ═══════════════════════════════════════════════════════════════
   const deleteSoftware = useCallback(async (slug) => {
-    await fetch(`/api/software/${slug}`, { method: 'DELETE' });
+    await otterFetch(`/api/software/${slug}`, { method: 'DELETE' });
     if (activeSoftwareSlug === slug) {
       setActiveSoftwareSlug(null);
       setActiveSoftware(null);
@@ -2056,12 +2060,12 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   // ═══════════════════════════════════════════════════════════════
   const deleteSubject = useCallback(async (softwareSlug, subjectSlug) => {
     try {
-      const subData = await fetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`).then(r => r.json());
+      const subData = await otterFetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`).then(r => r.json());
       setDeletedSubjectsStack(prev => [...prev, { softwareSlug, subjectData: subData }]);
       setRedoSubjectsStack([]);
     } catch { /* proceed with delete even if backup fails */ }
 
-    await fetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`, { method: 'DELETE' });
+    await otterFetch(`/api/software/${softwareSlug}/subjects/${subjectSlug}`, { method: 'DELETE' });
     if (activeSubjectSlug === subjectSlug) {
       setActiveSubjectSlug(null);
       setActiveSubject(null);
@@ -2086,12 +2090,12 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     setDeletedSubjectsStack(prev => prev.slice(0, -1));
     setRedoSubjectsStack(prev => [...prev, last]);
 
-    await fetch(`/api/software/${last.softwareSlug}/subjects`, {
+    await otterFetch(`/api/software/${last.softwareSlug}/subjects`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(last.subjectData)
     });
     // Renumber subjects to maintain clean ordering after restore
-    await fetch(`/api/software/${last.softwareSlug}/subjects/renumber`, { method: 'POST' });
+    await otterFetch(`/api/software/${last.softwareSlug}/subjects/renumber`, { method: 'POST' });
     invalidateCache(last.softwareSlug);
     selectSoftware(last.softwareSlug, true);
     loadSoftwareList();
@@ -2105,7 +2109,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     setDeletedSubjectsStack(prev => [...prev, last]);
 
     // DELETE endpoint already calls renumberSubjects on the backend
-    await fetch(`/api/software/${last.softwareSlug}/subjects/${last.subjectData.slug}`, { method: 'DELETE' });
+    await otterFetch(`/api/software/${last.softwareSlug}/subjects/${last.subjectData.slug}`, { method: 'DELETE' });
     invalidateCache(last.softwareSlug);
     selectSoftware(last.softwareSlug, true);
     loadSoftwareList();
@@ -2204,7 +2208,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
 
         if (!fullSub) {
           try {
-            fullSub = await fetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
+            fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
             subjectCacheRef.current[cacheKey] = fullSub;
           } catch { continue; }
         }
@@ -4615,7 +4619,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           <div className="flex gap-2">
             <button onClick={() => setShowClearConfirm(false)} className="flex-1 bg-stone-700 text-stone-300 border-2 border-stone-600 py-2 rounded-sm hover:bg-stone-600 transition-colors text-sm">Cancel</button>
             <button onClick={async () => {
-              for (const sw of softwareList) { await fetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
+              for (const sw of softwareList) { await otterFetch(`/api/software/${sw.slug}`, { method: 'DELETE' }); }
               setActiveSoftwareSlug(null); setActiveSoftware(null); setSubjectList([]); setActiveSubjectSlug(null); setActiveSubject(null);
               setSoftwareHotkeys(null); setSoftwareFunctions(null); setActiveProgress(null); setReferenceUrls([]);
               invalidateCache(); loadSoftwareList(); setShowClearConfirm(false); setCurrentView('library');

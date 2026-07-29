@@ -16,20 +16,28 @@ and Google Drive backends see `adapters/localServerAdapter.js` and
 
 ## 2. Apply the schema
 
-In the Supabase dashboard, open **SQL Editor → New query** and paste the entire
-contents of `schema.sql` from this folder. Click **Run**. The script is
-re-runnable — every `create` is wrapped in `if not exists` or
-`exception when duplicate_object`.
+> **Changed in Session 10 (2026-07-28).** `schema.sql` and `seed.sql` were
+> **deleted**. The migrations in `supabase/migrations/` are now the only
+> description of the schema.
+>
+> They were the bootstrap for "run RABBIT standalone against your own Supabase
+> project", which Audrey confirmed is no longer a supported deployment. It had
+> in fact been unreachable since **Session 2**, for two independent reasons:
+> the per-project `{userData}/rabbit-data/supabase.json` credential fallback was
+> removed (project URL and anon key are now build-time `VITE_*` values, so a
+> shipped WILSON cannot be pointed at a hand-bootstrapped project at all), and
+> `schema.sql` was never updated past `0000` — it does not create
+> `edit_history`, `project_members`, `notes` or `note_subjects`, all of which
+> the current adapter queries. A database built from it could not have run the
+> app even if you could have connected to it.
+>
+> Both files remain in git history if that path is ever revived.
 
-To sanity-check the adapter round-trip, run `seed.sql` next. It inserts a
-single demo project ("Sample Short Film") with 2 phases, 3 assets, 6 tasks, and
-2 dependencies. You can delete this row at any time:
+Apply migrations with the Supabase CLI instead:
 
-```sql
-delete from projects where id = '11111111-0000-0000-0000-000000000001';
+```bash
+supabase db push --linked
 ```
-
-The cascade rules will clean up the dependent rows automatically.
 
 ## 3. Storage bucket
 
@@ -149,10 +157,21 @@ explains why.
 
 ## 8. Migrations
 
-For v0.1 there is exactly one migration — `schema.sql`. There is no
-migrations runner. When the schema needs to evolve, append a new file
-(`schema_v0.2.sql`, etc.) and a CHANGELOG entry. Do not edit `schema.sql`
-in-place after a release ships.
+The numbered files in `supabase/migrations/` (`0000`–`0023`) are the single
+source of truth for the schema, applied with `supabase db push --linked`.
+Every migration is written to be idempotent and ends with a `DO $$`
+post-condition block that raises if its own invariants did not land.
+
+Never edit a migration that has shipped to staging or prod. To re-apply one
+that is still only on dev after editing it:
+
+```bash
+supabase migration repair --status reverted NNNN --linked
+supabase db push --linked --include-all
+```
+
+(The v0.1 text here described a single `schema.sql` with no runner; see §2 for
+why that file is gone.)
 
 ## 9. Member directory & profiles (Session 4, migration 0010)
 
@@ -540,3 +559,147 @@ invite budget — durable limiter is S11 TPN work).
 
 pgTAP: 24_admin_grants.sql (32 probes) + 25_app_events.sql (13 probes);
 rls.yml RLS_TABLES += app_events, replay += 24/25.
+
+## 19. O.T.T.E.R. cloud content model (Session 10, migrations 0022 + 0023)
+
+O.T.T.E.R. moves off local-disk JSON (`otter-data/`) onto workspace-tenanted
+cloud tables. This is the prerequisite for the Session 11 web build: a browser
+has no in-app Express server, so `fetch('/api/software/...')` has no local
+backend there at all.
+
+### Three visibility tiers (Audrey, 2026-07-28 — refines locked #17)
+
+| Tier | Who can read the CONTENT | Who can write |
+|---|---|---|
+| `personal` | the owner only — **no admin bypass** | owner (+ admins, + granted editors) |
+| `shared` | every active workspace member | owner, workspace admins, granted editors |
+| `company_standard` | every active workspace member | same, but only an **admin** may set or clear the tier |
+
+Never cross-company: every row carries `workspace_id` and every policy starts
+from `workspace_id = current_workspace_id()`. Deactivated members are closed
+out of reads *and* writes — unlike `notes` (0017), whose SELECT arms predate
+the Session 9 alignment, these tables treat 0020 as the baseline.
+
+**Admins see that a personal course exists, not what is in it.** That is
+`otter_course_index()` — a SECURITY DEFINER RPC returning metadata only (name,
+owner label, subject count, tier, `can_read_content`, `can_write`). It has no
+content columns, and pgTAP 26 asserts against its declared signature that it
+never grows one. A plain member's index shows only courses they can actually
+open, so nobody can fish for colleagues' course titles.
+
+### Tables
+
+- **`otter_courses`** — the "software"/course. The five per-course reference
+  documents (`hotkeys`, `functions`, `nodes`, `reference_urls`, `corrections`)
+  are JSONB columns, not tables: each is one whole-document blob the app merges
+  in place and never queries piecewise.
+- **`otter_subjects`** — one row per subject. Queryable metadata is columnar;
+  the nested `sections[] -> lessons[]` content stays JSONB (always loaded and
+  saved whole). `subject_order` is now **genuinely persisted** — on disk it was
+  recomputed by a regex "curriculum score" that rewrote every subject file on
+  *every* list read, which as a cloud read would be N UPDATEs per page load.
+- **`otter_progress`** — per-user study state, one row per `(course, user)`.
+  On disk this lived in the course directory because O.T.T.E.R. was
+  single-user; keying it to the course alone in a shared workspace would let
+  two people studying one course silently overwrite each other. Owner-only, no
+  admin bypass.
+- **`otter_course_editors`** — per-user edit grants ("owners can add others to
+  have edit access"). Composite FK to `workspace_members` (the 0013
+  `project_members` shape) so a grant dies with the membership. A grantee
+  cannot recruit further editors.
+- **`otter_change_requests`** — a user who forked a company-standard course can
+  propose their changes back with a written rationale; admins approve or
+  reject. The proposer may keep refining or withdraw, never decide. A settled
+  request can never be reopened (`fn_otter_cr_review`), and there is no DELETE
+  policy at all — review history is retained.
+
+### Helpers and RPCs
+
+`otter_has_editor_grant` / `otter_is_course_owner` / `otter_course_visibility`
+/ `otter_can_write_course` are all SECURITY DEFINER, each reading a *different*
+table from the policy that calls it — that is what keeps the policy graph free
+of the 0008 recursion trap — and all live-row, so a revoked grant takes effect
+on the next statement rather than the next token refresh (the 0020
+`has_rate_card_grant` convention).
+
+`otter_fork_course(course_id, new_name)` backs "use the company standard course
+instead of generating a new one": it copies a readable course and its live
+subjects into a **personal** copy owned by the caller, recording
+`source_course_id`. Forks are always born personal — taking a copy must never
+republish anything. Because DEFINER bypasses RLS it re-asserts readability
+itself.
+
+### Trash
+
+Soft delete with a 30-day sweep (`purge_otter_trash`, pg_cron
+`wilson-purge-otter-trash` 04:55 UTC). **0014's `soft_delete_row()` could not
+be reused** — `fn_trash_authz` hardcodes the seven RABBIT tables and authorizes
+through `can_write_project()`, which has no meaning here.
+`otter_soft_delete_row` / `otter_restore_row` are the O.T.T.E.R.-shaped
+equivalents.
+
+Two traps worth remembering, both found by probing rather than by reading:
+
+1. `fn_otter_trash_authz` must **not** delegate to `otter_can_write_course()`.
+   That helper filters `deleted_at IS NULL`, so routing restore through it made
+   the trash a **one-way door** — the row being restored is by definition
+   already hidden. It resolves its row directly instead, exactly as 0014's does.
+2. The UPDATE policies carry an explicit `AND deleted_at IS NULL` in their
+   WITH CHECK. 0014 relied on the *observation* that Postgres re-checks the
+   SELECT policy against the NEW row; stating it makes the refusal explicit and
+   version-independent, and forces every delete through the RPC where
+   authorization and the `deleted_by` stamp actually live.
+
+Identity columns are pinned by BEFORE UPDATE triggers
+(`fn_otter_pin_course_identity` and siblings). Policies decide *who* may write
+a row; without the pin a granted editor could still set `owner_id` to
+themselves and steal the course, or move a subject between courses to smuggle
+content across a visibility boundary.
+
+### Deliberate exclusions
+
+- **No storage bucket.** O.T.T.E.R. has zero binary content — no images, audio
+  or uploads anywhere in the tool.
+- **Not broadcast on any realtime topic.** The 0018 workspace channel delivers
+  full row payloads to every subscriber, so personal course bodies must never
+  ride it; and courses are not a live co-editing surface. Revisit only with a
+  per-course topic in the 0016 `rabbit:project:{id}` style.
+- **Not edit-history captured.** 0012's entity CHECK stays locked to the 13
+  RABBIT tables — same precedent as `project_members` and `notes`.
+- **Scraped reference page text is not migrated** (url + title only). It is a
+  regenerable cache of third-party page content and does not belong in a shared
+  multi-tenant database.
+
+### Client seam
+
+`src/tools/otter_v0.3.1/adapters/` — `otterFetch()` parses O.T.T.E.R.'s own API
+paths and dispatches to Supabase when a workspace session exists, or to the
+in-app Express server otherwise. The ~85 call sites in `Otter.jsx` and
+`Validator.jsx` keep their exact `fetch(...).then(r => r.json())` shape, so the
+diff is one identifier rather than a rewrite of a 4,600-line component.
+
+In cloud mode the "slug" handed to the client is the course **UUID**. On disk a
+course was identified by `slugify(name)`, which is only unique inside one
+user's own folder — in a shared workspace two visible courses can legitimately
+carry the same slug (your fork and the company standard). `Otter.jsx` never
+interprets the slug: it looks courses up by NAME (`Otter.jsx:645, 1528, 3408`)
+and passes the slug back only as an opaque URL key, so this is transparent. The
+real slug stays on the row as the migration tool's natural key.
+
+Migration tool: `src/cloud/migrate/runOtterMigration.js`. It reads with **raw
+`fetch`, never `otterFetch`** — the latter routes to the cloud exactly when a
+migration is running, which would copy the cloud onto itself and report
+success.
+
+### 0023 — `public.users` dropped
+
+Vestigial since 0000 and FK-free since 0007. Worth removing rather than leaving
+inert: `0011_role_grants.sql` grants ALL on every public table to `anon`, and
+`public.users` was the only table in the schema that never had RLS enabled, so
+PostgREST was exposing it as an unauthenticated read *and write* endpoint. It
+was empty, so nothing leaked. The migration refuses to run if it finds rows.
+
+pgTAP: `26_otter_courses.sql` (29) · `27_otter_subjects.sql` (18) ·
+`28_otter_progress.sql` (13) · `29_otter_course_editors.sql` (14) ·
+`30_otter_change_requests.sql` (16). `rls.yml` RLS_TABLES += the five tables,
+replay list += 26–30.
