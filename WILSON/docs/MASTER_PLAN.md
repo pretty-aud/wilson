@@ -212,6 +212,26 @@ Core capabilities of v1.0.0:
     their backup responsibility; WILSON keeps only the metadata that points at
     them. **O.T.T.E.R. content is excluded from any company-wide export**
     (§10, 2026-07-29). — decided 2026-07-29
+21. **NO Anthropic API key ever reaches a client, on EITHER host.** All AI calls
+    go through one authenticated Edge Function proxy (`ai-proxy`); Electron uses
+    it too, so there is a single code path and no desktop/web divergence. The
+    proxy resolves a **per-workspace key with a platform fallback**, which is
+    what makes admin-portal key management (S14 operator console) a config
+    change rather than a rewrite. The per-user `wilson-api-key` in
+    `localStorage` is deleted on upgrade and the Settings key field removed.
+    Design detail + the 150s/400s streaming workaround in §10.
+    — decided 2026-07-29 (Audrey)
+22. **Approving an O.T.T.E.R. change request APPLIES it.** Approval is not a
+    decision record: it copies the proposer's subjects into the company-standard
+    course. **Additive only** — it adds and updates, never deletes (Audrey's
+    call: one approval must not silently strip lessons from everyone's official
+    course). **Every approval auto-archives the target first** to a private
+    snapshot owned by the approving admin, because O.T.T.E.R. is deliberately
+    not edit-history captured and an overwrite would otherwise be
+    unrecoverable. Declining requires a note, and the proposer can either
+    accept the decision or revise and resubmit. Submitting a request grants
+    reviewers **read** access to the proposer's copy for the review window
+    only. — decided 2026-07-29 (Audrey)
 
 ---
 
@@ -504,27 +524,38 @@ all land here rather than in S14.
 22. ~~**no `can_write` gating in the O.T.T.E.R. UI**~~ — **CLOSED S11.** Every
     generate/edit/delete affordance is now gated on `can_write`, with a stated
     reason where a control disappears rather than a silent absence.
-25. **NEW (S11): O.T.T.E.R. generation ships the Anthropic key to the browser
-    on the web.** `callAnthropicAPI` (`Otter.jsx`) posts straight to
-    `api.anthropic.com` with `anthropic-dangerous-direct-browser-access` and the
-    user's key. That is fine in Electron and NOT fine in a browser. D.O.G.
-    already has an Edge-Function proxy planned for S12 (locked #17); O.T.T.E.R.
-    needs the same treatment or generation must be disabled on the web build.
-    **Decide explicitly in S12 — do not let it ship by omission.**
-26. **NEW (S11): approving a change request records a decision, it does not
-    merge anything.** `fn_otter_cr_review` stamps the reviewer and freezes the
-    row; no content moves. An admin who approves must then make the edits to the
-    company-standard course by hand. The Admin Terminal says so at the point of
-    decision. If Audrey wants approval to actually apply the proposer's changes,
-    that is a new feature (and needs a diff/merge model) — flagged, not assumed.
-27. **NEW (S11): a reviewer sees the proposer's SUMMARY, not their course.**
-    A fork is born personal and owned by the proposer, so admins cannot read it.
-    The submit dialog states this and offers to share the fork; the review queue
-    shows whether the source is openable. This is a deliberate consequence of
-    "personal is private even from admins", not an oversight — but it is the one
-    place where Audrey's phrasing ("their updates plus a written explanation")
-    and the shipped behaviour differ, so it is written down rather than assumed
-    settled.
+25. **NEW (S11): the Anthropic key is on every client and would ship to the
+    browser.** Not just O.T.T.E.R. — `api.anthropic.com` is called directly from
+    **six files / 13+ call sites**: `Otter.jsx`, `Validator.jsx`,
+    `DeckOutlineGenerator.jsx` (8 sites), `AgentProvider.jsx`, `App.jsx`, and
+    `rabbit_v0.1.0/intake/pipeline.js`, all with
+    `anthropic-dangerous-direct-browser-access` and a key each user pastes into
+    `localStorage` (`wilson-api-key`, read at `App.jsx:195`). Fine in Electron;
+    a credential in the browser on the web. **RESOLVED by locked #21** — one
+    `ai-proxy` Edge Function for both hosts. → **S12 Block A** (it is the
+    blocker for web D.O.G. *and* web O.T.T.E.R., so it is not optional there).
+26. ~~approving a change request records a decision, it does not merge~~ —
+    **RESOLVED 2026-07-29 (Audrey): approval must APPLY the change.** See
+    locked #22 and the S12 Block C spec. Needs migration 0025: the current
+    `fn_otter_cr_review` hard-blocks any transition out of a settled state, so
+    the revise-and-resubmit loop cannot exist today.
+27. ~~a reviewer sees the SUMMARY, not the course~~ — **RESOLVED 2026-07-29
+    (Audrey): submitting a request must let the admin see the course.**
+    Implemented as a scoped, consented read arm, NOT an admin bypass — see the
+    S12 Block C spec for why it has to go through a SECURITY DEFINER helper
+    (0022 has a post-condition that fails the migration if a SELECT policy on
+    `otter_courses` mentions `current_app_role()` literally).
+28. **NEW (S11): the admin reviews prose, not a diff.** Even with read access to
+    the proposer's course (#27), a reviewer compares two courses by eye. A real
+    subject-level diff view is the obvious follow-on and is deliberately NOT in
+    the S12 Block C scope — flagged so it is a choice rather than an oversight.
+29. **NEW (S11): the apply RPC handles SUBJECTS only.** The five per-course
+    reference documents (`hotkeys`, `functions`, `nodes`, `reference_urls`,
+    `corrections`) have merge semantics that live in client JS
+    (`otterRoutes.js`'s `mergeHotkeys`/`mergeFunctions`/`mergeNodes`).
+    Reimplementing them in plpgsql would duplicate load-bearing logic, and
+    overwriting them would violate the additive-only rule. So an approval moves
+    lesson content and not hotkey tables. State it in the approve dialog.
 24. ~~**the S9 backup workflow could never have run**~~ — **CLOSED 2026-07-29.**
     `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
     Object Lock on, 90-day lifecycle); both prod and staging jobs run green
@@ -852,10 +883,46 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
      while the sidebar sorts by type; the two lists order the same courses
      differently.
 
+### Resolved 2026-07-29 (Audrey, post-Session 11 — all three S11 flags decided)
+
+- **(1) The API key: one `ai-proxy` Edge Function for BOTH hosts** → locked #21.
+  Audrey's requirement was "a solution that works for both the web app and the
+  desktop app that does not have any issues with the key… the key should only be
+  managed in the admin portal later."
+  Shape: the client posts the body it already builds (`model`, `max_tokens`,
+  `system`, `messages`, `tools`, `betas`) to `/functions/v1/ai-proxy`; the
+  function attaches the key server-side and returns Anthropic's JSON. Electron
+  uses it too — one path, so there is no "works on desktop, breaks on the web"
+  class of bug (which is exactly what gap #21 was). Auth follows the S9 pattern:
+  claims from the token payload **plus a live membership re-check**, so a
+  deactivated member cannot spend. Usage lands in `app_events` (0021) with model
+  and `usage.input_tokens`/`output_tokens`, which gives the Admin Terminal a
+  spend view nearly free and the operator console its per-company numbers.
+  **The constraint that shapes the implementation:** Edge Functions must respond
+  within **150s** (400s wall clock on paid plans). O.T.T.E.R. subject generation
+  already shows "Still working…" at 45s, retries up to 21s on overload, and runs
+  three web searches — a plain synchronous proxy would occasionally 504 and lose
+  a whole generation. So the proxy requests `stream: true` from Anthropic and
+  forwards the SSE: first byte is immediate, the response deadline never bites,
+  and the 400s wall clock governs instead. A small client helper reassembles the
+  stream, so the **six** `callAnthropicAPI`-style helpers change and the 13 call
+  sites do not. Nothing streams today, so no behaviour is at risk.
+- **(2) Approval APPLIES the change** → locked #22. Additive only (add + update,
+  never delete) and **auto-archive the target before every apply**, because
+  O.T.T.E.R. is not edit-history captured so an overwrite is otherwise
+  unrecoverable. Decline requires a note; the proposer then either accepts the
+  decision or revises and resubmits.
+- **(3) Submitting a request lets the admin see the course** → locked #22. Scoped
+  to the review window and read-only. This is a **consented** exception to "a
+  personal course is private even from admins", not a bypass: the user chose to
+  submit it for review, and access ends when the request settles.
+- **Sequencing (agent recommendation, flagged):** Audrey asked for (2) and (3) to
+  be specced into S12. They are specced there as **Block C**, but S12 is now
+  carrying the web build, the ai-proxy and a new migration. That is the same
+  double-booking that cost S10 and S11 half their scope. **If S12 runs long,
+  Block C slides to S13** — the web build and the proxy are one job and must not
+  be the thing that gets dropped.
+
 ### Still open
 
-- **Does approving a change request need to APPLY the proposer's changes?**
-  Today it records a decision only (§6 #26). Target: Audrey to decide; S13/S14
-  if yes.
-- **O.T.T.E.R. generation on the web** — proxy the Anthropic call or disable it
-  (§6 #25). Target: **S12**, decide explicitly.
+— none currently. New questions get logged here with their target session.

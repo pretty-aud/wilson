@@ -363,7 +363,39 @@ like the old single-user tool.
 
 ---
 
-## 5. Nice to have
+## 5. Anthropic API key as a Supabase secret — needed before S12 Block A deploys
+
+Session 12 moves every AI call behind one Edge Function (`ai-proxy`) so the key
+stops living on each user's machine (locked #21). For that to work, **one key
+needs to exist server-side on each of the three environments.**
+
+**Claude must never see or handle this key** — same rule as the B2 secrets.
+
+Either from the dashboard: **Supabase → your project → Edge Functions →
+Secrets → Add new secret**, name `ANTHROPIC_API_KEY`, value the key. Repeat for
+`wilson-dev`, `wilson-staging`, `wilson-prod`.
+
+Or from a terminal, once per project:
+
+```bash
+supabase secrets set ANTHROPIC_API_KEY=sk-ant-... --project-ref eqjzmnvkrakroyqxfsvw
+```
+
+(`eqjzmnvkrakroyqxfsvw` = dev, `rzkirvkotslbovzbsdfh` = staging,
+`rqyriuyldhovirbuievt` = prod.)
+
+**One key is enough for now** — it becomes the platform fallback. Per-company
+keys, administered in the operator console, land in S14; the S12 work builds the
+seam for them so nothing has to be rewritten.
+
+**A side benefit worth knowing:** once this is in, your users no longer paste
+their own key into WILSON at all. The Settings key field goes away and the stored
+`wilson-api-key` is deleted from their machines. Every call is attributed to the
+company key, and usage lands in the Admin Terminal logs with token counts.
+
+---
+
+## 6. Nice to have
 
 `gh auth login` on the dev machine. CI turned out to be readable anyway (the
 repo is public), but an authenticated `gh` would let Claude open PRs and read
