@@ -1,0 +1,103 @@
+# =============================================================================
+# Nightly Postgres backups → Backblaze B2 (Session 9; locked decisions #11 +
+# #15: pg_dump replaces PITR, B2 hosts backups AND update builds).
+#
+# Runs at 08:15 UTC (after the in-DB purge crons at 04:4x) against prod and
+# staging. pg_dump ships from the postgres:17 image to match the hosted
+# Postgres major — a version-skewed client dump can silently drop features.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   BACKUP_PROD_DB_URL     postgres://... (Supabase "Connection string" for
+#   BACKUP_STAGING_DB_URL   wilson-prod / wilson-staging; use the session
+#                           pooler URL, port 5432)
+#   B2_S3_ENDPOINT         e.g. https://s3.us-west-004.backblazeb2.com
+#   B2_KEY_ID              B2 application key id (allow: read+write on bucket)
+#   B2_APP_KEY             B2 application key
+#   B2_BACKUP_BUCKET       e.g. wilson-backups
+#
+# Retention: configure a B2 lifecycle rule on the bucket ("keep only the
+# last 30 days" on prefix db/) rather than deleting from CI — lifecycle
+# rules survive repo/CI outages and a compromised CI key with delete rights
+# could otherwise purge history.
+# =============================================================================
+
+name: db-backups
+
+on:
+  schedule:
+    - cron: '15 8 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  dump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - env_name: prod
+            url_secret: BACKUP_PROD_DB_URL
+          - env_name: staging
+            url_secret: BACKUP_STAGING_DB_URL
+    container:
+      image: postgres:17
+    steps:
+      - name: Install AWS CLI (S3-compatible uploads)
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq curl unzip >/dev/null
+          curl -sSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+          unzip -q /tmp/awscli.zip -d /tmp
+          /tmp/aws/install
+      - name: Dump + upload
+        env:
+          DB_URL: ${{ secrets[matrix.url_secret] }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.B2_APP_KEY }}
+          B2_S3_ENDPOINT: ${{ secrets.B2_S3_ENDPOINT }}
+          B2_BACKUP_BUCKET: ${{ secrets.B2_BACKUP_BUCKET }}
+          # AWS CLI v2.23+ (Jan 2025) sends x-amz-checksum-crc32 on every
+          # upload by default. Several S3-compatible providers reject the
+          # header outright, and the resulting error names neither the header
+          # nor the checksum — it just looks like a malformed request. B2
+          # supports it now, but asking for checksums only when the operation
+          # actually requires them costs nothing and removes a whole class of
+          # confusing first-run failure.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+        run: |
+          set -euo pipefail
+          if [ -z "${DB_URL}" ]; then
+            echo "::error::secret for ${{ matrix.env_name }} not configured"; exit 1
+          fi
+          if [ -z "${B2_S3_ENDPOINT:-}" ] || [ -z "${B2_BACKUP_BUCKET:-}" ]; then
+            echo "::error::B2_S3_ENDPOINT / B2_BACKUP_BUCKET not configured"; exit 1
+          fi
+          # SigV4 needs a region and B2 wants it to match the endpoint
+          # (e.g. s3.us-west-004.backblazeb2.com → us-west-004). The scheme is
+          # optional in this match on purpose: an endpoint entered without
+          # https:// would otherwise silently fall through to the default
+          # region and fail as an opaque signature mismatch.
+          AWS_DEFAULT_REGION="$(echo "${B2_S3_ENDPOINT}" | sed -nE 's#^(https?://)?s3\.([^.]+)\.backblazeb2\.com/?$#\2#p')"
+          if [ -z "${AWS_DEFAULT_REGION}" ]; then
+            echo "::warning::could not derive a region from B2_S3_ENDPOINT (${B2_S3_ENDPOINT}) — falling back to us-west-004. If the upload fails to authenticate, this is why."
+          fi
+          export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-us-west-004}"
+          STAMP="$(date -u +%Y%m%d-%H%M%S)"
+          FILE="wilson-${{ matrix.env_name }}-${STAMP}.dump.gz"
+          # Custom format (-Fc) restores selectively via pg_restore; gzip on
+          # top keeps B2 storage/egress small. Excludes nothing: RLS,
+          # functions, cron metadata all ride along.
+          pg_dump "${DB_URL}" -Fc --no-owner | gzip -6 > "/tmp/${FILE}"
+          test -s "/tmp/${FILE}"
+          KEY="db/${{ matrix.env_name }}/${FILE}"
+          aws s3 cp "/tmp/${FILE}" "s3://${B2_BACKUP_BUCKET}/${KEY}" \
+            --endpoint-url "${B2_S3_ENDPOINT}"
+          # Read it back. A backup job that reports success without confirming
+          # the object landed is the one failure mode nobody notices until the
+          # day it matters.
+          if ! aws s3 ls "s3://${B2_BACKUP_BUCKET}/${KEY}" \
+                 --endpoint-url "${B2_S3_ENDPOINT}" | grep -q "${FILE}"; then
+            echo "::error::upload reported success but ${KEY} is not in the bucket"; exit 1
+          fi
+          echo "uploaded ${KEY} ($(du -h /tmp/${FILE} | cut -f1)) — verified present"
