@@ -208,9 +208,19 @@ Do this twice: once for **wilson-prod**, once for **wilson-staging**.
 ### The restore drill (repeatable — run it quarterly, and after any change to
 ### the backup path)
 
-`.github/workflows/restore-drill.yml` on `main` does this end to end: pulls the
-newest dump from B2, restores it into a scratch database, and verifies the
-result. Manual trigger only.
+> **Status: DEFERRED (Audrey, 2026-07-29) — not blocking S11.** The workflow is
+> written and pushed but **not yet merged**; it sits on branch
+> `chore/restore-drill`, PR not opened:
+> https://github.com/pretty-aud/wilson/pull/new/chore/restore-drill
+>
+> Until it is merged and run, the B2 backups remain **unverified** — green
+> upload jobs prove a file was written, not that it comes back. That is a
+> known, accepted gap, not an oversight.
+
+`.github/workflows/restore-drill.yml` does this end to end: pulls the newest
+dump from B2, restores it into a scratch database, and verifies the result.
+Manual trigger only, and it must be merged to `main` before the Run workflow
+button appears (§6 #24).
 
 **The scratch project and its secret are THROWAWAY. Everything else is
 permanent.**
