@@ -70,8 +70,8 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0023`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 10 close-out. No backlog.
+- **Migrations `0000`–`0024`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 11 close-out. No backlog.
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
   and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
@@ -115,9 +115,18 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–25` (runs in CI local stack;
-  realtime probes environment-tolerant).
-- **Vitest** 224/224 green end of S9. **Playwright** auth/permissions e2e.
+- **pgTAP RLS suite** `supabase/tests/rls/01–31` (runs in CI local stack;
+  realtime probes environment-tolerant). The six O.T.T.E.R. suites (26–31) total
+  **117 probes**.
+- **Vitest** 290/290 green end of S11. **Playwright** auth/permissions e2e.
+- **No Docker on this machine**, so pgTAP is verified by shipping a
+  `BEGIN; … ROLLBACK;` script through `supabase db query --linked --file`.
+  Two things make that harness lie if you get them wrong: keep `SELECT plan(N)`
+  (pgTAP raises "test without a plan" otherwise), and rewrite **every** pgTAP
+  function the suite uses — a missed one (`has_table` bit S11) still runs and
+  still counts toward pgTAP's numbering but never reaches the collector, so it
+  vanishes from the pass count. Always compare collected rows against
+  `max(test number)`.
 - CI workflow at the **git root**: `.github/workflows/rls.yml` (git root is
   `Dev_Work\wilson\`, one level ABOVE `WILSON/`). Failure-only psql replay
   surfaces real SQL errors as annotations.
@@ -225,15 +234,20 @@ deployed to all three envs**.
 | 8 | 2026-07-28 | Dashboard (cross-project task table/kanban/gallery + TaskDetailPopup reuse) + Notes (TipTap v3 + Yjs snapshot-merge-write, owner-only, no admin bypass) + workspace channel (0018: projects/members/assigned-tasks/assets/project_members) + avatar remove + avatars in presence chips + task UI/DB parity (0019: tasks.notes, 'urgent'); 9/9 review findings + 8 minors fixed; CI green on `0567581` (npm-10 lockfile + top-level DML-CTE fixes); 0017–0019 deployed dev+staging+prod | `1ef4d10`, `156a74e`, `0567581` |
 | 10 | 2026-07-29 | **O.T.T.E.R. cloud content SERVER model** (0022): otter_courses/subjects/progress/course_editors/change_requests, three visibility tiers (personal/shared/company_standard), live-row DEFINER helpers, identity-pin triggers, OTTER-specific trash RPCs + 30-day purge, otter_fork_course, otter_course_index (metadata-only admin view); `public.users` dropped + schema.sql/seed.sql deleted (0023 — **gap #9 CLOSED**); client adapter seam (`adapters/otterFetch`, 85 call sites); runOtterMigration. pgTAP 26–30 (94 probes) verified against real Postgres on wilson-dev; Vitest 256/256. Review 15/15 fixed. **O.T.T.E.R. UI NOT started → S11 Block A.** | `31586d5` |
 | 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5`, `f942e1e` |
+| 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 10–12 remain** (re-split 2026-07-28: the old Session 11 was
-broken into web build (S11) and operator console + TPN + v1.0.0 (S12) for
-smaller sessions on Opus 5 — see §5/§10). Launch prompt ready:
-`docs/sessions/SESSION_10_prompt.md`.
+**Sessions 12–14 remain** (locked #19): S12 web build · S13 file lifecycle &
+data stewardship · S14 operator console + TPN + v1.0.0. Launch prompt ready:
+`docs/sessions/SESSION_12_prompt.md`.
+
+**Migrations 0000–0024 are deployed to dev + staging + prod.** 0024 was pushed
+at the S11 close-out (dry-run before each env; `otter_trash_index()` confirmed
+present, `authenticated` EXECUTE granted and `anon` denied on all three). CLI
+re-linked to `wilson-dev`. No backlog.
 
 ---
 
@@ -327,29 +341,37 @@ prod (dry-run each, `public.users` confirmed empty on all three first).
 > new scope: **S11 O.T.T.E.R. UI · S12 web build · S13 file lifecycle & data
 > stewardship · S14 operator console + TPN + v1.0.0.**
 
-### Session 11 — O.T.T.E.R. UI ← NEXT
+### Session 11 — O.T.T.E.R. UI ✅ DONE (2026-07-29)
 
-Prerequisite for all-three-tools web parity (locked #16/#17). O.T.T.E.R.
-content moves from local-disk JSON (`otter-data/`) to workspace-tenanted cloud
-tables + storage with an ownership model:
+Commit `5707895`; §4 ledger row 11; db/README §19 (editor-grant trap) + §20.
 
-- **Personal content** — courses/subjects a user generated; private to that
-  user by default.
-- **Company-shared content** — pages/courses the company owns, or that a user
-  shares to the workspace; visible workspace-wide. **Never a cross-company
-  wiki**: every piece of content is owned by exactly one workspace (or one
-  user within it).
-- Share / unshare flow (user → workspace); RLS mirroring the RABBIT patterns
-  (`workspace_id` + `owner_id`); migration tool for existing `otter-data/`.
-- D.O.G.: **nothing needed in this session** (clarified 2026-07-28) — no
-  local-file dependency and no content model. Web D.O.G. generates decks off
-  the open project's cloud files; its web wiring (Edge-Function Anthropic
-  proxy + project-file reads) lands with the S11 web build and is a light
-  lift.
-- Resolve `public.users` drop + `schema.sql` retirement (§6 #9) while the
-  schema is open — this is the standalone-RABBIT decision's natural home.
+**Landed:** the whole feature set from `SESSION_11_prompt.md` — tier picker in
+the existing create flow, filter chips above the existing Sidebar 1 list,
+share + editor-grant dialog off the course row, admin-only company-standard
+designation, the inline fork offer, change-request submit (O.T.T.E.R.) and
+review (Admin Terminal), trash/restore as a filter state, `can_write` gating,
+the collapsible Sidebar 1, and `OtterMigrationPanel`.
 
-### Session 11 — Web Build + Hosting/Routing (all three tools)
+**Migration 0024 — an unplanned server addition.** The S11 brief asserted the
+trash was "server-complete and pgTAP-pinned". It was not: `otter_courses_select`,
+`otter_subjects_select` and `otter_course_index()` all filter
+`deleted_at IS NULL`, so `otter_restore_row()` had no obtainable argument and a
+trashed course was unrecoverable by any client — 0022's own comment says exactly
+that. `otter_trash_index()` is the metadata-only read side. **Gap #20 CLOSED.**
+
+**Also found dead:** `renderDeleteConfirm` was unreachable (nothing ever set
+`showDeleteConfirm`), so O.T.T.E.R. had no way to delete a course at all. The
+new row menu opens it, and its "cannot be undone" copy was corrected — in cloud
+mode it is a 30-day trash.
+
+**Constraint honoured** (Audrey, 2026-07-29 — "I like how it works now"): every
+new surface attaches to the existing shell. The single authorised shell change
+was the Sidebar 1 collapse. Existing-UI elements touched are listed in §10.
+
+**Review:** 4 finders, 17 findings, 10 refuted on verification, 7 fixed. The two
+that mattered are recorded in §10 because both generalise.
+
+### Session 12 — Web Build + Hosting/Routing (all three tools) ← NEXT
 
 Path-based hosting per locked #18. Scope (kept deliberately smaller for
 the Opus 5 session split):
@@ -467,11 +489,11 @@ all land here rather than in S14.
     install succeeds on this machine (npm TLS issue; lockfile is complete).
 19. **NEW (S9):** legacy useTeamMembers sweep still pending (was #8; now
     also feeds the producer/CD highlight only via projectsIndex ids).
-20. **NEW (S10): O.T.T.E.R. trash has no way out in the client.**
-    `otter_soft_delete_row` is wired to `course.delete`, but nothing lists or
-    restores trashed courses, so a deleted course simply vanishes until the
-    30-day purge destroys it. `otter_restore_row` exists and is pgTAP-pinned.
-    → S11 Block A, item 6.
+20. ~~**O.T.T.E.R. trash has no way out in the client**~~ — **CLOSED S11**
+    (migration 0024 `otter_trash_index()` + the "Recently deleted" filter
+    state). The gap was deeper than "no UI": there was no server read path
+    either, which is why it needed a migration in a session scoped as
+    client-only.
 21. **NEW (S10): O.T.T.E.R. will render an empty library on the web.**
     `Otter.jsx`'s mount effect calls `loadSoftwareList()` only inside the
     `fetch('/api/otter-settings')` success chain. That route is correctly not
@@ -479,11 +501,30 @@ all land here rather than in S14.
     swallows it, and the list never loads. Also affects `/api/agent-skills`,
     `/api/migration-needed`, `/api/migrate`, `/api/fetch-url`.
     → S11 Block B.
-22. **NEW (S10): no `can_write` gating in the O.T.T.E.R. UI.** Every
-    generate/edit affordance is offered on any course the user can open. The
-    adapter now returns a clean 403 rather than a fabricated success, so
-    nothing is lost silently — but the control should not be there.
-    → S11 Block A, item 7.
+22. ~~**no `can_write` gating in the O.T.T.E.R. UI**~~ — **CLOSED S11.** Every
+    generate/edit/delete affordance is now gated on `can_write`, with a stated
+    reason where a control disappears rather than a silent absence.
+25. **NEW (S11): O.T.T.E.R. generation ships the Anthropic key to the browser
+    on the web.** `callAnthropicAPI` (`Otter.jsx`) posts straight to
+    `api.anthropic.com` with `anthropic-dangerous-direct-browser-access` and the
+    user's key. That is fine in Electron and NOT fine in a browser. D.O.G.
+    already has an Edge-Function proxy planned for S12 (locked #17); O.T.T.E.R.
+    needs the same treatment or generation must be disabled on the web build.
+    **Decide explicitly in S12 — do not let it ship by omission.**
+26. **NEW (S11): approving a change request records a decision, it does not
+    merge anything.** `fn_otter_cr_review` stamps the reviewer and freezes the
+    row; no content moves. An admin who approves must then make the edits to the
+    company-standard course by hand. The Admin Terminal says so at the point of
+    decision. If Audrey wants approval to actually apply the proposer's changes,
+    that is a new feature (and needs a diff/merge model) — flagged, not assumed.
+27. **NEW (S11): a reviewer sees the proposer's SUMMARY, not their course.**
+    A fork is born personal and owned by the proposer, so admins cannot read it.
+    The submit dialog states this and offers to share the fork; the review queue
+    shows whether the source is openable. This is a deliberate consequence of
+    "personal is private even from admins", not an oversight — but it is the one
+    place where Audrey's phrasing ("their updates plus a written explanation")
+    and the shipped behaviour differ, so it is written down rather than assumed
+    settled.
 24. ~~**the S9 backup workflow could never have run**~~ — **CLOSED 2026-07-29.**
     `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
     Object Lock on, 90-day lifecycle); both prod and staging jobs run green
@@ -540,10 +581,11 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
-| Per-company Claude API key, admin-administered | S11 operator console | ⬜ S11 |
+| Per-company Claude API key, admin-administered | S14 operator console | ⬜ S14 |
+| O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI**: tier picker, filter chips, share + editor grants, company standard, fork, change requests, trash/restore | ✅ ❓ in-app verify owed |
 | Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
 | App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
-| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes); operator tier = S11 | ✅ company · ⬜ operator |
+| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); operator tier = S14 | ✅ company · ⬜ operator |
 | express-session + connect-pg-simple suggestion | Superseded by Supabase Auth | ✳ (locked #1) |
 
 ---
@@ -585,7 +627,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–10 present) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–12 present) |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
@@ -756,6 +798,64 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   reconnected storage resolves. Confirmed 2026-07-29 by inspecting the schema
   and all three adapters.
 
+### Resolved 2026-07-29 (Session 11 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **The trash needed a migration.** See §5/§6 #20. The lesson generalises: "the
+  server is done" is only true if a client can *reach* every state the server
+  supports. A soft delete with no listing RPC is a one-way door, and it read as
+  complete because the write path was fully pgTAP-pinned.
+- **`otter_course_editors.workspace_id` has no DEFAULT** — the only O.T.T.E.R.
+  table like that, and `fn_otter_editor_grant_workspace` validates rather than
+  defaults. The S11 adapter omitted the column (as it correctly does everywhere
+  else) and every editor grant failed with a message that read like a
+  cross-tenant bug. **94 passing probes missed it because every pgTAP fixture
+  supplies the column by hand** — a general warning about fixtures that are more
+  careful than the client. Suite 29 now asserts the schema fact itself.
+- **Error banners must live where the user is looking.** Every S11 banner
+  initially rendered inside `renderLibrary()`, which sits in a `hidden` wrapper
+  unless `currentView === 'library'` — while the Sidebar 1 chips are visible in
+  *every* view. A failed trash restore therefore produced no feedback at all.
+  Filter chips now navigate to the library, and the sidebar trash list carries
+  its own error surface. **Anything reachable from a persistent sidebar needs
+  feedback that does not depend on the main pane's current view.**
+- **O.T.T.E.R. stays mounted on every page** (the all-pages-rendered shell), so
+  a window-level keyboard shortcut registered inside it fires from RABBIT,
+  Settings and the Admin Terminal. `Ctrl/Cmd + \` is gated on
+  `currentPage === 'otter'`. Same class of trap as the AdminTerminalBody
+  lazy-fetch rule.
+- **Existing UI touched in S11** (the list Audrey asked for — it is short by
+  design):
+  1. Sidebar 1's course row: was one full-width `<button>`, now a row
+     containing that button plus the actions menu. Same padding, border and
+     hover; no visual change.
+  2. Sidebar 1 gained a 24px collapse strip above "New" (the authorised
+     exception).
+  3. `renderDeleteConfirm`'s title and body copy — it claimed a soft delete
+     was permanent.
+  4. The course-detail header and library cards gained badges; the
+     "Add Subject" / "Import" / "Generate All Outlines" controls are now
+     conditional on `can_write`.
+  Nothing was renamed, reordered or restyled, and no `currentView` was added.
+- **UX-law recommendations for EXISTING surfaces — for Audrey, NOT acted on**
+  (per the S11 rule that laws govern added surfaces only):
+  1. *Jakob's Law / Fitts's Law* — Space opens Search as a global key with no
+     visible affordance; the nav bar has a Search button but the shortcut is
+     undiscoverable and unusual (most apps use `/` or Cmd+K).
+  2. *Von Restorff* — the nav bar's six items are visually identical, so
+     Validate (a destructive-adjacent, rarely-used tool) reads as equal in
+     weight to Library.
+  3. *Doherty Threshold* — course generation shows a time-based fake progress
+     bar whose percentages are invented; honest indeterminate progress would
+     survive a slow API better.
+  4. *Cognitive Load* — the Library sort control offers only Date and Name
+     while the sidebar sorts by type; the two lists order the same courses
+     differently.
+
 ### Still open
 
-— none currently. New questions get logged here with their target session.
+- **Does approving a change request need to APPLY the proposer's changes?**
+  Today it records a decision only (§6 #26). Target: Audrey to decide; S13/S14
+  if yes.
+- **O.T.T.E.R. generation on the web** — proxy the Anthropic call or disable it
+  (§6 #25). Target: **S12**, decide explicitly.

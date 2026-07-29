@@ -268,17 +268,19 @@ metadata all ride along.
 
 ---
 
-## 2. CI check for commit `31586d5`
+## 2. CI checks — **nothing owed, this is now automatic**
 
-**Status: ✅ DONE (2026-07-29) — all four jobs green.** pgTAP, issue-session
-smoke, Vitest and Playwright auth all passed on `31586d5`, which confirms
-migrations `0000`–`0023` apply cleanly to an **empty** database in order (not
-just to the already-migrated `wilson-dev` the agent tested against), and that
-the Playwright auth flow still works.
+**`31586d5` (S10): ✅ all four jobs green.**
+**`5707895` (S11): ✅ all four jobs green** — pgTAP, issue-session smoke, Vitest
+and Playwright auth, verified at the S11 close-out. Migrations `0000`–`0024`
+apply cleanly to an **empty** database in order.
 
-Kept below for the next time a run needs checking. The `gh` CLI still isn't
-authenticated on the dev machine — running `gh auth login` once would let
-Claude read CI runs and open PRs directly instead of handing you URLs.
+`gh` still isn't authenticated here, but the repo is **public**, so CI runs can
+be read straight from the GitHub REST API without any login — Claude did that
+for `5707895` and can do it every session from now on. **You no longer need to
+check CI by hand.**
+
+Kept below for the rare case where a run needs eyeballing.
 
 1. https://github.com/pretty-aud/wilson/actions
 2. Find the run for **`31586d5`** — *"feat(otter): Session 10 — O.T.T.E.R.
@@ -309,9 +311,60 @@ The agent never signs in, so these were left for you:
 
 ---
 
-## 4. Heads-up, not a task
+## 4. Browser eyeball checks — Session 11 (the O.T.T.E.R. UI)
 
-Until the S11 trash UI ships, **deleting an O.T.T.E.R. course in-app hides it
-with no way back**, and the 30-day purge then removes it permanently. The
-restore function exists and is tested — there's just no button yet
-(MASTER_PLAN §6 #20).
+Everything here was built and unit/pgTAP-tested, but **no part of the O.T.T.E.R.
+UI has ever been seen running**, because it only comes alive when signed in to a
+workspace and the agent never signs in. Worth an hour with two accounts (one
+admin, one plain member) if you can.
+
+**Highest value first — these are the ones most likely to be wrong:**
+
+1. **Give someone edit access.** Course row → ⋯ → Sharing… → "Who can edit it" →
+   pick a colleague → Add. This path was **completely broken** until the review
+   caught it (the insert was missing `workspace_id`), so it is the single least
+   proven thing in the session. It should now succeed and list them.
+2. **Change a course's tier and watch what comes back.** Sharing… → "Just for
+   me" ⇄ "Share with the company". The database silently reverts changes it
+   won't allow, so the dialog re-reads the row — if you ever see a tier change
+   *appear* to work and then come back wrong on reload, that is a real bug.
+3. **Delete a course, then restore it.** ⋯ → Move to trash → "Recently deleted"
+   chip → Restore. This is the whole point of migration 0024. Also try
+   restoring after creating a *new* course with the same name — you should get
+   "You already have a course with this name", not a raw error.
+4. **Collapse the sidebar** (the chevron at its top, or `Ctrl + \`). Check it
+   stays collapsed across an app restart, that the main pane widens rather than
+   letterboxing in the **study** view, and that `Ctrl + \` does **nothing** when
+   you're on RABBIT or Settings.
+
+**Then the rest:**
+
+5. Filter chips: Made for me / Shared with me / Shared by me / Company standard.
+   As an admin you also get "Others' personal" — those rows should be visible
+   but **not openable**, and you must not be able to read their contents.
+6. As an **admin**, mark a shared course "Company standard". Then, as a **plain
+   member**, start a new course and type that exact name — you should get the
+   inline "Your company already has a course for this" offer, and taking it
+   should give you your own editable copy.
+7. From that copy: ⋯ → Suggest a change… → write a note → send. Then as an admin,
+   **Admin Terminal → Requests** → approve or reject. Note that approving records
+   a decision only; it does **not** copy their changes in (MASTER_PLAN §6 #26 —
+   tell me if you want it to).
+8. Open a course someone else shared with you: the generate/edit/delete buttons
+   should be **absent**, with "Read only" shown and a "Make my own copy" button
+   in their place.
+9. **Settings → the new "Migrate O.T.T.E.R. courses to cloud" panel.** Dry-run
+   first. It reads courses from your local disk, so it only appears in the
+   desktop app.
+
+**Sanity check that nothing regressed:** sign OUT and use O.T.T.E.R. as before.
+All the sharing controls should vanish entirely and it should behave exactly
+like the old single-user tool.
+
+---
+
+## 5. Nice to have
+
+`gh auth login` on the dev machine. CI turned out to be readable anyway (the
+repo is public), but an authenticated `gh` would let Claude open PRs and read
+private repos directly instead of handing you URLs.
