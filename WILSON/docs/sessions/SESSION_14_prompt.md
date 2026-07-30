@@ -31,7 +31,8 @@
     `otter_courses_select`. If S14 touches `otter_courses` policies, keep that
     arm intact, and NEVER inline `current_app_role()` into a SELECT policy on
     `otter_courses`/`otter_progress` — 0022's re-run post-condition raises on
-    it.
+    it. Ordering rule: a MANUAL re-run of 0022 must be followed by 0025 AND
+    0026 (all three headers say so).
   - pgTAP is now suites 01–32 (**184 O.T.T.E.R. probes** across 26–32). The
     `BEGIN; … ROLLBACK;` harness with the `tap_out` collector remains the
     local verification method (no Docker on this machine — MASTER_PLAN §8).
@@ -84,6 +85,13 @@ The ShotGrid/Blender "find missing files" model, decided by Audrey
 - Rate-card and budget data are role-gated in the UI — the takeout must not
   become a bypass: export only what the REQUESTING USER can already read
   (build it on RLS-scoped reads, never on a DEFINER sweep).
+- **The three APP tiers govern the buttons too** (Audrey re-confirmed the
+  mapping 2026-07-30; brief lines 39–40): admins and managers get the export
+  affordances broadly; a basic user's per-page buttons cover only what they
+  can view (no budget, no rate card), and the full workspace takeout is
+  admin-only. When in doubt, the RLS-scoped read IS the answer — a button
+  that exports an empty file should instead not render, with the stated
+  reason (the S11/S12 honesty rule).
 
 ### Block C — File audit (Notion-style)
 
@@ -96,8 +104,10 @@ The ShotGrid/Blender "find missing files" model, decided by Audrey
 
 ### Block D — The `rabbit-files` bucket decision
 
-- Referenced at `supabaseAdapter.js:371` but never created by any migration,
-  so the Supabase-Storage option for project files is half-wired. **Decide
+- Referenced in `src/tools/rabbit_v0.1.0/adapters/supabaseAdapter.js`
+  (header note at the top; upload ~line 376, download ~line 410) but never
+  created by any migration, so the Supabase-Storage option for project files
+  is half-wired. **Decide
   explicitly**: create it with path-scoped policies (0009 `user-avatars`
   pattern), or drop Supabase Storage as a project-files option. Creating it is
   what unlocks gap #31 (cloud project file attachments) — weigh that.
@@ -114,10 +124,10 @@ The ShotGrid/Blender "find missing files" model, decided by Audrey
 ## HOW to build it
 
 - **Sequence that de-risks it:** Block D's decision first (it shapes A/C/E's
-  provider matrix) → any migration (0026: lifecycle events table or app_events
-  extension, bucket + policies if created) verified via the pgTAP harness →
-  relink matcher as a pure module with unit tests (it is exactly the kind of
-  logic Vitest is for) → UI last.
+  provider matrix) → any migration (**0027** — lifecycle events table or
+  app_events extension, bucket + policies if created) verified via the pgTAP
+  harness → relink matcher as a pure module with unit tests (it is exactly
+  the kind of logic Vitest is for) → UI last.
 - **The relink preview is the safety surface.** Applying remaps rewrites
   `storage_path` in bulk; a wrong match corrupts pointers at scale. The
   preview table must show old path → new path per row, and the confirm must
@@ -164,8 +174,8 @@ The ShotGrid/Blender "find missing files" model, decided by Audrey
 
 ## Close-out ritual (MASTER_PLAN §8 — do ALL of it)
 
-Feature commit → CI green (public REST API) → deploy any migration to
-staging + prod (dry-run each) → re-link CLI to `wilson-dev` → write
+Feature commit → CI green (public REST API) → deploy any migration
+dev → staging → prod (dry-run each) → re-link CLI to `wilson-dev` → write
 `docs/sessions/SESSION_15_prompt.md` (**operator console + TPN + v1.0.0**,
 scope in MASTER_PLAN §5) → update `docs/MASTER_PLAN.md` (§4 ledger, §5 scope,
 §6 gaps, §7 statuses, §10) → update the Claude auto-memory → docs commit +
