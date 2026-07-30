@@ -412,9 +412,50 @@ like the old single-user tool.
 
 ---
 
-## 5. Anthropic API key as a Supabase secret — needed before S12 Block A deploys
+## 5. 🚨 Anthropic API key as a Supabase secret — STILL OWED ON ALL THREE
 
-Session 12 moves every AI call behind one Edge Function (`ai-proxy`) so the key
+> **Verified 2026-07-30 (S17): `ANTHROPIC_API_KEY` is set on NONE of dev,
+> staging or prod.** `supabase secrets list` on each project returns only the
+> auto-injected `SUPABASE_*` values plus `WILSON_SITE_URL`. An earlier version
+> of this file claimed staging had it (§6B) and MASTER_PLAN repeated that —
+> both were wrong, and the error propagated because nobody re-checked.
+>
+> **Consequence, and it is bigger than a config note: every AI feature in all
+> three tools is non-functional on every environment right now**, including
+> the beta web host. `ai-proxy` returns `501 ai_not_configured`, which surfaces
+> as D.O.G. generation, O.T.T.E.R. course/quiz/validator generation, RABBIT
+> intake and the companion all failing. It reads like a broken app; it is a
+> missing secret.
+>
+> **You DID add the key — it is in the wrong store.** It is a **GitHub
+> repository secret** (Settings → Secrets and variables → Actions). That store
+> is readable only by GitHub Actions workflows, through
+> `${{ secrets.ANTHROPIC_API_KEY }}` — and a grep of `.github/workflows/`
+> shows **no workflow references it at all**, so today nothing reads it
+> anywhere. It cannot reach `ai-proxy`: Edge Functions run in Supabase's Deno
+> runtime and read Supabase's own secret store via
+> `Deno.env.get('ANTHROPIC_API_KEY')` (`ai-proxy/index.ts:77`).
+>
+> **There are three separate things called "secrets" in this project and they
+> do not talk to each other:**
+>
+> | Store | Read by | Set via |
+> |---|---|---|
+> | GitHub repository secrets | Actions workflows only | GitHub → Settings → Secrets |
+> | **Supabase Edge Function secrets** | **`ai-proxy` and every other function** | **`supabase secrets set`, or the dashboard** |
+> | Vercel environment variables | the web build at build time | Vercel → Project → Settings |
+>
+> The one `ai-proxy` needs is the middle row. Setting it is §5's command below.
+>
+> A second, older trap worth knowing since it has the same symptom: before S12
+> the key lived on each machine in `localStorage['wilson-api-key']` behind a
+> Settings field. S12 deleted that field and now *purges both legacy slots on
+> every launch* (`src/App.jsx:231-234`, locked #21), so an old machine-local
+> key is gone too.
+>
+> `WILSON_AI_KEY_SECRET` (§9C) is likewise unset on all three projects.
+
+Session 12 moved every AI call behind one Edge Function (`ai-proxy`) so the key
 stops living on each user's machine (locked #21). For that to work, **one key
 needs to exist server-side on each of the three environments.**
 
@@ -492,8 +533,8 @@ If Vercel ever misbehaves: https://github.com/pretty-aud/wilson/settings/pages
 → **Source: Deploy from a branch** → `gh-pages` / root → app at
 `https://pretty-aud.github.io/wilson/`. Same anon-key note applies.
 
-### B. Supabase auth URLs — ✅ DONE for staging (2026-07-29), and the
-### `ANTHROPIC_API_KEY` secret is set on staging too
+### B. Supabase auth URLs — ✅ DONE for staging (2026-07-29). The
+### `ANTHROPIC_API_KEY` claim that used to sit here was WRONG — see §5
 
 What remains for beta: **a staging workspace + tester invites** (the "New
 company?" flow on the beta site, then invite from the Admin Terminal), and
