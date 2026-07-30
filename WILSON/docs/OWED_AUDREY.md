@@ -443,7 +443,15 @@ If Vercel ever misbehaves: https://github.com/pretty-aud/wilson/settings/pages
 → **Source: Deploy from a branch** → `gh-pages` / root → app at
 `https://pretty-aud.github.io/wilson/`. Same anon-key note applies.
 
-### B. Supabase auth URLs (per env, ~1 minute each)
+### B. Supabase auth URLs — ✅ DONE for staging (2026-07-29), and the
+### `ANTHROPIC_API_KEY` secret is set on staging too
+
+What remains for beta: **a staging workspace + tester invites** (the "New
+company?" flow on the beta site, then invite from the Admin Terminal), and
+the §7 browser checks. Dev/prod auth URLs stay for whenever those envs need
+a web surface. Original steps kept for reference:
+
+### B-setup (reference)
 
 Dashboard → Authentication → **URL Configuration**, for whichever env the
 Vercel project points at (and the others when you want their invite/recovery
