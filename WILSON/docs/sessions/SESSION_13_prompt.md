@@ -17,10 +17,22 @@
 
 ## Context recap
 
-- Branch **`feat/multi-user-v1`**. S11 (the O.T.T.E.R. UI) landed as `5707895`.
-  See `docs/MASTER_PLAN.md` §4 for the S12 SHAs and deploy state — **check them
-  rather than assuming, and confirm there is no migration backlog before adding
-  0025.**
+- Branch **`feat/multi-user-v1`**. S11 (the O.T.T.E.R. UI) landed as `5707895`;
+  **S12 (`ai-proxy` + the web build) landed as `41c7356`** (see MASTER_PLAN §4
+  row 12 and the docs close-out commit after it). Migrations are still
+  **0000–0024 — S12 added none, so 0025 is free for this session.** No backlog.
+- **S12 state that matters here:**
+  - Every AI call rides the `ai-proxy` Edge Function (deployed to all three
+    envs). If you exercise AI flows, they answer 501 `ai_not_configured`
+    until Audrey sets the `ANTHROPIC_API_KEY` secret (docs/OWED_AUDREY.md §5).
+  - The **web build exists** (`npm run build:web`, test host
+    `pretty-aud.github.io/wilson` once Pages is enabled). ChangeRequestDialog
+    and the Requests queue already ride `otterFetch`, so your dialog changes
+    work on both hosts for free — keep any NEW route ops inside
+    `adapters/otterRoutes.js` so that stays true.
+  - New §6 gaps from S12: #30 (web multi-tab LWW, accepted), #31 (cloud
+    project file attachments deferred to S14), #32 (legacy local password
+    panel). None block this session.
 - **CI is readable without `gh`.** `pretty-aud/wilson` is public:
   `curl https://api.github.com/repos/pretty-aud/wilson/actions/runs?head_sha=<sha>`
   gives the conclusion; `.../runs/<id>/jobs` gives per-step results.

@@ -258,21 +258,22 @@ deployed to all three envs**.
 | 8 | 2026-07-28 | Dashboard (cross-project task table/kanban/gallery + TaskDetailPopup reuse) + Notes (TipTap v3 + Yjs snapshot-merge-write, owner-only, no admin bypass) + workspace channel (0018: projects/members/assigned-tasks/assets/project_members) + avatar remove + avatars in presence chips + task UI/DB parity (0019: tasks.notes, 'urgent'); 9/9 review findings + 8 minors fixed; CI green on `0567581` (npm-10 lockfile + top-level DML-CTE fixes); 0017–0019 deployed dev+staging+prod | `1ef4d10`, `156a74e`, `0567581` |
 | 10 | 2026-07-29 | **O.T.T.E.R. cloud content SERVER model** (0022): otter_courses/subjects/progress/course_editors/change_requests, three visibility tiers (personal/shared/company_standard), live-row DEFINER helpers, identity-pin triggers, OTTER-specific trash RPCs + 30-day purge, otter_fork_course, otter_course_index (metadata-only admin view); `public.users` dropped + schema.sql/seed.sql deleted (0023 — **gap #9 CLOSED**); client adapter seam (`adapters/otterFetch`, 85 call sites); runOtterMigration. pgTAP 26–30 (94 probes) verified against real Postgres on wilson-dev; Vitest 256/256. Review 15/15 fixed. **O.T.T.E.R. UI NOT started → S11 Block A.** | `31586d5` |
 | 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5`, `f942e1e` |
+| 12 | 2026-07-29 | **`ai-proxy` + the web build.** Block A (locked #21): the `ai-proxy` Edge Function is now the ONLY path to Anthropic on both hosts — token claims + live `workspace_members` check (`_shared/memberGuard.ts`), per-workspace→platform key seam (`workspace_ai_keys` read fails soft until S15), always-streaming upstream (150s Edge deadline vs long generations) with a pure client SSE reassembler (`anthropicStream.js`, 14 vitest cases), per-workspace in-memory rate limit, WIL-6001/6002 usage telemetry to app_events. All 14 direct call sites rewired; the Settings key field, `apiKey` prop plumbing and the localStorage credential are gone (purged on upgrade); stale help/prompt copy corrected. Block B (locked #18): `build:web` (`--base=/wilson/` → dist-web) + `serve-web.mjs`; URL ↔ page sync over the all-pages shell (deep links, pushState, popstate — no router); **gap #21 CLOSED** (Otter's library loads independent of the local-server settings fetch; `src/lib/localData.js` gives pet/otter-settings/agent-skills an Express-or-localStorage home); RABBIT forces the supabase adapter in browsers; web D.O.G. generates off uploads + cloud project context (attachments degrade visibly — no content model per locked #17); web sessions persist in localStorage with TOKEN_REFRESHED re-save; Playwright `chromium-web` lane (3/3) against the real bundle; **test host = GitHub Pages** (`gh-pages` branch → pretty-aud.github.io/wilson, Pages toggle owed). Review: 4 finders, 15 findings, 14 fixed, 1 accepted+documented. Vitest 304/304. | `41c7356` |
 | 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 12–15 remain** (locked #19): S12 `ai-proxy` + web build · **S13
-change-request approval (added 2026-07-29)** · S14 file lifecycle & data
-stewardship · S15 operator console + TPN + v1.0.0. Launch prompts ready:
-`docs/sessions/SESSION_12_prompt.md` and `SESSION_13_prompt.md`.
+**Sessions 13–15 remain** (locked #19): **S13 change-request approval** · S14
+file lifecycle & data stewardship · S15 operator console + TPN + v1.0.0.
+Launch prompt ready: `docs/sessions/SESSION_13_prompt.md`.
 
-**Migrations 0000–0024 are deployed to dev + staging + prod.** 0024 was pushed
-at the S11 close-out (dry-run before each env; `otter_trash_index()` confirmed
-present, `authenticated` EXECUTE granted and `anon` denied on all three). CLI
-re-linked to `wilson-dev`. No backlog.
+**Migrations 0000–0024 are deployed to dev + staging + prod** (S12 added no
+migrations). **Edge Functions:** `ai-proxy` deployed to all three envs at the
+S12 close-out; `WILSON_SITE_URL` secret set to the test host on all three.
+The `ANTHROPIC_API_KEY` secret is still owed by Audrey — until it exists,
+ai-proxy answers 501 `ai_not_configured`. CLI linked to `wilson-dev`.
 
 ---
 
@@ -398,33 +399,28 @@ was the Sidebar 1 collapse. Existing-UI elements touched are listed in §10.
 **Review:** 4 finders, 17 findings, 10 refuted on verification, 7 fixed. The two
 that mattered are recorded in §10 because both generalise.
 
-### Session 12 — Web Build + Hosting/Routing (all three tools) ← NEXT
+### Session 12 — `ai-proxy` + the web build ✅ DONE (2026-07-29)
 
-Path-based hosting per locked #18. Scope (kept deliberately smaller for
-the Opus 5 session split):
+Commit `41c7356`; §4 ledger row 12; `docs/WEB_DEPLOY.md` for the web-build
+mechanics. Both blocks landed:
 
-- **Web vite target**: `base: '/wilson/'` build variant (Electron build
-  keeps `./`); feature detection for the browser (no electronAPI: updater
-  panel degrades, local/Drive storage cards inform, safeStorage bridge
-  absent → web session strategy per the supabaseClient comment).
-- **URL ↔ page sync**: map the existing `currentPage` state onto
-  `/wilson/{dog,otter,rabbit,dashboard,settings,project-manager,
-  rate-card,team-members,admin-terminal,help}` with history API — the
-  all-pages-rendered shell stays; deep links + SPA fallback rewrites.
-- **Auth on the web**: `WILSON_SITE_URL` → `https://petalstudios.co/wilson`
-  on all three envs; Supabase `site_url`/`additional_redirect_urls`
-  updated; recovery/invite emails land on `/wilson/#/recovery`; session
-  persistence for browsers (locked follow-up from Session 2's
-  `persistSession:false` note).
-- **Web D.O.G.** (locked #17): Edge-Function Anthropic proxy so the key
-  never ships to a browser; generates off the open project's cloud files.
-- **Deploy target**: a TEST host (any static host with SPA rewrites)
-  serving the locked path shape — `<test-host>/wilson` +
-  `<test-host>/wilsonadmin`; Audrey needs it reachable for post-session
-  testing. `petalstudios.co` cutover is post-v1.0 production work.
-- O.T.T.E.R./RABBIT web smoke passes; Playwright web-path lane.
+- **Block A (locked #21)** — `ai-proxy` is the single Anthropic path on both
+  hosts; streaming transport; per-workspace→platform key seam; usage
+  telemetry (WIL-6001/6002); the client credential is deleted end to end.
+  Deployed to dev+staging+prod. **Blocked on Audrey's `ANTHROPIC_API_KEY`
+  secret** — until set, every AI feature answers "AI is not configured for
+  this workspace yet" (501, deliberately non-retryable).
+- **Block B (locked #18)** — web build (`dist-web`, base `/wilson/`),
+  URL ↔ page sync, gap #21 fixed, honest web degradations everywhere the
+  local server / preload bridge doesn't exist, web D.O.G. per locked #17
+  (no content model — cloud attachments visibly deferred to S14), web
+  sessions in localStorage, Playwright `chromium-web` lane.
+- **Test host: GitHub Pages** — `gh-pages` branch of the public repo serves
+  `https://pretty-aud.github.io/wilson/` once Audrey flips the Pages toggle
+  (owed). `/wilsonadmin` becomes a sibling repo in S15. The
+  `petalstudios.co` cutover stays post-v1.0.
 
-### Session 13 — Change-request approval that applies (NEW, 2026-07-29)
+### Session 13 — Change-request approval that applies ← NEXT
 
 Locked #22. Was briefly S12 Block C; Audrey gave it its own session so the web
 build isn't triple-booked. Full spec in `docs/sessions/SESSION_13_prompt.md`.
@@ -526,7 +522,9 @@ all land here rather than in S15.
     (0020 alignment; pgTAP 20 probe 20 flipped, channel ≡ table reads).
 16. **NEW (S9):** Edge-Function rate limiting is in-memory + last-XFF only
     (provision-workspace invite budget included) — durable DB-backed
-    limiter is S11 TPN work.
+    limiter is S15 TPN work. **S12 note:** `ai-proxy` (the spend endpoint)
+    gained a per-workspace in-memory limiter (default 60/min,
+    `AI_PROXY_RPM` override, NaN-guarded) — same per-isolate caveat.
 17. **NEW (S9):** adminGuard MFA step-up fails OPEN if listFactors errors
     (documented skip; GoTrue still challenges enrolled users at sign-in).
 18. **NEW (S9):** electron-updater ships only via the electron-builder NSIS
@@ -540,26 +538,20 @@ all land here rather than in S15.
     state). The gap was deeper than "no UI": there was no server read path
     either, which is why it needed a migration in a session scoped as
     client-only.
-21. **NEW (S10): O.T.T.E.R. will render an empty library on the web.**
-    `Otter.jsx`'s mount effect calls `loadSoftwareList()` only inside the
-    `fetch('/api/otter-settings')` success chain. That route is correctly not
-    an adapter route, so in a browser it 404s, the outer `.catch(() => {})`
-    swallows it, and the list never loads. Also affects `/api/agent-skills`,
-    `/api/migration-needed`, `/api/migrate`, `/api/fetch-url`.
-    → S11 Block B.
+21. ~~**O.T.T.E.R. will render an empty library on the web**~~ — **CLOSED
+    S12.** `loadSoftwareList()` no longer depends on the settings fetch, and
+    `src/lib/localData.js` gives every local-file store (pet, otter-settings,
+    agent-skills) an Express-in-Electron / localStorage-on-web home. The
+    remaining local-server routes degrade with stated reasons
+    (`/api/fetch-url`, PDF extraction, Google-Sheet import) — see #31.
 22. ~~**no `can_write` gating in the O.T.T.E.R. UI**~~ — **CLOSED S11.** Every
     generate/edit/delete affordance is now gated on `can_write`, with a stated
     reason where a control disappears rather than a silent absence.
-25. **NEW (S11): the Anthropic key is on every client and would ship to the
-    browser.** Not just O.T.T.E.R. — `api.anthropic.com` is called directly from
-    **six files / 13+ call sites**: `Otter.jsx`, `Validator.jsx`,
-    `DeckOutlineGenerator.jsx` (8 sites), `AgentProvider.jsx`, `App.jsx`, and
-    `rabbit_v0.1.0/intake/pipeline.js`, all with
-    `anthropic-dangerous-direct-browser-access` and a key each user pastes into
-    `localStorage` (`wilson-api-key`, read at `App.jsx:195`). Fine in Electron;
-    a credential in the browser on the web. **RESOLVED by locked #21** — one
-    `ai-proxy` Edge Function for both hosts. → **S12 Block A** (it is the
-    blocker for web D.O.G. *and* web O.T.T.E.R., so it is not optional there).
+25. ~~**the Anthropic key is on every client**~~ — **CLOSED S12** (locked
+    #21). All 14 direct call sites now ride the `ai-proxy` Edge Function on
+    both hosts; the `wilson-api-key` localStorage slot (and the pre-WILSON
+    legacy slot) are purged on upgrade; the Settings field is gone. No
+    direct-Anthropic fallback exists anywhere.
 26. ~~approving a change request records a decision, it does not merge~~ —
     **RESOLVED 2026-07-29 (Audrey): approval must APPLY the change.** See
     locked #22 and the **S13** spec. Needs migration 0025: the current
@@ -608,6 +600,29 @@ all land here rather than in S15.
     on wilson-dev (94/94 pgTAP probes, plan counts exact) + Vitest 256/256 +
     vite build, and the migrations are deployed to all three envs — but the
     Actions run itself was never read. **First task of S11.**
+30. **NEW (S12): web multi-tab writes are last-writer-wins.** The
+    localStorage stores in `src/lib/localData.js` (pet, otter-settings,
+    agent-skills) are full-object overwrites with no cross-tab sync; two
+    open tabs both run the pet's 30s decay/auto-save timers and clobber
+    each other. Accepted for v1 (one-window product; same class as two
+    Electron windows) — documented in the module header. A
+    `storage`-event merge is the fix if it ever matters.
+31. **NEW (S12): project file ATTACHMENTS have no cloud home.** Locked #17
+    gives D.O.G. no content model, `files` rows are metadata + storage
+    pointers, and the `rabbit-files` bucket is an S14 decision — so cloud
+    projects cannot carry `documents`/`visualAssets` on EITHER host. S12
+    made every affordance honest: D.O.G.'s pickers and panel state it,
+    `supabaseAdapter.updateProject` throws on an attachments-only patch
+    (PostgREST silently 200s an `update({})` — found by review), and dates
+    map onto the canonical columns (`''` → NULL). **The S14 storage work
+    (rabbit-files bucket / relink) is what unlocks this.** Also web-only
+    degradations with stated reasons: `/api/fetch-url` reference scraping,
+    PDF text extraction (intake + rate-card import), Google-Sheet import.
+32. **NEW (S12): the legacy LOCAL password panel still renders in Electron.**
+    Settings → Change Password drives `/api/auth/change` (the pre-cloud
+    local password). On the web it now degrades to a recovery-flow pointer,
+    but in Electron it still edits a credential nothing checks since the
+    Supabase login landed (S2) — candidate for deletion in a later session.
 
 ---
 
@@ -638,7 +653,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
-| Per-company Claude API key, admin-administered | S12 `ai-proxy` ships the per-workspace→platform resolution seam; the table + admin UI land with the S15 operator console | 🔶 seam S12 · ⬜ admin UI S15 |
+| Per-company Claude API key, admin-administered | S12 `ai-proxy` SHIPPED the per-workspace→platform resolution seam (deployed to all 3 envs); the `workspace_ai_keys` table + admin UI land with the S15 operator console | ✅ seam · ⬜ admin UI S15 |
 | O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI**: tier picker, filter chips, share + editor grants, company standard, fork, change requests, trash/restore | ✅ ❓ in-app verify owed |
 | Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
 | App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
@@ -685,6 +700,8 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
 | Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–13 present) |
+| Web test host | `https://pretty-aud.github.io/wilson/` — `gh-pages` branch of the public repo; Pages toggle owed (see `docs/WEB_DEPLOY.md`) |
+| ai-proxy | Edge Function, all 3 envs; key = `ANTHROPIC_API_KEY` secret (owed) with per-workspace seam; `AI_PROXY_RPM` optional |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
@@ -955,6 +972,46 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   Worth keeping as a pattern — this is the third time splitting a session has
   been the right answer, and the second time it was decided *before* the session
   rather than after it overran.
+
+### Resolved 2026-07-29 (Session 12 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **The test host is GitHub Pages on the existing public repo.** A `gh-pages`
+  branch serves `https://pretty-aud.github.io/wilson/` — no new accounts, no
+  credentials, and the repo name makes the path shape match `base:/wilson/`
+  exactly. `/wilsonadmin` becomes a sibling repo named `wilsonadmin` in S15.
+  Consequence Audrey should know: **the built bundle embeds wilson-dev's
+  `VITE_SUPABASE_URL` + anon key, which are now publicly readable** on that
+  branch. Anon keys are public-by-design (RLS is the boundary, sign-ups are
+  off, every table is FORCE RLS + pgTAP-pinned) and any web deployment ships
+  them — but it is a state change worth stating out loud.
+- **`ai_not_configured` is a 501, not a 503.** Every client retry loop keys
+  on 429/503/529 as transient; the missing-key state is permanent, and a 503
+  bought ~21s of pointless retries before the honest message. Found by the
+  adversarial review; 501 follows the otterFetch precedent.
+- **Web sessions live in localStorage** — the Session 10 note said "httpOnly
+  cookie on web", but a static host has no server to set one. localStorage is
+  what supabase-js's own `persistSession` does; the `TOKEN_REFRESHED` hook
+  re-saves the rotated refresh token so long-lived tabs survive. The
+  `wilson.dev.session` key kept its name (renaming would sign every dev out
+  for zero gain).
+- **`supabase config push` is deliberately NOT used** for the
+  `site_url`/`additional_redirect_urls` change — it pushes the whole local
+  `[auth]` block, and the local toml says `smtp.enabled = false`, which would
+  disable hosted Resend email. The dashboard change is on Audrey's owed list
+  with exact values.
+- **Intake total failure is now loud.** Removing the per-user key gate
+  exposed a fake-success path (all chunks fail → empty breakdown → "Intake
+  complete"); `runWorkerPool` now throws when NOTHING parsed, keeping
+  partial-failure tolerance. Found by the adversarial review.
+- **PostgREST `update({})` is a silent 200 no-op** — stripping unknown
+  columns from a patch can turn an honest 42703 into silent data loss. The
+  adapter now throws on attachments-only patches. General lesson recorded in
+  §6 #31; the review caught it by empirically testing against the linked
+  project.
+- **The review's other keeper:** in-stream SSE `error` events end the stream
+  normally — anything that logs "completed" on stream close must sniff for
+  them (ai-proxy's usage telemetry now does).
 
 ### Still open
 

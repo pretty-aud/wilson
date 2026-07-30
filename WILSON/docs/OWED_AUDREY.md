@@ -395,7 +395,70 @@ company key, and usage lands in the Admin Terminal logs with token counts.
 
 ---
 
-## 6. Nice to have
+## 6. Session 12 — three clicks to light up the web test host
+
+The web build is pushed and waiting; these make it reachable.
+
+### A. Enable GitHub Pages (30 seconds)
+
+https://github.com/pretty-aud/wilson/settings/pages →
+**Source: Deploy from a branch** → branch **`gh-pages`**, folder **`/ (root)`**
+→ Save. A minute later the app is live at:
+
+    https://pretty-aud.github.io/wilson/
+
+**Worth knowing before you click:** the `gh-pages` branch (already public, like
+the whole repo) contains the built bundle, which embeds wilson-dev's project
+URL and **anon key**. That's by design — anon keys are public in every deployed
+web app and RLS is the actual security boundary (sign-ups are off, every table
+is FORCE RLS and pgTAP-pinned) — but it is a state change worth being aware of.
+
+### B. Supabase auth URLs (per env, ~1 minute each)
+
+Dashboard → Authentication → **URL Configuration**, for **wilson-dev** (and
+staging/prod when you want invite/recovery emails to land on the web build):
+
+- **Site URL:** `https://pretty-aud.github.io/wilson`
+- **Additional redirect URLs:** add `https://pretty-aud.github.io/wilson/**`
+
+(Claude deliberately did NOT push this via `supabase config push` — that
+command would also push the local SMTP block and break Resend email. The
+`WILSON_SITE_URL` secret the Edge Functions use for email links IS already set
+on all three envs.)
+
+### C. The `ANTHROPIC_API_KEY` secret — section 5 above, still owed
+
+Until it's set, every AI feature (on desktop AND web) answers
+*"AI is not configured for this workspace yet — ask your admin."* That message
+appearing is correct behavior, not a bug.
+
+---
+
+## 7. Browser eyeball checks — Session 12
+
+The agent verified the web build signed-out (Playwright: deep links, URL sync,
+back button, login screens) and the sign-in flow via the seeded smoke fixture.
+Still owed, because they need your real account and/or the key:
+
+1. **After setting the API key secret (5/6C):** in the DESKTOP app, generate
+   something in each tool — an O.T.T.E.R. subject (the long one — it now
+   streams through the proxy), a D.O.G. page outline, a RABBIT intake, one pet
+   chat message, one Validator run. Then check **Admin Terminal → Logs** for
+   `WIL-6001 AI request completed` lines with token counts — that's the new
+   spend telemetry.
+2. **On the web** (after 6A/6B): sign in at `pretty-aud.github.io/wilson`,
+   check the O.T.T.E.R. library loads (the S10 gap #21 fix), navigate around
+   and use the back button, deep-link straight to
+   `/wilson/otter`, and run one generation there too.
+3. **Settings on the web:** RABBIT tab should show Local Server / Google Drive
+   as "Available in the desktop app only"; the API-key field is gone everywhere
+   (replaced by "AI features are included with your workspace sign-in").
+4. **Recovery email on the web:** after 6B, run "Forgot password" and confirm
+   the email link lands on the web build's reset screen.
+
+---
+
+## 8. Nice to have
 
 `gh auth login` on the dev machine. CI turned out to be readable anyway (the
 repo is public), but an authenticated `gh` would let Claude open PRs and read
