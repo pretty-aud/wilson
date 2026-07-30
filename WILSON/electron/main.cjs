@@ -609,50 +609,32 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    // ── Password management (file-backed, persists across port changes) ──
-    const ADMIN_PASSWORD = 'DILLYDALLY';
-    const DEFAULT_PASSWORD = 'MUTINY';
-    function getPasswordFile() { return path.join(getDataDir(), 'wilson-auth.json'); }
-    function getStoredPassword() {
-      const data = readJSON(getPasswordFile(), null);
-      return (data && data.password) ? data.password : DEFAULT_PASSWORD;
-    }
-
-    // Check if session is still valid (persists across app restarts, expires after 1 hour)
-    expressApp.get('/api/auth/session', (req, res) => {
-      const data = readJSON(getPasswordFile(), null);
-      if (!data || !data.last_auth_at) return res.json({ valid: false });
-      const elapsed = Date.now() - data.last_auth_at;
-      const valid = elapsed < 60 * 60 * 1000; // 1 hour
-      res.json({ valid });
-    });
-
-    expressApp.post('/api/auth/verify', (req, res) => {
-      const input = (req.body.password || '').toUpperCase();
-      const stored = getStoredPassword().toUpperCase();
-      const valid = input === stored || input === ADMIN_PASSWORD;
-      // Persist auth timestamp on successful login
-      if (valid) {
-        const data = readJSON(getPasswordFile(), {});
-        data.last_auth_at = Date.now();
-        writeJSON(getPasswordFile(), data);
-      }
-      res.json({ valid });
-    });
-
-    expressApp.post('/api/auth/change', (req, res) => {
-      const current = (req.body.current || '').toUpperCase();
-      const stored = getStoredPassword().toUpperCase();
-      if (current !== stored && current !== ADMIN_PASSWORD) {
-        return res.json({ ok: false, error: 'Current password is incorrect' });
-      }
-      const np = req.body.newPassword || '';
-      if (np.length === 0) return res.json({ ok: false, error: 'New password cannot be empty' });
-      if (np.length > 12) return res.json({ ok: false, error: 'Password must be 12 characters or fewer' });
-      if (!/^[a-zA-Z0-9]+$/.test(np)) return res.json({ ok: false, error: 'Password must contain only letters and numbers' });
-      writeJSON(getPasswordFile(), { password: np.toUpperCase() });
-      res.json({ ok: true });
-    });
+    // ── Legacy local password: DELETED in Session 15 (MASTER_PLAN §6 #32) ──
+    //
+    // This block held /api/auth/session, /api/auth/verify and
+    // /api/auth/change, backed by a plaintext uppercase password in
+    // otter-data/wilson-auth.json, with a hardcoded master-override constant
+    // and a hardcoded default. (The literal strings are deliberately not
+    // repeated here: TPN_AUDIT/LEARNINGS.md's re-audit checklist greps for
+    // them and expects zero hits outside that file.) Nothing had checked
+    // that credential since the Supabase login landed in Session 2 — its
+    // only client, src/components/PasswordScreen.jsx, was orphaned (no file
+    // imported it) and has been deleted too.
+    //
+    // The routes and their consumer had to go TOGETHER. Deleting the routes
+    // alone would have left PasswordScreen's fetch to 404 and fall through
+    // to its hardcoded string comparison — a fail-OPEN gate, strictly worse
+    // than the dead code it replaced.
+    //
+    // Closes the TPN baseline's TPN-AUTH-001 (hardcoded admin backdoor,
+    // CRITICAL), TPN-SDLC-001 (credentials in source, CRITICAL), TPN-ENC-003
+    // (password stored with no hash or salt, CRITICAL), TPN-AUTH-002
+    // (1-char/12-char/case-folded password policy), TPN-AUTH-004 (the
+    // one-timestamp "session"), and the /api/auth/verify half of
+    // TPN-NET-003 (unlimited unrate-limited password attempts).
+    //
+    // Removing the code does not remove the file, so cleanupLegacyAuthFile()
+    // below unlinks any credential an existing install still has on disk.
 
     // ── URL fetch (for user-provided reference links) ──
     expressApp.post('/api/fetch-url', async (req, res) => {
@@ -2130,8 +2112,8 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.cjs'),
-      // Allow the startup chime (AuthShell / PasswordScreen) to play without
-      // requiring a user gesture. Chrome's default blocks autoplay.
+      // Allow the startup chime (AuthShell) to play without requiring a user
+      // gesture. Chrome's default blocks autoplay.
       autoplayPolicy: 'no-user-gesture-required',
     },
   });
@@ -2181,6 +2163,20 @@ function cleanupLegacySupabaseConfig() {
   try {
     const cfgPath = path.join(getRabbitDataDir(), 'supabase.json');
     if (fs.existsSync(cfgPath)) fs.unlinkSync(cfgPath);
+  } catch { /* best-effort; never block startup */ }
+}
+
+// Session 15 (MASTER_PLAN §6 #32): delete the legacy local credential file.
+// The routes that read otter-data/wilson-auth.json are gone, but deleting
+// code does not delete data — every existing install still has a plaintext
+// uppercase password sitting at rest, which is a TPN finding on its own
+// (TPN-ENC-003) regardless of whether anything reads it. Same best-effort
+// shape as the Supabase-config cleanup above: a failure here must never
+// stop the app from starting.
+function cleanupLegacyAuthFile() {
+  try {
+    const authPath = path.join(getDataDir(), 'wilson-auth.json');
+    if (fs.existsSync(authPath)) fs.unlinkSync(authPath);
   } catch { /* best-effort; never block startup */ }
 }
 
@@ -2476,6 +2472,7 @@ ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents
 
 app.whenReady().then(() => {
   cleanupLegacySupabaseConfig();
+  cleanupLegacyAuthFile();
   createWindow();
   // Session 9 auto-update (electron-updater; feed = WILSON_UPDATE_URL from
   // env.json in packaged builds). Init AFTER createWindow so status pushes

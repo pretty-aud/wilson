@@ -43,7 +43,7 @@ Without these, the `issue-session-smoke` CI job skips silently. The `rls.yml` pg
 | `DEV_SUPABASE_URL` | `https://eqjzmnvkrakroyqxfsvw.supabase.co` |
 | `DEV_SUPABASE_ANON_KEY` | (paste from `WILSON/.env.development` — the `VITE_SUPABASE_ANON_KEY` line) |
 | `DEV_PROBE_USERNAME` | `smoke_admin` |
-| `DEV_PROBE_PASSWORD` | `SmokeTest2026!` |
+| `DEV_PROBE_PASSWORD` | `<DEV_PROBE_PASSWORD>` |
 
 **Verify:** after the push from §0, open the Actions tab. The `RLS tests` workflow should run; click into `issue-session smoke (wilson-dev)` — expect ✅ **"Probe issue-session"** step green with the final line `PASS issue-session smoke probe`.
 
@@ -171,7 +171,7 @@ npm run dev
 # click "forgot password?", enter smoke_admin, submit.
 ```
 
-Expect: a WILSON-branded reset email in the inbox within 30 seconds. Click through; the ResetPasswordWizard should load at `/#/recovery` and let you set a new password. Use a throw-away password and **rotate it back to `SmokeTest2026!`** afterwards (so the CI probe keeps working).
+Expect: a WILSON-branded reset email in the inbox within 30 seconds. Click through; the ResetPasswordWizard should load at `/#/recovery` and let you set a new password. Set a new password, then **update the `DEV_PROBE_PASSWORD` GitHub secret to match it** so the CI probe keeps working. (Session 15 correction: this step used to say "rotate it back" to a fixed literal. That pinned the probe account's password to a value published in this public repo — see TPN-SDLC-007. The secret follows the password now, not the other way round.)
 
 If the email never arrives:
 - Resend Dashboard → **Logs** shows every send. A failed send lists the SMTP error.
@@ -251,7 +251,7 @@ Once §4d passes, run these end-to-end against wilson-dev to catch anything the 
 ### 7a. Admin invite → first-login welcome
 
 1. Start the app: `npm run electron:dev` (or `npm run dev` for the browser path).
-2. Sign in as `smoke_admin` / `SmokeTest2026!`.
+2. Sign in as `smoke_admin` / `<DEV_PROBE_PASSWORD>`.
 3. Go to **Team Members** (nav strip → Resources → Team Members).
 4. Click **Invite User** (orange button, only shows because you're admin).
 5. Fill: email = a throwaway you control, username = `playtest_01`, role = `User`. Send.
@@ -269,7 +269,7 @@ Once §4d passes, run these end-to-end against wilson-dev to catch anything the 
 3. Inbox → click the reset link.
 4. Set a temp password → Continue.
 5. Sign in with the temp password → lands on Home.
-6. Repeat the forgot-password flow and rotate back to `SmokeTest2026!` so the CI probe keeps working.
+6. Repeat the forgot-password flow, then update the `DEV_PROBE_PASSWORD` GitHub secret to the new value so the CI probe keeps working. Never rotate the account back to a previously published value.
 
 ### 7c. issue-session probe against wilson-dev (sanity)
 
@@ -283,7 +283,7 @@ cd "/c/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON"
 SUPABASE_URL="https://eqjzmnvkrakroyqxfsvw.supabase.co" \
 SUPABASE_ANON_KEY="$(grep VITE_SUPABASE_ANON_KEY .env.development | cut -d= -f2)" \
 PROBE_USERNAME="smoke_admin" \
-PROBE_PASSWORD="SmokeTest2026!" \
+PROBE_PASSWORD="$DEV_PROBE_PASSWORD" \
 ./scripts/probes/issue-session.sh
 ```
 
@@ -303,7 +303,7 @@ Optional but makes the Session 4 start cleaner.
 
 ### 8a. Re-run the smoke fixture if the smoke_admin password drifted
 
-If §4d or §7b ended with a different password than `SmokeTest2026!`, re-seed from `docs/sessions/SESSION_02_TO_03_CHECKLIST.md` §6b.
+If §4d or §7b changed the probe password, update the `DEV_PROBE_PASSWORD` GitHub secret to match. Do not re-seed the account back to an older password.
 
 ### 8b. Spot-check that no .env* leaked into commits
 

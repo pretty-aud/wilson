@@ -64,6 +64,7 @@ jobs:
             app_events
             otter_courses otter_subjects otter_progress
             otter_course_editors otter_change_requests
+            workspace_ai_keys platform_audit edge_rate_limits
           )
           MISSING=()
           for t in "${RLS_TABLES[@]}"; do

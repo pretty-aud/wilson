@@ -1,12 +1,25 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "buildCommand": "npm run build:vercel",
+  "buildCommand": "npm run build:vercel && npm run build:vercel:admin",
   "outputDirectory": "dist-vercel",
   "installCommand": "npm install --ignore-scripts",
   "redirects": [
     { "source": "/", "destination": "/wilson", "permanent": false }
   ],
   "rewrites": [
-    { "source": "/wilson/:path*", "destination": "/wilson/index.html" }
+    { "source": "/wilson/:path*", "destination": "/wilson/index.html" },
+    { "source": "/wilsonadmin", "destination": "/wilsonadmin/admin.html" },
+    { "source": "/wilsonadmin/:path*", "destination": "/wilsonadmin/admin.html" }
+  ],
+  "headers": [
+    {
+      "source": "/wilsonadmin/:path*",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Referrer-Policy", "value": "no-referrer" },
+        { "key": "X-Frame-Options", "value": "DENY" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
   ]
 }

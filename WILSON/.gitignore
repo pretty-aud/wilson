@@ -35,3 +35,8 @@ playwright-report/
 # Session 12: web build output (base /wilson/), deployed to the test host
 dist-web/
 dist-vercel/
+
+# Session 15: operator console build output (base /wilsonadmin/).
+# dist-vercel/wilsonadmin is already covered above; this is the standalone
+# `npm run build:admin` target.
+dist-web-admin/

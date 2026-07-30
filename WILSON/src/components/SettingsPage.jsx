@@ -29,10 +29,6 @@ export default function SettingsPage({
   agentSystemPrompt, onAgentSystemPromptChange,
 }) {
   const [activeTab, setActiveTab] = useState('general')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [passwordMessage, setPasswordMessage] = useState(null)
 
   // Pet danger zone confirmations
   const [petResetConfirm, setPetResetConfirm] = useState(false)
@@ -191,42 +187,6 @@ export default function SettingsPage({
       agentCtx?.refreshPromptOverrides?.()
     } catch {
       /* best effort */
-    }
-  }
-
-  const handleChangePassword = async () => {
-    if (newPassword.length === 0) {
-      setPasswordMessage({ type: 'error', text: 'New password cannot be empty' })
-      return
-    }
-    if (newPassword.length > 12) {
-      setPasswordMessage({ type: 'error', text: 'Password must be 12 characters or fewer' })
-      return
-    }
-    if (!/^[a-zA-Z0-9]+$/.test(newPassword)) {
-      setPasswordMessage({ type: 'error', text: 'Password must contain only letters and numbers' })
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'New passwords do not match' })
-      return
-    }
-    try {
-      const res = await fetch('/api/auth/change', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: currentPassword, newPassword })
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setPasswordMessage({ type: 'success', text: 'Password changed successfully' })
-        setCurrentPassword('')
-        setNewPassword('')
-        setConfirmPassword('')
-      } else {
-        setPasswordMessage({ type: 'error', text: data.error || 'Failed to change password' })
-      }
-    } catch {
-      setPasswordMessage({ type: 'error', text: 'Failed to save password' })
     }
   }
 
@@ -575,96 +535,24 @@ export default function SettingsPage({
                 </div>
               </div>
 
-              {/* Password Change Section — the LOCAL app password, which only
-                  exists where the local Express server does. On the web the
-                  section degrades to a pointer at the account recovery flow
-                  (Session 12: degrade visibly, don't hide silently). */}
-              {!hasLocalServer() ? (
-                <div>
-                  <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                    Change Password
-                  </h2>
-                  <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                    Your password is managed by your workspace account. Use
-                    “Forgot password” on the sign-in screen to reset it, or ask
-                    a workspace admin.
-                  </p>
-                </div>
-              ) : (
+              {/* Password. Session 15 deleted the legacy LOCAL password panel
+                  (MASTER_PLAN §6 #32): it drove /api/auth/change, which edited
+                  a plaintext credential in otter-data/wilson-auth.json that
+                  nothing has checked since the Supabase login landed in S2.
+                  Editing a credential that grants nothing is worse than having
+                  no panel — it implies a security control exists. Both hosts
+                  now say the same true thing, so this is no longer a
+                  hasLocalServer() branch. */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
                   Change Password
                 </h2>
                 <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Update the login password. Letters and numbers only, up to 12 characters.
+                  Your password is managed by your workspace account. Use
+                  “Forgot password” on the sign-in screen to reset it, or ask
+                  a workspace admin.
                 </p>
-
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      Current Password
-                    </label>
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => { setCurrentPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Enter current password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => { setNewPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Enter new password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      Retype New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => { setConfirmPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Retype new password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-4 pt-1">
-                    <button
-                      onClick={handleChangePassword}
-                      className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                      style={{
-                        backgroundColor: '#1c1917',
-                        color: '#f4a261',
-                      }}
-                      onMouseEnter={(e) => { e.target.style.backgroundColor = '#292524'; }}
-                      onMouseLeave={(e) => { e.target.style.backgroundColor = '#1c1917'; }}
-                    >
-                      Update Password
-                    </button>
-
-                    {passwordMessage && (
-                      <span className={`text-xs ${passwordMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                        {passwordMessage.text}
-                      </span>
-                    )}
-                  </div>
-                </div>
               </div>
-              )}
             </>
           )}
 

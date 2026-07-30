@@ -295,7 +295,7 @@ You need: a workspace, an auth.users row, a workspace_members row linking them, 
 **Step 1: Create the auth user via dashboard** (this handles password hashing correctly)
 1. Dashboard → Authentication → Users → **Add user** → **Create new user**
 2. Email: `smoke@example.com`
-3. Password: pick something memorable like `SmokeTest2026!`
+3. Password: pick something memorable like `<DEV_PROBE_PASSWORD>`
 4. ✅ **Auto Confirm User** (checkbox — very important, skip the email verification)
 5. Click **Create user**
 6. Click the newly-created user. Copy the **User UID** (format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). You'll paste this below.
@@ -367,7 +367,7 @@ Check [package.json scripts](../../package.json) if none work.
 | 2 | Type `MUTINY`, press Enter | Bars compress, light-orange reveal, app appears briefly |
 | 3 | **LoginScreen takes over** — logo card → bars → `LOGIN` title → `USERNAME` label → blinking `_` cursor | ✅ **THIS is the Session 2 aesthetic rebuild.** Compare visually to PasswordScreen — same orange shades, same monospace, same cursor blink rate. |
 | 4 | Type `smoke_admin`, press Enter | Stage swaps to PASSWORD with a small `· smoke_admin change` subtitle. Bars stay compressed. |
-| 5 | Type your password (`SmokeTest2026!`), press Enter | Bars compress further to 268px, light-orange fades, app reveals. |
+| 5 | Type your password (`<DEV_PROBE_PASSWORD>`), press Enter | Bars compress further to 268px, light-orange fades, app reveals. |
 | 6 | Home page shows, navigate to **RABBIT** | "Smoke Project" visible in the project list |
 | 7 | Open DevTools (Ctrl+Shift+I), Console tab | Ready for the JWT check |
 | 8 | Run in console: | See below |

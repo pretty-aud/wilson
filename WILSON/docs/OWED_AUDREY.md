@@ -7,6 +7,55 @@ from the source site into GitHub's secrets box.
 
 ---
 
+## 0. 🚨 ROTATE THE CI PROBE PASSWORD — do this before anything else
+
+**Found by the Session 15 TPN re-audit (TPN-SDLC-007) and verified against the
+live database.**
+
+`smoke_admin` is an **active, `admin`-role account on the hosted wilson-dev
+project**, and its password was written in plain text in this repo — which is
+**public** — in two session checklists and, worse, as a hardcoded fallback in
+two tracked Playwright specs. The anon key needed to complete a sign-in is
+public by design and ships in the web bundle, so the published pair was
+directly usable against the real endpoint by anyone. It is not a local
+fixture. The account signed in as recently as the last CI run.
+
+**What Session 15 already did (no credential handling — the agent never
+touches these):**
+
+- removed the hardcoded password from `tests/e2e/auth.spec.ts` and
+  `tests/e2e/web-path.spec.ts`; both now fail loudly if
+  `WILSON_E2E_PASSWORD` is unset, and CI already supplies it from the
+  `DEV_PROBE_PASSWORD` secret, so nothing breaks;
+- redacted every occurrence from the tracked docs;
+- **rewrote the instructions that told you to rotate the password *back* to
+  the published literal** — that step is why it stayed valid for eleven
+  sessions. The GitHub secret now follows the password, not the reverse.
+
+**What only you can do — and the code changes above do NOT fix this, because
+the value is still in git history and on GitHub forever:**
+
+1. Sign in to Supabase → **wilson-dev** → Authentication → Users → find
+   `smoke_admin`.
+2. Reset its password to a fresh random value (your password manager, not
+   something memorable — nothing about this account is typed by a human).
+3. Update the **`DEV_PROBE_PASSWORD`** GitHub Actions secret to the new value.
+4. Re-run the CI workflow and confirm the Playwright job goes green.
+
+**Then consider the exposure window.** The credential was readable publicly
+from Session 3 (2026-04-18) until now. wilson-dev holds no customer content,
+which is the saving grace, but check
+`SELECT * FROM auth_attempt_log ORDER BY created_at DESC` and the
+`app_events` auth stream for sign-ins you do not recognise before you close
+this out.
+
+**Worth deciding while you are here:** whether the CI probe needs `admin` at
+all. It signs in, checks a project list, and follows an invite — a `user`-role
+account would prove the same things with far less to lose. That is a
+five-minute change to the seed and would retire the whole class of problem.
+
+---
+
 ## 1. B2 backup secrets — **do this first**
 
 **Status: ✅ DONE (2026-07-29).** Bucket `petal-wilson-backups` created in
@@ -539,7 +588,112 @@ and a plain member — and a company-standard course the member has forked
 
 ---
 
-## 9. Nice to have
+## 9. Session 15 — the operator console (/wilsonadmin)
+
+Four things, and the first two are **blocking**: without them the console
+signs you in and then refuses every action.
+
+### A. Enrol TOTP on your account — BLOCKING
+
+The operator console requires two-factor authentication outright. This is not
+the S9 admin behaviour (which only challenges people who already enrolled) —
+`_shared/operatorGuard.ts` refuses any operator with no verified factor, and
+any session below `aal2`. The console can destroy a company, so it is the one
+surface where MFA is not optional.
+
+Enrol in the normal app: **WILSON → Settings → Security → add an
+authenticator**, scan the QR, confirm the six-digit code. Then sign in to
+`/wilsonadmin` with **email + password + code**.
+
+> Note the console uses your **email**, not the username-first login. A
+> platform operator has no company for `resolve-login` to resolve against —
+> that is what the tier means.
+
+### B. Make yourself a platform operator — BLOCKING
+
+There is deliberately **no UI for this**, on any surface. Granting the platform
+tier is SQL-only, so the highest privilege in the system cannot be escalated
+from a web session — not even by another operator. It is a break-glass
+property, and it is worth keeping.
+
+Run this once per environment you want console access on, in the Supabase
+dashboard SQL editor (replace the email):
+
+```sql
+INSERT INTO public.platform_operators (user_id)
+SELECT id FROM auth.users WHERE email = 'you@example.com'
+ON CONFLICT (user_id) DO NOTHING;
+```
+
+Check it took:
+
+```sql
+SELECT u.email, po.granted_at
+  FROM public.platform_operators po
+  JOIN auth.users u ON u.id = po.user_id;
+```
+
+### C. `WILSON_AI_KEY_SECRET` — needed before per-company keys work
+
+Per-company Anthropic keys are stored as AES-256-GCM ciphertext. The key that
+encrypts them lives in an Edge Function secret and never touches Postgres —
+which is the point, because the nightly `pg_dump` goes off-platform to B2
+(§1). Without this secret the console refuses to store a company key with a
+clear message, and every company keeps billing to the platform key.
+
+**Claude must never see or handle this value** — same rule as §1 and §5.
+
+Generate 32 random bytes, base64-encoded:
+
+```bash
+openssl rand -base64 32
+```
+
+Then set it on each project (dev `eqjzmnvkrakroyqxfsvw`, staging
+`rzkirvkotslbovzbsdfh`, prod `rqyriuyldhovirbuievt`):
+
+```bash
+supabase secrets set WILSON_AI_KEY_SECRET=<the-base64-value> --project-ref eqjzmnvkrakroyqxfsvw
+```
+
+> ⚠️ **Rotating this secret orphans every stored company key.** The
+> ciphertext becomes undecryptable, `ai-proxy` fails soft to the platform
+> key, and the console still shows the old hint. If you ever rotate it, clear
+> and re-enter each company's key from the console afterwards.
+
+### D. Browser eyeball checks — Session 15
+
+The agent never signs in, so these are yours. On the dev environment first.
+
+1. **Session isolation.** Sign in to `/wilson` as normal. In the SAME browser,
+   open `/wilsonadmin`. It must show its own sign-in screen and NOT inherit
+   your app session. Then sign in to the console, go back to the `/wilson`
+   tab, and confirm you are still signed in there as the ordinary user.
+   (Verified at build time — the two bundles ship different storage keys —
+   but this is the check that proves it end to end.)
+2. **Non-operator refusal.** Sign in to `/wilsonadmin` with an account that is
+   NOT in `platform_operators`. Expect the "Not a platform operator" screen,
+   not a broken console.
+3. **Create a company.** Use a throwaway slug. Confirm the show-once password
+   dialog appears, copy it, then confirm you can sign in to `/wilson` as that
+   new admin with company-slug + username + password.
+4. **Suspend and restore it.** While suspended, confirm the new admin can no
+   longer reach the workspace; after restore, confirm they can again.
+5. **Per-company key.** Paste a real Anthropic key into the throwaway company.
+   A wrong key must be REFUSED (the function calls Anthropic before storing).
+   A good key stores and shows only the last four characters — there is no
+   reveal, by design.
+6. **Tear the throwaway company down.** Type the slug to confirm. Check the
+   result summary reports the blob counts, then open **Audit** and confirm a
+   `workspace.teardown` row is there *and still names the company* — that row
+   surviving the deletion is the whole point of the separate audit table.
+7. **Settings → General** in the normal app: the Change Password panel should
+   now say your password is managed by your workspace account, on BOTH
+   Electron and web (the legacy local-password form is gone).
+
+---
+
+## 10. Nice to have
 
 `gh auth login` on the dev machine. CI turned out to be readable anyway (the
 repo is public), but an authenticated `gh` would let Claude open PRs and read

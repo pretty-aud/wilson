@@ -2,14 +2,15 @@
 
 - **Project:** WILSON (Petal Studios)
 - **Repo path:** `C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON`
-- **Generated:** 2026-04-15
-- **Total findings to address:** 40
-- **Total phases:** 7 (plus a parallel CVE-triage track)
+- **Generated:** 2026-04-15; **revised at the 2026-07-30 re-audit**
+- **Total findings to address:** 92 (44 baseline + 48 opened by the re-audit; 5 are RESOLVED)
+- **Total phases:** 8 (Phase 0 added by the re-audit, plus a parallel CVE-triage track)
 - **Non-negotiable rule for the implementation skill:** Preserve public IPC shapes, REST surface, on-disk JSON shapes, IndexedDB `wilson-db` schema, and exported markdown formats unless a finding explicitly requires a change. Any interface change must be flagged and approved by the user before execution.
 
 ## Phase dependency graph
 
 ```
+Phase 0 (URGENT: credential rotation + privilege audit) ─► everything else
 Phase 1 (Foundations) ─► Phase 2 (Encryption) ─► Phase 3 (Auth) ─► Phase 4 (Network/Cloud)
                                                                          │
 Phase 5 (Content)  ◄────────────────────────────────────────────────────┘
@@ -19,6 +20,92 @@ Phase X (3P / CVE) ─► continuous, kicked off with Phase 1's CI bootstrap
 ```
 
 ---
+
+## Phase 0 — 🚨 URGENT: rotate the published credential, audit privilege changes
+
+> **Added by the 2026-07-30 re-audit.** Both items are CRITICAL and neither
+> depends on any other phase. Phase 0 is not a refactor — it is two discrete
+> actions, one of which cannot be performed by an agent at all.
+
+**Why first:** one of these is a working credential for a hosted project that
+has been publicly readable for eleven sessions, and the other means the
+product cannot answer "who granted this person admin?" for any incident that
+has already happened. Everything else in this plan can wait a day; these
+cannot.
+
+**Findings addressed:** TPN-SDLC-007, TPN-LOG-005
+
+**Entry criteria:** none.
+
+**Exit criteria:**
+- `smoke_admin`'s password has been rotated, the `DEV_PROBE_PASSWORD` GitHub
+  secret updated, and the CI Playwright job re-run green.
+- `rg -n "SmokeTest"` returns zero hits across the working tree (already true
+  as of Session 15 — verify it stayed true).
+- A capture trigger exists on `public.workspace_members` and a pgTAP probe
+  asserts that a role change writes an audit row.
+- The `auth_attempt_log` and `app_events` auth streams have been reviewed for
+  unrecognised sign-ins during the exposure window.
+
+### 0a — Credential rotation (HUMAN ONLY — do not attempt this in an agent)
+
+The agent must never handle credentials. The steps are written out for the
+operator in `docs/OWED_AUDREY.md` §0. Session 15 already did the parts that do
+not touch the secret: removed the literal from `tests/e2e/auth.spec.ts` and
+`tests/e2e/web-path.spec.ts` (both now throw if `WILSON_E2E_PASSWORD` is
+unset, and CI supplies it from `DEV_PROBE_PASSWORD`), redacted it from the
+tracked docs, and rewrote the instructions that told operators to rotate the
+password *back* to the published value.
+
+**Note that the code changes do NOT remediate the finding.** The value is in
+git history and on GitHub permanently. Only rotation closes it.
+
+While rotating, decide whether the CI probe needs `admin` at all — it signs
+in, reads a project list and follows an invite, all of which a `user`-role
+account proves equally well.
+
+### 0b — Audit privilege changes (implementation skill CAN do this)
+
+**Prompt for implementation skill (copy/paste):**
+
+```
+Close TPN-LOG-005. Privilege changes on public.workspace_members are written
+directly from the browser (src/components/TeamMembers/useWorkspaceMembers.js
+issues a raw .update() under the FOR ALL ws_members_admin_write policy) and
+nothing records them: edit_history's entity_type CHECK deliberately excludes
+workspace_members, the only triggers on the table are guards, and no
+app_events line is written on that path.
+
+Add a migration (next free number) that:
+  1. creates a SECURITY DEFINER capture trigger on public.workspace_members
+     firing AFTER INSERT OR UPDATE OR DELETE, writing one app_events row per
+     change with event_type 'admin' and a new WIL-41xx code, recording the
+     actor (auth.uid(), or NULL for service_role writes), the target user, and
+     the before/after values of app_role, is_active, grant_rate_card_view and
+     grant_rate_card_edit;
+  2. follows the fn_file_events_capture (0027) shape exactly — SECURITY
+     DEFINER with a catch-all EXCEPTION -> RAISE WARNING, so an audit hiccup
+     can never abort the write it audits, including workspace CASCADE
+     teardowns;
+  3. does NOT add FORCE to app_events' existing settings and does not alter
+     its policies — the 'admin' event_type is already service-role-reserved by
+     the 0021 INSERT policy, and a DEFINER trigger inserts as the table owner.
+
+Then add pgTAP probes to a new suite asserting: a role promotion writes
+exactly one audit row; the row names the acting user; a plain member cannot
+write that row directly; and the trigger does not abort a workspace delete.
+
+Verify with scripts/tap-hosted.py against wilson-dev before pushing, and add
+the table to the per-table coverage gate in .github/workflows/rls.yml at the
+git root if a new suite file is created.
+```
+
+**Expected effort:** S (0a is minutes of dashboard work; 0b is one migration
+plus a pgTAP suite).
+
+**Rollback notes:** 0b is additive — dropping the trigger restores current
+behaviour exactly. 0a has no rollback and needs none.
+
 
 ## Phase 1 — Foundations: secrets manager, structured logger, CI pipeline
 

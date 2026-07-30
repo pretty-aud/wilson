@@ -134,5 +134,16 @@ verify_jwt = false
 [functions.storage-gc]
 verify_jwt = false
 
+# Session 15 Platform Operator Console (/wilsonadmin, locked #18). These are
+# the PLATFORM tier, not the company-admin tier: they ride
+# _shared/operatorGuard.ts, which checks a live public.platform_operators row
+# and requires MFA outright rather than only for enrolled users. Same gateway
+# opt-out as everything above — verify_jwt only speaks HS256.
+[functions.operator-workspaces]
+verify_jwt = false
+
+[functions.operator-ai-keys]
+verify_jwt = false
+
 [analytics]
 enabled = false

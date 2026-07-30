@@ -276,6 +276,8 @@ deployed to all three envs**.
 | 14 | 2026-07-30 | **File lifecycle & data stewardship** (migration 0027). Block A — storage relink, the ShotGrid model (Audrey, find+preview+APPLY): provider-agnostic 3-rung matcher (`components/relinkMatcher.js`, pure, 14 vitest cases) + recursive symlink-safe walk + relink-scan/apply Express routes (containment-guarded, user-authorized-folder gating, offline-home 409, all-or-nothing) + RelinkDialog (old→new per row, counts in the confirm) + the `files_dir` override surfaced/resettable in Files & Storage. Block B — CSV export both tiers: `src/lib/csvExport.js` (BOM, RFC 4180, formula-injection guard) + per-page buttons (tasks / rate card / roster — each exports exactly what the viewer sees) + admin-only WorkspaceTakeout zip on RLS-scoped reads (O.T.T.E.R. + Notes excluded per locked #20, stated in UI and manifest). Block C — `file_events` trigger-fed lifecycle stream (uploaded/moved/relinked/trashed/restored/purged; project readers + admin arm; 'purged' rows are TPN-CONT-002 deletion certificates; NO purge job — TPN-LOG-004 ≥1yr) + `bundle.fileEvents` local twin + FileAuditDrawer. Block D DECIDED: **create `rabbit-files`** (private, 50MB, path-scoped policies; delete-own = 1-hour failed-insert cleanup window only) — gap #31 UNBLOCKED. Block E — `storage_gc_queue` + enqueue trigger + `storage-gc` Edge Function (adminGuard, workspace-scoped, run-wide budget, batched ref-checks, paged members read, fail-closed tenancy) + Diagnostics cleanup card; **gap #6 CLOSED**. Review: 5 finders, 20 findings → 18 fixed (3 criticals: unbounded delete-own policy, body-supplied relink baseDir, takeout aborting on composite-pk order), 2 documented (→ #34/#35). pgTAP 33 (26 probes) on real PG17; Vitest 329/329. | `b109bd2` |
 | 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
+| 15 | 2026-07-30 | **Platform Operator Console + final TPN hardening** (migration 0028). Block A — `/wilsonadmin` as a genuinely separate surface: `admin.html` → `src/admin/` (own React root, no router, two sections), selected by vite `--mode admin` so the console can never ship inside the Electron installer; **session isolation is build-time** (`__WILSON_SURFACE__` → `wilson.operator.session` vs `wilson.dev.session`, distinct supabase-js `storageKey`, and the admin surface refuses the single-slot Electron safeStorage bridge) because localStorage is per-ORIGIN, not per-path; sign-in is email+password+TOTP (operators have no company for `resolve-login`). Server side: `is_platform_operator()` (live-row — the JWT claim had existed since 0001 and **nothing server-side had ever read it**), `_shared/operatorGuard.ts` (no workspaceId, claim NOT required, **MFA hard both ways**), `workspace_ai_keys` (AES-256-GCM ciphertext via `_shared/aiKeyCrypto.ts`, zero policies — not Vault, because CI's local stack was unverifiable from this machine), `platform_audit` (**no workspace FK** → teardown certificates outlive the tenant, closing gap #34's cascade half), `operator_workspace_summary()` (the single cross-tenant read, service_role only), and two Edge Functions (`operator-workspaces` list/create/rename/suspend/restore/**teardown**, `operator-ai-keys` set/clear with a live Anthropic validation call). Teardown's ORDER is the design: snapshot → typed-slug confirm → page both blob sources with `.range()` → delete + certificate each batch → drop queue rows → only then the row. Block B — **gap #16 CLOSED** (`edge_rate_limits` + `fn_rate_limit_hit`, durable and cross-isolate, replacing per-isolate Maps whose real limit was RPM × warm isolates) and **gap #17 CLOSED** (adminGuard MFA fails CLOSED; opt-in `WILSON_REQUIRE_ADMIN_MFA` for the stronger no-enrolment gate, off by default and why). Block C — **gap #32 CLOSED**: the entire dead local password module deleted (3 routes, the hardcoded constants, the orphaned `PasswordScreen.jsx`) plus a boot-time unlink of the on-disk credential; **#31 partial** (the mixed-patch silent data loss fixed + 10 tests; re-homing deferred with a plan). Also `scripts/tap-hosted.py` — the no-Docker pgTAP harness every session had been rebuilding, validated against suites 17/24/25/33 before use. **Adversarial review: 5 finders → 23 findings → 11 confirmed / 12 refuted, ALL 11 fixed (migration 0029 + suite 37).** The critical, found independently by the TPN cloud pass as TPN-CLOUD-003: `workspaces_write_operator` (0002) is `FOR ALL` and 0011 grants ALL to `authenticated`, so an operator's ordinary **aal1** browser session could `DELETE FROM workspaces` — skipping operatorGuard's hard MFA, the typed confirm, the blob sweep AND the certificate, and reopening gap #34 by the back door. 0029 drops the FOR ALL policy for read+update arms, revokes INSERT/DELETE/TRUNCATE, and adds `trg_workspaces_delete_guard`. The review also surfaced a **pre-existing release blocker**: `RabbitProvider.createProject` stamps every draft with the pre-multi-tenant `DEFAULT_WORKSPACE_ID`, which `projects_insert` refuses — so cloud project creation was broken for **every tenant except the seed fixture**; proven against wilson-dev (seed value 42501, real workspace succeeds, same statement) and fixed by dropping the column in the adapter + `trg_projects_populate_workspace`. Other fixes: the audit-certificate `context` was the one unbounded field and could bust its 8000-char CHECK silently (supabase-js reports CHECKs on the error channel, so the try/catch was dead) — now bounded and logged; `blobs_removed` counted the batch instead of `remove()`'s returned array, so a certificate could claim a destruction that never happened; teardown deleted queue rows *before* the CASCADE that recreates them; the sweep now refuses paths outside the workspace's own projects (`files.storage_path` is client-writable, and the sweep runs as service_role); console sign-out was global and dropped the same user's /wilson session. pgTAP 34–37 (67 probes) on real PG17; Vitest 339/339. | `<pending>` |
+
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
@@ -488,10 +490,29 @@ Original scope below for the record.
 - **Blob GC (§6 #6)** — file rows soft-delete but blobs persist forever, and
   removed-avatar orphans join them when the best-effort delete fails.
 
-### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening
+### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening ✅ DONE (2026-07-30)
 
-Launch prompt: `docs/sessions/SESSION_15_prompt.md`. The last BUILD
-session (locked #19 as amended — docs and the cut moved to S16/S17).
+§4 ledger row 15; the last BUILD session (locked #19 as amended). Migration
+0028, Edge Functions `operator-workspaces` + `operator-ai-keys`, the
+`/wilsonadmin` surface, the durable rate limiter, the MFA fail-closed fix,
+gap #32 deleted outright, and a full TPN re-audit against the `1ce18ec`
+baseline.
+
+**The one scope correction worth recording.** The prompt listed gap #31
+(cloud project attachments) as a cheap close. It is not, and the recon that
+established that is worth keeping: D.O.G. reads attachments as inline
+`content` data URLs and skips any file without one, so files rows alone
+produce zero generation context; `files` has no `description` or
+`document_kind` column; D.O.G.'s `isCore` defaults TRUE against
+`is_core_definer`'s FALSE, so a 1:1 map silently flips every unmarked file;
+ProjectsPage reads `projectsIndex`, which carries no files; and the local
+adapter round-trips inline base64 through the JSON bundle, so switching
+unconditionally would hide every existing local project's attachments.
+Half-wiring it converts today's loud throw into silent data loss — the exact
+failure the throw exists to prevent. What S15 DID close is the live bug the
+gap was hiding (see §6 #31).
+
+Original scope below for the record.
 
 - **Operator console** (platform tier, `is_platform_operator`, separate
   surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
@@ -576,13 +597,31 @@ read doubles as the final audit (code findings → §6 gaps for S17).
     cosmetic; the Dashboard already requires an active workspace to render.
 15. ~~Deactivated members: channel/table-read divergence~~ — **CLOSED S9**
     (0020 alignment; pgTAP 20 probe 20 flipped, channel ≡ table reads).
-16. **NEW (S9):** Edge-Function rate limiting is in-memory + last-XFF only
-    (provision-workspace invite budget included) — durable DB-backed
-    limiter is S15 TPN work. **S12 note:** `ai-proxy` (the spend endpoint)
-    gained a per-workspace in-memory limiter (default 60/min,
-    `AI_PROXY_RPM` override, NaN-guarded) — same per-isolate caveat.
-17. **NEW (S9):** adminGuard MFA step-up fails OPEN if listFactors errors
-    (documented skip; GoTrue still challenges enrolled users at sign-in).
+16. ~~Edge-Function rate limiting is in-memory + last-XFF only~~ — **CLOSED
+    S15.** `public.edge_rate_limits` + `fn_rate_limit_hit()` (0028) is a
+    fixed-window counter in Postgres, shared by every isolate and surviving
+    redeploys; `_shared/rateLimit.ts` is the caller. `ai-proxy` and both
+    operator functions use it. What it replaced was worse than "best
+    effort": an in-memory Map counts one isolate, so the effective limit
+    was RPM × however many were warm — an unknowable number, on the one
+    endpoint whose overage Anthropic bills. Two properties stated rather
+    than discovered: the window is FIXED (up to 2× the limit can pass
+    across an edge — a sliding window needs per-hit rows), and the helper
+    fails OPEN with a loud `console.error` (a limiter is an abuse control,
+    not an authorization control; see §10). **`provision-workspace`'s
+    invite budget was NOT migrated** — it is still per-isolate. → #38.
+17. ~~adminGuard MFA step-up fails OPEN if listFactors errors~~ — **CLOSED
+    S15.** The empty catch is gone: a failed factor lookup now returns 503
+    `mfa_check_failed`, and the `error` channel is checked too (supabase-js
+    reports most failures there rather than throwing, which would have been
+    a second, quieter copy of the same bug). Verified safe for CI first —
+    no job calls an adminGuard-backed function; the Playwright auth lane
+    exercises `invite-member`, which has its own check. The **stronger**
+    gate — refusing admins who never enrolled at all — ships as opt-in
+    `WILSON_REQUIRE_ADMIN_MFA=1`, OFF by default, because whether every
+    existing prod admin holds a verified factor is not verifiable from a
+    session that never signs in, and a default-on gate would lock Audrey
+    out of her own Admin Terminal. That residue is TPN-AUTH-003, not #17.
 18. **NEW (S9):** electron-updater ships only via the electron-builder NSIS
     channel (`npm run dist`); Forge/Squirrel builds report 'unsupported'.
     Local node_modules lacks electron-updater/electron-builder until an
@@ -661,52 +700,187 @@ read doubles as the final audit (code findings → §6 gaps for S17).
     each other. Accepted for v1 (one-window product; same class as two
     Electron windows) — documented in the module header. A
     `storage`-event merge is the fix if it ever matters.
-31. **project file ATTACHMENTS have no cloud home — UNBLOCKED S14, wiring
-    remains (→ S15 cheap close).** The `rabbit-files` bucket now exists
-    with path-scoped policies, so `supabaseAdapter.uploadFile` works end to
-    end. Still open: D.O.G./ProjectsPage attachments ride project-row
-    patches (`documents`/`visualAssets`), and
-    `supabaseAdapter.updateProject` still throws on attachments-only
-    patches (the honest S12 behavior). Closing = route those attachment
-    flows through `uploadFile`/files rows and retire the throw. Original
-    S12 context: locked #17 gives D.O.G. no content model; web-only
-    degradations with stated reasons remain (`/api/fetch-url`, PDF text
-    extraction, Google-Sheet import).
-32. **NEW (S12): the legacy LOCAL password panel still renders in Electron.**
-    Settings → Change Password drives `/api/auth/change` (the pre-cloud
-    local password). On the web it now degrades to a recovery-flow pointer,
-    but in Electron it still edits a credential nothing checks since the
-    Supabase login landed (S2) — candidate for deletion in a later session.
+31. **project file ATTACHMENTS still ride project-row patches — S15 fixed
+    the DATA LOSS, the re-homing is S17.** The `rabbit-files` bucket exists
+    and `supabaseAdapter.uploadFile` works end to end, so the blocker is
+    gone; what remains is wiring, and S15's recon showed it is NOT the
+    cheap close the S15 brief assumed.
+    **What S15 DID close** — a live bug the gap was hiding: the
+    attachments guard sat *inside* `updateProject`'s "row reduced to
+    nothing" branch, so an attachments-ONLY patch threw but a MIXED patch
+    (`{title, documents}`) saved the title and dropped the files with no
+    error at all; `createProject` discarded `droppedAttachments` entirely,
+    so D.O.G.'s create-with-attachments modal was silently lossy in cloud
+    mode. Both now refuse, an empty `documents: []` is correctly not
+    treated as an attachment, and `projectAttachments.test.js` pins it
+    (10 cases — there was no coverage here at all, which is how the hole
+    survived from S12).
+    **What S17 must do, with the traps already found:**
+    (a) a migration adding `files.description` + `files.document_kind` —
+    ProjectsPage writes both on every attachment and `files` has neither;
+    (b) decide the core-flag polarity explicitly — D.O.G. uses
+    `isCore` defaulting **true** (`f.isCore !== false`), `files.is_core_definer`
+    defaults **false**, so a 1:1 map flips every previously-unmarked file
+    from CORE to REF and changes generation output;
+    (c) give D.O.G. a download-and-rehydrate step — `projectFiles` requires
+    an inline `content` data URL and `return`s early without one, so
+    uploading to storage without this makes cloud attachments upload
+    successfully and contribute NOTHING to generation (worse than today's
+    loud throw). `adapter.downloadFile` exists on all three adapters and
+    has **zero call sites** anywhere;
+    (d) give ProjectsPage access to files rows — it reads `projectsIndex`,
+    and cloud `listProjects` selects a fixed column list with no files;
+    (e) keep local mode readable — the local adapter round-trips inline
+    base64 through the JSON bundle, so a blanket switch hides every
+    existing local project's attachments;
+    (f) gate on adapter MODE, not on `typeof adapter.uploadFile` — the
+    Google Drive stub is a function that throws;
+    (g) note `deleteFile` soft-deletes and leaves the blob, so the
+    ProjectsPage delete affordance changes meaning from "destroyed" to
+    "trashed" and must say so.
+32. ~~the legacy LOCAL password panel still renders in Electron~~ —
+    **CLOSED S15, by deletion.** It went further than the panel: the whole
+    `// ── Password management` block in `electron/main.cjs`
+    (`/api/auth/session`, `/api/auth/verify`, `/api/auth/change`, the
+    hardcoded master-override and default constants, the plaintext
+    `wilson-auth.json` reader) and `src/components/PasswordScreen.jsx`
+    were removed together. **Together was load-bearing:** PasswordScreen
+    was already orphaned (nothing imported it), but deleting only the
+    routes would have left its `/api/auth/verify` fetch 404-ing and
+    falling through to a hardcoded string comparison — a fail-OPEN gate,
+    strictly worse than the dead code. A boot-time
+    `cleanupLegacyAuthFile()` unlinks the on-disk credential, because
+    deleting code does not delete data. Settings → General now says the
+    same true thing on both hosts. TPN impact is the headline: this alone
+    closes TPN-AUTH-001, TPN-SDLC-001 and TPN-ENC-003 (all CRITICAL), plus
+    TPN-AUTH-002, TPN-AUTH-004 and the `/api/auth/verify` half of
+    TPN-NET-003.
 33. ~~a NON-admin owner of a company-standard course is a DB-supported
     reviewer with no client surface~~ — **CLOSED S13b** (2026-07-30, commit
     `54d5225`): O.T.T.E.R.'s Requests view surfaces the decidable queue to
     admins AND to owners of the targeted standard course; managers got a
     read-only queue at the same time (0026).
-34. **NEW (S14): workspace hard-delete strands its rabbit-files blobs.**
-    The CASCADE purges files rows (queue rows enqueue with the dead
-    workspace_id; certificates FK-cascade away), and `storage-gc` is
-    workspace-scoped — no admin of a deleted tenant exists to drain the
-    queue, and other admins' orphan scans fail closed on the unknown
-    project folders (correctly). Named in 0027's enqueue-trigger comment.
-    **S15 owns it**: the operator console's workspace teardown must include
-    a service-role storage sweep.
+34. ~~workspace hard-delete strands its rabbit-files blobs~~ — **CLOSED
+    S15**, both halves. Blobs: `operator-workspaces` action `teardown`
+    collects every `rabbit-files` path from BOTH `files` and
+    `storage_gc_queue` (paged with `.range()`), deletes them, certificates
+    each batch, drops the queue rows, and only THEN deletes the workspace
+    row — the order is the fix, because after the CASCADE nothing can
+    discover which blobs belonged to the tenant and storage-gc's orphan
+    scan fails closed on the vanished rows. Certificates: `platform_audit`
+    (0028) carries no workspace FK and snapshots slug/name, so the
+    `workspace.teardown` record outlives its subject; pgTAP 35 pins it by
+    deleting a workspace and asserting file_events went while the
+    certificate stayed.
 35. **NEW (S14): GC orphan-scan window can starve on very large buckets.**
     The run-wide budget collects objects in name order, referenced ones
     included, so a project with >5000 referenced objects sorted ahead of
     its orphans never reaches them on any run. Mitigated (batched
     reference checks, honest card copy — no "run again" promise); a
     persisted per-bucket cursor is the fix if real buckets ever get there.
+    **S15 TPN disposition: ACCEPTED for v1.0.0, tracked as TPN-CONT-010.**
+    The re-audit rated the surrounding control MEDIUM, and starvation
+    needs a single project past 5000 referenced objects — a state no
+    tenant is near. What the audit flagged as the sharper edge is not the
+    cursor but that certified disposal *only ever runs when a human
+    clicks*: there is no queue-depth signal anywhere, so a queue can grow
+    unbounded and unnoticed. A depth indicator on the Diagnostics card is
+    the cheaper and more valuable half; the cursor can wait for evidence.
 36. **NEW (S14): the relink census and scan use sync fs on the Electron
     main process.** `fs.existsSync` per file row (and the walker) block the
     process; an UNREACHABLE network share can freeze the app for
     N × timeout when a project's files live there. The client-side render
     storm was fixed in review; the server-side fix is fs.promises.access
     with bounded concurrency.
+    **S15 TPN disposition: ACCEPTED for v1.0.0, no finding opened.** The
+    re-audit did not rate it a security control at all, and that reading
+    is right: it is an availability/UX defect on a local, single-user,
+    user-initiated action, with no confidentiality or integrity component
+    and no multi-tenant blast radius. It stays a §6 gap and a good
+    early-S18 fix (fs.promises.access with a bounded pool is a contained
+    change), but it does not belong on the release gate.
 37. **NEW (S14): local 'purged' certificates have no UI reader.** They
     survive in bundle.fileEvents (exempt from the 2000-event trim) and the
     project-level route GET /api/rabbit/projects/:id/file-events serves
     them, but no surface renders that stream — the per-file drawer needs a
     live row. Candidate: an audit tab or takeout inclusion later.
+38. **NEW (S15): `provision-workspace`'s invite budget is still an
+    in-memory per-isolate limiter.** S15 built the durable limiter
+    (`fn_rate_limit_hit`, #16) and moved `ai-proxy` and both operator
+    functions onto it, but left provision-workspace on its original Map.
+    Same unknowable-limit problem, much lower stakes (invites cost email,
+    not Anthropic tokens). One-line swap to `isRateLimited(admin,
+    'provision-invites', <subject>, N, 60)`; the only judgement call is
+    what to key the subject on, since the caller may be unauthenticated —
+    which is also why the existing limiter uses last-XFF and inherits the
+    usual spoofing caveat.
+39. **NEW (S15): workspace teardown leaves orphaned identities.** A user
+    whose ONLY membership was in a torn-down company keeps their
+    `auth.users` row and can still authenticate; they simply resolve to no
+    workspace. Deliberate — deleting those accounts would be a destructive
+    act on identities the operator did not create, and a user may hold
+    memberships in several companies. What is missing is the *reporting*:
+    teardown does not tell the operator how many accounts it stranded, and
+    nothing sweeps them later. A count in the teardown result and a
+    "stranded accounts" view would close it; a data-retention policy
+    decision (how long a workspace-less account may persist) is the real
+    question underneath, and belongs with the TPN documentation work.
+40. **NEW (S15): the operator console has no e2e lane and no local static
+    preview.** `scripts/serve-web.mjs` and the Playwright `chromium-web`
+    project both hard-code the `/wilson` mount, so `/wilsonadmin` has
+    neither. The session-isolation property IS verified — at build time by
+    grepping both bundles for their session keys, and at runtime in a
+    browser where an existing `wilson.dev.session` on the same origin was
+    correctly ignored — but no automated test holds it. Since isolation
+    here is nothing but a key string (§10), a regression would be silent.
+    A Playwright spec that loads both surfaces on one origin and asserts
+    the keys differ is the cheap version.
+41. **NEW (S15, TPN re-audit): 🚨 a LIVE workspace-admin credential for
+    wilson-dev was published in the public repo** (TPN-SDLC-007).
+    `smoke_admin` is an active `admin`-role account; its password sat in
+    two tracked session checklists AND as a hardcoded fallback in two
+    tracked Playwright specs, and the anon key needed to complete a
+    sign-in is public by design — so the pair was directly usable against
+    the real endpoint. Confirmed live against the database during the
+    audit. **S15 removed every occurrence from the working tree** (the
+    specs now throw if `WILSON_E2E_PASSWORD` is unset; CI already supplies
+    it from `DEV_PROBE_PASSWORD`), redacted the docs, and rewrote the
+    instructions that told operators to rotate the password *back* to the
+    published literal — which is why it stayed valid for eleven sessions.
+    **The value is in git history permanently, so ROTATION is owed**
+    (OWED_AUDREY §0) and only Audrey can do it. Also worth deciding: the
+    probe does not need `admin` for what it tests.
+42. **NEW (S15, TPN re-audit): privilege changes are unaudited**
+    (TPN-LOG-005, the second open CRITICAL). Role promotions, rate-card
+    grants and deactivations go from the browser straight into
+    `workspace_members` under the `FOR ALL` `ws_members_admin_write`
+    policy, and nothing captures them: 0012's `edit_history` entity CHECK
+    deliberately excludes the table ("Session 9 territory" — a comment,
+    not an implementation), the only triggers on it are guards, and no
+    `app_events` line is written. The roster shows the end state and
+    nothing else, so "who granted this person admin, and when" is
+    unanswerable for anything that already happened. One migration closes
+    it — a DEFINER capture trigger on the 0027 `fn_file_events_capture`
+    shape; the copy-paste prompt is `TPN_AUDIT/REMEDIATION_PLAN.md`
+    Phase 0b. **S17 should treat this as a release gate**, not a backlog
+    item: it is the audit trail for the product's own security boundary.
+43. **NEW (S15 review): teardown cannot see blobs that no row points at.**
+    `collectBlobPaths` reads `files` and `storage_gc_queue`; an object in
+    `rabbit-files` that neither table references — a failed-insert upload
+    whose 1-hour delete-own window lapsed, or a row lost to an earlier
+    incident — survives its tenant's teardown permanently, and afterwards
+    nothing can attribute it (the orphan scan resolves project→workspace
+    through the very rows the CASCADE removed). The fix is to LIST the
+    bucket under `projects/{project_id}/` for each of the workspace's
+    projects and union that with the row-derived set, before the delete.
+    Not done in S15 because listing is paginated per prefix and the
+    teardown path is already the longest in the console; the row-derived
+    sweep covers every blob the product itself created. Note the S15
+    review also confirmed the inverse hazard and that one IS fixed:
+    `files.storage_path` is client-writable, so a member could point a row
+    at another tenant's key and have teardown delete it — the sweep now
+    refuses any path outside the workspace's own project ids and
+    certificates the refusal (WIL-7008).
 
 ---
 
@@ -737,11 +911,11 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
-| Per-company Claude API key, admin-administered | S12 `ai-proxy` SHIPPED the per-workspace→platform resolution seam (deployed to all 3 envs); the `workspace_ai_keys` table + admin UI land with the S15 operator console | ✅ seam · ⬜ admin UI S15 |
+| Per-company Claude API key, admin-administered | S12 `ai-proxy` shipped the per-workspace→platform seam; **S15** added `workspace_ai_keys` (AES-256-GCM ciphertext, service-role only) + the operator-console UI (`operator-ai-keys`: set/clear, key validated against Anthropic before storing, never readable back — only a 4-char hint) | ✅ ❓ needs `WILSON_AI_KEY_SECRET` set per env (OWED_AUDREY §9C) |
 | O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI** (tier picker, filter chips, share + editor grants, company standard, fork, trash/restore) + **S13**: change-request approval APPLIES (0025 — archive, additive copy, review window, revise-and-resubmit) | ✅ ❓ in-app verify owed |
 | Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
 | App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
-| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); operator tier = S15 | ✅ company · ⬜ operator |
+| Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); **S15 operator tier** = `/wilsonadmin`, a separate surface with its own session, its own tier and its own audit stream | ✅ company · ✅ operator ❓ in-app verify owed (OWED_AUDREY §9D) |
 | express-session + connect-pg-simple suggestion | Superseded by Supabase Auth | ✳ (locked #1) |
 
 ---
@@ -801,7 +975,10 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
 | GitHub secrets | `DEV_SUPABASE_URL`, `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD` |
-| Cron jobs | `wilson-purge-edit-history` 04:43 · `wilson-purge-soft-deleted` 04:47 · `wilson-purge-app-events` 04:51 UTC (all envs) |
+| Cron jobs | `wilson-purge-edit-history` 04:43 · `wilson-purge-soft-deleted` 04:47 · `wilson-purge-app-events` 04:51 · `wilson-purge-otter-trash` 04:55 · `wilson-purge-rate-limits` 04:59 UTC (all envs). **No purge for `file_events` or `platform_audit` — deliberate, TPN-LOG-004.** |
+| Operator console | `/wilsonadmin` — second Vercel output folder, `vite --mode admin`, entry `admin.html` → `src/admin/`. Session key `wilson.operator.session` (isolation is the key string; localStorage is per-origin). Email+password+TOTP sign-in. |
+| Operator tier | `public.platform_operators` (SQL-only grant, by design — no UI on any surface). Guard: `supabase/functions/_shared/operatorGuard.ts`. |
+| pgTAP without Docker | `python scripts/tap-hosted.py <out.sql> [migration.sql] <suite.sql>` then `supabase db query --linked --file <out.sql>`. `collected` must equal `planned`. |
 | Backups workflow | `.github/workflows/backups.yml` (git root) — needs B2_* + BACKUP_*_DB_URL secrets |
 | Auto-memory | `~\.claude\projects\C--Users-Audrey-Documents-My-Work-Dev-Work-Claude-Work\memory\wilson_multi_user_plan.md` |
 
@@ -1253,6 +1430,77 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - S16 files code findings as §6 gaps rather than fixing them (frozen-code
   rule); S15's close-out appends a "what S16 must document" note to the
   S16 prompt so console-era additions reach the handbook while fresh.
+
+### Resolved 2026-07-30 (Session 15 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **Granting platform-operator status is SQL-only, on purpose, and there is no
+  UI for it anywhere.** The console can create and destroy companies, so the
+  one thing it must not be able to do is mint more operators. Keeping the
+  grant out of band means the highest privilege in the system cannot be
+  escalated from a web session even by someone already holding it. Cost:
+  bootstrapping a new environment needs one INSERT in the SQL editor
+  (OWED_AUDREY §9B). Worth it.
+- **The operator console requires MFA outright**, unlike the company Admin
+  Terminal which only challenges people who already enrolled. Two reasons it
+  is safe to be strict here where it would not be there: the surface is brand
+  new, so no existing workflow breaks; and it can delete a tenant. An operator
+  with no verified factor is refused with the actual remedy, not a bare 403.
+- **Per-company Anthropic keys are AES-256-GCM ciphertext, not Supabase
+  Vault.** Vault exists on all three hosted projects and would have been the
+  more conventional answer. It was rejected because CI's pgTAP job runs
+  `supabase start` on a local stack that cannot be run on the development
+  machine (no Docker), so a vault dependency inside the migration chain could
+  not be verified before it either passed or broke every job at once.
+  App-layer AES-GCM keeps 0028 plain SQL and puts the crypto where the
+  adversarial review can read it. **The consequence Audrey should know:** the
+  data-encryption key lives in the `WILSON_AI_KEY_SECRET` Edge secret, so
+  rotating that secret orphans every stored company key (ciphertext becomes
+  undecryptable, ai-proxy fails soft to the platform key, the console still
+  shows the old hint). Stated in OWED_AUDREY §9C.
+- **Why the key is encrypted at all, given the table is already
+  service-role-only with zero policies:** locked #11/#15 put a nightly
+  `pg_dump` of prod and staging into Backblaze B2 with 90-day retention. A
+  plaintext column would copy every tenant's Anthropic spending credential
+  off-platform. The ciphertext goes into the dump; the key that opens it does
+  not.
+- **`platform_audit` carries no workspace FK, and that is the whole design.**
+  `app_events` and `file_events` both `ON DELETE CASCADE` on workspace, so a
+  teardown destroys the evidence of itself — the second half of gap #34, and
+  the reason a fourth audit stream exists rather than a fifth column on an
+  existing one. Slug and name are snapshotted as text so a certificate still
+  names the company after the row is gone. pgTAP suite 35 pins exactly this
+  by deleting a workspace and asserting file_events vanished while the
+  certificate survived.
+- **The console talks to service-role Edge Functions, not to widened RLS.** An
+  operator has no cross-tenant reach today beyond `workspaces` and
+  `auth_attempt_log`; every other table gates on `current_workspace_id()`, and
+  the JWT hook refuses to mint a workspace_id the caller is not a member of.
+  The alternative — operator arms on a dozen policies — would put every
+  company's rows one policy bug away from each other. One crossing
+  (`operator_workspace_summary()`), service_role only, behind one guard.
+- **The durable rate limiter fails OPEN and operatorGuard fails CLOSED**, in
+  the same session, deliberately. A limiter is an abuse control and
+  authorization has already run above it, so a database hiccup must not take
+  every tenant's AI features offline; an auth check that cannot verify has no
+  such excuse. `_shared/rateLimit.ts` logs loudly when it fails, because a
+  permanently-broken limiter is otherwise indistinguishable from a working one
+  from the outside.
+- **Teardown removes the tenant, not the people.** A user whose only
+  membership was in the destroyed company keeps an auth account with no
+  workspace. Deleting those identities would be a destructive act on accounts
+  the operator did not create, and a user may belong to two companies — see
+  §6 for the follow-up.
+- **`npm run build` still emits only `index.html`.** The admin entry is gated
+  on vite `--mode`, so the operator console cannot ship inside the desktop
+  installer. Verified by building and checking `dist/` has no `admin.html`.
+- **Session isolation between /wilson and /wilsonadmin is a KEY STRING, and
+  nothing else.** localStorage is scoped per origin, not per path. Both
+  surfaces are on the same host, so the only thing separating them is that
+  the bundles are compiled with different constants (`__WILSON_SURFACE__`).
+  This is worth remembering because it is fragile in one specific way: any
+  future code that reads a session key without going through
+  `sessionStorage.js` reintroduces the leak.
 
 ### Still open
 

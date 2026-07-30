@@ -13,7 +13,13 @@
 //     token keeps its claims for up to the TTL; the row is authoritative);
 //   * enforce MFA step-up: when the caller has a verified TOTP factor, the
 //     token must carry aal2 (403 mfa_required otherwise). Locked decision
-//     #9 — MFA for all admin tiers — enforced where it matters most.
+//     #9 — MFA for all admin tiers — enforced where it matters most. Since
+//     S15 a failure to ESTABLISH that state is refused too (503), rather
+//     than waved through (§6 #17).
+//
+// Sibling guards: _shared/memberGuard.ts (any active member — ai-proxy) and
+// _shared/operatorGuard.ts (the platform tier — the /wilsonadmin console,
+// where MFA is a hard requirement rather than a conditional step-up).
 //
 // Also home to the show-once password generator (locked decision #8) and
 // the best-effort app_events writer.
@@ -101,23 +107,46 @@ export async function requireWorkspaceAdmin(req: Request): Promise<GuardResult> 
   }
 
   // MFA step-up: enrolled admins must present an aal2 token.
+  //
+  // Session 15 (MASTER_PLAN §6 #17, TPN TS-1.6) — this block used to swallow
+  // a listFactors failure and continue. That failed OPEN: an aal1 token
+  // belonging to an enrolled admin got full admin-function access whenever
+  // the GoTrue admin-MFA endpoint hiccuped, which is exactly the moment you
+  // least want it. It now fails CLOSED. Note supabase-js reports most
+  // failures on the `error` channel rather than throwing, so an unchecked
+  // `error` would have been a second, quieter version of the same bug.
+  //
+  // Verified safe for CI: no job calls an adminGuard-backed function. The
+  // Playwright auth lane exercises invite-member, which has its own check.
+  let hasVerified = false
   try {
-    const { data: factorData } = await admin.auth.admin.mfa.listFactors({
+    const { data: factorData, error: factorErr } = await admin.auth.admin.mfa.listFactors({
       userId: caller.user.id,
     })
-    const hasVerified = (factorData?.factors ?? []).some(
+    if (factorErr) throw factorErr
+    hasVerified = (factorData?.factors ?? []).some(
       (f: { factor_type?: string; status?: string }) =>
         f.factor_type === 'totp' && f.status === 'verified',
     )
-    if (hasVerified) {
-      const aal = decodeJwtPayload(token).aal
-      if (aal !== 'aal2') {
-        return { ok: false, res: reply({ error: 'mfa_required' }, 403) }
-      }
-    }
   } catch {
-    // Factor listing failing must not brick the terminal; the login-time
-    // challenge is still enforced by GoTrue for enrolled users.
+    // 503: transient and retryable, unlike the 403s above. The caller cannot
+    // fix this by enrolling or re-authenticating.
+    return { ok: false, res: reply({ error: 'mfa_check_failed' }, 503) }
+  }
+  if (hasVerified && decodeJwtPayload(token).aal !== 'aal2') {
+    return { ok: false, res: reply({ error: 'mfa_required' }, 403) }
+  }
+
+  // The stronger gate — refuse admins who have never enrolled at all — is
+  // OPT-IN via WILSON_REQUIRE_ADMIN_MFA. It is off by default deliberately:
+  // turning it on locks every un-enrolled admin out of the Admin Terminal in
+  // that environment, and whether Audrey and the existing prod admins hold
+  // verified TOTP factors is not something this session can verify from
+  // here. Flipping the secret is a one-line change once enrolment is
+  // confirmed — see docs/OWED_AUDREY.md. Until then TPN-AUTH-003 stays
+  // partially remediated rather than being claimed on an assumption.
+  if (!hasVerified && (Deno.env.get('WILSON_REQUIRE_ADMIN_MFA') ?? '') === '1') {
+    return { ok: false, res: reply({ error: 'mfa_enrollment_required' }, 403) }
   }
 
   return { ok: true, ctx: { admin, callerId: caller.user.id, workspaceId } }

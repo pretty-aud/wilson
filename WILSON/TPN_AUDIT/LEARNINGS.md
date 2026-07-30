@@ -41,3 +41,103 @@ Notes that should inform the NEXT audit of this codebase. Treat this file as app
 6. `rg -n "expressApp\\.use\\(cors\\(\\)\\)"` should return zero (the cors() call has been parameterized).
 7. `rg -n "password\\s*===" electron/main.cjs` should return zero (argon2.verify replaced the plaintext compare).
 8. Supabase adapter comment about RLS-off default must be gone.
+
+---
+
+## Re-audit 2026-07-30 (Session 15) — appended, nothing above was changed
+
+### Checklist results from the list above
+
+| # | Check | Result |
+|---|---|---|
+| 1 | `DILLYDALLY\|MUTINY` outside this file | ✅ zero — the whole legacy auth module and `PasswordScreen.jsx` were deleted in S15 |
+| 2 | `anthropic-dangerous-direct-browser-access` | ✅ zero — all four sites went with the S12 `ai-proxy` migration |
+| 3 | `localStorage.setItem('wilson-api-key'` | ✅ zero — and the inverse now exists: `src/App.jsx` *removes* the key on boot |
+| 4 | `.github/workflows/security.yml` | ❌ does not exist. CI runs pgTAP, Vitest and Playwright — no SAST, SCA, secret-scan or DAST |
+| 5 | `HARDENING.md` + `INCIDENT_RESPONSE.md` | ❌ neither exists; no policy document of any kind exists in the repo |
+| 6 | `expressApp.use(cors())` | ❌ still present and still unparameterized |
+| 7 | `password ===` in `electron/main.cjs` | ✅ zero — no password comparison remains in application code at all |
+| 8 | Supabase adapter RLS-off comment | 🟡 the directive is gone; the domain is now genuinely RLS-first, but bucket policies still sit outside the CI gate |
+
+### The meta-lesson of this re-audit: verify the CONTROL, not the ARTIFACT
+
+Most of the baseline's remediations arrived by a different route than
+`REMEDIATION_PLAN.md` prescribed, because the product was rebuilt around them
+in the meantime:
+
+| The plan prescribed | What actually satisfies the control |
+|---|---|
+| `src/agent/aiGateway.ts` | the `ai-proxy` Supabase Edge Function (and it covers BOTH hosts, which the plan's Electron-IPC design would not have) |
+| local RBAC middleware | Postgres RLS + workspace roles, pgTAP-gated in CI |
+| pino + a SIEM shipper | `app_events`, `edit_history`, `file_events`, `platform_audit` — four RLS-enforced append-only streams |
+| `safeStorage`-backed key IPC | no key on the client at all |
+
+Grepping for the prescribed filenames would have reported four false "still
+open" verdicts. **On any future re-audit, resolve the control first and the
+artifact second.**
+
+### Booby-traps found on THIS audit
+
+- **A live credential was hiding in documentation, not in code.** `smoke_admin` /
+  its password sat in two session checklists and as a hardcoded fallback in two
+  Playwright specs, in a PUBLIC repo, for eleven sessions. Three things kept it
+  invisible: it lived mostly in `docs/`, which reads as prose rather than
+  source; it looked like a test fixture; and the checklist actively instructed
+  operators to **rotate the password back to the published literal** whenever a
+  flow changed it. Audit `docs/` and `tests/` for credentials with the same
+  seriousness as `src/`, and treat any instruction that pins a secret to a
+  known value as a finding in its own right.
+- **The strongest new controls have the narrowest scope.** S14/S15's content
+  lifecycle is genuinely good — append-only events, real deletion certificates,
+  a disposal ledger, certificates that outlive the tenant — but it is driven by
+  triggers on ONE table (`public.files`). The Electron tier's production media
+  path (managed files), derived intake text, and the local `.trash` folder all
+  sit outside it. When a control is implemented as a database trigger, always
+  ask which writes do not go through that table.
+- **Two audit streams cascade with their tenant.** `app_events` and
+  `file_events` both carry `workspace_id ... ON DELETE CASCADE`, so a workspace
+  teardown destroys the evidence of itself. S15 solved this for operator
+  actions by adding `platform_audit` with no FK and text snapshots of the
+  slug/name. The general shape is worth remembering: **an audit row must not be
+  a child of the thing it audits.**
+- **Read-side blindness.** Four write-side audit streams exist and there is
+  still no record anywhere of who ever *downloaded* an asset. Write auditing is
+  easy to add with triggers; read auditing needs an application decision, and
+  its absence is easy to miss precisely because the write side looks complete.
+
+### Things the user may accept risk on (do not auto-escalate without new evidence)
+
+- The two entries above from the 2026-04-15 audit (the intentional offline
+  password fallback, and the 12-character cap driven by the password screen's
+  typing animation) are now **moot** — all the code carrying them was deleted
+  in S15. They are retained above as history only.
+- **Session tokens in `localStorage` on the web** was decided deliberately in
+  Session 12: a static host has no server to set an httpOnly cookie, and this
+  is what supabase-js's own `persistSession` does. `TPN-ENC-008` records it
+  honestly for the operator console, but do not treat it as an oversight.
+- **The durable rate limiter fails open** (`_shared/rateLimit.ts`) with a
+  stated reason: a limiter is an abuse control, and authorization has already
+  run above it, so a database hiccup must not take every tenant's AI features
+  offline. Recorded as `TPN-NET-011` at INFO. The sibling `operatorGuard` fails
+  *closed*, which is the correct contrast.
+- **Granting platform-operator status is SQL-only, with no UI on any surface.**
+  This looks like a missing feature and is a deliberate control: the highest
+  privilege in the system cannot be escalated from a web session.
+
+### Scope decisions (unchanged)
+
+- Physical remains N/A — `TPN-PHYS-000`. Not re-opened.
+- `public/extensions/Code.gs` + `Sidebar.html` remain outside audit scope by
+  user direction. Still not audited, still not edited.
+
+### Re-audit checklist for NEXT time (supersedes the list above)
+
+1. `rg -n "SmokeTest|smoke_admin"` across `docs/`, `tests/` and `src/` — the
+   password must be absent and the account should ideally no longer be `admin`.
+2. Confirm an audit trigger exists on `public.workspace_members` (TPN-LOG-005).
+3. `rg -n "expressApp\.use\(cors\(\)\)"` — still expected to be zero one day.
+4. Confirm `.github/workflows/` contains a security-scanning job.
+5. Confirm the policy document set exists with a "Last reviewed" line.
+6. Check `storage.buckets` for `user-avatars.public` — it should be `false`.
+7. Confirm `workspaces_write_operator` is no longer `FOR ALL`.
+8. Re-check that `x-api-key` appears nowhere under `src/` or `electron/`.

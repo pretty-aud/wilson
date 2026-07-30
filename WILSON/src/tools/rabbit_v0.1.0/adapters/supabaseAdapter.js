@@ -121,11 +121,33 @@ const PATCH_DROP = [
 // table has no such columns — an insert carrying them 42703s, which is how
 // D.O.G.'s create-with-attachments silently broke in cloud mode. Dates map
 // onto the canonical columns ('' clears → null; a bare '' 22007s on a date
-// column); documents/visualAssets have NO cloud home (locked #17: D.O.G.
-// gets no content model — the S14 file work owns cloud-readable blobs) and
-// are dropped, with `droppedAttachments` reported so updateProject can fail
-// LOUDLY when a patch was nothing but attachments (ProjectsPage file
-// uploads) instead of no-op'ing into silent data loss.
+// column); documents/visualAssets have no columns on the cloud `projects`
+// table (locked #17: D.O.G. gets no content model) and are dropped, with
+// `droppedAttachments` reported so create AND update fail LOUDLY rather than
+// no-op'ing into silent data loss.
+//
+// Session 15 note: the cloud HOME for project files now exists — the
+// rabbit-files bucket plus `files` rows (S14) — so this is no longer "there
+// is nowhere to put them", it is "they do not belong on this row". Routing
+// the ProjectsPage/D.O.G. attachment UI through uploadFile is the remaining
+// half of MASTER_PLAN §6 #31, which carries the implementation plan.
+
+// Session 15: an EMPTY documents/visualAssets array is not an attachment.
+// ProjectsPage sends `documents: [], visualAssets: []` on every create, so a
+// bare `documents !== undefined` test would refuse ordinary project creation.
+// Only a non-empty array represents content that would be lost.
+// Pinned by projectAttachments.test.js — keep the two copies in step.
+function hasRealAttachments(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+  return (Array.isArray(payload.documents) && payload.documents.length > 0)
+      || (Array.isArray(payload.visualAssets) && payload.visualAssets.length > 0);
+}
+
+const ATTACHMENTS_MSG =
+  'Cloud projects store files as file records, not on the project row — '
+  + 'this attachment was not saved. Upload it from the project’s Files list '
+  + '(RABBIT), which writes to the rabbit-files bucket. See MASTER_PLAN §6 #31.';
+
 function mapDogProjectFields(row) {
   if (!row || typeof row !== 'object') return { row, droppedAttachments: false };
   const out = { ...row };
@@ -227,7 +249,29 @@ export function supabaseAdapter() {
 
     async createProject(payload) {
       const client = await requireClient();
-      const { row } = mapDogProjectFields(sanitize(payload, ['id', 'created_at', 'updated_at']));
+      // `workspace_id` is DROPPED, and that is a bug fix, not tidiness.
+      // RabbitProvider.createProject stamps every draft with
+      // DEFAULT_WORKSPACE_ID ('00000000-…-0001'), a pre-multi-tenant seed
+      // constant that is harmless in local mode and fatal in cloud mode:
+      // projects_insert requires `workspace_id = current_workspace_id()`, so
+      // the insert was refused 42501 for EVERY workspace except the seed
+      // one — i.e. every real tenant. Verified against wilson-dev: the seed
+      // value is refused and the caller's own workspace succeeds, same
+      // session, same statement. Omitting the column lets
+      // trg_projects_populate_workspace (0029) derive it, the same way
+      // assets/tasks/files/comments have derived theirs since 0004.
+      // (Found by the Session 15 pre-commit review; pre-existing since S2.)
+      const { row, droppedAttachments } = mapDogProjectFields(
+        sanitize(payload, ['id', 'workspace_id', 'created_at', 'updated_at']),
+      );
+      // Session 15: createProject used to discard droppedAttachments entirely,
+      // so D.O.G.'s create-with-attachments modal lost every file WITHOUT any
+      // error at all in cloud mode. A create carrying real attachments now
+      // refuses; an empty-array create (ProjectsPage always sends
+      // documents: [], visualAssets: []) is not an attachment and passes.
+      if (droppedAttachments && hasRealAttachments(payload)) {
+        throw new Error(ATTACHMENTS_MSG);
+      }
       const data = unwrap(await client.from('projects').insert(row).select().single());
       return data;
     },
@@ -235,14 +279,19 @@ export function supabaseAdapter() {
     async updateProject(id, patch) {
       const client = await requireClient();
       const { row, droppedAttachments } = mapDogProjectFields(sanitize(patch, PATCH_DROP));
+      // Session 15: this check used to sit INSIDE the `row is empty` branch,
+      // so it only fired for attachments-ONLY patches. A mixed patch — say
+      // { title, documents } from a rename that happened to carry the file
+      // arrays along — passed straight through, saved the title, and dropped
+      // the attachments silently. That is the exact failure the throw exists
+      // to prevent, so it now guards every patch that carries attachments,
+      // whatever else is in it.
+      if (droppedAttachments && hasRealAttachments(patch)) {
+        throw new Error(ATTACHMENTS_MSG);
+      }
       if (Object.keys(row).length === 0) {
-        // PostgREST treats update({}) as a 200 no-op — never let an
-        // attachments-only patch (ProjectsPage file upload) look like it saved.
-        if (droppedAttachments) {
-          throw new Error(
-            'File attachments on cloud projects arrive with the storage work — this upload was not saved.',
-          );
-        }
+        // PostgREST treats update({}) as a 200 no-op — never let a patch that
+        // reduced to nothing look like it saved.
         return unwrap(await client.from('projects').select('*').eq('id', id).single());
       }
       return unwrap(await client.from('projects').update(row).eq('id', id).select().single());

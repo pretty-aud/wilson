@@ -28,9 +28,23 @@
 import { test, expect, type Page } from '@playwright/test'
 
 // Creds seeded by supabase/tests/rls helpers + the Session 2 smoke fixture.
-// Override via env for hosted-env runs.
+// Supplied by env — WILSON_E2E_PASSWORD locally, DEV_PROBE_PASSWORD in CI.
+//
+// Session 15 (TPN-SDLC-007): the password USED to have a hardcoded fallback
+// here. This repo is PUBLIC, and the account it belongs to is a live, active
+// workspace admin on the hosted wilson-dev project — so the literal in this
+// file was a published credential, not a fixture. There is deliberately no
+// fallback now: an unset password fails loudly at startup rather than
+// silently reintroducing the literal.
 const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
-const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? 'SmokeTest2026!'
+const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
+if (!PASSWORD) {
+  throw new Error(
+    'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '
+    + 'the credential is never committed. Set it from your password manager (or, in CI, '
+    + 'from the DEV_PROBE_PASSWORD secret) before running.',
+  )
+}
 const MAILPIT  = process.env.MAILPIT_URL         ?? 'http://localhost:54324'
 const SKIP_EMAIL = process.env.PLAYWRIGHT_SKIP_EMAIL === '1'
 

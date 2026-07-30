@@ -10,9 +10,12 @@
 //     claims from the TOKEN payload + a LIVE workspace_members row check via
 //     _shared/memberGuard.ts — a deactivated member must not spend money.
 //   * Key resolution: per-workspace key first (workspace_ai_keys — the table
-//     ships with the S15 operator console; until then the read fails soft),
-//     then the platform key in the ANTHROPIC_API_KEY secret. This seam is
-//     what makes admin-portal key management a config change, not a rewrite.
+//     landed with the S15 operator console, migration 0028; the read still
+//     fails soft), then the platform key in the ANTHROPIC_API_KEY secret.
+//     This seam is what makes admin-portal key management a config change,
+//     not a rewrite. The stored value is AES-256-GCM ciphertext, not a key:
+//     see _shared/aiKeyCrypto.ts for why (short version — the nightly
+//     pg_dump goes off-platform to B2).
 //   * Streaming: the upstream request is ALWAYS stream:true and the SSE is
 //     piped through verbatim. Edge Functions must emit a response within
 //     150s; O.T.T.E.R. generations regularly run past that, so a synchronous
@@ -25,40 +28,28 @@
 //     (the 'admin' stream and WIL-41xx are server-reserved for admin audit
 //     lines; this is spend telemetry, not an audit line). Context carries
 //     technical metadata only, never prompt content (TPN).
-//   * Rate limit: in-memory per-workspace sliding window, best-effort only
-//     (per-isolate, same tradeoff as provision-workspace). The durable
-//     DB-backed limiter is S15 TPN work (§6 #16) — this is the cheap seam
-//     on the one endpoint where a runaway loop costs real money.
+//   * Rate limit: DURABLE, per workspace, shared by every isolate
+//     (public.fn_rate_limit_hit, migration 0028 — MASTER_PLAN §6 #16 closed
+//     in S15). It used to be an in-memory Map, which meant the real limit
+//     was AI_PROXY_RPM × however many isolates happened to be warm, resetting
+//     on every cold start — an unknowable number on the one endpoint whose
+//     overage is billed by Anthropic.
 // =============================================================================
 
 import { corsHeaders, reply } from '../_shared/adminGuard.ts'
 import { requireActiveMember, type MemberContext } from '../_shared/memberGuard.ts'
+import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
+import { decryptAiKey } from '../_shared/aiKeyCrypto.ts'
 
 type MemberCtxAdmin = MemberContext['admin']
 
 const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 const ANTHROPIC_VERSION = '2023-06-01'
 
-// ── Rate limit (best-effort, per-isolate) ────────────────────────────────────
-// Guard the env override: Number('60rpm') is NaN and `n >= NaN` is always
-// false, which would silently disable the limiter on the one endpoint where
-// a runaway loop costs real money.
-const RPM_RAW = Number(Deno.env.get('AI_PROXY_RPM') ?? '60')
-const RPM = Number.isFinite(RPM_RAW) && RPM_RAW > 0 ? RPM_RAW : 60
-const rateWindows = new Map<string, number[]>()
-
-function rateLimited(workspaceId: string): boolean {
-  const now = Date.now()
-  const cutoff = now - 60_000
-  const hits = (rateWindows.get(workspaceId) ?? []).filter((t) => t > cutoff)
-  if (hits.length >= RPM) {
-    rateWindows.set(workspaceId, hits)
-    return true
-  }
-  hits.push(now)
-  rateWindows.set(workspaceId, hits)
-  return false
-}
+// envInt applies the same NaN guard the in-memory limiter needed:
+// Number('60rpm') is NaN, and every comparison against NaN is false, which
+// would silently switch the limiter off rather than fall back to a default.
+const RPM = envInt('AI_PROXY_RPM', 60)
 
 // ── Key resolution: per-workspace → platform fallback (locked #21) ───────────
 async function resolveAnthropicKey(
@@ -66,16 +57,21 @@ async function resolveAnthropicKey(
   workspaceId: string,
 ): Promise<{ key: string; source: 'workspace' | 'platform' } | null> {
   try {
-    // workspace_ai_keys lands with the S15 operator console (Vault-encrypted,
-    // show-once per locked #8). Until the table exists this read returns an
-    // error and we fall through — deliberately not a failure.
+    // workspace_ai_keys (0028) holds AES-256-GCM ciphertext written by
+    // operator-ai-keys, never a plaintext key. Any failure here — table
+    // missing, no row for this tenant, WILSON_AI_KEY_SECRET unset, an
+    // envelope this build cannot open — falls through to the platform key
+    // rather than failing the request. That is deliberate: a tenant key is
+    // a billing preference, not an authorization boundary, and an operator
+    // rotating a secret must not take a company's AI features offline.
     const { data, error } = await admin
       .from('workspace_ai_keys')
-      .select('anthropic_key')
+      .select('key_ciphertext, key_version')
       .eq('workspace_id', workspaceId)
       .maybeSingle()
-    if (!error && data?.anthropic_key) {
-      return { key: data.anthropic_key as string, source: 'workspace' }
+    if (!error && data?.key_ciphertext) {
+      const plain = await decryptAiKey(data.key_ciphertext as string)
+      if (plain) return { key: plain, source: 'workspace' }
     }
   } catch { /* fall through to platform key */ }
   const platform = Deno.env.get('ANTHROPIC_API_KEY') ?? ''
@@ -89,6 +85,11 @@ type UsageTally = {
   inputTokens: number | null
   outputTokens: number | null
   stopReason: string | null
+  // Which key paid for this call. Computed since S12 but never recorded;
+  // with per-workspace keys actually in use (S15) the operator console's
+  // spend view needs to separate "this company's own key" from "billed to
+  // the platform", and app_events is where that number comes from.
+  keySource: 'workspace' | 'platform' | null
 }
 
 async function logUsage(
@@ -114,6 +115,7 @@ async function logUsage(
         input_tokens: tally.inputTokens,
         output_tokens: tally.outputTokens,
         stop_reason: tally.stopReason,
+        key_source: tally.keySource,
       },
     })
   } catch { /* telemetry never breaks the request */ }
@@ -185,7 +187,7 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const { admin, workspaceId, callerId } = guard.ctx
 
-  if (rateLimited(workspaceId)) {
+  if (await isRateLimited(admin, 'ai-proxy', workspaceId, RPM, 60)) {
     return reply({ error: 'rate_limited' }, 429)
   }
 
@@ -256,6 +258,7 @@ Deno.serve(async (req: Request) => {
     inputTokens: null,
     outputTokens: null,
     stopReason: null,
+    keySource: resolved.source,
   }
 
   if (!upstream.ok || !upstream.body) {

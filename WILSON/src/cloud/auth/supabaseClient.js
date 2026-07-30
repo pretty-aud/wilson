@@ -26,11 +26,22 @@ if (!url || !anon) {
   console.error('[wilson] VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY missing. Check .env.development.')
 }
 
+// storageKey (Session 15): with persistSession:false the SDK writes nothing,
+// so this is NOT where session isolation comes from — sessionStorage.js is.
+// What it does separate is everything else auth-js namespaces off the key:
+// the navigator lock (`lock:<storageKey>`), the PKCE code-verifier slot and
+// the JWKS cache. /wilson and /wilsonadmin are the same origin, so without
+// it the two bundles would contend on one lock and both log auth-js's
+// "Multiple GoTrueClient instances detected" warning.
+/* global __WILSON_SURFACE__ */
+const surface = typeof __WILSON_SURFACE__ === 'string' ? __WILSON_SURFACE__ : 'app'
+
 export const supabase = createClient(url ?? '', anon ?? '', {
   auth: {
     persistSession: false,
     autoRefreshToken: true,
     detectSessionInUrl: false,
+    storageKey: surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app',
   },
 })
 

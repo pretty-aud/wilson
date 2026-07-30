@@ -18,8 +18,18 @@
 
 import { test, expect, type Page } from '@playwright/test'
 
+// See the note in auth.spec.ts (TPN-SDLC-007): no hardcoded password fallback.
+// This repo is public and the account is a live workspace admin on a hosted
+// project, so the literal that used to sit here was a published credential.
 const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
-const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? 'SmokeTest2026!'
+const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
+if (!PASSWORD) {
+  throw new Error(
+    'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '
+    + 'the credential is never committed. Set it from your password manager (or, in CI, '
+    + 'from the DEV_PROBE_PASSWORD secret) before running.',
+  )
+}
 
 // Sign in from wherever the page currently is (deep links must NOT be
 // navigated away from — that is the thing under test).

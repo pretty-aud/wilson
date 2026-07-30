@@ -656,3 +656,174 @@ Any change that touches these contracts requires a migration plan in the impleme
 - Exported markdown formats (DOG: `DECKOUTLINE.md`, `VIS_DECKOUTLINE.md`, `IMG_PROMPTS.md`).
 
 For each, the implementation skill must propose dual-read, cutover window, and rollback before executing the change.
+
+---
+
+# Added by the 2026-07-30 re-audit
+
+The four sections below are referenced by findings opened at the re-audit and
+did not exist in the 2026-04-15 set.
+
+## RECO-CLOUD-BUCKET-PRIVATE — Private buckets with scoped read policies
+
+**Applies to:** findings where a storage bucket is `public = true`, or where a
+bucket policy's `USING` clause has no tenancy predicate (TPN-CLOUD-004,
+TPN-CLOUD-006).
+
+### What TPN requires
+
+CS-1.13: cloud storage must not be world-readable, and access must be scoped
+to the tenant that owns the object. "Unguessable URL" is not access control —
+object keys leak through logs, referrers, caches and support tickets.
+
+### Recommended change pattern
+
+Two independent changes; do both, because either alone still leaks.
+
+1. Flip the bucket private:
+
+```sql
+UPDATE storage.buckets SET public = false WHERE id = 'user-avatars';
+```
+
+2. Replace the unconditional SELECT policy with one that requires the reader to
+   share a workspace with the object's owner. Follow the `rabbit_files_select`
+   shape from migration 0027 — parse the owning id out of
+   `storage.foldername(name)` and probe it under the CALLER's RLS, so the
+   policy fails CLOSED on a malformed path.
+
+Then serve avatars through signed URLs (`createSignedUrl`) rather than
+`getPublicUrl`. Signed URLs expire; public ones never do.
+
+### Side effects / interface preservation
+
+Every `getPublicUrl` call site for that bucket must become `createSignedUrl`,
+and any cached avatar URL persisted in a table or in localStorage becomes
+stale. Audit `isOwnAvatarUrl` and the presence-chip renderers before flipping,
+or avatars silently 404 for everyone.
+
+### Verification
+
+- `SELECT id, public FROM storage.buckets;` — no bucket is public.
+- Pin the policy's QUAL in pgTAP, not merely its existence (the S14 lesson: a
+  policy pinned by existence lets CI bless an unbounded one).
+- With an anon key and no session, a direct object fetch must 403.
+
+---
+
+## RECO-CLOUD-TENANCY — Narrow `FOR ALL` policies to the verb they need
+
+**Applies to:** findings where a permissive policy grants more verbs than the
+surface it exists for (TPN-CLOUD-003).
+
+### What TPN requires
+
+CS-1.13 and least privilege: an administrative capability must be reachable
+only through the path that carries its safeguards. A destructive verb that is
+also reachable by a raw API call has no safeguards.
+
+### Recommended change pattern
+
+`workspaces_write_operator` is `FOR ALL`, so an operator's PostgREST session
+can `DELETE FROM workspaces` directly — bypassing the operator console's MFA
+requirement, its typed-slug confirm, its blob sweep and its audit certificate.
+Split it:
+
+```sql
+DROP POLICY IF EXISTS workspaces_write_operator ON public.workspaces;
+
+CREATE POLICY workspaces_operator_read ON public.workspaces
+  FOR SELECT USING (public.is_platform_operator());
+
+CREATE POLICY workspaces_operator_update ON public.workspaces
+  FOR UPDATE USING (public.is_platform_operator())
+              WITH CHECK (public.is_platform_operator());
+```
+
+Note there is deliberately **no INSERT or DELETE policy**: creation goes
+through `provision_workspace_and_admin` and destruction through the
+`operator-workspaces` teardown path, both `service_role`, both of which bypass
+RLS anyway. Removing the client-reachable verbs costs the console nothing.
+
+### Side effects / interface preservation
+
+Permissive policies OR together, so the old policy must be DROPPED — adding
+narrower ones alongside it changes nothing. Re-run pgTAP suite 35 and any
+probe that reads `workspaces` as an operator.
+
+### Verification
+
+- As an operator over PostgREST, `DELETE FROM workspaces` affects 0 rows.
+- Teardown through the Edge Function still works end to end.
+
+---
+
+## RECO-3P-PIN — Pin and scan the second (Deno/esm.sh) dependency universe
+
+**Applies to:** findings about server-side dependencies loaded from a CDN or
+frozen at a stale version (TPN-3P-004, TPN-3P-007).
+
+### What TPN requires
+
+TS-4.0: every third-party component in the delivery path must be inventoried,
+version-pinned, and monitored for advisories. A remote import that resolves at
+runtime is an unpinned dependency with an extra network trust boundary.
+
+### Recommended change pattern
+
+Edge Functions import supabase-js from `https://esm.sh/@supabase/supabase-js@2.45.4`.
+Move to a Deno import map (`supabase/functions/import_map.json`) with integrity
+pinning, so the version is declared in one place and lockable:
+
+```json
+{ "imports": { "@supabase/supabase-js": "npm:@supabase/supabase-js@2.45.4" } }
+```
+
+Deno's `npm:` specifier resolves through the npm registry rather than esm.sh,
+which removes one intermediary and brings the dependency into the same
+advisory feeds as the client tree. Commit `deno.lock`.
+
+### Side effects / interface preservation
+
+Every function's import line changes. Deploy all functions together and smoke
+each one — an import-map miss fails at cold start, not at deploy.
+
+### Verification
+
+- No `https://esm.sh/` string remains under `supabase/functions/`.
+- `deno.lock` is committed and CI fails if it drifts.
+
+---
+
+## RECO-3P-BUILD — Reproducible installs in every build path
+
+**Applies to:** findings where a build uses a resolving install rather than a
+locked one (TPN-3P-008).
+
+### What TPN requires
+
+TS-4.0: the artifact that ships must be reproducible from the committed lock
+file. `npm install` may resolve newer transitive versions than the lock
+records, so the deployed tree is not the reviewed tree.
+
+### Recommended change pattern
+
+In `vercel.json`:
+
+```json
+"installCommand": "npm ci --ignore-scripts"
+```
+
+`npm ci` fails loudly when `package-lock.json` and `package.json` disagree,
+which is the property you want on a deploy path.
+
+### Side effects / interface preservation
+
+`npm ci` requires the lock file to be in sync and generated by a compatible
+npm major. WILSON's lock file must stay npm-10-shaped — a local npm-11
+regeneration breaks `npm ci` (recorded in MASTER_PLAN §8).
+
+### Verification
+
+- A deploy log shows `npm ci`.
+- Deliberately desync the lock in a branch and confirm the build fails.

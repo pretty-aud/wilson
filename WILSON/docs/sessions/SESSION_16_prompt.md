@@ -180,6 +180,120 @@ then run her Claude design session off the design pack).
 
 ## What S16 must document (appended by S15's close-out)
 
-*(S15 appends here: everything it added that the handbook must cover —
-the /wilsonadmin surface + session isolation, workspace_ai_keys, teardown
-+ storage sweep, the durable rate limiter, and anything else.)*
+Everything below landed in S15 and does not exist in any earlier prompt or
+ledger row. Read the code, not this list — but do not let the handbook ship
+without covering these.
+
+### The operator console — a SECOND SURFACE, not a page
+
+- `/wilsonadmin` is its own build target: `admin.html` → `src/admin/mainAdmin.jsx`
+  → `src/admin/OperatorApp.jsx`. It does NOT use `src/App.jsx`, has no router,
+  no tools, no pet, and two sections (Companies, Audit).
+- The build is selected by **vite `--mode admin`** (`vite.config.js` is now the
+  function form). `rollupOptions.input` is gated on mode, which is what keeps
+  the console OUT of the Electron installer — `npm run build` still emits only
+  `index.html`. Worth stating plainly: the desktop app cannot reach the
+  operator console at all.
+- Scripts: `build:vercel:admin`, `build:admin`, `dev:admin`. `vercel.json` now
+  runs BOTH builds and rewrites `/wilsonadmin*` → `/wilsonadmin/admin.html`
+  (Vite names output HTML after its input — not `index.html`; that tripped the
+  routing design and the handbook should say so).
+- **Session isolation** is the load-bearing detail. localStorage is per-ORIGIN,
+  not per-path, so on `beta.petalstudios.co` both bundles share one store.
+  Isolation comes ENTIRELY from different key strings, chosen at build time by
+  the `__WILSON_SURFACE__` define: `wilson.dev.session` (app) vs
+  `wilson.operator.session` (console), plus distinct supabase-js `storageKey`
+  values. `sessionStorage.js` also refuses the Electron safeStorage bridge on
+  the admin surface, because that bridge is a single unkeyed slot.
+- Sign-in is **email + password + TOTP**, not username-first. Operators have no
+  workspace for `resolve-login` to resolve against — explain the tier, not just
+  the flow.
+
+### The operator tier
+
+- `public.platform_operators` has existed since 0001 and the JWT has carried
+  `is_platform_operator` since then, but until S15 **nothing server-side read
+  either** — one client file did, and no policy or function. 0028 adds
+  `public.is_platform_operator()` (SECURITY DEFINER, live-row) and
+  `_shared/operatorGuard.ts`.
+- The guard deliberately differs from `adminGuard` in three ways, all worth
+  documenting: no `workspaceId` in its context; it does NOT require the JWT
+  claim (the live row is strictly stronger, and requiring the claim would add a
+  lockout mode if the Dashboard hook toggle is ever off); and **MFA is hard** —
+  no verified factor means refused, and a failed MFA lookup means refused.
+- **There is no grant/revoke-operator endpoint anywhere, on purpose.** Operator
+  status is inserted by SQL, out of band, so the platform tier cannot be
+  escalated from a web session. Document this as a security property, not an
+  omission — and include the SQL (it is in `OWED_AUDREY.md` §9B).
+
+### Migration 0028 — three tables and a helper
+
+- `workspace_ai_keys` — per-company Anthropic keys as **AES-256-GCM
+  ciphertext** (`_shared/aiKeyCrypto.ts`), never plaintext. RLS on + forced
+  with ZERO policies (service_role only). No client, not even a workspace
+  admin, can read a key back; the console sees a four-character hint. Explain
+  WHY it is not a plaintext column even though the table is already
+  service-role-only: the nightly `pg_dump` goes off-platform to B2, so a
+  plaintext column would put every tenant's spending credential in a 90-day
+  archive. Also record why NOT Supabase Vault (it exists on all three hosted
+  projects, but CI's local stack could not be verified from the dev machine,
+  and an unverifiable dependency inside the migration chain is a bad bet).
+- `platform_audit` — the operator audit stream, and **the answer to gap #34**.
+  It carries NO workspace FK and snapshots slug/name as text, so a
+  `workspace.teardown` certificate survives the CASCADE that removes
+  `app_events` and `file_events`. No purge job, same TPN-LOG-004 reasoning as
+  `file_events`. Operators read it; only service_role writes it.
+- `edge_rate_limits` + `fn_rate_limit_hit()` — the durable limiter (§6 #16).
+  Explain what it replaces: every previous limiter was an in-memory Map inside
+  ONE Deno isolate, so the effective limit was RPM × however many isolates were
+  warm, resetting on cold start. Note it is a FIXED window (up to 2× across an
+  edge) and that `_shared/rateLimit.ts` fails OPEN by design — with the reason,
+  which is that a limiter is an abuse control and authorization already ran
+  above it. Contrast operatorGuard, which fails CLOSED.
+- `operator_workspace_summary()` — the single cross-tenant read, service_role
+  only. Document the design rule it embodies: the console reaches every other
+  tenant fact through service-role Edge Functions rather than widening RLS
+  across tenants.
+
+### Workspace teardown — the ORDER is the design
+
+`operator-workspaces` action `teardown`. The sequence matters and the handbook
+should spell it out: read the workspace row first (the name/slug snapshot is
+what keeps the certificate meaningful), require the slug typed back, collect
+every `rabbit-files` path from BOTH `files` and `storage_gc_queue` (paged with
+`.range()` — PostgREST caps un-ranged reads at 1000 even for service_role),
+delete the blobs and certificate each batch, drop the queue rows, and only THEN
+delete the workspace row. After the CASCADE there is no way to discover which
+blobs belonged to the tenant, and `storage-gc`'s orphan scan fails closed
+because the rows it resolves through are gone.
+
+**Named limitation to carry forward:** teardown removes the tenant, not the
+people. A user whose only membership was in that company keeps an auth account
+with no workspace. Deleting those identities would be a cross-tenant
+destructive act, so it is out of scope — see §6.
+
+### Changes to things S16 already planned to document
+
+- `ai-proxy` now decrypts a per-workspace key (was: read a plaintext column
+  that never existed) and uses the durable limiter. Its usage telemetry now
+  records `key_source` (`workspace` | `platform`) — the operator console's
+  spend view depends on that field.
+- `adminGuard`'s MFA step-up **fails closed** since S15 (§6 #17 closed). There
+  is also an opt-in `WILSON_REQUIRE_ADMIN_MFA=1` env gate that refuses admins
+  with no verified factor at all; it ships OFF and why is documented in the
+  guard.
+- **The legacy local password module is GONE.** `/api/auth/session`,
+  `/api/auth/verify`, `/api/auth/change`, the hardcoded constants and
+  `src/components/PasswordScreen.jsx` were deleted, and a boot-time
+  `cleanupLegacyAuthFile()` unlinks the on-disk credential. Any handbook
+  section listing the local Express route families must not include an auth
+  family — there isn't one.
+- New pgTAP suites **34–36** (53 probes) and three new tables in the CI
+  per-table coverage gate at the git root.
+- New helper `scripts/tap-hosted.py` — runs a pgTAP suite (optionally with an
+  unapplied migration) against a HOSTED project with no Docker. Every session
+  through S14 rebuilt this by hand; it is worth a paragraph in the testing
+  section, including the rule that `collected` must equal `planned` or the run
+  is lying about coverage rather than merely failing.
+- The TPN re-audit rewrote `TPN_AUDIT/` — the posture section of the handbook
+  should quote the CURRENT summary, not the 2026-04-15 baseline.

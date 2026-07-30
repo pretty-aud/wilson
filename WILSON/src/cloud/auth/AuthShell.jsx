@@ -27,13 +27,15 @@
 //   'revealing'  → panels compress to 268px, light-orange bg fades out
 //   'done'       → component returns null; parent may unmount
 //
-// Timings are matched to PasswordScreen so the two feel like one system.
-// Keep them in sync if either changes.
+// Timings were originally matched to the pre-cloud PasswordScreen so the two
+// felt like one system. That component was deleted in Session 15 along with
+// the dead local-password module (§6 #32), so these values are now the sole
+// definition of the intro's rhythm rather than a copy of one.
 // =============================================================================
 
 import { useState, useEffect, useRef } from 'react'
 
-// Timings — matched to PasswordScreen (src/components/PasswordScreen.jsx).
+// Timings — the intro's rhythm (see header note on their origin).
 const LOGO_FADE_IN_MS   = 1200
 const LOGO_FADE_OUT_MS  = 500
 const LOGO_HOLD_MS      = 3800   // safety fallback when the chime can't play
