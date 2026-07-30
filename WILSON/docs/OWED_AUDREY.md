@@ -498,7 +498,36 @@ Still owed, because they need your real account and/or the key:
 
 ---
 
-## 8. Nice to have
+## 8. Browser eyeball checks — Session 13 (change-request approval)
+
+Migration 0025 is deployed and pgTAP-pinned on all three envs; what's owed is
+the human pass over the two dialogs. You need **both accounts** — the admin
+and a plain member — and a company-standard course the member has forked
+(fork it via "Use the company standard" if none exists).
+
+1. **The review window.** As the member, open the fork's "Suggest a change"
+   dialog, write a summary, submit. As the admin, Admin Terminal → Requests:
+   the request is in Open, and **"Open their course" works** — it jumps to
+   O.T.T.E.R. with the member's fork readable. Decide the request (either
+   way), then confirm the fork **disappears** from your O.T.T.E.R. library
+   again — the window must close on settle.
+2. **Approve applies.** Have the member's fork differ three ways: one subject
+   edited, one brand-new subject added, one subject deleted from the fork.
+   Approve as the admin — the confirm should state the add/update counts and
+   the archive. Then check the standard course: the edit landed, the new
+   subject is there, and the subject the member deleted is **still present**
+   (additive only). Check your own library for the archive copy —
+   `<name> (before change #1)` — and that it holds the OLD content.
+3. **The decline conversation.** Decline a request — the note field should
+   refuse to send empty. As the member, reopen the fork's dialog: the note is
+   shown, "Accept the decision" closes it for good, and (on a fresh decline)
+   "Resubmit with changes" puts it back in the admin's Open tab showing
+   **round 2**. Confirm a settled request shows its final state in the
+   Decided tab.
+
+---
+
+## 9. Nice to have
 
 `gh auth login` on the dev machine. CI turned out to be readable anyway (the
 repo is public), but an authenticated `gh` would let Claude open PRs and read

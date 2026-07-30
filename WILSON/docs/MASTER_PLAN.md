@@ -70,8 +70,10 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0024`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 11 close-out. No backlog.
+- **Migrations `0000`–`0025`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 13 close-out. No backlog.
+  **Ordering rule (S13):** 0025 overwrites objects 0022 also creates; a MANUAL
+  re-run of 0022 must be followed by re-running 0025 (both headers say so).
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
   and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
@@ -115,10 +117,10 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–31` (runs in CI local stack;
-  realtime probes environment-tolerant). The six O.T.T.E.R. suites (26–31) total
-  **117 probes**.
-- **Vitest** 290/290 green end of S11. **Playwright** auth/permissions e2e.
+- **pgTAP RLS suite** `supabase/tests/rls/01–32` (runs in CI local stack;
+  realtime probes environment-tolerant). The seven O.T.T.E.R. suites (26–32)
+  total **180 probes**.
+- **Vitest** 304/304 green end of S13. **Playwright** auth/permissions e2e.
 - **No Docker on this machine**, so pgTAP is verified by shipping a
   `BEGIN; … ROLLBACK;` script through `supabase db query --linked --file`.
   Two things make that harness lie if you get them wrong: keep `SELECT plan(N)`
@@ -259,21 +261,22 @@ deployed to all three envs**.
 | 10 | 2026-07-29 | **O.T.T.E.R. cloud content SERVER model** (0022): otter_courses/subjects/progress/course_editors/change_requests, three visibility tiers (personal/shared/company_standard), live-row DEFINER helpers, identity-pin triggers, OTTER-specific trash RPCs + 30-day purge, otter_fork_course, otter_course_index (metadata-only admin view); `public.users` dropped + schema.sql/seed.sql deleted (0023 — **gap #9 CLOSED**); client adapter seam (`adapters/otterFetch`, 85 call sites); runOtterMigration. pgTAP 26–30 (94 probes) verified against real Postgres on wilson-dev; Vitest 256/256. Review 15/15 fixed. **O.T.T.E.R. UI NOT started → S11 Block A.** | `31586d5` |
 | 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5`, `f942e1e` |
 | 12 | 2026-07-29 | **`ai-proxy` + the web build.** Block A (locked #21): the `ai-proxy` Edge Function is now the ONLY path to Anthropic on both hosts — token claims + live `workspace_members` check (`_shared/memberGuard.ts`), per-workspace→platform key seam (`workspace_ai_keys` read fails soft until S15), always-streaming upstream (150s Edge deadline vs long generations) with a pure client SSE reassembler (`anthropicStream.js`, 14 vitest cases), per-workspace in-memory rate limit, WIL-6001/6002 usage telemetry to app_events. All 14 direct call sites rewired; the Settings key field, `apiKey` prop plumbing and the localStorage credential are gone (purged on upgrade); stale help/prompt copy corrected. Block B (locked #18): `build:web` (`--base=/wilson/` → dist-web) + `serve-web.mjs`; URL ↔ page sync over the all-pages shell (deep links, pushState, popstate — no router); **gap #21 CLOSED** (Otter's library loads independent of the local-server settings fetch; `src/lib/localData.js` gives pet/otter-settings/agent-skills an Express-or-localStorage home); RABBIT forces the supabase adapter in browsers; web D.O.G. generates off uploads + cloud project context (attachments degrade visibly — no content model per locked #17); web sessions persist in localStorage with TOKEN_REFRESHED re-save; Playwright `chromium-web` lane (3/3) against the real bundle; **test host = GitHub Pages** (`gh-pages` branch → pretty-aud.github.io/wilson, Pages toggle owed). Review: 4 finders, 15 findings, 14 fixed, 1 accepted+documented. Vitest 304/304. | `41c7356` |
+| 13 | 2026-07-29 | **Change-request approval that APPLIES** (locked #22, migration 0025). Status machine grows `changes_requested` + the revise-and-resubmit loop (revision counter, required decline note, `acknowledged_at`, decliner stays reviewer of record, settled rows frozen); `otter_cr_apply()` — the ONLY path to `approved` (transaction-local GUC) — archives the target to a personal copy owned by the approver then applies the proposer's live subjects **additively** (update by slug in place, insert when absent, never delete; reference docs untouched per #29); consented review window `otter_has_open_review_access()` (live-row role, proposer-owned sources only, opens on submit / closes on settle) as an OR arm on `otter_courses_select` + `otter_course_index`. UI: Admin Terminal Approve (real diff counts + archive-kept confirm, Peak-End summary) / Decline (required note) / working "Open their course" jump (`wilson:open-otter-course`); O.T.T.E.R. dialog decision state (accept / resubmit, round badges), share checkbox removed. pgTAP 32 (63 probes) + suites 26–32 (180) green on real PG17; Vitest 304/304. Review: 15 findings, 10 confirmed → fixed (incl. reviewer-stamp forgery on withdraw + the 0022-re-run ordering rule), 1 refuted, 4 triaged inline. | `89b84bc` |
 | 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 13–15 remain** (locked #19): **S13 change-request approval** · S14
-file lifecycle & data stewardship · S15 operator console + TPN + v1.0.0.
-Launch prompt ready: `docs/sessions/SESSION_13_prompt.md`.
+**Sessions 14–15 remain** (locked #19): **S14 file lifecycle & data
+stewardship** · S15 operator console + TPN + v1.0.0.
+Launch prompt ready: `docs/sessions/SESSION_14_prompt.md`.
 
-**Migrations 0000–0024 are deployed to dev + staging + prod** (S12 added no
-migrations). **Edge Functions:** `ai-proxy` deployed to all three envs at the
-S12 close-out; `WILSON_SITE_URL` secret set to the test host on all three.
-The `ANTHROPIC_API_KEY` secret is still owed by Audrey — until it exists,
-ai-proxy answers 501 `ai_not_configured`. CLI linked to `wilson-dev`.
+**Migrations 0000–0025 are deployed to dev + staging + prod** (S13 added
+0025). **Edge Functions:** `ai-proxy` deployed to all three envs at the
+S12 close-out (no S13 changes); staging has `ANTHROPIC_API_KEY` set
+(post-S12); dev/prod keys still per OWED_AUDREY §5. CLI linked to
+`wilson-dev`.
 
 ---
 
@@ -420,24 +423,22 @@ mechanics. Both blocks landed:
   (owed). `/wilsonadmin` becomes a sibling repo in S15. The
   `petalstudios.co` cutover stays post-v1.0.
 
-### Session 13 — Change-request approval that applies ← NEXT
+### Session 13 — Change-request approval that applies ✅ DONE (2026-07-29)
 
-Locked #22. Was briefly S12 Block C; Audrey gave it its own session so the web
-build isn't triple-booked. Full spec in `docs/sessions/SESSION_13_prompt.md`.
+Commit `89b84bc`; §4 ledger row 13. Everything in
+`docs/sessions/SESSION_13_prompt.md` landed: migration 0025 (state machine +
+review window + `otter_cr_apply`), pgTAP 32 (63 probes, plus the suite-30
+rewrite the apply-only rule forced), both dialogs, and the "Open their course"
+jump. Deliberate v1 limits held: no diff view (§6 #28), subjects only
+(§6 #29), additive only.
 
-- **Migration 0025** — `changes_requested` status, the revise-and-resubmit loop,
-  a review-window read arm via a SECURITY DEFINER helper, and
-  `otter_cr_apply()`: archive the target, then copy the proposer's subjects in
-  **additively** (add + update, never delete).
-- **UI** — Admin Terminal Requests gains "open their course" + Approve/Decline
-  with a required note; O.T.T.E.R.'s change-request dialog gains the decision
-  state (accept, or revise and resubmit). The now-obsolete "also share my copy"
-  checkbox comes out.
-- **pgTAP 32** — every legal and illegal transition, the review window opening
-  on submit and **closing on settle**, additive-apply proven (a subject the
-  proposer deleted survives in the target), and the archive's existence + owner.
-- Deliberate v1 limits: no subject-level diff view (§6 #28), and the five
-  per-course reference documents are not merged (§6 #29).
+**Worth remembering from the review:** the withdraw transition could smuggle
+forged reviewer stamps (otter_cr_reviewed_chk exempts 'withdrawn', so only
+the trigger stands between a proposer and a fake "reviewed by <admin>" in the
+permanent record) — per-transition field pinning has to cover EVERY arm, not
+just the ones that write review fields. And gap #33: the DB accepts a
+non-admin standard-course owner as a reviewer, but no client surface serves
+them (the queue is Admin-Terminal-only).
 
 ### Session 14 — File lifecycle & data stewardship
 
@@ -553,16 +554,14 @@ all land here rather than in S15.
     legacy slot) are purged on upgrade; the Settings field is gone. No
     direct-Anthropic fallback exists anywhere.
 26. ~~approving a change request records a decision, it does not merge~~ —
-    **RESOLVED 2026-07-29 (Audrey): approval must APPLY the change.** See
-    locked #22 and the **S13** spec. Needs migration 0025: the current
-    `fn_otter_cr_review` hard-blocks any transition out of a settled state, so
-    the revise-and-resubmit loop cannot exist today.
-27. ~~a reviewer sees the SUMMARY, not the course~~ — **RESOLVED 2026-07-29
-    (Audrey): submitting a request must let the admin see the course.**
-    Implemented as a scoped, consented read arm, NOT an admin bypass — see the
-    S13 spec for why it has to go through a SECURITY DEFINER helper
-    (0022 has a post-condition that fails the migration if a SELECT policy on
-    `otter_courses` mentions `current_app_role()` literally).
+    **CLOSED S13** (migration 0025, locked #22): `otter_cr_apply()` archives
+    then applies additively, and is the only path to `approved`;
+    `fn_otter_cr_review` was rewritten for the full revise-and-resubmit loop.
+27. ~~a reviewer sees the SUMMARY, not the course~~ — **CLOSED S13**: the
+    consented review window (`otter_has_open_review_access`, a SECURITY
+    DEFINER helper arm on `otter_courses_select`) opens on submit and closes
+    on settle. Proposer-owned sources only — a request naming a colleague's
+    course is refused at INSERT, in the helper, and in the apply RPC.
 28. **NEW (S11): the admin reviews prose, not a diff.** Even with read access to
     the proposer's course (#27), a reviewer compares two courses by eye. A real
     subject-level diff view is the obvious follow-on and is deliberately NOT in
@@ -623,6 +622,14 @@ all land here rather than in S15.
     local password). On the web it now degrades to a recovery-flow pointer,
     but in Electron it still edits a credential nothing checks since the
     Supabase login landed (S2) — candidate for deletion in a later session.
+33. **NEW (S13): a NON-admin owner of a company-standard course is a
+    DB-supported reviewer with no client surface.** 0022/0025 let the target
+    course's owner decide and apply (pgTAP 32 pins it), but the review queue
+    lives in the Admin Terminal, which is admin-gated — a member who owns a
+    course an admin blessed as standard can only review via the API. Rare
+    (needs an admin to bless a member-owned course and then not review it
+    themselves); surface a proposer-style queue in O.T.T.E.R. only if it
+    happens in practice.
 
 ---
 
@@ -654,7 +661,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
 | Per-company Claude API key, admin-administered | S12 `ai-proxy` SHIPPED the per-workspace→platform resolution seam (deployed to all 3 envs); the `workspace_ai_keys` table + admin UI land with the S15 operator console | ✅ seam · ⬜ admin UI S15 |
-| O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI**: tier picker, filter chips, share + editor grants, company standard, fork, change requests, trash/restore | ✅ ❓ in-app verify owed |
+| O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI** (tier picker, filter chips, share + editor grants, company standard, fork, trash/restore) + **S13**: change-request approval APPLIES (0025 — archive, additive copy, review window, revise-and-resubmit) | ✅ ❓ in-app verify owed |
 | Session system (auth, edit attribution, audit, multi-device, revocation) | + S9 deactivate = RLS cutoff + GoTrue ban + best-effort logout | ✅ (per-device session LIST UI not built — not currently planned) |
 | App version hosting, update-check at login w/ update/skip, Settings version panel | S9 electron-updater + B2 + UpdatePrompt + VersionPanel | ✅ (B2 bucket setup owed) |
 | Admin terminal (users/teams/logs/API-calls/error codes/debug) | S9 company tier SHIPPED (users/company/logs/diagnostics + WIL-#### codes) + S11 Requests (O.T.T.E.R. change-request review); operator tier = S15 | ✅ company · ⬜ operator |
@@ -672,7 +679,9 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
    MASTER_PLAN (§4 ledger, §5 scope, §6 gaps, §7 statuses)** → update the
    Claude auto-memory → docs commit + push.
 3. **Adversarial review before every feature commit** (independent finders →
-   verify → fix confirmed findings pre-commit). S6: 12/12 fixed; S7: 11 fixed.
+   verify → fix confirmed findings pre-commit). S6: 12/12 fixed; S7: 11 fixed;
+   S13: 10 confirmed fixed (incl. a reviewer-stamp forgery), 1 refuted,
+   4 triaged inline.
 4. **Token discipline:** hard cap 15 concurrent agents; finders paste excerpts;
    never resume nondeterministic fan-out pipelines; verify small claim sets
    inline.
@@ -699,7 +708,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–13 present) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–14 present) |
 | Web test host | `https://pretty-aud.github.io/wilson/` — `gh-pages` branch of the public repo; Pages toggle owed (see `docs/WEB_DEPLOY.md`) |
 | ai-proxy | Edge Function, all 3 envs; key = `ANTHROPIC_API_KEY` secret (owed) with per-workspace seam; `AI_PROXY_RPM` optional |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
@@ -1012,6 +1021,44 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **The review's other keeper:** in-stream SSE `error` events end the stream
   normally — anything that logs "completed" on stream close must sniff for
   them (ai-proxy's usage telemetry now does).
+
+### Resolved 2026-07-29 (Session 13 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **`approved` is unreachable except through `otter_cr_apply()`.** The trigger
+  only accepts open → approved when a transaction-local GUC set by the RPC
+  names that exact request. Locked #22 says approving IS applying; a bare
+  status flip would record an approval that moved no content, so it now raises
+  "approving applies the change — call otter_cr_apply() instead".
+- **The review window is consent-scoped to the proposer's OWN course.** A
+  request whose `source_course_id` names a colleague's personal course would
+  otherwise have exposed it to admins the moment anyone filed it. Refused at
+  INSERT, re-checked in the helper and in the RPC; `source_course_id` can only
+  ever change to NULL (the fork-purged FK path), never to a different course.
+- **Settled requests are frozen records.** Widening the proposer's RLS arm so
+  "accept the decision" could pass also let them target already-rejected rows;
+  the trigger now pins summary + note on every terminal row instead of
+  raising, because the ON DELETE SET NULL update from a purged fork lands in
+  the same branch and must keep working. Found by the adversarial review, as
+  was the withdraw-arm reviewer-stamp forgery it sits next to.
+- **Reviewer authority is live-row everywhere.** fn_otter_cr_review originally
+  read the JWT (`current_app_role()`, the 0022 convention); it now reads the
+  live `workspace_members` row like the helper and the RPC, so a demoted admin
+  loses decide/apply/window on the next statement, not the next token refresh.
+- **A manual re-run of 0022 must be followed by 0025** — 0022 recreates the
+  trigger, `otter_courses_select`, the CR policies and `otter_course_index` at
+  their S10 definitions, and every post-condition still passes in that
+  half-reverted state. Both headers now state the ordering rule; the migration
+  runner's by-version ordering makes every normal path safe.
+- **`changes_requested` sits in the Decided tab.** The Open tab is exactly
+  "needs an admin's decision" (Selective Attention); a declined request is
+  waiting on the proposer and re-enters Open by itself at revision+1 when they
+  resubmit. Zeigarnik for the proposer is served in O.T.T.E.R.'s dialog.
+- **The one cross-tool jump is an event, not a prop.**
+  `wilson:open-otter-course` — App.jsx navigates the shell, Otter selects the
+  course (probing readability first: the window can close between queue load
+  and click, and an unreadable slug would poison Otter's course cache).
+  AdminTerminalPage keeps taking no props.
 
 ### Still open
 
