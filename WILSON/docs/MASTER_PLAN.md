@@ -496,7 +496,23 @@ Launch prompt: `docs/sessions/SESSION_15_prompt.md`.
   remaining items — durable Edge-Function rate limiting (§6 #16), hard
   no-deferral admin MFA gate once the CI probe admin is enrolled (§6 #17).
 - Remaining deferrals sweep (§6 — #31 wiring and #32 deletion are the
-  cheap closes), v1.0.0 version cut.
+  cheap closes).
+- **Exit documentation (Audrey, 2026-07-30 — a v1.0.0 release gate):**
+  `docs/SYSTEMS_HANDBOOK.md` — the in-length "every system, what it does,
+  what talks to what" document (Supabase per concern, Vercel, GitHub/CI,
+  B2, Resend, Sentry, Electron/Express, ai-proxy→Anthropic, storage
+  providers, the three tools + agent system, a who-talks-to-whom section).
+  Written for BOTH future team members and other Claude accounts (seed
+  material for Claude projects/skills/CLAUDE.md); fully self-contained;
+  NO secrets (repo is public — "private" = hand it out manually). Then
+  `docs/SYSTEMS_DESIGN_PACK.md` — mermaid system map + per-tool
+  wireframes/flows + per-function dataflows + a diagram inventory, the
+  source pack for Audrey's follow-up Claude design session
+  (infographics/wireframes document).
+- v1.0.0 version cut — after everything above, handbook included.
+- **Overrun escape hatch**: if console + TPN fill the session, stop and
+  give docs + release their own short session (the S10/S11/S12 splitting
+  lesson) rather than rushing the handbook.
 
 ## 6. Carry-forward gaps (live list, end of Session 8)
 
@@ -1169,6 +1185,27 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   bugs (composite-pk order, m.id vs user_id, greedy name-rung) were all
   "fixtures more careful than the client" shapes — S10's meta-lesson, still
   earning its keep.
+
+### Resolved 2026-07-30 (Audrey, post-S14 — v1.0.0 exit documentation)
+
+- **v1.0.0 ships with a systems handbook.** After the build work is fully
+  done, S15 writes `docs/SYSTEMS_HANDBOOK.md`: every system listed (what
+  Supabase is doing, what Vercel is doing, etc.), what talks to what, in
+  length. Audience is dual by design: future team members reading it, and
+  other Claude accounts receiving it as seed material for Claude projects
+  and skills — so self-contained, factual, excerptable. "Private" means
+  Audrey hands it out manually; the repo is public, so the document
+  carries no secrets (architecture facts in it are already public in
+  these docs).
+- **A visual design document follows, driven by Audrey.** S15 also
+  produces `docs/SYSTEMS_DESIGN_PACK.md` — mermaid wireframes/dataflows
+  of how each system connects and how each tool and each load-bearing
+  function works, with a diagram inventory — as the source pack for a
+  Claude design session where Audrey builds the final
+  infographic/wireframe document.
+- Both are sequenced AFTER the S15 build blocks and BEFORE the v1.0.0
+  tag; if the session overruns, docs + release split into their own
+  session rather than compressing the handbook.
 
 ### Still open
 
