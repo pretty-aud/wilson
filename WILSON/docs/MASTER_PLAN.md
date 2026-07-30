@@ -70,10 +70,11 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0025`** in `supabase/migrations/` — all deployed to
+- **Migrations `0000`–`0026`** in `supabase/migrations/` — all deployed to
   dev + staging + prod as of Session 13 close-out. No backlog.
-  **Ordering rule (S13):** 0025 overwrites objects 0022 also creates; a MANUAL
-  re-run of 0022 must be followed by re-running 0025 (both headers say so).
+  **Ordering rule (S13):** 0025/0026 overwrite objects 0022 also creates; a
+  MANUAL re-run of 0022 must be followed by re-running 0025 AND 0026 (all
+  three headers say so).
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
   and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
@@ -119,7 +120,7 @@ Core capabilities of v1.0.0:
 
 - **pgTAP RLS suite** `supabase/tests/rls/01–32` (runs in CI local stack;
   realtime probes environment-tolerant). The seven O.T.T.E.R. suites (26–32)
-  total **180 probes**.
+  total **184 probes**.
 - **Vitest** 304/304 green end of S13. **Playwright** auth/permissions e2e.
 - **No Docker on this machine**, so pgTAP is verified by shipping a
   `BEGIN; … ROLLBACK;` script through `supabase db query --linked --file`.
@@ -261,6 +262,7 @@ deployed to all three envs**.
 | 10 | 2026-07-29 | **O.T.T.E.R. cloud content SERVER model** (0022): otter_courses/subjects/progress/course_editors/change_requests, three visibility tiers (personal/shared/company_standard), live-row DEFINER helpers, identity-pin triggers, OTTER-specific trash RPCs + 30-day purge, otter_fork_course, otter_course_index (metadata-only admin view); `public.users` dropped + schema.sql/seed.sql deleted (0023 — **gap #9 CLOSED**); client adapter seam (`adapters/otterFetch`, 85 call sites); runOtterMigration. pgTAP 26–30 (94 probes) verified against real Postgres on wilson-dev; Vitest 256/256. Review 15/15 fixed. **O.T.T.E.R. UI NOT started → S11 Block A.** | `31586d5` |
 | 9 | 2026-07-28 | Admin Terminal (users/company/logs/diagnostics + show-once credentials + multi-invite) + per-user rate-card grants (0020) + deactivated-member read alignment + last-admin guard + auto-staffing (producer/creator) + MFA (TOTP challenge + admin enroll gate) + auto-update (electron-updater/NSIS/B2) + nightly pg_dump backups + app_events log/error codes (0021) + roster polish; review 15/16 fixed (1 documented skip) | `44d0de8`, `6182aa5`, `f942e1e` |
 | 12 | 2026-07-29 | **`ai-proxy` + the web build.** Block A (locked #21): the `ai-proxy` Edge Function is now the ONLY path to Anthropic on both hosts — token claims + live `workspace_members` check (`_shared/memberGuard.ts`), per-workspace→platform key seam (`workspace_ai_keys` read fails soft until S15), always-streaming upstream (150s Edge deadline vs long generations) with a pure client SSE reassembler (`anthropicStream.js`, 14 vitest cases), per-workspace in-memory rate limit, WIL-6001/6002 usage telemetry to app_events. All 14 direct call sites rewired; the Settings key field, `apiKey` prop plumbing and the localStorage credential are gone (purged on upgrade); stale help/prompt copy corrected. Block B (locked #18): `build:web` (`--base=/wilson/` → dist-web) + `serve-web.mjs`; URL ↔ page sync over the all-pages shell (deep links, pushState, popstate — no router); **gap #21 CLOSED** (Otter's library loads independent of the local-server settings fetch; `src/lib/localData.js` gives pet/otter-settings/agent-skills an Express-or-localStorage home); RABBIT forces the supabase adapter in browsers; web D.O.G. generates off uploads + cloud project context (attachments degrade visibly — no content model per locked #17); web sessions persist in localStorage with TOKEN_REFRESHED re-save; Playwright `chromium-web` lane (3/3) against the real bundle; **test host = GitHub Pages** (`gh-pages` branch → pretty-aud.github.io/wilson, Pages toggle owed). Review: 4 finders, 15 findings, 14 fixed, 1 accepted+documented. Vitest 304/304. | `41c7356` |
+| 13b | 2026-07-30 | **Requests live IN O.T.T.E.R.** (Audrey: the company-library admin controls belong in the tool; the brief's three APP tiers map admin = decide, manager = view, user = own requests). `RequestsView.jsx` behind a cloud-only nav tab ('Admin' for admins, 'Requests' otherwise): deciders (admins + targeted-standard owners — **gap #33 CLOSED**) get the full approve/decline queue with the same confirms as the Admin Terminal (which stays); managers get a read-only queue (**migration 0026**: `otter_cr_select` manager READ arm — decide/window/apply still refuse them, 4 new pgTAP probes, suite 32 = 67); proposers get their requests + feedback with the ChangeRequestDialog as sole actuator and fork-less accept/withdraw fallbacks. Compact review: 7 findings → 6 fixed, 1 documented. 0026 deployed to all three envs. | `54d5225` |
 | 13 | 2026-07-29 | **Change-request approval that APPLIES** (locked #22, migration 0025). Status machine grows `changes_requested` + the revise-and-resubmit loop (revision counter, required decline note, `acknowledged_at`, decliner stays reviewer of record, settled rows frozen); `otter_cr_apply()` — the ONLY path to `approved` (transaction-local GUC) — archives the target to a personal copy owned by the approver then applies the proposer's live subjects **additively** (update by slug in place, insert when absent, never delete; reference docs untouched per #29); consented review window `otter_has_open_review_access()` (live-row role, proposer-owned sources only, opens on submit / closes on settle) as an OR arm on `otter_courses_select` + `otter_course_index`. UI: Admin Terminal Approve (real diff counts + archive-kept confirm, Peak-End summary) / Decline (required note) / working "Open their course" jump (`wilson:open-otter-course`); O.T.T.E.R. dialog decision state (accept / resubmit, round badges), share checkbox removed. pgTAP 32 (63 probes) + suites 26–32 (180) green on real PG17; Vitest 304/304. Review: 15 findings, 10 confirmed → fixed (incl. reviewer-stamp forgery on withdraw + the 0022-re-run ordering rule), 1 refuted, 4 triaged inline. | `89b84bc` |
 | 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
@@ -622,14 +624,11 @@ all land here rather than in S15.
     local password). On the web it now degrades to a recovery-flow pointer,
     but in Electron it still edits a credential nothing checks since the
     Supabase login landed (S2) — candidate for deletion in a later session.
-33. **NEW (S13): a NON-admin owner of a company-standard course is a
-    DB-supported reviewer with no client surface.** 0022/0025 let the target
-    course's owner decide and apply (pgTAP 32 pins it), but the review queue
-    lives in the Admin Terminal, which is admin-gated — a member who owns a
-    course an admin blessed as standard can only review via the API. Rare
-    (needs an admin to bless a member-owned course and then not review it
-    themselves); surface a proposer-style queue in O.T.T.E.R. only if it
-    happens in practice.
+33. ~~a NON-admin owner of a company-standard course is a DB-supported
+    reviewer with no client surface~~ — **CLOSED S13b** (2026-07-30, commit
+    `54d5225`): O.T.T.E.R.'s Requests view surfaces the decidable queue to
+    admins AND to owners of the targeted standard course; managers got a
+    read-only queue at the same time (0026).
 
 ---
 
@@ -1021,6 +1020,26 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 - **The review's other keeper:** in-stream SSE `error` events end the stream
   normally — anything that logs "completed" on stream close must sniff for
   them (ai-proxy's usage telemetry now does).
+
+### Resolved 2026-07-30 (Audrey, post-S13 — the Requests view, commit `54d5225`)
+
+- **The change-request surface lives IN O.T.T.E.R.** ("make sure that view is
+  in the otter app"). This deliberately revises the S11 call that the queue
+  belongs only in the Admin Terminal — the Terminal section STAYS (admin work
+  in the admin place), but the in-tool tab is the primary home: admins get
+  their company-library controls where the library is, and proposers see
+  their own requests + feedback without leaving the tool.
+- **The brief's three APP tiers map onto the queue as admin = decide,
+  manager = view, user = own requests.** Audrey's word "reviewer" in the
+  2026-07-30 message is the brief's tool-wide **Manager** tier, not the
+  RABBIT project-level reviewer seat (different axis). Migration 0026 gives
+  managers READ on `otter_cr_select` only — deciding, the fork window and
+  apply all still refuse them (pgTAP-pinned). The manager read arm follows
+  the policy's existing JWT convention (same staleness as the admin arm since
+  0022); every acting path stays live-row — documented in 0026's header.
+- **The proposer's fork stays private from managers.** The 0025 consent is
+  to REVIEWERS; a manager sees the request row (summary, status, outcome),
+  never the fork content.
 
 ### Resolved 2026-07-29 (Session 13 close-out — architecture-driven, flagged
 ### for Audrey's awareness)

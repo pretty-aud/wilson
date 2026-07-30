@@ -524,6 +524,18 @@ and a plain member — and a company-standard course the member has forked
    "Resubmit with changes" puts it back in the admin's Open tab showing
    **round 2**. Confirm a settled request shows its final state in the
    Decided tab.
+4. **The in-Otter Requests tab (added 2026-07-30).** As the admin, O.T.T.E.R.
+   now has an **"Admin"** tab in the top nav — same queue, same Approve /
+   Decline, plus "Open their course" jumping straight to the fork in the
+   library. As the member, the tab reads **"Requests"** and shows the
+   requests they sent with the admin's note; "Review & respond" opens the
+   dialog. Confirm the tab is absent in local (signed-out desktop) mode.
+5. **The manager tier (needs a third account, or temporarily set your plain
+   member to Manager in Team Members).** A manager's "Requests" tab lists the
+   whole open queue **read-only** — no Approve/Decline buttons, and the
+   proposer's fork must NOT appear in their O.T.T.E.R. library (the review
+   window is deciders-only). Flip the role back afterwards if you borrowed
+   the member account.
 
 ---
 

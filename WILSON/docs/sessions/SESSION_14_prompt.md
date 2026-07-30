@@ -20,8 +20,9 @@
 ## Context recap
 
 - Branch **`feat/multi-user-v1`**. S13 (change-request approval that applies)
-  landed as the commit before this file's docs commit — see MASTER_PLAN §4
-  row 13. **Migrations are 0000–0025, deployed to all three envs; 0026 is
+  landed as `89b84bc`, plus the same-session follow-up `54d5225` (the
+  in-Otter Requests view + the manager read arm) — see MASTER_PLAN §4 rows
+  13/13b. **Migrations are 0000–0026, deployed to all three envs; 0027 is
   free.** No migration backlog.
 - **S13 state that matters here:**
   - Approving an O.T.T.E.R. change request now APPLIES it via
@@ -31,9 +32,13 @@
     arm intact, and NEVER inline `current_app_role()` into a SELECT policy on
     `otter_courses`/`otter_progress` — 0022's re-run post-condition raises on
     it.
-  - pgTAP is now suites 01–32 (**170 O.T.T.E.R. probes** across 26–32). The
+  - pgTAP is now suites 01–32 (**184 O.T.T.E.R. probes** across 26–32). The
     `BEGIN; … ROLLBACK;` harness with the `tap_out` collector remains the
     local verification method (no Docker on this machine — MASTER_PLAN §8).
+  - Change requests now surface INSIDE O.T.T.E.R. (`RequestsView.jsx`, a
+    cloud-only nav tab) with the three-tier mapping admin = decide,
+    manager = view (0026), user = own requests. The Admin Terminal section
+    remains.
 - **CI is readable without `gh`.** `pretty-aud/wilson` is public:
   `curl https://api.github.com/repos/pretty-aud/wilson/actions/runs?head_sha=<sha>`.
 - **Web host:** beta at `https://beta.petalstudios.co/wilson` (Vercel,
