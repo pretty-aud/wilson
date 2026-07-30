@@ -211,7 +211,7 @@ There is no migration path from 0.6.x data other than the in-app tools: Settings
 Before this release is usable in an environment, **four** things must be done by hand — they are secrets and grants, and none of them can be committed. Each is written out in **`docs/OWED_AUDREY.md`**:
 
 - **§0 — rotate the published CI probe password.** It was committed to this public repository and is permanent in git history, so rotation is the only remedy. Open critical.
-- **§5 — set `ANTHROPIC_API_KEY` as a Supabase Edge Function secret** on each environment. Verified 2026-07-30: set on **none** of the three. Note that a GitHub *repository* secret of the same name is a different store that Edge Functions cannot read. Without it `ai-proxy` returns `501 ai_not_configured` and every AI feature in all three tools fails.
+- **§5 / §9C — `ANTHROPIC_API_KEY` and `WILSON_AI_KEY_SECRET`** — ✅ done on all three environments (2026-07-30), digests verified matching. They must be **Supabase Edge Function** secrets: a GitHub *repository* secret of the same name is a different store that Edge Functions cannot read, and that is where the key had been sitting unused. Without them `ai-proxy` returns `501 ai_not_configured` and every AI feature in all three tools fails. `WILSON_AI_KEY_SECRET` must be identical across environments, or a company key stored on one cannot be decrypted on another.
 - **§9A + §9B — enrol TOTP *and* seed `platform_operators`.** Do both: either one alone leaves the operator console signing you in and then refusing everything.
 - **§9C — set `WILSON_AI_KEY_SECRET`** per environment, or per-company AI keys cannot be stored.
 

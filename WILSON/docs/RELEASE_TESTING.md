@@ -26,7 +26,7 @@ in `docs/OWED_AUDREY.md`.
 | # | Thing | Ref | What breaks without it |
 |---|---|---|---|
 | 0.1 | Rotate the `smoke_admin` password on **wilson-dev**, update the `DEV_PROBE_PASSWORD` GitHub secret, re-run CI | §0 | Open CRITICAL (TPN-SDLC-007). Not a test blocker, but it must close before the tag. |
-| 0.2 | 🚨 `ANTHROPIC_API_KEY` as a **Supabase Edge Function secret** on every env you test — verified 2026-07-30 as set on **none** of dev/staging/prod | §5 | Every AI feature in all three tools returns 501 `ai_not_configured` **right now, on every environment including beta**. The key in GitHub repository secrets is a different store and no workflow even reads it. |
+| 0.2 | ✅ `ANTHROPIC_API_KEY` + `WILSON_AI_KEY_SECRET` as **Supabase Edge Function secrets** — DONE 2026-07-30 on all three, digests verified matching | §5 | Nothing. If AI ever returns 501 `ai_not_configured`, this is the first thing to re-check — and check the *Supabase Edge* store, not GitHub repository secrets or Vercel env vars, which are separate and cannot reach `ai-proxy`. |
 | 0.3 | `WILSON_AI_KEY_SECRET` on each env you test | §9C | Per-company AI keys refuse to store; the console shows a clear error. Platform key still works. |
 
 **Read before testing anything AI:** with no key, D.O.G. generation, O.T.T.E.R.

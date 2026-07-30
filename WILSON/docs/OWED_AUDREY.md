@@ -412,22 +412,23 @@ like the old single-user tool.
 
 ---
 
-## 5. 🚨 Anthropic API key as a Supabase secret — STILL OWED ON ALL THREE
+## 5. Anthropic API key as a Supabase secret — ✅ DONE (2026-07-30, S17)
 
-> **Verified 2026-07-30 (S17): `ANTHROPIC_API_KEY` is set on NONE of dev,
-> staging or prod.** `supabase secrets list` on each project returns only the
-> auto-injected `SUPABASE_*` values plus `WILSON_SITE_URL`. An earlier version
-> of this file claimed staging had it (§6B) and MASTER_PLAN repeated that —
-> both were wrong, and the error propagated because nobody re-checked.
+> **Verified 2026-07-30 by `supabase secrets list` on each project:
+> `ANTHROPIC_API_KEY` and `WILSON_AI_KEY_SECRET` are set on all three, and
+> the digests match across dev, staging and prod.** The matching digest on
+> `WILSON_AI_KEY_SECRET` is the part worth having checked: a company key
+> encrypted on one environment can now be decrypted on the others, where
+> differing values would have failed per-environment and confusingly.
+> No redeploy was needed — Edge Functions read secrets on next invocation.
 >
-> **Consequence, and it is bigger than a config note: every AI feature in all
-> three tools is non-functional on every environment right now**, including
-> the beta web host. `ai-proxy` returns `501 ai_not_configured`, which surfaces
-> as D.O.G. generation, O.T.T.E.R. course/quiz/validator generation, RABBIT
-> intake and the companion all failing. It reads like a broken app; it is a
-> missing secret.
+> **Keep the history below.** It cost a session to untangle and the trap is
+> re-armable: for eleven sessions this file and MASTER_PLAN both claimed
+> staging already had the key, and neither had been re-checked. It was on
+> none of the three. **Assertions about deployed state need a date and a
+> command, or they rot into folklore.**
 >
-> **You DID add the key — it is in the wrong store.** It is a **GitHub
+> **The key HAD been added — to the wrong store.** It was a **GitHub
 > repository secret** (Settings → Secrets and variables → Actions). That store
 > is readable only by GitHub Actions workflows, through
 > `${{ secrets.ANTHROPIC_API_KEY }}` — and a grep of `.github/workflows/`
