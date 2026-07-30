@@ -19,7 +19,7 @@
 
 BEGIN;
 
-SELECT plan(63);
+SELECT plan(67);
 
 SELECT * FROM tests.rls_setup();
 
@@ -34,14 +34,20 @@ VALUES
   ('dddddddd-dddd-dddd-dddd-dddddddddddd', 'user_d@test.local',
    crypt('testpw', gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee', 'user_e@test.local',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
    'authenticated', 'authenticated', '00000000-0000-0000-0000-000000000000', now(), now())
 ON CONFLICT (id) DO NOTHING;
 
+-- user_e is a MANAGER: 0026 gives that tier a read-only view of the queue.
 INSERT INTO public.workspace_members
   (workspace_id, user_id, app_role, username, display_name, is_active)
 VALUES
   ('11111111-1111-1111-1111-111111111111','cccccccc-cccc-cccc-cccc-cccccccccccc','user','user_c','User C',true),
-  ('11111111-1111-1111-1111-111111111111','dddddddd-dddd-dddd-dddd-dddddddddddd','user','user_d','User D',true)
+  ('11111111-1111-1111-1111-111111111111','dddddddd-dddd-dddd-dddd-dddddddddddd','user','user_d','User D',true),
+  ('11111111-1111-1111-1111-111111111111','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','manager','user_e','User E',true)
 ON CONFLICT (workspace_id, user_id) DO NOTHING;
 
 -- T1: the company standard (owner: admin). F1: user_c's fork of it.
@@ -444,6 +450,37 @@ SELECT throws_ok(
   $$SELECT public.otter_cr_apply('0a000013-0000-0000-0000-000000000002')$$,
   'only an admin or the standard course''s owner may approve',
   'the proposer cannot apply their own request');
+
+-- ── a MANAGER views the queue, and only views it (0026) ─────────────────────
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','manager')
+)::text, true);
+SELECT set_config('role','authenticated', true);
+
+SELECT is((SELECT count(*)::int FROM public.otter_change_requests),
+          2, 'a manager can view the workspace''s whole queue');
+
+WITH upd AS (
+  UPDATE public.otter_change_requests
+     SET status='changes_requested', review_note='manager trying to decide'
+   WHERE id='0a000013-0000-0000-0000-000000000002' RETURNING 1
+)
+SELECT is((SELECT count(*)::int FROM upd), 0,
+          'a manager''s decision touches no rows — the queue is view-only for them');
+
+SELECT is((SELECT count(*)::int FROM public.otter_courses
+            WHERE id = '0c000013-0000-0000-0000-000000000002'),
+          0, 'a manager gets NO review window — the proposer consented to reviewers, not the tier');
+
+SELECT throws_ok(
+  $$SELECT public.otter_cr_apply('0a000013-0000-0000-0000-000000000002')$$,
+  'only an admin or the standard course''s owner may approve',
+  'a manager cannot apply');
 
 -- ── the apply ───────────────────────────────────────────────────────────────
 

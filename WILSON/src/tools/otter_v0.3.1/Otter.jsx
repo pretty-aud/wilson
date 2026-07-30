@@ -11,7 +11,7 @@ import {
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
   Lock, Unlock, Library, Braces, FolderOpen, Share2,
-  Link, ExternalLink, ShieldCheck
+  Link, ExternalLink, ShieldCheck, GitPullRequestArrow
 } from 'lucide-react';
 import {
   FULL_COURSE_OUTLINE_PROMPT, SUBJECT_GENERATION_PROMPT, SINGLE_SUBJECT_PROMPT,
@@ -39,6 +39,10 @@ import CourseFilterChips from './components/CourseFilterChips.jsx';
 import CourseRowMenu from './components/CourseRowMenu.jsx';
 import ShareCourseDialog from './components/ShareCourseDialog.jsx';
 import ChangeRequestDialog from './components/ChangeRequestDialog.jsx';
+// Session 13 follow-up (Audrey, 2026-07-30): change requests live IN the tool —
+// the review queue for admins (+ standard-course owners), a read-only queue
+// for managers (0026), and every proposer's own requests + feedback.
+import RequestsView from './components/RequestsView.jsx';
 import TrashPanel, { TrashSidebarList } from './components/TrashPanel.jsx';
 import {
   VisibilityBadge, OwnerBadge, MetadataOnlyBadge, ReadOnlyBadge,
@@ -249,6 +253,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     if (!cloudMode) setCourseFilter('all');
   }, [cloudMode]);
 
+  // Same trap, one state over: leaving cloud mode unmounts the Requests nav
+  // button, so the view must not stay on a pane with no door — and every op
+  // in it is cloudOnly (501 locally) anyway.
+  useEffect(() => {
+    if (!cloudMode && currentView === 'requests') setCurrentView('library');
+  }, [cloudMode, currentView]);
+
   // Same trap one level down: the admin-only chip disappears when an admin is
   // demoted mid-session.
   useEffect(() => {
@@ -264,6 +275,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ── Dialogs off the course row menu ──
   const [shareDialogCourse, setShareDialogCourse] = useState(null);
   const [crDialogCourse, setCrDialogCourse] = useState(null);
+  // Bumped when the change-request dialog closes so a mounted RequestsView
+  // reloads — the dialog is the proposer's actuator (resubmit / withdraw /
+  // accept), and the list behind it must not keep advertising finished work.
+  const [requestsRefreshTick, setRequestsRefreshTick] = useState(0);
   const [sharingNotice, setSharingNotice] = useState(null);
   // Separate from genError: that one renders only on the prompt screen, and
   // fork/share can both be triggered from the Library and the sidebar.
@@ -2843,6 +2858,27 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <Braces className="w-4 h-4" /> Functions
         </button>
 
+        {/* Requests — Session 13 follow-up (Audrey, 2026-07-30). Cloud-only:
+            change requests are meaningless without a workspace (the ops are
+            cloudOnly and would 501 locally). Admins read it as their company-
+            library controls; everyone else as their own requests + feedback. */}
+        {cloudMode && (
+          <button
+            onClick={() => navigateTo('requests')}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors border-b-2 ${
+              currentView === 'requests'
+                ? 'text-orange-400 border-orange-500 bg-stone-900'
+                : 'text-stone-400 border-transparent hover:text-stone-300 hover:bg-stone-700'
+            }`}
+            title={appRole === 'admin'
+              ? 'Company library — review and apply suggested changes'
+              : 'Change requests and feedback'}
+          >
+            <GitPullRequestArrow className="w-4 h-4" />
+            {appRole === 'admin' ? 'Admin' : 'Requests'}
+          </button>
+        )}
+
         {/* Validate — right-aligned */}
         <div className="ml-auto" />
         <button
@@ -2871,6 +2907,36 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className={currentView === 'hotkeys' ? 'h-full' : 'hidden'}>{renderHotkeys()}</div>
           <div className={currentView === 'nodes' ? 'h-full' : 'hidden'}>{renderNodes()}</div>
           <div className={currentView === 'sources' ? 'h-full' : 'hidden'}>{renderSourcesView()}</div>
+          {/* Conditionally MOUNTED, not hidden: the queue should be fresh on
+              every visit, and mounting it always would fire cr.list for every
+              user at launch (the AdminTerminalBody lazy-fetch rule). */}
+          {currentView === 'requests' && (
+            <div className="h-full">
+              <RequestsView
+                role={appRole}
+                userId={perms.userId}
+                softwareList={softwareList}
+                refreshTick={requestsRefreshTick}
+                onOpenCourse={async (slug) => {
+                  // Refresh FIRST: the course may be freshly readable through
+                  // the 0025 review window and absent from the list loaded at
+                  // mount — without this the jump lands on a library that
+                  // doesn't show it (same rule as the wilson:open-otter-course
+                  // handler above).
+                  await loadSoftwareList();
+                  navigateTo('library');
+                  selectSoftware(slug, true);
+                }}
+                onOpenDialog={(sourceSlug) => {
+                  const course = softwareList.find(sw => sw.slug === sourceSlug);
+                  if (!course) return false;
+                  selectSoftware(sourceSlug);
+                  setCrDialogCourse(course);
+                  return true;
+                }}
+              />
+            </div>
+          )}
           <div className={currentView === 'validator' ? 'h-full' : 'hidden'}>
             <Validator
               softwareList={softwareList}
@@ -2996,7 +3062,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           standardName={
             softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
           }
-          onClose={() => setCrDialogCourse(null)}
+          onClose={() => {
+            setCrDialogCourse(null);
+            setRequestsRefreshTick(t => t + 1);
+          }}
         />
       )}
 
