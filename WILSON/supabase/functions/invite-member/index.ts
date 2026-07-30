@@ -4,10 +4,14 @@
 // Admin-only. Called by TeamMembersPage's "Invite user" dialog. Takes an
 // email + workspace-scoped username + optional display_name + app_role,
 // and:
-//   1. Verifies the caller is an admin of the active workspace via the
-//      JWT's app_metadata.app_role claim. Service-role side-channel
-//      forbidden; we only trust the signed token from the authenticated
-//      client.
+//   1. Verifies the caller through the shared `_shared/adminGuard.ts` —
+//      token claims, a LIVE workspace_members row, and the MFA step-up.
+//      Session 17 (§6 #46): this function used to reimplement the claims +
+//      live-row check inline and had NO MFA step-up, while its sibling
+//      admin-create-user — the other path to the same outcome — was blocked
+//      at aal1. Since ROLE_SET includes 'admin', that let an admin holding a
+//      verified factor mint another admin from an aal1 session, which locked
+//      decision #9 ("MFA for all admin tiers") does not allow.
 //   2. Creates the auth user via admin.inviteUserByEmail. Supabase mints
 //      an invite recovery token and sends our invite.html template with
 //      the company_name + inviter_name + username passed as .Data.*.
@@ -24,21 +28,13 @@
 // workspace_id from the single membership row we created.
 // =============================================================================
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { corsHeaders, reply, requireWorkspaceAdmin } from '../_shared/adminGuard.ts'
 
-const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
-const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 // Where the invite link lands when the invitee clicks through the email.
 // Falls back to SUPABASE_URL so the function still works in environments
 // where WILSON_SITE_URL isn't set (local dev), though the redirect then
 // bounces off the Supabase default and back to site_url in config.toml.
 const SITE_URL = Deno.env.get('WILSON_SITE_URL') ?? 'http://localhost:5203'
-
-const corsHeaders = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'POST, OPTIONS',
-  'access-control-allow-headers': 'content-type, authorization, apikey',
-}
 
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/
 const EMAIL_RE    = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -51,63 +47,18 @@ type Body = {
   app_role?: 'admin' | 'manager' | 'user'
 }
 
-function reply(body: Record<string, unknown>, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'content-type': 'application/json' },
-  })
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: corsHeaders })
   }
   if (req.method !== 'POST') return reply({ error: 'method_not_allowed' }, 405)
 
-  const authHeader = req.headers.get('authorization') ?? ''
-  const token = authHeader.toLowerCase().startsWith('bearer ')
-    ? authHeader.slice(7)
-    : ''
-  if (!token) return reply({ error: 'unauthorized' }, 401)
-
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
-
-  // 1. Resolve + verify caller. admin.auth.getUser(token) gives us the
-  //    user_id and app_metadata (including workspace_id + app_role baked
-  //    by the custom_access_token_hook).
-  const { data: caller, error: callerErr } = await admin.auth.getUser(token)
-  if (callerErr || !caller.user) return reply({ error: 'unauthorized' }, 401)
-
-  // Session 9: claims live in the TOKEN payload (custom_access_token_hook),
-  // not the getUser() record — decode the already-validated JWT.
-  const payload = (() => {
-    try {
-      const part = token.split('.')[1] ?? ''
-      const b64 = part.replace(/-/g, '+').replace(/_/g, '/')
-      return JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
-    } catch { return {} }
-  })()
-  const pmd = payload.app_metadata ?? {}
-  const md = caller.user.app_metadata ?? {}
-  const callerWorkspaceId =
-    typeof pmd.workspace_id === 'string' ? pmd.workspace_id :
-    typeof md.workspace_id === 'string' ? md.workspace_id : null
-  const callerRole = typeof pmd.app_role === 'string' ? pmd.app_role : null
-  if (!callerWorkspaceId || callerRole !== 'admin') {
-    return reply({ error: 'forbidden' }, 403)
-  }
-
-  // Session 9: live-row check — claims outlive a demotion/deactivation by up
-  // to the token TTL; the membership row is authoritative.
-  const { data: callerRow } = await admin
-    .from('workspace_members')
-    .select('app_role, is_active')
-    .eq('workspace_id', callerWorkspaceId)
-    .eq('user_id', caller.user.id)
-    .maybeSingle()
-  if (!callerRow || !callerRow.is_active || callerRow.app_role !== 'admin') {
-    return reply({ error: 'forbidden' }, 403)
-  }
+  // 1. Resolve + verify caller: token claims, live workspace_members row,
+  //    and the MFA step-up — all of it in the shared guard, so this path
+  //    cannot drift from admin-create-user again (§6 #46).
+  const guard = await requireWorkspaceAdmin(req)
+  if (!guard.ok) return guard.res
+  const { admin, callerId, workspaceId: callerWorkspaceId } = guard.ctx
 
   // 2. Parse + validate the invite payload.
   let body: Body
@@ -145,7 +96,7 @@ Deno.serve(async (req: Request) => {
     .from('workspace_members')
     .select('display_name, username')
     .eq('workspace_id', callerWorkspaceId)
-    .eq('user_id', caller.user.id)
+    .eq('user_id', callerId)
     .maybeSingle()
 
   const companyName = ws?.name ?? 'your WILSON workspace'

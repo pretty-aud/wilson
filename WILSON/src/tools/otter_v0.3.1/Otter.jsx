@@ -2196,6 +2196,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── Global keyboard shortcuts ──
   useEffect(() => {
+    // Session 17 (§6 #50): O.T.T.E.R. stays mounted under display:none on
+    // every other page, so an ungated window listener fired everywhere —
+    // pressing Space in D.O.G. or R.A.B.B.I.T. opened the search modal
+    // inside the hidden tree. Same gate as the sidebar-collapse shortcut.
+    if (currentPage !== 'otter') return undefined;
     const handleKeyDown = (e) => {
       const tag = document.activeElement?.tagName;
       const editable = document.activeElement?.isContentEditable;
@@ -2208,7 +2213,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showSearchModal]);
+  }, [showSearchModal, currentPage]);
 
   // Close edit menu on outside click
   useEffect(() => {

@@ -388,10 +388,9 @@ export default function HelpPage() {
                   <div className={L.card}>
                     <h4 className={L.cardTitle}>Password</h4>
                     <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Login password</span> — Protects the application on launch</li>
-                      <li>• <span className={L.listBold}>Change password</span> — Requires entering your current password first</li>
-                      <li>• <span className={L.listBold}>Letters and numbers only</span>, up to 12 characters</li>
-                      <li>• <span className={L.listBold}>Case-insensitive</span> — "hello" and "HELLO" are treated as the same password</li>
+                      <li>• <span className={L.listBold}>Managed by your workspace account</span> — not stored in the app</li>
+                      <li>• <span className={L.listBold}>Reset it</span> with "Forgot password" on the sign-in screen, or ask a workspace admin</li>
+                      <li>• <span className={L.listBold}>No separate launch password</span> — signing in to your workspace is the only gate</li>
                     </ul>
                   </div>
                 </div>

@@ -91,6 +91,11 @@ export function localServerAdapter() {
         shots:           bundle.shots || [],
         levels:          bundle.levels || [],
         experiences:     bundle.experiences || [],
+        // Session 17 (§6 #47): omitting this dropped every milestone on load.
+        // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
+        // missing key reset the array — real data loss on every reload,
+        // project switch and realtime refetch.
+        milestones:      bundle.milestones || [],
       };
     },
 

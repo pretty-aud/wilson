@@ -117,7 +117,11 @@ export async function requireWorkspaceAdmin(req: Request): Promise<GuardResult> 
   // `error` would have been a second, quieter version of the same bug.
   //
   // Verified safe for CI: no job calls an adminGuard-backed function. The
-  // Playwright auth lane exercises invite-member, which has its own check.
+  // Playwright auth lane exercises invite-member — which as of Session 17
+  // routes through THIS guard too (§6 #46), so that lane now depends on a
+  // GoTrue that can serve admin/mfa/listFactors. The seeded probe admin has
+  // no verified factor, so hasVerified stays false and the aal2 gate never
+  // fires; a listFactors outage would 503 the invite rather than pass it.
   let hasVerified = false
   try {
     const { data: factorData, error: factorErr } = await admin.auth.admin.mfa.listFactors({

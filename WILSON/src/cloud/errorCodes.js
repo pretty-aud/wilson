@@ -36,6 +36,14 @@ export const ERROR_CODES = Object.freeze({
   'WIL-4102': 'Password reset',
   'WIL-4103': 'User deactivated',
   'WIL-4104': 'User reactivated',
+  // Session 17 (migration 0030, TPN-LOG-005): written by the
+  // trg_ws_members_audit capture trigger, never by a client. These are the
+  // backstop for privilege changes made straight from the browser, which no
+  // Edge Function sees — context carries the before/after of app_role,
+  // is_active and both rate-card grants.
+  'WIL-4105': 'Member privileges changed',
+  'WIL-4106': 'Membership created',
+  'WIL-4107': 'Membership removed',
   'WIL-4201': 'Admin action failed',
   'WIL-4202': 'Last-admin protection triggered',
   'WIL-4203': 'Invite delivery failed',

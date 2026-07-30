@@ -1173,9 +1173,13 @@ function startLocalServer(distPath) {
           const newSlug = fileSlugify(req.body.name);
           const assetsDir = path.join(root, 'ASSETS');
           if (!fs.existsSync(assetsDir)) fs.mkdirSync(assetsDir, { recursive: true });
-          const oldPath = path.join(assetsDir, oldSlug);
+          // Session 17 (#45 family): newSlug is fileSlugify output and safe,
+          // but oldSlug comes from the stored folder_slug, which the asset
+          // POST/PATCH write straight from req.body — so an uncontained
+          // oldPath makes this renameSync an arbitrary-directory MOVE.
+          const oldPath = resolveContainedFilePath(assetsDir, oldSlug);
           const newPath = path.join(assetsDir, newSlug);
-          if (fs.existsSync(oldPath) && oldPath !== newPath) {
+          if (oldPath && fs.existsSync(oldPath) && oldPath !== newPath) {
             try { fs.renameSync(oldPath, newPath); } catch (e) { console.error('folder rename failed:', e.message); }
           } else if (!fs.existsSync(newPath)) {
             fs.mkdirSync(newPath, { recursive: true });
@@ -1205,8 +1209,10 @@ function startLocalServer(distPath) {
         const root = resolveProjectFolderRoot(bundle);
         if (root) {
           const slug = asset.folder_slug || fileSlugify(asset.name || 'Untitled-Asset');
-          const folderPath = path.join(root, 'ASSETS', slug);
-          if (fs.existsSync(folderPath)) {
+          // Contained for the same reason as the rename above: folder_slug
+          // is client-writable, and this renameSync moves a directory.
+          const folderPath = resolveContainedFilePath(path.join(root, 'ASSETS'), slug);
+          if (folderPath && fs.existsSync(folderPath)) {
             const trashDir = path.join(root, '.trash');
             if (!fs.existsSync(trashDir)) fs.mkdirSync(trashDir, { recursive: true });
             const ts = Date.now();
@@ -1662,9 +1668,15 @@ function startLocalServer(distPath) {
       if (!bundle.managedFiles) bundle.managedFiles = [];
       const idx = bundle.managedFiles.findIndex(f => f.id === req.params.id);
       if (idx < 0) return rabbitNotFound(res, 'managed-file');
+      // Session 17: path fields are NOT patchable here — the same class the
+      // sibling files PATCH was hardened against in S14 (:1362). A crafted
+      // folder_path/stored_name turned the hard-delete and thumbnail routes
+      // into arbitrary-path fs calls. Path changes are server-derived on
+      // POST, or come from the asset-rename route which rewrites them itself.
+      const { folder_path: _fp, stored_name: _sn, storage_provider: _spr, id: _id, ...patch } = req.body || {};
       bundle.managedFiles[idx] = {
         ...bundle.managedFiles[idx],
-        ...req.body,
+        ...patch,
         id: req.params.id,
         updated_at: new Date().toISOString(),
       };
@@ -1680,17 +1692,25 @@ function startLocalServer(distPath) {
       if (hard) {
         const mf = bundle.managedFiles.find(f => f.id === req.params.id);
         if (mf) {
-          // Delete physical file
+          // Delete physical file. Contained exactly like the files DELETE
+          // (:1371-1382): folder_path and stored_name reach here from disk
+          // records that a client could once have written, so the join is
+          // guarded rather than trusted. The stored_name check matters —
+          // an empty one resolves to the project root itself, which
+          // resolveContainedFilePath treats as contained, and we would
+          // then attempt to unlink the directory.
           const root = resolveProjectFolderRoot(bundle);
-          if (root) {
-            const diskPath = path.join(root,
+          if (root && mf.stored_name) {
+            const diskPath = resolveContainedFilePath(root, path.join(
               ...(mf.folder_path || '').split('/').filter(Boolean),
-              mf.stored_name);
-            if (fs.existsSync(diskPath)) try { fs.unlinkSync(diskPath); } catch {}
+              mf.stored_name));
+            if (diskPath && fs.existsSync(diskPath)) try { fs.unlinkSync(diskPath); } catch {}
           }
-          // Delete thumbnail
-          const thumbPath = path.join(getThumbCacheDir(), `${mf.id}.jpg`);
-          if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
+          // Delete thumbnail. mf.id is client-chosen on create
+          // (`req.body.id || uuidv4()`), so the cache path is attacker-
+          // controlled too — contain it against the cache dir.
+          const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
+          if (thumbPath && fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
         }
         rabbitRemoveFrom(bundle.managedFiles, req.params.id);
       } else {
@@ -1709,8 +1729,13 @@ function startLocalServer(distPath) {
       const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
       if (!mf) return rabbitNotFound(res, 'managed-file');
       if (!isThumbableExt(mf.extension)) return res.status(415).json({ error: 'not an image' });
-      const thumbDir = getThumbCacheDir();
-      const thumbPath = path.join(thumbDir, `${mf.id}.jpg`);
+      // Session 17 containment (#45). Three of the segments below are
+      // client-writable: mf.id (chosen on create), mf.stored_name, and
+      // asset.folder_slug (the asset POST/PATCH spread req.body). Each is
+      // resolved under its own base and refused on escape, so this route
+      // cannot be turned into an arbitrary-file read or .jpg overwrite.
+      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
+      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
       // Serve cached
       if (fs.existsSync(thumbPath)) {
         res.setHeader('Content-Type', 'image/jpeg');
@@ -1721,7 +1746,10 @@ function startLocalServer(distPath) {
       if (!root) return res.status(404).json({ error: 'no file root configured' });
       const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
       const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
-      const srcPath = path.join(root, 'ASSETS', assetSlug, mf.stored_name);
+      const srcPath = mf.stored_name
+        ? resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name))
+        : null;
+      if (!srcPath) return res.status(400).json({ error: 'invalid source path' });
       if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source file missing' });
       try {
         await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
@@ -1810,6 +1838,13 @@ function startLocalServer(distPath) {
       const { folderPath } = req.body;
       if (!folderPath || !fs.existsSync(folderPath)) {
         return res.status(400).json({ error: 'folderPath does not exist' });
+      }
+      // Session 17: same body-supplied-folder shape the relink routes gate
+      // (:1444). Without this, anything that can reach the loopback port can
+      // enumerate filenames under any directory the app can read. A folder
+      // the user picked through the OS dialog IS the authorization.
+      if (!isUserAuthorizedRelinkDir(bundle, req.params.projectId, folderPath)) {
+        return res.status(403).json({ error: 'folder not authorized by the user' });
       }
       const now = new Date().toISOString();
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');

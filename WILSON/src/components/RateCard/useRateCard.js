@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 
 export function makeSlug(label) {
   return String(label || '')
@@ -122,7 +123,11 @@ export function useRateCard() {
       let cards = await adapter.listRateCards(workspaceId)
       if (!Array.isArray(cards)) cards = []
       // Auto-create General + Internal rate cards if none exist.
-      if (cards.length === 0) {
+      // Session 17 (§6 #49): only where the adapter can actually write.
+      // Google Drive is read-only in v0.1, so this branch used to call the
+      // throwing upsertRateCard stub and leave a permanent red banner —
+      // making the empty read look like a failure instead of an empty page.
+      if (cards.length === 0 && adapterSupportsWrites(adapter.mode)) {
         try {
           const generalCard = await adapter.upsertRateCard({
             id: uuidv4(),

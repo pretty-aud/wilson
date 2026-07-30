@@ -73,6 +73,12 @@ async function saveRabbitSettings(patch) {
   }
 }
 
+// Every collection key here is RESET by the `{ ...EMPTY_BUNDLE, ...next }`
+// spread in setActiveProject/reloadActiveProject, so an adapter loadProject
+// that omits one silently empties it rather than leaving it alone — that was
+// §6 #47 (milestones). Adding a collection here means adding it to both
+// adapters' loadProject returns AND to EXPECTED_KEYS in
+// adapters/loadProjectBundle.test.js, which pins the three together.
 const EMPTY_BUNDLE = {
   project: null,
   phases:         [],
@@ -1908,6 +1914,13 @@ export function RabbitProvider({ children }) {
   const addManagedFile = useCallback(async (record) => {
     if (!adapterRef.current) throw new Error('no adapter');
     if (!activeProjectId) throw new Error('no project');
+    // Session 17 (§6 #48): managed files are a local_server-only subsystem —
+    // neither the supabase nor the Drive adapter defines createManagedFile.
+    // FileManager guards on "are we in Electron", which is true regardless of
+    // the selected backend, so this used to throw an opaque TypeError.
+    if (typeof adapterRef.current.createManagedFile !== 'function') {
+      throw new Error('Managed files require the Local Server backend');
+    }
     const created = await adapterRef.current.createManagedFile({
       ...record,
       project_id: activeProjectId,
@@ -1955,6 +1968,11 @@ export function RabbitProvider({ children }) {
 
   const refreshManagedFiles = useCallback(async () => {
     if (!adapterRef.current || !activeProjectId) return;
+    // Same local_server-only subsystem as addManagedFile (§6 #48). This one
+    // is reached from six onFileAdded/onFileDeleted/onFileUpdated callbacks,
+    // so an unguarded call threw a TypeError on every one of them in cloud
+    // and Drive mode. Returning is correct here: there is nothing to refresh.
+    if (typeof adapterRef.current.listManagedFiles !== 'function') return;
     const files = await adapterRef.current.listManagedFiles(activeProjectId);
     setBundle(prev => ({ ...prev, managedFiles: files }));
   }, [activeProjectId]);

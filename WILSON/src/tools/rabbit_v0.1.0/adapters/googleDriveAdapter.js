@@ -214,6 +214,9 @@ export function googleDriveAdapter() {
         shots:         bundle.shots || [],
         levels:        bundle.levels || [],
         experiences:   bundle.experiences || [],
+        // Session 17 (§6 #47): same omission as localServerAdapter — see the
+        // comment there. Milestones reverted to [] on every reload.
+        milestones:    bundle.milestones || [],
       };
     },
 
@@ -269,11 +272,15 @@ export function googleDriveAdapter() {
     listIngestionChunks:  readOnly('listIngestionChunks'),
     upsertIngestionChunk: readOnly('upsertIngestionChunk'),
     updateChunk:          readOnly('updateChunk'),
-    listRateCards:        readOnly('listRateCards'),
+    // Session 17 (§6 #49): READS return empty rather than throwing. The
+    // rate-card hook calls listRateCards unconditionally on mount, so a
+    // throw stub put a permanent red banner on every RABBIT view that
+    // mounts it. Writes stay readOnly() — silencing those would be worse.
+    listRateCards:        async () => [],  // no rate cards in drive mode
     upsertRateCard:       readOnly('upsertRateCard'),
     deleteRateCard:       readOnly('deleteRateCard'),
     restoreRateCard:      readOnly('restoreRateCard'),
-    listRateCardEntries:  readOnly('listRateCardEntries'),
+    listRateCardEntries:  async () => [],  // no rate cards in drive mode
     upsertRateCardEntry:  readOnly('upsertRateCardEntry'),
     deleteRateCardEntry:  readOnly('deleteRateCardEntry'),
     upsertScene:          readOnly('upsertScene'),

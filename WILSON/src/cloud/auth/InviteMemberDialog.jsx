@@ -95,6 +95,10 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
           email_taken:       'That email is already associated with a WILSON account.',
           validation_failed: 'Please check the form for errors.',
           invite_failed:     'Email delivery failed. Try again in a minute.',
+          // Session 17: invite-member enforces the MFA step-up (§6 #46).
+          // Same vocabulary as adminApi.js / operatorApi.js.
+          mfa_required:      'This action needs a fresh MFA sign-in. Sign out and back in with your authenticator code.',
+          mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
         }
         setError(map[json.error] ?? `Invite failed (${res.status}).`)
         setBusy(false)

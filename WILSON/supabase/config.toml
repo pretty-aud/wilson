@@ -102,7 +102,9 @@ verify_jwt = false
 
 # invite-member validates the caller's JWT in-function via
 # admin.auth.getUser(token) (same reason as issue-session — Edge gateway
-# can't validate ES256). The function then enforces app_role=admin.
+# can't validate ES256). Session 17: it now enforces app_role=admin, a live
+# workspace_members row AND the MFA step-up through _shared/adminGuard.ts —
+# it can mint an admin, so it must be gated like admin-create-user.
 [functions.invite-member]
 verify_jwt = false
 
