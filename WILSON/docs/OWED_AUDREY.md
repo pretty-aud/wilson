@@ -399,7 +399,15 @@ company key, and usage lands in the Admin Terminal logs with token counts.
 
 The web build is pushed and waiting; these make it reachable.
 
-### A. Host it on Vercel (decided post-close-out — your Pro account, not GitHub Pages)
+### A. Host it on Vercel — ✅ DONE (2026-07-29)
+
+**Live at `https://beta.petalstudios.co/wilson`** (staging-backed; the bare
+subdomain redirects there). `WILSON_SITE_URL` on staging already re-pointed
+at it. Remaining for beta testing: **B below (staging!), the
+`ANTHROPIC_API_KEY` secret (§5/6C), and a staging workspace + invites for
+your testers.** Setup steps kept for reference:
+
+### A-setup (reference)
 
 The repo already carries `WILSON/vercel.json`, so this is import-and-click:
 

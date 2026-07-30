@@ -23,7 +23,20 @@ usual env files — `.env.local` on this machine points at **wilson-dev**, so
 the test host talks to dev. The anon key ships in any web bundle by design
 (RLS is the security boundary; sign-ups are disabled).
 
-## Primary host — Vercel (Audrey's Pro account)
+## Primary host — Vercel ✅ LIVE
+
+**The beta test host is `https://beta.petalstudios.co/wilson`** (Vercel
+project `petal-studios/wilson`, production branch `feat/multi-user-v1`,
+built against **wilson-staging**, domain via a `beta` CNAME in Squarespace
+DNS). Every push to the branch redeploys automatically. Verified live
+2026-07-29: root redirect, SPA deep links, staging bundle, login screen,
+clean console. Two npm lessons are baked into `vercel.json`:
+`npm install --ignore-scripts` — *install* (not `ci`) because Vercel's
+npm 11 rejects npm-10 lockfiles over optional-peer entries
+(`Missing: encoding@0.1.13`), and *--ignore-scripts* because the web build
+needs no postinstalls (Electron alone downloads ~100 MB otherwise).
+
+The setup notes below are kept for rebuilding the project from scratch.
 
 `WILSON/vercel.json` + `npm run build:vercel` make the repo a ready-made
 Vercel project: the build lands in `dist-vercel/wilson/`, so the deployment
