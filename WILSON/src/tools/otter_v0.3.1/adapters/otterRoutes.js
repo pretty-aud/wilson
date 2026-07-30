@@ -96,7 +96,7 @@ export function parseOtterRoute(pathname, method = 'GET') {
       return null
     }
 
-    // /api/otter/change-requests[/:id]
+    // /api/otter/change-requests[/:id[/approve]]
     if (seg[0] === 'change-requests') {
       if (seg.length === 1) {
         if (verb === 'GET')  return { op: 'cr.list', cloudOnly: true }
@@ -105,6 +105,12 @@ export function parseOtterRoute(pathname, method = 'GET') {
       }
       if (seg.length === 2 && verb === 'PATCH') {
         return { op: 'cr.update', id: seg[1], cloudOnly: true }
+      }
+      // Session 13: approving is NOT a status PATCH — it calls otter_cr_apply,
+      // which archives the target and applies the proposer's subjects
+      // additively in one transaction. The server refuses a bare status flip.
+      if (seg.length === 3 && seg[2] === 'approve' && verb === 'POST') {
+        return { op: 'cr.approve', id: seg[1], cloudOnly: true }
       }
       return null
     }

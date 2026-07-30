@@ -95,10 +95,13 @@ WITH upd AS (
 SELECT is((SELECT count(*)::int FROM upd), 1,
           'the proposer can refine their own rationale while it is open');
 
+-- Since 0025 the refusal comes from fn_otter_cr_review (BEFORE triggers fire
+-- ahead of the WITH CHECK), and 'approved' is unreachable by ANYONE through a
+-- bare status flip — approval only exists as otter_cr_apply() (pgTAP 32).
 SELECT throws_ok(
   $$UPDATE public.otter_change_requests SET status='approved'
      WHERE id='0a000005-0000-0000-0000-000000000001'$$,
-  'new row violates row-level security policy for table "otter_change_requests"',
+  'approving applies the change — call otter_cr_apply() instead of setting the status',
   'the proposer cannot approve their own request');
 
 -- ── an unrelated member sees nothing ────────────────────────────────────────
@@ -123,12 +126,15 @@ SELECT set_config('role','authenticated', true);
 SELECT is((SELECT count(*)::int FROM public.otter_change_requests),
           1, 'an admin sees the workspace''s change requests');
 
+-- 0025 note: this suite pins the DECIDE mechanics (reviewer stamp, settled is
+-- terminal) through the reject path, because a direct UPDATE to 'approved' is
+-- now forbidden — approving goes through otter_cr_apply(), pinned in pgTAP 32.
 WITH upd AS (
   UPDATE public.otter_change_requests
-     SET status='approved', review_note='Folded into the official course.'
+     SET status='rejected', review_note='Superseded — the official course was rewritten for 5.1.'
    WHERE id='0a000005-0000-0000-0000-000000000001' RETURNING 1
 )
-SELECT is((SELECT count(*)::int FROM upd), 1, 'an admin can approve a request');
+SELECT is((SELECT count(*)::int FROM upd), 1, 'an admin can reject a request');
 
 -- The reviewer is stamped server-side, never client-supplied.
 SELECT is((SELECT reviewed_by FROM public.otter_change_requests
@@ -141,9 +147,9 @@ SELECT ok((SELECT reviewed_at IS NOT NULL FROM public.otter_change_requests
           'reviewed_at is stamped on decision');
 
 SELECT throws_ok(
-  $$UPDATE public.otter_change_requests SET status='rejected'
+  $$UPDATE public.otter_change_requests SET status='withdrawn'
      WHERE id='0a000005-0000-0000-0000-000000000001'$$,
-  'change request already approved — reopen is not permitted',
+  'change request already rejected — reopen is not permitted',
   'a settled request can never be re-decided');
 
 -- ── the proposer withdraws a second, still-open request ─────────────────────

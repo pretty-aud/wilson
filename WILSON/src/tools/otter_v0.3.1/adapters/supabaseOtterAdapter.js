@@ -553,13 +553,14 @@ export const supabaseOtterAdapter = {
   async 'cr.list'() {
     const rows = unwrap(
       await supabase.from('otter_change_requests')
-        .select('id, target_course_id, source_course_id, proposed_by, summary, status, reviewed_by, reviewed_at, review_note, created_at, updated_at')
+        .select('id, target_course_id, source_course_id, proposed_by, summary, status, reviewed_by, reviewed_at, review_note, revision, applied_at, applied_by, archive_course_id, acknowledged_at, created_at, updated_at')
         .order('created_at', { ascending: false })) ?? []
     if (rows.length === 0) return []
 
-    // Labels come from the index the caller can already see. A proposer's fork
-    // is PERSONAL, so for a reviewing admin source_name is legitimately absent —
-    // that is the honest answer, not a lookup failure.
+    // Labels come from the index the caller can already see. Since 0025 a
+    // reviewer's index includes the proposer's source course while the request
+    // is open or changes_requested (the consented review window), so
+    // source_readable is true exactly when "Open their course" would work.
     const courses = unwrap(await supabase.rpc('otter_course_index')) ?? []
     const courseById = new Map(courses.map(c => [c.id, c]))
     const ids = [...new Set(rows.flatMap(r => [r.proposed_by, r.reviewed_by]).filter(Boolean))]
@@ -625,6 +626,21 @@ export const supabaseOtterAdapter = {
     // approved while the row never moved (the 204-on-refusal trap).
     if (!data) throw new OtterCloudError('not allowed to change this request', 403)
     return data
+  },
+
+  // Session 13: approve = APPLY (locked #22). otter_cr_apply archives the
+  // target into a personal copy owned by the approver, copies the proposer's
+  // live subjects into the target additively (update by slug, insert when
+  // absent, never delete — reference documents untouched), and settles the
+  // request, all in one transaction. Returns the archive course id.
+  async 'cr.approve'({ id }) {
+    const { data, error } = await supabase.rpc('otter_cr_apply', { p_cr_id: id })
+    if (error) {
+      // Every refusal the RPC raises is already written for a person
+      // ("the target is no longer the company standard — …"); pass it through.
+      throw new OtterCloudError(error.message, 409)
+    }
+    return { ok: true, archive_course_id: data }
   },
 
   // ── export ────────────────────────────────────────────────────────────────

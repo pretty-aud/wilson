@@ -504,6 +504,32 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }).catch(e => console.error('Failed to load software:', e));
   }, []);
 
+  // Session 13: the Admin Terminal's "Open their course" jumps here. The
+  // listener is deliberately NOT gated on currentPage — O.T.T.E.R. stays
+  // mounted on every page (the all-pages shell), and this event only ever
+  // fires from an explicit click in the Requests queue, so handling it while
+  // hidden is exactly the point (App.jsx navigates the shell in parallel).
+  // The course may be freshly readable (the 0025 review window), so the list
+  // refreshes before selecting.
+  useEffect(() => {
+    const onOpenCourse = async (e) => {
+      const slug = e?.detail?.slug
+      if (!slug) return
+      // The dispatcher already probed readability, but re-check here anyway:
+      // if the review window closed in between, selectSoftware would cache the
+      // 404's error JSON as course meta and hand the render a poisoned object.
+      try {
+        const probe = await otterFetch(`/api/software/${slug}`)
+        if (!probe.ok) return
+      } catch { return }
+      await loadSoftwareList()
+      selectSoftware(slug, true)
+      setCurrentView('library')
+    }
+    window.addEventListener('wilson:open-otter-course', onOpenCourse)
+    return () => window.removeEventListener('wilson:open-otter-course', onOpenCourse)
+  }, [loadSoftwareList, selectSoftware])
+
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveSubjectSlug(subjectSlug);
     const cacheKey = `${softwareSlug}/${subjectSlug}`;
@@ -2971,7 +2997,6 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
           }
           onClose={() => setCrDialogCourse(null)}
-          onCourseChanged={handleCourseChanged}
         />
       )}
 

@@ -78,7 +78,15 @@
 --
 -- pgTAP: 26_otter_courses.sql, 27_otter_subjects.sql, 28_otter_progress.sql,
 --        29_otter_course_editors.sql, 30_otter_change_requests.sql
--- Idempotent: safe to re-run.
+-- Idempotent: safe to re-run — **BUT a manual re-run MUST be followed by
+-- re-running 0025** (Session 13). This file recreates fn_otter_cr_review,
+-- otter_courses_select, otter_cr_insert/otter_cr_update and
+-- otter_course_index() at their Session 10 definitions; on a database where
+-- 0025 has applied, running 0022 alone silently strips the change-request
+-- state machine, the apply-only approval rule and the review-window read arm,
+-- and BOTH files' post-conditions still pass in that state. The migration
+-- runner applies by version and never re-runs, so this only bites a by-hand
+-- replay.
 -- =============================================================================
 
 -- ── 1. otter_courses ─────────────────────────────────────────────────────────

@@ -124,6 +124,10 @@ describe('parseOtterRoute — Session 11 cloud-only surfaces', () => {
     expect(p('/api/otter/change-requests', 'POST')).toEqual({ op: 'cr.create', cloudOnly: true })
     expect(p('/api/otter/change-requests/cr-1', 'PATCH'))
       .toEqual({ op: 'cr.update', id: 'cr-1', cloudOnly: true })
+    // Session 13: approve is its own POST — it applies, it is not a status PATCH.
+    expect(p('/api/otter/change-requests/cr-1/approve', 'POST'))
+      .toEqual({ op: 'cr.approve', id: 'cr-1', cloudOnly: true })
+    expect(p('/api/otter/change-requests/cr-1/approve', 'PATCH')).toBeNull()
   })
 
   it('marks every Session 11 surface cloudOnly so local mode 501s instead of falling through to Express', () => {
@@ -137,6 +141,7 @@ describe('parseOtterRoute — Session 11 cloud-only surfaces', () => {
       ['/api/otter/change-requests', 'GET'],
       ['/api/otter/change-requests', 'POST'],
       ['/api/otter/change-requests/x', 'PATCH'],
+      ['/api/otter/change-requests/x/approve', 'POST'],
     ]
     for (const [path, verb] of paths) expect(p(path, verb).cloudOnly).toBe(true)
   })

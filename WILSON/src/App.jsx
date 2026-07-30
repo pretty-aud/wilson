@@ -952,6 +952,17 @@ export default function App() {
   // The ref keeps the listener stable across navigateTo's re-creation.
   const navigateToRef = useRef(navigateTo);
   useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
+
+  // Session 13: the Admin Terminal's "Open their course" (change-request
+  // review) navigates the shell to O.T.T.E.R.; Otter.jsx listens for the same
+  // event and selects the course. An event, not a prop, because
+  // AdminTerminalPage deliberately takes none and this is the one cross-tool
+  // jump in the app.
+  useEffect(() => {
+    const onOpenOtterCourse = () => { navigateToRef.current('otter'); };
+    window.addEventListener('wilson:open-otter-course', onOpenOtterCourse);
+    return () => window.removeEventListener('wilson:open-otter-course', onOpenOtterCourse);
+  }, []);
   useEffect(() => {
     if (!URL_ROUTING_ENABLED) return;
     // Deep links land with no history state — stamp the entry so the first
