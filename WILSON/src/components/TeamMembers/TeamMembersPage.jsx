@@ -17,8 +17,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Users, Search, Trash2, X, UserPlus, Eye, RotateCcw,
+  Users, Search, Trash2, X, UserPlus, Eye, RotateCcw, Download,
 } from 'lucide-react'
+import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
 import { useRateCard, computeEntryTotal } from '../RateCard/useRateCard'
 import { useRateCardAccess } from '../RateCard/useRateCardAccess'
@@ -247,6 +248,28 @@ export default function TeamMembersPage() {
 
   const pageError = wm.error || (showRate ? rc.error : null)
 
+  // ── Roster CSV export (Session 14, Block B) ──
+  // Exports EXACTLY the current view: same rows (filters + active-view
+  // liveness rule) and same columns (email/status/rate ride the view
+  // flags), so a basic user's export can never carry wage data — the rate
+  // column only exists when showRate, and in cloud mode the entries behind
+  // it are RLS-scoped anyway.
+  function handleExportRoster() {
+    const cols = [
+      { key: 'display_name', header: 'Name' },
+      { key: 'username',     header: 'Username' },
+      { key: 'title',        header: 'Title' },
+      { key: 'department',   header: 'Department' },
+      { key: 'app_role',     header: 'App role' },
+    ]
+    if (showEmail) cols.push({ key: 'email', header: 'Email' })
+    if (showStatus) cols.push({ key: 'status', header: 'Status', map: (m) => (m.is_active ? 'active' : 'deactivated') })
+    // user_id, not id: directory rows have no id field — the screen keys
+    // rate entries the same way (adversarial review, S14).
+    if (showRate) cols.push({ key: 'wage', header: 'Wage', map: (m) => entryByUserId.get(m.user_id)?.wage ?? '' })
+    downloadCsv(`team-roster-${exportDateStamp()}.csv`, filtered, cols)
+  }
+
   return (
     <div className="h-full flex flex-col" style={{ maxWidth: '1080px', margin: '0 auto', width: '100%', padding: '2rem 2rem' }}>
       <div className="flex items-center gap-3 mb-6">
@@ -287,6 +310,18 @@ export default function TeamMembersPage() {
             <UserPlus className="w-3 h-3" /> Invite User
           </button>
         </PermissionGate>
+        {/* Export the current view (Session 14) — columns follow the view
+            flags, so this can never widen what the screen already shows. */}
+        <button
+          type="button"
+          onClick={handleExportRoster}
+          disabled={filtered.length === 0}
+          title={filtered.length === 0 ? 'No members in the current view' : 'Export the current view as CSV'}
+          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+          style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#57534e' }}
+        >
+          <Download className="w-3 h-3" /> Export
+        </button>
         <select
           value={deptFilter}
           onChange={(e) => setDeptFilter(e.target.value)}

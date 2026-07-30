@@ -18,6 +18,7 @@ import { usePermissions } from '../../permissions'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { ERROR_CODES, reportAppEvent } from '../../cloud/errorCodes'
 import { copyTextToClipboard } from './CredentialsPopup'
+import StorageCleanupCard from './StorageCleanupCard'
 
 const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
@@ -221,6 +222,9 @@ export default function DiagnosticsSection() {
           )}
         </div>
       </div>
+
+      {/* STORAGE CLEANUP (Session 14, Block E) */}
+      <StorageCleanupCard />
     </div>
   )
 }

@@ -107,6 +107,22 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  *   Supabase-only (DB-trigger capture, migration 0012); local_server and
  *   google_drive resolve to [] so the drawer can render an empty state.
  *
+ * @property {(fileId: string, projectId?: string) => Promise<object[]>} listFileEvents
+ *   File lifecycle stream (Session 14): supabase reads the trigger-fed
+ *   file_events table (0027); local_server reads bundle.fileEvents. Both
+ *   share the event vocabulary uploaded/moved/relinked/trashed/restored/
+ *   purged, but locally only uploaded/relinked/purged occur — local
+ *   deletes are permanent, and no local code path emits 'moved' (the
+ *   generic PATCH strips storage_path; path changes go through relink).
+ *   google_drive: not implemented, feature-detect.
+ *
+ * @property {(projectId: string, folderPath?: string|null) => Promise<object>} relinkScan
+ * @property {(projectId: string, baseDir: string, mappings: object[]) => Promise<object>} relinkApply
+ *   Storage relink (Session 14, Block A) — local_server ONLY, the provider
+ *   where folders actually move. Matching is the pure client module
+ *   components/relinkMatcher.js, so a future google_drive relink reuses it
+ *   with Drive-listed candidates. Feature-detect both.
+ *
  * @property {(id: string) => Promise<void>}                        restoreProject
  * @property {(id: string) => Promise<void>}                        restorePhase
  * @property {(id: string) => Promise<void>}                        restoreAsset

@@ -128,5 +128,11 @@ verify_jwt = false
 [functions.ai-proxy]
 verify_jwt = false
 
+# storage-gc (Session 14, Block E): admin-invoked blob disposal with
+# certificates. Rides _shared/adminGuard.ts — same in-function validation as
+# the Session 9 admin set.
+[functions.storage-gc]
+verify_jwt = false
+
 [analytics]
 enabled = false

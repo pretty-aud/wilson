@@ -28,6 +28,10 @@ export const ERROR_CODES = Object.freeze({
   'WIL-2002': 'Realtime resubscribe loop',
   'WIL-3001': 'File storage operation failed',
   'WIL-3002': 'Avatar upload failed',
+  // Session 14: written by the storage-gc Edge Function (service role) —
+  // deletion counts land in context as the run's certificate summary.
+  'WIL-3003': 'Storage cleanup completed',
+  'WIL-3004': 'Storage cleanup failed',
   'WIL-4101': 'User created',
   'WIL-4102': 'Password reset',
   'WIL-4103': 'User deactivated',

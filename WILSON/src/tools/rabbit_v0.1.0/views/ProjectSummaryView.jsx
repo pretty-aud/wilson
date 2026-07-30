@@ -14,17 +14,19 @@
 // not mutate the bundle — clicking through to a different tab
 // is how the user takes action on what they see here.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ListChecks, AlertTriangle, Clock, DollarSign,
   Layers, Boxes, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid,
   FolderOpen, Settings, LayoutDashboard, Calendar, Tag, Building2,
-  Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus,
+  Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus, FolderSearch,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
+import RelinkDialog from '../components/RelinkDialog'
+import FileAuditDrawer from '../components/FileAuditDrawer'
 
 const PRIORITY_RANK = { crit: 4, critical: 4, high: 3, med: 2, medium: 2, low: 1 }
 const RISK_STATES = new Set(['blocked', 'on_hold'])
@@ -843,6 +845,32 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef(null)
 
+  // ── Session 14: storage relink + per-file activity ──
+  // Relink is local_server-only — the provider where folders actually move
+  // (supabase bucket paths don't drift, so no false affordance there).
+  // getAdapter is the provider's STABLE useCallback — depending on the
+  // whole ctx object would re-fire this census on every provider render
+  // (each scan is a full server-side existsSync sweep; adversarial
+  // review, S14). The seq ref drops out-of-order responses so a slow scan
+  // can never overwrite a fresh post-apply count.
+  const getAdapter = ctx?.getAdapter
+  const relinkSupported = typeof getAdapter?.()?.relinkScan === 'function'
+  const [missingCount, setMissingCount] = useState(0)
+  const [relinkOpen, setRelinkOpen] = useState(false)
+  const [auditFile, setAuditFile] = useState(null)
+  const censusSeqRef = useRef(0)
+
+  const refreshMissing = useCallback(async () => {
+    if (!relinkSupported || !project?.id) return
+    const seq = ++censusSeqRef.current
+    try {
+      const res = await getAdapter().relinkScan(project.id)
+      if (seq === censusSeqRef.current) setMissingCount(res?.missing?.length ?? 0)
+    } catch { /* census only — the dialog surfaces real errors */ }
+  }, [relinkSupported, getAdapter, project?.id])
+
+  useEffect(() => { refreshMissing() }, [refreshMissing])
+
   async function handleUpload(e) {
     const picked = Array.from(e.target.files || [])
     if (picked.length === 0) return
@@ -904,6 +932,30 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         </div>
       </SettingsField>
 
+      {/* Session 14: a relink can move the files home off folder_root —
+          surface it (nothing else shows files_dir) with a reset control,
+          so a mis-picked folder is recoverable from the app. */}
+      {project?.files_dir && (
+        <SettingsField label="Files folder (set by relink)">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md min-w-0"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <FolderSearch className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
+              <span className="text-[10px] font-mono truncate" style={{ color: '#a8a29e' }} title={project.files_dir}>
+                {project.files_dir}
+              </span>
+            </div>
+            <button type="button"
+              onClick={() => { update?.('files_dir', null); refreshMissing() }}
+              title="Files resolve from the project folder again; relink afterwards if they moved"
+              className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              Reset
+            </button>
+          </div>
+        </SettingsField>
+      )}
+
       {/* ── Divider ── */}
       <div style={{ borderTop: '1px solid #44403c' }} />
 
@@ -925,6 +977,24 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         </div>
       </div>
 
+      {/* Session 14: missing-files banner → the relink flow. Rendered above
+          the table so a broken state is impossible to miss (Selective
+          Attention); the action sits inside the banner (Fitts's Law). */}
+      {relinkSupported && missingCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md"
+          style={{ backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+          <span className="flex-1 text-[10.5px] font-mono" style={{ color: '#fbbf24' }}>
+            {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
+          </span>
+          <button type="button" onClick={() => setRelinkOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[9.5px] font-mono uppercase tracking-wider transition-all hover:brightness-125 flex-shrink-0"
+            style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
+            <FolderSearch className="w-3 h-3" /> Relink…
+          </button>
+        </div>
+      )}
+
       {allFiles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-6 rounded-md"
           style={{ border: `2px dashed ${SECTION_ACCENT}30`, backgroundColor: '#1c191780' }}>
@@ -936,7 +1006,27 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           files={allFiles}
           onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
           onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
+          onAudit={(f) => setAuditFile(f)}
           maxHeight={300}
+        />
+      )}
+
+      {/* After an apply, in-memory rows keep a stale storage_path until the
+          next project load — harmless: local download/delete resolve by row
+          id on the server. The census re-scan is what drives the banner. */}
+      {relinkOpen && (
+        <RelinkDialog
+          projectId={project.id}
+          onClose={() => setRelinkOpen(false)}
+          onApplied={() => refreshMissing()}
+        />
+      )}
+      {auditFile && (
+        <FileAuditDrawer
+          fileId={auditFile.id}
+          projectId={project.id}
+          fileName={auditFile.name}
+          onClose={() => setAuditFile(null)}
         />
       )}
     </SettingsSection>

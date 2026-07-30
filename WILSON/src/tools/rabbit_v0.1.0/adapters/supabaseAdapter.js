@@ -397,7 +397,14 @@ export function supabaseAdapter() {
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
       };
-      return unwrap(await client.from('files').insert(row).select().single());
+      const ins = await client.from('files').insert(row).select().single();
+      if (ins.error) {
+        // The blob landed but the row didn't — remove our own object so a
+        // refused insert can't strand an orphan (rabbit_files_delete_own
+        // policy, 0027). Best-effort: the GC orphan scan is the backstop.
+        try { await client.storage.from('rabbit-files').remove([storagePath]); } catch { /* GC catches it */ }
+      }
+      return unwrap(ins);
     },
 
     async listFiles(projectId) {
@@ -432,6 +439,27 @@ export function supabaseAdapter() {
       // else restored it first) — callers must not treat that as a fresh
       // restore (Session 7 review finding).
       return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'files', p_id: id }));
+    },
+
+    // ── File lifecycle events (Session 14, migration 0027) ────
+    // Read-only: file_events is populated by DB triggers on files; RLS
+    // scopes reads to project readers + workspace admins. Second arg
+    // (projectId) exists for interface parity with localServerAdapter.
+    async listFileEvents(fileId, _projectId) {
+      const client = await requireClient();
+      const { data, error } = await client
+        .from('file_events')
+        .select('*')
+        .eq('file_id', fileId)
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (error) {
+        // Pre-0027 database: behave like an empty stream (0012 idiom).
+        if (error.code === '42P01' || error.code === 'PGRST205') return [];
+        lastError = error.message;
+        throw new Error(`[supabase] listFileEvents failed: ${error.message}`);
+      }
+      return data || [];
     },
 
     // ── Asset versions ────────────────────────────────────────

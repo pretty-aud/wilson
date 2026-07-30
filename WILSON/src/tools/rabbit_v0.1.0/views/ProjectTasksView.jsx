@@ -32,7 +32,7 @@ import {
   Table as TableIcon, Columns3, ArrowUpDown, Layers, Diamond,
   ChevronDown, ChevronRight, Save, BookmarkPlus,
   GripVertical, MoreHorizontal, CheckSquare, Square, MinusSquare,
-  Clock, CalendarDays, History,
+  Clock, CalendarDays, History, Download,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
@@ -40,6 +40,7 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
+import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -262,6 +263,29 @@ export default function ProjectTasksView() {
   }, [sortField, sortDir])
 
   const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
+
+  // ── CSV export (Session 14, Block B) — exports the CURRENT view
+  // (filters + sort applied): what you see is what you get. Tasks carry
+  // no rate/budget data, so every project reader may export them; the
+  // rows themselves arrived through RLS-scoped reads.
+  const handleExportCsv = useCallback(() => {
+    const memberName = (id) => {
+      const m = memberById[id]
+      return m ? (m.display_name || m.name || m.username || '') : ''
+    }
+    const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
+    downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
+      { key: 'title',      header: 'Task' },
+      { key: 'status',     header: 'Status' },
+      { key: 'priority',   header: 'Priority' },
+      { key: 'assignee',   header: 'Assignee', map: t => memberName(t.assignee_id) },
+      { key: 'phase',      header: 'Phase',    map: t => phaseById[t.phase_id]?.name || '' },
+      { key: 'start_date', header: 'Start' },
+      { key: 'end_date',   header: 'End' },
+      { key: 'notes',      header: 'Notes' },
+      { key: 'created_at', header: 'Created' },
+    ])
+  }, [processed, memberById, phaseById, project?.title])
 
   // ── All milestones (user + project bounds) ──
   const allMilestones = useMemo(() => {
@@ -578,6 +602,19 @@ export default function ProjectTasksView() {
           <span className="text-[10.5px] font-mono uppercase tracking-wider px-1" style={{ color: '#78716c' }}>
             {processed.length}/{tasks.length}
           </span>
+
+          {/* Export the current view (Session 14) — one button beside the
+              existing toolbar, no new nav (session UI-restraint rule). */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={processed.length === 0}
+            title={processed.length === 0 ? 'Nothing to export in the current view' : 'Export the current view as CSV'}
+            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
+            style={{ color: '#78716c', border: '1px solid #44403c' }}
+          >
+            <Download className="w-3.5 h-3.5" /> Export
+          </button>
 
           {canWrite && (
             <>

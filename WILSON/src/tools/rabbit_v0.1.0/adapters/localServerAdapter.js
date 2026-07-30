@@ -180,6 +180,28 @@ export function localServerAdapter() {
 
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 
+    // ── File lifecycle + storage relink (Session 14) ──────────
+    // listFileEvents mirrors the cloud file_events stream; the server
+    // appends to bundle.fileEvents on upload/relink/delete.
+    listFileEvents: async (fileId, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/files/${fileId}/events`),
+
+    // Scan: dangling rows + (optionally) a recursive walk of folderPath.
+    relinkScan: (projectId, folderPath = null) =>
+      jfetch(`${BASE}/projects/${projectId}/files/relink-scan`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(folderPath ? { folderPath } : {}),
+      }),
+
+    // Apply: bulk storage_path remap, all-or-nothing on the server.
+    relinkApply: (projectId, baseDir, mappings) =>
+      jfetch(`${BASE}/projects/${projectId}/files/relink-apply`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ baseDir, mappings }),
+      }),
+
     // ── Asset versions ────────────────────────────────────────
     upsertAssetVersion: (version) => jfetch(`${BASE}/projects/${version.project_id}/asset-versions`, {
       method:  'POST',

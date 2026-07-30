@@ -54,6 +54,12 @@ function getRabbitDataDir() {
   return dir;
 }
 
+// Folders the USER picked through the OS dialog this session (lowercased
+// resolved paths). The relink routes only accept folders from here or from
+// inside the project's own roots — a body-supplied path is never enough
+// (Session 14; see isUserAuthorizedRelinkDir).
+const userAuthorizedDirs = new Set();
+
 function readJSON(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
 }
@@ -760,6 +766,7 @@ function startLocalServer(distPath) {
       if (!bundle.shots)           { bundle.shots           = []; dirty = true; }
       if (!bundle.levels)          { bundle.levels          = []; dirty = true; }
       if (!bundle.experiences)     { bundle.experiences     = []; dirty = true; }
+      if (!bundle.fileEvents)      { bundle.fileEvents      = []; dirty = true; }
       // Ensure sub-folder structure exists on first access
       try { ensureProjectFolders(bundle); } catch {}
       if (dirty) {
@@ -798,6 +805,7 @@ function startLocalServer(distPath) {
         shots:           [],
         levels:          [],
         experiences:     [],
+        fileEvents:      [],
       };
     }
     function rabbitTouch(row) {
@@ -903,6 +911,12 @@ function startLocalServer(distPath) {
     // Resolve the _FILES dir inside the user-visible project folder.
     // Falls back to the internal rabbit-data files dir if no project folder exists.
     function resolveProjectFilesDir(bundle, projectId) {
+      // Session 14: a storage relink can point the project's files at a new
+      // home (project.files_dir). Honored only while it exists on disk — if
+      // it moves again, resolution falls through and the scan reports the
+      // rows as dangling rather than silently inventing a directory.
+      const override = bundle.project?.files_dir;
+      if (override && fs.existsSync(override)) return override;
       const root = resolveProjectFolder(bundle);
       if (root) {
         const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
@@ -912,6 +926,65 @@ function startLocalServer(distPath) {
       }
       // Fallback to internal storage
       return getRabbitFilesDir(projectId);
+    }
+
+    // ── File lifecycle helpers (Session 14) ───────────────────
+    // Containment guard: joins relPath under baseDir and refuses anything
+    // that escapes it ('..', absolute paths). storage_path and every
+    // relink mapping go through this before any fs call — the PATCH route
+    // used to let a crafted storage_path unlink arbitrary disk paths.
+    // Comparison is case-folded: NTFS/APFS are case-insensitive, so
+    // 'c:\a' vs 'C:\A' must not defeat the guard.
+    function resolveContainedFilePath(baseDir, relPath) {
+      const base = path.resolve(baseDir);
+      const resolved = path.resolve(base, String(relPath || ''));
+      const a = resolved.toLowerCase();
+      const b = base.toLowerCase();
+      if (a !== b && !a.startsWith(b + path.sep)) return null;
+      return resolved;
+    }
+    // Relink folders must be USER-CHOSEN, not body-supplied (adversarial
+    // review, S14): the Express server answers any local origin (cors()),
+    // so a body-picked baseDir would let a drive-by request point a
+    // project's files at, say, the user's Documents and read/unlink there.
+    // rabbit:pick-directory records every folder the user actually picks
+    // in userAuthorizedDirs; anything inside the project's own folders is
+    // always fair game.
+    function isUserAuthorizedRelinkDir(bundle, projectId, p) {
+      if (!p) return false;
+      const resolved = path.resolve(String(p)).toLowerCase();
+      if (userAuthorizedDirs.has(resolved)) return true;
+      const roots = [];
+      try { const r = resolveProjectFolder(bundle); if (r) roots.push(r); } catch {}
+      try { roots.push(getRabbitDataDir()); } catch {}
+      try { const d = readFilesConfig()?.defaultRootDir; if (d) roots.push(d); } catch {}
+      if (bundle.project?.files_dir) roots.push(bundle.project.files_dir);
+      return roots.some(root => {
+        const base = path.resolve(String(root)).toLowerCase();
+        return resolved === base || resolved.startsWith(base + path.sep);
+      });
+    }
+    // Local twin of the cloud file_events stream (migration 0027): the
+    // audit drawer reads the same event vocabulary from bundle.fileEvents.
+    // NOTE: local files rows hard-delete (no local trash), so the local
+    // stream emits uploaded/moved/relinked/purged only.
+    function rabbitLogFileEvent(bundle, evt) {
+      if (!bundle.fileEvents) bundle.fileEvents = [];
+      bundle.fileEvents.push({
+        id: uuidv4(),
+        created_at: new Date().toISOString(),
+        ...evt,
+      });
+      // Cap so a busy project's bundle cannot grow unbounded — but never
+      // trim a 'purged' certificate: the deletion record is the one entry
+      // that must outlive churn (TPN-CONT-002).
+      if (bundle.fileEvents.length > 2000) {
+        let excess = bundle.fileEvents.length - 2000;
+        bundle.fileEvents = bundle.fileEvents.filter(e => {
+          if (excess > 0 && e.event !== 'purged') { excess--; return false; }
+          return true;
+        });
+      }
     }
 
     // ── Projects ────────────────────────────────────────────
@@ -1270,6 +1343,15 @@ function startLocalServer(distPath) {
         uploaded_at:      new Date().toISOString(),
       });
       bundle.files.push(row);
+      rabbitLogFileEvent(bundle, {
+        file_id:          row.id,
+        project_id:       req.params.projectId,
+        file_name:        row.name,
+        storage_provider: row.storage_provider,
+        event:            'uploaded',
+        new_path:         row.storage_path,
+        size_bytes:       row.size_bytes ?? null,
+      });
       writeRabbitBundle(req.params.projectId, bundle);
       res.json(row);
     });
@@ -1279,7 +1361,9 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
       if (!file) return rabbitNotFound(res, 'file');
-      const diskPath = path.join(resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
+      const diskPath = resolveContainedFilePath(
+        resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
+      if (!diskPath) return res.status(400).json({ error: 'invalid storage path' });
       if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
       res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
       res.sendFile(diskPath);
@@ -1290,7 +1374,11 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       const idx = bundle.files.findIndex(f => f.id === req.params.id);
       if (idx < 0) return rabbitNotFound(res, 'file');
-      bundle.files[idx] = { ...bundle.files[idx], ...req.body, id: req.params.id };
+      // Session 14: path fields are NOT patchable here — a crafted
+      // storage_path turned download/delete into arbitrary-path fs calls.
+      // Path changes go through relink-apply, which containment-checks.
+      const { storage_path: _sp, storage_provider: _spr, id: _id, ...patch } = req.body || {};
+      bundle.files[idx] = { ...bundle.files[idx], ...patch, id: req.params.id };
       writeRabbitBundle(req.params.projectId, bundle);
       res.json(bundle.files[idx]);
     });
@@ -1300,12 +1388,222 @@ function startLocalServer(distPath) {
       if (!bundle) return rabbitNotFound(res);
       const file = bundle.files.find(f => f.id === req.params.id);
       if (file) {
-        const diskPath = path.join(resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
-        if (fs.existsSync(diskPath)) fs.unlinkSync(diskPath);
+        const diskPath = resolveContainedFilePath(
+          resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
+        // blob_removed keeps the certificate honest: a certificate must
+        // not assert a disposal that never happened (uncontained legacy
+        // path, or the body was already gone).
+        let blobRemoved = false;
+        if (diskPath && fs.existsSync(diskPath)) {
+          fs.unlinkSync(diskPath);
+          blobRemoved = true;
+        }
+        // Local delete is permanent (no local trash) — certificate it.
+        rabbitLogFileEvent(bundle, {
+          file_id:          file.id,
+          project_id:       req.params.projectId,
+          file_name:        file.name,
+          storage_provider: file.storage_provider,
+          event:            'purged',
+          old_path:         file.storage_path,
+          size_bytes:       file.size_bytes ?? null,
+          blob_removed:     blobRemoved,
+        });
       }
       rabbitRemoveFrom(bundle.files, req.params.id);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json({ ok: true });
+    });
+
+    // ── Files: lifecycle events + storage relink (Session 14) ──
+    // The read side of bundle.fileEvents — the audit drawer's local twin of
+    // the cloud file_events table (0027). Newest first.
+    expressApp.get('/api/rabbit/projects/:projectId/files/:id/events', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const events = (bundle.fileEvents || []).filter(e => e.file_id === req.params.id);
+      events.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      res.json(events);
+    });
+
+    // Project-level stream: the per-file route above is unreachable once a
+    // row is deleted, but its 'purged' certificate must stay readable
+    // (adversarial review, S14). No UI reader yet — a future admin/audit
+    // surface; the data is at least reachable.
+    expressApp.get('/api/rabbit/projects/:projectId/file-events', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const events = [...(bundle.fileEvents || [])];
+      events.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      res.json(events);
+    });
+
+    // Relink scan (Block A): which files rows are dangling, and — when the
+    // caller supplies a folder — what actually exists there. The walk is
+    // recursive with hard caps; matching itself is the client-side pure
+    // module (relinkMatcher.js), so this route only reports facts.
+    expressApp.post('/api/rabbit/projects/:projectId/files/relink-scan', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const filesDir = resolveProjectFilesDir(bundle, req.params.projectId);
+      const missing = [];
+      const resolved = [];
+      for (const f of bundle.files) {
+        const p = resolveContainedFilePath(filesDir, f.storage_path);
+        (p && fs.existsSync(p) ? resolved : missing).push({
+          id: f.id, name: f.name, storage_path: f.storage_path,
+          size_bytes: f.size_bytes ?? null, mime_type: f.mime_type || null,
+        });
+      }
+      const { folderPath } = req.body || {};
+      let candidates = null;
+      let walkTruncated = false;
+      if (folderPath) {
+        if (!isUserAuthorizedRelinkDir(bundle, req.params.projectId, folderPath)) {
+          return res.status(403).json({ error: 'folder must be chosen with the folder picker' });
+        }
+        if (!fs.existsSync(folderPath) || !fs.statSync(folderPath).isDirectory()) {
+          return res.status(400).json({ error: 'folderPath is not a directory' });
+        }
+        candidates = [];
+        const MAX_ENTRIES = 20000;
+        const MAX_DEPTH = 12;
+        // Symlinks/junctions are followed (a media folder of links is the
+        // normal studio layout) with a realpath visited-set so a link
+        // cycle terminates instead of recursing forever.
+        const visited = new Set();
+        try { visited.add(fs.realpathSync(folderPath).toLowerCase()); } catch {}
+        const walk = (dir, rel, depth) => {
+          if (depth > MAX_DEPTH || candidates.length >= MAX_ENTRIES) { walkTruncated = true; return; }
+          let entries;
+          try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+          for (const entry of entries) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+            const abs = path.join(dir, entry.name);
+            const rp = rel ? `${rel}/${entry.name}` : entry.name;
+            let isDir = entry.isDirectory();
+            let isFile = entry.isFile();
+            if (entry.isSymbolicLink()) {
+              try {
+                const st = fs.statSync(abs); // follows the link
+                isDir = st.isDirectory();
+                isFile = st.isFile();
+              } catch { continue; } // dangling link
+            }
+            if (isDir) {
+              let real;
+              try { real = fs.realpathSync(abs).toLowerCase(); } catch { continue; }
+              if (visited.has(real)) continue;
+              visited.add(real);
+              walk(abs, rp, depth + 1);
+            } else if (isFile) {
+              if (candidates.length >= MAX_ENTRIES) { walkTruncated = true; return; }
+              let size = null;
+              try { size = fs.statSync(abs).size; } catch {}
+              candidates.push({ relPath: rp, name: entry.name, size });
+            }
+          }
+        };
+        walk(folderPath, '', 0);
+      }
+      res.json({ filesDir, missing, resolved, candidates, walkTruncated });
+    });
+
+    // Relink apply (Block A): the bulk storage_path UPDATE. All-or-nothing —
+    // every mapping is containment-checked and stat-verified BEFORE any row
+    // changes. If baseDir differs from the current files dir it becomes the
+    // project's files home (project.files_dir), refused with a 409 when that
+    // would strand rows that still resolve in the current dir — a partial
+    // move can never break the files that DIDN'T move.
+    expressApp.post('/api/rabbit/projects/:projectId/files/relink-apply', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const { baseDir, mappings } = req.body || {};
+      if (!baseDir || !Array.isArray(mappings) || mappings.length === 0) {
+        return res.status(400).json({ error: 'baseDir and mappings[] required' });
+      }
+      if (!isUserAuthorizedRelinkDir(bundle, req.params.projectId, baseDir)) {
+        return res.status(403).json({ error: 'folder must be chosen with the folder picker' });
+      }
+      if (!fs.existsSync(baseDir) || !fs.statSync(baseDir).isDirectory()) {
+        return res.status(400).json({ error: 'baseDir is not a directory' });
+      }
+      // If the project's recorded files home is merely OFFLINE (unplugged
+      // drive, dropped share), resolveProjectFilesDir silently falls back —
+      // and a relink against the fallback would overwrite files_dir and
+      // strand everything that still lives at the recorded home. Refuse
+      // until it is reachable again (or reset via Files & Storage).
+      const recordedHome = bundle.project?.files_dir;
+      if (recordedHome && !fs.existsSync(recordedHome)
+          && path.resolve(baseDir).toLowerCase() !== path.resolve(recordedHome).toLowerCase()) {
+        return res.status(409).json({
+          error: `this project's files live at ${recordedHome}, which is not reachable right now — reconnect it before relinking to a different folder, or reset the files folder in Files & Storage`,
+        });
+      }
+      const currentDir = resolveProjectFilesDir(bundle, req.params.projectId);
+      const changingBase = path.resolve(baseDir).toLowerCase() !== path.resolve(currentDir).toLowerCase();
+
+      const byId = new Map(bundle.files.map(f => [f.id, f]));
+      const checked = [];
+      for (const m of mappings) {
+        const file = byId.get(m?.fileId);
+        if (!file) return res.status(400).json({ error: `unknown file id: ${m?.fileId}` });
+        const abs = resolveContainedFilePath(baseDir, m.newPath);
+        if (!abs) return res.status(400).json({ error: `path escapes the picked folder: ${m.newPath}` });
+        if (!fs.existsSync(abs)) return res.status(409).json({ error: `not found on disk: ${m.newPath}` });
+        checked.push({ file, newPath: String(m.newPath).replace(/\\/g, '/') });
+      }
+
+      if (changingBase) {
+        const claimedIds = new Set(checked.map(c => c.file.id));
+        const stranded = bundle.files.filter(f => {
+          if (claimedIds.has(f.id)) return false;
+          const cur = resolveContainedFilePath(currentDir, f.storage_path);
+          if (!cur || !fs.existsSync(cur)) return false; // already dangling — no worse off
+          const next = resolveContainedFilePath(baseDir, f.storage_path);
+          return !(next && fs.existsSync(next));
+        });
+        if (stranded.length > 0) {
+          return res.status(409).json({
+            error: 'changing the files folder would strand files that still resolve in the current one',
+            stranded: stranded.map(f => ({ id: f.id, name: f.name, storage_path: f.storage_path })),
+          });
+        }
+        bundle.project.files_dir = path.resolve(baseDir);
+        // Record the base change itself — the old home must stay
+        // recoverable from the audit stream (adversarial review, S14).
+        rabbitLogFileEvent(bundle, {
+          file_id:    null,
+          project_id: req.params.projectId,
+          file_name:  '(project files folder)',
+          event:      'relinked',
+          old_path:   currentDir,
+          new_path:   bundle.project.files_dir,
+        });
+      }
+
+      const now = new Date().toISOString();
+      for (const { file, newPath } of checked) {
+        const oldPath = file.storage_path;
+        file.storage_path = newPath;
+        file.updated_at = now;
+        rabbitLogFileEvent(bundle, {
+          file_id:          file.id,
+          project_id:       req.params.projectId,
+          file_name:        file.name,
+          storage_provider: file.storage_provider,
+          event:            'relinked',
+          old_path:         oldPath,
+          new_path:         newPath,
+          size_bytes:       file.size_bytes ?? null,
+        });
+      }
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({
+        ok: true,
+        relinked: checked.length,
+        filesDir: changingBase ? bundle.project.files_dir : currentDir,
+      });
     });
 
     // ── Managed files (asset-folder-based, streaming, versioned) ──
@@ -1972,6 +2270,9 @@ ipcMain.handle('rabbit:pick-directory', async () => {
     title: 'Select folder location',
   });
   if (result.canceled || !result.filePaths.length) return null;
+  // Session 14: a dialog pick IS the user's authorization — the relink
+  // routes accept only folders recorded here (or the project's own roots).
+  userAuthorizedDirs.add(path.resolve(result.filePaths[0]).toLowerCase());
   return result.filePaths[0];
 });
 

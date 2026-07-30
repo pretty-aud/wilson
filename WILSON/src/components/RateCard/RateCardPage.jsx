@@ -21,7 +21,8 @@
 // The table adapts its columns and behavior based on cardType.
 
 import { useRef, useState, useMemo } from 'react'
-import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle, Lock } from 'lucide-react'
+import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle, Lock, Download } from 'lucide-react'
+import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
 import { useRateCard } from './useRateCard'
 import { useRosterMembers } from '../TeamMembers/useRosterMembers'
 import { useRateCardAccess } from './useRateCardAccess'
@@ -239,6 +240,35 @@ export default function RateCardPage() {
         <div className="flex items-center gap-2">
           {(loading || teamLoading) && (
             <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#7c2d12' }} />
+          )}
+          {/* Export (Session 14, Block B) — gated exactly like the page:
+              in cloud mode the entries themselves are RLS-scoped, and the
+              button only renders for users the 0020 matrix/grants let VIEW
+              the card. No entries → no button (the empty state explains). */}
+          {!rateCardRestricted && entries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const memberName = (id) => {
+                  const m = (teamMembers || []).find(tm => tm.id === id)
+                  return m ? (m.display_name || m.name || m.username || '') : ''
+                }
+                const cols = [
+                  { key: 'role_label', header: 'Role' },
+                  { key: 'role_slug',  header: 'Slug' },
+                  { key: 'department', header: 'Department' },
+                  { key: 'wage',       header: 'Wage', map: (e) => e.wage ?? e.day_rate ?? '' },
+                ]
+                if (activeType === 'internal') {
+                  cols.unshift({ key: 'member', header: 'Member', map: (e) => memberName(e.member_id) })
+                }
+                downloadCsv(`rate-card-${activeType}-${exportDateStamp()}.csv`, entries, cols)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
+              style={{ backgroundColor: '#7c2d12', color: '#fef3e8' }}
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
           )}
         </div>
       </div>

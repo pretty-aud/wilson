@@ -17,6 +17,7 @@ import { Building2, Copy, Check, X } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { copyTextToClipboard } from './CredentialsPopup'
 import { loadOtterSettings, saveOtterSettings } from '../../lib/localData'
+import WorkspaceTakeout from './WorkspaceTakeout'
 
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -306,6 +307,9 @@ export default function CompanySection({ isActive, wm }) {
           Departments are stored on this machine (cloud parity lands with O.T.T.E.R.'s content model).
         </p>
       </div>
+
+      {/* WORKSPACE TAKEOUT (Session 14, Block B) */}
+      <WorkspaceTakeout workspaceId={workspaceId} slug={ws?.slug} />
     </div>
   )
 }
