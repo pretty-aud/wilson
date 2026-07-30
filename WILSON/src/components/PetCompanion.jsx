@@ -20,7 +20,9 @@ export default function PetCompanion({
   showHatchModal, hatchNameInput, onHatchNameChange, onHatchConfirm,
   isDarkPage, onNavigateLink,
   bottomOffset = 48, petVisible = true,
-  apiKeyMissing = false,
+  // Session 12 (locked #21): AI rides the authenticated ai-proxy, so the
+  // only unavailable state is "not signed in" — there is no API key anymore.
+  aiUnavailable = false,
   // Agent props
   agentEnabled = false,
   agentMode = false,
@@ -124,13 +126,13 @@ export default function PetCompanion({
             </div>
           </div>
           <div className={`flex-1 overflow-y-auto p-3 space-y-3 ${bgPanel}`}>
-            {apiKeyMissing && !isEgg && (
+            {aiUnavailable && !isEgg && (
               <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#451a03' : '#fef3c7', borderColor: isDarkPage ? '#92400e' : '#f59e0b', color: isDarkPage ? '#fbbf24' : '#92400e' }}>
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>API key missing — add your Anthropic key in <strong>System Settings</strong> to {agentMode ? 'use the agent' : `chat with ${name}`}.</span>
+                <span>Sign in to your workspace to {agentMode ? 'use the agent' : `chat with ${name}`}.</span>
               </div>
             )}
-            {!isEgg && activeMessages.length === 0 && !apiKeyMissing && (
+            {!isEgg && activeMessages.length === 0 && !aiUnavailable && (
               <div className="text-center py-6 text-sm font-mono" style={{ color: accent, opacity: 0.3 }}>
                 {agentMode ? `Tell ${name} what to edit or create` : `Say hello to ${name}!`}
               </div>
@@ -187,7 +189,7 @@ export default function PetCompanion({
                 style={{ borderColor: `${accent}40` }}
                 disabled={activeLoading}
               />
-              <button onClick={activeOnSend} disabled={activeLoading || !activeInput?.trim() || apiKeyMissing} className="p-2 rounded-sm hover:opacity-80 disabled:opacity-40 transition-colors" style={{ background: accent, color: isDarkPage ? '#1c1917' : '#fff' }}>
+              <button onClick={activeOnSend} disabled={activeLoading || !activeInput?.trim() || aiUnavailable} className="p-2 rounded-sm hover:opacity-80 disabled:opacity-40 transition-colors" style={{ background: accent, color: isDarkPage ? '#1c1917' : '#fff' }}>
                 <Send className="w-4 h-4" />
               </button>
             </div>

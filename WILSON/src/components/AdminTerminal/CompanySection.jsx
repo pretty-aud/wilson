@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Building2, Copy, Check, X } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { copyTextToClipboard } from './CredentialsPopup'
+import { loadOtterSettings, saveOtterSettings } from '../../lib/localData'
 
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -77,7 +78,7 @@ export default function CompanySection({ isActive, wm }) {
         }
       })
 
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (!mountedRef.current || seq !== seqRef.current) return
       if (data?.rabbit?.departments && Array.isArray(data.rabbit.departments)) {
         setDepartments(data.rabbit.departments)
@@ -89,8 +90,7 @@ export default function CompanySection({ isActive, wm }) {
   // object-valued keys, POST the whole document. Best-effort by design.
   async function persistOtterSettings(patch) {
     try {
-      const res = await fetch('/api/otter-settings')
-      const data = await res.json().catch(() => ({}))
+      const data = await loadOtterSettings().catch(() => ({}))
       const next = { ...data }
       for (const [k, v] of Object.entries(patch)) {
         if (v && typeof v === 'object' && !Array.isArray(v) && data[k] && typeof data[k] === 'object') {
@@ -99,11 +99,7 @@ export default function CompanySection({ isActive, wm }) {
           next[k] = v
         }
       }
-      await fetch('/api/otter-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
+      await saveOtterSettings(next)
     } catch {
       /* best effort */
     }

@@ -53,7 +53,7 @@ export default function PasswordScreen({ onSuccess, onAnimationComplete, isRevea
       try {
         const ctx = new (window.AudioContext || window.webkitAudioContext)();
         if (ctx.state === 'suspended') await ctx.resume();
-        const resp = await fetch('/PetalStudios_Chime_V2.wav');
+        const resp = await fetch(`${import.meta.env.BASE_URL}PetalStudios_Chime_V2.wav`);
         const arrayBuf = await resp.arrayBuffer();
         const audioBuffer = await ctx.decodeAudioData(arrayBuf);
         const source = ctx.createBufferSource();
@@ -246,7 +246,7 @@ export default function PasswordScreen({ onSuccess, onAnimationComplete, isRevea
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <img
-            src="/logo.png"
+            src={`${import.meta.env.BASE_URL}logo.png`}
             alt="Logo"
             style={{
               height: '90.5px',

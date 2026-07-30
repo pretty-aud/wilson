@@ -11,7 +11,7 @@
 // can fill in fields and confirm before anything is created.
 
 import { useState, useCallback, useRef } from 'react'
-import { AlertCircle, Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon, Calendar, Hash } from 'lucide-react'
+import { Folder, Plus, AlertTriangle, Upload, X, DollarSign, UserCircle, FileText, Paperclip, File as FileIcon, Calendar, Hash } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { PERSONA_LIST } from '../intake/personas'
@@ -31,14 +31,6 @@ const TIER_OPTIONS     = ['micro', 'small', 'mid', 'large', 'enterprise']
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
 
 function fmt(s) { return (s || '').replace(/_/g, ' ') }
-
-function readApiKey() {
-  try {
-    return localStorage.getItem('wilson-api-key') || ''
-  } catch {
-    return ''
-  }
-}
 
 export default function IntakeWizardView() {
   const ctx = useRabbit()
@@ -63,8 +55,6 @@ export default function IntakeWizardView() {
   const existingDataCounts = (phases.length > 0 || assets.length > 0 || tasks.length > 0)
     ? { phases: phases.length, assets: assets.length, tasks: tasks.length }
     : null
-
-  const apiKey = readApiKey()
 
   function resetWizard() {
     setStep('prepare')
@@ -117,12 +107,10 @@ export default function IntakeWizardView() {
           />
         )}
         {step === 'run' && (
-          apiKey ? (
             <IntakeProgress
               projectId={activeProjectId}
               files={files.filter(f => f.is_core_definer)}
               personas={enabledPersonas}
-              apiKey={apiKey}
               onComplete={(result) => {
                 // Filter result based on generation options
                 if (result?.breakdown) {
@@ -135,9 +123,6 @@ export default function IntakeWizardView() {
               }}
               onBack={() => setStep('prepare')}
             />
-          ) : (
-            <NoApiKeyGate onBack={() => setStep('prepare')} />
-          )
         )}
         {step === 'review' && (
           <IntakeReview
@@ -671,26 +656,3 @@ function NoProjectGate({ onNewProject }) {
   )
 }
 
-// ─── No-api-key gate (only blocks the run step) ───
-function NoApiKeyGate({ onBack }) {
-  return (
-    <div className="h-full flex flex-col items-center justify-center gap-4 p-8" style={{ backgroundColor: '#1c1917' }}>
-      <AlertCircle className="w-8 h-8" style={{ color: '#fca5a5' }} />
-      <div
-        className="text-[11px] font-mono text-center max-w-md leading-relaxed p-3 rounded-sm"
-        style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
-      >
-        The intake pipeline needs an Anthropic API key. Add one in
-        System Settings → API & Models, then come back to this step.
-      </div>
-      <button
-        type="button"
-        onClick={onBack}
-        className="px-3 py-1 text-[11px] font-mono uppercase tracking-wider rounded-sm"
-        style={{ color: '#a8a29e', border: '1px solid #44403c', backgroundColor: 'transparent' }}
-      >
-        ← Back
-      </button>
-    </div>
-  )
-}

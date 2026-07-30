@@ -91,7 +91,8 @@ export default function AuthShell({
           const AC = window.AudioContext || window.webkitAudioContext
           const ctx = new AC()
           if (ctx.state === 'suspended') await ctx.resume()
-          const resp = await fetch('/PetalStudios_Chime_V2.wav')
+          // Session 12: resolve under the build base (/wilson/ on the web).
+          const resp = await fetch(`${import.meta.env.BASE_URL}PetalStudios_Chime_V2.wav`)
           const arr = await resp.arrayBuffer()
           const buf = await ctx.decodeAudioData(arr)
           const src = ctx.createBufferSource()
@@ -198,7 +199,7 @@ export default function AuthShell({
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <img
-            src="/logo.png"
+            src={`${import.meta.env.BASE_URL}logo.png`}
             alt=""
             style={{
               height: '90.5px',

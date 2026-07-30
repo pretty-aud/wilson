@@ -259,8 +259,8 @@ export default function HelpPage() {
                     <h4 className={L.cardTitle}>Technical Details</h4>
                     <ul className={`${L.listItem} space-y-1 ml-2`}>
                       <li>• <span className={L.listBold}>Platform:</span> Electron desktop application (Windows)</li>
-                      <li>• <span className={L.listBold}>Local-first:</span> All data is stored locally — nothing is sent to external servers except Anthropic API calls</li>
-                      <li>• <span className={L.listBold}>API Key:</span> Requires an Anthropic API key for AI features, configured in System Settings</li>
+                      <li>• <span className={L.listBold}>Storage:</span> Workspace data lives in your company's cloud workspace; per-machine preferences stay local</li>
+                      <li>• <span className={L.listBold}>AI:</span> Included with your workspace sign-in — requests route through your workspace's secure AI service, no API key to configure</li>
                       <li>• <span className={L.listBold}>Storage:</span> Uses localStorage and IndexedDB for project data and settings</li>
                     </ul>
                   </div>
@@ -378,11 +378,11 @@ export default function HelpPage() {
                 <h3 className={L.sectionTitle}>System Settings</h3>
                 <div className="space-y-3">
                   <div className={L.card}>
-                    <h4 className={L.cardTitle}>API Key</h4>
+                    <h4 className={L.cardTitle}>AI Features</h4>
                     <ul className={`${L.listItem} space-y-1 ml-2`}>
-                      <li>• <span className={L.listBold}>Anthropic API Key</span> — Required for all AI-powered features (generation, theme colors, image prompts, rewrites)</li>
-                      <li>• <span className={L.listBold}>Stored locally</span> in localStorage — never transmitted anywhere except the Anthropic API</li>
-                      <li>• <span className={L.listBold}>Shared across tools</span> — Set it once and all tools use the same key</li>
+                      <li>• <span className={L.listBold}>Included with sign-in</span> — generation, theme colors, image prompts and rewrites work as soon as you're signed in to your workspace</li>
+                      <li>• <span className={L.listBold}>No API key</span> — access is managed by your workspace admins, not per-user keys</li>
+                      <li>• <span className={L.listBold}>Shared across tools</span> — D.O.G., O.T.T.E.R. and R.A.B.B.I.T. all use the same workspace AI access</li>
                     </ul>
                   </div>
                   <div className={L.card}>

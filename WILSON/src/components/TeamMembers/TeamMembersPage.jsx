@@ -28,6 +28,7 @@ import InviteMemberDialog from '../../cloud/auth/InviteMemberDialog'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { adminSetActive, isMissingFunction } from '../../cloud/adminApi'
+import { loadOtterSettings } from '../../lib/localData'
 
 const VIEW_STORAGE_KEY = 'wilson.team-members.view'
 const VIEWS = [
@@ -68,8 +69,9 @@ export default function TeamMembersPage() {
   })
 
   // Load departments from settings (same source the RABBIT views use).
+  // localData: Express in Electron, localStorage on the web (Session 12).
   useEffect(() => {
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (data?.rabbit?.departments && Array.isArray(data.rabbit.departments)) {
         setDepartments(data.rabbit.departments)
       } else {

@@ -20,6 +20,9 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5203'
+// Session 12: the WEB build lane — dist-web served under the locked /wilson
+// path shape by scripts/serve-web.mjs (mirrors the deployed test host).
+const WEB_URL = process.env.PLAYWRIGHT_WEB_URL ?? 'http://localhost:4174'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -46,16 +49,34 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: /web-path\.spec\.ts/,
+    },
+    // Session 12: web-path lane — deep links, URL ↔ page sync and the
+    // signed-out degradations against the real dist-web build under /wilson.
+    {
+      name: 'chromium-web',
+      use: { ...devices['Desktop Chrome'], baseURL: WEB_URL },
+      testMatch: /web-path\.spec\.ts/,
     },
   ],
 
   // Auto-start the Vite dev server. Vite inherits VITE_SUPABASE_URL /
   // VITE_SUPABASE_ANON_KEY from the process env (CI) or .env.development
   // (local). reuseExistingServer keeps the two-terminal workflow viable.
-  webServer: {
-    command: 'npm run dev',
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  // The second entry builds + serves the WEB target for the chromium-web
+  // project (the build inherits the same VITE_* env).
+  webServer: [
+    {
+      command: 'npm run dev',
+      url: BASE_URL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'npm run build:web && npm run preview:web',
+      url: `${WEB_URL}/wilson/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 240_000,
+    },
+  ],
 })

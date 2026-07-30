@@ -7,31 +7,21 @@ import {
 import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
 // Session 10: content routes go through the adapter seam (see adapters/index.js).
 import { otterFetch } from './adapters';
+// Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function.
+import { callAI } from '../../cloud/aiProxy';
 
 // ── API helper (model-agnostic) ──────────────────────────────────────────────
-async function callValidatorAPI({ apiKey, model, systemPrompt, messages, tools, signal }) {
+async function callValidatorAPI({ model, systemPrompt, messages, tools, signal }) {
   const body = {
     model: model || 'claude-sonnet-4-20250514',
     max_tokens: 8096,
     system: systemPrompt,
     messages,
+    tool: 'validator',
   };
   if (tools) body.tools = tools;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  const data = await callAI(body, { signal });
 
   // Extract text from response — may contain tool_use blocks from web search
   const textBlock = data.content.find(b => b.type === 'text');
@@ -51,7 +41,7 @@ async function callValidatorAPI({ apiKey, model, systemPrompt, messages, tools, 
 
     // Recurse to get the final text response
     return callValidatorAPI({
-      apiKey, model, systemPrompt,
+      model, systemPrompt,
       messages: continuedMessages,
       tools, signal,
     });
@@ -101,7 +91,7 @@ function verdictIcon(verdict) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VALIDATOR COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
-export default function Validator({ apiKey, softwareList, activeSoftwareSlug, softwareCacheRef, subjectCacheRef }) {
+export default function Validator({ softwareList, activeSoftwareSlug, softwareCacheRef, subjectCacheRef }) {
 
   // ── Phase: 'setup' = full-page lesson picker, 'results' = sidebar+detail ──
   const [phase, setPhase] = useState('setup');
@@ -310,7 +300,6 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
         const userMessage = `Validate the following lesson:\n\nTitle: ${lesson.title}\n\nContent:\n${lesson.content}\n\nKey Takeaways:\n${(lesson.key_takeaways || []).map((t, i) => `${i + 1}. ${t}`).join('\n')}\n\nPractice Prompt:\n${lesson.practice_prompt || 'N/A'}`;
 
         const responseText = await callValidatorAPI({
-          apiKey,
           systemPrompt: VALIDATION_PROMPT,
           messages: [{ role: 'user', content: userMessage }],
           tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
@@ -354,7 +343,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     return () => {
       // Don't abort on cleanup — let background processing continue
     };
-  }, [validationQueue, isProcessing, apiKey, subjectCacheRef]);
+  }, [validationQueue, isProcessing, subjectCacheRef]);
 
   // ── Stop validation ────────────────────────────────────────────────────────
   const stopValidation = () => {
@@ -395,7 +384,6 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
       const userMessage = `Here is the lesson content:\n\n${lesson.content}\n\nHere are the inaccurate findings that need to be fixed:\n\n${JSON.stringify(inaccurate, null, 2)}`;
 
       const responseText = await callValidatorAPI({
-        apiKey,
         systemPrompt: FIX_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
       });
@@ -410,7 +398,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     } finally {
       setFixLoading(false);
     }
-  }, [selectedAudit, apiKey, subjectCacheRef]);
+  }, [selectedAudit, subjectCacheRef]);
 
   // ── Apply a single fix ─────────────────────────────────────────────────────
   const applyFix = useCallback(async (fix, fixIndex) => {

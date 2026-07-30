@@ -21,6 +21,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
+import { loadOtterSettings } from '../../lib/localData'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -86,7 +87,7 @@ export default function ProfileSection({ onSaved }) {
       setEmail(sess?.session?.user?.email || '')
       setLoading(false)
     })()
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (!cancelled && Array.isArray(data?.rabbit?.departments) && data.rabbit.departments.length) {
         setDepartments(data.rabbit.departments)
       }

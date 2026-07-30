@@ -22,6 +22,8 @@ import {
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
 import { otterFetch, otterCloudActive } from './adapters';
+import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
+import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
 import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
 import { useAgent } from '../../agent';
@@ -70,7 +72,7 @@ function NodeTypeBadge({ type }) {
 // ═══════════════════════════════════════════════════════════════════
 //  MAIN OTTER COMPONENT (tool inside WILSON)
 // ═══════════════════════════════════════════════════════════════════
-export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
+export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0, onContextChange }) {
   // ── Navigation state ──
   const [currentView, setCurrentView] = useState('library');
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -684,13 +686,16 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   // ═══════════════════════════════════════════════════════════════
   //  LOAD SETTINGS & DATA ON MOUNT
   // ═══════════════════════════════════════════════════════════════
+  // Session 12 (gap #21): loadSoftwareList() must not depend on the settings
+  // fetch. In a browser there is no in-app Express server, so the old
+  // fetch('/api/otter-settings') chain rejected, the catch swallowed it, and
+  // the library never loaded at all. localData routes settings to Express in
+  // Electron (unchanged order: settings → legacy migration → list) and to
+  // localStorage on the web; the list load now runs in every case.
   useEffect(() => {
-    fetch('/api/otter-settings')
-      .then(r => {
-        if (!r.ok) throw new Error('Server not ready');
-        return r.json();
-      })
-      .then(async (s) => {
+    (async () => {
+      try {
+        const s = await loadOtterSettings();
         setSettings(s);
         setEditingPrompts({
           courseOutline: s.prompts?.courseOutline || FULL_COURSE_OUTLINE_PROMPT,
@@ -701,17 +706,20 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           codeWrite: s.prompts?.codeWrite || CODE_WRITING_PROMPT,
           companion: s.prompts?.companion || COMPANION_PROMPT,
         });
-        // Check migration
-        try {
-          const migRes = await fetch('/api/migration-needed');
-          const migData = await migRes.json();
-          if (migData.needed) {
-            await fetch('/api/migrate', { method: 'POST' });
-          }
-        } catch { /* ignore */ }
-        loadSoftwareList();
-      })
-      .catch(() => { /* ignore */ });
+        // Check migration — the one-shot legacy disk migration only exists
+        // where the local server does.
+        if (hasLocalServer()) {
+          try {
+            const migRes = await fetch('/api/migration-needed');
+            const migData = await migRes.json();
+            if (migData.needed) {
+              await fetch('/api/migrate', { method: 'POST' });
+            }
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore — prompts fall back to their defaults */ }
+      loadSoftwareList();
+    })();
   }, []);
 
   // ═══════════════════════════════════════════════════════════════
@@ -719,10 +727,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   // ═══════════════════════════════════════════════════════════════
   const saveSettings = useCallback(async (updates) => {
     const newSettings = { ...settings, ...updates };
-    await fetch('/api/otter-settings', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newSettings)
-    });
+    await saveOtterSettings(newSettings);
     setSettings(newSettings);
   }, [settings]);
 
@@ -731,19 +736,15 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
   }, [editingPrompts, saveSettings]);
 
   // ═══════════════════════════════════════════════════════════════
-  //  DIRECT ANTHROPIC API CALL HELPER
+  //  ANTHROPIC CALL HELPER — via the ai-proxy Edge Function
+  //  (Session 12, locked #21: same body shape, the key lives server-side,
+  //  and the proxy streams so long generations survive the Edge deadline.
+  //  callAI reassembles the stream into the classic message object.)
   // ═══════════════════════════════════════════════════════════════
   async function callAnthropicAPI({ model, maxTokens, systemPrompt, messages, signal, tools, betas }) {
-    const headers = {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    };
-    if (betas) headers['anthropic-beta'] = betas;
-
-    const body = { model, max_tokens: maxTokens, system: systemPrompt, messages };
+    const body = { model, max_tokens: maxTokens, system: systemPrompt, messages, tool: 'otter' };
     if (tools && tools.length > 0) body.tools = tools;
+    if (betas) body.betas = betas;
 
     const MAX_RETRIES = 3;
     const RETRY_DELAYS = [3000, 6000, 12000];
@@ -751,25 +752,18 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (signal?.aborted) throw new Error('Cancelled');
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST', headers, body: JSON.stringify(body), signal,
-      });
-
-      if (response.ok) return response.json();
-
-      const status = response.status;
-      const errData = await response.json().catch(() => ({}));
-      const errMsg = errData.error?.message || `API error: ${status}`;
-
-      // Retry on overloaded/rate-limited errors
-      if ((status === 429 || status === 529 || status === 503) && attempt < MAX_RETRIES) {
-        const delay = RETRY_DELAYS[attempt] || 12000;
-        console.warn(`API ${status}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
+      try {
+        return await callAI(body, { signal });
+      } catch (err) {
+        // Retry on overloaded/rate-limited errors, same schedule as before.
+        if (isRetryableAIError(err) && attempt < MAX_RETRIES) {
+          const delay = RETRY_DELAYS[attempt] || 12000;
+          console.warn(`API ${err.status || '?'}, retrying in ${delay / 1000}s (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        throw err;
       }
-
-      throw new Error(errMsg);
     }
   }
 
@@ -836,6 +830,12 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     if (referenceUrls.some(r => r.url === fullUrl)) return;
     setFetchingUrl(true);
     try {
+      // Session 12: the URL scraper lives in the local Express server — a
+      // browser can neither reach it nor fetch cross-origin itself. Save the
+      // reference with an honest error badge instead of a confusing failure.
+      if (!hasLocalServer()) {
+        throw new Error('Reference text can only be fetched in the desktop app — the URL is saved without its content.');
+      }
       const res = await fetch('/api/fetch-url', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: fullUrl })
@@ -1025,7 +1025,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       setGenerating(false);
       setGenPhase('');
     }
-  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, apiKey, referenceUrls, newCourseVisibility]);
+  }, [softwareNameInput, promptText, skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, newCourseVisibility]);
 
   // ═══════════════════════════════════════════════════════════════
   //  SUBJECT CONTENT GENERATION (for stubs)
@@ -1325,7 +1325,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
         selectSoftware(activeSoftwareSlug, true);
       }
     }
-  }, [activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, updateGenSubject, removeGenSubject, genQueueCancelledRef, invalidateCache, apiKey, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes]);
+  }, [activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, updateGenSubject, removeGenSubject, genQueueCancelledRef, invalidateCache, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes]);
 
   // ═══════════════════════════════════════════════════════════════
   //  ADD SINGLE SUBJECT
@@ -1536,7 +1536,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
       setGenerating(false);
       setGenPhase('');
     }
-  }, [promptText, skillLevel, activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, apiKey, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes]);
+  }, [promptText, skillLevel, activeSoftwareSlug, activeSoftware, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes]);
 
   // ═══════════════════════════════════════════════════════════════
   //  AGENT GENERATION WRAPPERS — parameterized versions for agent
@@ -1757,7 +1757,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     } finally {
       removeGenSubject(tempSlug);
     }
-  }, [activeSoftwareSlug, skillLevel, editingPrompts, selectSoftware, selectSubject, apiKey, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes, invalidateCache, updateGenSubject, removeGenSubject]);
+  }, [activeSoftwareSlug, skillLevel, editingPrompts, selectSoftware, selectSubject, referenceUrls, softwareHotkeys, softwareFunctions, softwareNodes, invalidateCache, updateGenSubject, removeGenSubject]);
 
   // Agent: generate a full course (mirrors generateCourse but takes params)
   const agentGenerateCourse = useCallback(async (softwareName, description) => {
@@ -1919,7 +1919,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     } finally {
       removeGenSubject(tempSlug);
     }
-  }, [skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, apiKey, referenceUrls, invalidateCache, updateGenSubject, removeGenSubject]);
+  }, [skillLevel, editingPrompts, loadSoftwareList, selectSoftware, softwareList, referenceUrls, invalidateCache, updateGenSubject, removeGenSubject]);
 
   // Refs for agent generation functions so tool interface always gets latest
   const agentGenSingleRef = useRef(null);
@@ -2050,7 +2050,7 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
     } finally {
       setQuizLoading(false);
     }
-  }, [editingPrompts, getQuizContent, apiKey]);
+  }, [editingPrompts, getQuizContent]);
 
   // ═══════════════════════════════════════════════════════════════
   //  QUIZ ANSWER HANDLING
@@ -2847,7 +2847,6 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
           <div className={currentView === 'sources' ? 'h-full' : 'hidden'}>{renderSourcesView()}</div>
           <div className={currentView === 'validator' ? 'h-full' : 'hidden'}>
             <Validator
-              apiKey={apiKey}
               softwareList={softwareList}
               activeSoftwareSlug={activeSoftwareSlug}
               softwareCacheRef={softwareCacheRef}
@@ -5114,15 +5113,21 @@ export default function Otter({ apiKey, onNavigate, currentPage, openSettingsTri
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
               disabled={toolsTabLocked}
               className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 focus:outline-none transition-colors disabled:cursor-not-allowed" />
-            <button disabled={toolsTabLocked} onClick={async () => {
-              try {
-                const res = await fetch('/api/browse-folder', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ startDir: settings?.storageLocation || '' }) });
-                const data = await res.json();
-                if (data.path) saveSettings({ storageLocation: data.path });
-              } catch (e) { console.error('Browse folder failed:', e); }
-            }} className="bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-              <FolderOpen className="w-4 h-4" /><span className="text-xs font-bold">Browse</span>
-            </button>
+            {/* Session 12: this button used to POST /api/browse-folder, a
+                route that never existed on ANY host — it was dead everywhere
+                (same class as S11's unreachable renderDeleteConfirm). The
+                preload rabbit bridge already ships a directory picker, so use
+                it where it exists and drop the button where it can't work. */}
+            {window.electronAPI?.rabbit?.pickDirectory && (
+              <button disabled={toolsTabLocked} onClick={async () => {
+                try {
+                  const dir = await window.electronAPI.rabbit.pickDirectory();
+                  if (dir) saveSettings({ storageLocation: dir });
+                } catch (e) { console.error('Browse folder failed:', e); }
+              }} className="bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
+                <FolderOpen className="w-4 h-4" /><span className="text-xs font-bold">Browse</span>
+              </button>
+            )}
           </div>
           <p className="text-stone-600 text-[10px] mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
         </div>

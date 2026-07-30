@@ -8,6 +8,8 @@ import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
+import { callAI, isRetryableAIError } from './cloud/aiProxy'
+import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
@@ -106,6 +108,35 @@ const PAGE_BARS = {
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
 
+// ── URL ↔ page sync (Session 12, locked #18) ────────────────────────────────
+// On the web the app lives under /wilson and every page gets a path
+// (/wilson/dog, /wilson/otter, …) via the history API. This is history sync
+// over the existing `currentPage` state — the all-pages-rendered shell stays;
+// there is no router. Electron keeps base './' and loads the local Express
+// root, so routing is off there (nothing to deep-link). `npm run dev` serves
+// at base '/', so the same paths work without the /wilson prefix.
+const URL_ROUTING_ENABLED =
+  typeof window !== 'undefined' &&
+  !window.electronAPI &&
+  import.meta.env.BASE_URL.startsWith('/');
+
+// '/wilson' on the web build, '' in vite dev.
+const URL_BASE = URL_ROUTING_ENABLED
+  ? import.meta.env.BASE_URL.replace(/\/+$/, '')
+  : '';
+
+function pageFromLocation() {
+  if (!URL_ROUTING_ENABLED) return 'home';
+  let path = window.location.pathname;
+  if (URL_BASE && path.startsWith(URL_BASE)) path = path.slice(URL_BASE.length);
+  const seg = path.replace(/^\/+|\/+$/g, '');
+  return Object.prototype.hasOwnProperty.call(PAGE_TITLES, seg) ? seg : 'home';
+}
+
+function urlForPage(page) {
+  return page === 'home' ? (URL_BASE || '/') : `${URL_BASE}/${page}`;
+}
+
 // Hydrate a persisted Supabase session (safeStorage in Electron, localStorage in
 // `vite dev`). Returns the live session if hydration succeeded, null otherwise.
 async function checkSessionValid() {
@@ -168,7 +199,9 @@ export default function App() {
   const [pendingMfaEnroll, setPendingMfaEnroll] = useState(false);
   const [updateOffer, setUpdateOffer] = useState(null);
   const perms = usePermissions();
-  const [currentPage, setCurrentPage] = useState('home');
+  // Deep links initialize the page from the URL on the web; Electron always
+  // boots on home (URL_ROUTING_ENABLED false → pageFromLocation() = 'home').
+  const [currentPage, setCurrentPage] = useState(() => pageFromLocation());
 
   // Transition: 'idle' -> 'compressing'(600ms) -> 'title-hold'(400ms) -> [swap] -> 'expanding'(600ms) -> 'idle'
   const [transitionState, setTransitionState] = useState('idle');
@@ -191,22 +224,16 @@ export default function App() {
   // O.T.T.E.R. context — passed up from Otter component for agent awareness
   const [otterContext, setOtterContext] = useState(null);
 
-  // Shared API key state
-  const [anthropicApiKey, setAnthropicApiKey] = useState(() => {
-    const newKey = localStorage.getItem('wilson-api-key');
-    if (newKey) return newKey;
-    const oldKey = localStorage.getItem('deck-outline-generator-api-key');
-    if (oldKey) {
-      localStorage.setItem('wilson-api-key', oldKey);
-      localStorage.removeItem('deck-outline-generator-api-key');
-      return oldKey;
-    }
-    return '';
-  });
-
+  // Session 12 (locked #21): all AI calls ride the ai-proxy Edge Function —
+  // no per-user Anthropic key exists anymore, on either host. Purge the
+  // credential earlier versions left on disk (both slots, including the
+  // pre-WILSON legacy one) so an upgrade doesn't leave a key behind.
   useEffect(() => {
-    try { localStorage.setItem('wilson-api-key', anthropicApiKey); } catch {}
-  }, [anthropicApiKey]);
+    try {
+      localStorage.removeItem('wilson-api-key');
+      localStorage.removeItem('deck-outline-generator-api-key');
+    } catch { /* storage disabled */ }
+  }, []);
 
   // Check persisted Supabase session on mount. `session` carries the JWT that
   // RLS uses to gate every request; losing it means logged-out state.
@@ -395,15 +422,12 @@ export default function App() {
   const [showHatchModal, setShowHatchModal] = useState(false);
   const [hatchNameInput, setHatchNameInput] = useState('');
 
-  // Save pet to server
+  // Save pet — local Express in Electron, localStorage on the web (localData).
   const savePet = useCallback(async (data) => {
     if (!data || petSaving) return;
     setPetSaving(true);
     try {
-      await fetch('/api/pet', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...data, lastUpdatedAt: new Date().toISOString() })
-      });
+      await savePetData({ ...data, lastUpdatedAt: new Date().toISOString() });
     } catch { /* silent */ }
     setPetSaving(false);
   }, [petSaving]);
@@ -413,8 +437,7 @@ export default function App() {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/pet');
-        let pet = await res.json();
+        let pet = await loadPet();
         if (!mounted) return;
 
         // Offline decay calculation
@@ -680,11 +703,8 @@ export default function App() {
       return next;
     });
     // Also save to O.T.T.E.R. settings
-    fetch('/api/otter-settings').then(r => r.json()).then(s => {
-      fetch('/api/otter-settings', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...s, companionName: name })
-      }).catch(() => {});
+    loadOtterSettings().then(s => {
+      saveOtterSettings({ ...s, companionName: name }).catch(() => {});
     }).catch(() => {});
     setShowHatchModal(false);
   }, [hatchNameInput, savePet]);
@@ -692,7 +712,9 @@ export default function App() {
   // ── Companion chat ──
   const sendChat = useCallback(async () => {
     const currentInput = chatInputRef.current;
-    if (!currentInput.trim() || !anthropicApiKey) return;
+    // AI rides the authenticated ai-proxy now — signed out means no chat
+    // (PetCompanion shows the reason via aiUnavailable).
+    if (!currentInput.trim() || !authed) return;
     const userMsg = { role: 'user', content: currentInput };
     const newMessages = [...chatMessages, userMsg];
     setChatMessages(newMessages);
@@ -722,7 +744,7 @@ export default function App() {
       context += `\nStorage adapters: Local Server (default, single-user, in-app Express), Supabase (multi-user Postgres), Google Drive (read-only sync; writes deferred to v0.2).`;
       context += `\nTask statuses (10): bidding, waiting_to_start, in_progress, blocked, on_hold, pending_review, revisions, approved, final, omitted. Done = approved/final/omitted.`;
       context += `\nAsset types include character, environment, prop, vehicle, vfx, animation, rig, model, texture, audio, vo, music, cinematic, ui, level, script, treatment, concept, storyboard, illustration, document, deliverable, other (24 total).`;
-      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard requires an Anthropic API key (set in System Settings → General).`;
+      context += `\nIntake supported formats: PDF, DOCX, PPTX, TXT, MD only. The wizard's AI features are included with the workspace sign-in — no API key setup needed.`;
       context += `\nCommon flows: import a script → Intake Wizard. Switch projects → project picker in the RABBIT header. Set day rates → Rate Card page. Mark a task done → inline-edit its status on the Project Assets tab. Change adapter or default currency → System Settings → RABBIT tab.`;
       context += `\nRABBIT is currently v0.1.0 inside WILSON v0.6. Costs in the budget tabs come from the active rate card; tasks whose role isn't in the card compute at 0 (the Summary tab surfaces a warning).`;
     }
@@ -754,8 +776,7 @@ export default function App() {
       // Load O.T.T.E.R. settings for custom companion prompt
       let companionPrompt = COMPANION_PROMPT;
       try {
-        const settingsRes = await fetch('/api/otter-settings');
-        const otterSettings = await settingsRes.json();
+        const otterSettings = await loadOtterSettings();
         if (otterSettings.prompts?.companion) companionPrompt = otterSettings.prompts.companion;
       } catch { /* use default */ }
 
@@ -779,32 +800,18 @@ export default function App() {
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
         try {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': anthropicApiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model: 'claude-haiku-4-5-20251001',
-              max_tokens: 1024,
-              system: companionPrompt + context,
-              messages: trimmedMessages,
-            }),
+          data = await callAI({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 1024,
+            system: companionPrompt + context,
+            messages: trimmedMessages,
+            tool: 'companion',
           });
-          data = await res.json();
-          if (data.error) {
-            const errMsg = data.error?.message || JSON.stringify(data.error);
-            const isRetryable = res.status === 429 || res.status === 529 || res.status === 503 || /overloaded|rate.?limit|capacity/i.test(errMsg);
-            if (isRetryable && attempt < 2) { lastError = errMsg; continue; }
-            throw new Error(errMsg);
-          }
           break;
         } catch (fetchErr) {
           lastError = fetchErr.message || 'Network error';
-          if (attempt < 2 && !/invalid|auth|key|permission/i.test(lastError)) continue;
+          const authish = /invalid|auth|key|permission|sign in/i.test(lastError) && !isRetryableAIError(fetchErr);
+          if (attempt < 2 && !authish) continue;
           throw fetchErr;
         }
       }
@@ -817,7 +824,7 @@ export default function App() {
       setChatLoading(false);
       setChatThinking(false);
     }
-  }, [chatMessages, anthropicApiKey, currentPage, petData]);
+  }, [chatMessages, authed, currentPage, petData]);
 
   // Enter key toggles companion (when not editing text)
   useEffect(() => {
@@ -878,8 +885,7 @@ export default function App() {
 
   const handleNewPet = useCallback(async () => {
     try {
-      const res = await fetch('/api/pet/new-egg', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
-      const pet = await res.json();
+      const pet = await newPetEgg();
       if (!pet.error) {
         setPetData(pet);
         setChatMessages([]);
@@ -888,9 +894,17 @@ export default function App() {
   }, []);
 
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
-  const navigateTo = useCallback((targetPage) => {
+  // fromHistory: true when the browser back/forward button initiated the
+  // navigation — the URL is already right, so don't push a new entry.
+  const navigateTo = useCallback((targetPage, fromHistory = false) => {
     if (transitionRef.current || targetPage === currentPage) return;
     transitionRef.current = true;
+
+    if (URL_ROUTING_ENABLED && !fromHistory) {
+      try {
+        window.history.pushState({ page: targetPage }, '', urlForPage(targetPage));
+      } catch { /* history API unavailable — keep navigating anyway */ }
+    }
 
     setTransitionTitle(PAGE_TITLES[targetPage] || targetPage);
 
@@ -933,6 +947,37 @@ export default function App() {
       }, 600);
     }, 250);
   }, [currentPage]);
+
+  // Back/forward buttons re-enter through navigateTo (with the animation).
+  // The ref keeps the listener stable across navigateTo's re-creation.
+  const navigateToRef = useRef(navigateTo);
+  useEffect(() => { navigateToRef.current = navigateTo; }, [navigateTo]);
+  useEffect(() => {
+    if (!URL_ROUTING_ENABLED) return;
+    // Deep links land with no history state — stamp the entry so the first
+    // back/forward hop has a page to return to.
+    try {
+      window.history.replaceState({ page: pageFromLocation() }, '', window.location.href);
+    } catch { /* fine — popstate falls back to pathname parsing */ }
+    const onPop = () => {
+      if (transitionRef.current) {
+        // A transition is mid-flight (fixed 2.1s chain) and navigateTo drops
+        // re-entrant calls. Retry once the lock releases so the page catches
+        // up with the URL instead of desyncing.
+        const poll = setInterval(() => {
+          if (!transitionRef.current) {
+            clearInterval(poll);
+            navigateToRef.current(pageFromLocation(), true);
+          }
+        }, 200);
+        setTimeout(() => clearInterval(poll), 4000);
+        return;
+      }
+      navigateToRef.current(pageFromLocation(), true);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
   // Page flags
   const isDog = currentPage === 'dog';
@@ -1025,7 +1070,6 @@ export default function App() {
       </div>
       <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <DeckOutlineGenerator
-          apiKey={anthropicApiKey}
           onNavigate={navigateTo}
           showNavMenu={showNavMenu}
           onToggleNavMenu={() => setShowNavMenu(prev => !prev)}
@@ -1035,7 +1079,6 @@ export default function App() {
       </div>
       <div style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <Otter
-          apiKey={anthropicApiKey}
           onNavigate={navigateTo}
           currentPage={currentPage}
           openSettingsTrigger={openOtterSettingsTrigger}
@@ -1044,7 +1087,6 @@ export default function App() {
       </div>
       <div style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <Rabbit
-          apiKey={anthropicApiKey}
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
@@ -1053,8 +1095,6 @@ export default function App() {
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <SettingsPageWithAgent
-          apiKey={anthropicApiKey}
-          onApiKeyChange={setAnthropicApiKey}
           petData={petData}
           onPetModeToggle={handlePetModeToggle}
           onDifficultyChange={handleDifficultyChange}
@@ -1089,7 +1129,7 @@ export default function App() {
       return (
         <div className="flex items-center justify-between w-full h-full px-4 pb-3">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
             <div>
               <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">D.O.G.</h1>
               <p className="text-orange-200 text-xs tracking-wide">Deck Outline Generator</p>
@@ -1110,7 +1150,7 @@ export default function App() {
       return (
         <div className="flex items-center justify-between w-full h-full px-4 pb-3">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
             <div>
               <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">O.T.T.E.R.</h1>
               <p className="text-orange-200 text-xs tracking-wide">On-demand Training & Technical Education Resource</p>
@@ -1131,7 +1171,7 @@ export default function App() {
       return (
         <div className="flex items-center justify-between w-full h-full px-4 pb-3">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
             <div>
               <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">R.A.B.B.I.T.</h1>
               <p className="text-orange-200 text-xs tracking-wide">Resource Allocation, Budgeting & Breakdown Intake Tool</p>
@@ -1168,7 +1208,7 @@ export default function App() {
   };
 
   return (
-    <AgentProvider apiKey={anthropicApiKey}>
+    <AgentProvider>
     <RabbitProvider>
     <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
@@ -1392,7 +1432,7 @@ export default function App() {
               onNavigateLink={handleCompanionNavLink}
               bottomOffset={petBottomOffset}
               petVisible={petVisible}
-              apiKeyMissing={!anthropicApiKey}
+              aiUnavailable={!authed}
             />
           )}
         </div>

@@ -16,6 +16,8 @@
 //
 // The result has the same shape as csvImporter / xlsxImporter.
 
+import { hasLocalServer } from '../../../lib/localData'
+
 const CURRENCY_SYMBOLS = {
   '$': 'USD', '€': 'EUR', '£': 'GBP', '¥': 'JPY',
   '₹': 'INR', '₩': 'KRW', 'R$': 'BRL',
@@ -145,6 +147,18 @@ function parseLine(line, idx, defaultCurrency) {
 export async function importPdf(file, defaultCurrency = 'USD') {
   if (!file || extOf(file.name) !== 'pdf') {
     throw new Error('importPdf: expected a .pdf file')
+  }
+
+  // Session 12: PDF extraction runs in the Electron main process — say so on
+  // the web instead of failing with a cryptic parse error.
+  if (!hasLocalServer()) {
+    return {
+      rows: [],
+      columns: {},
+      unmapped: [],
+      totalRows: 0,
+      errors: ['PDF import runs in the desktop app only. Export the rate card as CSV or XLSX and import that instead.'],
+    }
   }
 
   const dataUrl = await fileToDataUrl(file)

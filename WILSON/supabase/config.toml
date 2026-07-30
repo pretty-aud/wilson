@@ -122,5 +122,11 @@ verify_jwt = false
 [functions.admin-user-security]
 verify_jwt = false
 
+# ai-proxy (Session 12, locked #21): the single Anthropic path for BOTH hosts.
+# Validates the caller's ES256 JWT in-function (same gateway opt-out as
+# issue-session) + a LIVE workspace_members row check via _shared/memberGuard.
+[functions.ai-proxy]
+verify_jwt = false
+
 [analytics]
 enabled = false

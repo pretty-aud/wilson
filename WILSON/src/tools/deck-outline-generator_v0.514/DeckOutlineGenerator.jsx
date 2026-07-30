@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { callAI } from '../../cloud/aiProxy';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -14,7 +15,7 @@ import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import HistoryModal from './modals/HistoryModal';
 
-export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -92,6 +93,11 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
   const updateUnifiedProject = rabbitCtx?.updateProject;
+  // Session 12: cloud projects carry no documents/visualAssets (locked #17 —
+  // D.O.G. gets no content model; cloud-readable file blobs are S14 work).
+  // The attachment affordances degrade visibly in cloud mode instead of
+  // silently losing files at the adapter.
+  const cloudProjects = rabbitCtx?.adapterMode === 'supabase';
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -316,9 +322,6 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     }
   }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
 
-  // API Key — provided by container via props
-  const anthropicApiKey = apiKey || '';
-
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
   const [fullDeckSystemPrompt, setFullDeckSystemPrompt] = useState(DEFAULT_FULL_DECK_SYSTEM);
@@ -445,23 +448,13 @@ ${textSnippets ? `Content excerpt:\n${textSnippets}` : ''}
 Generate 3 color themes for this deck.`;
 
       console.log('Theme gen: calling Haiku API...');
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 500,
-          system: themeColorPrompt,
-          messages: [{ role: 'user', content: userMsg }]
-        })
+      const data = await callAI({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 500,
+        system: themeColorPrompt,
+        messages: [{ role: 'user', content: userMsg }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Theme gen API error:', response.status, errText);
-        throw new Error(`API ${response.status}`);
-      }
-      const data = await response.json();
       const text = data.content.map(i => i.text || '').join('').trim();
       console.log('Theme gen response:', text.substring(0, 200));
       const jsonStart = text.indexOf('[');
@@ -494,7 +487,7 @@ Generate 3 color themes for this deck.`;
       isGeneratingThemeRef.current = false;
       setIsGeneratingTheme(false);
     }
-  }, [systemPrompt, history, uploadedFiles, themeColorPrompt, anthropicApiKey]);
+  }, [systemPrompt, history, uploadedFiles, themeColorPrompt]);
 
   // Cycle to previous/next theme in allThemes list
   const cycleTheme = useCallback((direction) => {
@@ -1086,27 +1079,13 @@ ${outputInstructions}${placementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
+      const data = await callAI({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
       const output = data.content
         .filter(item => item.type === 'text')
         .map(item => item.text)
@@ -1180,7 +1159,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1376,27 +1355,13 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
+      const data = await callAI({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
       const output = data.content
         .filter(item => item.type === 'text')
         .map(item => item.text)
@@ -1445,7 +1410,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     } finally {
       setIsRegenerating(false);
     }
-  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
 
   // Undo regeneration
   const undoRegeneration = useCallback(() => {
@@ -1777,29 +1742,13 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       const MAX_CONTINUATIONS = 3; // Allow up to 3 continuation calls
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicApiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 16384,
-            system: fullDeckSystemPrompt,
-            messages: currentMessages
-          })
+        const data = await callAI({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 16384,
+          system: fullDeckSystemPrompt,
+          messages: currentMessages,
+          tool: 'dog',
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('API Error:', response.status, errorText);
-          throw new Error(`API request failed: ${response.status}`);
-        }
-
-        const data = await response.json();
         console.log(`API Response (attempt ${continuationAttempts}):`, data);
 
         const chunkOutput = data.content
@@ -1880,7 +1829,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
@@ -2923,26 +2872,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1000,
-          system: rewritePrompts[mode],
-          messages: [{ role: 'user', content: userContent }]
-        })
+      const data = await callAI({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1000,
+        system: rewritePrompts[mode],
+        messages: [{ role: 'user', content: userContent }],
+        tool: 'dog',
       });
-
-      if (!response.ok) throw new Error(`API ${response.status}`);
-      const data = await response.json();
       const rewrittenText = data.content.map(i => i.text || '').join('').trim();
       setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
     } catch (err) {
       console.error('Rewrite error:', err);
       setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
     }
-  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey, closeContextMenu]);
+  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, closeContextMenu]);
 
   // Redo rewrite with same mode
   const handleRewriteRedo = useCallback(() => {
@@ -3006,26 +2949,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
           if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
         }
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1000,
-            system: rewritePrompts[mode],
-            messages: [{ role: 'user', content: userContent }]
-          })
+        const data = await callAI({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 1000,
+          system: rewritePrompts[mode],
+          messages: [{ role: 'user', content: userContent }],
+          tool: 'dog',
         });
-
-        if (!response.ok) throw new Error(`API ${response.status}`);
-        const data = await response.json();
         const rewrittenText = data.content.map(i => i.text || '').join('').trim();
         setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
       } catch (err) {
         setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
       }
     })();
-  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey]);
+  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles]);
 
   // Replace selected text with rewrite - preserve formatting, bullets, bold, line breaks
   const handleRewriteReplace = useCallback(() => {
@@ -3313,29 +3250,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       const combinedSystem = `${imgPromptApiSystem}\n\n${modelSpecificPrompt}\n\n${imgPromptSharedSystem}`;
 
       // 5. API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8192,
-          system: combinedSystem,
-          messages: [{ role: 'user', content: userMessage }]
-        })
+      const data = await callAI({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        system: combinedSystem,
+        messages: [{ role: 'user', content: userMessage }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Image prompt API error:', response.status, errText);
-        throw new Error(`API error ${response.status}`);
-      }
-
-      const data = await response.json();
       const rawOutput = data.content.map(i => i.text || '').join('').trim();
 
       // 6. Parse output lines
@@ -3388,7 +3309,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     } finally {
       setIsGeneratingImgPrompts(false);
     }
-  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, anthropicApiKey, uploadedFiles, assetPlacementActive, exportDirHandle]);
+  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, uploadedFiles, assetPlacementActive, exportDirHandle]);
 
   // Export folder picker
   const pickExportFolder = useCallback(async () => {
@@ -3601,24 +3522,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     try {
       const titles = history.map(h => h.title).join(', ');
       const context = (systemPrompt || '').substring(0, 400);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 200,
-          system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
-          messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }]
-        })
+      const data = await callAI({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 200,
+        system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
+        messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }],
+        tool: 'dog',
       });
-      if (!response.ok) return;
-      const data = await response.json();
       const desc = data.content.map(i => i.text || '').join('').trim();
       setDeckVisualDesc(desc);
     } catch (err) {
       console.error('Deck desc generation error:', err);
     }
-  }, [history, systemPrompt, anthropicApiKey]);
+  }, [history, systemPrompt]);
 
   // Auto-generate visual desc when enableThemeGen is on and we generate themes for first time
   useEffect(() => {
@@ -3821,11 +3737,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {selectedProject.description && (
                       <p className="text-[10px] text-stone-400 mb-0.5">{selectedProject.description}</p>
                     )}
+                    {cloudProjects ? (
+                      <p className="text-[10px] text-stone-500 mb-1.5">
+                        Cloud project — the title and description above feed generation.
+                        File attachments on cloud projects arrive with the storage work;
+                        until then, upload files below to include them.
+                      </p>
+                    ) : (
                     <p className="text-[10px] text-stone-500 mb-1.5">
                       {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
                       {' · '}
                       {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
                     </p>
+                    )}
 
                     {/* CORE / REFERENCE classifier — tells the AI which files
                         actually define the project concept vs. which are just
@@ -4063,9 +3987,6 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   )}
                 </button>
               )}
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
-              )}
             </div>
             )}
           </section>
@@ -4184,9 +4105,6 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </>
                 )}
               </button>
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
-              )}
             </div>
             )}
           </section>
@@ -5214,7 +5132,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </div>
               </div>
 
-              {/* Documents Upload */}
+              {/* Documents Upload — cloud projects have no attachment home
+                  yet (locked #17 / S14 storage work), so the pickers degrade
+                  to an explanation rather than losing files silently. */}
+              {cloudProjects ? (
+                <p className="text-[10px] text-stone-500 border border-stone-700 rounded-sm px-2 py-2 bg-stone-900/50">
+                  File attachments on cloud projects arrive with the storage
+                  work. Create the project here, then upload files in the
+                  generator panel to include them in generation.
+                </p>
+              ) : (<>
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Documents</label>
                 <div
@@ -5282,6 +5209,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                 )}
               </div>
+              </>)}
             </div>
 
             {/* Buttons */}

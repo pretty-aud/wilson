@@ -46,17 +46,18 @@ import {
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
+import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
 
 const RabbitContext = createContext(null);
 
-// ─── Settings persistence (otter-settings.json) ─────────────
+// ─── Settings persistence (otter-settings via localData: Express in
+//     Electron, localStorage on the web — Session 12) ─────────────
 async function loadRabbitSettings() {
   try {
-    const res = await fetch('/api/otter-settings');
-    const data = await res.json();
+    const data = await loadOtterSettings();
     return data.rabbit || {};
   } catch {
     return {};
@@ -64,14 +65,9 @@ async function loadRabbitSettings() {
 }
 async function saveRabbitSettings(patch) {
   try {
-    const res = await fetch('/api/otter-settings');
-    const data = await res.json();
+    const data = await loadOtterSettings().catch(() => ({}));
     const next = { ...data, rabbit: { ...(data.rabbit || {}), ...patch } };
-    await fetch('/api/otter-settings', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(next),
-    });
+    await saveOtterSettings(next);
   } catch {
     /* settings save is best-effort — never blocks a user mutation */
   }
@@ -304,7 +300,12 @@ export function RabbitProvider({ children }) {
     let cancelled = false;
     (async () => {
       const settings = await loadRabbitSettings();
-      const mode = ADAPTER_MODES.includes(settings.adapterMode) ? settings.adapterMode : DEFAULT_ADAPTER_MODE;
+      // Session 12: in a browser there is no local Express server and no
+      // Drive bridge — supabase is the only adapter that can work, whatever
+      // a carried-over settings value says.
+      const mode = !hasLocalServer()
+        ? 'supabase'
+        : (ADAPTER_MODES.includes(settings.adapterMode) ? settings.adapterMode : DEFAULT_ADAPTER_MODE);
       if (cancelled) return;
       setAdapterMode(mode);
       adapterRef.current = selectAdapter(mode);
@@ -2039,8 +2040,7 @@ export function RabbitProvider({ children }) {
   // to the result so callers can await it; also stores the result
   // on `ingestionRun.result` for components mounted after the
   // run finishes.
-  const startBackgroundIngestion = useCallback(async ({ files, personas, apiKey }) => {
-    if (!apiKey) throw new Error('missing API key');
+  const startBackgroundIngestion = useCallback(async ({ files, personas }) => {
     if (!activeProjectId) throw new Error('no project');
 
     // Cancel any prior in-flight run.
@@ -2068,7 +2068,6 @@ export function RabbitProvider({ children }) {
         projectId: projectIdAtStart,
         files,
         personas,
-        apiKey,
         signal: controller.signal,
         onProgress: (p) => {
           setIngestionRun(prev => prev ? { ...prev, ...p } : prev);

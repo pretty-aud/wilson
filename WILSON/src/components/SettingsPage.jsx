@@ -10,6 +10,8 @@ import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
+import { otterFetch } from '../tools/otter_v0.3.1/adapters'
+import { hasLocalServer, loadOtterSettings, saveOtterSettings, loadAgentSkills, saveAgentSkills } from '../lib/localData'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
 import MigrationPanel from '../cloud/migrate/MigrationPanel'
 import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
@@ -19,7 +21,6 @@ import StorageConnections from './settings/StorageConnections'
 
 
 export default function SettingsPage({
-  apiKey, onApiKeyChange,
   petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
   agentEnabled, onAgentEnabledChange,
@@ -96,17 +97,21 @@ export default function SettingsPage({
   const [rabbitDefaultRateCardId, setRabbitDefaultRateCardId] = useState(null)
   const [adapterSwitching, setAdapterSwitching] = useState(false)
 
-  // Load software list for subject lock picker
+  // Load software list for subject lock picker. otterFetch (Session 12): the
+  // raw fetch always hit the local Express server, which meant local courses
+  // in cloud mode and a 404 on the web — the adapter routes it correctly on
+  // both hosts.
   useEffect(() => {
-    fetch('/api/software').then(r => r.json()).then(list => {
-      setSoftwareList(list || [])
+    otterFetch('/api/software').then(r => r.json()).then(list => {
+      setSoftwareList(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [])
 
-  // Load Rabbit + agent-skills slices from otter-settings.json on mount.
+  // Load Rabbit + agent-skills slices from otter-settings on mount
+  // (localData: Express in Electron, localStorage on the web).
   useEffect(() => {
     let cancelled = false
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (cancelled) return
       if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
       if (data?.rabbit?.defaultRateCardId) setRabbitDefaultRateCardId(data.rabbit.defaultRateCardId)
@@ -115,10 +120,10 @@ export default function SettingsPage({
     return () => { cancelled = true }
   }, [])
 
-  // Load per-tool agent prompt overrides from agent-skills.json on mount.
+  // Load per-tool agent prompt overrides on mount.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/agent-skills').then(r => r.json()).then(data => {
+    loadAgentSkills().then(data => {
       if (cancelled) return
       if (data && typeof data === 'object') setAgentPromptOverrides(data)
     }).catch(() => {})
@@ -127,8 +132,7 @@ export default function SettingsPage({
 
   const persistOtterSettings = async (patch) => {
     try {
-      const res = await fetch('/api/otter-settings')
-      const data = await res.json().catch(() => ({}))
+      const data = await loadOtterSettings().catch(() => ({}))
       // Shallow-merge top-level keys, but for object-valued keys do a one-deep merge
       // so updating settings.rabbit.defaultCurrency doesn't blow away other rabbit fields.
       const next = { ...data }
@@ -139,11 +143,7 @@ export default function SettingsPage({
           next[k] = v
         }
       }
-      await fetch('/api/otter-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
+      await saveOtterSettings(next)
     } catch {
       /* best effort */
     }
@@ -185,11 +185,7 @@ export default function SettingsPage({
     }
     setAgentPromptOverrides(next)
     try {
-      await fetch('/api/agent-skills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
+      await saveAgentSkills(next)
       // Tell the live AgentProvider to re-read its overrides so the
       // next sendAgentMessage uses the new prompt.
       agentCtx?.refreshPromptOverrides?.()
@@ -236,9 +232,9 @@ export default function SettingsPage({
 
   const handleLoadSubjectsForSoftware = async (slug) => {
     try {
-      const res = await fetch(`/api/software/${slug}/subjects`)
+      const res = await otterFetch(`/api/software/${slug}/subjects`)
       const list = await res.json()
-      setSubjectList(list || [])
+      setSubjectList(Array.isArray(list) ? list : [])
     } catch {
       setSubjectList([])
     }
@@ -272,10 +268,11 @@ export default function SettingsPage({
   ])
   const [newDeptName, setNewDeptName] = useState('')
 
-  // Load departments from otter-settings on mount
+  // Load departments from otter-settings on mount (localData: Express in
+  // Electron, localStorage on the web).
   useEffect(() => {
     let cancelled = false
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (cancelled) return
       if (data?.rabbit?.departments && Array.isArray(data.rabbit.departments)) {
         setDepartments(data.rabbit.departments)
@@ -364,37 +361,17 @@ export default function SettingsPage({
               {/* Session 9: version + auto-update surface. */}
               <VersionPanel />
 
-              {/* API Key Section */}
+              {/* AI access (Session 12, locked #21): no per-user key anymore.
+                  AI features authenticate with the signed-in session and the
+                  workspace's key lives server-side, managed by admins. */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Anthropic API Key
+                  AI Features
                 </h2>
                 <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Required for all AI features. Your key is stored in localStorage and never sent anywhere except the Anthropic API.
+                  AI features are included with your workspace sign-in — no API key
+                  needed. Access is managed by your workspace admins.
                 </p>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  placeholder="sk-ant-api03-..."
-                  className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={inputStyle}
-                />
-                <div className="mt-2 flex items-center gap-3">
-                  {apiKey ? (
-                    <span className="text-xs text-stone-950">Key is set ({apiKey.length} characters)</span>
-                  ) : (
-                    <span className="text-xs text-red-700">No API key configured</span>
-                  )}
-                  {apiKey && (
-                    <button
-                      onClick={() => onApiKeyChange('')}
-                      className="text-xs text-stone-950 hover:text-red-700 transition-colors"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
               </div>
 
               {/* Companion Section */}
@@ -598,7 +575,22 @@ export default function SettingsPage({
                 </div>
               </div>
 
-              {/* Password Change Section */}
+              {/* Password Change Section — the LOCAL app password, which only
+                  exists where the local Express server does. On the web the
+                  section degrades to a pointer at the account recovery flow
+                  (Session 12: degrade visibly, don't hide silently). */}
+              {!hasLocalServer() ? (
+                <div>
+                  <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
+                    Change Password
+                  </h2>
+                  <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                    Your password is managed by your workspace account. Use
+                    “Forgot password” on the sign-in screen to reset it, or ask
+                    a workspace admin.
+                  </p>
+                </div>
+              ) : (
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
                   Change Password
@@ -672,6 +664,7 @@ export default function SettingsPage({
                   </div>
                 </div>
               </div>
+              )}
             </>
           )}
 
@@ -694,19 +687,24 @@ export default function SettingsPage({
                   {ADAPTER_MODES.map(mode => {
                     const active = rabbitCtx?.adapterMode === mode
                     const writes = adapterSupportsWrites(mode)
+                    // Session 12: in a browser only Supabase can work — the
+                    // others need the desktop app's local server / Drive
+                    // bridge. Disabled with the reason shown, not hidden.
+                    const unavailableOnWeb = !hasLocalServer() && mode !== 'supabase'
                     const label =
                       mode === 'supabase'     ? 'Supabase'      :
                       mode === 'local_server' ? 'Local Server'  :
                       mode === 'google_drive' ? 'Google Drive'  : mode
-                    const hint =
-                      mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
-                      mode === 'local_server' ? 'In-app Express server (default — single user)'      :
-                      mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
+                    const hint = unavailableOnWeb
+                      ? 'Available in the desktop app only'
+                      : mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
+                        mode === 'local_server' ? 'In-app Express server (default — single user)'      :
+                        mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
                     return (
                       <button
                         key={mode}
                         type="button"
-                        disabled={adapterSwitching || active}
+                        disabled={adapterSwitching || active || unavailableOnWeb}
                         onClick={() => handleRabbitAdapterSwitch(mode)}
                         className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
                         style={{

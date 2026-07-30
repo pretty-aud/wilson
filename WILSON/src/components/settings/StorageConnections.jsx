@@ -109,12 +109,16 @@ export default function StorageConnections() {
           </div>
         </Card>
 
-        <Card icon={HardDrive} title="Local / local server" connected={!!localPath || !bridge}>
+        {/* Session 12: in a browser there is no local storage bridge, so the
+            dot must be off — the previous `|| !bridge` showed a green dot on
+            exactly the host where the provider can never work. Electron keeps
+            its original meaning: green only once a root folder is set. */}
+        <Card icon={HardDrive} title="Local / local server" connected={!!bridge && !!localPath}>
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[11px] font-mono truncate" style={{ color: '#1c1917', maxWidth: 320 }} title={localPath ?? undefined}>
               {bridge
                 ? (localPath || 'Default app-data folder')
-                : 'Managed by the desktop app (unavailable in the browser dev server).'}
+                : 'Managed by the desktop app — unavailable in the browser.'}
             </span>
             {bridge?.pickDirectory && (
               <button

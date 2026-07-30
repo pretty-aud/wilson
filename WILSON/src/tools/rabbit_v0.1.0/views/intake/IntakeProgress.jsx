@@ -17,7 +17,6 @@ export default function IntakeProgress({
   projectId,
   files,
   personas,
-  apiKey,
   onComplete,
   onBack,
 }) {
@@ -35,7 +34,7 @@ export default function IntakeProgress({
     if (startedRef.current) return
     if (!startBackgroundIngestion) return
     startedRef.current = true
-    startBackgroundIngestion({ files, personas, apiKey }).catch(() => {
+    startBackgroundIngestion({ files, personas }).catch(() => {
       // The provider records the error on `ingestionRun.error`.
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps

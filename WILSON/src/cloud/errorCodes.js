@@ -5,7 +5,7 @@
 // Admin Terminal's log viewer a stable key to group on. Bands:
 //   WIL-1xxx auth · WIL-2xxx realtime · WIL-3xxx storage/files ·
 //   WIL-41xx admin actions (server-stamped) · WIL-42xx admin client ·
-//   WIL-5xxx auto-update
+//   WIL-5xxx auto-update · WIL-6xxx AI proxy (server-stamped usage telemetry)
 //
 // reportAppEvent() is BEST-EFFORT twice over: the app_events insert rides
 // RLS (active member, own workspace — the DB stamps the actor) and Sentry
@@ -37,6 +37,10 @@ export const ERROR_CODES = Object.freeze({
   'WIL-4203': 'Invite delivery failed',
   'WIL-5001': 'Update check failed',
   'WIL-5002': 'Update download failed',
+  // Session 12: written by the ai-proxy Edge Function (service role), never
+  // by clients — model + token counts land in context for the spend view.
+  'WIL-6001': 'AI request completed',
+  'WIL-6002': 'AI request failed',
 })
 
 export function describeErrorCode(code) {

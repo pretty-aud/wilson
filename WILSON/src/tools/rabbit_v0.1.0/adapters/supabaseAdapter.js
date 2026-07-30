@@ -117,6 +117,35 @@ const PATCH_DROP = [
   'deleted_at', 'deleted_by',
 ];
 
+// D.O.G.'s unified-store project fields (Session 12). The cloud `projects`
+// table has no such columns — an insert carrying them 42703s, which is how
+// D.O.G.'s create-with-attachments silently broke in cloud mode. Dates map
+// onto the canonical columns ('' clears → null; a bare '' 22007s on a date
+// column); documents/visualAssets have NO cloud home (locked #17: D.O.G.
+// gets no content model — the S14 file work owns cloud-readable blobs) and
+// are dropped, with `droppedAttachments` reported so updateProject can fail
+// LOUDLY when a patch was nothing but attachments (ProjectsPage file
+// uploads) instead of no-op'ing into silent data loss.
+function mapDogProjectFields(row) {
+  if (!row || typeof row !== 'object') return { row, droppedAttachments: false };
+  const out = { ...row };
+  if (out.startDate !== undefined) {
+    out.start_date = out.startDate || null;
+    delete out.startDate;
+  }
+  if (out.endDate !== undefined) {
+    out.end_date = out.endDate || null;
+    delete out.endDate;
+  }
+  // ProjectDetailPanel sends the snake_case twin alongside — '' must clear.
+  if (out.start_date === '') out.start_date = null;
+  if (out.end_date === '') out.end_date = null;
+  const droppedAttachments = out.documents !== undefined || out.visualAssets !== undefined;
+  delete out.documents;
+  delete out.visualAssets;
+  return { row: out, droppedAttachments };
+}
+
 // Session 7 (LWW per field, locked decision): updates send ONLY the changed
 // columns. The pre-S7 shape — upserting the caller's whole merged row —
 // silently clobbered every field a collaborator changed since this client's
@@ -198,14 +227,24 @@ export function supabaseAdapter() {
 
     async createProject(payload) {
       const client = await requireClient();
-      const row = sanitize(payload, ['id', 'created_at', 'updated_at']);
+      const { row } = mapDogProjectFields(sanitize(payload, ['id', 'created_at', 'updated_at']));
       const data = unwrap(await client.from('projects').insert(row).select().single());
       return data;
     },
 
     async updateProject(id, patch) {
       const client = await requireClient();
-      const row = sanitize(patch, PATCH_DROP);
+      const { row, droppedAttachments } = mapDogProjectFields(sanitize(patch, PATCH_DROP));
+      if (Object.keys(row).length === 0) {
+        // PostgREST treats update({}) as a 200 no-op — never let an
+        // attachments-only patch (ProjectsPage file upload) look like it saved.
+        if (droppedAttachments) {
+          throw new Error(
+            'File attachments on cloud projects arrive with the storage work — this upload was not saved.',
+          );
+        }
+        return unwrap(await client.from('projects').select('*').eq('id', id).single());
+      }
       return unwrap(await client.from('projects').update(row).eq('id', id).select().single());
     },
 

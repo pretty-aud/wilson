@@ -19,6 +19,7 @@
 // /api/fetch-raw passthrough route.
 
 import { importCsv } from './csvImporter'
+import { hasLocalServer } from '../../../lib/localData'
 
 // Extract the spreadsheet ID and (optional) GID from any Google
 // Sheets URL we recognize. Returns null if we can't make sense
@@ -72,6 +73,18 @@ export async function importGoogleSheet(url, defaultCurrency = 'USD') {
   }
 
   const exportUrl = buildCsvExportUrl(parsed)
+
+  // Session 12: the CSV fetch is proxied by the local Express server (a
+  // browser can't fetch cross-origin) — surface the real reason on the web.
+  if (!hasLocalServer()) {
+    return {
+      rows: [],
+      columns: {},
+      unmapped: [],
+      totalRows: 0,
+      errors: ['Google Sheets import runs in the desktop app only. Download the sheet as CSV and import the file instead.'],
+    }
+  }
 
   let csvText
   try {

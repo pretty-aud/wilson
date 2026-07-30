@@ -20,11 +20,12 @@
 //      assets / tasks — that's `acceptIngestion(runId)` in the
 //      provider, after the user reviews in IntakeWizardView.
 //
-// All Anthropic calls go directly from the renderer with the
-// `anthropic-dangerous-direct-browser-access` header, matching
-// the pattern used by Otter / DOG.
+// All Anthropic calls ride the ai-proxy Edge Function (Session 12,
+// locked #21) — the key lives server-side, matching Otter / DOG.
 
 import scriptChunker from './chunkers/script'
+import { callAI } from '../../../cloud/aiProxy'
+import { hasLocalServer } from '../../../lib/localData'
 import treatmentChunker from './chunkers/treatment'
 import gddChunker from './chunkers/gdd'
 import deckChunker from './chunkers/deck'
@@ -100,7 +101,6 @@ Rules:
 - If the chunk has nothing relevant for an array, return [].`
 
 const DEFAULT_CONCURRENCY = 3
-const ANTHROPIC_URL = 'https://api.anthropic.com/v1/messages'
 
 // ─────────────────────────────────────────────────────────────
 // File text extraction
@@ -139,6 +139,10 @@ async function extractTextFromFile(file) {
   // rabbit file upload pattern (no multipart middleware).
   if (ext === 'pdf') {
     try {
+      if (!hasLocalServer()) {
+        console.warn('[RABBIT intake] PDF text extraction runs in the desktop app only — treating', file?.name, 'as empty')
+        return ''
+      }
       const dataUrl = file?.dataUrl || (await blobToDataUrl(await asBlob(file)))
       const res = await fetch('/api/extract-pdf', {
         method: 'POST',
@@ -238,7 +242,7 @@ function decodeDataUrlAsText(dataUrl) {
 // Document-kind detection
 // ─────────────────────────────────────────────────────────────
 
-async function detectDocumentKind({ file, sampleText, apiKey }) {
+async function detectDocumentKind({ file, sampleText }) {
   // 1. If the caller supplied an explicit kind, trust it.
   if (file?.documentKind && CHUNKERS[file.documentKind]) {
     return file.documentKind
@@ -255,38 +259,27 @@ async function detectDocumentKind({ file, sampleText, apiKey }) {
   if (/^slide\s+\d+/im.test(text)) return 'deck'
   if (/^#\s+act\s+(one|two|three|i{1,3})/im.test(text)) return 'treatment'
 
-  // 4. Haiku classifier — last resort, only if we have an API key.
-  if (apiKey) {
-    try {
-      const kind = await haikuClassify(text, apiKey)
-      if (kind && CHUNKERS[kind]) return kind
-    } catch (err) {
-      console.warn('[RABBIT intake] Haiku classifier failed:', err)
-    }
+  // 4. Haiku classifier — last resort (rides the authenticated ai-proxy).
+  try {
+    const kind = await haikuClassify(text)
+    if (kind && CHUNKERS[kind]) return kind
+  } catch (err) {
+    console.warn('[RABBIT intake] Haiku classifier failed:', err)
   }
 
   // 5. Fall back to the extension hint or "notes".
   return hint || 'notes'
 }
 
-async function haikuClassify(sampleText, apiKey) {
-  const res = await fetch(ANTHROPIC_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 32,
-      system:
-        'Classify the document. Reply with ONE of: script, treatment, gdd, brief, pitch_bible, lookbook, deck, outline, notes. No other text.',
-      messages: [{ role: 'user', content: sampleText || '(empty)' }],
-    }),
+async function haikuClassify(sampleText) {
+  const data = await callAI({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 32,
+    system:
+      'Classify the document. Reply with ONE of: script, treatment, gdd, brief, pitch_bible, lookbook, deck, outline, notes. No other text.',
+    messages: [{ role: 'user', content: sampleText || '(empty)' }],
+    tool: 'rabbit-intake',
   })
-  const data = await res.json()
   const raw = data?.content?.[0]?.text?.trim().toLowerCase() || ''
   const m = raw.match(/script|treatment|gdd|brief|pitch_bible|lookbook|deck|outline|notes/)
   return m ? m[0] : null
@@ -296,11 +289,12 @@ async function haikuClassify(sampleText, apiKey) {
 // Worker pool — concurrency-bounded chunk analysis
 // ─────────────────────────────────────────────────────────────
 
-async function runWorkerPool({ chunks, apiKey, personas, concurrency, onProgress, signal }) {
+async function runWorkerPool({ chunks, personas, concurrency, onProgress, signal }) {
   const total = chunks.length
   let done = 0
   const results = new Array(total)
   let cursor = 0
+  let lastError = null
 
   async function worker() {
     while (true) {
@@ -309,11 +303,12 @@ async function runWorkerPool({ chunks, apiKey, personas, concurrency, onProgress
       if (myIndex >= total) return
       const chunk = chunks[myIndex]
       try {
-        const parsed = await analyzeChunk({ chunk, apiKey, personas })
+        const parsed = await analyzeChunk({ chunk, personas })
         results[myIndex] = parsed
       } catch (err) {
         console.error('[RABBIT intake] chunk analysis failed:', chunk.chunk_label, err)
         results[myIndex] = null
+        lastError = err
       } finally {
         done += 1
         if (typeof onProgress === 'function') {
@@ -327,10 +322,23 @@ async function runWorkerPool({ chunks, apiKey, personas, concurrency, onProgress
   const n = Math.max(1, Math.min(concurrency || DEFAULT_CONCURRENCY, total))
   for (let i = 0; i < n; i++) workers.push(worker())
   await Promise.all(workers)
-  return results.filter(Boolean)
+
+  const parsed = results.filter(Boolean)
+  // Session 12: the per-user API-key gate ahead of the run is gone (locked
+  // #21), so a TOTAL failure — e.g. the proxy's ai_not_configured — must fail
+  // the run loudly instead of resolving into a fake-successful empty review.
+  // Partial failures stay tolerated, as before.
+  if (parsed.length === 0 && total > 0) {
+    throw new Error(
+      lastError?.message
+        ? `AI analysis failed for every chunk — ${lastError.message}`
+        : 'AI analysis failed for every chunk',
+    )
+  }
+  return parsed
 }
 
-async function analyzeChunk({ chunk, apiKey, personas }) {
+async function analyzeChunk({ chunk, personas }) {
   const personaIds = personas && personas.length
     ? personas.filter(id => PERSONAS[id])
     : Object.keys(PERSONAS)
@@ -354,28 +362,13 @@ async function analyzeChunk({ chunk, apiKey, personas }) {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 1500 * attempt))
     try {
-      const res = await fetch(ANTHROPIC_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userMessage }],
-        }),
+      const data = await callAI({
+        model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+        tool: 'rabbit-intake',
       })
-      const data = await res.json()
-      if (data.error) {
-        const msg = data.error?.message || JSON.stringify(data.error)
-        const retryable = res.status === 429 || res.status === 503 || res.status === 529
-        if (retryable && attempt < 2) { lastError = msg; continue }
-        throw new Error(msg)
-      }
       const text = data?.content?.[0]?.text || ''
       const parsed = extractJson(text)
       if (parsed) return parsed
@@ -426,7 +419,6 @@ function extractJson(text) {
  * @param {string} opts.projectId               Active project (for telemetry / chunk row writes)
  * @param {Array<object>} opts.files            Files to ingest. Only those with `is_core_definer === true` are processed.
  * @param {string[]} [opts.personas]            Persona IDs to bias the prompt. Defaults to all three.
- * @param {string} opts.apiKey                  Anthropic API key from settings.
  * @param {(p: { chunksDone: number, chunksTotal: number, lastLabel: string }) => void} [opts.onProgress]
  * @param {AbortSignal} [opts.signal]           Abort hook.
  * @param {number} [opts.concurrency]           Worker pool size (defaults to 3).
@@ -441,13 +433,11 @@ export async function runIngestion(opts) {
     projectId,
     files,
     personas,
-    apiKey,
     onProgress,
     signal,
     concurrency = DEFAULT_CONCURRENCY,
   } = opts || {}
 
-  if (!apiKey) throw new Error('runIngestion: missing Anthropic API key')
   if (!Array.isArray(files) || files.length === 0) {
     return {
       breakdown: reducers.merge([]),
@@ -481,7 +471,6 @@ export async function runIngestion(opts) {
     const documentKind = await detectDocumentKind({
       file,
       sampleText: rawText.slice(0, 2000),
-      apiKey,
     })
 
     const chunker = CHUNKERS[documentKind] || CHUNKERS.notes
@@ -516,7 +505,6 @@ export async function runIngestion(opts) {
   // ── 2. Worker pool — analyze each chunk. ─────────────────
   const parsedResults = await runWorkerPool({
     chunks: allChunks,
-    apiKey,
     personas,
     concurrency,
     onProgress,
