@@ -286,14 +286,15 @@ deployed to all three envs**.
 
 | 15 | 2026-07-30 | **Platform Operator Console + final TPN hardening** (migration 0028). Block A — `/wilsonadmin` as a genuinely separate surface: `admin.html` → `src/admin/` (own React root, no router, two sections), selected by vite `--mode admin` so the console can never ship inside the Electron installer; **session isolation is build-time** (`__WILSON_SURFACE__` → `wilson.operator.session` vs `wilson.dev.session`, distinct supabase-js `storageKey`, and the admin surface refuses the single-slot Electron safeStorage bridge) because localStorage is per-ORIGIN, not per-path; sign-in is email+password+TOTP (operators have no company for `resolve-login`). Server side: `is_platform_operator()` (live-row — the JWT claim had existed since 0001 and **nothing server-side had ever read it**), `_shared/operatorGuard.ts` (no workspaceId, claim NOT required, **MFA hard both ways**), `workspace_ai_keys` (AES-256-GCM ciphertext via `_shared/aiKeyCrypto.ts`, zero policies — not Vault, because CI's local stack was unverifiable from this machine), `platform_audit` (**no workspace FK** → teardown certificates outlive the tenant, closing gap #34's cascade half), `operator_workspace_summary()` (the single cross-tenant read, service_role only), and two Edge Functions (`operator-workspaces` list/create/rename/suspend/restore/**teardown**, `operator-ai-keys` set/clear with a live Anthropic validation call). Teardown's ORDER is the design: snapshot → typed-slug confirm → page both blob sources with `.range()` → delete + certificate each batch → drop queue rows → only then the row. Block B — **gap #16 CLOSED** (`edge_rate_limits` + `fn_rate_limit_hit`, durable and cross-isolate, replacing per-isolate Maps whose real limit was RPM × warm isolates) and **gap #17 CLOSED** (adminGuard MFA fails CLOSED; opt-in `WILSON_REQUIRE_ADMIN_MFA` for the stronger no-enrolment gate, off by default and why). Block C — **gap #32 CLOSED**: the entire dead local password module deleted (3 routes, the hardcoded constants, the orphaned `PasswordScreen.jsx`) plus a boot-time unlink of the on-disk credential; **#31 partial** (the mixed-patch silent data loss fixed + 10 tests; re-homing deferred with a plan). Also `scripts/tap-hosted.py` — the no-Docker pgTAP harness every session had been rebuilding, validated against suites 17/24/25/33 before use. **Adversarial review: 5 finders → 23 findings → 11 confirmed / 12 refuted, ALL 11 fixed (migration 0029 + suite 37).** The critical, found independently by the TPN cloud pass as TPN-CLOUD-003: `workspaces_write_operator` (0002) is `FOR ALL` and 0011 grants ALL to `authenticated`, so an operator's ordinary **aal1** browser session could `DELETE FROM workspaces` — skipping operatorGuard's hard MFA, the typed confirm, the blob sweep AND the certificate, and reopening gap #34 by the back door. 0029 drops the FOR ALL policy for read+update arms, revokes INSERT/DELETE/TRUNCATE, and adds `trg_workspaces_delete_guard`. The review also surfaced a **pre-existing release blocker**: `RabbitProvider.createProject` stamps every draft with the pre-multi-tenant `DEFAULT_WORKSPACE_ID`, which `projects_insert` refuses — so cloud project creation was broken for **every tenant except the seed fixture**; proven against wilson-dev (seed value 42501, real workspace succeeds, same statement) and fixed by dropping the column in the adapter + `trg_projects_populate_workspace`. Other fixes: the audit-certificate `context` was the one unbounded field and could bust its 8000-char CHECK silently (supabase-js reports CHECKs on the error channel, so the try/catch was dead) — now bounded and logged; `blobs_removed` counted the batch instead of `remove()`'s returned array, so a certificate could claim a destruction that never happened; teardown deleted queue rows *before* the CASCADE that recreates them; the sweep now refuses paths outside the workspace's own projects (`files.storage_path` is client-writable, and the sweep runs as service_role); console sign-out was global and dropped the same user's /wilson session. pgTAP 34–37 (67 probes) on real PG17; Vitest 339/339. **CI green all four jobs.** | `09b4405` |
 
+| 16 | 2026-07-30 | **Systems documentation & design pack** (docs-only, frozen code). `docs/SYSTEMS_HANDBOOK.md` — the v1.0.0 release gate: every system, what it does and what it talks to, written FROM the code via an 11-reader recon fan-out (Electron/Express, auth + admin Edge Functions, Postgres/RLS/cron, operator console, ai-proxy, storage & file lifecycle, each of the three tools, web/CI/infra, shell & shared surfaces). 17 sections + 2 appendices, dual-audience (team onboarding AND Claude-account seed material), secrets-free. Includes the full local Express route inventory, the frozen JWT claim shape with its staleness rule, the RLS tenancy rule with every deliberate deviation, all 12 Edge Functions with guard + caller, the teardown ORDER, the fail-open/fail-closed asymmetry, a "who talks to whom" section enumerating all 29 arrows plus the seven that deliberately do not exist, and a §17 consolidating every known limit. `docs/SYSTEMS_DESIGN_PACK.md` — 24 mermaid diagrams (system map, 3 architecture, 7 wireframes, 3 tool flows, 10 function dataflows, 2 state machines) with an inventory table, one-line captions and ≤3 bullets each; short by requirement, links to the handbook rather than repeating it. **Drift review (3 finders, cut short at Audrey's direction — a docs pass did not need a build-session review): 13 findings, all 13 fixed in the handbook.** The keeper is a CODE finding the review surfaced independently: **`custom_access_token_hook` is executable by `authenticated` and `anon`** — 0001/0003 revoke it, but 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS` re-grants it and only re-locks two other functions; the hook reads its target user id from the caller-supplied `event` argument, so any signed-in caller can compute another user's claim set (→ #44). Other handbook fixes: `projects_insert` gained an admin/manager arm in 0013 (0004's predicate was stale), `workspaces_select` keys on the membership IN-list not the JWT claim, four tables are ENABLE-only not FORCE, two `resolve-login` branches write no `auth_attempt_log` row, `/` → `/wilson` is a redirect not a rewrite, and not-an-operator is NOT unified with the generic sign-in error. **15 new §6 gaps filed (#44–#58); no product code touched.** | `<this commit>` |
+
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 15–17 remain** (locked #19 as amended 2026-07-30): S15 operator
-console + TPN hardening · S16 systems documentation & design pack · S17
-release (v1.0.0). Launch prompts ready: `docs/sessions/SESSION_15_prompt.md`
-and `SESSION_16_prompt.md`; S16 writes S17's.
+**Session 17 remains** (locked #19 as amended 2026-07-30): S15 operator console
++ TPN hardening ✅ · S16 systems documentation & design pack ✅ · **S17 release
+(v1.0.0)**. Launch prompt ready: `docs/sessions/SESSION_17_prompt.md`.
 
 **Migrations 0000–0027 are deployed to dev + staging + prod** (S14 added
 0027). **Edge Functions:** `ai-proxy` (S12) and `storage-gc` (S14) deployed
@@ -540,7 +541,15 @@ Original scope below for the record.
 - Close-out appends a "what S16 must document" note to
   `SESSION_16_prompt.md`.
 
-### Session 16 — Systems documentation & design pack (Audrey, 2026-07-30)
+### Session 16 — Systems documentation & design pack ✅ DONE (2026-07-30)
+
+§4 ledger row 16. Both deliverables shipped; no product code touched. The
+whole-system read did its second job — it filed §6 #44–#58, including one
+security finding (#44) that eleven sessions of review had not surfaced, because
+nobody had previously traced a `REVOKE` in 0001/0003 forward through 0011's
+blanket grant.
+
+Original scope below for the record.
 
 Launch prompt: `docs/sessions/SESSION_16_prompt.md`. **Docs-only — no
 product code**; runs on the frozen post-S15 codebase, and the whole-system
@@ -897,6 +906,160 @@ read doubles as the final audit (code findings → §6 gaps for S17).
 
 ---
 
+### Filed by Session 16's documentation read (2026-07-30)
+
+All fifteen were found by reading the whole system to write
+`docs/SYSTEMS_HANDBOOK.md`. None was fixed — S16 was frozen-code by design.
+The first four are **release-gating**; S17's prompt carries the triage.
+
+44. 🚨 **NEW (S16): `custom_access_token_hook` is executable by
+    `authenticated` and `anon`.** 0001 (`:194-195`) and 0003 (`:77-78`) both
+    `GRANT ... TO supabase_auth_admin` and `REVOKE ... FROM authenticated,
+    anon, public` — but `0011_role_grants.sql:23` then runs a blanket
+    `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon, authenticated,
+    service_role`, and 0011's own "re-assert function lockdowns" pass
+    (`:33-43`) re-locks only `provision_workspace_and_admin` and
+    `workspace_directory()`. Nothing in 0012–0029 re-revokes the hook. The
+    function takes its target user id from the **caller-supplied `event`
+    argument** (`0003:29`), not `auth.uid()`, so any signed-in caller can
+    compute another user's full claim set — workspace memberships, app_role,
+    `is_platform_operator`. Fix is a one-line REVOKE in a new migration plus a
+    pgTAP probe. **The general lesson is bigger than the finding:** 0011 also
+    sets `ALTER DEFAULT PRIVILEGES ... GRANT EXECUTE ON FUNCTIONS`, so every
+    function created by a later migration inherits the blanket grant too —
+    S17 should audit which other DEFINER functions were meant to be locked
+    down and are not. Survived eleven sessions of review because every pass
+    read the REVOKE in 0001/0003 and stopped there.
+45. **NEW (S16): the `managed-files` routes allow arbitrary-path deletion.**
+    `PATCH /api/rabbit/projects/:p/managed-files/:id`
+    (`electron/main.cjs:1665-1670`) merges `req.body` wholesale with no field
+    stripping, so `folder_path` and `stored_name` are client-writable; the
+    `?hard=true` DELETE branch (`:1684-1690`) then `path.join`s them onto the
+    project root and `fs.unlinkSync`s the result with **no
+    `resolveContainedFilePath` call**. The sibling `files` routes were
+    hardened for exactly this class in S14 (`:1359-1363` strips
+    `storage_path`/`storage_provider`/`id`; every disk path is contained), and
+    the thumbnail GET builds its path the same uncontained way (`:1724`).
+    Reachable by anything that can reach the loopback port, which mounts bare
+    `cors()` and has no auth (TPN-NET-001). Fix is symmetric with the `files`
+    routes. Distinct from TPN-CONT-006, which covers the *missing certificate*
+    on the same route, not the traversal.
+46. **NEW (S16): `invite-member` performs no MFA step-up and can mint an
+    admin.** The function reimplements its own claims + live-row check inline
+    (`invite-member/index.ts:78-110`) rather than importing `adminGuard`, and
+    a grep confirms zero references to `aal`, `mfa`, `listFactors` or
+    `adminGuard` in the file. `ROLE_SET` includes `'admin'` (`:45`), so an
+    admin holding a verified TOTP factor can create another admin from an
+    **aal1** session — while `admin-create-user`, the other path to the same
+    outcome, is blocked at aal1 by `requireWorkspaceAdmin`. Locked #9 ("MFA
+    for all admin tiers") is therefore not upheld on this path. Fix: route it
+    through `adminGuard` like every other admin function.
+47. **NEW (S16): R.A.B.B.I.T. milestones are dropped on project load.**
+    `localServerAdapter.loadProject` returns 20 explicitly-named keys and
+    omits `milestones` (`localServerAdapter.js:73-95`), even though
+    `listMilestones`/`upsertMilestone`/`deleteMilestone` exist just below
+    (`:439-447`) and the Express routes persist them
+    (`electron/main.cjs:1243`). `googleDriveAdapter.loadProject` has the
+    identical omission. Because `setActiveProject`/`reloadActiveProject` do
+    `setBundle({...EMPTY_BUNDLE, ...next})`, every milestone the user creates
+    reverts to `[]` on the next reload, project switch or realtime refetch —
+    real data loss on a feature both TimelineView and ProjectTasksView render.
+48. **NEW (S16): `addManagedFile` is unguarded outside local mode.**
+    `RabbitProvider.addManagedFile` calls `adapterRef.current.createManagedFile`
+    unconditionally, and that method exists only on `localServerAdapter`.
+    `FileManager.handleAddFiles` guards on `window.electronAPI?.rabbit` — "are
+    we in Electron" — not on adapter mode, and the preload bridge is present
+    regardless of which backend is selected. In supabase or google_drive mode
+    the click throws a `TypeError` swallowed by a generic `catch`, so the UI
+    simply stops after the copy spinner with no visible error.
+49. **NEW (S16): `googleDriveAdapter` throws on two methods the rate-card hook
+    calls unconditionally.** `listRateCards` and `listRateCardEntries` are
+    wired to the same `readOnly()` throw stub as the write methods
+    (`googleDriveAdapter.js:237-277`), but `useRateCard.js:122,208` calls both
+    on mount with only a try/catch → `setError`. Every RABBIT view that mounts
+    the hook (Budget, Task detail, Scenes/Levels/Experiences) shows a permanent
+    rate-card error banner in Drive mode.
+50. **NEW (S16): O.T.T.E.R.'s global Space shortcut fires from every page.**
+    The "Global keyboard shortcuts" effect (`Otter.jsx:2197-2211`) registers a
+    `window` `keydown` with no `currentPage` gate, and O.T.T.E.R. stays mounted
+    under `display:none` on every other page. Pressing Space anywhere in WILSON
+    (outside a form field) sets `showSearchModal` inside the hidden tree, so
+    the search modal is already open the next time the user opens the tool. The
+    correct pattern is in the same file 2000 lines earlier — the
+    sidebar-collapse shortcut is explicitly gated with
+    `shortcutEnabled: currentPage === 'otter'` and a comment describing this
+    exact failure mode. One-line fix.
+51. **NEW (S16): `HelpPage.jsx` documents the password panel S15 deleted.**
+    Lines 388-396 still tell users the login password "protects the application
+    on launch", that changing it "requires entering your current password
+    first", and that it is "letters and numbers only, up to 12 characters" and
+    "case-insensitive" — all properties of the deleted local credential, none
+    of which has ever applied to a Supabase password. `SettingsPage.jsx:546-555`
+    says the true thing; Help was never updated. A user following in-app help
+    looks for a control that does not exist.
+52. **NEW (S16): `logAdminEvent` hardcodes `severity: 'info'`.**
+    `_shared/adminGuard.ts:175-188` sets it unconditionally regardless of
+    `fields.code`, so `WIL-3004` "Storage cleanup **failed**"
+    (`storage-gc/index.ts:264-269`) lands in the log stream at the same
+    severity as the `WIL-3003` success line. Anything in the Admin Terminal's
+    log viewer that filters or highlights by severity cannot distinguish a
+    failed cleanup run from a successful one.
+53. **NEW (S16): two `resolve-login` branches write no `auth_attempt_log`
+    row.** The `workspace_members` query-error branch (`:147-149`) and the
+    `admin.getUserById` failure branch (`:170-172`) both return the uniform
+    miss without logging, while the four intended outcomes
+    (`resolved`/`not_found`/`rate_limited`/`error`) all do. A backend failure
+    during a sign-in attempt is therefore invisible in the one stream that
+    exists for it. Cosmetic today; relevant to TPN-LOG-006.
+54. **NEW (S16): quiz scores and Validator findings are never persisted.**
+    `otter_progress.quiz_attempts` (0022), the `quiz.get`/`quiz.put` adapter
+    ops (`supabaseOtterAdapter.js:404-420`) and the
+    `/api/software/:slug/quiz-history` route all exist, but `Otter.jsx`
+    contains no call to any of them — a completed quiz lives in React state for
+    that visit only. Validator results are the same shape with no server table
+    at all (`Validator.jsx:107`). Both read as bugs to a user and as
+    half-finished features to a reader; decide explicitly whether v1 persists
+    them or the UI says it does not.
+55. **NEW (S16): Settings → Tools "Storage Location" is inert.** It renders an
+    editable path input defaulting to `./data/software/` and persists to
+    `otter-settings` (`Otter.jsx:5205-5209`), but `getDataDir()` hardcodes
+    `app.getPath('userData')/otter-data` (`electron/main.cjs:36-39`) and never
+    reads the setting. The field and its Browse button have no effect on where
+    anything is written.
+56. **NEW (S16): R.A.B.B.I.T.'s agent integration is prompt-selection only.**
+    `AGENT_TOOLS` lists `['otter','rabbit']` and RABBIT calls
+    `agent.setActiveTool?.('rabbit')` so its system prompt loads, but nothing
+    calls `registerTool('rabbit', ...)` and `createRabbitAgentTools(` has zero
+    call sites repo-wide. `handleAgentAction` has no case for any of RABBIT's
+    eight declared actions, and `sendAgentMessage`'s fallback resolves to
+    Otter's interface while RABBIT is active. The DiffView approval gate is
+    exercised only by O.T.T.E.R. Either wire it or stop advertising it in the
+    prompt and the skills UI.
+57. **NEW (S16): a cross-workspace username collision makes sign-in
+    unreachable.** `workspace_members` uniqueness is scoped
+    `(workspace_id, username)`, so the same username can legitimately exist in
+    two companies. `resolve-login` treats 0 matches and ≥2 matches identically
+    as a miss unless `workspace_slug` disambiguates (`:141,151-164`), and its
+    own comment says the client should supply the slug — but `LoginScreen`'s
+    `resolveLogin` accepts a `workspaceSlug` parameter its only call site never
+    passes, and the auth form has no company field. The affected user gets a
+    permanent, indistinguishable "sign-in failed" with no path to resolve it.
+58. **NEW (S16): documentation drift inside the product and the repo.**
+    (a) `src/tools/rabbit_v0.1.0/db/README.md:160` still says the migration
+    range is `0000`–`0023` and has no section for 0028 or 0029 — the operator
+    console, `workspace_ai_keys`, `platform_audit`, `edge_rate_limits` and the
+    0029 lockdown are entirely undocumented there. (b) `electron/env.cjs:9-10`
+    describes a `wilsonEnv` preload bridge that does not exist; renderer
+    `VITE_*` values are compile-time constants, so `env.json` can only affect
+    main-process consumers. (c) The intake wizard's header and README describe
+    a 5-step flow; the shipped `STEPS` constant has 3, and
+    `IntakeUploader.jsx`/`IntakeClassifier.jsx`/`IntakeCoreDefiner.jsx` remain
+    on disk with no importer. (d) `backups.yml:18-19`'s comment illustrates a
+    30-day B2 lifecycle; the configured value is 90 days. (e) `main.cjs`'s
+    hardcoded User-Agent strings say `WILSON/0.5.5` and `WILSON/0.6`.
+
+---
+
 ## 7. Original brief → status traceability
 
 Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app verify ·
@@ -981,7 +1144,9 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–16 present; S16 writes 17) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–17 present) |
+| Systems handbook | `WILSON/docs/SYSTEMS_HANDBOOK.md` (S16, v1.0.0) — **release gate**; every system + who-talks-to-whom, written from the code |
+| Design pack | `WILSON/docs/SYSTEMS_DESIGN_PACK.md` (S16) — 24 mermaid diagrams, source for Audrey's design session |
 | Migration count | 0000–0029, all three envs (S15 added 0028 + 0029) |
 | Web test host | `https://pretty-aud.github.io/wilson/` — `gh-pages` branch of the public repo; Pages toggle owed (see `docs/WEB_DEPLOY.md`) |
 | ai-proxy | Edge Function, all 3 envs; key = `ANTHROPIC_API_KEY` secret (owed) with per-workspace seam; `AI_PROXY_RPM` optional |
@@ -1515,6 +1680,32 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   This is worth remembering because it is fragile in one specific way: any
   future code that reads a session key without going through
   `sessionStorage.js` reintroduces the leak.
+
+### Resolved 2026-07-30 (Session 16 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **The handbook found a security defect that eleven sessions of adversarial
+  review had not.** #44 (`custom_access_token_hook` executable by
+  `authenticated`) survived because every prior pass read the `REVOKE` in 0001
+  and 0003 and stopped there — nobody traced it *forward* through 0011's
+  blanket `GRANT EXECUTE ON ALL FUNCTIONS`. Writing "who may execute this"
+  as a table forced the question in a way reviewing a diff never did. **This is
+  the argument for docs-before-release, and it paid for the session on its
+  own.** The generalisable lesson: a grant made in migration N can be silently
+  widened by migration N+k, and only a whole-schema read catches it.
+- **Two documents, opposite jobs, and the discipline held.** The handbook is
+  long because explanation is its purpose; the design pack is diagrams with
+  one-line captions and links back. Where both would have explained the same
+  thing, the pack cut it. Worth preserving if either is ever revised.
+- **A docs session does not need a build session's review.** S16 opened a
+  four-finder drift review out of habit; Audrey stopped it partway, correctly.
+  Three finders had already returned 13 real findings and the fourth would have
+  added marginal value at real cost. **Size the review to the work** — recorded
+  in S17's prompt as a standing note.
+- **The handbook is a release gate, which makes it a maintenance obligation.**
+  If S17's fixes change behaviour the handbook describes, the handbook changes
+  in the same commit. A stale gate is worse than no gate, and §17 (known
+  limits) is the section most likely to drift as gaps close.
 
 ### Still open
 

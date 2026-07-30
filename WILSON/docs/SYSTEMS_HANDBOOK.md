@@ -1,0 +1,2222 @@
+# WILSON — Systems Handbook
+
+**Version 1.0.0 · 2026-07-30 · written from the frozen post-Session-15 tree
+(commit `09b4405`, branch `feat/multi-user-v1`).**
+
+---
+
+## 0. How to read this document
+
+This is the "how the whole thing works, and what talks to what" document for
+WILSON, the Petal Studios creative-production platform. It was written by
+reading the code, not by summarising earlier documents, and it is meant to be
+trusted verbatim by readers who cannot check.
+
+**Two audiences, deliberately.**
+
+1. **Humans joining the project.** Read §1–§3 for orientation, then whichever
+   system section you are about to touch. §14 ("Who talks to whom") is the
+   fastest way to build a mental model.
+2. **Claude accounts receiving this as seed material** for a Claude project, a
+   skill, or a `CLAUDE.md`. Every section is self-contained and excerptable;
+   invariants are stated *with the reason they exist*, so an agent acting on
+   an excerpt can tell the difference between a convention it may change and a
+   load-bearing rule it must not.
+
+**What this document is not.** It is not the project's history — that is
+`docs/MASTER_PLAN.md`, which stays the living record of the multi-user
+migration (session ledger, locked decisions, carry-forward gaps). The handbook
+supersedes nothing; it is the timeless "how it works now". Where the two ever
+disagree, the code is the authority and both documents are wrong.
+
+**Secrets.** This repository is **public**. "Private" here means Audrey hands
+this document out manually, not that the file is hidden. Nothing in it is a
+secret: no keys, no tokens, no passwords, no connection strings. Environment
+variables are named, never valued. The Supabase project references and
+hostnames below are already public in this repo's other docs and in the shipped
+web bundle (see §4.1 on why anon keys are public by design).
+
+**Conventions used below.**
+
+- `path:line` references point into the repo at the commit named above.
+- "FROZEN" marks an invariant that cannot be changed without a coordinated
+  migration; the reason is always given.
+- Version at time of writing: `package.json` `0.6.3`; tool versions
+  D.O.G. `0.514`, O.T.T.E.R. `0.3.1`, R.A.B.B.I.T. `0.1.0`. The v1.0.0 in this
+  document's header is the *handbook's* version and the release it gates, not
+  the current app version — S17 cuts `package.json` to 1.0.0.
+
+---
+
+## 1. What WILSON is
+
+WILSON is a multi-tenant creative-production platform that ships as **one
+codebase on two hosts**: a Windows Electron desktop application and a web
+build. It contains **three tools** and a set of shared surfaces around them:
+
+| Tool | Name | What it does |
+|---|---|---|
+| **D.O.G.** | Deck Outline Generator | Turns source documents into structured, layout-tagged slide outlines plus a machine-readable geometry spec. |
+| **O.T.T.E.R.** | (learning platform) | Generates, studies, quizzes and fact-checks software/skills courses, with a company-standard tier and a pull-request-style change-request loop. |
+| **R.A.B.B.I.T.** | Resource Allocation, Budgeting & Breakdown Intake Tool | Ingests creative source documents and produces a production breakdown — phases, assets, tasks, budgets, timelines, files. |
+
+Around them sit a Home launcher, a personal Dashboard (cross-project tasks +
+private notes + profile), a Projects page, a Rate Card, a Team Members roster,
+a company **Admin Terminal**, Settings, Help, a pet/agent companion, and — on a
+separate surface entirely — a **platform operator console**.
+
+**The tenancy model.** A *workspace* is a company. Every user belongs to one or
+more workspaces through a `workspace_members` row that carries their
+per-workspace username and app role. Every domain row carries a
+`workspace_id`, and **Postgres Row-Level Security is the security boundary** —
+not the client, not the Edge Functions. See §4.4.
+
+**The four tiers of authority**, lowest to highest:
+
+1. `user` — ordinary member.
+2. `manager` — tool-wide manager tier; bypasses project-level gating, reads
+   rate cards, views (but cannot decide) O.T.T.E.R. change requests.
+3. `admin` — company admin; Admin Terminal, roster, grants, company-standard
+   courses, project delete/restore.
+4. **platform operator** — Petal Studios itself. Cross-tenant. Lives on a
+   separate web surface (`/wilsonadmin`), can create and destroy companies, and
+   **cannot be granted from any user interface anywhere** (§5.3).
+
+A fifth, orthogonal role family exists *inside* R.A.B.B.I.T. at the project
+level (`manager` / `reviewer` / `member`) — see §13.3.
+
+---
+
+## 2. The map in one page
+
+**Systems WILSON depends on.**
+
+| System | Role | Section |
+|---|---|---|
+| Electron + local Express server | Desktop host; local file/data plane | §3.1 |
+| Vercel | Web host for `/wilson` and `/wilsonadmin` | §3.2 |
+| Supabase (×3 environments) | Auth, Postgres+RLS, Realtime, Edge Functions, Storage, cron | §4 |
+| Anthropic | All AI generation, reached **only** through the `ai-proxy` Edge Function | §6 |
+| GitHub Actions | CI (pgTAP, smoke, unit, e2e) + nightly backups | §7 |
+| Backblaze B2 | Nightly `pg_dump` archives + auto-update installer feed | §8 |
+| Resend | Invite / recovery / email-change mail | §9 |
+| Sentry | Error reporting, renderer + Electron main, per environment | §10 |
+| electron-updater | NSIS auto-update over the B2 feed | §11 |
+| Google Drive | Read-only company storage provider (v0.1) | §12.1 |
+
+**The one-sentence trust model.** *Clients are untrusted; the database is the
+boundary; Edge Functions exist only for the operations RLS cannot express
+(minting users, holding secrets, crossing tenants) and every one of them
+re-checks a live database row rather than trusting a token claim.*
+
+---
+
+## 3. The two hosts
+
+WILSON is one React 19 + Vite + Tailwind 4 codebase built three ways: for
+Electron, for the web app, and for the operator console (§5.1).
+
+### 3.1 The Electron desktop app
+
+**Main process** — `electron/main.cjs` (~2500 lines), plus `preload.cjs`,
+`env.cjs`, `sentry.cjs`, `updater.cjs`.
+
+Boot order (`main.cjs:16-20`, `2473-2490`):
+
+1. `loadEnv(app, REPO_ROOT)` — reads `.env.development` from the repo root in
+   development, or `{userData}/env.json` when packaged, and only sets keys not
+   already present in `process.env` (`env.cjs:34-64`).
+2. `initMainSentry()` — after `loadEnv`, so the DSN exists (`main.cjs:20`).
+3. `app.whenReady()` → `cleanupLegacySupabaseConfig()` →
+   `cleanupLegacyAuthFile()` → `createWindow()` → `initUpdater()`.
+4. `createWindow()` starts the local Express server **first**, then creates the
+   `BrowserWindow` and points it at that server (`main.cjs:2094-2121`).
+
+**Window security posture** (`main.cjs:2103-2118`): `nodeIntegration: false`,
+`contextIsolation: true`, a preload bridge, `frame: false` (custom title bar in
+`src/components/TitleBar.jsx`, Electron-only), `autoHideMenuBar: true`.
+`sandbox` is not explicitly set and inherits Electron 33's default.
+Ctrl+R/F5 are intercepted and re-mapped to "reset zoom" rather than reloading
+(`main.cjs:2124-2131`); `http(s)` links open in the OS browser via
+`shell.openExternal` and in-window navigation is denied (`main.cjs:2134-2140`).
+Window close is intercepted and handed to the renderer as a `close-requested`
+event unless `_forceClose` is set (`main.cjs:2142-2146`) — the updater sets that
+flag before `quitAndInstall()`.
+
+There is **no single-instance lock**: `app.requestSingleInstanceLock()` does not
+appear anywhere, so two copies can run against the same `userData` directory,
+each with its own Express port. (Tracked; see §17.)
+
+#### The local Express server
+
+Created inside `startLocalServer(distPath)` (`main.cjs:140-2086`).
+
+| Property | Value | Where |
+|---|---|---|
+| Bind | `listen(0, '127.0.0.1')` — **loopback only**, never reachable off-host | `main.cjs:2079` |
+| Port | OS-assigned ephemeral; read back and used as the window's own origin, so no port-discovery IPC exists | `main.cjs:2079-2082, 2121` |
+| CORS | `app.use(cors())` — no options, fully permissive | `main.cjs:143` |
+| Body limit | `express.json({ limit: '50mb' })`; no multipart parser — uploads ride base64 inside JSON | `main.cjs:144` |
+| Static | `express.static(dist)` + an Express-5 catch-all `GET /{*splat}` → `index.html` | `main.cjs:2074-2077` |
+| Authentication | **None.** See the honesty note below. | — |
+
+**Route families** — 89 literal route registrations; a generic sub-entity
+factory (18 entity names × 3 verbs) and a 4-entity thumbnail loop expand that to
+roughly 144 endpoints at runtime.
+
+| Family | Representative routes | Consumer |
+|---|---|---|
+| Pet | `GET/POST /api/pet`, `POST /api/pet/reset`, `POST /api/pet/new-egg` | Pet companion (§13.5) |
+| O.T.T.E.R. content | `GET/POST /api/software`, `…/:slug/subjects`, `…/hotkeys`, `…/functions`, `…/nodes`, `…/progress`, `…/quiz-history`, `…/references`, `…/corrections`, `GET /api/export-all` | O.T.T.E.R. local mode |
+| O.T.T.E.R. settings | `GET/POST /api/otter-settings`, `GET/POST /api/agent-skills` | Settings, agent |
+| Shared utilities | `POST /api/fetch-url`, `POST /api/fetch-raw`, `POST /api/extract-pdf` | O.T.T.E.R. references; RABBIT rate-card import; RABBIT intake |
+| R.A.B.B.I.T. projects | `GET/POST /api/rabbit/projects`, `GET/PATCH/DELETE /api/rabbit/projects/:id` | RABBIT local mode |
+| R.A.B.B.I.T. sub-entities | factory-generated POST/PATCH/DELETE for phases, tasks, dependencies, task-links, asset-versions, comments, ingestion-runs, team-assignments, budget-versions, expenses, budget-lines, budget-actuals, scenes, shots, levels, experiences, milestones, project-team | RABBIT |
+| Files | `POST /api/rabbit/projects/:p/files`, `…/files/:id/download`, PATCH/DELETE, `…/files/:id/events`, `…/file-events`, `…/files/relink-scan`, `…/files/relink-apply` | RABBIT attachments + relink |
+| Managed files | `GET/POST /api/rabbit/projects/:p/managed-files`, PATCH/DELETE (`?hard=true`), `…/:id/thumbnail`, `…/import-folder` | RABBIT production media |
+| Thumbnails | `…/assets/:id/thumbnail`, and the same for scenes/shots/levels/experiences | RABBIT galleries |
+| Workspace-scoped stores | `…/workspaces/:id/rate-cards`, `…/team-members`, `…/task-templates` (+ entry/dept-default routes) | Rate Card, Team, Templates |
+
+> **There is no `/api/auth/*` family, and that is deliberate.** Session 15
+> deleted `/api/auth/session`, `/api/auth/verify` and `/api/auth/change`
+> together with their hardcoded constants and the orphaned
+> `src/components/PasswordScreen.jsx`. A tombstone comment records this at
+> `main.cjs:612-637`. Deleting them *together* was load-bearing: removing only
+> the routes would have left the screen's `fetch` 404-ing and falling through
+> to a hardcoded string comparison — a fail-**open** gate, strictly worse than
+> the dead code. A boot-time `cleanupLegacyAuthFile()` (`main.cjs:2176-2181`,
+> called at `:2475`) unlinks `{userData}/otter-data/wilson-auth.json`, because
+> deleting code does not delete data.
+
+**Honesty note on the local server's security model.** The Express server is
+unauthenticated and mounts bare `cors()`. It is loopback-bound, so the exposure
+is to *other local processes and to web pages loaded in the user's own browser
+that can guess the ephemeral port* — not to the network. This is a known,
+tracked posture (TPN-NET-001; `/api/fetch-url` and `/api/fetch-raw` also accept
+arbitrary URLs with no allow-list — TPN-NET-002). Two route families do defend
+themselves, and the pattern is worth copying:
+
+- `resolveContainedFilePath(baseDir, relPath)` (`main.cjs:920-927`) resolves and
+  case-folds, then refuses anything that is not `baseDir` itself or beneath it.
+  Every `files`-family disk path goes through it.
+- `isUserAuthorizedRelinkDir(...)` (`main.cjs:935-948`) accepts a folder only if
+  the user picked it through the OS dialog (`rabbit:pick-directory` records
+  every pick into a `userAuthorizedDirs` set, `main.cjs:61, 2262-2273`) or it
+  lies inside the project's own roots. A dialog pick *is* the authorization.
+  Relink scan and apply both 403 otherwise (`main.cjs:1444-1446, 1507-1509`).
+- The `files` PATCH route strips `storage_path`, `storage_provider` and `id`
+  from the request body before merging (`main.cjs:1359-1363`) — a
+  client-supplied `storage_path` would otherwise turn download/delete into
+  arbitrary-path filesystem calls.
+
+The parallel **managed-files** routes do *not* have these guards. See §17.
+
+#### On-disk data layout
+
+All under Electron's default `userData` directory (no `app.setPath` override
+exists anywhere); product name `WILSON`.
+
+| Path | Contents |
+|---|---|
+| `{userData}/otter-data/` | O.T.T.E.R. root (`getDataDir()`, `main.cjs:36-40`) |
+| `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_quiz-history.json`, `_references.json`, `_corrections.json` |
+| `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json` | Single-object stores |
+| `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
+| `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents` |
+| `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
+| `{userData}/rabbit-data/{rate-cards,team-members,task-templates}/{id}.json` | Workspace-scoped flat stores |
+| `{userData}/rabbit-data/thumbnails/` | Thumbnail cache |
+| `{userData}/rabbit-data/{gdrive-config,gdrive-tokens}.json` | Google Drive OAuth material |
+| `{userData}/rabbit-data/archives/` | Snapshot written before "archive + clear local" after a cloud migration |
+| `{userData}/session.enc` | safeStorage-encrypted Supabase session |
+| `{userData}/env.json` | Packaged-build environment overrides |
+
+A project may additionally have a **user-visible folder** on disk, created and
+maintained by `ensureProjectFolders` / `mirrorProjectDatabases`
+(`main.cjs:819-891`): `ASSETS/`, `{slug}_DATABASES/` (mirrors of project /
+team / tasks / timeline / budget JSON), `{slug}_FILES/`,
+`{slug}_RECEIPTS&INVOICES/`, `{slug}_CREWINVOICES/`, `{slug}_TALENTINVOICES/`,
+and `.trash/`.
+
+#### The IPC surface
+
+`preload.cjs` exposes exactly two globals: `wilsonSession` and `electronAPI`.
+
+| Bridge | Channels | Purpose |
+|---|---|---|
+| `wilsonSession.{save,load,clear}` | `wilson:session-{save,load,clear}` | safeStorage-encrypted Supabase session. Fails **closed** when the OS keychain is unavailable — `save` returns `{ok:false, reason:'no_keychain'}`, `load` returns `null`. None of the three ever falls back to plaintext (`main.cjs:2419-2451`). |
+| Window | `window-{minimize,maximize,close,force-close}`, `close-requested` | Custom title bar |
+| Zoom | `zoom-{in,out,reset,get}`, `zoom-reset-notify` | Zoom control |
+| Updates | `wilson:update-{state,check,download,install}`, `wilson:update-status` | §11 |
+| Drive | `rabbit:{read,write}-gdrive-{config,tokens}`, `rabbit:clear-gdrive` | Google Drive credentials |
+| Files | `rabbit:pick-directory`, `rabbit:pick-files`, `rabbit:pick-image`, `rabbit:copy-file` (+ `rabbit:copy-progress`), `rabbit:get-file-stats`, `rabbit:open-in-explorer`, `rabbit:ensure-project-folder`, `rabbit:{read,write}-files-config` | RABBIT file plane |
+| Thumbnails | `rabbit:{generate,clear}-{asset,entity}-thumbnail` | Sharp-based cache |
+| Data | `rabbit:archive-local-data` | Post-migration archive + clear |
+| Diagnostics | `wilson:sentry-test` | Manual main-process Sentry throw |
+
+`rabbit:pick-directory` is security-relevant: it is the **only** way a folder
+enters `userAuthorizedDirs`, which is what the relink routes check.
+
+### 3.2 The web build
+
+The same React app, built with `--base=/wilson/` instead of Electron's `./`.
+
+| Fact | Value |
+|---|---|
+| Beta host | `https://beta.petalstudios.co/wilson` |
+| Vercel project | `petal-studios/wilson`, repo `pretty-aud/wilson`, Root Directory `WILSON` |
+| Production branch | `feat/multi-user-v1` — auto-deploys on every push |
+| Backing Supabase env | **staging** (`wilson-staging`) |
+| DNS | `beta` CNAME → `cname.vercel-dns.com`, managed at Squarespace |
+| Build command | `npm run build:vercel && npm run build:vercel:admin` — both surfaces, one deployment |
+| Install command | `npm install --ignore-scripts` (see note) |
+| GH Pages | `gh-pages` branch → `pretty-aud.github.io/wilson/` — a **dormant, manually-redeployed fallback**; Vercel is primary |
+
+Reference: `docs/WEB_DEPLOY.md`, `vercel.json`.
+
+`installCommand` is `npm install`, not `npm ci`, because Vercel's npm 11
+rejects the npm-10 lockfile this repo must keep for CI (§7.3); and
+`--ignore-scripts` because the web build needs no postinstall — Electron alone
+would download ~100 MB.
+
+`vercel.json` **redirects** `/` → `/wilson` (temporary, `permanent: false` — it
+changes the URL bar). Separately it **rewrites** (invisibly)
+`/wilson/:path*` → `/wilson/index.html`, and `/wilsonadmin` and
+`/wilsonadmin/:path*` → `/wilsonadmin/admin.html`. Security headers (`X-Robots-Tag: noindex, nofollow`,
+`Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`,
+`X-Content-Type-Options: nosniff`) are scoped to `/wilsonadmin/:path*` only.
+
+**What degrades on the web, and why.** There is no local Express server, so
+anything that needs it is unavailable. The detection primitive is
+`hasLocalServer()` — `!!window.electronAPI` (`src/lib/localData.js:28-30`).
+
+| Capability | Web behaviour |
+|---|---|
+| R.A.B.B.I.T. storage mode | Boot **forces** `supabase`, overriding any carried-over saved preference (`RabbitProvider.jsx:303-311`) |
+| O.T.T.E.R. content | Cloud adapter when signed in; a synthetic `401`/`501` with a stated reason when not — never a silent 404 (`otter_v0.3.1/adapters/index.js:99-117`) |
+| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`) |
+| PDF extraction, Google-Sheet import, URL scraping | Unavailable; each caller gates on `hasLocalServer()` independently |
+| Storage providers | Only Supabase Storage works; the Settings card marks the others unavailable (`SettingsPage.jsx:578-581`) |
+| D.O.G. | Runs off the open project's cloud context; attachments are refused at the adapter (§13.1) |
+| Sessions | `localStorage`, re-saved on `TOKEN_REFRESHED` — a static host has no server to set an httpOnly cookie |
+
+**URL ↔ page sync without a router.** The shell renders every page at once and
+toggles CSS `display` (§13.4). On the web only, `navigateTo()` calls
+`history.pushState` with `/wilson/<page>`, and a `popstate` listener maps the
+path back to a page id — deep links, back and forward all work with no router
+(`src/App.jsx:118-138, 899-991`). Electron always boots `home`; there is
+nothing to deep-link to.
+
+---
+
+## 4. Supabase
+
+### 4.1 The three environments
+
+| Environment | Project ref | Used by |
+|---|---|---|
+| `wilson-dev` | `eqjzmnvkrakroyqxfsvw` | Local development, CI smoke + Playwright lanes; Supabase CLI is linked here |
+| `wilson-staging` | `rzkirvkotslbovzbsdfh` | The Vercel beta web deployment |
+| `wilson-prod` | `rqyriuyldhovirbuievt` | Production |
+
+Migrations `0000`–`0029` and every Edge Function are deployed to **all three**.
+
+**Anon keys are public by design and ship inside the web bundle.** This is not
+a leak: sign-ups are off, every table carries RLS — all but four with `FORCE`
+as well (the exceptions are `auth_attempt_log`, `edit_history`, `file_events`
+and `storage_gc_queue`, whose only writer is a service-role function or a
+DEFINER trigger; see §4.4) — and the policy set is pinned by 37 pgTAP suites in
+CI. The anon key identifies the project; it authorises nothing. The *service-role* key is the secret, and it
+exists only inside Edge Function environments.
+
+### 4.2 Authentication
+
+Login is **username-first**: a user types a workspace username, not an email.
+
+| # | Step | Where |
+|---|---|---|
+| 1 | Client validates the username shape `^[a-z0-9][a-z0-9._-]{1,31}$` before any network call | `LoginScreen.jsx:149` |
+| 2 | `POST /functions/v1/resolve-login` with `{username}` (+ optional `workspace_slug`) | `LoginScreen.jsx:36` |
+| 3 | Server looks up `workspace_members` joined to `workspaces` on username + `is_active` + not-deleted, `.limit(2)`, and resolves the email via the service-role admin API | `resolve-login/index.ts:135-169` |
+| 4 | On a miss, the client still calls `signInWithPassword` against a fabricated `__miss+<uuid>@invalid.local` address, so timing and code path are identical to a real attempt | `LoginScreen.jsx:160` |
+| 5 | `supabase.auth.signInWithPassword` — GoTrue itself. The access-token hook fires here and bakes the claims into an **ES256** JWT | `LoginScreen.jsx:162` |
+| 6 | If the account has a verified TOTP factor and the session is not already `aal2`, the UI enters the MFA stage: `mfa.challenge` → `mfa.verify` | `LoginScreen.jsx:170-231` |
+| 7 | The client lists the user's workspaces (RLS-scoped). More than one → a chooser | `LoginScreen.jsx:68` |
+| 8 | `POST /functions/v1/issue-session` with the chosen `workspace_id`, then `refreshSession()` | `LoginScreen.jsx:52, 125` |
+| 9 | Session persisted through `src/cloud/auth/sessionStorage.js` (§5.2) | — |
+
+`resolve-login` is deliberately uniform: a constant-time floor of 180 ms wraps
+**every** reply path, and the response body is always `{exists, email}` with
+the same status, so neither timing nor shape distinguishes a hit from a miss.
+Most branches write an `auth_attempt_log` row (`resolved` / `not_found` /
+`rate_limited` / `error`), readable only by platform operators — but two
+failure paths return a miss with no row at all: a `workspace_members` query
+error and an `admin.getUserById` failure (`resolve-login/index.ts:147-149,
+170-172`).
+
+**`issue-session` does not mint a token.** Its entire job is to write
+`app_metadata.workspace_id` via the admin API so that the client's *next*
+`refreshSession()` causes GoTrue to mint a new token in which the hook
+re-derives every claim (`issue-session/index.ts:106-121`).
+
+**Why every Edge Function sets `verify_jwt = false`.** The Edge gateway's
+built-in verification only supports HS256, and this project's JWTs are ES256 —
+the gateway rejects them with `UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM` before
+any function code runs. Every function therefore validates the caller itself
+with `admin.auth.getUser(token)`, which routes through GoTrue and handles ES256
+correctly. This is stated in `issue-session/index.ts:44-48`, in each guard, and
+in `supabase/config.toml:85-91`. **Do not "fix" a function by turning
+`verify_jwt` back on** — it will break, not harden.
+
+### 4.3 The frozen JWT claim shape
+
+```
+auth.jwt() -> app_metadata -> { workspace_id, workspace_ids, app_role, is_platform_operator }
+```
+
+Populated by `public.custom_access_token_hook(jsonb)` — created in
+`0001_workspaces_and_users.sql:128-190`, patched (same shape, internal rename
+only, fixing a live 500 on sign-in) in `0003_fix_access_token_hook.sql:13-75`.
+Execute is granted to `supabase_auth_admin` alone.
+
+| Claim | Derivation | Absent → |
+|---|---|---|
+| `workspace_id` | Kept if still a valid active membership, else the oldest membership | `NULL` |
+| `workspace_ids` | All active memberships, ordered by `created_at` | `[]` |
+| `app_role` | The role for the **active** workspace only | `'user'` |
+| `is_platform_operator` | `EXISTS` against `platform_operators` | `false` |
+
+**FROZEN — and here is why.** Every RLS policy on a tenant-scoped domain table
+starts from `(auth.jwt()->'app_metadata'->>'workspace_id')::uuid`, via
+`current_workspace_id()`. Changing the shape means rewriting RLS on every
+domain table *and* re-issuing every live token. Treat the four key names as
+immutable.
+
+(The identity and bootstrap tables — `workspaces`, `workspace_members`,
+`platform_operators`, `auth_attempt_log` — key off `auth.uid()` or a live
+`platform_operators` row instead, because they are evaluated when no workspace
+claim is meaningful yet.)
+
+**The staleness rule, which every server-side change must respect.** `jwt_expiry`
+is 3600 s, so claims can lag reality by up to an hour. The convention is:
+
+- **Reads** may use the claim. `current_workspace_id()` and
+  `current_app_role()` read the JWT and touch no table — `current_app_role()`
+  deliberately so, to avoid RLS self-recursion on `workspace_members`
+  (`0008_fix_rls_recursion.sql:20-42`).
+- **Anything that acts** re-checks a live row. `has_active_membership()`
+  (SECURITY DEFINER, `0008:48-61`) gates writes; `adminGuard`, `memberGuard`,
+  `operatorGuard` and `invite-member` each re-query `workspace_members`;
+  `is_platform_operator()` reads the **table**, never the claim, so revocation
+  bites on the next statement rather than the next token refresh
+  (`0028_operator_console.sql:100-114`).
+
+One registration gotcha: `supabase/config.toml` declares the hook, but its own
+comment notes this is documentation only — the hook must **also** be toggled on
+in each project's Supabase Dashboard.
+
+### 4.4 Postgres + RLS — the security boundary
+
+#### The tenancy rule
+
+Canonical read predicate (`projects_select`, current form,
+`0020_admin_grants_and_alignment.sql:241-243`):
+
+```sql
+deleted_at IS NULL
+AND workspace_id = public.current_workspace_id()
+AND public.has_active_membership(workspace_id)
+```
+
+Canonical write predicate (`projects_insert`, current form —
+`0013_project_members.sql:209-211` replaces 0004's two-clause version):
+
+```sql
+workspace_id = public.current_workspace_id()
+AND public.has_active_membership(workspace_id)
+AND public.current_app_role() IN ('admin', 'manager')
+```
+
+The third clause is specific to `projects` (matrix parity: creating a project
+is an admin/manager action). Child tables keep the two-clause form.
+
+Child tables that carry no `workspace_id` of their own inherit it through a
+live-parent `EXISTS` join — the "0014 pattern". Hiding a parent transitively
+hides its children with **zero propagation writes**, which is why trashing a
+project is one `UPDATE` and not a cascade.
+
+**Deliberate deviations, each with a reason:**
+
+| Table | Deviation | Why |
+|---|---|---|
+| `platform_audit` | Has a `workspace_id` column but **no FK**, and snapshots slug + name as text | A `workspace.teardown` certificate must still name the company after the row is gone. A migration post-condition fails the deploy if an FK ever appears. |
+| `workspace_ai_keys`, `edge_rate_limits`, `storage_gc_queue` | **Zero policies at all** | Tenancy is enforced by the absence of any client grant. Service-role only. |
+| `notes`, `note_subjects`, `otter_progress` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on `otter_progress`, which has no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes or study progress. |
+| `otter_courses` (personal tier) | No `current_app_role()` in the SELECT policy at all | Enforced by a post-condition that fails the migration if any SELECT policy on `otter_courses`/`otter_progress` ever mentions it. |
+| `auth_attempt_log` | Operator-read, no membership requirement | Written pre-authentication; no workspace session exists yet. |
+| `workspaces` | Keys on `id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active)`, **not** on the JWT claim | It *is* the tenant row, and the Workspace Switcher needs to list every workspace you actively belong to — not only the current one. |
+
+#### App roles vs Postgres roles
+
+`app_role` is **not** a Postgres enum — it is `TEXT` with
+`CHECK (app_role IN ('admin','manager','user'))` (`0001:72-73`). Same for
+`project_members.project_role` (`'manager' | 'reviewer' | 'member'`). **Both
+use the string `'manager'` for different concepts on different axes** — a
+workspace-wide tier versus a seat on one project. Migration 0026's header makes
+the related distinction between the app tier and the project-level `reviewer`
+seat.
+
+| Postgres role | Meaning |
+|---|---|
+| `authenticated` | Every signed-in client. Subject to RLS. Granted broad table privileges by 0011 as a convenience — **RLS is the real boundary**, with targeted `REVOKE`s layered on sensitive tables. |
+| `anon` | Anonymous. Revoked everywhere sensitive. |
+| `service_role` | Edge Functions. **Bypasses RLS.** Sole executor of provisioning, purges, `operator_workspace_summary()`, `fn_rate_limit_hit()`, teardown. |
+| `supabase_auth_admin` | The *intended* sole grantee of the access-token hook. 0001/0003 grant it and revoke from `anon`/`authenticated`/`public` — but 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens it, and 0011 re-locks only `provision_workspace_and_admin` and `workspace_directory()`. See §17. |
+| `postgres` | Owns SECURITY DEFINER objects; runs migrations and pgTAP. |
+
+`ENABLE` **and** `FORCE ROW LEVEL SECURITY` are set on: `workspaces`,
+`workspace_members`, `platform_operators`, all 13 RABBIT tables,
+`project_members`, `notes`, `note_subjects`, `app_events`, all five O.T.T.E.R.
+tables, `workspace_ai_keys`, `platform_audit`, `edge_rate_limits`. Migration
+post-conditions assert this.
+
+Four tables are `ENABLE`-only, each deliberately: `auth_attempt_log`,
+`edit_history`, `file_events` and `storage_gc_queue` — the first is written
+pre-auth by a service-role function, and the other three have a SECURITY
+DEFINER trigger as their sole writer and zero client write policies.
+
+#### Table inventory
+
+**Identity and tenancy**
+
+| Table | Migration | Purpose |
+|---|---|---|
+| `workspaces` | 0000 / 0001 | The company record: name, slug (immutable), storage mode, soft-delete |
+| `workspace_members` | 0001 | Membership: per-workspace username, `app_role`, `is_active`, profile fields, rate-card grants, `onboarded_at` |
+| `platform_operators` | 0001 | Cross-tenant operator registry. No `workspace_id`. |
+| `auth_attempt_log` | 0001 | `resolve-login` attempt trail; operator-read |
+
+**R.A.B.B.I.T. core** (the 13 RLS-locked tables, all forced)
+
+`projects`, `phases`, `assets`, `tasks`, `task_dependencies`, `task_links`,
+`files`, `asset_versions`, `comments`, `rate_cards`, `rate_card_entries`,
+`ingestion_runs`, `ingestion_chunks` — created in 0000, locked down in 0004,
+tightened by 0013 (project roles), 0014 (soft delete), 0015 (rate identity),
+0020 (active-membership + grants).
+
+Plus `project_members` (0013), `notes` and `note_subjects` (0017, owner-only,
+no admin bypass).
+
+**Edit history** — `edit_history` (0012): append-only diff rows for the 13
+RABBIT tables, one SELECT policy and no write policy at all; the DEFINER
+capture trigger is the only writer.
+
+**O.T.T.E.R.** (0022, extended 0024/0025/0026) — `otter_courses` (carries the
+five reference-document JSONB blobs), `otter_subjects`, `otter_progress`,
+`otter_course_editors`, `otter_change_requests`.
+
+**Files and storage** — `file_events` (0027, append-only lifecycle stream),
+`storage_gc_queue` (0027, service-role work list).
+
+**Audit streams** — `app_events` (0021, admin-read; the `'admin'` type and
+`WIL-41xx` codes are server-reserved so clients cannot forge audit lines) and
+`platform_audit` (0028, operator-read, append-only, no workspace FK).
+
+**Operator and platform** — `workspace_ai_keys` (0028, AES-256-GCM ciphertext,
+zero policies) and `edge_rate_limits` (0028, durable limiter counters, zero
+policies).
+
+#### The helper-function family
+
+Every one of these is the *only* sanctioned way to do what it does. Client code
+must not reimplement their logic.
+
+| Function | SD/INV | Gates |
+|---|---|---|
+| `custom_access_token_hook(jsonb)` | DEFINER | Mints the four JWT claims |
+| `current_workspace_id()` | INVOKER | Active workspace from the claim |
+| `current_app_role()` | INVOKER | App role from the claim (deliberately claim-based, to avoid RLS recursion) |
+| `has_active_membership(uuid)` | DEFINER | The live membership gate used by nearly every policy |
+| `project_role_for` / `project_is_staffed` / `can_write_project` / `can_comment_project` / `can_manage_project_roster` | DEFINER | Project-level authority (0013); mirrored client-side by `projectRoleMatrix.js` |
+| `has_rate_card_grant(text)` | DEFINER | Live per-user rate-card view/edit grant (0020) |
+| `soft_delete_row` / `restore_soft_deleted` / `fn_trash_authz` | DEFINER | The only client path into and out of the trash |
+| `can_read_project_topic(uuid)` | **INVOKER, on purpose** | Realtime channel join-authz, identically equivalent to `projects_select` |
+| `can_read_workspace_topic(uuid)` | INVOKER | Workspace channel join-authz |
+| `otter_can_write_course` / `otter_is_course_owner` / `otter_has_editor_grant` / `otter_course_visibility` | DEFINER | O.T.T.E.R. authority |
+| `otter_course_index()` / `otter_trash_index()` | DEFINER | Metadata-only listings. `otter_trash_index()` carries a migration post-condition forbidding a content column (0024); `otter_course_index()` has no equivalent assertion — its contract rests on the declared return type plus pgTAP |
+| `otter_fork_course(uuid,text)` | DEFINER | Personal copy of a readable course |
+| `otter_has_open_review_access(uuid)` | DEFINER | The consented review window |
+| `otter_cr_apply(uuid)` | DEFINER | **The only path to an approved change request** |
+| `is_platform_operator()` | DEFINER | Live-row operator check (never the claim) |
+| `operator_workspace_summary()` | DEFINER | The single cross-tenant read; service-role only |
+| `fn_rate_limit_hit(...)` | DEFINER | The durable fixed-window limiter |
+| `provision_workspace_and_admin(...)` | DEFINER | Atomic workspace + first admin |
+| `workspace_directory()` | DEFINER | Member directory; email visible to admin/manager/self only |
+| `purge_edit_history` / `purge_soft_deleted` / `purge_app_events` / `purge_otter_trash` / `purge_edge_rate_limits` | DEFINER | The five retention sweeps (§4.8) |
+
+#### Triggers
+
+Grouped by job, because the *category* is what a reader needs:
+
+- **Audit stamping** — `fn_audit_touch()` on ~20 tables (created/updated by/at).
+- **Populate-workspace** — `fn_populate_workspace_from_project` (assets, tasks,
+  files), `fn_populate_workspace_for_comment` (polymorphic parent),
+  `fn_populate_workspace_for_project_member`, and — added late, in 0029 —
+  `fn_projects_populate_workspace` for the one table that never had one.
+- **Identity pins** — `fn_ws_members_prevent_self_role_change` (no self
+  promotion, username change or workspace move), `fn_otter_pin_course_identity`
+  (also gates visibility transitions; `company_standard` is admin-only in both
+  directions and a disallowed change is **silently reverted**, so the UI must
+  trust the returned row, never what it sent), `fn_otter_pin_subject_identity`,
+  `fn_otter_pin_progress_identity`, `fn_otter_editor_grant_workspace`
+  (a validator, not a defaulter — see §17).
+- **Guards** — `fn_ws_members_last_admin_guard` (a workspace can never reach
+  zero active admins), `fn_workspaces_client_guard` (slug/id/created_at pinned),
+  `fn_workspaces_delete_guard` (0029: refuses any DELETE issued as
+  `authenticated` or `anon`), `fn_soft_delete_stamp` (projects are admin-only
+  to trash).
+- **Capture** — `fn_edit_history_capture` (13 tables),
+  `fn_file_events_capture` (files lifecycle), `fn_app_events_stamp`
+  (server-side actor stamp), `fn_files_gc_enqueue` (blob disposal queue).
+- **Realtime broadcast** — `fn_realtime_broadcast` (10 tables → project topic),
+  `fn_workspace_realtime_broadcast` (5 tables → workspace topic).
+- **Auto-staffing** — `fn_projects_auto_staff` seats the creator and producer as
+  project managers on **client** creates only (`auth.uid() IS NULL` skips), so
+  fixtures and migrations keep 0013's unstaffed-open contract.
+- **State machine** — `fn_otter_cr_review` (§13.2).
+
+Capture triggers share one contract: a catch-all `EXCEPTION WHEN OTHERS →
+RAISE WARNING`. **An audit failure must never abort the write it audits** —
+including a workspace CASCADE.
+
+### 4.5 Realtime
+
+WILSON uses **broadcast-from-database**, never `postgres_changes`.
+
+> Realtime's `postgres_changes` authorizes each event by evaluating the
+> *subscriber's* SELECT policy against the NEW row of every UPDATE. Under the
+> soft-delete policies, setting `deleted_at` makes the NEW row invisible — so
+> the single event collaborators most need ("this was just trashed") would be
+> silently withheld. (`0016_realtime_broadcast.sql:6-8`)
+
+| | Project channel | Workspace channel |
+|---|---|---|
+| Migration | 0016 | 0018 |
+| Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
+| Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+
+Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
+database-only stack) and never abort a write. `fn_try_uuid()` guards the
+topic-suffix cast so a hand-crafted topic string cannot error a policy.
+
+Deliberately **never broadcast**: `otter_*` (personal content — the workspace
+channel hands full row payloads to every subscriber) and `notes` /
+`note_subjects` (private).
+
+*Operational gotcha:* on a hosted project whose Realtime tenant has never been
+active, `realtime.messages` has no partitions and `realtime.send()` silently
+drops rows with only a warning until the first websocket connection activates
+the tenant.
+
+**Client merge model — LWW per field.** `state/realtimeMerge.js` is pure (no
+React, no adapter). Incoming rows are merged field by field: fields with an
+in-flight local write (the *pending-field set*, counted per `table:id`) keep
+the local value; everything else takes the incoming row. An `updated_at` stale
+guard drops an incoming row older than the local one. On `SUBSCRIBED` the
+client always fires a debounced refetch — including the first join — to close
+the missed-events window.
+
+**Yjs is used in exactly one place**: note bodies (§13.4). Nowhere else.
+
+### 4.6 Edge Functions
+
+Twelve functions, three shared guards, one shared crypto module and one shared
+limiter. All run with `verify_jwt = false` (§4.2).
+
+| Function | Caller | Guard | Job |
+|---|---|---|---|
+| `resolve-login` | `LoginScreen`, `ForgotPasswordWizard` | none (public, pre-auth) | Username → email, constant-time, uniform shape |
+| `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | inline `getUser` | Seat `app_metadata.workspace_id` for the next refresh |
+| `provision-workspace` | `NewCompanyWizard` | none (public, pre-auth) | Create company + first admin atomically, plus up to 19 initial invites |
+| `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | inline (claims + live row) | Invite by email, create the membership row with `onboarded_at` null |
+| `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
+| `admin-reset-password` | Admin Terminal | `requireWorkspaceAdmin` | Rotate a member's password, show-once |
+| `admin-set-active` | Admin Terminal, Team Members | `requireWorkspaceAdmin` | Deactivate/reactivate + GoTrue ban + best-effort global sign-out; last-admin guarded |
+| `admin-user-security` | Admin Terminal | `requireWorkspaceAdmin` | Read-only posture: email, last sign-in, ban state, MFA factors |
+| `ai-proxy` | Every AI feature, both hosts | `requireActiveMember` | §6 |
+| `storage-gc` | Admin Terminal → Diagnostics | `requireWorkspaceAdmin` | §12.4 |
+| `operator-workspaces` | Operator console | `requirePlatformOperator` | §5.4 |
+| `operator-ai-keys` | Operator console | `requirePlatformOperator` | §5.5 |
+
+**`_shared/adminGuard.ts` — `requireWorkspaceAdmin(req)`**, in order:
+
+1. Bearer token present → else `401 unauthorized`.
+2. `admin.auth.getUser(token)` → else `401`.
+3. Claims from the **token payload** (falling back to the user record):
+   `workspace_id` present and `app_role === 'admin'` → else `403 forbidden`.
+4. **Live row**: `workspace_members` for that pair must exist, be active, and be
+   admin → else `403`. ("Claims can outlive a demotion by the token TTL; the
+   membership row cannot.")
+5. **MFA step-up — fails CLOSED since Session 15.** A failed or errored
+   `listFactors` lookup returns `503 mfa_check_failed`; the `error` channel is
+   checked as well as thrown exceptions, because supabase-js reports most
+   failures there. If a *verified* factor exists and the token is not `aal2` →
+   `403 mfa_required`.
+6. **`WILSON_REQUIRE_ADMIN_MFA`** — opt-in, **off by default**. When set to
+   `'1'`, an admin with no verified factor at all is refused
+   `403 mfa_enrollment_required`. It ships off because whether every existing
+   production admin holds a verified factor is not verifiable from a session
+   that never signs in, and a default-on gate would lock the owner out of her
+   own Admin Terminal. The residue is tracked as TPN-AUTH-003.
+
+Also in that module: `generatePassword()` (20 chars, unambiguous alphabet,
+rejection-sampled against `crypto.getRandomValues`) and `logAdminEvent()`
+(best-effort `app_events` insert that never blocks the caller).
+
+**`_shared/memberGuard.ts` — `requireActiveMember(req)`**: the same token +
+live-row shape with **no role check and no MFA**. Rationale, in the file: any
+active member may use AI features, so the live-row check is what stops a
+deactivated member spending money, and demanding `aal2` for every AI call would
+break ordinary flows.
+
+**`_shared/rateLimit.ts` — `isRateLimited(...)`**: calls
+`public.fn_rate_limit_hit(bucket, subject, limit, window_seconds)`, a **fixed**
+window backed by `edge_rate_limits`, shared by every isolate and surviving
+redeploys. Two properties are stated rather than discovered:
+
+- The window is **fixed**, not sliding — up to 2× the limit can pass across a
+  window edge. A sliding window needs per-hit rows; that trade was taken
+  deliberately.
+- It **fails OPEN**, with a loud `console.error`. *A limiter is an abuse
+  control, not an authorization control, and authorization has already run
+  above it — a database hiccup must not take every tenant's AI features
+  offline.* Compare `operatorGuard`, which fails **closed**: an auth check that
+  cannot verify has no such excuse. Both choices were made in the same session,
+  on purpose.
+
+Current users: `ai-proxy` (`AI_PROXY_RPM`, default 60, keyed on workspace),
+`operator-ai-keys` and `operator-workspaces` (`OPERATOR_WRITE_RPM` 20 /
+`OPERATOR_READ_RPM` 120, keyed on caller). `resolve-login` and
+`provision-workspace` still use their original per-isolate in-memory buckets;
+the remaining functions have no limiter (§17).
+
+**Show-once credentials.** WILSON stores no password anywhere. GoTrue accepts a
+plaintext password only to *set* it, so the create/reset response is the one
+moment the plaintext exists outside GoTrue's hash. `CredentialsPopup.jsx` holds
+it in component state only, has no backdrop-click / Escape / X dismissal, and
+requires a second confirmation to close without copying. Admin-created users may
+have **no real email** — one is synthesized as
+`wilson.<workspace-prefix>.<username>@mail.petalstudios.co` purely to satisfy
+GoTrue's shape requirement. Consequence: forgot-password is unavailable for
+those accounts and an admin must reset instead; the response carries an
+`email_synthesized` flag so the UI can say so.
+
+### 4.7 Storage buckets
+
+| Bucket | Migration | Public | Cap | Path template |
+|---|---|---|---|---|
+| `user-avatars` | 0009 | **yes** (public read) | 2 MB, image mimes only | `{workspace_id}/{user_id}/{filename}` |
+| `rabbit-files` | 0027 | no (private) | 50 MB, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
+
+`user-avatars` INSERT requires the path's first folder to be the caller's
+workspace and the second to be their own uid; SELECT is unconditional within
+the bucket, matching the public-read intent. (That unconditional SELECT is a
+tracked finding — TPN-CLOUD-004 — because the public anon key can therefore
+enumerate avatar objects.)
+
+`rabbit-files` policies all require the path to start `projects/` and the second
+segment to resolve to a real project via `fn_try_uuid` — which fails **closed**
+on a garbage segment, where `can_write_project(NULL)` alone would fail open.
+INSERT additionally requires active membership and project write access. There
+is **no UPDATE policy** — objects are immutable, uploaded with `upsert: false`.
+
+The single DELETE policy, `rabbit_files_delete_own`, is bounded to the
+uploader's own objects **created within the last hour**. It exists for exactly
+one flow: an upload whose `files` row insert was then refused, cleaning up after
+itself. The unbounded version — caught in review — would have let any past
+uploader destroy or silently replace live blobs, unaudited. All other blob
+deletion goes through the GC function as `service_role`.
+
+### 4.8 Scheduled jobs (pg_cron, all three environments)
+
+| Job | UTC | Sweeps | Retention |
+|---|---|---|---|
+| `wilson-purge-edit-history` | 04:43 | `edit_history` | 90 days |
+| `wilson-purge-soft-deleted` | 04:47 | Soft-deleted rows across 7 tables, cascading each subtree | 30 days |
+| `wilson-purge-app-events` | 04:51 | `app_events` | 90 days |
+| `wilson-purge-otter-trash` | 04:55 | Trashed O.T.T.E.R. subjects then courses | 30 days |
+| `wilson-purge-rate-limits` | 04:59 | `edge_rate_limits` windows | 1 day |
+
+Each is guarded so a missing `pg_cron` never fails the migration (CI's local
+stack has none).
+
+**Two streams deliberately have no purge job**, and this is a compliance
+position, not an oversight:
+
+- **`file_events`** — audit retention must be ≥ 1 year, and the `'purged'` rows
+  *are* the deletion certificates (TPN-CONT-002).
+- **`platform_audit`** — same reasoning, plus a `workspace.teardown`
+  certificate must outlive the company it describes.
+
+`auth_attempt_log` also has no purge job, but unlike the two above it carries no
+stated retention rationale (§17).
+
+`storage_gc_queue` is drained by an Edge Function on an admin's click, not by
+cron — see §12.4 for why.
+
+### 4.9 Migration ordering rules
+
+Migrations apply in version order, so every normal path is safe. These rules
+only matter if someone **replays a migration by hand**:
+
+| If you re-run… | You must then re-run… | Because |
+|---|---|---|
+| `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
+| `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
+
+0027 and 0028 explicitly state that they overwrite nothing and carry no
+ordering rule.
+
+**The general lesson, learned the hard way:** *permissive RLS policies OR
+together.* Adding a narrow policy alongside a broad `FOR ALL` one changes
+nothing — the old policy must be **dropped**. This cost Session 15 a critical
+finding that two independent passes caught.
+
+---
+
+## 5. The operator console (`/wilsonadmin`)
+
+### 5.1 A second build target, not a page
+
+`/wilsonadmin` is its own Vite entry: `admin.html` → `src/admin/mainAdmin.jsx`
+→ `src/admin/OperatorApp.jsx`. It does not use `src/App.jsx`. It has no router,
+no tools, no pet, and exactly two sections (Companies, Audit).
+
+Selection is by **vite `--mode admin`**. `vite.config.js` is the function form,
+and `rollupOptions.input` is a ternary on the mode:
+
+```js
+input: mode === 'admin' ? 'admin.html' : 'index.html'
+```
+
+The entry is gated rather than always listed because plain `npm run build`
+feeds the Electron package — an unconditional second input would ship the
+platform operator console inside the desktop installer.
+
+| Script | Output |
+|---|---|
+| `build` | `dist/` — Electron. Emits **only** `index.html`. |
+| `build:vercel` | `dist-vercel/wilson/` |
+| `build:vercel:admin` | `dist-vercel/wilsonadmin/` |
+| `build:admin` | `dist-web-admin/` |
+| `dev:admin` | dev server with both entries |
+
+`package.json`'s `build.files` packages `dist/**/*` only, and Electron's local
+server serves `dist/` with an SPA fallback to `index.html`. **The desktop app
+therefore has no code path that can reach the operator console** — it is not
+blocked at runtime; it is simply never built into that artifact.
+
+**A Vite naming quirk shapes the routing:** Vite names emitted HTML after its
+input, not `index.html`. `dist-vercel/wilsonadmin/` contains `admin.html` and
+no `index.html`, which is why `vercel.json` rewrites `/wilsonadmin*` to
+`/wilsonadmin/admin.html` explicitly.
+
+### 5.2 Session isolation is a key string, and nothing else
+
+**This is the most important fact about the console, and the most fragile.**
+
+`localStorage` is scoped per **origin**, not per path. On
+`beta.petalstudios.co`, both bundles read the same store. The only thing
+separating an operator session from an ordinary app session is that the two
+bundles are compiled with different constants.
+
+- `vite.config.js:47` defines `__WILSON_SURFACE__` as `'admin'` or `'app'` at
+  build time — not a runtime branch, a different constant in each build.
+- `src/cloud/auth/sessionStorage.js:39-40` picks the key:
+  `wilson.operator.session` on the admin surface, `wilson.dev.session`
+  otherwise. (The app key kept its historical name deliberately; renaming it
+  would sign out every existing session for no gain.)
+- `src/cloud/auth/supabaseClient.js:44` gives supabase-js distinct `storageKey`
+  values — `sb-wilson-operator` vs `sb-wilson-app`. This is *not* the isolation
+  mechanism (`persistSession: false` means the SDK writes no session itself),
+  but it namespaces the navigator lock, PKCE verifier slot and JWKS cache so
+  the two bundles don't collide.
+- `sessionStorage.js:48-51` refuses the **Electron safeStorage bridge** on the
+  admin surface entirely, because that bridge is a single unkeyed slot that
+  would defeat the key split. Defence in depth — the admin entry is already
+  excluded from the Electron build.
+
+> **Invariant:** any future code that reads a session key without going through
+> `sessionStorage.js` reintroduces the leak. There is no second mechanism to
+> catch it.
+
+### 5.3 The operator tier
+
+`public.platform_operators` has existed since 0001 and the JWT has carried
+`is_platform_operator` since then — but until Session 15 **nothing server-side
+read either**. One client file did, and no policy or function. 0028 added
+`public.is_platform_operator()` (SECURITY DEFINER, live-row) and
+`_shared/operatorGuard.ts`.
+
+**Sign-in is email + password + TOTP**, not username-first. An operator has no
+company, so there is nothing for `resolve-login` to resolve against — that is
+the definition of the tier. Wrong email and wrong password produce an identical
+generic error. **Not-an-operator is not unified with it**: it is only reached
+*after* a fully successful sign-in and renders as a distinct "Not a platform
+operator" screen in `OperatorApp.jsx` — which, like the MFA stage before it,
+inevitably discloses that the credentials were valid.
+
+**`operatorGuard` differs from `adminGuard` in three deliberate ways:**
+
+1. **No `workspaceId` in its context.** Every operator action names its target
+   workspace in the request body instead.
+2. **The JWT claim is not required.** Only the live `platform_operators` row
+   gates access. The live row is strictly stronger, and requiring the claim
+   would add a lockout mode if the Dashboard's access-token hook toggle were
+   ever off.
+3. **MFA is hard, both ways.** No verified factor → `403
+   mfa_enrollment_required`. A failed factor lookup → `503 mfa_check_failed`.
+   Both refuse. This is safe to be strict about where the company Admin
+   Terminal cannot be: the surface is brand new so no existing workflow
+   breaks, and it can delete a tenant.
+
+**There is no grant-or-revoke-operator endpoint anywhere, on purpose.** A
+repo-wide search finds writes to `platform_operators` in exactly three places:
+a manual SQL runbook in `docs/OWED_AUDREY.md` §9B and two pgTAP fixtures. No
+Edge Function, no component, no API module touches it. 0028 additionally
+revokes INSERT/UPDATE/DELETE/TRUNCATE from `anon` and `authenticated`, and RLS
+carries only SELECT policies — asserted by a migration post-condition.
+
+**State this as a security property, not an omission.** The console can create
+and destroy companies, so the one thing it must not be able to do is mint more
+operators. Keeping the grant out of band means the highest privilege in the
+system cannot be escalated from a web session *even by someone already holding
+it*. The cost is one `INSERT` in the SQL editor when bootstrapping an
+environment.
+
+### 5.4 `operator-workspaces`
+
+Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
+
+- `list` — paged calls to `operator_workspace_summary()`, the **single**
+  cross-tenant read in the system. Returns per-company member/active/admin
+  counts, project and file counts, blob count, `has_ai_key` and `ai_key_hint` —
+  including suspended companies, which the member-facing policy hides.
+- `create` — creates the auth user, calls `provision_workspace_and_admin`, rolls
+  the auth user back if provisioning fails, seeds `app_metadata.workspace_id`,
+  certificates `workspace.created`, returns a show-once password.
+- `rename` — name only; the slug is immutable by trigger.
+- `suspend` / `restore` — set and clear `workspaces.deleted_at`, with
+  `already_suspended` / `not_suspended` conflict guards.
+
+**Teardown — the ORDER is the design.** Reading it in sequence is the only way
+to understand why it cannot be simplified:
+
+1. **Snapshot the workspace row first.** The name and slug are copied as text —
+   that snapshot is what keeps the certificate meaningful after the row is gone.
+2. **Require the slug typed back** (`confirm_slug`), else `400
+   confirmation_mismatch`.
+3. **Collect every `rabbit-files` path** from **both** `files` and
+   `storage_gc_queue`, paged with `.range()` in 1000-row chunks. Paging is not
+   optional: PostgREST caps un-ranged reads at `max_rows` (1000) **even for
+   `service_role`**.
+4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
+   project id belongs to *this* workspace are accepted. `files.storage_path` is
+   client-writable and the sweep runs as service_role, so a member could
+   otherwise point a row at another tenant's key and have teardown delete it.
+   Rejected paths produce a `blob.purged` refusal certificate, code `WIL-7008`.
+5. **Delete blobs in batches of 100, certificate each batch** (`WIL-7006`,
+   emitted in 40-path chunks because the audit `context` column has an
+   8000-character CHECK). `blobs_removed` counts what the bucket's `remove()`
+   actually returned, not the batch size — a certificate must never claim a
+   destruction that did not happen.
+6. **Delete the workspace row.** This fires the CASCADE.
+7. **Drop the queue rows — *after* the cascade, not before.** The `files`
+   CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
+   would leave those undrainable.
+8. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
+   critical) with found/removed/missing/failed/rejected counts.
+
+The reason the collection must happen *first*: after the CASCADE there is no way
+to discover which blobs belonged to the tenant, and `storage-gc`'s orphan scan
+fails closed because the rows it resolves through are gone.
+
+**Named limitation.** Teardown removes the tenant, not the people. A user whose
+only membership was in that company keeps an `auth.users` row and can still
+authenticate; they simply resolve to no workspace. Deleting those identities
+would be a destructive act on accounts the operator did not create, and a user
+may hold memberships in several companies — so it is out of scope by decision.
+What is missing is the *reporting* (§17).
+
+### 5.5 `operator-ai-keys` and the key crypto
+
+Actions: `set` and `clear` only. **There is deliberately no `get`.**
+
+`set` validates the key with a live 1-token call to Anthropic (model
+`claude-haiku-4-5-20251001`, `max_tokens: 1`). Only a 401/403 from Anthropic
+counts as invalid — a network error or any other status is "inconclusive" and
+the key is stored anyway. It then encrypts and upserts, and certificates
+`ai_key.set` (`WIL-7010`) carrying **only the hint**. `clear` deletes the row
+and certificates `WIL-7011`.
+
+`_shared/aiKeyCrypto.ts`: **AES-256-GCM** via WebCrypto, envelope
+`base64(iv[12] ‖ ciphertext ‖ tag[16])`, a fresh random IV per record (so
+re-saving the same key yields different ciphertext). The data-encryption key
+comes from the Edge secret **`WILSON_AI_KEY_SECRET`**, which must decode to
+exactly 32 bytes — a short or malformed value throws rather than being padded.
+The console only ever sees `key_hint`, the last four characters.
+
+**Why encrypt at all, when the table is already service-role-only with zero
+policies?** Because the nightly `pg_dump` goes **off-platform** to Backblaze B2
+with 90-day retention (§8). A plaintext column would copy every tenant's
+Anthropic spending credential into a 90-day off-platform archive. The
+ciphertext goes into the dump; the key that opens it does not.
+
+**Why not Supabase Vault?** Vault exists on all three hosted projects and would
+have been the conventional answer. It was rejected because CI's pgTAP job runs
+`supabase start` on a local stack that cannot be run on the development machine
+(no Docker), so a Vault dependency inside the migration chain could not be
+verified before it either passed or broke every job at once. App-layer AES-GCM
+keeps 0028 plain SQL and puts the crypto where an adversarial review can read
+it.
+
+> **Consequence to know:** rotating `WILSON_AI_KEY_SECRET` orphans every stored
+> company key. The ciphertext becomes undecryptable, `ai-proxy` fails soft to
+> the platform key, and the console still shows the old hint. There is a
+> `key_version` column but no version-conditional key selection — rotation
+> needs a re-encryption pass. Recorded in `docs/OWED_AUDREY.md` §9C.
+
+### 5.6 The two sections
+
+- **Companies** (`CompaniesSection.jsx`) — one table (Company / Slug / Members /
+  Projects / Files / AI key) fed entirely by `operator-workspaces` `list`. The
+  detail panel drives rename, suspend, restore, teardown, set-key and clear-key.
+- **Audit** (`AuditSection.jsx`) — the one place the console reads the database
+  **directly** with the operator's own client rather than through an Edge
+  Function: the latest 200 `platform_audit` rows, gated purely by the
+  `platform_audit_operator_read` RLS policy. Writes are impossible from here —
+  the table has exactly one SELECT policy and all write privileges are revoked,
+  with a migration post-condition that raises if that ever stops being true.
+
+**The design rule this embodies:** the console reaches every other tenant fact
+through service-role Edge Functions rather than widening RLS across tenants.
+An operator has no cross-tenant reach today beyond `workspaces` and
+`auth_attempt_log`; every other table gates on `current_workspace_id()`, and
+the access-token hook refuses to mint a `workspace_id` the caller is not a
+member of. The alternative — operator arms on a dozen policies — would put
+every company's rows one policy bug away from each other. One crossing, one
+guard.
+
+---
+
+## 6. Anthropic — the `ai-proxy` seam
+
+**No Anthropic API key ever reaches a client, on either host.** This is
+verifiable, not asserted: `x-api-key` and `ANTHROPIC_API_KEY` appear nowhere
+under `src/` or `electron/`; the only `fetch` calls to `api.anthropic.com` are
+server-side in `ai-proxy` and `operator-ai-keys`; and `src/App.jsx:227-234`
+actively purges the two legacy `localStorage` key slots on every launch. There
+is **no direct-to-Anthropic fallback anywhere** — a second code path is
+precisely how the pre-proxy divergence bugs happened.
+
+**The contract.** Clients `POST` to `{SUPABASE_URL}/functions/v1/ai-proxy`
+through the single helper `callAI()` in `src/cloud/aiProxy.js`. Accepted body
+fields: `model`, `max_tokens`, `messages`, `system`, `tools`, `betas`, and
+`tool` — WILSON's own attribution tag (≤40 chars), which is logged and
+**never forwarded upstream**. The upstream body is a whitelist reconstruction,
+not a passthrough, so clients cannot smuggle extra fields.
+
+**Auth**: `requireActiveMember` — token claims plus a live `workspace_members`
+re-check. A deactivated member gets `403 forbidden` even with an unexpired
+token, because this is a *spend* endpoint and the row check is what stops them
+spending money.
+
+**The key seam**: look up `workspace_ai_keys` for the caller's workspace →
+decrypt → on any failure fall through to the platform `ANTHROPIC_API_KEY`. *A
+tenant key is a billing preference, not an authorization boundary.* If neither
+exists, the function returns **`501 ai_not_configured`** — deliberately 501 and
+not 503, because every client retry loop treats 429/503/529 as transient and a
+503 would burn roughly 21 seconds of pointless retries before the honest
+message surfaced.
+
+**Streaming transport.** The proxy always sets `stream: true` upstream,
+regardless of what the client asked for. Supabase Edge Functions must emit a
+response within **150 s**; O.T.T.E.R. generations regularly run longer, so a
+synchronous proxy would occasionally 504 and lose an entire generation. With
+SSE the first byte is immediate, the response deadline never bites, and the
+400 s wall clock governs instead. `src/cloud/anthropicStream.js` reassembles
+the stream client-side into the classic non-streaming message object, so
+O.T.T.E.R.'s single `callAnthropicAPI` wrapper changed internally and none of
+its six call sites did.
+
+**The in-stream error trap** — worth internalising, because it generalises:
+Anthropic can return HTTP 200 and then emit an SSE `error` event mid-generation
+and still close the stream *normally*. There is no non-2xx status to key off.
+Both sides trap it: the proxy's usage sniffer sets a flag so telemetry logs
+`WIL-6002` (failed) rather than `WIL-6001`, and the client reassembler throws
+with a status mapped from the Anthropic error type. **Anything that logs
+"completed" on stream close must sniff for in-stream errors.**
+
+**Rate limiting**: the durable limiter, bucket `ai-proxy`, subject = workspace
+id, window 60 s, limit `AI_PROXY_RPM` (default 60), fail-open (§4.6).
+
+**Usage telemetry**: fire-and-forget inserts into `app_events` via
+`EdgeRuntime.waitUntil`, never blocking the response. `WIL-6001` on success,
+`WIL-6002` on failure, with `context` carrying `model`, `tool`, `input_tokens`,
+`output_tokens`, `stop_reason` and **`key_source`** (`workspace` | `platform`).
+Token counts are sniffed out of the SSE itself. Today these rows are read
+through the Admin Terminal's generic Logs section, which renders `context` as
+JSON — there is no purpose-built spend dashboard yet (§17).
+
+**Two model ids exist in the entire codebase:**
+
+| Model | Used for |
+|---|---|
+| `claude-sonnet-4-20250514` | Course outlines and subject content, deck outlines, image prompts, agent turns, the Validator, and heavier RABBIT intake document kinds |
+| `claude-haiku-4-5-20251001` | Companion chat, theme colours, text rewrites, quiz generation, lighter intake kinds and the classifier, and the operator key-validation round trip |
+
+Each call site hardcodes its model; there is no shared default constant. Retry
+policy is deliberately inconsistent by caller — O.T.T.E.R.'s shared wrapper
+retries 3× on `429/503/529`/overload text with `[3000, 6000, 12000] ms` delays;
+RABBIT's intake retries 3× with linear backoff; the Validator and D.O.G. do
+not retry at all (D.O.G.'s only resilience is a max-tokens *continuation* loop,
+which is a different mechanism).
+
+---
+
+## 7. GitHub
+
+The repository `pretty-aud/wilson` is **public**. Note the layout: the **git
+root is one level above `WILSON/`**, so `.github/workflows/` is a sibling of
+the app directory, not inside it.
+
+### 7.1 `rls.yml` — CI
+
+Triggers: push to `feat/**`; pull request to `main` or `feat/**`. Deliberately
+not push-to-`main`, where branch protection makes it redundant.
+
+| Job | What it runs | What it proves |
+|---|---|---|
+| **pgTAP** | A per-table coverage gate, then `supabase start` (excluding realtime, storage-api, imgproxy, edge-runtime, studio, mailpit) and `supabase test db` | Every RLS-allowlisted table has a dedicated suite, and every suite passes against a **fresh** Postgres with all migrations applied from `0000` in order — not just against an already-migrated project |
+| **issue-session smoke** | `scripts/probes/issue-session.sh` against real `wilson-dev` | That ES256 tokens validate in-function. The local stack issues HS256, so **only a hosted probe can catch this regression** |
+| **Vitest** | `npm test` | Renderer pure-function modules; no secrets |
+| **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
+
+The coverage gate runs **before** Postgres boots and fails fast; its allowlist
+currently names 26 tables. On failure the pgTAP job re-runs 19 named suites
+through raw `psql` so the actual SQL error and SQLSTATE surface as GitHub
+annotations instead of being hidden behind pg_prove's TAP summary.
+
+Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
+`DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
+hosted jobs self-skip when any is missing, so fork PRs do not fail.
+
+### 7.2 `backups.yml` — nightly database backups
+
+Runs at **08:15 UTC** plus manual dispatch, in a `postgres:17` container so the
+client major matches the hosted server. Dumps **prod** and **staging** with
+`pg_dump -Fc --no-owner | gzip`, uploads to B2 via the S3-compatible API, then
+re-lists the object and fails the job if it is absent. Secrets (names only):
+`BACKUP_PROD_DB_URL`, `BACKUP_STAGING_DB_URL`, `B2_S3_ENDPOINT`, `B2_KEY_ID`,
+`B2_APP_KEY`, `B2_BACKUP_BUCKET`.
+
+> **The rule that makes this file work at all:** GitHub fires `schedule`
+> workflows **exclusively from the default branch**, and only shows the
+> `workflow_dispatch` button for workflows present there. This file therefore
+> lives on `main`, not on the feature branch. When it was first committed to
+> `feat/multi-user-v1` only, the nightly job had two independent reasons never
+> to execute and the missing secrets were merely the visible one. **Any future
+> scheduled workflow must live on the default branch or it is decoration.**
+> (`rls.yml` is unaffected: `push` and `pull_request` run from the branch where
+> the event happened.)
+
+### 7.3 The npm-10 lockfile rule
+
+CI's `npm ci` rejects a lockfile written by npm 11. If the lockfile must be
+regenerated, do it with `npx npm@10 install --package-lock-only`. Vercel, which
+runs npm 11, sidesteps this by using `npm install` instead (§3.2).
+
+### 7.4 There is no release pipeline
+
+Only `rls.yml` and `backups.yml` exist. `npm run dist` / `dist:publish` are
+local, manual commands that publish the installer straight to the B2 feed —
+there is no reviewed workflow building or publishing the artifact that
+`electron-updater` distributes (§17).
+
+---
+
+## 8. Backblaze B2
+
+One vendor, two jobs, chosen because it is S3-compatible and works with
+`electron-updater`:
+
+1. **Nightly `pg_dump` archives** — `db/{env}/wilson-{env}-{timestamp}.dump.gz`
+   for prod and staging. SSE-B2 and Object Lock are on; the lifecycle window is
+   **90 days**.
+2. **The auto-update installer feed** at `https://updates.petalstudios.co/wilson`.
+
+**B2 never holds customer content.** Database dumps and installers only. This
+is a locked decision, and the thing that makes a database-only backup
+*sufficient* is the storage model: `files` rows carry a `storage_provider` and a
+**relative** `storage_path`, so a database restore plus a reconnected storage
+provider resolves. Project files live in the company's own storage and are the
+company's backup responsibility; WILSON keeps only the metadata that points at
+them.
+
+**Why B2 exists at all, given Supabase Pro already includes daily backups.**
+Supabase's own backups have 7-day retention and live on the same platform. The
+B2 copy is **off-platform** (a suspended account, billing lapse or compromise
+takes the database *and* its platform backups together) and **long-retention**
+(7 days catches "we broke something Tuesday"; it does not catch corruption
+noticed a month later). A compressed dump is single-digit megabytes, so a year
+of dailies across both environments sits inside B2's free tier.
+
+---
+
+## 9. Resend
+
+Transactional email over SMTP, domain `mail.petalstudios.co`, DNS at
+Squarespace. Templates are uploaded to all three Supabase projects.
+
+| Mail | Trigger | Lands on |
+|---|---|---|
+| Invite | `invite-member`, or `provision-workspace`'s initial-team `invites[]` | `{SITE_URL}/#/recovery` → `ResetPasswordWizard`, which sets the password, signs the user out, and returns them to a real login |
+| Recovery | `ForgotPasswordWizard` → `resetPasswordForEmail` | Same wizard |
+| Email change | Supabase Auth | Standard |
+
+The invite template substitutes `ConfirmationURL`, `Email`, and the metadata
+`company_name`, `inviter_name` and `username`; the copy states 24-hour link
+validity. A newly-invited member's `workspace_members` row is created with
+`onboarded_at` null, which is what makes `NewUserWelcome` appear on first
+sign-in.
+
+> **`supabase config push` is deliberately NOT used** for the
+> `site_url` / `additional_redirect_urls` settings. It pushes the whole local
+> `[auth]` block, and the local `config.toml` sets `smtp.enabled = false` —
+> which would disable hosted Resend email. Those values are changed in the
+> Dashboard.
+
+---
+
+## 10. Sentry
+
+| | Renderer | Electron main |
+|---|---|---|
+| Module | `src/cloud/sentry.js` | `electron/sentry.cjs` |
+| Init | `initSentry()` from `src/main.jsx`, fire-and-forget | `initMainSentry()` from `main.cjs:20`, after `loadEnv` so the DSN exists |
+| SDK | `@sentry/electron/renderer`, dynamically imported, degrades if absent | `@sentry/electron/main`, same |
+| Env var names | `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE` | same names via `process.env` |
+| Disabled when | DSN unset, or contains the literal `REPLACE-ME` | same |
+| Sampling | `tracesSampleRate` 0.1 in production, 1.0 otherwise | same |
+| PII | **`sendDefaultPii: false`** — TPN requires explicit opt-in for anything that could carry customer content | same |
+
+`src/cloud/errorCodes.js` is the other entry point: `reportAppEvent` forwards
+`error` and `critical` severities to Sentry as exceptions, and is the same path
+the update checker uses for `WIL-5001` / `WIL-5002`.
+
+Sentry is currently the **only** external log sink, and it is errors-only — it
+is not a security log and there is no aggregation or alerting anywhere (§16).
+
+---
+
+## 11. electron-updater
+
+- **Channel**: NSIS via electron-builder (`npm run dist`), one-click,
+  per-user, `deleteAppDataOnUninstall: false`.
+- **Feed**: a `generic` provider pointed at the B2 URL compiled into
+  `package.json`, overridable at runtime by **`WILSON_UPDATE_URL`** read from
+  the packaged app's `{userData}/env.json`, so an operator can repoint without
+  a rebuild.
+- **Behaviour**: `autoDownload = false`, `autoInstallOnAppQuit = true` — the
+  renderer owns the decision.
+- **The login-time flow**: `checkForUpdates()` fires on every sign-in. If an
+  update is available *and* its version is not the one stored under
+  `localStorage['wilson.update.skipped-version']`, `UpdatePrompt` renders after
+  onboarding and MFA-enrolment gates clear. The user picks **Update now**
+  (download → progress → Restart & install) or **Skip this version**. Settings
+  → General also has a manual check.
+- **Status channel**: `wilson:update-status` carries
+  `checking | available | not-available | downloading | downloaded | error |
+  unsupported | disabled`.
+- **Forge/Squirrel degradation**: Forge's only maker is Squirrel, which
+  produces no `app-update.yml`. The updater degrades rather than throwing —
+  a missing `electron-updater` module reports `unsupported / module-missing`,
+  and an error mentioning `app-update.yml` reports
+  `unsupported / no-app-update-yml`. Unpackaged runs report
+  `disabled / dev` and never even require the module. Forge stays for dev
+  packaging; **NSIS is the only auto-updatable artifact.**
+
+*Known posture note:* `WILSON_UPDATE_URL` comes from an operator-writable,
+unsigned `env.json` and is passed to the generic provider with no scheme or
+host validation (tracked in `TPN_AUDIT`).
+
+---
+
+## 12. Company storage providers and the file lifecycle
+
+### 12.1 The three providers
+
+Locked decision: v1.0 supports local / local-server, Supabase Storage, and
+read-only Google Drive. S3-compatible providers (AWS, Hetzner) come post-1.0
+through one adapter. The database enum is
+`storage_provider ∈ ('supabase','google_drive','local_server')` — "local" and
+"local server" are one provider presented as a single card in Settings.
+
+| Provider | `storage_path` means | Read | Write | Web |
+|---|---|---|---|---|
+| `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | Base64 JSON body → `writeFileSync` | ✗ |
+| `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ (the only one) |
+| `google_drive` | **Not a path** — the Drive file's opaque id | `files/{id}?alt=media` | Every write throws `readOnly()` | ✗ |
+
+`local_server` resolution order (`main.cjs:895-911`): the project's `files_dir`
+override if set **and still present on disk** → `{project_folder}/{slug}_FILES`
+→ an internal fallback under `rabbit-data/projects/{id}/files`. None of
+`files_dir` / `folder_root` / `folder_slug` exist as database columns — they are
+local-bundle fields, which is why relink and folder mirroring are local-only
+features.
+
+### 12.2 Relink — find, preview, **apply**
+
+Modelled on ShotGrid/Blender: point WILSON at the new folder and it re-finds the
+moved files itself. `local_server` only, but the matcher is written
+provider-agnostically and unit-tested in isolation
+(`components/relinkMatcher.js`, pure).
+
+**Three rungs, in order; each rung only sees what the rungs above left
+unclaimed:**
+
+1. **`exact`** — basename equals the old path's basename (case-folded).
+   Duplicate disk names tiebreak on size, else become `ambiguous`.
+2. **`strong`** — sanitized display name **and** size match. Run as a full pass
+   before rung 3, so a size-mismatched row cannot steal a candidate that a
+   later row would match strongly.
+3. **`name`** — sanitized name only. Zero hits → `unmatched`; more than one →
+   `ambiguous`.
+
+Routes: `POST …/files/relink-scan` and `POST …/files/relink-apply`. Both refuse
+(403) any folder the user did not pick through the OS dialog, and every path
+they touch goes through the containment resolver (§3.1).
+
+**`files_dir` is the base-change semantic.** Applying a relink against a new
+folder makes that folder the project's files home — **for future uploads too**,
+not just the relinked rows. Four guards surround this:
+
+- The dialog **discloses it before the write**.
+- Files & Storage surfaces the override with a Reset control.
+- A **409** refuses the change if the currently-recorded home exists but is
+  merely *offline* (unplugged drive, dropped share) — better to ask the user to
+  reconnect than to silently strand files at the true home.
+- A second **409** refuses if the change would strand any file that currently
+  resolves under the old directory but not the new one.
+
+Every relink writes a `relinked` event, including a base-folder change itself.
+
+### 12.3 `file_events` — the lifecycle stream
+
+Vocabulary (a CHECK constraint, not a convention): `uploaded`, `moved`,
+`relinked`, `trashed`, `restored`, `purged`. Cloud path changes emit `moved`;
+local relink emits `relinked`.
+
+Written **only** by `trg_files_lifecycle` → `fn_file_events_capture()`
+(SECURITY DEFINER). INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
+`deleted_at` transition and/or `moved` on a `storage_path` change (one UPDATE
+can emit both); DELETE → `purged` with a JSONB snapshot whose `mime_type` is
+truncated to 256 characters, specifically so a client-writable oversized value
+can never trip the `details` CHECK and void the certificate.
+
+Read policy: project readers **plus** a workspace-admin arm, so proof of
+deletion stays readable after the project itself is gone. There are no FKs on
+`file_id` / `project_id` — deliberately, so the certificate outlives its
+subject. Append-only is enforced three ways: zero write policies, revoked
+grants, and migration post-conditions.
+
+**The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
+local twin, `bundle.fileEvents`, trims to 2000 events by dropping everything
+*except* `purged` rows — the deletion record is the one entry that must outlive
+churn.
+
+### 12.4 Blob garbage collection
+
+`trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
+'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
+Function (adminGuard, workspace-scoped) then does three jobs:
+
+1. **Queue drain** — up to 500 pending rows, re-checking that no `files` row
+   (live *or* trashed) still references the path before removing it, so a
+   restorable file's blob is never destroyed.
+2. **Orphan scan** — walks `rabbit-files/projects/*` under a run-wide budget of
+   5000 objects, batching reference lookups, deleting only unreferenced objects
+   older than 24 hours, and failing **closed** on tenancy: a project folder
+   whose `projects` row is gone is touched only if a `file_events` row still
+   ties it to this workspace.
+3. **Avatar sweep** — walks `user-avatars/{workspace_id}/*` with paged member
+   reads (max_rows applies to service_role too — the unpaged version deleted
+   *current* avatars past the cap), removing anything that is not a member's
+   current `avatar_url` and older than 24 hours.
+
+**It is admin-invoked, not a cron job**, for two reasons: TPN TS-1.5 wants dual
+authorization on destruction and a human clicking a stated confirm *is* the
+second factor; and a GitHub Actions cron would hit the default-branch trap
+(§7.2). Every run emits queue-row terminal statuses plus one `app_events` line
+(`WIL-3003` success / `WIL-3004` failure).
+
+### 12.5 CSV export and workspace takeout
+
+One writer, `src/lib/csvExport.js`, with three safety properties: a UTF-8 BOM
+and CRLF endings so Excel opens it correctly; RFC 4180 quoting; and a
+**formula-injection guard** that prefixes any string beginning `=`, `+`, `@` or
+`-` (and which is not a plain number) with an apostrophe, so a crafted project
+name cannot execute in a spreadsheet.
+
+**Per-page exports** — team roster, rate card, and project tasks. Each follows
+one rule: *it exports exactly what the viewer sees*, same rows (filters, sort,
+liveness) and same columns. The wage column cannot leak through an export if
+the screen is not showing it.
+
+**Workspace takeout** (admin-only, in the Admin Terminal → Company): one CSV per
+table across 19 tables plus a `manifest.json`, zipped. It is built from **the
+requesting admin's own RLS-scoped reads — never a DEFINER sweep** — so it can
+only ever contain what that admin already reads. Paginated at 1000 rows with a
+200 000-row backstop recorded in the manifest as `truncated` rather than
+silently dropped.
+
+**Excluded, with reasons stated in both the UI and the manifest:**
+
+- **O.T.T.E.R. content** — courses may encode internal practice a company does
+  not want leaving, *and* personal courses are private even from admins, so a
+  takeout that swept them in would become an admin backdoor into exactly the
+  content the visibility model makes unreadable. (The per-user
+  `/api/export-all` stays: exporting *your own* courses is fine.)
+- **Notes** — owner-only personal content with no admin bypass.
+- `storage_gc_queue` — service-role plumbing, not company data.
+- **File blobs** — metadata only; blobs live in the company's storage provider.
+
+---
+
+## 13. The three tools, the shell, and the agent
+
+### 13.1 D.O.G. — Deck Outline Generator
+
+`src/tools/deck-outline-generator_v0.514/`. One large component
+(`DeckOutlineGenerator.jsx`) plus a layout visualiser, a parser, exports, and a
+prompt set. **D.O.G. is not part of the agent system.**
+
+**Pipeline**: uploaded files and/or the open RABBIT project's attachments →
+assembled into a message array → one of eight `callAI()` calls → a
+marker-delimited text response → `parseSlideContent()` extracts TITLE,
+SUBTITLE, LAYOUT STRUCTURE, COPY, VISUAL STYLING, REQUIRED ASSETS and
+COMPONENT GEOMETRY → `correctGeometryIconOrder()` fixes icon-above-title
+stacking on title layouts → held as tabs → exported.
+
+The eight calls: theme colours, single-slide generation, single-slide
+regeneration, full-deck generation (with up to 3 **continuations** when
+`stop_reason === 'max_tokens'` — a continuation loop, not an error retry),
+AI rewrite, rewrite redo, image prompts, and a deck visual description.
+
+**Exports**:
+
+| File | Contents |
+|---|---|
+| `{deck}_DECKOUTLINE.md` | All slides, `═`-delimited, page-sorted |
+| `{deck}_VIS_DECKOUTLINE.md` | Adds a DECK SUMMARY header (title, page count, selected theme colours, visual description) and an ALTERNATE THEME COLORS footer |
+| `{deck}_IMG_PROMPTS.md` | Per-asset image-generation prompts grouped by slide, from a dedicated call |
+| `{proj}_VIS_ASSETS_{NN}_{name}.{ext}` | The raw placed asset files, decoded from their base64 content |
+| `{page}_{title}.md` | The currently-open single slide |
+
+The output format is **locked by default, not immutable**: the format and
+system-prompt textareas are editable state gated behind `formatTabLocked` /
+`promptsTabLocked`, both defaulting to `true`, with a Lock/Unlock toggle. Treat
+the three canonical filenames and their structure as a contract — downstream
+tooling consumes them.
+
+**Slide geometry** (`prompts/rules.js`): canvas **720 × 405 pt**; margins 36 pt
+left/right, 30 pt top, 35 pt bottom, 15 pt gutters; safe area x ∈ [36, 684],
+y ∈ [30, 370] (648 × 340 pt of content). Frame types: `image_placeholder`,
+`video_placeholder`, `infograph_placeholder`, `timeline_placeholder` (all
+requiring an aspect ratio), `icon_placeholder`, and `background_image` (always
+the full 720 × 405). Per-layout coordinate recipes exist for all 15 layouts,
+and a boundary rule requires every frame to satisfy
+`x ≥ 36, y ≥ 30, x + width ≤ 684, y + height ≤ 370`.
+
+> **The COMPONENT GEOMETRY JSON is generated and exported but has no in-app
+> renderer.** Its real consumer is external — a Google Slides automation
+> extension that draws placeholder frames on real slides. `LayoutVisualizer.jsx`
+> deliberately re-derives its own approximate layout from the layout type and
+> asset aspect ratios; it never reads the AI's x/y/width/height values. Do not
+> "fix" the visualiser to consume the JSON without knowing that.
+
+**Attachments — today's behaviour, stated precisely because it is a known
+gap.** `projectFiles` skips any document or visual asset that lacks an inline
+`content` data URL, silently and with no error. In **local** mode every upload
+is read via `FileReader.readAsDataURL`, so `content` is always present and
+attachments work end to end. In **cloud** mode the Supabase adapter strips
+`documents` / `visualAssets` from every project write and **throws** when a
+patch actually carries attachment data — so cloud attachments are refused at
+the write layer rather than silently lost. `adapter.downloadFile` exists on all
+three adapters and has **zero call sites** anywhere in the repo. Re-homing
+attachments onto the `files` table is scheduled for S17, with the traps already
+catalogued in `MASTER_PLAN.md` §6 #31 — including the polarity trap that
+D.O.G.'s `isCore` defaults **true** while `files.is_core_definer` defaults
+**false**, so a naive 1:1 mapping would flip every previously-unmarked file
+from CORE to REF and change generation output.
+
+### 13.2 O.T.T.E.R.
+
+`src/tools/otter_v0.3.1/`. A two-sidebar shell over always-mounted views.
+
+**Object model**: course → subject → section → lesson. A subject may be a
+**stub** (`is_stub: true`, carrying only `section_outlines`) until its content
+is generated on demand. Each course also carries five whole-document JSONB
+**reference documents**: `hotkeys`, `functions`, `nodes`, `reference_urls` and
+`corrections` (the last being agent memory, with no browsing UI).
+
+**Views** (`currentView`): `library`, `prompt`, `study`, `quiz`, `hotkeys`
+(dual-purpose — renders Keyboard Shortcuts for software courses and Functions
+Reference for coding-language courses), `nodes`, `sources`, `requests` and
+`validator`. `requests` and `validator` are conditionally **mounted** rather
+than merely hidden, so that a queue fetch does not fire for every user at
+launch. Sidebar 1 collapses with `Ctrl/Cmd + \`, gated on
+`currentPage === 'otter'` (§13.4).
+
+**The three visibility tiers** — stored values `personal`, `shared`,
+`company_standard`:
+
+| Tier | Read | Write | Set by |
+|---|---|---|---|
+| `personal` | Owner only. **No admin bypass** | Owner, admin, granted editor | Default; owner or admin |
+| `shared` | Every active member | same | Owner or admin |
+| `company_standard` | Every active member | same | **Admin only, in both directions**; at most one per topic |
+
+Admins can see that a personal course **exists**, never its contents, via
+`otter_course_index()` — a metadata-only RPC whose return type is guarded by a
+migration post-condition. The UI renders that state as a "Private" badge and
+disables the row.
+
+**Course generation**: an outline call (Sonnet 4, 12 000 tokens, no web search)
+produces subject stubs; content generation per subject (Sonnet 4, with
+`web_search_20250305`, `max_uses` 1 or 3 depending on whether the user supplied
+reference URLs) fills in sections and lessons and merges the reference
+documents. The progress UI is time-thresholded — "Sending request…" →
+"Searching the web…" → "Reviewing sources…" → "Writing…" → "Finalizing…" —
+with a **"Still working…"** state past 45 s.
+
+**Fork and the change-request lifecycle.** Using a company-standard course
+**forks a personal copy** (`otter_fork_course`), so the official version stays
+pristine and admin edits never change a course underneath someone mid-study.
+The user can then submit a change request.
+
+Statuses: `open`, `approved`, `rejected`, `withdrawn`, `changes_requested`.
+
+| Transition | Who | Notes |
+|---|---|---|
+| `open → approved` | — | **Only** via `otter_cr_apply()`; a bare status PATCH raises |
+| `open → rejected` | Reviewer | Note optional |
+| `open → changes_requested` | Reviewer | **Note required** — enforced by both the trigger and a CHECK |
+| `open → withdrawn` | Proposer | Terminal |
+| `changes_requested → open` | Proposer ("resubmit") | `revision += 1`; reviewer stamps cleared |
+| `changes_requested → rejected` | Proposer ("accept the decision") | `acknowledged_at` set; the decliner stays reviewer of record |
+
+**Approving APPLIES the change.** `otter_cr_apply()` locks the row,
+re-validates every precondition, **archives the target first** to a personal
+copy owned by the approver (because O.T.T.E.R. is deliberately not
+edit-history captured, so an overwrite would otherwise be unrecoverable), then
+applies the proposer's live subjects **additively**: update by slug in place,
+insert when absent, **never delete**. One approval must not silently strip
+lessons from everyone's official course.
+
+**What apply does not touch: the five reference documents.** Their merge
+semantics live in client JavaScript; reimplementing them in plpgsql would
+duplicate load-bearing logic and overwriting them would violate the
+additive-only rule. So an approval moves lesson content and not hotkey tables —
+and the approve dialog says so.
+
+**The consented review window.** Submitting a request grants reviewers **read**
+access to the proposer's own source course, opening on submit and closing the
+moment the request settles. It is a *consented exception* to "a personal course
+is private even from admins", not a bypass. Only the proposer's **own** course
+can be a source — refused at INSERT, re-checked in the helper, and re-checked
+again inside the apply RPC. Managers get the request row (summary, status,
+outcome) but never the fork content.
+
+**The Requests view** (in O.T.T.E.R., cloud-only tab) serves three audiences by
+capability, not by role name: **deciders** (admins *and* owners of the targeted
+standard course) get the full approve/decline queue with live diff counts;
+**managers** get a read-only queue; **proposers** get their own requests with
+the reviewer's note verbatim, sorted so `changes_requested` comes first. The
+Admin Terminal keeps a parallel review section — admin work in the admin place —
+and its "Open their course" button dispatches the one cross-tool event
+(§13.4).
+
+**Trash**: soft delete and restore go through RPCs (a plain UPDATE cannot,
+because Postgres re-checks the SELECT policy on both sides). "Recently deleted"
+is a *filter state*, not a view, served by `otter_trash_index()`. A subject
+under an also-trashed course is deliberately omitted from the listing, since
+restoring it would immediately be re-hidden. 30-day purge at 04:55 UTC.
+
+**Local vs cloud**: `otterFetch` is the seam that ~90 call sites go through
+unchanged. It decides by reading `workspace_id` from the JWT claim. Signed out
+in Electron it falls straight through to the local Express server; signed in it
+routes to the Supabase adapter; in a browser with no session it returns a
+`401`/`501` with a stated reason. **In cloud mode the client-facing course
+"slug" is the course UUID** — on disk a slug was `slugify(name)`, unique only
+within one user's folder, and two visible courses in a shared workspace can
+legitimately share one. This is safe because O.T.T.E.R. looks courses up by
+name and treats the slug as an opaque key.
+
+**Validator**: queues lessons, calls Sonnet 4 with web search (`max_uses` 5),
+recursing on `stop_reason === 'tool_use'` to let search results resolve, and
+produces a grade, an accuracy percentage and findings marked
+`accurate` / `inaccurate` / `unverifiable`, with a follow-up "request fixes"
+call. **Results are session state and are not persisted anywhere.**
+
+**Quiz**: multiple-choice, code-identification and code-writing questions
+generated by Haiku 4.5 with no web search, scored client-side. The
+`otter_progress.quiz_attempts` column and the quiz-history routes exist
+server-side but the client never calls them, so a quiz score also does not
+survive the visit (§17).
+
+### 13.3 R.A.B.B.I.T.
+
+`src/tools/rabbit_v0.1.0/`. Mounted once near the top of the app by
+`RabbitProvider` and kept alive across navigation.
+
+**Object model**: project → phase → asset → task (a task may hang off an asset
+*or* directly off a phase). Optional, project-toggleable modules add scenes →
+shots, levels, and experiences; milestones sit directly on the project. Only
+the core hierarchy has cloud tables — scenes, shots, levels, experiences and
+milestones are **local-only** and their Supabase adapter methods throw with a
+stated reason.
+
+**Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
+toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.
+Timeline is a two-pane Gantt with drag-create/move/resize, milestone diamonds,
+holidays and zoom levels; Budget is a 13-tab spreadsheet (Summary, by
+Phase/Role/Asset/Scene/Shot/Level/Experience, Custom, Crew, Talent, Expenses,
+Client View).
+
+**The adapter layer is the rule.** All RABBIT data access goes through one
+adapter interface with three implementations — `supabaseAdapter`,
+`localServerAdapter`, `googleDriveAdapter` — and nothing may bypass it. Mode is
+chosen at boot: if `hasLocalServer()` is false the mode is **forced** to
+`supabase` regardless of any saved preference; otherwise the saved mode wins,
+defaulting to `local_server`. Google Drive is read-only in v0.1 and its write
+methods throw a generic `readOnly()`.
+
+**Realtime and merge** — see §4.5. Presence rides the same channels; the LIVE
+pill shows orange LIVE / grey SYNC / red SYNC ERR.
+
+**Edit history** covers the 13 RABBIT tables through one append-only capture
+trigger. Members below manager write history but cannot read it. The drawer
+offers **revert-to-state** for four of the thirteen entity types (projects,
+phases, assets, tasks): a plain update reverts by inverse patch; a
+delete-labelled entry calls the restore RPC; a create is soft-deleted; a
+hard-delete snapshot is recreated with its original id — impossible for
+projects, since a fresh id would orphan the subtree. A revert applies the
+inverse of **one** entry as the newest write; it does not rewind later edits.
+Retention is 90 days.
+
+**Soft delete, trash and undo**: seven tables soft-delete through SECURITY
+DEFINER RPCs. `restore_soft_deleted()` returning `false` means the row was
+already live — someone else restored it first — and callers must not treat that
+as a fresh restore. Every undoable delete pushes a history entry and shows the
+**undo toast** (bottom-centre, 8 s, pausing on hover, targeting its exact entry
+so a click and Ctrl+Z cannot double-fire). Projects are admin-only to delete
+and restore. Hard purge at 30 days.
+
+**Project roles**:
+
+| Role | Can |
+|---|---|
+| `manager` | Everything a member can, plus manage the project roster |
+| `member` | Create/edit/delete entities; comment |
+| `reviewer` | Comment only — reads and comments, no entity writes |
+
+Gating order: app admin/manager bypass everything → an **unstaffed** project is
+open to every active member for entity and comment writes (but roster
+management always needs an app admin/manager, since the first seat has to come
+from somewhere) → once staffed, the seat rules apply. Because `fn_projects_auto_staff`
+seats the creator and producer on client creates, projects made in-app are
+staffed from birth — so plain members no longer get write access to **new**
+projects they are not seated on. That is the intent; legacy projects are
+unchanged.
+
+> **LOCKSTEP INVARIANT.** `src/permissions/projectRoleMatrix.js` mirrors the
+> SQL helpers `can_write_project()`, `can_comment_project()` and
+> `can_manage_project_roster()` from migration 0013. Any change to one must
+> ship with the matching change to the other. The migration's
+> `COMMENT ON FUNCTION` points back at the JavaScript file by name, closing the
+> loop from both ends.
+
+**Intake pipeline**: `is_core_definer` files only → text extraction (`.txt`,
+`.md`, `.fountain` direct; `.docx` via mammoth; `.pdf` via the local Express
+route, desktop only; `.pptx` via a JSZip slide-XML strip) → document-kind
+detection (explicit → extension hint → regex heuristics → a Haiku classifier)
+→ one of nine chunkers → a concurrency-3 worker pool calling Claude per chunk
+with a persona block (executive / creative / technical) → fuzzy-dedup merge →
+review → accept, which writes phases, then assets, then tasks through the
+ordinary provider mutators so each gets undo and history treatment.
+
+**Failure behaviour is deliberately asymmetric**: individual chunk failures are
+tolerated, but if **every** chunk fails the pool throws. Removing the per-user
+key gate had exposed a fake-success path where all chunks failed, produced an
+empty breakdown, and reported "Intake complete".
+
+**Budget and rate cards**: a line's subtotal is `rate × days × qty` (or
+`cost × days × qty` on the travel sheet); an agency fee may be added from a
+project-wide percentage and, on the talent sheet, a per-row representation
+percentage — the two **stack additively**. Rate cards are **workspace-scoped**,
+with a `general` and an `internal` card auto-created per workspace; an entry's
+total is `wage + burden + overhead`, each of which may be a row-level percent or
+fixed amount or fall back to a department default. Access is
+`rate_card.view`/`rate_card.edit` from the role matrix **OR** a live per-user
+grant on the member's own row — fetched fresh rather than carried in the JWT,
+so a revoke is immediate, and refreshed over the workspace channel. A view-only
+grant renders the card read-only rather than empty, so an RLS-scoped empty table
+never masquerades as "no data".
+
+**Files** appear in two independent subsystems: the `files` table (generic
+entity attachments, all three adapters, plus the FileAudit drawer) and
+**managed files** (a local-disk folder mirror under `ASSETS/`, `SCENES/`,
+`SHOTS/`, driven through Electron IPC and available only on
+`localServerAdapter`).
+
+### 13.4 The shell and the shared surfaces
+
+**The model: every page rendered, one visible.** `renderAllPages()` mounts all
+eleven page components simultaneously and toggles `display`. Page ids: `home`,
+`dog`, `otter`, `rabbit`, `settings`, `project-manager`, `rate-card`,
+`team-members`, `dashboard`, `admin-terminal`, `help`. Navigation runs a fixed
+five-phase ~2.1 s transition before flipping the visible page.
+
+> **Two consequences that have each already caused a bug, and that any
+> contributor must internalise:**
+>
+> 1. **Every page's effects run everywhere.** A `window`-level `keydown`
+>    listener registered inside a tool fires while the user is in a different
+>    tool. The correct pattern is to gate on `currentPage` — O.T.T.E.R.'s
+>    sidebar-collapse shortcut does exactly this, with the reasoning in a
+>    comment above it. (One ungated listener remains; see §17.)
+> 2. **Every page's data hooks run for every user.** `AdminTerminalPage`
+>    renders for everyone at every launch, so a page-level hook would fire a
+>    `workspace_directory` RPC for every user. The rule: keep the gated
+>    component cheap and push the expensive hook into a child that mounts only
+>    *after* the role check — and inside that child, hand each section an
+>    `isActive` prop so its own fetch waits for first activation.
+
+`PageShell.jsx` is unreferenced (the shell reimplements it inline) and
+`ToolShell.jsx` is an explicit pass-through stub.
+
+**The permission framework.** `src/permissions/roleMatrix.js` holds three roles
+and thirteen actions, mirrored 1:1 in a unit test that fails on any mismatch in
+either direction:
+
+| Action | admin | manager | user |
+|---|---|---|---|
+| `workspace.settings.read` | ✓ | ✓ | ✓ |
+| `rate_card.view`, `rabbit.history.view`, `rabbit.history.revert`, `project.create`, `member.profile.edit_others` | ✓ | ✓ | |
+| `admin.terminal.access`, `member.invite`, `member.remove`, `member.role.change`, `member.grants.change`, `project.delete`, `rate_card.edit`, `workspace.settings.write` | ✓ | | |
+
+`usePermissions()` decodes the JWT directly (the claims are already in the
+token; there is no need to call `getUser()`) and re-reads on
+`onAuthStateChange`, so a workspace switch or token refresh propagates without
+a reload. `PermissionGate` takes exactly one of `requires` (an action) or
+`requiresPlatformOperator`, and renders its fallback while permissions are not
+yet `ready` — so privileged UI never flashes at cold boot.
+
+**The Admin Terminal** (`admin` only) has five sections:
+
+| Section | Does | Calls |
+|---|---|---|
+| Users | Roster, role dropdown, rate-card grant toggles, MFA/last-sign-in lookup, show-once reset, deactivate/reactivate; Add People → invite or create-with-password | `admin-create-user`, `admin-reset-password`, `admin-set-active`, `admin-user-security`, `invite-member` |
+| Company | Workspace name/slug/id, live member counts, departments editor; hosts **Workspace Takeout** | `workspaces` table; `otter-settings` for departments |
+| Requests | The O.T.T.E.R. change-request review queue (Open / Decided) with approve and decline | O.T.T.E.R. routes via `otterFetch` |
+| Logs | System (`app_events`) and Activity (`edit_history`) tabs, filtered, with expandable JSON context | Direct RLS-scoped reads |
+| Diagnostics | Build/env block, live adapter + realtime status, error-code reference, test event, test Sentry exception; hosts **Storage Cleanup** | `reportAppEvent`, `storage-gc` |
+
+**Team Members** reads `workspace_members` through the `workspace_directory`
+RPC — not RABBIT's legacy local `team_members` entity. It has roster liveness
+over the workspace channel, an assigned-projects column fed by a second
+subscription, a Day Rate column shown only to admins with rate access, three
+saved views (Admin/Manager/User) each filtered to *your role or below*, and a
+roster CSV export mirroring exactly the visible columns. Deactivation prefers
+the `admin-set-active` Edge Function (token revocation + last-admin guard) and
+falls back to a direct write only on a bare 404 — never on a real business
+error.
+
+**Settings** has six tabs: General (workspace switcher, version panel, AI
+access notice, companion, project-files root, password notice), Profile
+(profile fields + avatar, plus MFA enrolment and management), RABBIT (storage
+backend, storage connections, both migration panels, currency, default rate
+card, task templates), Teams (departments), Agent (mode, auto-approve level,
+scope restrictions, prompt editor), and Agent Skills.
+
+> **What Settings says about passwords, on both hosts:** *"Your password is
+> managed by your workspace account. Use 'Forgot password' on the sign-in
+> screen to reset it, or ask a workspace admin."* There is no password input
+> field anywhere in Settings. The legacy local password panel was deleted in
+> Session 15 along with its routes (§3.1). (`HelpPage.jsx` was not updated to
+> match — see §17.)
+
+**Dashboard** has three tabs: My Tasks (cross-project assignments, cloud-only,
+RABBIT data only in v1 — writes route through the RABBIT provider when the task
+belongs to the open project so they get undo and LWW, else straight to the
+adapter), Notes, and Profile (the same `ProfileSection` Settings uses). A live
+workspace presence strip sits in the header.
+
+**Notes** are the one Yjs surface. Owner-only with **no admin bypass**, not
+edit-history captured, never on any realtime topic, hard delete with a confirm
+(no trash), and excluded from the workspace takeout. Multi-device safety comes
+from **snapshot-merge-write**, not live sync: the save is
+`UPDATE … SET ydoc_state, version = v+1 WHERE version = v`; a missed guard
+fetches the remote snapshot, applies it locally (Yjs updates are commutative
+and idempotent, so a double apply is harmless) and retries with the fresh
+version, bounded at five attempts. Snapshots are base64 in a text column via a
+chunked codec — deliberately not `String.fromCharCode(...spread)` (call-stack
+overflow on large snapshots) and not `Uint8Array.toBase64` (unsupported in
+Electron 33's Chromium).
+
+**The migration tools** (Settings → RABBIT) are two independent, dry-runnable,
+resumable, idempotent single-user → cloud migrations. RABBIT's reads local
+projects from the Express server and writes rows plus Storage blobs; after a
+clean run it offers **Archive + Clear Local**, user-initiated and never
+automatic. O.T.T.E.R.'s reads local courses with **raw `fetch`, never
+`otterFetch`** — because `otterFetch` routes to the cloud once a session
+exists, which is exactly when a migration runs, and it would copy the cloud
+onto itself and report success. Everything lands as `personal` visibility: a
+personal course published company-wide by a migration cannot be un-seen.
+Scraped reference-page text is not migrated (url and title only) — it is a
+regenerable cache of third-party content that does not belong in a shared
+multi-tenant database.
+
+**Cross-tool events.** There is exactly one: **`wilson:open-otter-course`**,
+dispatched by the Admin Terminal's change-request section after probing that
+the course is readable, and listened to by both `App.jsx` (which navigates the
+shell) and `Otter.jsx` (which re-probes, loads and selects the course). The
+Otter listener is deliberately *not* gated on `currentPage`, unlike the
+keyboard shortcut, because it only ever fires from an explicit admin click and
+handling it while hidden is the entire point. All other cross-component
+signalling uses props, counters or context.
+
+**Onboarding.** `NewCompanyWizard` (company → profile → team → submit) calls
+`provision-workspace` and deliberately does **not** auto-sign-in — it hands
+`{username, slug}` back so the login screen opens pre-filled.
+`NewUserWelcome` appears whenever `onboarded_at` is null and collects display
+name, pronouns, title and an optional avatar, then stamps `onboarded_at`.
+
+### 13.5 The pet companion and the agent
+
+**The pet** is a persistent companion with a breed (otter, bird, octopus, blob,
+rabbit, pig, monkey, and a rare demon), a life stage (`egg` → `baby`/`adult` →
+`corpse` → `ghost`) and hunger/happiness stats. Two 30-second intervals run:
+one applies decay, sleep, evolution and death; the other auto-saves. State
+lives at `/api/pet` in Electron and in `localStorage['wilson.pet']` on the web.
+
+> **Known and accepted:** the web stores are full-object overwrites with no
+> cross-tab sync, so two open tabs both run the 30 s timers and clobber each
+> other. Accepted for v1 as a one-window product — the same class as two
+> Electron windows. A `storage`-event merge is the fix if it ever matters.
+
+**The agent** is a chat companion that can propose and apply changes. Its
+system prompt is per-tool and user-overridable; the registry holds both tools'
+prompts and twelve skill labels.
+
+Four action types are actually executed today, all against O.T.T.E.R.: `edit`
+(single-lesson change), `bulk_edit` (a queue of them), `generate_subject` and
+`generate_course`.
+
+**The DiffView approval gate** is the load-bearing safety surface. For `edit`
+and `bulk_edit`, unless auto-approve is set to `all` (or to `minor` and the
+change is under 20 characters), nothing is written until the user presses
+**Apply Changes** — that button is the only path that calls the tool's
+`applyChange`. Word-level diffs are shown per change, original on the left and
+proposed on the right. **Reject** and **Skip** never call the apply path at all,
+so no undo is needed — nothing was written. Closing the modal also clears the
+whole bulk queue. One control deserves care: **Apply All Remaining** loops the
+apply over every queued edit with no further per-item review.
+
+**Agent skills** persist only a `{ [tool]: { systemPromptOverride } }` map
+(`agent-skills.json` in Electron, `localStorage` on the web); the per-skill
+enable checkboxes live in `otter-settings` and are documentation-only today —
+nothing checks them before executing an action.
+
+> R.A.B.B.I.T. is listed as an agent tool and has its own prompt and an
+> eight-action tool surface, but neither its `registerTool` call nor its tool
+> factory has any call site — its agent integration is prompt-selection only,
+> and the DiffView gate is exercised solely by O.T.T.E.R. (§17). D.O.G. has no
+> agent integration at all.
+
+---
+
+## 14. Who talks to whom
+
+Every arrow in the system, in prose. Read this section if you read nothing
+else.
+
+**Inside the desktop app**
+
+1. **Electron main → renderer**: the main process starts a loopback Express
+   server on an ephemeral port and points the `BrowserWindow` at it, so the
+   renderer's own origin *is* its API origin. No port is ever passed over IPC.
+2. **Renderer → local Express (HTTP, same origin)**: O.T.T.E.R. local content,
+   RABBIT local project bundles, files and managed files, thumbnails, rate
+   cards, team members, task templates, pet and settings, and the three shared
+   utilities (URL fetch, raw fetch, PDF extract).
+3. **Renderer ↔ Electron main (IPC)**: window controls, zoom, OS file and
+   folder pickers, file copy with progress, thumbnail generation, Google Drive
+   credentials, the local-data archive, update check/download/install, and the
+   safeStorage-encrypted session slot.
+4. **Local Express → disk**: `{userData}/otter-data/` and
+   `{userData}/rabbit-data/`, plus the user-visible project folder when one is
+   configured.
+
+**Both hosts → Supabase**
+
+5. **Renderer → Supabase Auth (GoTrue)**: `signInWithPassword`, the MFA
+   challenge/verify pair, `refreshSession`, `resetPasswordForEmail`,
+   `updateUser`. The access-token hook runs inside Auth at issuance and mints
+   the four claims.
+6. **Renderer → PostgREST (direct table reads and writes)**: this is the main
+   data path in cloud mode, and it is safe *because* RLS is the boundary —
+   every RABBIT and O.T.T.E.R. read/write, the roster, notes, logs and audit
+   views all go straight to Postgres under the caller's own token.
+7. **Renderer → Postgres RPCs**: soft delete and restore, the O.T.T.E.R.
+   fork/apply/index family, the member directory, the trash index. These exist
+   because a plain statement cannot express the check safely.
+8. **Renderer → Supabase Storage**: avatar upload to `user-avatars`, project
+   file upload and download in `rabbit-files`.
+9. **Renderer → Supabase Realtime (websocket)**: joins
+   `rabbit:project:{id}` and `rabbit:workspace:{id}`, authorised once at join
+   time; receives full old/new row payloads and presence.
+10. **Postgres → Realtime**: `AFTER` triggers call `realtime.broadcast_changes`
+    on 10 project-scoped and 5 workspace-scoped tables.
+
+**Both hosts → Edge Functions**
+
+11. **Renderer → `resolve-login`** (unauthenticated) and **→ `issue-session`**
+    (bearer token) during sign-in and workspace switching.
+12. **Renderer → `provision-workspace`** (unauthenticated) from the new-company
+    wizard.
+13. **Renderer → `invite-member`, `admin-create-user`, `admin-reset-password`,
+    `admin-set-active`, `admin-user-security`** from the Admin Terminal and
+    Team Members, each with the caller's bearer token.
+14. **Renderer → `storage-gc`** from Diagnostics, on an admin's click.
+15. **Renderer → `ai-proxy`** for **every** AI feature in all three tools, the
+    companion and the agent — the single path to Anthropic.
+16. **Operator console → `operator-workspaces` / `operator-ai-keys`**; and,
+    uniquely, **operator console → PostgREST directly** for the
+    `platform_audit` read, gated by RLS alone.
+
+**Edge Functions outward**
+
+17. **Every Edge Function → Postgres as `service_role`** — bypassing RLS, which
+    is why each one re-checks a live row itself.
+18. **Edge Functions → GoTrue admin API**: create user, update user, invite by
+    email, list MFA factors, ban, sign out.
+19. **`ai-proxy` → `api.anthropic.com`** with a per-workspace key (decrypted
+    from `workspace_ai_keys`) or the platform key, always streaming.
+20. **`operator-ai-keys` → `api.anthropic.com`** for a one-token validation
+    call when a company key is set.
+21. **`operator-workspaces` → Supabase Storage** to sweep `rabbit-files` during
+    teardown.
+22. **Supabase Auth → Resend (SMTP)** for invite, recovery and email-change
+    mail.
+
+**Scheduled and out-of-band**
+
+23. **pg_cron → Postgres**: the five nightly purge functions.
+24. **GitHub Actions → `wilson-dev`**: the issue-session smoke probe and the
+    Playwright lanes.
+25. **GitHub Actions → Backblaze B2**: nightly `pg_dump` upload, from the
+    default branch.
+26. **Vercel → GitHub**: builds both surfaces on every push to the production
+    branch, with staging's URL and anon key as build-time variables.
+27. **electron-updater → Backblaze B2**: checks the generic feed at login and
+    downloads the NSIS installer on request.
+28. **Renderer and Electron main → Sentry**, independently, per environment.
+29. **RABBIT (desktop) → Google Drive API**, read-only, using tokens held in
+    `rabbit-data/`.
+
+**Arrows that deliberately do not exist**
+
+- No client → Anthropic. Ever, on either host.
+- No desktop app → operator console (it is not in the build).
+- No cross-tenant table read except `operator_workspace_summary()`.
+- No `postgres_changes` subscriptions.
+- No customer content → Backblaze B2.
+- No O.T.T.E.R. or Notes content on any realtime topic.
+- No O.T.T.E.R. or Notes content in the company takeout.
+
+---
+
+## 15. Testing and verification
+
+**pgTAP** — 37 suites under `supabase/tests/rls/`, 555 assertions, run in CI
+against a fresh local stack. Coverage spans the 13 RABBIT tables, membership
+and provisioning, the member directory, edit history, project members, soft
+delete, both realtime channels, admin grants, `app_events`, the five O.T.T.E.R.
+tables plus trash and change-request apply, the file lifecycle, and the four
+Session-15 suites (AI keys, platform audit, rate limits, workspace write
+lockdown).
+
+**Vitest** — 14 suites, 215 cases, all pure modules: the SSE reassembler,
+invite parsing, dashboard task model, note sync, CSV export, both permission
+matrices, O.T.T.E.R. route parsing and sharing rules, project attachments,
+edit-history formatting and revert, the relink matcher, and the realtime merge
+layer.
+
+**Playwright** — two projects. `chromium` covers sign-in → home with an
+RLS-scoped directory, the admin invite flow, and forgot-password. `chromium-web`
+runs against a real built web bundle and covers deep links, history sync and
+signed-out deep links.
+
+**pgTAP without Docker.** The development machine has no Docker, so
+`supabase test db` only runs in CI. `scripts/tap-hosted.py` bridges the gap:
+
+```bash
+python scripts/tap-hosted.py out.sql [migration.sql] suite.sql
+supabase db query --linked --file out.sql
+```
+
+It emits one self-contained script that builds a collector schema, redefines
+every pgTAP function the suites use, strips the suite's own transaction
+control, and always `ROLLBACK`s — nothing is ever committed. Passing a
+migration *before* the suite tests an unapplied migration together with its
+suite in one rolled-back transaction.
+
+> **The rule that makes it trustworthy: `collected` MUST equal `planned`.** A
+> pgTAP function the shim forgot to rewrite still executes and still burns a
+> plan slot, but never reaches the collector — so it vanishes from the pass
+> count. If the two numbers differ, the run is *lying about coverage*, not
+> merely failing.
+
+**pgTAP traps learned the hard way** — worth carrying into any new suite:
+
+- `throws_ok(sql, arg2, arg3)`: a 5-character `arg2` is treated as a SQLSTATE
+  and `arg3` becomes the expected *message*. Use the message form.
+- The `tests` schema is runner-only. De-authenticate before a mid-file
+  `tests.login_as` with a claims reset and `RESET ROLE`; calling
+  `tests.logout()` while `authenticated` is a 42501.
+- Inside one test transaction `now()` is **frozen**, so retention probes need a
+  *negative* interval.
+- Hosted `storage.protect_delete()` blocks direct SQL DELETE on
+  `storage.objects` — pin storage policies via `pg_policies` and probe writes
+  by INSERT only.
+- Re-running an edited-but-applied migration on dev needs
+  `supabase migration repair --status reverted NNNN` then
+  `db push --include-all`.
+
+**Two general lessons the test suite itself taught:**
+
+1. *"The server is done" is only true if a client can reach every state the
+   server supports.* A soft delete with no listing RPC is a one-way door, and it
+   read as complete because the write path was fully pinned.
+2. *Beware fixtures more careful than the client.* 94 passing probes missed a
+   non-functional editor grant because every fixture supplied a column by hand
+   that the real client correctly omitted.
+
+---
+
+## 16. Security posture
+
+The current position, from the 2026-07-30 TPN re-audit (`TPN_AUDIT/`, MPA
+CSBP 5.3/5.3.1):
+
+**Shield tier eligibility: None — but for the first time the blockers are
+countable rather than structural.** All three of the April baseline's
+immediate-action items are closed. Authentication moved from a single shared
+password to Supabase Auth with TOTP, a four-tier role model and RLS-enforced
+RBAC pinned by pgTAP in CI. Content lifecycle went from nothing to an
+append-only per-file event stream with deletion certificates that outlive the
+workspace they belonged to. The Anthropic key is out of client storage
+entirely. Six baseline findings are resolved outright and nineteen materially
+reduced. Counts: 3 CRITICAL, 43 HIGH, 31 MEDIUM, 7 LOW, 1 INFO, 6 RESOLVED.
+
+**The honest framing for a studio conversation:** the *technical* controls have
+improved enormously and are close to defensible; the *organizational* ones —
+policies, vendor risk, incident response, supply chain — are essentially
+untouched, and those are where a Silver or Gold assessment spends most of its
+time.
+
+**The two open criticals, both owed:**
+
+1. **A live workspace-admin credential for `wilson-dev` was published in this
+   public repository.** Session 15 removed every occurrence from the working
+   tree and rewrote the instructions that told operators to rotate the password
+   *back* to that literal — which is why it stayed valid for eleven sessions.
+   **The value is in git history permanently, so rotation is the only remedy**
+   (`docs/OWED_AUDREY.md` §0).
+2. **Privilege changes are unaudited** (TPN-LOG-005). Role promotions,
+   rate-card grants and deactivations go from the browser straight into
+   `workspace_members`, and nothing captures them: edit history deliberately
+   excludes the table, the only triggers on it are guards, and no `app_events`
+   line is written. "Who granted this person admin, and when" is unanswerable
+   for anything that already happened. This is the audit trail for the
+   product's own security boundary.
+
+**Named strong points**: table-layer tenancy (Cloud and Content are the
+strongest domains); four append-only RLS-enforced audit streams; per-tenant AI
+keys as correctly-implemented AES-256-GCM with a 32-byte key check and a
+per-record IV; and the operator tier's SQL-only grant.
+
+**Named weak points**: logging has no aggregation, no alerting, and sign-in and
+operator-console access are unlogged; `app_events` and `edit_history` purge at
+90 days against a 1-year requirement; the local Express server's bare CORS and
+unvalidated URL fetchers; the public `user-avatars` bucket's unconditional
+SELECT; Google OAuth material stored in plaintext on disk despite safeStorage
+being correctly wired for the session; and Third-Party and Documentation, which
+have not moved since April.
+
+---
+
+## 17. Known limits, and where they are tracked
+
+Everything below is *known*, not discovered by a reader. The live list is
+`docs/MASTER_PLAN.md` §6; TPN findings live in `TPN_AUDIT/FINDINGS.md`; owed
+human actions live in `docs/OWED_AUDREY.md`.
+
+**Security-adjacent, tracked as §6 gaps for the release session**
+
+- The `managed-files` PATCH route merges the request body with no field
+  stripping, and its hard-delete branch joins `folder_path` + `stored_name`
+  onto the project root with **no containment check** — unlike the sibling
+  `files` routes, which were hardened for exactly this. Reachable by anything
+  that can reach the loopback port.
+- `invite-member` performs no MFA step-up while its sibling `admin-create-user`
+  does, and it can create a member with `app_role: 'admin'` — so an admin
+  holding a verified factor can mint another admin from an `aal1` session.
+- Operator sign-in, sign-out and guard refusals write no audit row anywhere, and
+  `platform_audit`'s action CHECK has no value that would let them
+  (TPN-LOG-007). The same CHECK reserves `operator.granted` / `operator.revoked`,
+  which nothing emits.
+- **`custom_access_token_hook` is executable by `authenticated` and `anon`.**
+  0001 and 0003 both revoke it from those roles, but 0011's blanket
+  `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` silently re-grants it, and
+  0011's "re-assert function lockdowns" pass covers only
+  `provision_workspace_and_admin` and `workspace_directory()`. The function
+  takes its target user id from the caller-supplied `event` argument rather
+  than `auth.uid()`, so any signed-in caller can compute another user's claim
+  set (workspace memberships, app role, operator flag). Surfaced by this
+  handbook's own drift review.
+- `resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
+  (client-supplied, spoofable) where `provision-workspace` correctly uses the
+  last (TPN-NET-004); both still use per-isolate in-memory buckets
+  (TPN-NET-005), and six other functions have no limiter at all.
+
+**Correctness**
+
+- R.A.B.B.I.T. **milestones are dropped on project load** by both the local and
+  Google Drive adapters — the routes and list methods exist, but `loadProject`
+  omits the key, so a milestone reverts to nothing on the next reload, project
+  switch or realtime refetch.
+- `addManagedFile` is called with no adapter-mode guard, and `createManagedFile`
+  exists only on the local adapter — so "Add files" inside an entity popup
+  throws (silently swallowed) in cloud or Drive mode.
+- `googleDriveAdapter` wires `listRateCards` / `listRateCardEntries` to its
+  read-only throw stub, and the rate-card hook calls them unconditionally on
+  mount — a permanent error banner in Drive mode.
+- A username that collides across two workspaces makes sign-in unreachable: the
+  resolver treats "two matches" as a miss unless a workspace slug disambiguates,
+  and the login screen has no slug field.
+- O.T.T.E.R.'s global Space-to-search `keydown` listener is **not** gated on
+  `currentPage`, so pressing Space anywhere in WILSON opens the search modal
+  inside the hidden O.T.T.E.R. tree.
+- `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup
+  **failed**" lands in the log stream indistinguishable from the success line.
+
+**Product gaps that read as bugs**
+
+- Quiz scores and Validator findings are **never persisted** — the columns,
+  routes and adapter operations all exist server-side, but the client never
+  calls them.
+- Settings → Tools "Storage Location" is an editable field that has no effect;
+  `getDataDir()` hardcodes the userData path.
+- R.A.B.B.I.T.'s agent integration is prompt-selection only — neither its
+  `registerTool` call nor its tool factory has a call site.
+- D.O.G. cloud attachments: refused at the write layer, with the re-homing
+  plan and its seven traps catalogued in §6 #31.
+
+**Documentation drift inside the product**
+
+- `HelpPage.jsx` still documents the deleted local password panel, including
+  rules that never applied to a Supabase password ("up to 12 characters",
+  "case-insensitive", "protects the application on launch").
+- `src/tools/rabbit_v0.1.0/db/README.md` says the migration range is
+  `0000`–`0023` and has no section for 0028 or 0029.
+- `env.cjs` describes a `wilsonEnv` preload bridge that does not exist; renderer
+  `VITE_*` values are compile-time constants baked into the bundle, so
+  `env.json` can only affect main-process consumers.
+- The intake wizard's own header and README describe a five-step flow; the
+  shipped constant has three, and three superseded step components remain on
+  disk with no importer.
+- `backups.yml`'s comment illustrates a 30-day B2 lifecycle; the configured
+  value is 90 days.
+
+**Accepted for v1.0.0, with reasons**
+
+- **GC orphan-scan starvation** (TPN-CONT-010): the run-wide budget collects
+  objects in name order, so a project with more than 5000 *referenced* objects
+  sorted ahead of its orphans would never reach them. Accepted — no tenant is
+  near that. The sharper edge flagged by the audit is not the cursor but that
+  certified disposal only ever runs when a human clicks, with no queue-depth
+  signal anywhere.
+- **Synchronous `fs` on the Electron main process** during relink census and
+  scan: an unreachable network share can freeze the app. Accepted — an
+  availability defect on a local, single-user, user-initiated action with no
+  confidentiality or integrity component.
+- **Web multi-tab last-writer-wins** on the three `localStorage` stores.
+  Accepted for a one-window product.
+- **Teardown strands identities**: a user whose only membership was in a
+  torn-down company keeps an authenticating account with no workspace.
+  Deliberate; what is missing is the reporting.
+- **Teardown cannot see blobs no row points at**: an object in `rabbit-files`
+  referenced by neither `files` nor `storage_gc_queue` survives its tenant's
+  teardown permanently. The row-derived sweep covers every blob the product
+  itself created.
+- **No single-instance lock** in Electron; two copies can run against one
+  `userData` directory.
+- **Realtime probes are lenient in CI** by design — there is no realtime
+  service in the CI stack; hosted coverage comes from live probes.
+
+---
+
+## Appendix A — Glossary
+
+| Term | Meaning |
+|---|---|
+| **Workspace** | A company; the tenant. |
+| **App role** | `admin` / `manager` / `user` — workspace-wide authority. |
+| **Project role** | `manager` / `reviewer` / `member` — a seat on one R.A.B.B.I.T. project. Different axis from app role. |
+| **Platform operator** | Petal Studios itself; cross-tenant; SQL-granted only. |
+| **Surface** | A build target with its own entry and session key: `app` (`/wilson`) or `admin` (`/wilsonadmin`). |
+| **Adapter** | R.A.B.B.I.T.'s storage abstraction: `supabase`, `local_server`, `google_drive`. |
+| **Guard** | A shared Edge Function auth module: `adminGuard`, `memberGuard`, `operatorGuard`. |
+| **Certificate** | An audit row that proves a destruction happened: a `purged` `file_events` row, or a `blob.purged` / `workspace.teardown` `platform_audit` row. |
+| **Stub** | An O.T.T.E.R. subject with outlines but no generated content yet. |
+| **Company standard** | The blessed canonical course for a topic; admin-set; forked on use. |
+| **Consented review window** | Time-boxed read access a proposer grants reviewers over their own course by submitting a change request. |
+| **Pending-field set** | The per-row set of fields with an in-flight local write, which realtime merges must not overwrite. |
+| **Show-once** | A credential displayed exactly once at creation and never retrievable — only resettable. |
+
+## Appendix B — Event and error codes
+
+`src/cloud/errorCodes.js` is the client registry; `WIL-41xx` and the `admin`
+event type are **server-reserved** so clients cannot forge audit lines.
+
+| Range | Meaning | Stream |
+|---|---|---|
+| `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
+| `WIL-3003` / `WIL-3004` | Storage cleanup completed / failed | `app_events` |
+| `WIL-41xx` | Admin actions (server-written by `logAdminEvent`) | `app_events` |
+| `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
+| `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
+| `WIL-7005` | `workspace.teardown` certificate (critical) | `platform_audit` |
+| `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
+| `WIL-7007` | Teardown failure | `platform_audit` |
+| `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
+| `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
+
+---
+
+*End of handbook. Written from the code at `09b4405`. When it disagrees with
+the code, the code is right — and the handbook needs a fix.*
