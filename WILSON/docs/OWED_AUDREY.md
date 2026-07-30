@@ -395,31 +395,55 @@ company key, and usage lands in the Admin Terminal logs with token counts.
 
 ---
 
-## 6. Session 12 — three clicks to light up the web test host
+## 6. Session 12 — light up the web test host
 
 The web build is pushed and waiting; these make it reachable.
 
-### A. Enable GitHub Pages (30 seconds)
+### A. Host it on Vercel (decided post-close-out — your Pro account, not GitHub Pages)
 
-https://github.com/pretty-aud/wilson/settings/pages →
-**Source: Deploy from a branch** → branch **`gh-pages`**, folder **`/ (root)`**
-→ Save. A minute later the app is live at:
+The repo already carries `WILSON/vercel.json`, so this is import-and-click:
 
-    https://pretty-aud.github.io/wilson/
+1. Vercel dashboard → **Add New → Project** → import `pretty-aud/wilson`.
+2. Set **Root Directory = `WILSON`**. Leave build/output alone —
+   `vercel.json` supplies them.
+3. Add two **environment variables** (they're baked in at build time):
+   `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`, copied from the
+   Supabase dashboard (Settings → API) of the env beta testers should use —
+   **staging recommended** (dev churns every session; prod stays clean for
+   v1.0). Swapping envs later = edit the two vars + Redeploy.
+4. Deploy once, then **Settings → Git → Production Branch →
+   `feat/multi-user-v1`** and redeploy. This matters twice over: `main`
+   doesn't contain the web build, and only *production* deployments are
+   publicly reachable — Vercel's *preview* URLs default to team-member-only
+   authentication, which beta testers can't pass.
+5. Optional but nice: **Settings → Domains** → add `beta.petalstudios.co`,
+   then in Squarespace DNS add the CNAME Vercel shows you
+   (host `beta` → `cname.vercel-dns.com`). Testers get
+   `https://beta.petalstudios.co/wilson`.
+6. **Tell Claude the final URL** so the `WILSON_SITE_URL` secret can be
+   re-pointed at it (it currently points at the GitHub Pages URL).
 
-**Worth knowing before you click:** the `gh-pages` branch (already public, like
-the whole repo) contains the built bundle, which embeds wilson-dev's project
-URL and **anon key**. That's by design — anon keys are public in every deployed
-web app and RLS is the actual security boundary (sign-ups are off, every table
-is FORCE RLS and pgTAP-pinned) — but it is a state change worth being aware of.
+**Worth knowing:** the deployed bundle embeds the chosen env's project URL
+and **anon key**. That's by design — anon keys are public in every deployed
+web app and RLS is the actual security boundary (sign-ups are off, every
+table is FORCE RLS and pgTAP-pinned). Beta testers still need an invited
+account to see anything.
+
+### A-alt. GitHub Pages (fallback, already pushed)
+
+If Vercel ever misbehaves: https://github.com/pretty-aud/wilson/settings/pages
+→ **Source: Deploy from a branch** → `gh-pages` / root → app at
+`https://pretty-aud.github.io/wilson/`. Same anon-key note applies.
 
 ### B. Supabase auth URLs (per env, ~1 minute each)
 
-Dashboard → Authentication → **URL Configuration**, for **wilson-dev** (and
-staging/prod when you want invite/recovery emails to land on the web build):
+Dashboard → Authentication → **URL Configuration**, for whichever env the
+Vercel project points at (and the others when you want their invite/recovery
+emails landing on the web build) — using your final web URL from 6A:
 
-- **Site URL:** `https://pretty-aud.github.io/wilson`
-- **Additional redirect URLs:** add `https://pretty-aud.github.io/wilson/**`
+- **Site URL:** `https://<your-host>/wilson`
+  (e.g. `https://beta.petalstudios.co/wilson`)
+- **Additional redirect URLs:** add `https://<your-host>/wilson/**`
 
 (Claude deliberately did NOT push this via `supabase config push` — that
 command would also push the local SMTP block and break Resend email. The

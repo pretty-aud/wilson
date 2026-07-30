@@ -19,6 +19,7 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "build:web": "vite build --base=/wilson/ --outDir dist-web",
+    "build:vercel": "vite build --base=/wilson/ --outDir dist-vercel/wilson --emptyOutDir",
     "preview": "vite preview",
     "preview:web": "node scripts/serve-web.mjs",
     "electron:dev": "npm run build:dev && electron .",

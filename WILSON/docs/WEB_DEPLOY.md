@@ -23,22 +23,51 @@ usual env files — `.env.local` on this machine points at **wilson-dev**, so
 the test host talks to dev. The anon key ships in any web bundle by design
 (RLS is the security boundary; sign-ups are disabled).
 
-## Test host — GitHub Pages
+## Primary host — Vercel (Audrey's Pro account)
 
-The public repo `pretty-aud/wilson` doubles as the host: a **`gh-pages`**
-branch holds the built bundle, served at
+`WILSON/vercel.json` + `npm run build:vercel` make the repo a ready-made
+Vercel project: the build lands in `dist-vercel/wilson/`, so the deployment
+serves the locked path shape at `<domain>/wilson`, `/` redirects there, and
+a rewrite gives SPA deep links a real 200 (Vercel checks the filesystem
+first, so hashed assets always win). When S15 builds the operator console,
+`/wilsonadmin` becomes a second output folder in the SAME project — no
+second repo needed.
+
+**One-time setup (Audrey, in the Vercel dashboard):**
+
+1. Add New → Project → import `pretty-aud/wilson`.
+2. **Root Directory: `WILSON`** (vercel.json supplies build command +
+   output dir; framework preset can stay "Other"/Vite).
+3. Environment variables (build-time): `VITE_SUPABASE_URL` +
+   `VITE_SUPABASE_ANON_KEY` for whichever env beta testers should hit
+   (values: Supabase dashboard → Settings → API).
+4. After the first deploy: **Settings → Git → Production Branch →
+   `feat/multi-user-v1`** — the default is `main`, which doesn't have the
+   web build. Production deployments have no access protection; *preview*
+   deployments default to Vercel Authentication (team-only), which beta
+   testers can't pass — so the shareable URL must be a production one.
+5. Optional custom domain: Settings → Domains → add
+   `beta.petalstudios.co`; add the CNAME record Vercel shows in
+   Squarespace DNS (host `beta` → `cname.vercel-dns.com`). App lands at
+   `https://beta.petalstudios.co/wilson`.
+
+Every push to the production branch then redeploys automatically.
+
+**After the URL is final:** update the `WILSON_SITE_URL` secret on the
+Supabase envs (CLI) and the dashboard `site_url` / `additional_redirect_urls`
+so invite/recovery emails land on the web build.
+
+## Fallback host — GitHub Pages
+
+The public repo also carries a **`gh-pages`** branch, served at
 
     https://pretty-aud.github.io/wilson/
 
-which matches `base: /wilson/` exactly. SPA deep links ride a `404.html`
-copy of `index.html` (GitHub Pages serves it for unknown paths; the app
-boots and routes client-side). `/wilsonadmin` will be a sibling repo named
-`wilsonadmin` when S15 builds the operator console.
+once Pages is enabled (Settings → Pages → "Deploy from a branch" →
+`gh-pages` / root). SPA deep links ride a `404.html` copy of `index.html`.
+Kept as a zero-dependency fallback; Vercel is the primary.
 
-**One-time enable (Audrey):** repo → Settings → Pages → "Deploy from a
-branch" → `gh-pages` / root.
-
-### Redeploying
+### Redeploying (GitHub Pages fallback)
 
 ```bash
 cd WILSON

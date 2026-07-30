@@ -34,3 +34,4 @@ playwright-report/
 
 # Session 12: web build output (base /wilson/), deployed to the test host
 dist-web/
+dist-vercel/
