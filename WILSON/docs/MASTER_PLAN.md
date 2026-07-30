@@ -558,7 +558,12 @@ read doubles as the final audit (code findings → §6 gaps for S17).
 - **`docs/SYSTEMS_DESIGN_PACK.md`** — mermaid system map + per-tool
   wireframes/flows + per-function dataflows + a diagram inventory, the
   source pack for Audrey's follow-up Claude design session
-  (infographics/wireframes document).
+  (infographics/wireframes document). **Short, succinct and skimmable
+  by requirement** (Audrey, 2026-07-30): diagrams with one-line captions,
+  readable end to end in a few minutes. The handbook is where things get
+  explained; the design pack is where they get seen, and it links to the
+  handbook rather than repeating it. If both explain the same thing, the
+  design pack is the one that is wrong.
 - Close-out writes `SESSION_17_prompt.md`.
 
 ### Session 17 — Release (v1.0.0)

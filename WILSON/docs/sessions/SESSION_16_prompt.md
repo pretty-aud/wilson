@@ -36,6 +36,14 @@ Two deliverables, in order:
    mermaid. Audrey then drives a separate Claude design session that turns
    it into the final infographic/wireframe design document.
 
+**The two are opposites and must stay that way (Audrey, 2026-07-30).** The
+handbook is the long one — that is its job, and it should not be trimmed for
+brevity. The design pack is **short, succinct and skimmable**: diagrams with
+one-line captions, readable in a few minutes end to end. Anything that needs
+explaining belongs in the handbook, and the design pack links to it rather
+than repeating it. If both documents end up explaining the same thing, the
+design pack is the one that is wrong. See Block B.
+
 The handbook is a **v1.0.0 release gate** (S17 checks it exists and is
 drift-reviewed before tagging).
 
@@ -121,7 +129,35 @@ drift-reviewed before tagging).
 
 Produced AFTER and FROM the handbook (it is the source of truth). All
 diagrams as **mermaid** (renders natively in artifact/markdown viewers,
-unambiguous source for a design tool):
+unambiguous source for a design tool).
+
+> **This document must be SHORT, and that is a hard requirement, not a
+> preference (Audrey, 2026-07-30).**
+>
+> The two deliverables have different jobs and must not converge. The
+> handbook is where something gets *explained* — prose, invariants,
+> rationale, "why it is this way". The design pack is where something gets
+> *seen*: diagrams first, and only enough words to make each diagram
+> legible on its own.
+>
+> Concretely, for every diagram:
+>
+> - **A one-line caption above it** saying what it shows. Not a paragraph.
+> - **At most ~3 short bullets below it**, and only for things the diagram
+>   genuinely cannot express (a non-obvious ordering constraint, a
+>   direction of trust). If a bullet is explaining *why*, it belongs in
+>   the handbook — link to the section instead of restating it.
+> - **No narrative.** No background, no history, no decision rationale, no
+>   repetition of anything already in the handbook.
+>
+> The test: Audrey should be able to **skim the whole pack in a few
+> minutes** and know what every diagram is for, then dive into the
+> handbook for any one of them. If a reader has to *read* the design pack
+> rather than *scan* it, it has failed and needs cutting — the fix is
+> always to move words into the handbook, never to add words here.
+>
+> Prefer more small diagrams over fewer dense ones. A diagram that needs a
+> paragraph to interpret should be split.
 
 1. **The system map** — one diagram with every external system as a node
    (Electron app, web build/Vercel, Supabase ×3 envs, Edge Functions,
@@ -144,13 +180,20 @@ unambiguous source for a design tool):
    preview → apply), CSV exports + takeout, the ai-proxy call path,
    change-request submit → review → apply, auto-update, backups,
    workspace provision + teardown.
-4. An **inventory table** at the top (diagram id → what it shows →
-   which handbook section it illustrates) so Audrey's design session can
-   be driven diagram-by-diagram.
+4. An **inventory table** at the top (diagram id → one-line "what it
+   shows" → which handbook section it illustrates) so Audrey's design
+   session can be driven diagram-by-diagram. This table IS the skim
+   surface — someone should be able to read only this and know what is in
+   the pack, so keep every cell to one line.
 
 Keep the mermaid semantically honest (real route names, real table
 names) — these are engineering wireframes, not decoration; the pretty
 pass happens in Audrey's design session afterwards.
+
+**Before committing, re-read the pack as a skim.** If any section reads
+like documentation rather than a labelled picture, cut it and move the
+substance into the handbook. The handbook is allowed to be long; this one
+is not.
 
 ## Traps & discipline
 
