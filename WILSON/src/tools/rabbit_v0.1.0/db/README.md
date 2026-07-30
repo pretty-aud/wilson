@@ -780,3 +780,45 @@ with this name. Rename that one first, then restore."
 
 pgTAP: `31_otter_trash.sql` (21). No new tables, so `rls.yml` RLS_TABLES is
 unchanged; replay list += 31.
+
+## 21. File lifecycle & data stewardship (Session 14, migration 0027)
+
+Three server objects, one decision:
+
+**`file_events`** — append-only per-file stream (uploaded / moved / relinked
+/ trashed / restored / purged), written ONLY by `trg_files_lifecycle`
+(SECURITY DEFINER, 0012's catch-all-swallow idiom; RLS enabled NOT forced).
+SELECT = project readers (`can_read_project_topic`) OR a workspace-admin
+JWT arm that keeps 'purged' certificates readable after the project itself
+purges (no FK on file_id/project_id for the same reason; workspace FK
+CASCADE per 0021 convention). NO purge job — TPN-LOG-004 wants audit ≥ 1yr;
+'purged' rows are the TPN-CONT-002 deletion certificates (details carries a
+LEFT(mime_type, 256) — the truncation keeps the certificate write
+infallible against client-writable TEXT). Client reads via
+`adapter.listFileEvents(fileId, projectId)`; local mode mirrors the stream
+in `bundle.fileEvents` (Express appends on upload/relink/delete; 'purged'
+entries are exempt from the 2000-event trim).
+
+**`rabbit-files` bucket** — the Block D decision: CREATED, private, 50 MB.
+Key layout `projects/{project_id}/{entity}/{entity_id}/{ts}-{name}`; the
+policies ride `fn_try_uuid` + an EXISTS-under-RLS projects probe (fails
+CLOSED on garbage segments — `can_write_project(NULL)` alone fails OPEN) +
+`can_write_project` for writes. `rabbit_files_delete_own` covers exactly
+ONE flow — uploadFile removing its own fresh object after a refused row
+insert — so it carries the write guards AND a 1-hour `created_at` bound.
+Hosted `storage.protect_delete()` blocks direct SQL DELETE on
+storage.objects, so suite 33 pins the policy qual via pg_policies.
+
+**`storage_gc_queue`** — service-role-only disposal ledger. Enqueued by
+`trg_files_gc_enqueue` (AFTER DELETE, supabase-provider rows); drained by
+the `storage-gc` Edge Function (adminGuard, workspace-scoped, run-wide scan
+budget, PAGED reads — PostgREST max_rows applies to service_role too),
+which also orphan-scans both buckets fail-closed on tenancy and writes
+per-blob terminal rows + a WIL-3003/3004 summary. Known limit: a workspace
+hard-delete strands its queue rows (§6 #34 → S15 teardown sweep).
+
+pgTAP: `33_file_lifecycle.sql` (26). NOTE: rls.yml's RLS_TABLES coverage
+guard was deliberately NOT extended — its filename pattern expects
+`NN_<table>.sql` per table, and suite 33 covers BOTH new tables in one
+file (the 31_otter_trash precedent). If S15 tightens the guard, either
+split the suite or teach the guard a mapping.

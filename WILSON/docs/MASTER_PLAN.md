@@ -70,17 +70,18 @@ Core capabilities of v1.0.0:
   RLS policy starts from
   `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
   indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0026`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 13 close-out. No backlog.
+- **Migrations `0000`–`0027`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 14 close-out. No backlog.
   **Ordering rule (S13):** 0025/0026 overwrite objects 0022 also creates; a
   MANUAL re-run of 0022 must be followed by re-running 0025 AND 0026 (all
-  three headers say so).
+  three headers say so). 0027 overwrites nothing — no ordering rule.
 - **Edge Functions:** `resolve-login`, `issue-session` (ES256),
   `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
-  and the S9 admin set on `_shared/adminGuard.ts`: `admin-create-user`,
-  `admin-reset-password`, `admin-set-active`, `admin-user-security`
-  (verify_jwt=false; claims from the TOKEN payload; live-row admin check;
-  MFA aal2 step-up).
+  `ai-proxy` (S12), `storage-gc` (S14 — admin-invoked blob disposal with
+  certificates), and the S9 admin set on `_shared/adminGuard.ts`:
+  `admin-create-user`, `admin-reset-password`, `admin-set-active`,
+  `admin-user-security` (verify_jwt=false; claims from the TOKEN payload;
+  live-row admin check; MFA aal2 step-up).
 - **Email:** Resend SMTP via `mail.petalstudios.co` (DNS at Squarespace);
   invite / recovery / email-change templates uploaded to all three envs.
 
@@ -118,10 +119,10 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–32` (runs in CI local stack;
+- **pgTAP RLS suite** `supabase/tests/rls/01–33` (runs in CI local stack;
   realtime probes environment-tolerant). The seven O.T.T.E.R. suites (26–32)
-  total **184 probes**.
-- **Vitest** 304/304 green end of S13. **Playwright** auth/permissions e2e.
+  total **184 probes**; suite 33 (S14 file lifecycle) adds 26.
+- **Vitest** 329/329 green end of S14. **Playwright** auth/permissions e2e.
 - **No Docker on this machine**, so pgTAP is verified by shipping a
   `BEGIN; … ROLLBACK;` script through `supabase db query --linked --file`.
   Two things make that harness lie if you get them wrong: keep `SELECT plan(N)`
@@ -264,21 +265,20 @@ deployed to all three envs**.
 | 12 | 2026-07-29 | **`ai-proxy` + the web build.** Block A (locked #21): the `ai-proxy` Edge Function is now the ONLY path to Anthropic on both hosts — token claims + live `workspace_members` check (`_shared/memberGuard.ts`), per-workspace→platform key seam (`workspace_ai_keys` read fails soft until S15), always-streaming upstream (150s Edge deadline vs long generations) with a pure client SSE reassembler (`anthropicStream.js`, 14 vitest cases), per-workspace in-memory rate limit, WIL-6001/6002 usage telemetry to app_events. All 14 direct call sites rewired; the Settings key field, `apiKey` prop plumbing and the localStorage credential are gone (purged on upgrade); stale help/prompt copy corrected. Block B (locked #18): `build:web` (`--base=/wilson/` → dist-web) + `serve-web.mjs`; URL ↔ page sync over the all-pages shell (deep links, pushState, popstate — no router); **gap #21 CLOSED** (Otter's library loads independent of the local-server settings fetch; `src/lib/localData.js` gives pet/otter-settings/agent-skills an Express-or-localStorage home); RABBIT forces the supabase adapter in browsers; web D.O.G. generates off uploads + cloud project context (attachments degrade visibly — no content model per locked #17); web sessions persist in localStorage with TOKEN_REFRESHED re-save; Playwright `chromium-web` lane (3/3) against the real bundle; **test host = GitHub Pages** (`gh-pages` branch → pretty-aud.github.io/wilson, Pages toggle owed). Review: 4 finders, 15 findings, 14 fixed, 1 accepted+documented. Vitest 304/304. | `41c7356` |
 | 13b | 2026-07-30 | **Requests live IN O.T.T.E.R.** (Audrey: the company-library admin controls belong in the tool; the brief's three APP tiers map admin = decide, manager = view, user = own requests). `RequestsView.jsx` behind a cloud-only nav tab ('Admin' for admins, 'Requests' otherwise): deciders (admins + targeted-standard owners — **gap #33 CLOSED**) get the full approve/decline queue with the same confirms as the Admin Terminal (which stays); managers get a read-only queue (**migration 0026**: `otter_cr_select` manager READ arm — decide/window/apply still refuse them, 4 new pgTAP probes, suite 32 = 67); proposers get their requests + feedback with the ChangeRequestDialog as sole actuator and fork-less accept/withdraw fallbacks. Compact review: 7 findings → 6 fixed, 1 documented. 0026 deployed to all three envs. | `54d5225` |
 | 13 | 2026-07-29 | **Change-request approval that APPLIES** (locked #22, migration 0025). Status machine grows `changes_requested` + the revise-and-resubmit loop (revision counter, required decline note, `acknowledged_at`, decliner stays reviewer of record, settled rows frozen); `otter_cr_apply()` — the ONLY path to `approved` (transaction-local GUC) — archives the target to a personal copy owned by the approver then applies the proposer's live subjects **additively** (update by slug in place, insert when absent, never delete; reference docs untouched per #29); consented review window `otter_has_open_review_access()` (live-row role, proposer-owned sources only, opens on submit / closes on settle) as an OR arm on `otter_courses_select` + `otter_course_index`. UI: Admin Terminal Approve (real diff counts + archive-kept confirm, Peak-End summary) / Decline (required note) / working "Open their course" jump (`wilson:open-otter-course`); O.T.T.E.R. dialog decision state (accept / resubmit, round badges), share checkbox removed. pgTAP 32 (63 probes) + suites 26–32 (180) green on real PG17; Vitest 304/304. Review: 15 findings, 10 confirmed → fixed (incl. reviewer-stamp forgery on withdraw + the 0022-re-run ordering rule), 1 refuted, 4 triaged inline. | `89b84bc` |
+| 14 | 2026-07-30 | **File lifecycle & data stewardship** (migration 0027). Block A — storage relink, the ShotGrid model (Audrey, find+preview+APPLY): provider-agnostic 3-rung matcher (`components/relinkMatcher.js`, pure, 14 vitest cases) + recursive symlink-safe walk + relink-scan/apply Express routes (containment-guarded, user-authorized-folder gating, offline-home 409, all-or-nothing) + RelinkDialog (old→new per row, counts in the confirm) + the `files_dir` override surfaced/resettable in Files & Storage. Block B — CSV export both tiers: `src/lib/csvExport.js` (BOM, RFC 4180, formula-injection guard) + per-page buttons (tasks / rate card / roster — each exports exactly what the viewer sees) + admin-only WorkspaceTakeout zip on RLS-scoped reads (O.T.T.E.R. + Notes excluded per locked #20, stated in UI and manifest). Block C — `file_events` trigger-fed lifecycle stream (uploaded/moved/relinked/trashed/restored/purged; project readers + admin arm; 'purged' rows are TPN-CONT-002 deletion certificates; NO purge job — TPN-LOG-004 ≥1yr) + `bundle.fileEvents` local twin + FileAuditDrawer. Block D DECIDED: **create `rabbit-files`** (private, 50MB, path-scoped policies; delete-own = 1-hour failed-insert cleanup window only) — gap #31 UNBLOCKED. Block E — `storage_gc_queue` + enqueue trigger + `storage-gc` Edge Function (adminGuard, workspace-scoped, run-wide budget, batched ref-checks, paged members read, fail-closed tenancy) + Diagnostics cleanup card; **gap #6 CLOSED**. Review: 5 finders, 20 findings → 18 fixed (3 criticals: unbounded delete-own policy, body-supplied relink baseDir, takeout aborting on composite-pk order), 2 documented (→ #34/#35). pgTAP 33 (26 probes) on real PG17; Vitest 329/329. | `b109bd2` |
 | 11 | 2026-07-29 | **The O.T.T.E.R. UI.** Tier picker in the existing create flow; filter chips above the existing Sidebar 1 list (subjects INHERIT — they have no visibility of their own); share + editor-grant dialog off the course row; admin-only company-standard set/clear; inline fork offer; change-request **submit** in O.T.T.E.R. + **review queue in the Admin Terminal**; trash/restore as a filter state; `can_write` gating; collapsible Sidebar 1 (Ctrl/Cmd+`\`, localStorage, default expanded); OtterMigrationPanel mounted. **Migration 0024 `otter_trash_index()`** — the brief's claim that trash was "server-complete" was wrong; every read path filters `deleted_at IS NULL`, so `otter_restore_row` had no obtainable argument (**gap #20 CLOSED**). Also wired the dead `renderDeleteConfirm` (course delete was unreachable). Review: 17 findings, 10 refuted, 7 fixed — incl. a **non-functional editor grant** (`otter_course_editors.workspace_id` has no DEFAULT; the trigger validates rather than defaults) and error banners rendering into a `hidden` pane. pgTAP 117/117 on real PG17; Vitest 290/290. | `5707895` |
 
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Sessions 14–15 remain** (locked #19): **S14 file lifecycle & data
-stewardship** · S15 operator console + TPN + v1.0.0.
-Launch prompt ready: `docs/sessions/SESSION_14_prompt.md`.
+**Session 15 remains** (locked #19): operator console + TPN + v1.0.0.
+Launch prompt ready: `docs/sessions/SESSION_15_prompt.md`.
 
-**Migrations 0000–0025 are deployed to dev + staging + prod** (S13 added
-0025). **Edge Functions:** `ai-proxy` deployed to all three envs at the
-S12 close-out (no S13 changes); staging has `ANTHROPIC_API_KEY` set
-(post-S12); dev/prod keys still per OWED_AUDREY §5. CLI linked to
-`wilson-dev`.
+**Migrations 0000–0027 are deployed to dev + staging + prod** (S14 added
+0027). **Edge Functions:** `ai-proxy` (S12) and `storage-gc` (S14) deployed
+to all three envs; staging has `ANTHROPIC_API_KEY` set (post-S12);
+dev/prod keys still per OWED_AUDREY §5. CLI linked to `wilson-dev`.
 
 ---
 
@@ -442,13 +442,14 @@ just the ones that write review fields. And gap #33: the DB accepts a
 non-admin standard-course owner as a reviewer, but no client surface serves
 them (the queue is Admin-Terminal-only).
 
-### Session 14 — File lifecycle & data stewardship
+### Session 14 — File lifecycle & data stewardship ✅ DONE (2026-07-30)
 
-Everything about what happens to files and data over time. Roughly 60% of this
-is TPN work in friendlier clothing — the `TPN_AUDIT/FINDINGS.md` entries on
-audit trails, retention and proof-of-deletion (TPN-LOG-004 and the
-"delete is an unlink with no certificate, no checksum, no audit trail" finding)
-all land here rather than in S15.
+Commit `b109bd2`; §4 ledger row 14. All five blocks landed — storage relink
+(local_server, provider-agnostic matcher), CSV export both tiers, the
+file_events audit stream + drawer, the rabbit-files bucket decision
+(CREATE), and blob GC with certificates. TPN-CONT-002 and TPN-LOG-004 are
+remediated in product clothing — the S15 re-audit should tick them.
+Original scope below for the record.
 
 - **Storage relink** — the ShotGrid/Blender "find missing files" model, and the
   reason this session exists: point WILSON at a moved folder, it walks the
@@ -479,17 +480,23 @@ all land here rather than in S15.
 
 ### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
 
+Launch prompt: `docs/sessions/SESSION_15_prompt.md`.
+
 - **Operator console** (platform tier, `is_platform_operator`, separate
   surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
-  companies (workspaces), administer **per-company Claude API keys**,
-  cross-company session/usage logs, build-links management. Session
-  isolation from /wilson (separate storage scope; operator sign-in only).
+  companies (workspaces), administer **per-company Claude API keys**
+  (`workspace_ai_keys` — the ai-proxy seam is already live), cross-company
+  session/usage logs, build-links management. Session isolation from
+  /wilson (separate storage scope; operator sign-in only). **Workspace
+  teardown lands here and must include the service-role storage sweep**
+  (§6 #34 — S14's GC cannot drain a dead tenant's queue rows).
 - **Final TPN hardening**: re-run `tpn-compliance-audit` against the
-  `TPN_AUDIT/` baseline (committed at `1ce18ec`); close remaining items —
-  durable Edge-Function rate limiting (§6 #16), hard no-deferral admin MFA
-  gate once the CI probe admin is enrolled (§6 #17), storage blob GC
-  (§6 #6).
-- Remaining deferrals sweep (§6), v1.0.0 version cut.
+  `TPN_AUDIT/` baseline (committed at `1ce18ec`); claim the S14
+  remediations (TPN-CONT-002, TPN-LOG-004, path containment); close the
+  remaining items — durable Edge-Function rate limiting (§6 #16), hard
+  no-deferral admin MFA gate once the CI probe admin is enrolled (§6 #17).
+- Remaining deferrals sweep (§6 — #31 wiring and #32 deletion are the
+  cheap closes), v1.0.0 version cut.
 
 ## 6. Carry-forward gaps (live list, end of Session 8)
 
@@ -503,8 +510,11 @@ all land here rather than in S15.
    parent purge cascades it anyway).
 5. Milestones / scenes / levels / experiences have no cloud tables yet (S2
    deferral) — not broadcast, not history-captured.
-6. Storage blob GC — file rows soft-delete but blobs persist (S9/S10; now also
-   includes removed-avatar orphans when the best-effort delete fails).
+6. ~~Storage blob GC — file rows soft-delete but blobs persist~~ — **CLOSED
+   S14**: trg_files_gc_enqueue + storage_gc_queue + the admin-invoked
+   `storage-gc` Edge Function (queue drain, orphan scan, avatar sweep, all
+   workspace-scoped and certificate-emitting). Deliberately NOT a cron —
+   TS-1.5 dual authorization, and the gap-#24 schedule-branch trap.
 7. Roster (project_members) changes are not edit-history captured.
 8. Legacy `useTeamMembers` still used by Timeline/Scenes/Levels/Experiences/
    Budget/Intake views.
@@ -608,17 +618,17 @@ all land here rather than in S15.
     each other. Accepted for v1 (one-window product; same class as two
     Electron windows) — documented in the module header. A
     `storage`-event merge is the fix if it ever matters.
-31. **NEW (S12): project file ATTACHMENTS have no cloud home.** Locked #17
-    gives D.O.G. no content model, `files` rows are metadata + storage
-    pointers, and the `rabbit-files` bucket is an S14 decision — so cloud
-    projects cannot carry `documents`/`visualAssets` on EITHER host. S12
-    made every affordance honest: D.O.G.'s pickers and panel state it,
-    `supabaseAdapter.updateProject` throws on an attachments-only patch
-    (PostgREST silently 200s an `update({})` — found by review), and dates
-    map onto the canonical columns (`''` → NULL). **The S14 storage work
-    (rabbit-files bucket / relink) is what unlocks this.** Also web-only
-    degradations with stated reasons: `/api/fetch-url` reference scraping,
-    PDF text extraction (intake + rate-card import), Google-Sheet import.
+31. **project file ATTACHMENTS have no cloud home — UNBLOCKED S14, wiring
+    remains (→ S15 cheap close).** The `rabbit-files` bucket now exists
+    with path-scoped policies, so `supabaseAdapter.uploadFile` works end to
+    end. Still open: D.O.G./ProjectsPage attachments ride project-row
+    patches (`documents`/`visualAssets`), and
+    `supabaseAdapter.updateProject` still throws on attachments-only
+    patches (the honest S12 behavior). Closing = route those attachment
+    flows through `uploadFile`/files rows and retire the throw. Original
+    S12 context: locked #17 gives D.O.G. no content model; web-only
+    degradations with stated reasons remain (`/api/fetch-url`, PDF text
+    extraction, Google-Sheet import).
 32. **NEW (S12): the legacy LOCAL password panel still renders in Electron.**
     Settings → Change Password drives `/api/auth/change` (the pre-cloud
     local password). On the web it now degrades to a recovery-flow pointer,
@@ -629,6 +639,31 @@ all land here rather than in S15.
     `54d5225`): O.T.T.E.R.'s Requests view surfaces the decidable queue to
     admins AND to owners of the targeted standard course; managers got a
     read-only queue at the same time (0026).
+34. **NEW (S14): workspace hard-delete strands its rabbit-files blobs.**
+    The CASCADE purges files rows (queue rows enqueue with the dead
+    workspace_id; certificates FK-cascade away), and `storage-gc` is
+    workspace-scoped — no admin of a deleted tenant exists to drain the
+    queue, and other admins' orphan scans fail closed on the unknown
+    project folders (correctly). Named in 0027's enqueue-trigger comment.
+    **S15 owns it**: the operator console's workspace teardown must include
+    a service-role storage sweep.
+35. **NEW (S14): GC orphan-scan window can starve on very large buckets.**
+    The run-wide budget collects objects in name order, referenced ones
+    included, so a project with >5000 referenced objects sorted ahead of
+    its orphans never reaches them on any run. Mitigated (batched
+    reference checks, honest card copy — no "run again" promise); a
+    persisted per-bucket cursor is the fix if real buckets ever get there.
+36. **NEW (S14): the relink census and scan use sync fs on the Electron
+    main process.** `fs.existsSync` per file row (and the walker) block the
+    process; an UNREACHABLE network share can freeze the app for
+    N × timeout when a project's files live there. The client-side render
+    storm was fixed in review; the server-side fix is fs.promises.access
+    with bounded concurrency.
+37. **NEW (S14): local 'purged' certificates have no UI reader.** They
+    survive in bundle.fileEvents (exempt from the 2000-event trim) and the
+    project-level route GET /api/rabbit/projects/:id/file-events serves
+    them, but no surface renders that stream — the per-file drawer needs a
+    live row. Candidate: an audit tab or takeout inclusion later.
 
 ---
 
@@ -642,7 +677,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Editor timestamp + history button, popup w/ sidebar of edits, before/after main frame, per-project | S5 `EditHistoryDrawer` + capture triggers (0012) | ✅ (drawer lives in Assets/Tasks `_actions`; gallery/kanban affordance not wired) |
 | Revert project to a selected state | S7 `revertHistoryEntry` + drawer buttons | 🔶 projects/phases/assets/tasks only (#3 in §6) |
 | "Last updated by/at" on ALL project databases | Audit columns (0004) + triggers | ✅ |
-| Undo file/row deletes | S6 soft delete (0014) + undo toast + 30-day trash | ✅ (blob GC pending) |
+| Undo file/row deletes | S6 soft delete (0014) + undo toast + 30-day trash; S14 blob GC + purge certificates | ✅ |
 | Team member page shows assigned projects | S9: live assigned-projects column (workspace channel) | ✅ |
 | App roles admin/manager/user + dropdown in Team Members (WILSON, not RABBIT) | S3 permissions framework + S4 role dropdown | ✅ |
 | Admin per-user extra grants (rate-card view/edit toggles w/ confirm) | 0020 grants + has_rate_card_grant + terminal toggles w/ confirm | ✅ |
@@ -691,10 +726,19 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 6. **pgTAP traps (learned the hard way):** `throws_ok(sql, arg2, arg3)` — a
    5-char arg2 is treated as SQLSTATE and arg3 becomes the expected MESSAGE
    (use the message form); the `tests` schema is runner-only — de-auth before
-   mid-file `tests.login_as`; re-running an edited-but-applied migration on dev
+   mid-file `tests.login_as` with claims-reset + `RESET ROLE` (calling
+   `tests.logout()` as authenticated is a 42501); re-running an
+   edited-but-applied migration on dev
    = `supabase migration repair --status reverted NNNN` + `db push
    --include-all`; `supabase db query --linked` (CLI ≥ 2.90) runs SQL against
-   the linked hosted env.
+   the linked hosted env. **S14 additions:** inside one test transaction
+   `now()` is frozen, so purge probes need a NEGATIVE retention interval;
+   hosted `storage.protect_delete()` blocks direct SQL DELETE on
+   storage.objects (pin storage policies via pg_policies, probe writes via
+   INSERT only); PostgREST caps un-ranged reads at max_rows (1000) even for
+   service_role — Edge Functions must page with `.range()`; the CI lockfile
+   must be written by npm 10 (`npx npm@10 install --package-lock-only`) —
+   a local npm-11 lockfile regeneration breaks `npm ci`.
 
 ---
 
@@ -1078,6 +1122,53 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   course (probing readability first: the window can close between queue load
   and click, and an unreadable slug would poison Otter's course cache).
   AdminTerminalPage keeps taking no props.
+
+### Resolved 2026-07-30 (Session 14 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **Block D decided: the `rabbit-files` bucket EXISTS now** — private, 50 MB
+  cap, path-scoped policies keyed on `projects/{project_id}/…` riding the
+  same helpers as the files-table policies. Deciding factors: locked #14
+  names Supabase Storage a v1.0 provider, the adapter was already written
+  against the bucket, and the S2 migration tool already rewrites migrated
+  rows to point into it — dropping it would have stranded all three. The
+  uploader-cleanup DELETE policy is bounded to a ONE-HOUR window on the
+  uploader's own fresh objects; the review showed the unbounded version let
+  any past uploader destroy or silently replace live blobs, unaudited.
+- **Blob GC is admin-INVOKED, not a cron.** TPN TS-1.5 wants dual
+  authorization on destruction — a stated confirm click is the second
+  factor — and a GitHub Actions cron would hit the gap-#24 default-branch
+  trap. The queue + certificates make each run fully accountable
+  (WIL-3003/3004 + per-blob ledger rows).
+- **Relink folders must be USER-CHOSEN, enforced server-side.** The Express
+  server answers any local origin (`cors()`), so a body-supplied
+  baseDir/folderPath is never accepted: `rabbit:pick-directory` records
+  every user-picked folder, and the relink routes 403 anything else that
+  isn't inside the project's own roots. Found by the review — the original
+  route reinstated the arbitrary-path read/unlink the PATCH hardening had
+  just closed.
+- **`files_dir` is the relink base-change semantic**: applying a relink
+  against a new folder makes it the project's files home (uploads
+  included), disclosed in the dialog BEFORE the write, surfaced in
+  Files & Storage with a Reset control, refused with a 409 while the
+  recorded home is merely offline, and recorded in the audit stream. The
+  review supplied all four guards.
+- **file_events has NO purge job on purpose** (TPN-LOG-004: audit ≥ 1 year;
+  'purged' rows are the TPN-CONT-002 deletion certificates and outlive
+  their subject — no FK on file_id/project_id, admin read-arm survives
+  project purge). Revisit retention at the S15 TPN re-audit.
+- **The takeout is RLS-scoped client reads, never a DEFINER sweep** — it can
+  only contain what the requesting admin already reads. O.T.T.E.R. and
+  Notes are excluded in the UI copy AND the archive manifest (locked #20).
+- **Review keepers (the general lessons):** a storage policy pinned only by
+  existence lets CI bless an unbounded delete (pin the qual's guards too);
+  a certificate write must be infallible for client-reachable inputs
+  (truncate, don't trust); PostgREST max_rows applies to service_role
+  (page every Edge-Function read that can exceed 1000 — the unpaged
+  version deleted CURRENT avatars past the cap); and the export/matcher
+  bugs (composite-pk order, m.id vs user_id, greedy name-rung) were all
+  "fixtures more careful than the client" shapes — S10's meta-lesson, still
+  earning its keep.
 
 ### Still open
 
