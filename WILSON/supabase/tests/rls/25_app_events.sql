@@ -96,8 +96,14 @@ SELECT set_config(
 );
 SELECT set_config('role', 'authenticated', true);
 
+-- Scoped to the CLIENT-written stream. Session 17's trg_ws_members_audit
+-- (migration 0030) writes an 'admin' row for every membership change, and
+-- tests.rls_setup() plus this file's own fixtures create four of them — so
+-- an unfiltered count here measured the fixtures, not the policy. The
+-- contract this probe exists for is "an admin reads what probe 4's non-admin
+-- could not", and that is unchanged.
 SELECT is(
-  (SELECT count(*)::int FROM public.app_events),
+  (SELECT count(*)::int FROM public.app_events WHERE event_type <> 'admin'),
   2, 'admin reads the workspace event stream');
 
 -- ── probes 7-8: append-only ──────────────────────────────────────────────

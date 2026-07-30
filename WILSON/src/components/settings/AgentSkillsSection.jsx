@@ -56,10 +56,10 @@ export default function AgentSkillsSection({
         </h2>
         <p className="text-xs text-stone-950 mb-4 leading-relaxed">
           Each tool exposes a set of agent capabilities. The system prompt and
-          tool schema below describe the agent's contract; the checkboxes
-          control which actions are honored at runtime. Edits to the system
-          prompt persist across sessions and can be reset to the default at
-          any time.
+          tool schema below describe the agent's contract; the checkboxes are
+          a reference list and do not gate anything at runtime. Edits to the
+          system prompt persist across sessions and can be reset to the
+          default at any time.
         </p>
       </div>
 

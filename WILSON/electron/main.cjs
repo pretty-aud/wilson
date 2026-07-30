@@ -645,7 +645,7 @@ function startLocalServer(distPath) {
         const timeout = setTimeout(() => controller.abort(), 10000);
         const response = await fetch(url, {
           signal: controller.signal,
-          headers: { 'User-Agent': 'WILSON/0.5.5 OTTERBot' }
+          headers: { 'User-Agent': `WILSON/${app.getVersion()} OTTERBot` }
         });
         clearTimeout(timeout);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -683,7 +683,7 @@ function startLocalServer(distPath) {
         const response = await fetch(url, {
           signal: controller.signal,
           redirect,
-          headers: { 'User-Agent': 'WILSON/0.6 RABBIT' },
+          headers: { 'User-Agent': `WILSON/${app.getVersion()} RABBIT` },
         });
         clearTimeout(timeout);
         if (!response.ok) {

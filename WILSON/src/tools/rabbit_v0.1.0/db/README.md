@@ -157,7 +157,7 @@ explains why.
 
 ## 8. Migrations
 
-The numbered files in `supabase/migrations/` (`0000`–`0023`) are the single
+The numbered files in `supabase/migrations/` (`0000`–`0030`) are the single
 source of truth for the schema, applied with `supabase db push --linked`.
 Every migration is written to be idempotent and ends with a `DO $$`
 post-condition block that raises if its own invariants did not land.
@@ -822,3 +822,145 @@ guard was deliberately NOT extended — its filename pattern expects
 `NN_<table>.sql` per table, and suite 33 covers BOTH new tables in one
 file (the 31_otter_trash precedent). If S15 tightens the guard, either
 split the suite or teach the guard a mapping.
+
+## 22. O.T.T.E.R. change-request apply + manager read (Session 13, migrations 0025 + 0026)
+
+Never documented here until Session 17 — the two migrations that made an
+approval *do* something.
+
+**0025 `otter_cr_apply`** — approval APPLIES the change (locked #22).
+`otter_cr_apply(uuid)` is the ONLY path to `approved`; a bare status PATCH
+raises, enforced by a transaction-local GUC that only the RPC sets. It locks
+the row, re-validates every precondition, **archives the target first** to a
+personal copy owned by the approver (O.T.T.E.R. is deliberately not
+edit-history captured, so an overwrite would otherwise be unrecoverable),
+then applies the proposer's subjects **additively** — update by slug in
+place, insert when absent, NEVER delete. One approval must not silently
+strip lessons from everyone's official course. The five per-course
+reference documents are untouched: their merge semantics live in client JS
+(§6 #29), and overwriting them would violate the additive-only rule.
+
+The same migration grows the status machine to `changes_requested` and the
+revise-and-resubmit loop (revision counter, required decline note,
+`acknowledged_at`, decliner stays reviewer of record, settled rows frozen),
+plus `otter_has_open_review_access()` — the consented review window, a
+SECURITY DEFINER arm on `otter_courses_select` that opens on submit and
+closes on settle. Proposer-owned sources only: refused at INSERT, re-checked
+in the helper, and re-checked again inside the apply RPC.
+
+**0026 `otter_cr_manager_read`** — adds the manager READ arm to
+`otter_cr_select`. Managers see the queue; decide / window / apply still
+refuse them.
+
+**Ordering rule:** a MANUAL re-run of 0022 recreates `fn_otter_cr_review`,
+`otter_courses_select`, the CR policies and `otter_course_index()` at their
+Session-10 definitions — and every 0022 post-condition still passes in that
+half-reverted state. Re-run 0025 AND 0026 after any manual 0022 replay.
+
+pgTAP: `32_otter_cr_apply.sql` (67).
+
+## 23. Operator console + platform tier (Session 15, migrations 0028 + 0029)
+
+**0028** adds five things, all service-role or operator scoped:
+
+- **`is_platform_operator()`** (SECURITY DEFINER) reads the
+  `platform_operators` TABLE, never the JWT claim, so revocation bites on
+  the next statement rather than the next token refresh. The claim had
+  existed since 0001 and nothing server-side had ever read it.
+- **`workspace_ai_keys`** — per-company Anthropic keys as AES-256-GCM
+  ciphertext, with **zero policies at all**: tenancy is enforced by the
+  absence of any client grant. Encrypted rather than plain because the
+  nightly `pg_dump` goes off-platform to B2 with 90-day retention; the
+  ciphertext goes into the dump, the key that opens it does not.
+- **`platform_audit`** — operator-read, append-only, and deliberately
+  carries **no workspace FK**, snapshotting slug + name as text so a
+  `workspace.teardown` certificate still names the company after the row is
+  gone. A post-condition fails the deploy if an FK ever appears.
+- **`edge_rate_limits` + `fn_rate_limit_hit()`** — a durable fixed-window
+  limiter shared by every isolate. It replaced per-isolate in-memory Maps
+  whose effective limit was RPM × however many were warm. The window is
+  FIXED (up to 2× can pass across an edge) and it fails OPEN, loudly: a
+  limiter is an abuse control, not an authorization control, and
+  authorization has already run above it.
+- **`operator_workspace_summary()`** — the single cross-tenant read in the
+  system, service_role only.
+
+**0029** is the review fix, and the lesson generalises: **permissive RLS
+policies OR together.** 0002's `workspaces_write_operator` was `FOR ALL`
+and 0011 grants ALL on every public table to `authenticated`, so an
+operator's ordinary **aal1** browser session could `DELETE FROM workspaces`
+— skipping operatorGuard's hard MFA, the typed-slug confirm, the blob sweep
+AND the certificate. 0029 drops the FOR ALL policy in favour of separate
+read + update arms, revokes INSERT/DELETE/TRUNCATE, and adds
+`trg_workspaces_delete_guard`. It also adds
+`fn_projects_populate_workspace`, which is what makes cloud project
+creation work for any workspace that is not the seed fixture.
+
+**Ordering rule:** a MANUAL re-run of 0002 recreates the `FOR ALL` policy.
+Re-run 0029 after any manual 0002 replay.
+
+pgTAP: `34_workspace_ai_keys.sql` (16), `35_platform_audit.sql` (21),
+`36_edge_rate_limits.sql` (16), `37_workspace_write_lockdown.sql` (14).
+
+## 24. Privilege audit + access-token hook lockdown (Session 17, migration 0030)
+
+The two release-gating database fixes.
+
+**`trg_ws_members_audit` / `fn_ws_members_audit_capture()`** (§6 #42,
+TPN-LOG-005, an open CRITICAL) — privilege changes on `workspace_members`
+were written straight from the browser under the `FOR ALL`
+`ws_members_admin_write` policy and NOTHING captured them: 0012's
+`edit_history` entity CHECK deliberately excludes the table, the only
+triggers on it were guards, and no `app_events` line was written. The
+roster showed the end state and nothing else, so "who granted this person
+admin, and when" was unanswerable for anything that had already happened.
+The capture trigger follows the 0027 `fn_file_events_capture` shape exactly,
+including the catch-all `EXCEPTION WHEN OTHERS → RAISE WARNING` so an audit
+failure can never abort the write it audits — including a workspace CASCADE.
+
+It fires **only** when `app_role`, `is_active`, `grant_rate_card_view` or
+`grant_rate_card_edit` actually changes. A profile-only edit (avatar,
+pronouns, title) writes nothing: an audit stream that logs everything is one
+nobody reads, and `app_events` is already the Admin Terminal's user-facing
+log. Codes `WIL-4105` (privileges changed) / `WIL-4106` (membership created)
+/ `WIL-4107` (membership removed).
+
+SECURITY DEFINER is load-bearing twice over here: `app_events` is FORCE RLS
+and its INSERT policy explicitly refuses `event_type = 'admin'` so that no
+client can forge audit lines — the trigger writes that reserved stream
+because its owner (`postgres`) holds BYPASSRLS.
+
+Coverage note: Edge Functions that change privileges (`admin-set-active`)
+run as `service_role` with no `auth.uid()`, so the trigger records those with
+a NULL actor while `logAdminEvent` records the real one. `context.source` and
+`context.db_role` are there to correlate the two rows.
+
+**Access-token hook lockdown** (§6 #44) — 0001 and 0003 both REVOKE
+`custom_access_token_hook` from `anon` / `authenticated` / `public`, but
+**0011:23's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public`
+re-grants it**, and 0011's re-lock pass covers only
+`provision_workspace_and_admin` and `workspace_directory()`. The hook takes
+its target user id from the caller-supplied `event` argument, not
+`auth.uid()`, so any caller could compute any user's full claim set —
+workspace memberships, app_role, `is_platform_operator`. Verified live on
+wilson-dev before the fix: callable as **anon**, i.e. reachable with nothing
+but the public anon key. Survived eleven sessions of review because every
+pass read the REVOKE in 0001/0003 and stopped there.
+
+**Ordering rule:** a MANUAL re-run of 0011 re-widens the hook (and, through
+its `ALTER DEFAULT PRIVILEGES`, every function a later migration creates).
+Re-run 0030 after any manual 0011 replay.
+
+Known and deliberate residue: eight SECURITY DEFINER functions remain
+`anon`-executable. Six key on `auth.uid()` and therefore leak nothing. Two —
+`project_is_staffed` and `fn_comment_project_id` — have no caller gate but
+reveal only one bit about an already-known unguessable UUID. Revoking those
+from `anon` is a *proven* behaviour change: `has_active_membership` backs
+nearly every policy, so every anon table read turns from an empty result
+into a 42501. Left as-is for v1.0 rather than shipped blind (§6 #59).
+
+pgTAP: `38_ws_member_audit.sql` (14). No new tables, so `rls.yml`
+RLS_TABLES is unchanged; the failure replay list gained 33–38 (it had
+stopped at 32, which is why a suite-38 failure surfaced as "replay produced
+no ERROR lines" on every OTHER file — a failing pgTAP assertion is not an
+SQL error, so that annotation never means "this file passed").

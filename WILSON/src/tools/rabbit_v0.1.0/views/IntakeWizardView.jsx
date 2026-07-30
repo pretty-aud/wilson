@@ -5,7 +5,11 @@
 // Multi-step wizard that turns a pile of source documents into
 // a structured project breakdown via runIngestion(). The flow:
 //
-//   upload → classify → core → run → review → save
+//   prepare → run → review
+//
+// `prepare` consolidates what were originally three separate steps (upload,
+// classify, core-definer). Session 17 deleted the three superseded step
+// components — IntakePrepare.jsx is the whole of step 1 now.
 //
 // "New Project" opens a form page (not auto-create) so the user
 // can fill in fields and confirm before anything is created.

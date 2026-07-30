@@ -184,7 +184,56 @@ COMMENT ON FUNCTION public.fn_ws_members_audit_capture() IS
   'Fires only when app_role, is_active or a rate-card grant actually changes.';
 
 
--- ── 3. Post-conditions ───────────────────────────────────────────────────────
+-- ── 3. Document the unused audit columns (Block C Tier 2) ────────────────────
+--
+-- `last_updated_by` and `last_updated_at` were added to 13 tables by 0000 and
+-- nothing has ever READ them — the Admin Terminal, the edit-history drawer and
+-- every adapter use `updated_at` / `updated_by` (0004's fn_audit_touch) instead.
+--
+-- They are NOT dropped, and the reason is worth recording: the two columns
+-- differ. `last_updated_by` is genuinely inert — never written, NULL
+-- everywhere. `last_updated_at` is *written* on two live paths: a
+-- `DEFAULT now()` on insert, and a BEFORE UPDATE trigger `touch_last_updated()`
+-- still attached to projects, phases, assets and tasks (0000:350-359), which no
+-- later migration dropped. Dropping the column without also dropping four
+-- triggers and their function would break every RABBIT UPDATE. "Unused" is the
+-- accurate word; "unwritten" is not, and the distinction inverts the risk.
+--
+-- A comment costs nothing and survives; a drop is a schema change on 13 live
+-- tables for no functional gain. Post-1.0 work if it is ever worth it.
+
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN
+    SELECT c.table_name, c.column_name
+      FROM information_schema.columns c
+      JOIN information_schema.tables t
+        ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+     WHERE c.table_schema = 'public'
+       AND t.table_type = 'BASE TABLE'
+       AND c.column_name IN ('last_updated_by', 'last_updated_at')
+  LOOP
+    EXECUTE format(
+      'COMMENT ON COLUMN public.%I.%I IS %L',
+      r.table_name, r.column_name,
+      CASE r.column_name
+        WHEN 'last_updated_by' THEN
+          'UNUSED (0000). Never written by any trigger or client, and never '
+          'read. The live audit pair is updated_by/updated_at (fn_audit_touch, '
+          '0004). Retained rather than dropped — see migration 0030.'
+        ELSE
+          'UNUSED BY THE APPLICATION (0000). Nothing reads this; the live audit '
+          'pair is updated_by/updated_at (fn_audit_touch, 0004). It IS still '
+          'written — DEFAULT now() plus the touch_last_updated() BEFORE UPDATE '
+          'trigger on projects/phases/assets/tasks — so dropping it means '
+          'dropping those triggers too. See migration 0030.'
+      END);
+  END LOOP;
+END $$;
+
+
+-- ── 4. Post-conditions ───────────────────────────────────────────────────────
 
 DO $$
 BEGIN

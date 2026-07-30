@@ -6,8 +6,12 @@
 // Packaged:    reads app.getPath('userData')/env.json so operators can swap
 //              envs without a rebuild.
 //
-// All env values are exposed to the renderer via preload's `wilsonEnv` bridge
-// so that VITE_* imports work consistently across dev and packaged builds.
+// These values reach the MAIN PROCESS ONLY — loadEnv() writes them into
+// process.env below, and electron/sentry.cjs reads VITE_SENTRY_* from there.
+// There is NO env bridge in preload.cjs: the renderer's `import.meta.env.VITE_*`
+// reads are compile-time constants substituted by Vite at build time, so
+// swapping userData/env.json changes main-process behaviour only — never the
+// renderer's Supabase URL or anon key.
 // =============================================================================
 
 const fs = require('fs');
