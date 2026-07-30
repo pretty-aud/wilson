@@ -698,3 +698,74 @@ The agent never signs in, so these are yours. On the dev environment first.
 `gh auth login` on the dev machine. CI turned out to be readable anyway (the
 repo is public), but an authenticated `gh` would let Claude open PRs and read
 private repos directly instead of handing you URLs.
+
+---
+
+## 11. 🚨 Operator console go-live — three things, and one is a real decision
+
+**Added 2026-07-30 (Audrey): "enrol totp and seed for the operator system. i
+want it to be hosted on petalstudios.co/wilsonadmin".**
+
+The console is built, deployed and tested by pgTAP — but **no human has ever
+signed in to it**, because all three of these are outstanding. Nothing here is
+something the agent can do for you: two involve credentials, one is a domain
+decision.
+
+### A. Enrol TOTP — BLOCKING
+
+Already written up in **§9A**. In short: WILSON → Settings → Security → add an
+authenticator, scan, confirm. The console refuses any operator with no verified
+factor *and* any session below `aal2` — this is the one surface where MFA is
+not optional, because it can destroy a company.
+
+### B. Seed `platform_operators` — BLOCKING
+
+Already written up in **§9B**, with the exact SQL. Run it once per environment
+you want console access on. There is deliberately no UI for this, on any
+surface — that is what stops the platform tier being escalated from a web
+session, even by someone who already holds it.
+
+**Do A and B together.** Either one alone leaves you signed in and refused.
+
+### C. Hosting at `petalstudios.co/wilsonadmin` — A DECISION, NOT A SETTING
+
+**Where it lives today:** `https://beta.petalstudios.co/wilsonadmin`, served by
+the Vercel project `petal-studios/wilson`. `vercel.json` already builds both
+surfaces and rewrites `/wilsonadmin*` → `/wilsonadmin/admin.html`, so **the
+path shape you want already works** — it is the *domain* that differs
+(`beta.petalstudios.co` vs the apex `petalstudios.co`).
+
+**Why this is not just a Vercel setting.** The apex `petalstudios.co` is
+currently served by Squarespace — your actual website. Putting
+`petalstudios.co/wilsonadmin` on Vercel means the apex domain's traffic has to
+reach Vercel, and Squarespace cannot route a single path elsewhere. This is
+exactly the constraint locked decision #18 flagged and §10 relaxed ("the
+production domain cutover is post-v1.0"). Three ways out:
+
+| Option | What it means | Cost |
+|---|---|---|
+| **1. Keep a subdomain** — e.g. `admin.petalstudios.co/wilsonadmin`, or leave it on `beta.` | Add the domain in Vercel, add one CNAME at Squarespace. Works today. | ~10 minutes. Not the apex. |
+| **2. Put Cloudflare in front of the apex** | Move `petalstudios.co`'s DNS to Cloudflare, proxy `/wilson*` and `/wilsonadmin*` to Vercel, everything else to Squarespace. Gets you the exact URL you asked for. | Half a day, plus a DNS migration with real downtime risk to your live site. |
+| **3. Move the whole apex to Vercel** | The marketing site moves too, or gets redirected. | Largest change; only worth it if you were leaving Squarespace anyway. |
+
+**Recommendation: option 1 for v1.0, option 2 after.** The operator console is
+an internal tool used by you and eventually one or two colleagues — the URL
+being `admin.petalstudios.co/wilsonadmin` instead of
+`petalstudios.co/wilsonadmin` costs nothing operationally, and it does not put
+a DNS migration of your live website on the critical path to shipping. Nothing
+in the codebase cares which of the three you pick: the path shape is already
+correct and `vercel.json` needs no change.
+
+> One property worth knowing before you choose. `/wilson` and `/wilsonadmin`
+> being on the **same origin** is what makes session isolation depend entirely
+> on a build-time key string (`wilson.dev.session` vs
+> `wilson.operator.session`). Putting the console on a **different** subdomain
+> would give you a second, stronger, browser-enforced separation for free —
+> different origin, different localStorage, no shared store at all. That is a
+> mild argument for option 1 on security grounds, not just convenience.
+
+**What to tell the agent once you decide:** just the final URL. If it is a new
+domain, add it in Vercel (Project → Settings → Domains) and add the CNAME at
+Squarespace; if the console moves off the current origin, the Supabase auth
+`site_url` / `additional_redirect_urls` may need that origin added too — worth
+a quick check on the sign-in flow afterwards.
