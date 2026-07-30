@@ -1,12 +1,14 @@
-# SESSION 15 launch prompt — operator console + final TPN hardening + v1.0.0
+# SESSION 15 launch prompt — operator console + final TPN hardening
 
 > Paste into a new Claude Code conversation from the WILSON repo.
 > **Master plan: `docs/MASTER_PLAN.md` — read §2–§6 and §10 BEFORE any code.**
 > **First tool call** per standing rule: `git status` on `feat/multi-user-v1`.
 
-> **This is the LAST session of the multi-user migration.** It ends with the
-> v1.0.0 version cut. Anything discovered that does not block v1.0.0 gets a
-> §6 gap entry, not scope.
+> **Three sessions remain** (locked #19 as amended 2026-07-30, Audrey):
+> **S15 = this, the LAST BUILD session** · S16 = systems documentation &
+> design pack (`docs/sessions/SESSION_16_prompt.md`, already written) ·
+> S17 = release, v1.0.0. Anything discovered here that does not block the
+> release gets a §6 gap entry, not scope — S17 does the final disposition.
 
 ---
 
@@ -76,153 +78,26 @@
   the Electron main process (an unreachable SMB share can block; async
   fs.promises.access with bounded concurrency is the fix).
 
-### Block C — Remaining deferrals sweep
+### Block C — Deferrals sweep, code side
 
-- Walk §6 end to end; every still-open gap gets closed, re-owned to
-  post-1.0, or explicitly accepted with a reason.
+- The CODE closes only — the final gap-by-gap disposition table is S17's.
 - Candidates that likely close cheap: #32 (legacy local password panel in
   Electron — delete it), #31 (wire D.O.G./ProjectsPage attachments through
   uploadFile now that the bucket exists — this also retires the
   updateProject attachments throw).
 
-### Block D — Exit documentation: the systems handbook (Audrey, 2026-07-30)
-
-**v1.0.0 does not ship without this.** After the build work is fully done,
-write **`docs/SYSTEMS_HANDBOOK.md`** — the in-length, plain-text
-"how the whole thing works" document for future team members. Two
-audiences, one file: humans onboarding onto WILSON, AND other Claude
-accounts that will be handed this document to seed Claude projects,
-skills, and CLAUDE.md files for new members — so it must be fully
-self-contained (no "see the repo" hand-waves), factual, and structured
-for excerpting.
-
-**List EVERY system, what it does, and what it talks to.** At minimum:
-
-- **The Electron desktop app** — main process, the ~2000-line Express
-  local server on 127.0.0.1 (what routes exist, what data lives in
-  `otter-data/` / `rabbit-data/`), the React renderer, IPC surface, and
-  which of the three tools uses which path.
-- **The web build** — Vercel (`beta.petalstudios.co/wilson`, prod branch
-  `feat/multi-user-v1`, STAGING-backed, auto-deploys on push; GH Pages =
-  dormant fallback), what degrades on the web and why (no local server).
-- **Supabase, per concern**: the three environments and which client
-  talks to which; Auth (username-first resolver flow, ES256
-  issue-session, the frozen JWT claim shape, MFA); Postgres + RLS as THE
-  security boundary (app roles vs project roles, FORCE RLS, the helper
-  family); Realtime (broadcast-from-database, the two channel topics,
-  why not postgres_changes); every **Edge Function** by name with its
-  caller, its guard, and its job (resolve-login, issue-session,
-  provision-workspace, invite-member, admin-create-user,
-  admin-reset-password, admin-set-active, admin-user-security, ai-proxy,
-  storage-gc); Storage (user-avatars + rabbit-files buckets, path
-  layouts, policy model); pg_cron jobs (all four purges + retention
-  windows).
-- **Anthropic** — every AI feature rides the `ai-proxy` Edge Function on
-  both hosts (locked #21): per-workspace→platform key seam, streaming
-  transport, usage telemetry codes. NO client ever holds a key.
-- **GitHub** — the public repo, what CI runs on push (`rls.yml` jobs and
-  what each proves), `backups.yml` on `main` (why the default branch
-  matters), which secrets live in Actions.
-- **Backblaze B2** — nightly pg_dump backups (which envs, retention,
-  Object Lock) + auto-update installers. NEVER customer content
-  (locked #20), and why a database-only backup is sufficient (relative
-  storage_path model).
-- **Resend** — invite/recovery/email-change mail, `mail.petalstudios.co`,
-  DNS at Squarespace.
-- **Sentry** — what reports from where, per-env.
-- **electron-updater** — NSIS channel, B2 feed, the login-time
-  update/skip flow.
-- **Company storage providers** — local/local_server, Supabase Storage,
-  Google Drive (read-only v0.1): storage_path semantics per provider,
-  the relink model, blob GC + the certificate/ledger trail, file_events.
-- **The three tools + the agent system** — D.O.G., O.T.T.E.R.,
-  R.A.B.B.I.T. at a functional level: what each does, where its data
-  lives in each mode, and the cross-tool surfaces (Dashboard, Admin
-  Terminal, pet/agent system with per-tool actions and the DiffView
-  approval gate).
-- A **"who talks to whom" section**: every arrow in the system spelled
-  out in prose (renderer → localhost Express; renderer → Supabase
-  directly; Electron main ↔ renderer IPC; ai-proxy → Anthropic; CI →
-  wilson-dev; Vercel build → staging env vars; GH Actions → B2; …).
-
-**Rules:** NO secrets, keys, tokens, or passwords of any kind — the repo
-is PUBLIC, so the handbook is "private" in the sense that Audrey hands it
-out manually, not that the file is hidden. (Project refs, hostnames and
-architecture are already public in this repo's docs.) State facts with
-their invariants ("the JWT claim shape is FROZEN because…") so a Claude
-reading it can act safely. Version-stamp it (v1.0.0, date) and note it
-supersedes nothing — MASTER_PLAN stays the migration's living history;
-the handbook is the timeless "how it works now".
-
-### Block E — Design-doc source pack: wireframes + dataflows (Audrey, 2026-07-30)
-
-After the handbook exists (it is the source of truth for this), produce
-**`docs/SYSTEMS_DESIGN_PACK.md`** — the visual companion Audrey will feed
-into a Claude design session to build the final infographic/wireframe
-design document. It must contain, as **mermaid diagrams** (they render
-natively in artifact/markdown viewers and are unambiguous source for a
-design tool):
-
-1. **The system map** — one diagram with every external system as a node
-   (Electron app, web build/Vercel, Supabase ×3 envs, Edge Functions,
-   Anthropic, GitHub/CI, B2, Resend, Sentry, Google Drive, company local
-   storage) and EVERY connection as a labelled arrow (what protocol/what
-   data). One overview + one per-environment variant if the overview
-   gets crowded.
-2. **Per-tool wireframes/flows** — for EACH tool (D.O.G., O.T.T.E.R.,
-   R.A.B.B.I.T.) and each shared surface (Dashboard, Admin Terminal,
-   Settings, Team Members, Rate Card): a screen-level wireframe sketch
-   (layout blocks, navigation) plus the tool's primary dataflow
-   (e.g. D.O.G. brief → generation pipeline → outline → exports;
-   O.T.T.E.R. course generation / quiz / validator / change-request
-   lifecycle; R.A.B.B.I.T. intake → phases/assets/tasks → views, budget,
-   files/relink).
-3. **Per-function dataflows** — one small diagram per load-bearing
-   function: login (resolve → password → MFA → session), invite +
-   onboarding, realtime sync (broadcast path), soft-delete → trash →
-   restore → purge → GC certificate, storage relink (scan → match →
-   preview → apply), CSV exports + takeout, the ai-proxy call path,
-   change-request submit → review → apply, auto-update, backups.
-4. An **inventory table** at the top (diagram id → what it shows →
-   which handbook section it illustrates) so the design session can be
-   driven diagram-by-diagram.
-
-Keep the mermaid semantically honest (real route names, real table
-names) — these are engineering wireframes, not decoration; the pretty
-pass happens in Audrey's design session afterwards.
-
-### Block F — v1.0.0
-
-- Version cut: package.json → 1.0.0, changelog, tag — AFTER Blocks A–E,
-  including the handbook (Block D is a release gate, per Audrey).
-
 ## HOW to build it
 
 - **Sequence:** operator console schema/claims first (any migration = 0028,
   pgTAP harness verify) → console surface (a sibling build target, not a
-  page in /wilson) → TPN re-audit → deferrals sweep → **systems handbook
-  (Block D) → design pack (Block E, sourced FROM the handbook)** →
-  version cut.
-- **Size warning — the overrun pattern.** This session now carries console
-  + TPN + sweep + two documentation deliverables + the cut. Splitting a
-  session has been the right call three times (S10→S11, S11 flags→S13,
-  S12→S13). If the console + TPN work consumes the session, STOP after
-  Block C and give Blocks D/E/F their own short "docs & release" session —
-  a rushed handbook defeats its purpose as onboarding + Claude-seed
-  material. Flag the split at close-out rather than compressing the docs.
+  page in /wilson) → TPN re-audit → code-side deferral closes.
 - The operator console is OUTWARD-FACING INFRA — smallest possible surface,
   `laws-of-ux` invoked for whatever UI it does grow (≥5 laws named per
   file header + close-out).
-- **The handbook is written FROM the code, not from memory** — verify every
-  route name, function name, bucket, cron time and claim shape against the
-  repo before writing it down; it will be trusted verbatim by people and
-  Claudes who cannot check.
 - **Adversarial review before the feature commit** — it has caught real
   defects in every session including S14 (20 findings, 18 fixed; among them
   three criticals: an unbounded storage delete-own policy, a body-supplied
-  relink baseDir, and a takeout that could never produce an archive). Give
-  the HANDBOOK a review pass of its own: finders check it against the
-  code for drift, the same way code gets checked against intent.
+  relink baseDir, and a takeout that could never produce an archive).
 
 ## Traps & discipline (inherited — full list in MASTER_PLAN §8)
 
@@ -250,19 +125,24 @@ pass happens in Audrey's design session afterwards.
 
 ## Non-goals (S15)
 
+- **The systems handbook + design pack (S16)** and **the v1.0.0 cut
+  (S17)** — do not start them here; S16's prompt already exists.
 - AWS S3 / Hetzner storage adapters (post-1.0, locked #14).
 - Google Drive relink; O.T.T.E.R. subject-level diff (§6 #28); reference-doc
   merge on approval (§6 #29).
 - Any new R.A.B.B.I.T./O.T.T.E.R. feature work — this session ships the
-  console, the audit, and the cut.
+  console and the audit.
 
 ## Close-out ritual (MASTER_PLAN §8 — do ALL of it)
 
 Feature commit → CI green (public REST API) → deploy any migration
 dev → staging → prod (dry-run each) → deploy any Edge Function to all three
-envs → re-link CLI to `wilson-dev` → **`docs/SYSTEMS_HANDBOOK.md` +
-`docs/SYSTEMS_DESIGN_PACK.md` written and drift-reviewed (Blocks D/E)** →
-update `docs/MASTER_PLAN.md` (§4 ledger, §5 scope, §6 gaps, §7 statuses,
-§10) → update the Claude auto-memory → docs commit + push → list Audrey's
-owed browser checks (add: read the handbook end to end before sharing it —
-she is the final reviewer of the hand-out document) → **v1.0.0 tag**.
+envs → re-link CLI to `wilson-dev` → **append a "what S16 must document"
+note to `docs/sessions/SESSION_16_prompt.md`** (everything this session
+added that the handbook must cover: the /wilsonadmin surface + its session
+isolation, workspace_ai_keys, teardown + storage sweep, the durable rate
+limiter — flag it while it is fresh) → update `docs/MASTER_PLAN.md` (§4
+ledger, §5 scope, §6 gaps, §7 statuses, §10) → update the Claude
+auto-memory → docs commit + push → list Audrey's owed browser checks.
+**No version cut here** — v1.0.0 is S17, after the S16 documentation pass
+has done its whole-system read.

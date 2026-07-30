@@ -215,6 +215,14 @@ Core capabilities of v1.0.0:
     The change-request work was briefly specced as an S12 Block C; Audrey pulled
     it into its own session rather than triple-book S12 — the same correction
     that split the old S11 after S10 overran.
+    **Amended 2026-07-30 (Audrey, post-S14): the tail splits into THREE** —
+    **S15 operator console + TPN hardening** (last build session) ·
+    **S16 systems documentation & design pack** (docs-only, frozen code) ·
+    **S17 release** (final §6 disposition, fixes surfaced by S16's read,
+    v1.0.0 cut). Docs deliberately precede the release: writing the
+    handbook forces an end-to-end read of the whole system, so S16 doubles
+    as the final audit and S17 absorbs anything it surfaces BEFORE the
+    tag. Fourth proactive session split; the pattern holds.
 20. **B2 never holds customer content** — database dumps and update installers
     only. Project files live in the company's own storage (locked #14) and are
     their backup responsibility; WILSON keeps only the metadata that points at
@@ -272,8 +280,10 @@ Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 
-**Session 15 remains** (locked #19): operator console + TPN + v1.0.0.
-Launch prompt ready: `docs/sessions/SESSION_15_prompt.md`.
+**Sessions 15–17 remain** (locked #19 as amended 2026-07-30): S15 operator
+console + TPN hardening · S16 systems documentation & design pack · S17
+release (v1.0.0). Launch prompts ready: `docs/sessions/SESSION_15_prompt.md`
+and `SESSION_16_prompt.md`; S16 writes S17's.
 
 **Migrations 0000–0027 are deployed to dev + staging + prod** (S14 added
 0027). **Edge Functions:** `ai-proxy` (S12) and `storage-gc` (S14) deployed
@@ -478,9 +488,10 @@ Original scope below for the record.
 - **Blob GC (§6 #6)** — file rows soft-delete but blobs persist forever, and
   removed-avatar orphans join them when the best-effort delete fails.
 
-### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening + v1.0.0
+### Session 15 — Operator Console (/wilsonadmin) + Final TPN Hardening
 
-Launch prompt: `docs/sessions/SESSION_15_prompt.md`.
+Launch prompt: `docs/sessions/SESSION_15_prompt.md`. The last BUILD
+session (locked #19 as amended — docs and the cut moved to S16/S17).
 
 - **Operator console** (platform tier, `is_platform_operator`, separate
   surface at `petalstudios.co/wilsonadmin` per locked #18): create/manage
@@ -495,24 +506,40 @@ Launch prompt: `docs/sessions/SESSION_15_prompt.md`.
   remediations (TPN-CONT-002, TPN-LOG-004, path containment); close the
   remaining items — durable Edge-Function rate limiting (§6 #16), hard
   no-deferral admin MFA gate once the CI probe admin is enrolled (§6 #17).
-- Remaining deferrals sweep (§6 — #31 wiring and #32 deletion are the
-  cheap closes).
-- **Exit documentation (Audrey, 2026-07-30 — a v1.0.0 release gate):**
-  `docs/SYSTEMS_HANDBOOK.md` — the in-length "every system, what it does,
-  what talks to what" document (Supabase per concern, Vercel, GitHub/CI,
-  B2, Resend, Sentry, Electron/Express, ai-proxy→Anthropic, storage
-  providers, the three tools + agent system, a who-talks-to-whom section).
-  Written for BOTH future team members and other Claude accounts (seed
-  material for Claude projects/skills/CLAUDE.md); fully self-contained;
-  NO secrets (repo is public — "private" = hand it out manually). Then
-  `docs/SYSTEMS_DESIGN_PACK.md` — mermaid system map + per-tool
+- Deferrals sweep, CODE side (§6 — #31 wiring and #32 deletion are the
+  cheap closes). Final disposition table is S17's.
+- Close-out appends a "what S16 must document" note to
+  `SESSION_16_prompt.md`.
+
+### Session 16 — Systems documentation & design pack (Audrey, 2026-07-30)
+
+Launch prompt: `docs/sessions/SESSION_16_prompt.md`. **Docs-only — no
+product code**; runs on the frozen post-S15 codebase, and the whole-system
+read doubles as the final audit (code findings → §6 gaps for S17).
+
+- **`docs/SYSTEMS_HANDBOOK.md`** — the in-length "every system, what it
+  does, what talks to what" document (Supabase per concern, Vercel,
+  GitHub/CI, B2, Resend, Sentry, Electron/Express, ai-proxy→Anthropic,
+  storage providers, the operator console, the three tools + agent
+  system, a who-talks-to-whom section). Dual audience: future team
+  members AND other Claude accounts (seed material for Claude
+  projects/skills/CLAUDE.md); fully self-contained; written FROM the code
+  and drift-reviewed like code; NO secrets (repo is public — "private" =
+  Audrey hands it out manually). **v1.0.0 release gate.**
+- **`docs/SYSTEMS_DESIGN_PACK.md`** — mermaid system map + per-tool
   wireframes/flows + per-function dataflows + a diagram inventory, the
   source pack for Audrey's follow-up Claude design session
   (infographics/wireframes document).
-- v1.0.0 version cut — after everything above, handbook included.
-- **Overrun escape hatch**: if console + TPN fill the session, stop and
-  give docs + release their own short session (the S10/S11/S12 splitting
-  lesson) rather than rushing the handbook.
+- Close-out writes `SESSION_17_prompt.md`.
+
+### Session 17 — Release (v1.0.0)
+
+- Fix anything S16's documentation read surfaced (§6 entries it filed).
+- Final §6 disposition: every still-open gap closed, re-owned to
+  post-1.0, or explicitly accepted with a reason.
+- Confirm the release gates: handbook exists and is drift-reviewed; CI
+  green; migrations + Edge Functions deployed to all three envs.
+- Version cut: package.json → 1.0.0, changelog, tag.
 
 ## 6. Carry-forward gaps (live list, end of Session 8)
 
@@ -767,7 +794,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | CI workflow | `.github/workflows/rls.yml` (at git root) |
 | Supabase envs | dev `eqjzmnvkrakroyqxfsvw` · staging `rzkirvkotslbovzbsdfh` · prod `rqyriuyldhovirbuievt` |
 | DB reference doc | `WILSON/src/tools/rabbit_v0.1.0/db/README.md` (§7 superseded-note, §14 realtime, §15 revert) |
-| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–14 present) |
+| Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–16 present; S16 writes 17) |
 | Web test host | `https://pretty-aud.github.io/wilson/` — `gh-pages` branch of the public repo; Pages toggle owed (see `docs/WEB_DEPLOY.md`) |
 | ai-proxy | Edge Function, all 3 envs; key = `ANTHROPIC_API_KEY` secret (owed) with per-workspace seam; `AI_PROXY_RPM` optional |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
@@ -1203,9 +1230,29 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   function works, with a diagram inventory — as the source pack for a
   Claude design session where Audrey builds the final
   infographic/wireframe document.
-- Both are sequenced AFTER the S15 build blocks and BEFORE the v1.0.0
+- ~~Both are sequenced AFTER the S15 build blocks and BEFORE the v1.0.0
   tag; if the session overruns, docs + release split into their own
-  session rather than compressing the handbook.
+  session rather than compressing the handbook.~~ **SUPERSEDED same day:
+  the split was made proactively instead** — see the three-session
+  amendment below and locked #19.
+
+### Resolved 2026-07-30 (Audrey, post-S14 — the three-session tail)
+
+- **S15 was bloated (console + TPN + sweep + two docs deliverables + the
+  cut ≈ 2.5–3 sessions), so the tail is now three sessions**: S15
+  operator console + TPN hardening (last build) · S16 systems
+  documentation & design pack (docs-only, quick relative to a build
+  session — no migrations/deploys — but the drift review and diagram set
+  are real work) · S17 release.
+- **Docs before release, not after (Audrey asked; agent recommended
+  keeping her order):** writing the handbook forces an end-to-end read of
+  the frozen system, so S16 doubles as the final audit — S17 fixes
+  whatever it surfaces BEFORE the v1.0.0 tag, and the handbook release
+  gate survives. Swapping would have shipped the tag first and landed any
+  documentation-pass discoveries post-release.
+- S16 files code findings as §6 gaps rather than fixing them (frozen-code
+  rule); S15's close-out appends a "what S16 must document" note to the
+  S16 prompt so console-era additions reach the handbook while fresh.
 
 ### Still open
 
