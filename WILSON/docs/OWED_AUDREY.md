@@ -769,7 +769,63 @@ session, even by someone who already holds it.
 
 **Do A and B together.** Either one alone leaves you signed in and refused.
 
-### C. Hosting at `petalstudios.co/wilsonadmin` — A DECISION, NOT A SETTING
+### C. Console hosting — ✅ DECIDED 2026-07-30: `admin.petalstudios.co/wilsonadmin`
+
+> **Audrey chose option 1 (subdomain).** Final URL:
+> **`https://admin.petalstudios.co/wilsonadmin`**.
+>
+> **Zero repo changes.** Nothing in the codebase hardcodes a host — the only
+> two `beta.petalstudios.co` strings under `src/` are explanatory comments.
+> `vercel.json` already builds both surfaces and rewrites `/wilsonadmin*` →
+> `/wilsonadmin/admin.html`, and it routes on **path**, so it works unchanged
+> on any domain attached to the project.
+>
+> **Setup — two steps:**
+>
+> 1. Vercel → project `petal-studios/wilson` → **Settings → Domains** → add
+>    `admin.petalstudios.co`.
+> 2. Squarespace DNS → add the CNAME **Vercel shows you on that screen**
+>    (host `admin`; the value for `beta` was `cname.vercel-dns.com`, but read
+>    it off the screen rather than assuming — Vercel changes it). Wait for the
+>    certificate to issue.
+>
+> **What this does and does not change.** Every domain on a Vercel project
+> serves the *same deployment*, and rewrites match on path only — there is no
+> host-based routing here. So `admin.petalstudios.co` serves **both** surfaces,
+> exactly as `beta.` does: `/wilsonadmin` is the console and `/wilson` is the
+> product app. `beta.petalstudios.co` keeps working unchanged. Nothing is
+> removed; a domain is added.
+>
+> ⚠️ **One real consequence: use the product app on `beta.`, not on `admin.`**
+> `ForgotPasswordWizard` builds its recovery link from `window.location.origin`
+> at runtime (`ForgotPasswordWizard.jsx:33-37`). A new origin is not in
+> staging's `additional_redirect_urls`, so forgot-password started from
+> `admin.petalstudios.co/wilson` produces a redirect Supabase will **reject**.
+> Either treat `admin.` as console-only (recommended — it is what the subdomain
+> is *for*), or add `https://admin.petalstudios.co/wilson/**` to the staging
+> project's Authentication → URL Configuration. Invite and admin-reset mails
+> are unaffected: those build from the server-side `WILSON_SITE_URL` secret,
+> not the browser origin.
+>
+> **A security bonus that comes free with this choice**, and the reason it was
+> recommended over the apex on more than convenience grounds: a different
+> subdomain is a different **origin**, so the browser now enforces the
+> separation between the console's session and the app's. Today that
+> separation rests entirely on a build-time key string
+> (`wilson.operator.session` vs `wilson.dev.session`) because both surfaces
+> share one origin — and any future code reading a session without going
+> through `sessionStorage.js` would silently defeat it. On a separate origin
+> there is no shared store to leak through in the first place.
+>
+> **The apex remains post-1.0** and needs no further decision now. If you ever
+> want `petalstudios.co/wilsonadmin` itself, the options and their real costs
+> are preserved below — and note the landmine recorded there: `vercel.json`'s
+> `/` → `/wilson` redirect would capture your marketing homepage if the apex
+> were pointed at Vercel without a proxy in front.
+
+---
+
+### C-original. Hosting at `petalstudios.co/wilsonadmin` — the apex options (kept for reference)
 
 **Where it lives today:** `https://beta.petalstudios.co/wilsonadmin`, served by
 the Vercel project `petal-studios/wilson`. `vercel.json` already builds both
@@ -811,3 +867,113 @@ domain, add it in Vercel (Project → Settings → Domains) and add the CNAME at
 Squarespace; if the console moves off the current origin, the Supabase auth
 `site_url` / `additional_redirect_urls` may need that origin added too — worth
 a quick check on the sign-in flow afterwards.
+
+---
+
+## 12. 🚀 Getting into the operator console for the first time — the runbook
+
+**Written 2026-07-30 (S17), verified against the code.** §11A and §11B say
+*what* is owed; this says *in what order*, because the dependencies are not
+obvious and getting them wrong wastes an hour.
+
+**The console sign-in is `Email` + `Password` + `Authenticator code`.** No
+username, no company field — an operator has no company, which is the
+definition of the tier (`src/admin/OperatorLogin.jsx:163-192`).
+
+**The dependency that catches people: there is no TOTP enrolment anywhere in
+the console.** A repo-wide search of `src/admin/` finds no enroll/factor UI.
+Enrolment happens in the *product app*, which means you need a workspace
+account before you can become an operator — even though operators have no
+workspace. That inversion is the whole trap.
+
+**And it must all be on the same environment as the console you will use.**
+`admin.petalstudios.co` and `beta.petalstudios.co` are both **staging**-backed
+(§11C). An account, a TOTP factor and a `platform_operators` row on
+**wilson-dev** will not let you into a staging-backed console. Staging ref:
+`rzkirvkotslbovzbsdfh`.
+
+### Step 1 — Create a company on staging
+
+`https://beta.petalstudios.co/wilson` → **`New company?`**
+
+- **Company step:** name (1–80 chars) and slug (`^[a-z0-9][a-z0-9-]{1,62}$`,
+  auto-derived from the name until you edit it).
+- **Profile step:** username, **a real email you can read** — this is what you
+  will type into the console — display name, and a password of at least 10
+  characters.
+- **Team step:** `skip — just me for now`. Do invites deliberately afterwards;
+  everything sent from this step is `app_role: 'user'` anyway.
+
+You are the first admin. **You do not invite yourself** — the wizard creates
+your account directly. Invites are for your second and third users.
+
+The wizard deliberately does **not** sign you in. It hands `{username, slug}`
+back so the login screen opens pre-filled. Every session in the product goes
+through `signInWithPassword`; there is no second way in.
+
+> `provision-workspace` rate-limits to **3 provisions per hour per IP**. If you
+> re-run this while testing, a fourth attempt returns
+> `TOO MANY REQUESTS. TRY AGAIN LATER.` — that is the limiter, not a fault.
+
+### Step 2 — Sign in and enrol TOTP
+
+Sign in at `/wilson` with the **username** (not the email) and password.
+
+Because you are an admin with no verified factor, the app meets you with a
+full-screen overlay headed **`SECURE YOUR ADMIN ACCOUNT`** before you reach
+anything else (`App.jsx:296-310`, `MfaSection.jsx:224`). Enrol from there.
+
+If you deferred it with `Set up later`, the same control is at
+**`SYSTEM SETTINGS` → `PROFILE` tab → "Two-Factor Authentication" → `Set up`**.
+
+> §9A says "Settings → Security". That is stale — the card is on the
+> **Profile** tab.
+
+Scan the QR, enter the six digits, confirm. It should read `Enabled`, and as
+an admin you will see "Admins must keep MFA on." with no Disable button.
+
+### Step 3 — Grant yourself the platform tier (SQL only, on staging)
+
+Run the `INSERT` **and** the verification `SELECT` from **§9B**, exactly as
+written, in the Supabase SQL editor for **wilson-staging**.
+
+There is deliberately no UI for this on any surface. The console can destroy
+companies, so the one thing it must not be able to do is mint more operators —
+this keeps the highest privilege in the system un-escalatable from a web
+session, even by someone who already holds it. The cost is one `INSERT` per
+environment when bootstrapping.
+
+### Step 4 — Sign in to the console
+
+`https://admin.petalstudios.co/wilsonadmin` → **Email** + **Password** →
+**Authenticator code**.
+
+**Three screens are possible after a correct password, and they mean different
+things** (`src/admin/OperatorApp.jsx:111-155`):
+
+| What you see | What it means | What to do |
+|---|---|---|
+| The console (Companies / Audit) | Working. | — |
+| **"Not a platform operator"** | Step 3 did not take, or ran on the wrong environment. | Sign out, fix, retry. |
+| **"Could not verify operator status"** | The check could not reach the database. **Not** a revocation. | Click **Retry**. Do *not* sign out. |
+
+> Expect to be asked for your authenticator code **before** being told you are
+> not an operator: the `platform_operators` check runs in the app after
+> sign-in completes, not in the login form. That ordering is deliberate — the
+> console never reveals operator status to an unauthenticated caller.
+
+### If the console signs you in and then refuses every action
+
+That is the §11A/§11B pair coming apart, and `_shared/operatorGuard.ts` tells
+you which half. Read the error string in the browser network tab:
+
+| Error | HTTP | Meaning |
+|---|---|---|
+| `forbidden` | 403 | No `platform_operators` row. Step 3, wrong env. |
+| `mfa_enrollment_required` | 403 | No verified TOTP factor on this account. Step 2. |
+| `mfa_required` | 403 | Enrolled, but this session is below `aal2`. Sign out and back in *with the code*. |
+| `mfa_check_failed` | 503 | Factor lookup failed. Transient — retry. Fails closed on purpose. |
+| `operator_check_failed` | 503 | Operator lookup failed. Transient — retry. |
+
+The operator-row check runs **before** both MFA checks, so a non-operator
+always gets `forbidden` regardless of their MFA state.

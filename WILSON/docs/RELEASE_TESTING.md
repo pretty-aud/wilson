@@ -131,9 +131,11 @@ through that guard, and this is the single most likely thing to look like a regr
 Run the INSERT **and** the verification SELECT from `docs/OWED_AUDREY.md` §9B exactly as
 written, in the Supabase SQL editor, **on the environment whose console you will use**:
 
-- Hosted console `https://beta.petalstudios.co/wilsonadmin` → run it on **wilson-staging**
-  (beta is staging-backed — Step 1). You need an account *on staging* with TOTP enrolled
-  *there*, so redo Steps 3–5 on staging if you want the hosted console.
+- Hosted console `https://admin.petalstudios.co/wilsonadmin` (or the older
+  `https://beta.petalstudios.co/wilsonadmin` — same deployment, both work) → run it on
+  **wilson-staging**. Both domains are staging-backed. You need an account *on staging*
+  with TOTP enrolled *there*, so redo Steps 3–5 on staging if you want the hosted console.
+  Full runbook: `OWED_AUDREY.md` §12.
 - Local `npm run dev:admin` → `/admin.html` → run it on whatever `.env.local` points at
   (wilson-dev). See §I for what this mode cannot prove.
 
@@ -353,7 +355,10 @@ New this session, so most likely to be wrong.
 Needs Step 5 **and** Step 6, on the same environment. The console is a separate build target
 excluded from the Electron installer, so it lives in exactly two places:
 
-- **`https://beta.petalstudios.co/wilsonadmin`** — the only hosted surface, **staging-backed**.
+- **`https://admin.petalstudios.co/wilsonadmin`** — the chosen home (§11C option 1), and
+  **`https://beta.petalstudios.co/wilsonadmin`** — the same deployment on the older domain.
+  Both **staging-backed**; every domain on the Vercel project serves both surfaces, because
+  `vercel.json` routes on path, not host.
 - **`npm run dev:admin` → `/admin.html`** locally. In this mode Vite builds *both* entries with
   `__WILSON_SURFACE__='admin'`, so `/` gets the operator session key too — **do not sign in at
   `/` under this mode**, and treat the first check below as unprovable here.
