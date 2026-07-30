@@ -1,7 +1,15 @@
 # WILSON — Systems Handbook
 
 **Version 1.0.0 · 2026-07-30 · written from the frozen post-Session-15 tree
-(commit `09b4405`, branch `feat/multi-user-v1`).**
+(commit `09b4405`) and updated in place for Session 17's changes
+(`b726e75`, `6ab10c6`). Branch `feat/multi-user-v1`.**
+
+> The handbook is a **release gate**, which makes it a maintenance
+> obligation: anything that changes what it describes changes it in the same
+> commit. S17's edits are concentrated in §3.1 (managed-files containment),
+> §4.4, §4.6 and §4.9 (migration 0030 and its ordering rule), §13.1, §13.4,
+> §15 (test counts), §16 (one of the two open criticals is now closed) and
+> §17, which shrank the most.
 
 ---
 
@@ -209,7 +217,23 @@ themselves, and the pattern is worth copying:
   client-supplied `storage_path` would otherwise turn download/delete into
   arbitrary-path filesystem calls.
 
-The parallel **managed-files** routes do *not* have these guards. See §17.
+The parallel **managed-files** routes did *not* have these guards until
+Session 17, which is now the clearest worked example of why they matter.
+Four filesystem sinks were reachable through client-writable path fields:
+the hard-delete `unlinkSync`, the thumbnail *cache* path (`mf.id` is chosen
+by the client at create time, `req.body.id || uuidv4()`), and the thumbnail
+*source*, whose asset-folder segment comes from `asset.folder_slug` — which
+the asset POST/PATCH write straight from the request body. All four now
+resolve through `resolveContainedFilePath`, and the PATCH strips
+`folder_path` / `stored_name` / `storage_provider` / `id` the way the `files`
+PATCH already did.
+
+Two neighbours of the same shape were fixed with them: the asset rename and
+delete routes joined a client-writable `folder_slug` into `renameSync`, which
+made them an arbitrary-**directory-move** rather than a single-file unlink;
+and `POST …/managed-files/import-folder` read a body-supplied `folderPath`
+with only an existence check, where the sibling relink routes require the
+folder to have come from an OS dialog pick.
 
 #### On-disk data layout
 
@@ -577,7 +601,10 @@ Grouped by job, because the *category* is what a reader needs:
   to trash).
 - **Capture** — `fn_edit_history_capture` (13 tables),
   `fn_file_events_capture` (files lifecycle), `fn_app_events_stamp`
-  (server-side actor stamp), `fn_files_gc_enqueue` (blob disposal queue).
+  (server-side actor stamp), `fn_files_gc_enqueue` (blob disposal queue), and
+  `fn_ws_members_audit_capture` (0030 — privilege changes on
+  `workspace_members` into the reserved `app_events` `'admin'` stream; fires
+  only on a real change to `app_role`, `is_active` or a rate-card grant).
 - **Realtime broadcast** — `fn_realtime_broadcast` (10 tables → project topic),
   `fn_workspace_realtime_broadcast` (5 tables → workspace topic).
 - **Auto-staffing** — `fn_projects_auto_staff` seats the creator and producer as
@@ -639,7 +666,7 @@ limiter. All run with `verify_jwt = false` (§4.2).
 | `resolve-login` | `LoginScreen`, `ForgotPasswordWizard` | none (public, pre-auth) | Username → email, constant-time, uniform shape |
 | `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | inline `getUser` | Seat `app_metadata.workspace_id` for the next refresh |
 | `provision-workspace` | `NewCompanyWizard` | none (public, pre-auth) | Create company + first admin atomically, plus up to 19 initial invites |
-| `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | inline (claims + live row) | Invite by email, create the membership row with `onboarded_at` null |
+| `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | `requireWorkspaceAdmin` (since S17) | Invite by email, create the membership row with `onboarded_at` null |
 | `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
 | `admin-reset-password` | Admin Terminal | `requireWorkspaceAdmin` | Rotate a member's password, show-once |
 | `admin-set-active` | Admin Terminal, Team Members | `requireWorkspaceAdmin` | Deactivate/reactivate + GoTrue ban + best-effort global sign-out; last-admin guarded |
@@ -774,6 +801,7 @@ only matter if someone **replays a migration by hand**:
 |---|---|---|
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
+| `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
 ordering rule.
@@ -1455,7 +1483,9 @@ attachments work end to end. In **cloud** mode the Supabase adapter strips
 patch actually carries attachment data — so cloud attachments are refused at
 the write layer rather than silently lost. `adapter.downloadFile` exists on all
 three adapters and has **zero call sites** anywhere in the repo. Re-homing
-attachments onto the `files` table is scheduled for S17, with the traps already
+attachments onto the `files` table was scoped for S17 and **explicitly
+re-owned to post-1.0** — it is a migration plus five wiring changes, and the
+session that would have done it was reset to consolidation. The traps are
 catalogued in `MASTER_PLAN.md` §6 #31 — including the polarity trap that
 D.O.G.'s `isCore` defaults **true** while `files.is_core_definer` defaults
 **false**, so a naive 1:1 mapping would flip every previously-unmarked file
@@ -1704,8 +1734,10 @@ five-phase ~2.1 s transition before flipping the visible page.
 >    *after* the role check — and inside that child, hand each section an
 >    `isActive` prop so its own fetch waits for first activation.
 
-`PageShell.jsx` is unreferenced (the shell reimplements it inline) and
-`ToolShell.jsx` is an explicit pass-through stub.
+(`PageShell.jsx` and `ToolShell.jsx` used to sit here unreferenced — the
+shell reimplements the bar inline. Session 17 deleted both, along with eleven
+other orphans totalling 1,840 lines. The main bundle was byte-identical
+afterwards, which is the proof that Rollup had never reached any of them.)
 
 **The permission framework.** `src/permissions/roleMatrix.js` holds three roles
 and thirteen actions, mirrored 1:1 in a unit test that fails on any mismatch in
@@ -1951,7 +1983,7 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 37 suites under `supabase/tests/rls/`, 555 assertions, run in CI
+**pgTAP** — 38 suites under `supabase/tests/rls/`, 605 assertions, run in CI
 against a fresh local stack. Coverage spans the 13 RABBIT tables, membership
 and provisioning, the member directory, edit history, project members, soft
 delete, both realtime channels, admin grants, `app_events`, the five O.T.T.E.R.
@@ -1959,7 +1991,7 @@ tables plus trash and change-request apply, the file lifecycle, and the four
 Session-15 suites (AI keys, platform audit, rate limits, workspace write
 lockdown).
 
-**Vitest** — 14 suites, 215 cases, all pure modules: the SSE reassembler,
+**Vitest** — 15 suites, 343 cases, all pure modules: the SSE reassembler,
 invite parsing, dashboard task model, note sync, CSV export, both permission
 matrices, O.T.T.E.R. route parsing and sharing rules, project attachments,
 edit-history formatting and revert, the relink matcher, and the realtime merge
@@ -2038,21 +2070,32 @@ policies, vendor risk, incident response, supply chain — are essentially
 untouched, and those are where a Silver or Gold assessment spends most of its
 time.
 
-**The two open criticals, both owed:**
+**One open critical remains, and it is owed to a human:**
 
 1. **A live workspace-admin credential for `wilson-dev` was published in this
    public repository.** Session 15 removed every occurrence from the working
    tree and rewrote the instructions that told operators to rotate the password
    *back* to that literal — which is why it stayed valid for eleven sessions.
    **The value is in git history permanently, so rotation is the only remedy**
-   (`docs/OWED_AUDREY.md` §0).
-2. **Privilege changes are unaudited** (TPN-LOG-005). Role promotions,
-   rate-card grants and deactivations go from the browser straight into
-   `workspace_members`, and nothing captures them: edit history deliberately
-   excludes the table, the only triggers on it are guards, and no `app_events`
-   line is written. "Who granted this person admin, and when" is unanswerable
-   for anything that already happened. This is the audit trail for the
-   product's own security boundary.
+   (`docs/OWED_AUDREY.md` §0). No code change can close this one.
+
+**Closed in Session 17** — *Privilege changes are unaudited* (TPN-LOG-005).
+Migration 0030 adds `trg_ws_members_audit`, a SECURITY DEFINER capture trigger
+writing every role promotion, deactivation and rate-card grant into the
+server-reserved `app_events` `'admin'` stream (`WIL-4105` / `WIL-4106` /
+`WIL-4107`). It fires only when `app_role`, `is_active` or a rate-card grant
+actually changes, so profile edits do not bury the four transitions that
+matter. Note the coverage boundary: Edge Functions that change privileges run
+as `service_role` with no `auth.uid()`, so the trigger records those with a
+NULL actor while `logAdminEvent` records the real one — `context.source` and
+`context.db_role` exist to correlate the pair.
+
+Session 17 also closed a defect the S16 handbook review had surfaced but that
+no audit pass had: **`custom_access_token_hook` was executable by `anon`**, not
+merely by any signed-in caller. Since it takes its target user id from the
+caller-supplied argument, the public anon key alone was enough to compute any
+user's full claim set. See §4.9's `0011` → `0030` ordering rule for why it had
+been silently re-granted.
 
 **Named strong points**: table-layer tenancy (Cloud and Content are the
 strongest domains); four append-only RLS-enforced audit streams; per-tenant AI
@@ -2075,29 +2118,34 @@ Everything below is *known*, not discovered by a reader. The live list is
 `docs/MASTER_PLAN.md` §6; TPN findings live in `TPN_AUDIT/FINDINGS.md`; owed
 human actions live in `docs/OWED_AUDREY.md`.
 
-**Security-adjacent, tracked as §6 gaps for the release session**
+> **Session 17 closed the four release-gating entries this section opened**
+> (privilege-change auditing, the access-token hook grant, the `managed-files`
+> traversal and `invite-member`'s missing MFA step-up), plus five smaller
+> correctness ones. What remains below is the honest residue at v1.0.0, and
+> `docs/MASTER_PLAN.md` §6 now carries a verdict — CLOSED, RE-OWNED or
+> ACCEPTED — against every single entry. `docs/RELEASE_TESTING.md` has the
+> user-facing subset under "Known not to work".
 
-- The `managed-files` PATCH route merges the request body with no field
-  stripping, and its hard-delete branch joins `folder_path` + `stored_name`
-  onto the project root with **no containment check** — unlike the sibling
-  `files` routes, which were hardened for exactly this. Reachable by anything
-  that can reach the loopback port.
-- `invite-member` performs no MFA step-up while its sibling `admin-create-user`
-  does, and it can create a member with `app_role: 'admin'` — so an admin
-  holding a verified factor can mint another admin from an `aal1` session.
+**Security-adjacent**
+
+- Eight SECURITY DEFINER functions are executable by `anon`. Six key on
+  `auth.uid()` and leak nothing; `project_is_staffed` and
+  `fn_comment_project_id` have no caller gate but reveal one bit about a UUID
+  the caller must already hold. Left alone deliberately: revoking them from
+  `anon` was **tested** and is a behaviour change, because
+  `has_active_membership` backs nearly every policy and every anonymous table
+  read would turn from an empty result into a 42501. The right post-1.0 fix is
+  an `auth.uid() IS NOT NULL` guard inside the two ungated functions, not a
+  grant change.
+- `provision-workspace` can still create an `admin` from a public,
+  pre-authentication endpoint. This is by design — it is self-serve company
+  creation and the caller becomes the first admin — but it means "no
+  unauthenticated path can mint an admin" is **not** a true statement about
+  the system, even after `invite-member` was gated.
 - Operator sign-in, sign-out and guard refusals write no audit row anywhere, and
   `platform_audit`'s action CHECK has no value that would let them
   (TPN-LOG-007). The same CHECK reserves `operator.granted` / `operator.revoked`,
   which nothing emits.
-- **`custom_access_token_hook` is executable by `authenticated` and `anon`.**
-  0001 and 0003 both revoke it from those roles, but 0011's blanket
-  `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` silently re-grants it, and
-  0011's "re-assert function lockdowns" pass covers only
-  `provision_workspace_and_admin` and `workspace_directory()`. The function
-  takes its target user id from the caller-supplied `event` argument rather
-  than `auth.uid()`, so any signed-in caller can compute another user's claim
-  set (workspace memberships, app role, operator flag). Surfaced by this
-  handbook's own drift review.
 - `resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
   (client-supplied, spoofable) where `provision-workspace` correctly uses the
   last (TPN-NET-004); both still use per-isolate in-memory buckets
@@ -2105,24 +2153,28 @@ human actions live in `docs/OWED_AUDREY.md`.
 
 **Correctness**
 
-- R.A.B.B.I.T. **milestones are dropped on project load** by both the local and
-  Google Drive adapters — the routes and list methods exist, but `loadProject`
-  omits the key, so a milestone reverts to nothing on the next reload, project
-  switch or realtime refetch.
-- `addManagedFile` is called with no adapter-mode guard, and `createManagedFile`
-  exists only on the local adapter — so "Add files" inside an entity popup
-  throws (silently swallowed) in cloud or Drive mode.
-- `googleDriveAdapter` wires `listRateCards` / `listRateCardEntries` to its
-  read-only throw stub, and the rate-card hook calls them unconditionally on
-  mount — a permanent error banner in Drive mode.
 - A username that collides across two workspaces makes sign-in unreachable: the
   resolver treats "two matches" as a miss unless a workspace slug disambiguates,
-  and the login screen has no slug field.
-- O.T.T.E.R.'s global Space-to-search `keydown` listener is **not** gated on
-  `currentPage`, so pressing Space anywhere in WILSON opens the search modal
-  inside the hidden O.T.T.E.R. tree.
+  and the login screen has no slug field. (The resolver already accepts the
+  slug and the client already has the parameter — only the form field is
+  missing, and adding one changes the first screen every user sees, which is
+  why S17 left it.)
 - `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup
   **failed**" lands in the log stream indistinguishable from the success line.
+  One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so
+  changing it forces a redeploy of all nine.
+- Managed-file thumbnails resolve only under `ASSETS/`, while uploads also
+  write `SCENES/` and `SHOTS/` paths, so those thumbnails always 410.
+- The Summary view's Budget tile is structurally always zero:
+  `ProjectSummaryView` calls the estimate rollup with no role rates.
+- `CrewTeamTab` / `TalentTab` do not check `res.ok` on the invoice-folder call,
+  so a 400 becomes a swallowed `ERR_INVALID_ARG_TYPE` and the Attach button
+  appears to do nothing.
+
+*Fixed in Session 17 and listed here only so a reader of an older copy is not
+misled:* milestones dropped on project load, `addManagedFile` unguarded
+outside local mode, Drive-mode rate-card reads throwing, and O.T.T.E.R.'s
+global Space shortcut firing from every page.
 
 **Product gaps that read as bugs**
 
@@ -2131,24 +2183,33 @@ human actions live in `docs/OWED_AUDREY.md`.
   calls them.
 - Settings → Tools "Storage Location" is an editable field that has no effect;
   `getDataDir()` hardcodes the userData path.
-- R.A.B.B.I.T.'s agent integration is prompt-selection only — neither its
-  `registerTool` call nor its tool factory has a call site.
+- R.A.B.B.I.T.'s agent integration is prompt-selection only — and in fact
+  **unreachable**, not merely unwired: `App.jsx` hard-gates the whole agent
+  surface to the O.T.T.E.R. page, so the RABBIT prompt can never reach the
+  model and no user can hit a silent no-op. Session 17 corrected the Settings
+  copy that advertised it; the wiring is post-1.0.
+- The Agent Skills checkboxes gate nothing — `isSkillEnabled` has zero call
+  sites repo-wide, for O.T.T.E.R. as well as RABBIT. The copy claiming they
+  "control which actions are honored at runtime" was corrected in S17; the
+  state is still loaded, persisted, rendered and read by nothing.
 - D.O.G. cloud attachments: refused at the write layer, with the re-homing
-  plan and its seven traps catalogued in §6 #31.
+  plan and its seven traps catalogued in §6 #31. Re-owned post-1.0.
 
 **Documentation drift inside the product**
 
-- `HelpPage.jsx` still documents the deleted local password panel, including
-  rules that never applied to a Supabase password ("up to 12 characters",
-  "case-insensitive", "protects the application on launch").
-- `src/tools/rabbit_v0.1.0/db/README.md` says the migration range is
-  `0000`–`0023` and has no section for 0028 or 0029.
-- `env.cjs` describes a `wilsonEnv` preload bridge that does not exist; renderer
-  `VITE_*` values are compile-time constants baked into the bundle, so
-  `env.json` can only affect main-process consumers.
-- The intake wizard's own header and README describe a five-step flow; the
-  shipped constant has three, and three superseded step components remain on
-  disk with no importer.
+*All five entries this section carried were cleared in Session 17* — the
+`HelpPage` password card, `db/README`'s migration range (which was missing
+0025/0026 as well as 0028/0029), `env.cjs`'s non-existent `wilsonEnv` bridge,
+the intake five-vs-three-step drift, `backups.yml`'s retention comment and the
+hardcoded User-Agent strings (now `app.getVersion()`, which closes the drift
+class rather than re-hardcoding a version).
+
+The intake drift is worth remembering for its shape rather than its content:
+it had **three** sites, and the third was not a comment. The RABBIT knowledge
+snippet in `App.jsx` is appended to the companion's context at runtime, so the
+agent was actively telling users about wizard steps that no longer existed.
+When a fact is duplicated into prompt text, stale documentation stops being
+documentation and starts being wrong answers.
 - `backups.yml`'s comment illustrates a 30-day B2 lifecycle; the configured
   value is 90 days.
 
@@ -2207,7 +2268,7 @@ event type are **server-reserved** so clients cannot forge audit lines.
 |---|---|---|
 | `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
 | `WIL-3003` / `WIL-3004` | Storage cleanup completed / failed | `app_events` |
-| `WIL-41xx` | Admin actions (server-written by `logAdminEvent`) | `app_events` |
+| `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
 | `WIL-7005` | `workspace.teardown` certificate (critical) | `platform_audit` |
@@ -2218,5 +2279,9 @@ event type are **server-reserved** so clients cannot forge audit lines.
 
 ---
 
-*End of handbook. Written from the code at `09b4405`. When it disagrees with
-the code, the code is right — and the handbook needs a fix.*
+*End of handbook. Written from the code at `09b4405`, updated through
+`6ab10c6`. When it disagrees with the code, the code is right — and the
+handbook needs a fix. Session 17 proved that runs both ways: this document's
+§15 Vitest count was stale where `MASTER_PLAN.md`'s was correct, so "sync the
+plan to the handbook" is not a safe mechanical operation either. Check the
+code.*

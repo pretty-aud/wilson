@@ -51,7 +51,16 @@ Core capabilities of v1.0.0:
 
 ---
 
-## 2. Architecture (as built through Session 7)
+## 2. Architecture (as built through Session 17)
+
+> **The authoritative description of how the system works is
+> `docs/SYSTEMS_HANDBOOK.md`,** written from the code in S16 and kept current
+> as a release gate. This section is the plan's *summary* of it — deliberately
+> shorter, and it defers to the handbook wherever the two differ.
+>
+> One caveat learned in S17: the handbook is not automatically right either.
+> Its §15 Vitest count was stale where this plan's was correct. Where they
+> disagree, **check the code** — do not sync one to the other mechanically.
 
 ### Backend
 
@@ -67,23 +76,61 @@ Core capabilities of v1.0.0:
 - **Frozen JWT shape** (Session 1 — changing it means re-issuing every token):
   `auth.jwt().app_metadata.{workspace_id, workspace_ids, app_role, is_platform_operator}`
 - **Tenancy rule:** every domain table has `workspace_id UUID NOT NULL`; every
-  RLS policy starts from
-  `workspace_id = (auth.jwt()->'app_metadata'->>'workspace_id')::uuid`;
-  indexes on `workspace_id` are mandatory.
-- **Migrations `0000`–`0029`** in `supabase/migrations/` — all deployed to
-  dev + staging + prod as of Session 15 close-out. No backlog.
-  **Ordering rule (S13):** 0025/0026 overwrite objects 0022 also creates; a
-  MANUAL re-run of 0022 must be followed by re-running 0025 AND 0026 (all
-  three headers say so). 0027 overwrites nothing — no ordering rule.
-- **Edge Functions:** `resolve-login`, `issue-session` (ES256),
-  `provision-workspace` (+ initial-team invites[], S9), `invite-member`,
-  `ai-proxy` (S12), `storage-gc` (S14 — admin-invoked blob disposal with
-  certificates), the S15 operator pair on `_shared/operatorGuard.ts`
-  (`operator-workspaces`, `operator-ai-keys` — platform tier, live-row
-  check, MFA hard), and the S9 admin set on `_shared/adminGuard.ts`:
-  `admin-create-user`, `admin-reset-password`, `admin-set-active`,
-  `admin-user-security` (verify_jwt=false; claims from the TOKEN payload;
-  live-row admin check; MFA aal2 step-up).
+  RLS policy starts from `workspace_id = public.current_workspace_id()`
+  **AND `public.has_active_membership(workspace_id)`** — the helper reads the
+  claim, and the membership check is what makes a write re-verify a live row
+  rather than trusting a token that can lag reality by an hour. Child tables
+  with no `workspace_id` of their own inherit it through a live-parent
+  `EXISTS` join (the "0014 pattern"). Indexes on `workspace_id` are mandatory.
+  Handbook §4.4 carries the canonical predicates and every deliberate
+  deviation.
+- **Migrations `0000`–`0030`** in `supabase/migrations/` — all deployed to
+  dev + staging + prod as of Session 17 close-out. No backlog.
+  **Ordering rules** — these matter ONLY when a migration is replayed BY HAND;
+  every normal path applies in version order and is safe:
+
+  | Re-run this by hand… | …then re-run | Because |
+  |---|---|---|
+  | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
+  | `0002` | `0029` | 0002 recreates `workspaces_write_operator` as `FOR ALL`, re-opening the defect where an operator's ordinary aal1 browser session could `DELETE FROM workspaces`. |
+  | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS` re-widens `custom_access_token_hook`; its `ALTER DEFAULT PRIVILEGES` also re-arms the same trap for every function a later migration creates. |
+
+  0027 and 0028 explicitly state that they overwrite nothing.
+- **Edge Functions — twelve, three shared guards.** Full table in handbook
+  §4.6. **Every one runs `verify_jwt = false`, and that is not a weakening:**
+  the Edge gateway's built-in verification only supports HS256 and this
+  project's JWTs are ES256, so the gateway rejects them before any function
+  code runs. Each function validates the caller itself via
+  `admin.auth.getUser(token)`. Do not "fix" one by turning `verify_jwt` back
+  on — it breaks, it does not harden.
+  - Public / pre-auth: `resolve-login`, `provision-workspace`
+    (+ initial-team `invites[]`, S9).
+  - `_shared/adminGuard.ts` (`requireWorkspaceAdmin`): claims from the TOKEN
+    payload → **live `workspace_members` row** → **MFA aal2 step-up, failing
+    CLOSED since S15**. Used by `admin-create-user`, `admin-reset-password`,
+    `admin-set-active`, `admin-user-security`, `storage-gc` (S14) and — since
+    **S17** — `invite-member`, which previously reimplemented the check inline
+    with no MFA while being able to mint an admin (§6 #46).
+  - `_shared/memberGuard.ts` (`requireActiveMember`): same token + live-row
+    shape, **no role check and no MFA** — any active member may use AI, and
+    the live-row check is what stops a deactivated one spending money. Used by
+    `ai-proxy` (S12).
+  - `_shared/operatorGuard.ts` (S15): no `workspaceId` in context, the JWT
+    claim is **not** required (the live `platform_operators` row is strictly
+    stronger), and **MFA is hard both ways**. Used by `operator-workspaces`,
+    `operator-ai-keys`.
+  - `issue-session` uses an inline `getUser` and mints nothing — it writes
+    `app_metadata.workspace_id` so the client's *next* `refreshSession()`
+    causes GoTrue to re-derive every claim.
+  - Also shared: `_shared/rateLimit.ts` (durable fixed-window limiter, fails
+    OPEN by design) and `_shared/aiKeyCrypto.ts` (AES-256-GCM).
+- **Storage buckets (two):** `user-avatars` (0009, public read, 2 MB, image
+  mimes, path `{workspace_id}/{user_id}/{file}`) and `rabbit-files` (0027,
+  **private**, 50 MB, path `projects/{project_id}/{entity}/{entity_id}/…`).
+  `rabbit-files` has **no UPDATE policy** — objects are immutable, uploaded
+  with `upsert:false` — and its single DELETE policy is bounded to the
+  uploader's own objects under one hour old, which exists for exactly one
+  flow: cleaning up an upload whose `files` row insert was then refused.
 - **Email:** Resend SMTP via `mail.petalstudios.co` (DNS at Squarespace);
   invite / recovery / email-change templates uploaded to all three envs.
 
@@ -114,6 +161,12 @@ Core capabilities of v1.0.0:
 - `src/cloud/` — auth, migrate, onboarding, sentry. `src/permissions/` —
   `roleMatrix.js`, `projectRoleMatrix.js` (kept in LOCKSTEP with the 0013 SQL
   helpers), `PermissionGate.jsx`, `usePermissions`.
+- `src/admin/` (S15) — the operator console's own React root
+  (`admin.html` → `mainAdmin.jsx` → `OperatorApp.jsx`). It does NOT use
+  `src/App.jsx`, has no router, no tools and no pet. Selected by
+  `vite --mode admin`, which is what keeps it out of the Electron installer.
+  **Session isolation from `/wilson` is a build-time key string and nothing
+  else** — `localStorage` is per-ORIGIN, not per-path (handbook §5.2).
 - RABBIT talks through the **adapter layer** (`supabaseAdapter` for cloud,
   local / Google Drive adapters preserved). Never bypass it.
 - Presence + LIVE pill (`RealtimePresenceStrip`), undo toast, EditHistoryDrawer
@@ -121,24 +174,36 @@ Core capabilities of v1.0.0:
 
 ### Test & CI gates
 
-- **pgTAP RLS suite** `supabase/tests/rls/01–37` (runs in CI local stack;
-  realtime probes environment-tolerant). The seven O.T.T.E.R. suites (26–32)
-  total **184 probes**; suite 33 (S14 file lifecycle) adds 26; suites 34–37
-  (S15 operator tier, AI keys, rate limiter, workspace write lockdown) add 67.
-- **Vitest** 339/339 green end of S15. **Playwright** auth/permissions e2e.
+- **pgTAP RLS suite** `supabase/tests/rls/01–38`, **605 assertions** (runs in
+  CI against a FRESH local stack with every migration applied from 0000 in
+  order — not just against an already-migrated project; realtime probes are
+  environment-tolerant by design, there being no realtime service in the CI
+  stack). Suites 01–13 = 58, 14–25 = 220, the seven O.T.T.E.R. suites 26–32 =
+  184, suite 33 (S14 file lifecycle) = 26, suites 34–37 (S15 operator tier,
+  AI keys, rate limiter, workspace write lockdown) = 67, suite 38 (S17
+  privilege audit + hook lockdown) = 14.
+- **Vitest** 343/343 green end of S17 (15 suites, all pure modules).
+  **Playwright**, two projects: `chromium` (sign-in → home with an RLS-scoped
+  directory, admin invite, forgot-password) and `chromium-web` (a real built
+  web bundle — deep links, history sync, signed-out deep links).
 - **No Docker on this machine** — `scripts/tap-hosted.py` (S15) wraps a suite
   (optionally with an unapplied migration) so it runs against a HOSTED project
-  in one rolled-back transaction. `collected` MUST equal `planned`, or the
-  shim is missing a pgTAP function and the run is lying about coverage rather
-  than merely failing.
-- **No Docker on this machine**, so pgTAP is verified by shipping a
-  `BEGIN; … ROLLBACK;` script through `supabase db query --linked --file`.
-  Two things make that harness lie if you get them wrong: keep `SELECT plan(N)`
-  (pgTAP raises "test without a plan" otherwise), and rewrite **every** pgTAP
-  function the suite uses — a missed one (`has_table` bit S11) still runs and
-  still counts toward pgTAP's numbering but never reaches the collector, so it
-  vanishes from the pass count. Always compare collected rows against
-  `max(test number)`.
+  in one rolled-back transaction:
+
+  ```bash
+  python scripts/tap-hosted.py out.sql [migration.sql] suite.sql
+  supabase db query --linked --file out.sql
+  ```
+
+  `collected` MUST equal `planned`, or the shim is missing a pgTAP function
+  and the run is **lying about coverage** rather than merely failing — a
+  missed rewrite (`has_table` bit S11) still executes and still burns a plan
+  slot but never reaches the collector.
+- **S17 lesson: the hosted harness runs ONE suite; CI runs all of them against
+  one database.** Migration 0030's audit trigger writes `app_events` rows
+  during every suite's fixture setup, which broke `25_app_events`' unfiltered
+  count — invisible when suite 38 was verified alone. Run the whole set
+  against a new migration before pushing, not just its own suite.
 - CI workflow at the **git root**: `.github/workflows/rls.yml` (git root is
   `Dev_Work\wilson\`, one level ABOVE `WILSON/`). Failure-only psql replay
   surfaces real SQL errors as annotations.
@@ -153,6 +218,13 @@ Core capabilities of v1.0.0:
 | `wilson-purge-soft-deleted` | 04:47 | 30-day trash sweep |
 | `wilson-purge-app-events` | 04:51 | 90-day admin-log retention (S9) |
 | `wilson-purge-otter-trash` | 04:55 | 30-day O.T.T.E.R. trash sweep (S10) |
+| `wilson-purge-rate-limits` | 04:59 | 1-day `edge_rate_limits` window sweep (S15, 0028) |
+
+**Two streams deliberately have NO purge job** — a compliance position, not an
+oversight: `file_events` (audit retention ≥ 1 year, and its `'purged'` rows
+*are* the deletion certificates — TPN-CONT-002) and `platform_audit` (same,
+plus a `workspace.teardown` certificate must outlive the company it names).
+`auth_attempt_log` also has none, but carries no stated rationale (§6 #60).
 
 ---
 
@@ -162,11 +234,17 @@ Core capabilities of v1.0.0:
    suggestion was superseded in Session 1).
 2. **Username-first login** — server-side resolver, constant-time, rate-limited.
    Creator username: `Audrey`.
-3. **Electron + web in parallel from v1** (web build lands Session 10).
+3. **Electron + web in parallel from v1.** *(Reality diverged: the web build
+   landed in **S12**, not S10 — the plan text was never updated. Decision
+   itself unchanged and upheld.)*
 4. **Hybrid storage** — central Supabase core + bring-your-own storage for
    company files/artwork.
 5. **Two-tier admin** — company admin (terminal, S9) vs platform operator
-   (console, S10).
+   (console). *(Reality diverged: the console landed in **S15**, not S10.
+   Decision unchanged and upheld — and strengthened beyond what was written
+   here: the operator tier is **SQL-grant-only, with no UI on any surface**,
+   so the highest privilege in the system cannot be escalated from a web
+   session even by someone already holding it.)*
 6. **LWW per field** everywhere; **Yjs only for long-form text**.
 7. **Edit history is RABBIT-only, 90-day retention**, with revert-to-state.
 8. **Passwords are show-once at creation, never visible afterward** — admins
@@ -216,6 +294,23 @@ Core capabilities of v1.0.0:
     (DNS sits at Squarespace, which cannot serve an SPA under a path —
     needs Cloudflare-or-similar in front, or moving the domain's hosting;
     Audrey decision owed before S11 deploy).
+
+    > **REALITY AS OF S17 — the path shape shipped, the domain did not.**
+    > Both surfaces are live at **`https://beta.petalstudios.co/wilson`** and
+    > `…/wilsonadmin`, on the Vercel project `petal-studios/wilson` (production
+    > branch `feat/multi-user-v1`, STAGING-backed, auto-deploys on push).
+    > `vercel.json` already builds both and rewrites `/wilsonadmin*` →
+    > `/wilsonadmin/admin.html`, so **the path shape this decision asked for
+    > works today** — only the *domain* differs (`beta.` subdomain vs apex).
+    > The apex is still Squarespace, exactly as this decision flagged, and
+    > moving it is a DNS migration of a live marketing site, not a setting.
+    > **The production-domain cutover is explicitly post-v1.0**; the open
+    > choice and its three options live in `docs/OWED_AUDREY.md` §11C, which
+    > recommends keeping a subdomain for v1.0. Nothing in the codebase cares
+    > which is chosen. One security note worth carrying into that decision:
+    > `/wilson` and `/wilsonadmin` sharing an origin is precisely what makes
+    > session isolation depend on a build-time key string, so a separate
+    > subdomain would buy browser-enforced separation for free.
 19. **Session plan (revised 2026-07-29, Audrey — a session was ADDED so S12 does
     not get bloated):** S11 O.T.T.E.R. UI ✅ · **S12 `ai-proxy` + web build** ·
     **S13 change-request approval (NEW)** · S14 file lifecycle & data
@@ -288,6 +383,8 @@ deployed to all three envs**.
 
 | 16 | 2026-07-30 | **Systems documentation & design pack** (docs-only, frozen code). `docs/SYSTEMS_HANDBOOK.md` — the v1.0.0 release gate: every system, what it does and what it talks to, written FROM the code via an 11-reader recon fan-out (Electron/Express, auth + admin Edge Functions, Postgres/RLS/cron, operator console, ai-proxy, storage & file lifecycle, each of the three tools, web/CI/infra, shell & shared surfaces). 17 sections + 2 appendices, dual-audience (team onboarding AND Claude-account seed material), secrets-free. Includes the full local Express route inventory, the frozen JWT claim shape with its staleness rule, the RLS tenancy rule with every deliberate deviation, all 12 Edge Functions with guard + caller, the teardown ORDER, the fail-open/fail-closed asymmetry, a "who talks to whom" section enumerating all 29 arrows plus the seven that deliberately do not exist, and a §17 consolidating every known limit. `docs/SYSTEMS_DESIGN_PACK.md` — 24 mermaid diagrams (system map, 3 architecture, 7 wireframes, 3 tool flows, 10 function dataflows, 2 state machines) with an inventory table, one-line captions and ≤3 bullets each; short by requirement, links to the handbook rather than repeating it. **Drift review (3 finders, cut short at Audrey's direction — a docs pass did not need a build-session review): 13 findings, all 13 fixed in the handbook.** The keeper is a CODE finding the review surfaced independently: **`custom_access_token_hook` is executable by `authenticated` and `anon`** — 0001/0003 revoke it, but 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS` re-grants it and only re-locks two other functions; the hook reads its target user id from the caller-supplied `event` argument, so any signed-in caller can compute another user's claim set (→ #44). Other handbook fixes: `projects_insert` gained an admin/manager arm in 0013 (0004's predicate was stale), `workspaces_select` keys on the membership IN-list not the JWT claim, four tables are ENABLE-only not FORCE, two `resolve-login` branches write no `auth_attempt_log` row, `/` → `/wilson` is a redirect not a rewrite, and not-an-operator is NOT unified with the generic sign-in error. **15 new §6 gaps filed (#44–#58); no product code touched.** | `8b381ec` |
 
+| 17 | 2026-07-30 | **Consolidate, trim, prepare the release** (migration 0030 + suite 38). Scope was reset by Audrey after reading S16's output: absorb what the handbook taught, trim fat, fix what is genuinely broken, write the test plan — then STOP for her review. Hard constraint all session: **no behaviour, layout or visual change**. Block B — the four release-gating defects. **#42/TPN-LOG-005** (open CRITICAL): privilege changes on `workspace_members` went from the browser straight into the table with nothing capturing them; a DEFINER capture trigger now writes the reserved `app_events` admin stream (WIL-4105/4106/4107), firing only when `app_role`/`is_active`/a rate-card grant actually changes — a profile edit must not write an audit line. **#44**: `custom_access_token_hook` re-revoked; verified live that it was callable by **anon**, i.e. reachable with nothing but the public anon key — worse than the gap recorded. The wider 0011 sweep found 8 anon-executable DEFINER functions; 6 leak nothing and the other 2 leak one bit about an already-known UUID, and revoking them was **proven** to be a behaviour change (every anon table read becomes a 42501, because `has_active_membership` backs nearly every policy), so they were filed (#59) rather than shipped blind. **#45**: four fs sinks contained, not the two filed — `mf.id` and `asset.folder_slug` are client-writable too — plus the asset rename/delete pair, which was an arbitrary-*directory-move*, and the unguarded `import-folder`. **#46**: `invite-member` routed through `adminGuard`; not a role change, the only new refusal is the MFA gate, and both dialogs learned the error copy so it is not a dead-end 403. Plus #47 (milestones were dropped on every load — real data loss, now with a test pinning the whole class), #48, #49 (needed BOTH halves — the adapter stub alone leaves the banner up), #50, #51. Block C — **1,840 lines of dead code across 13 files**, proven by a module-reachability BFS from every real entry point and confirmed by an unchanged bundle (3,849.67 kB before and after); six were not on the briefed list. "Leave it and document it" won both Tier-2 judgement calls, and the third **corrected the brief**: `last_updated_at` IS written by a live trigger on four tables, so the recommended drop would have broken every RABBIT UPDATE → `COMMENT ON COLUMN` instead. WIL-1001/1002/1003 kept, not deleted and not wired: both options are barred here (deleting removes visible Diagnostics rows, wiring adds log rows) and two of the three **cannot** be wired client-side at all, because at sign-in failure there is no session for `app_events`' INSERT policy to accept. Tier 3 cleared #58 plus two sites it did not name. **CI blind spot fixed:** the pgTAP failure-replay list stopped at 32, so suites 33–38 failed invisibly — which is exactly how 0030's trigger silently broke `25_app_events`' unfiltered count. All 38 suites (605 assertions) now verified against a new migration before pushing, not just its own suite. Vitest 343/343. **`package.json` → 1.0.0, CHANGELOG.md written, `docs/RELEASE_TESTING.md` written. NOT tagged, NOT merged to `main` — Audrey reviews first.** | `b726e75`, `6ab10c6` |
+
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
@@ -296,10 +393,12 @@ verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 + TPN hardening ✅ · S16 systems documentation & design pack ✅ · **S17 release
 (v1.0.0)**. Launch prompt ready: `docs/sessions/SESSION_17_prompt.md`.
 
-**Migrations 0000–0027 are deployed to dev + staging + prod** (S14 added
-0027). **Edge Functions:** `ai-proxy` (S12) and `storage-gc` (S14) deployed
-to all three envs; staging has `ANTHROPIC_API_KEY` set (post-S12);
-dev/prod keys still per OWED_AUDREY §5. CLI linked to `wilson-dev`.
+**Migrations 0000–0030 are deployed to dev + staging + prod** (S15 added
+0028 + 0029; S17 added 0030). **Edge Functions:** all twelve deployed to all
+three envs; S17 redeployed `invite-member` (it now bundles `adminGuard`).
+Staging has `ANTHROPIC_API_KEY` set (post-S12); dev/prod keys still per
+OWED_AUDREY §5, and `WILSON_AI_KEY_SECRET` is owed on every env per §9C.
+CLI linked to `wilson-dev`.
 
 ---
 
@@ -584,7 +683,15 @@ read doubles as the final audit (code findings → §6 gaps for S17).
   green; migrations + Edge Functions deployed to all three envs.
 - Version cut: package.json → 1.0.0, changelog, tag.
 
-## 6. Carry-forward gaps (live list, end of Session 8)
+## 6. Carry-forward gaps — FINAL v1.0.0 disposition (Session 17)
+
+> **Every gap below now carries exactly one disposition: CLOSED (with the
+> commit), RE-OWNED to post-1.0 (with a reason), or ACCEPTED for v1.0.0 (with
+> a reason and its TPN id where relevant). None is undecided.** The
+> user-facing summary of what is knowingly imperfect at ship is
+> `docs/RELEASE_TESTING.md` → "Known not to work"; this section is the full
+> record. (Heading was "live list, end of Session 8" for eight sessions after
+> it stopped being true.)
 
 1. ~~Projects INDEX updates live only for the OPEN project~~ — **CLOSED S8**
    (workspace channel, 0018).
@@ -1060,6 +1167,143 @@ The first four are **release-gating**; S17's prompt carries the triage.
 
 ---
 
+### FINAL DISPOSITION — every gap, one verdict (Session 17, 2026-07-30)
+
+Three verdicts only. **CLOSED** carries the commit. **RE-OWNED** means real
+work deferred past v1.0.0, with the reason. **ACCEPTED** means we are shipping
+it knowingly, with the reason and its TPN id where one exists.
+
+The rule applied throughout: S17's hard constraint was *do not change what the
+app does or how it looks*. Several gaps below could have been closed with a
+patch that also moved a pixel or a behaviour; those were re-owned rather than
+smuggled in. Where a gap was left open, the reason is written down — an
+undecided gap at a release is a decision nobody made.
+
+| # | Verdict | Why |
+|---|---|---|
+| 1 | **CLOSED S8** | Workspace channel (0018). |
+| 2 | **ACCEPTED** | Token-refresh-while-trashed can miss one restore event; catches up on next open. Documented in the 0016 header. |
+| 3 | **ACCEPTED** | Revert covers projects/phases/assets/tasks only. A hard-deleted project cannot be recreated at its original id, and a fresh id would orphan the whole subtree — that is a correctness limit, not an omission. |
+| 4 | **ACCEPTED** | Restoring a child under a trashed parent leaves trash early; the error is surfaced and the parent purge cascades it anyway. |
+| 5 | **RE-OWNED** | Milestones / scenes / levels / experiences have no cloud tables. This is a migration plus five adapter surfaces, not a release fix. **S17 did fix the data loss inside local mode (#47).** |
+| 6 | **CLOSED S14** | `trg_files_gc_enqueue` + `storage_gc_queue` + the admin-invoked `storage-gc` function. |
+| 7 | **ACCEPTED** | `project_members` changes are not edit-history captured. Roster changes are visible in the UI and the workspace channel; the audit gap that mattered — *workspace* privilege changes — is #42, closed below. |
+| 8 / 19 | **RE-OWNED** | Legacy `useTeamMembers` still backs six views. Migrating a live data source across Timeline / Scenes / Levels / Experiences / Budget / Intake is exactly the kind of refactor this session was told not to attempt. |
+| 9 | **CLOSED S10** | `public.users` dropped (0023). |
+| 10 | **ACCEPTED** | Milestones have no undo path; the confirm dialog stands in. |
+| 11 | **ACCEPTED** | pgTAP realtime probes are lenient in CI by design — there is no realtime service in the CI stack. Hosted coverage comes from live probes. |
+| 12 | **ACCEPTED** | Notes have no cross-device live list refresh. Deliberate: notes ride no channel, and the version guard already makes concurrent edits lossless. |
+| 13 | **CLOSED S9** | Roster liveness + assigned-projects column. |
+| 14 | **ACCEPTED** | A workspace-less JWT inserting a note fails 23502 rather than a clean 42501. Cosmetic; the Dashboard already requires an active workspace to render. |
+| 15 | **CLOSED S9** | 0020 read alignment. |
+| 16 | **CLOSED S15** | `edge_rate_limits` + `fn_rate_limit_hit()`. |
+| 17 | **CLOSED S15** | adminGuard MFA fails closed. |
+| 18 | **ACCEPTED** | electron-updater ships only through the electron-builder NSIS channel; Forge/Squirrel builds report `unsupported`. NSIS is the only auto-updatable artifact and that is the shipping channel. |
+| 20 | **CLOSED S11** | `otter_trash_index()` (0024). |
+| 21 | **CLOSED S12** | Library loads independently of the settings fetch. |
+| 22 | **CLOSED S11** | `can_write` gating throughout the O.T.T.E.R. UI. |
+| 23 | **CLOSED** | CI green, all four jobs. |
+| 24 | **CLOSED** | `backups.yml` lives on `main`; both jobs run green with dumps verified present. The lesson is now recorded in §9. |
+| 25 | **CLOSED S12** | `ai-proxy` is the only path to Anthropic. |
+| 26 | **CLOSED S13** | `otter_cr_apply()` (0025). |
+| 27 | **CLOSED S13** | The consented review window. |
+| 28 | **RE-OWNED** | A reviewer still compares two courses by eye. A subject-level diff view is a feature, and it was deliberately excluded from S13's scope rather than forgotten. |
+| 29 | **ACCEPTED** | Apply moves subjects, not the five reference documents. Their merge semantics live in client JS; reimplementing them in plpgsql would duplicate load-bearing logic, and overwriting them would violate the additive-only rule. **The approve dialog says so.** |
+| 30 | **ACCEPTED** | Web multi-tab last-writer-wins on the three `localStorage` stores. One-window product; same class as two Electron windows. |
+| 31 | **RE-OWNED** | D.O.G. cloud attachments. S15 closed the data-loss half; the re-homing is a migration plus five wiring changes with seven catalogued traps (see the entry above — the `isCore` polarity flip alone would change generation output). Explicitly excluded from S17 by the session brief. **In local mode attachments work end to end; in cloud mode they are refused loudly at the write layer, not silently lost.** |
+| 32 | **CLOSED S15** | The local password module deleted entire. |
+| 33 | **CLOSED S13b** | Non-admin standard-course owners get the decidable queue. |
+| 34 | **CLOSED S15** | Teardown collects, deletes and certificates blobs before the CASCADE. |
+| 35 | **ACCEPTED** (TPN-CONT-010) | GC orphan-scan starvation needs a single project past 5,000 *referenced* objects — a state no tenant is near. The sharper edge the audit named is not the cursor but that certified disposal only runs when a human clicks; a queue-depth indicator is the cheaper half and is re-owned. |
+| 36 | **ACCEPTED** | Synchronous `fs` on the Electron main process during relink census/scan. An availability defect on a local, single-user, user-initiated action with no confidentiality or integrity component. Good early-S18 fix; not a release gate. |
+| 37 | **RE-OWNED** | Local `purged` certificates have no UI reader. They survive in `bundle.fileEvents` and the route serves them; no surface renders that stream. |
+| 38 | **ACCEPTED** | `provision-workspace`'s invite budget is still a per-isolate limiter. Same unknowable-limit problem as #16, much lower stakes — invites cost email, not Anthropic tokens — and the caller is unauthenticated, so the subject to key on is a real judgement call rather than a one-line swap. |
+| 39 | **ACCEPTED** | Teardown strands identities. Deliberate: deleting those accounts would be a destructive act on identities the operator did not create, and a user may hold memberships in several companies. What is missing is the *reporting*, which is re-owned. |
+| 40 | **RE-OWNED** | The operator console has no e2e lane. The isolation property IS verified — at build time by grepping both bundles for their session keys, and by hand in a browser — but no automated test holds it, and since isolation here is nothing but a key string, a regression would be silent. A Playwright spec asserting the two keys differ on one origin is the cheap version. |
+| 41 | 🚨 **OWED — Audrey only** | The published `smoke_admin` credential (TPN-SDLC-007, open CRITICAL). Every occurrence is out of the working tree and the instructions that told operators to rotate it *back* to the literal are rewritten — but the value is in git history permanently, so **rotation is the only remedy and only Audrey can do it**. `OWED_AUDREY.md` §0. |
+| 42 | **CLOSED S17** (`b726e75`) | TPN-LOG-005. `trg_ws_members_audit` captures every privilege change into the reserved `app_events` admin stream. |
+| 43 | **ACCEPTED** | Teardown cannot see blobs no row points at. The row-derived sweep covers every blob the product itself created; the residue is a failed-insert upload whose 1-hour cleanup window lapsed. |
+| 44 | **CLOSED S17** (`b726e75`) | `custom_access_token_hook` re-revoked. **Sharpened during the fix:** it was callable by `anon`, not merely by any signed-in caller — reachable with nothing but the public anon key. |
+| 45 | **CLOSED S17** (`b726e75`) | Managed-files containment — and wider than filed: four fs sinks, not two, plus the asset rename/delete pair, which was an arbitrary-*directory-move*. |
+| 46 | **CLOSED S17** (`b726e75`) | `invite-member` routed through `adminGuard`. **Does not close every admin-minting path** — see #66. |
+| 47 | **CLOSED S17** (`b726e75`) | Milestones survive a load, in both adapters, with a test that pins the whole class. |
+| 48 | **CLOSED S17** (`b726e75`) | `addManagedFile` / `refreshManagedFiles` guard on adapter capability. |
+| 49 | **CLOSED S17** (`b726e75`) | Drive-mode rate-card reads return empty; the auto-create branch is gated on `adapterSupportsWrites`, without which the banner survives the stub. |
+| 50 | **CLOSED S17** (`b726e75`) | O.T.T.E.R.'s Space shortcut gated on `currentPage`. |
+| 51 | **CLOSED S17** (`b726e75`) | `HelpPage` password card rewritten to match reality. |
+| 52 | **RE-OWNED** | `logAdminEvent` hardcodes `severity: 'info'`, so WIL-3004 "cleanup failed" reads at the same severity as the success line. The fix is one line in `adminGuard.ts` — but that module is bundled by nine Edge Functions, so a change forces a redeploy of all of them (the S15 lesson). Not worth that on release day for a log-viewer nicety. |
+| 53 | **ACCEPTED** (TPN-LOG-006 adjacent) | Two `resolve-login` branches write no `auth_attempt_log` row. Cosmetic today; the honest fix belongs with the wider auth-event logging work (#67). |
+| 54 | **RE-OWNED** | Quiz scores and Validator findings are never persisted. The columns, routes and adapter ops all exist; the client never calls them. Wiring them is a feature, and it changes what the user sees. **Listed in RELEASE_TESTING.md's "known not to work" so it is not re-found as a bug.** |
+| 55 | **RE-OWNED** | Settings → Tools "Storage Location" is inert. Both honest fixes — making it work, or removing it — are visible changes barred this session. Listed as known-not-working. |
+| 56 | **CLOSED S17** (`6ab10c6`), partially | The *advertising* is fixed: both misleading strings corrected. The wiring is **RE-OWNED**. Recon sharpened the finding — RABBIT's agent surface is not merely unwired but *unreachable*, because `App.jsx` hard-gates the agent to the O.T.T.E.R. page, so no user can hit a silent no-op. |
+| 57 | **ACCEPTED** | A cross-workspace username collision makes sign-in unreachable. The resolver already accepts a `workspace_slug` and the client already has the parameter — the login form simply has no company field, and adding one is a visible change to the first screen every user sees. Real, bounded, and not something to alter on release day. |
+| 58 | **CLOSED S17** (`6ab10c6`) | All five documentation-drift items, plus two the gap did not name: db/README was missing sections for 0025/0026 as well as 0028/0029, and the intake step-count drift had a **third** site — the RABBIT knowledge snippet in `App.jsx` that is fed to the companion at runtime, so the agent was actively describing a wizard that no longer exists. |
+
+### Filed by Session 17 (new)
+
+These were found while fixing the above. None is a release blocker; all are
+written down so they are choices rather than surprises.
+
+59. **Eight SECURITY DEFINER functions remain `anon`-executable.** The residue
+    of #44's wider sweep. Six key on `auth.uid()` and therefore leak nothing to
+    an anonymous caller. Two — `project_is_staffed` and `fn_comment_project_id`
+    — have no caller gate at all and bypass RLS, but reveal only one bit about
+    a UUID the caller must already possess. **ACCEPTED for v1.0.0**, and the
+    reason is evidence, not comfort: revoking them from `anon` was tested in a
+    rolled-back transaction on wilson-dev and is a **behaviour change** —
+    `has_active_membership` backs nearly every policy, so every anonymous table
+    read turns from an empty result into a 42501. Post-1.0, the right fix is to
+    add an `auth.uid() IS NOT NULL` guard inside the two ungated functions
+    rather than to touch grants.
+60. **`auth_attempt_log` has no purge job and no stated retention rationale.**
+    Unlike `file_events` and `platform_audit`, whose absence of a purge is a
+    documented compliance position, this one is simply unaddressed. Decide a
+    retention window and either add a sweep or write down why not.
+61. **Managed-file thumbnails only resolve under `ASSETS/`.** The thumbnail
+    route hardcodes `ASSETS/{assetSlug}/`, but the upload route also writes
+    `SCENES/` and `SHOTS/` folder paths, so those thumbnails always 410.
+    Fixing it makes thumbnails appear that do not today — a visible change,
+    hence deferred.
+62. **The Summary view's Budget tile is structurally always zero.**
+    `ProjectSummaryView` calls the estimate rollup with no `roleRates`, so the
+    tile renders the zero-value currency regardless of the data. Visible
+    change to fix; found while auditing the two budget paths for Tier 2.
+63. **`CrewTeamTab` / `TalentTab` do not check `res.ok` on the invoice-folder
+    call**, so a 400 becomes a swallowed `ERR_INVALID_ARG_TYPE` and the Attach
+    button appears to do nothing.
+64. **The Agent Skills checkboxes gate nothing.** `isSkillEnabled` is exported
+    and has zero call sites repo-wide; no tool runtime consults `agentSkills`
+    before honouring an action. **S17 corrected the copy** so the tab no longer
+    claims otherwise — for O.T.T.E.R. as well as RABBIT — but the state is
+    still loaded, persisted, rendered and read by nothing. Wire it or remove
+    the checkboxes post-1.0.
+65. **Ten `WIL-70xx` codes emitted by the S15 operator functions are absent
+    from `ERROR_CODES`.** No user-visible consequence today — the operator
+    console's Audit section does not route through `describeErrorCode` — but
+    adding them would add rows to the Diagnostics reference table, which is a
+    visible change. Cosmetic, deferred.
+66. **`provision-workspace` can still mint an admin from a public endpoint.**
+    It inlines its own invite path rather than calling `invite-member`, and its
+    `INVITE_ROLE_SET` also contains `'admin'`. `adminGuard` cannot apply — the
+    caller has no JWT by definition, this being self-serve company creation
+    where the creator becomes the first admin anyway. **ACCEPTED as designed**,
+    recorded so that #46's closure is not mistaken for "no unauthenticated path
+    can create an admin", which would be false.
+67. **Auth events are still unlogged** (TPN-LOG-003, and the correct citation
+    for the `WIL-1001/1002/1003` question — `SESSION_17_prompt.md` cited
+    TPN-LOG-006, which is a different finding about unread supabase-js error
+    channels). Sign-in success, sign-in failure, MFA challenge failure,
+    sign-out and session expiry write nothing anywhere. Two of the three
+    declared codes **cannot** be wired client-side: at sign-in failure and
+    session expiry there is no session and no workspace, and `app_events`'
+    INSERT policy requires both, so the write is refused by RLS. This needs a
+    server-side writer — an Edge Function or a GoTrue hook — which is real work
+    and is why the codes were left declared-but-unwired rather than deleted
+    (deleting them removes visible rows from the Diagnostics table).
+    **RE-OWNED post-1.0.**
+
+---
+
 ## 7. Original brief → status traceability
 
 Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app verify ·
@@ -1085,7 +1329,7 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Personal Dashboard (RABBIT views + notes + profile + avatar) | S8: Dashboard page (table/kanban/gallery + popup reuse), Notes (TipTap+Yjs), ProfileSection + avatar remove, workspace channel | ✅ ❓ in-app verify owed |
 | New company setup wizard (+ create several users at once) | S9 team step → provision-workspace invites[] (Slack-style) | ✅ |
 | New user first-open flow (company → login → welcome → profile → home) | S2/S3 wizards | ✅ |
-| Central Supabase backend, all users on it | 3 envs, migrations 0000–0016 | ✅ |
+| Central Supabase backend, all users on it | 3 envs, migrations 0000–0030 | ✅ |
 | Company BYO storage (AWS S3, Supabase, local, local server, Hetzner, Google Drive) + settings connection UI | S9 StorageConnections cards (local/Supabase/Drive per locked #14) | ✅ (S3/Hetzner post-1.0) |
 | Per-company Claude API key, admin-administered | S12 `ai-proxy` shipped the per-workspace→platform seam; **S15** added `workspace_ai_keys` (AES-256-GCM ciphertext, service-role only) + the operator-console UI (`operator-ai-keys`: set/clear, key validated against Anthropic before storing, never readable back — only a 4-char hint) | ✅ ❓ needs `WILSON_AI_KEY_SECRET` set per env (OWED_AUDREY §9C) |
 | O.T.T.E.R. personal vs company-shared content, share/unshare, never cross-company | S10 model (0022/0023) + **S11 UI** (tier picker, filter chips, share + editor grants, company standard, fork, trash/restore) + **S13**: change-request approval APPLIES (0025 — archive, additive copy, review window, revise-and-resubmit) | ✅ ❓ in-app verify owed |
@@ -1147,9 +1391,12 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Session prompts | `WILSON/docs/sessions/SESSION_NN_prompt.md` (02–17 present) |
 | Systems handbook | `WILSON/docs/SYSTEMS_HANDBOOK.md` (S16, v1.0.0) — **release gate**; every system + who-talks-to-whom, written from the code |
 | Design pack | `WILSON/docs/SYSTEMS_DESIGN_PACK.md` (S16) — 24 mermaid diagrams, source for Audrey's design session |
-| Migration count | 0000–0029, all three envs (S15 added 0028 + 0029) |
-| Web test host | `https://pretty-aud.github.io/wilson/` — `gh-pages` branch of the public repo; Pages toggle owed (see `docs/WEB_DEPLOY.md`) |
-| ai-proxy | Edge Function, all 3 envs; key = `ANTHROPIC_API_KEY` secret (owed) with per-workspace seam; `AI_PROXY_RPM` optional |
+| **Release testing** | `WILSON/docs/RELEASE_TESTING.md` (S17) — first-company setup runbook + per-system checklist, `[BLOCKING]`/`[NOTE]`, with a "known not to work" section so nothing already-known gets re-found. **This is the document Audrey works through before the tag.** |
+| Changelog | `WILSON/CHANGELOG.md` (S17) — S1–S17 as one migration story, not a per-session diary |
+| Migration count | 0000–0030, all three envs (S15 added 0028 + 0029; S17 added 0030) |
+| **Beta web host** | **`https://beta.petalstudios.co/wilson`** — Vercel project `petal-studios/wilson`, Root Directory `WILSON`, production branch `feat/multi-user-v1`, **STAGING-backed**, auto-deploys on every push. Builds BOTH surfaces (`build:vercel && build:vercel:admin`). Install is `npm install --ignore-scripts`, not `npm ci` — Vercel's npm 11 rejects the npm-10 lockfile CI requires. DNS: `beta` CNAME → `cname.vercel-dns.com` at Squarespace. See `docs/WEB_DEPLOY.md`. |
+| GH Pages | `gh-pages` branch → `pretty-aud.github.io/wilson/` — a **dormant, manually-redeployed fallback**. Vercel is primary. |
+| ai-proxy | Edge Function, all 3 envs; per-workspace key (`workspace_ai_keys`, AES-256-GCM) falling back to the platform `ANTHROPIC_API_KEY`. Staging has the platform key set; dev/prod owed (OWED_AUDREY §5). `WILSON_AI_KEY_SECRET` owed on all three (§9C) or per-company keys cannot be stored. `AI_PROXY_RPM` optional (default 60). |
 | Original brief | `WILSON/docs/ORIGINAL_BRIEF_multiuser.md` |
 | TPN audit baseline | `WILSON/TPN_AUDIT/` (AUDIT_INDEX, FINDINGS, RECOMMENDATIONS, REMEDIATION_PLAN, SUMMARY, LEARNINGS) |
 | Email | Resend SMTP, domain `mail.petalstudios.co`, DNS at Squarespace |
@@ -1158,7 +1405,8 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 | Operator console | `/wilsonadmin` — second Vercel output folder, `vite --mode admin`, entry `admin.html` → `src/admin/`. Session key `wilson.operator.session` (isolation is the key string; localStorage is per-origin). Email+password+TOTP sign-in. |
 | Operator tier | `public.platform_operators` (SQL-only grant, by design — no UI on any surface). Guard: `supabase/functions/_shared/operatorGuard.ts`. |
 | pgTAP without Docker | `python scripts/tap-hosted.py <out.sql> [migration.sql] <suite.sql>` then `supabase db query --linked --file <out.sql>`. `collected` must equal `planned`. |
-| Backups workflow | `.github/workflows/backups.yml` (git root) — needs B2_* + BACKUP_*_DB_URL secrets |
+| Backups workflow | `.github/workflows/backups.yml` (git root) — **lives on `main`, and must.** GitHub fires `schedule` workflows EXCLUSIVELY from the default branch and only shows `workflow_dispatch` for workflows present there; committed to the feature branch it had two independent reasons never to run (§6 #24). Any future scheduled workflow must live on `main` or it is decoration. Secrets: B2_* + BACKUP_*_DB_URL. |
+| CI replay list | `rls.yml`'s failure replay must name EVERY suite. It stopped at 32 until S17, so suites 33–38 failed invisibly. Note a failing pgTAP **assertion** is not a SQL error, so "replay produced no ERROR lines" never means "this file passed". |
 | Auto-memory | `~\.claude\projects\C--Users-Audrey-Documents-My-Work-Dev-Work-Claude-Work\memory\wilson_multi_user_plan.md` |
 
 ---
@@ -1707,6 +1955,46 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
   in the same commit. A stale gate is worse than no gate, and §17 (known
   limits) is the section most likely to drift as gaps close.
 
+### Resolved 2026-07-30 (Session 17 close-out — architecture-driven, flagged
+### for Audrey's awareness)
+
+- **Testing one pgTAP suite in isolation cannot prove a migration is safe.**
+  0030's audit trigger writes `app_events` rows during *every* suite's fixture
+  setup, which broke `25_app_events`' unfiltered count. Suite 38 passed alone
+  on hosted PG17; CI runs all 38 against one database and failed. The hosted
+  harness is still the right tool — it just has to be pointed at the whole set
+  when a migration adds a writer. Now recorded in §2.
+- **A CI annotation that says "no ERROR lines" does not mean "passed".** The
+  replay greps for SQL errors, and a failing pgTAP *assertion* is not one. The
+  list had also stopped at suite 32, so 33–38 failed invisibly — every
+  annotation pointed at files that were fine. Both fixed; the lesson is the
+  more transferable half.
+- **The handbook is a gate, not an oracle.** S16 established it as the
+  accurate document, and it mostly is — but its §15 Vitest count was stale
+  where MASTER_PLAN's was right. A mechanical "sync the plan to the handbook"
+  pass would have injected a regression. Where they disagree, the code decides.
+- **"Fix it or delete it" was a false choice three times this session**, and
+  noticing that was worth more than either option. WIL-1001/1002/1003 can be
+  neither (deleting removes visible rows, wiring adds them, and two of the
+  three are structurally impossible client-side). The `last_updated_at`
+  column could not be dropped without breaking every RABBIT UPDATE. The two
+  project-folder helpers encode a real invariant rather than drift. In a
+  session whose hard rule was "change nothing visible", the correct answer was
+  repeatedly *document the constraint* — and each of those is now written down
+  where the next reader will hit it.
+- **Recon that is allowed to contradict its brief pays for itself.** Every one
+  of the four corrections above came from a reader told explicitly to report
+  when the brief was wrong. #45 was wider than filed, #49 needed a second fix
+  the gap never mentioned, #56 was unreachable rather than merely unwired, and
+  the dead-column "cleanup" would have caused an outage.
+
 ### Still open
 
 — none currently. New questions get logged here with their target session.
+
+**Waiting on Audrey before v1.0.0 can be tagged:** `OWED_AUDREY.md` §0
+(rotate the published `smoke_admin` password — open CRITICAL), §9A + §9B
+(enrol TOTP *and* seed `platform_operators`; either alone leaves the console
+signing you in and refusing everything), §9C (`WILSON_AI_KEY_SECRET`), §5
+(`ANTHROPIC_API_KEY` on dev/prod). The tag and the `main` merge are hers to
+authorise once she has worked through `docs/RELEASE_TESTING.md`.
