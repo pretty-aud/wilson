@@ -1304,6 +1304,75 @@ written down so they are choices rather than surprises.
 
 ---
 
+### Found by Audrey's release-testing pass (2026-07-30) — the MFA cluster
+
+Four entries, filed together because they share one root cause and because
+they are the strongest evidence this session produced that
+`docs/RELEASE_TESTING.md` was worth writing. **All three defects sat on the
+very first screen a new admin ever sees, and all three were invisible to every
+check the project had: CI green on all four jobs, database correct, logs
+clean.** They surfaced within about ten minutes of a human actually using it.
+
+68. 🚨 **THE ROOT ENABLER: the MFA path has ZERO automated coverage.**
+    Both Playwright projects sign in as the seeded probe admin, which has **no
+    verified TOTP factor** — so `hasVerified` is false, the `aal2` branch never
+    executes, and neither enrolment nor MFA sign-in has ever run in CI. That is
+    why three independent defects could live on the sign-in path with every
+    gate green. It is also why `adminGuard`'s own comment could say the
+    Playwright lane "exercises invite-member" while never touching the MFA
+    step-up that same lane's admin would need.
+    **This is the one to fix first post-1.0** — ahead of any individual bug
+    below, because without it the next regression here is equally invisible.
+    The fix is a seeded probe account WITH a verified factor and a spec that
+    completes a TOTP sign-in (deriving codes from the seed secret, which is
+    standard practice and needs no human).
+    **RE-OWNED post-1.0, highest priority.**
+
+69. **CLOSED S17 (`8222ea1`) — auth awaits were unbounded.** `mfa.challenge`,
+    `mfa.verify`, `getSession`, `issue-session`, `refreshSession` and
+    `saveSession` had no ceiling on either sign-in surface, so a stalled call
+    pinned the button on "Verifying…"/"Working…" forever with no error, no
+    retry and nothing in the console. Now bounded at 15 s via
+    `src/cloud/auth/withTimeout.js` (8 vitest cases), and a timeout is reported
+    differently from a rejected code — telling someone their authenticator code
+    was wrong when the network stalled sends them round a loop that cannot
+    succeed.
+
+70. **CLOSED S17 (`8222ea1`) — a success with no terminal state became an
+    invisible full-screen overlay.** Both auth screens ended their success path
+    by handing off to `AuthShell`'s 1 s reveal animation, which calls
+    `onAnimationComplete` → `onAuthenticated`/`onComplete`. `busy` was never
+    cleared by the step that set it. And `AuthShell` returns `null` once its
+    phase reaches `'done'`, while `MfaEnrollGate` wraps it in a
+    `position:fixed; inset:0; z-index:60` div — so a missed handoff left the
+    user under a transparent full-screen overlay showing `App.jsx`'s orange
+    root through it and swallowing every click. **That was the "blank orange
+    screen".** Both gates now arm a 4 s fallback that completes the handoff
+    directly, ref-guarded so exactly one path fires; the animation is cosmetic
+    again rather than load-bearing. `MfaEnrollPanel` also gained an explicit
+    `enrolled` phase so a successful activation reads "MFA active ✓" instead of
+    waiting to be unmounted by somebody else.
+
+71. **CLOSED S17 (`669a870`) — MFA sign-in deadlocked on `getSession()`.** The
+    defect that actually made the console unreachable. `auth-js` guards every
+    auth call with a navigator lock keyed on `storageKey`; calling
+    `supabase.auth.getSession()` immediately after `supabase.auth.mfa.verify()`
+    contends for the lock `verify()` still holds, and never resolves. Not a
+    cross-tab problem — a single fresh tab deadlocks identically, which is what
+    ruled out the stranded-lock theory. **The round trip was never needed:
+    `mfa.verify()` resolves with the upgraded aal2 session**, which the code
+    discarded before asking the SDK for the same thing again through the one
+    path guaranteed to block. Fixed on both surfaces.
+    🔑 **The diagnostic lesson, which generalises well beyond MFA:** the
+    operation kept **succeeding**. `auth.mfa_challenges` showed 4 challenges
+    and 0 unverified — every code had verified server-side. So every
+    server-side signal was green and only the client hung. Three plausible
+    client-side theories were wrong in a row; the database answered it in one
+    query. **When a client hangs on an operation that appears to work, check
+    what the server recorded before theorising about the client.**
+
+---
+
 ## 7. Original brief → status traceability
 
 Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app verify ·

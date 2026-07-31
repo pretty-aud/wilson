@@ -186,6 +186,37 @@ as each once so they have profiles and appear in the roster.
 
 New this session, so most likely to be wrong.
 
+### A0. The MFA cluster — found by this document's own first run
+
+Three defects lived here, all on the first screen a new admin sees, all
+invisible to CI. **Re-run these after any change to `LoginScreen.jsx`,
+`MfaSection.jsx`, `OperatorLogin.jsx` or `AuthShell.jsx`** — there is still no
+automated coverage of this path (§6 #68).
+
+- Enrol TOTP from the `SECURE YOUR ADMIN ACCOUNT` overlay → on success the
+  button reads **`MFA ACTIVE ✓`** and the overlay closes within ~5 s. It must
+  never sit on "Activating…". `[BLOCKING]`
+- After enrolling, you land in the app — **not** on a bare orange screen with
+  nothing clickable. An orange screen means the gate's overlay outlived its
+  contents (§6 #70). `[BLOCKING]`
+- Sign out, sign back in, enter your code → you reach Home. **This is the one
+  that was fully broken**: `getSession()` deadlocked against the lock
+  `mfa.verify()` still held, so sign-in with MFA enabled was impossible
+  (§6 #71). `[BLOCKING]`
+- Same three checks on the operator console at `/wilsonadmin`. `[BLOCKING]`
+- Enter a **wrong** code → `CODE REJECTED. TRY AGAIN.`, field cleared, button
+  usable again. `[BLOCKING]`
+- Go offline (devtools → Network → Offline), enter any code → within ~15 s you
+  get **`THE SERVER DID NOT RESPOND…`**, not an endless spinner. A stalled
+  network must never be reported as a rejected code. `[NOTE]`
+
+> If sign-in ever hangs again, **check the server before theorising about the
+> client** — the operation usually succeeded:
+> `SELECT count(*) FILTER (WHERE verified_at IS NULL) AS unverified,
+> count(*) AS total FROM auth.mfa_challenges;`
+> Challenges verified but the UI stuck means the client is blocked after
+> `verify()`, not that MFA is failing.
+
 - Change `testuser`'s Role in Admin Terminal → Users → member detail → then `Logs` → expect a
   **`WIL-4105 Member privileges changed`** row naming you as actor. `[BLOCKING]`
 - Toggle `Can view rate card` on `testuser` → expect **another WIL-4105 row**. `[BLOCKING]`
