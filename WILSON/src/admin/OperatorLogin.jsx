@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../cloud/auth/supabaseClient'
 import { saveSession } from '../cloud/auth/sessionStorage'
+import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 
 // Deliberately identical for wrong-email, wrong-password and not-an-operator.
 // The console's URL is not a secret, so its error copy must not confirm which
@@ -54,10 +55,11 @@ export default function OperatorLogin({ onSignedIn }) {
     setBusy(true)
     setError('')
     try {
-      const { data, error: signInErr } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password,
-      })
+      // Session 17: bounded, like the product login. An unbounded await here
+      // freezes the button on "Working…" with no error and no retry.
+      const { data, error: signInErr } = await withTimeout(
+        supabase.auth.signInWithPassword({ email: email.trim().toLowerCase(), password }),
+        AUTH_TIMEOUT_MS, 'sign-in')
       if (signInErr || !data.session) {
         setError(GENERIC_ERROR)
         setBusy(false)
@@ -67,9 +69,11 @@ export default function OperatorLogin({ onSignedIn }) {
       // Upgrade to aal2 BEFORE handing the session on — every operator Edge
       // Function requires it, so an aal1 session here would look signed in
       // and then fail on the first action.
-      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+      const { data: aal } = await withTimeout(
+        supabase.auth.mfa.getAuthenticatorAssuranceLevel(), AUTH_TIMEOUT_MS, 'MFA level check')
       if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
-        const { data: factors } = await supabase.auth.mfa.listFactors()
+        const { data: factors } = await withTimeout(
+          supabase.auth.mfa.listFactors(), AUTH_TIMEOUT_MS, 'factor list')
         const totp = (factors?.totp ?? []).find((f) => f.status === 'verified')
         if (totp) {
           setFactorId(totp.id)
@@ -87,7 +91,7 @@ export default function OperatorLogin({ onSignedIn }) {
       // the wrong door.
       await supabase.auth.signOut({ scope: 'local' }).catch(() => {})
       setError(
-        'The operator console requires two-factor authentication. Enrol an authenticator in WILSON → Settings → Security, then sign in here again.',
+        'The operator console requires two-factor authentication. Enrol an authenticator in WILSON → Settings → Profile, then sign in here again.',
       )
       setBusy(false)
     } catch {
@@ -107,30 +111,35 @@ export default function OperatorLogin({ onSignedIn }) {
     setBusy(true)
     setError('')
     try {
-      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId })
+      const { data: ch, error: chErr } = await withTimeout(
+        supabase.auth.mfa.challenge({ factorId }), AUTH_TIMEOUT_MS, 'MFA challenge')
       if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await supabase.auth.mfa.verify({
-        factorId,
-        challengeId: ch.id,
-        code: clean,
-      })
+      const { error: vErr } = await withTimeout(
+        supabase.auth.mfa.verify({ factorId, challengeId: ch.id, code: clean }),
+        AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
         setError('Code rejected. Try again.')
         setCode('')
         setBusy(false)
         return
       }
-      const { data: fresh } = await supabase.auth.getSession()
+      const { data: fresh } = await withTimeout(
+        supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
       const session = fresh?.session
       if (!session) {
         setError(GENERIC_ERROR)
         setBusy(false)
         return
       }
-      await saveSession(session)
+      await withTimeout(saveSession(session), AUTH_TIMEOUT_MS, 'session save')
       onSignedIn(session)
-    } catch {
-      setError('Code rejected. Try again.')
+    } catch (err) {
+      // A stalled network is not a wrong code, and saying so sends the
+      // operator round a loop that cannot succeed.
+      setError(err?.name === 'TimeoutError'
+        ? 'The server did not respond. Check your connection and try again.'
+        : 'Code rejected. Try again.')
+      setCode('')
       setBusy(false)
     }
   }, [busy, factorId, code, onSignedIn])
