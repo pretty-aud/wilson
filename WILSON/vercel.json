@@ -4,7 +4,8 @@
   "outputDirectory": "dist-vercel",
   "installCommand": "npm install --ignore-scripts",
   "redirects": [
-    { "source": "/", "destination": "/wilson", "permanent": false }
+    { "source": "/", "destination": "/wilson", "permanent": false },
+    { "source": "/wilsonadmin/", "destination": "/wilsonadmin", "permanent": false }
   ],
   "rewrites": [
     { "source": "/wilson/:path*", "destination": "/wilson/index.html" },
