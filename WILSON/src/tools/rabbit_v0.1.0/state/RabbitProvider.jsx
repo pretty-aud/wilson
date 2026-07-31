@@ -343,26 +343,47 @@ export function RabbitProvider({ children }) {
   // until they switched adapter modes or reloaded. onAuthStateChange fires
   // for SIGNED_IN, TOKEN_REFRESHED, and SIGNED_OUT; we re-sync for all three.
   useEffect(() => {
-    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange(async (event) => {
-      if (!adapterRef.current) return;
-      if (adapterRef.current.mode !== 'supabase') return;
-      // Drop the adapter's cached client reference so getClient() re-reads
-      // the latest session on the next call.
-      resetSupabaseAdapter();
-      try {
-        const status = await adapterRef.current.status();
-        setAdapterStatus(status);
-        if (status.online && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-          const list = await adapterRef.current.listProjects();
-          setProjectsIndex(indexById(list));
-        } else if (event === 'SIGNED_OUT') {
-          setProjectsIndex({});
-          setBundle(EMPTY_BUNDLE);
-          setActiveProjectIdState(null);
+    // ⚠️ Session 17 — THIS CALLBACK MUST RETURN SYNCHRONOUSLY. Do not make it
+    // `async`, and do not await a Supabase call inside it.
+    //
+    // auth-js invokes every onAuthStateChange subscriber from inside
+    // `_acquireLock`, and it AWAITS each one (GoTrueClient `_notifyAllSubscribers`).
+    // Any Supabase query awaited here calls `_getAccessToken()` -> `getSession()`
+    // -> `_acquireLock()`, which waits for the lock this callback is already
+    // running inside. That is a self-deadlock, and it takes the whole auth
+    // operation down with it.
+    //
+    // It cost a release-testing session to find, because the symptom pointed
+    // everywhere except here: `POST /factors/../verify` returned 200 in 113ms,
+    // the challenge was verified server-side, NO further network request was
+    // ever made, and the verify() promise simply never resolved — so MFA
+    // sign-in was impossible while every server-side signal looked healthy.
+    //
+    // Deferring with setTimeout(…, 0) lets the callback return immediately;
+    // the lock is released, and the queries run a tick later against a
+    // settled session. Same work, same order, no re-entrancy.
+    const { data: sub } = sharedAuthedClient.auth.onAuthStateChange((event) => {
+      setTimeout(async () => {
+        if (!adapterRef.current) return;
+        if (adapterRef.current.mode !== 'supabase') return;
+        // Drop the adapter's cached client reference so getClient() re-reads
+        // the latest session on the next call.
+        resetSupabaseAdapter();
+        try {
+          const status = await adapterRef.current.status();
+          setAdapterStatus(status);
+          if (status.online && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+            const list = await adapterRef.current.listProjects();
+            setProjectsIndex(indexById(list));
+          } else if (event === 'SIGNED_OUT') {
+            setProjectsIndex({});
+            setBundle(EMPTY_BUNDLE);
+            setActiveProjectIdState(null);
+          }
+        } catch (err) {
+          setAdapterStatus({ online: false, lastSyncAt: null, error: err.message || String(err) });
         }
-      } catch (err) {
-        setAdapterStatus({ online: false, lastSyncAt: null, error: err.message || String(err) });
-      }
+      }, 0);
     });
     return () => { sub?.subscription?.unsubscribe?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
