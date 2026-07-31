@@ -3,13 +3,35 @@
 <!--
   WILSON password-reset email.
 
-  Template variables:
-    {{ .ConfirmationURL }}   recovery link that drops the user into the
-                             ResetPasswordWizard with a recovery token
-    {{ .Email }}             the requester's email address
+  CONVENTION: variables are named BARE in these comments, braces only in the
+  markup. GoTrue's html/template elides HTML comments from its output, so a
+  braced variable in a comment is not shipped — but the point of the change
+  below is that no redeemable URL appears anywhere in the email, and we would
+  rather not rest that on a stripping step. Same rule in invite.html.
+
+  Variables used, in the markup only:
+    SiteURL    the project's configured Site URL
+    TokenHash  the recovery token, NOT yet redeemed
+    Email      the requester's email address
 
   Triggered by supabase.auth.resetPasswordForEmail() from the
   ForgotPasswordWizard.
+
+  ⚠️  DO NOT go back to ConfirmationURL — it is a direct
+  `GET /auth/v1/verify?token=…` link, so following it IS the redemption and
+  any machine that fetches links spends it before the human clicks. See the
+  header comment in invite.html for the measurement that established this.
+  TokenHash carries the unspent token to a page in the app, which calls
+  verifyOtp() only on a click.
+
+  SiteURL rather than RedirectTo: this mail is usually triggered from the
+  DESKTOP app, whose window.location.origin is http://127.0.0.1:<dynamic port>
+  — a RedirectTo that would be useless in an email. SiteURL is always the
+  configured web host.
+
+  ⚠️  Uploaded BY HAND in the Supabase dashboard, on all three projects.
+  Never `supabase config push` — it would push the local [auth] block, whose
+  smtp.enabled = false disables hosted Resend email.
 -->
 <head>
   <meta charset="utf-8" />
@@ -38,7 +60,7 @@
           </tr>
           <tr>
             <td align="center" style="padding:0 28px 28px;">
-              <a href="{{ .ConfirmationURL }}"
+              <a href="{{ .SiteURL }}/#/recovery?token_hash={{ .TokenHash }}&amp;type=recovery"
                  style="display:inline-block;background:#ea580c;color:#ffffff;padding:12px 28px;font-size:14px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;border-radius:2px;">
                 Reset password
               </a>
@@ -48,7 +70,7 @@
             <td style="padding:0 28px 28px;">
               <p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280;">
                 If the button doesn't work, paste this URL into your browser:<br/>
-                <span style="word-break:break-all;color:#1f2937;">{{ .ConfirmationURL }}</span>
+                <span style="word-break:break-all;color:#1f2937;">{{ .SiteURL }}/#/recovery?token_hash={{ .TokenHash }}&amp;type=recovery</span>
               </p>
               <p style="margin:16px 0 0 0;font-size:12px;line-height:1.5;color:#6b7280;">
                 Didn't request this? You can safely ignore the email — your password stays unchanged.

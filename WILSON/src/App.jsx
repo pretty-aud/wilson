@@ -4,6 +4,7 @@ import TitleBar from './components/TitleBar'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
+import { looksLikeRecoveryLink } from './cloud/auth/recoveryLink'
 import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
@@ -182,10 +183,12 @@ export default function App() {
   // then signs the user out and returns them to 'login'.
   const [authMode, setAuthMode] = useState(() => {
     if (typeof window === 'undefined') return 'login'
-    const hash = window.location.hash || ''
-    // Supabase recovery lands at /#/recovery#access_token=... — if either
-    // shape is present, enter the wizard.
-    if (hash.startsWith('#/recovery') || hash.includes('type=recovery')) {
+    // Session 18: three link shapes now land here — the token_hash link the
+    // templates send, and the two older implicit-grant fragments. The matcher
+    // lives in recoveryLink.js with the parser, and is deliberately loose: a
+    // spent or malformed link must still reach the wizard so the user gets an
+    // explanation instead of a login screen that ignores what they clicked.
+    if (looksLikeRecoveryLink(window.location.hash, window.location.search)) {
       return 'recovery'
     }
     return 'login'
@@ -1494,11 +1497,13 @@ export default function App() {
       {showOverlay && sessionChecked && authMode === 'recovery' && (
         <ResetPasswordWizard
           onDone={() => {
-            // Clear the recovery fragment from the URL so a reload won't
-            // re-enter the wizard, then return to the login form.
+            // Clear the whole recovery URL so a reload won't re-enter the
+            // wizard, then return to the login form. Session 18: `search` is
+            // dropped too, not just the fragment — a token_hash link can carry
+            // its token in the real query string, and keeping it would bounce
+            // a reloading user into the wizard holding a spent token.
             try {
-              const { pathname, search } = window.location
-              window.history.replaceState(null, '', `${pathname}${search}`)
+              window.history.replaceState(null, '', window.location.pathname)
             } catch { /* non-critical */ }
             setAuthMode('login')
           }}

@@ -3,14 +3,46 @@
 <!--
   WILSON invite email.
 
-  Template variables (Supabase GoTrue):
-    {{ .ConfirmationURL }}    recovery link that, when followed, lets the
-                              invitee set their password via the
-                              ResetPasswordWizard
-    {{ .Email }}              the invitee's email address
-    {{ .Data.company_name }}  workspace name (set by invite-member Edge Fn)
-    {{ .Data.inviter_name }}  who sent the invite
-    {{ .Data.username }}      the workspace-scoped username assigned to them
+  CONVENTION: template variables are named BARE in these comments (SiteURL,
+  TokenHash) and only ever given their braces in the markup below.
+
+  GoTrue renders this file with Go's html/template, which elides HTML comments
+  from its output, so a variable written with braces in a comment is not
+  actually shipped in the message. The convention exists so the file never
+  depends on that: the whole point of the change below is that no redeemable
+  URL appears anywhere in the email, and "it happens to be stripped later" is
+  a thin thing to rest that on. Keep them bare.
+
+  Variables used, in the markup only:
+    SiteURL            the project's configured Site URL
+    TokenHash          the invite token, NOT yet redeemed
+    Data.company_name  workspace name (set by the invite-member Edge Fn)
+    Data.inviter_name  who sent the invite
+    Data.username      the workspace-scoped username assigned to them
+
+  ⚠️  DO NOT go back to ConfirmationURL.
+
+  It is a direct `GET /auth/v1/verify?token=…` link, and following it IS the
+  redemption — so any machine that fetches links spends the invite before the
+  human sees it. Measured on wilson-staging 2026-07-31: two invites, one to a
+  corporate domain and one to Gmail, were both confirmed within 12.0 s and
+  16.7 s of being sent, with `email_confirmed_at`, `last_sign_in_at` set and
+  the tokens cleared, before either recipient had opened the mail.
+
+  TokenHash carries the UNSPENT token to a page in the app, which calls
+  verifyOtp() only when a person clicks a button. A scanner issuing a GET now
+  redeems nothing.
+
+  SiteURL rather than RedirectTo on purpose: RedirectTo is whatever the client
+  asked for, and the desktop app runs on http://127.0.0.1:<dynamic port>
+  (electron/main.cjs), which is useless in an email. SiteURL is always the
+  configured web host. It works whether it ends at the origin or at /wilson,
+  because vercel.json redirects "/" to "/wilson" and browsers carry the
+  fragment across that redirect.
+
+  ⚠️  Templates are uploaded BY HAND in the Supabase dashboard, on all three
+  projects. Never `supabase config push` — it would push the local [auth]
+  block, whose smtp.enabled = false disables hosted Resend email.
 
   Styling is inline-only — no <style> blocks — because a meaningful share
   of business mail clients (Outlook, older Gmail web) strip or scope them.
@@ -47,7 +79,7 @@
           </tr>
           <tr>
             <td align="center" style="padding:0 28px 28px;">
-              <a href="{{ .ConfirmationURL }}"
+              <a href="{{ .SiteURL }}/#/recovery?token_hash={{ .TokenHash }}&amp;type=invite"
                  style="display:inline-block;background:#ea580c;color:#ffffff;padding:12px 28px;font-size:14px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;border-radius:2px;">
                 Set my password
               </a>
@@ -57,7 +89,7 @@
             <td style="padding:0 28px 28px;">
               <p style="margin:0;font-size:12px;line-height:1.5;color:#6b7280;">
                 If the button doesn't work, paste this URL into your browser:<br/>
-                <span style="word-break:break-all;color:#1f2937;">{{ .ConfirmationURL }}</span>
+                <span style="word-break:break-all;color:#1f2937;">{{ .SiteURL }}/#/recovery?token_hash={{ .TokenHash }}&amp;type=invite</span>
               </p>
               <p style="margin:16px 0 0 0;font-size:12px;line-height:1.5;color:#6b7280;">
                 Not expecting this invite? You can ignore this message — no account will be created until you follow the link.
