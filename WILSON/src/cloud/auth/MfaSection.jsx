@@ -20,6 +20,7 @@ import { supabase } from './supabaseClient'
 import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
+import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 
 async function listVerifiedTotp() {
   const { data, error } = await supabase.auth.mfa.listFactors()
@@ -91,22 +92,34 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
     setPhase('verifying')
     setError(null)
     try {
-      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: factor.id })
+      // Session 17: bounded. An unbounded verify left this button reading
+      // "Activating…" indefinitely while the factor was already verified
+      // server-side — the user could not tell enrolment had worked.
+      const { data: ch, error: chErr } = await withTimeout(
+        supabase.auth.mfa.challenge({ factorId: factor.id }),
+        AUTH_TIMEOUT_MS, 'MFA challenge')
       if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await supabase.auth.mfa.verify({
-        factorId: factor.id,
-        challengeId: ch.id,
-        code: c,
-      })
+      const { error: vErr } = await withTimeout(
+        supabase.auth.mfa.verify({ factorId: factor.id, challengeId: ch.id, code: c }),
+        AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
         setError('Code rejected — try the next one from your app.')
         setPhase('show')
         setCode('')
         return
       }
+      // Give SUCCESS its own terminal state. Previously this path only called
+      // onEnrolled() and left phase at 'verifying', so the button was stuck on
+      // "Activating…" unless the parent unmounted this component instantly —
+      // which the enrol gate does NOT do: it hands off to a 1s reveal
+      // animation first. A success with no terminal state of its own is a
+      // success the user cannot see.
+      setPhase('enrolled')
       onEnrolled?.()
     } catch (err) {
-      setError(err?.message || 'Verification failed.')
+      setError(err?.name === 'TimeoutError'
+        ? 'The server did not respond. Check your connection and try again.'
+        : (err?.message || 'Verification failed.'))
       setPhase('show')
       reportAppEvent({ code: 'WIL-1004', eventType: 'auth', context: { step: 'verify' }, error: err })
     }
@@ -189,17 +202,17 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
       {error && <div className="text-[11px] font-mono" style={{ color: dark ? '#ffd7c2' : '#dc2626' }}>{error}</div>}
       <button
         type="submit"
-        disabled={phase === 'verifying'}
+        disabled={phase === 'verifying' || phase === 'enrolled'}
         className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm"
         style={{
           backgroundColor: dark ? '#fff' : '#ea580c',
           color: dark ? '#ea580c' : '#fff7ed',
           border: dark ? 'none' : '1px solid #c2410c',
-          opacity: phase === 'verifying' ? 0.6 : 1,
-          cursor: phase === 'verifying' ? 'default' : 'pointer',
+          opacity: phase === 'verifying' || phase === 'enrolled' ? 0.6 : 1,
+          cursor: phase === 'verifying' || phase === 'enrolled' ? 'default' : 'pointer',
         }}
       >
-        {phase === 'verifying' ? 'Activating…' : 'Activate MFA'}
+        {phase === 'enrolled' ? 'MFA active ✓' : phase === 'verifying' ? 'Activating…' : 'Activate MFA'}
       </button>
     </form>
   )
@@ -212,12 +225,35 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
 // enrolled first). Enrolled admins are already challenged at sign-in.
 export function MfaEnrollGate({ onComplete, onDefer }) {
   const [revealing, setRevealing] = useState(false)
+  // Session 17 — same handoff safety net as LoginScreen. AuthShell returns
+  // null once its reveal reaches 'done', but THIS wrapper div is
+  // position:fixed inset:0 z-index:60 — so if onComplete never fires, the
+  // user is left under a full-screen invisible overlay showing App's orange
+  // root through it, swallowing every click. Exactly one path completes.
+  const completedRef = useRef(false)
+  const fallbackRef = useRef(null)
+  const complete = useCallback(() => {
+    if (completedRef.current) return
+    completedRef.current = true
+    if (fallbackRef.current) clearTimeout(fallbackRef.current)
+    onComplete?.()
+  }, [onComplete])
+  useEffect(() => () => { if (fallbackRef.current) clearTimeout(fallbackRef.current) }, [])
+  const startReveal = useCallback(() => {
+    setRevealing(true)
+    fallbackRef.current = setTimeout(() => {
+      if (!completedRef.current) {
+        console.warn('[wilson] MFA gate reveal did not fire — closing directly')
+        complete()
+      }
+    }, 4000)
+  }, [complete])
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 60 }}>
       <AuthShell
         showLogoIntro={false}
         isRevealing={revealing}
-        onAnimationComplete={() => onComplete?.()}
+        onAnimationComplete={complete}
       >
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <div style={{ ...AUTH_TEXT_STYLE, fontSize: '13px', letterSpacing: '0.18em' }}>
@@ -227,7 +263,7 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
             WORKSPACE ADMINS SIGN IN WITH AN AUTHENTICATOR CODE. SET IT UP ONCE —
             YOU&apos;LL BE ASKED FOR A CODE AT EVERY SIGN-IN.
           </div>
-          <MfaEnrollPanel dark onEnrolled={() => setRevealing(true)} />
+          <MfaEnrollPanel dark onEnrolled={startReveal} />
           <div style={{ display: 'flex', gap: '18px' }}>
             <button
               type="button"

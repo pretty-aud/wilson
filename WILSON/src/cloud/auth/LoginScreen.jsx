@@ -27,6 +27,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
 import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
+import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -95,6 +96,11 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
   const [mfaCode, setMfaCode]               = useState('')
 
   const finalSessionRef = useRef(null)
+  // Session 17: the reveal handoff is guarded so exactly one of the two paths
+  // (animation callback, or the fallback timer) completes the sign-in.
+  const revealFallbackRef = useRef(null)
+  const completedRef = useRef(false)
+  useEffect(() => () => { if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current) }, [])
   const usernameInputRef = useRef(null)
   const mfaInputRef = useRef(null)
 
@@ -121,24 +127,45 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
       // workspace_id into the token returned by signInWithPassword; extra
       // calls would just burn a request and (per Session 1) currently 401.
       if (workspaceId) {
-        await issueSession(session.access_token, workspaceId)
-        const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession()
+        await withTimeout(issueSession(session.access_token, workspaceId),
+          AUTH_TIMEOUT_MS, 'issue-session')
+        const { data: refreshed, error: refreshErr } = await withTimeout(
+          supabase.auth.refreshSession(), AUTH_TIMEOUT_MS, 'session refresh')
         if (!refreshErr && refreshed?.session) effectiveSession = refreshed.session
       }
-      await saveSession({
+      await withTimeout(saveSession({
         access_token:  effectiveSession.access_token,
         refresh_token: effectiveSession.refresh_token,
         expires_at:    effectiveSession.expires_at,
         user:          effectiveSession.user,
-      })
+      }), AUTH_TIMEOUT_MS, 'session save')
       finalSessionRef.current = effectiveSession
       setRevealing(true)
+      // Session 17 — the handoff safety net. `busy` is deliberately NOT
+      // cleared here: the success path ends by handing off to AuthShell's
+      // reveal animation, which calls onAnimationComplete -> onAuthenticated.
+      // If that handoff does not happen the user is stranded on "VERIFYING…"
+      // over a screen AuthShell has already torn down (it returns null once
+      // its phase reaches 'done'), which renders as a bare orange window.
+      // The animation is 1s; 4s of grace, then complete it ourselves.
+      // onAuthenticated is idempotent in App.jsx (it sets state), so a double
+      // call is harmless — a stranded session is not.
+      if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current)
+      revealFallbackRef.current = setTimeout(() => {
+        if (!completedRef.current) {
+          completedRef.current = true
+          console.warn('[wilson] reveal handoff did not fire — completing sign-in directly')
+          onAuthenticated?.(finalSessionRef.current)
+        }
+      }, 4000)
     } catch (err) {
       console.warn('[wilson] completeSignIn failed:', err?.message ?? err)
-      setError(GENERIC_ERROR)
+      setError(err?.name === 'TimeoutError'
+        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
+        : GENERIC_ERROR)
       setBusy(false)
     }
-  }, [])
+  }, [onAuthenticated])
 
   // Single submit handler: resolve username → email → signInWithPassword →
   // either reveal (1 workspace) or advance to chooser (>1 workspace).
@@ -213,20 +240,25 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     setBusy(true)
     setError('')
     try {
-      const { data: ch, error: chErr } = await supabase.auth.mfa.challenge({ factorId: mfaFactorId })
+      // Session 17: every await here is bounded. Unbounded, a hung GoTrue
+      // call left this button reading "Verifying…" forever with no error —
+      // and the verify had usually already SUCCEEDED server-side, so the
+      // user was locked out of an account that was working fine.
+      const { data: ch, error: chErr } = await withTimeout(
+        supabase.auth.mfa.challenge({ factorId: mfaFactorId }),
+        AUTH_TIMEOUT_MS, 'MFA challenge')
       if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await supabase.auth.mfa.verify({
-        factorId: mfaFactorId,
-        challengeId: ch.id,
-        code,
-      })
+      const { error: vErr } = await withTimeout(
+        supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code }),
+        AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
         setError('CODE REJECTED. TRY AGAIN.')
         setMfaCode('')
         setBusy(false)
         return
       }
-      const { data: fresh } = await supabase.auth.getSession()
+      const { data: fresh } = await withTimeout(
+        supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
       const session = fresh?.session
       if (!session) {
         setError(GENERIC_ERROR)
@@ -243,8 +275,14 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
       } else {
         await completeSignIn(session, null)
       }
-    } catch {
-      setError('CODE REJECTED. TRY AGAIN.')
+    } catch (err) {
+      // A timeout is NOT a rejected code, and telling the user their code was
+      // wrong when the network stalled sends them round a loop that cannot
+      // succeed. Distinguish them.
+      setError(err?.name === 'TimeoutError'
+        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
+        : 'CODE REJECTED. TRY AGAIN.')
+      setMfaCode('')
       setBusy(false)
     }
   }, [busy, mfaFactorId, mfaCode, completeSignIn])
@@ -307,7 +345,12 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     <AuthShell
       isRevealing={revealing}
       onIntroComplete={() => setReady(true)}
-      onAnimationComplete={() => onAuthenticated?.(finalSessionRef.current)}
+      onAnimationComplete={() => {
+        if (completedRef.current) return
+        completedRef.current = true
+        if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current)
+        onAuthenticated?.(finalSessionRef.current)
+      }}
       showLogoIntro
       playStartupSound={true}
     >
