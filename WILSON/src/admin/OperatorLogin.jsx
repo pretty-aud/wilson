@@ -114,7 +114,7 @@ export default function OperatorLogin({ onSignedIn }) {
       const { data: ch, error: chErr } = await withTimeout(
         supabase.auth.mfa.challenge({ factorId }), AUTH_TIMEOUT_MS, 'MFA challenge')
       if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await withTimeout(
+      const { data: vData, error: vErr } = await withTimeout(
         supabase.auth.mfa.verify({ factorId, challengeId: ch.id, code: clean }),
         AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
@@ -123,9 +123,15 @@ export default function OperatorLogin({ onSignedIn }) {
         setBusy(false)
         return
       }
-      const { data: fresh } = await withTimeout(
-        supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
-      const session = fresh?.session
+      // Session 17: use verify()'s own returned session rather than calling
+      // getSession() straight after it — auth-js's navigator lock made that a
+      // deadlock. Same fix as LoginScreen; see the note there.
+      let session = vData?.access_token ? vData : null
+      if (!session) {
+        const { data: fresh } = await withTimeout(
+          supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
+        session = fresh?.session ?? null
+      }
       if (!session) {
         setError(GENERIC_ERROR)
         setBusy(false)

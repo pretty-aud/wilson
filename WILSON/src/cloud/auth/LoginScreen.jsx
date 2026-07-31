@@ -248,7 +248,7 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
         supabase.auth.mfa.challenge({ factorId: mfaFactorId }),
         AUTH_TIMEOUT_MS, 'MFA challenge')
       if (chErr || !ch?.id) throw chErr ?? new Error('challenge failed')
-      const { error: vErr } = await withTimeout(
+      const { data: vData, error: vErr } = await withTimeout(
         supabase.auth.mfa.verify({ factorId: mfaFactorId, challengeId: ch.id, code }),
         AUTH_TIMEOUT_MS, 'MFA verify')
       if (vErr) {
@@ -257,9 +257,23 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
         setBusy(false)
         return
       }
-      const { data: fresh } = await withTimeout(
-        supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
-      const session = fresh?.session
+      // Session 17: use the session mfa.verify() RETURNS. We used to discard
+      // it and call getSession() instead, which deadlocked: auth-js guards
+      // every auth call with a navigator lock keyed on storageKey, and
+      // getSession() contended for the lock verify() was still holding. The
+      // symptom was brutal to diagnose because verify had ALREADY SUCCEEDED —
+      // staging showed 4 challenges, 0 unverified — so the server was fine and
+      // only the client hung, for the full timeout, every time.
+      //
+      // The extra round trip was never needed: verify() resolves with the
+      // upgraded aal2 session. getSession() remains only as a fallback for an
+      // auth-js version that omits it.
+      let session = vData?.access_token ? vData : null
+      if (!session) {
+        const { data: fresh } = await withTimeout(
+          supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'session read')
+        session = fresh?.session ?? null
+      }
       if (!session) {
         setError(GENERIC_ERROR)
         setBusy(false)
