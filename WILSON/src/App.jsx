@@ -241,10 +241,22 @@ export default function App() {
     checkSessionValid().then(session => {
       if (session) {
         setAuthed(true);
-        setShowOverlay(false);
+        // Session 17: a recovery / invite link must NOT be swallowed by an
+        // existing session. The overlay is what mounts ResetPasswordWizard
+        // (`showOverlay && sessionChecked && authMode === 'recovery'`), so
+        // hiding it here meant that anyone already signed in — which is every
+        // admin testing an invite in their own browser — had the link parsed,
+        // the mode set to 'recovery', and then silently discarded. No wizard,
+        // no error, no clue. The token belongs to a DIFFERENT person than the
+        // one signed in, so the overlay has to win.
+        //
+        // authMode is read from the URL hash in its useState initializer, so
+        // it is already correct on this first pass despite the [] deps.
+        if (authMode !== 'recovery') setShowOverlay(false);
       }
       setSessionChecked(true);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Invoked by <LoginScreen/> on successful signInWithPassword. The session

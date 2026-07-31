@@ -165,7 +165,12 @@ export default function ResetPasswordWizard({ onDone }) {
         {stage === 'invalid' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
             <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
-              This reset link is invalid or has expired. Request a new one from the login screen.
+              This link has already been used, or it has expired.
+              {' '}
+              Invite and reset links work only once — and some email providers
+              open links automatically to scan them, which uses the link up
+              before you click it. Ask your workspace admin to send a new one,
+              or to create your account with a password instead.
             </div>
             <button
               type="button"
