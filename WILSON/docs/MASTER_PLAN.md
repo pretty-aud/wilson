@@ -1371,6 +1371,48 @@ clean.** They surfaced within about ten minutes of a human actually using it.
     query. **When a client hangs on an operation that appears to work, check
     what the server recorded before theorising about the client.**
 
+72. 🔑 **CLOSED S17 (`920a2f7`) — THE deadlock, and the one that actually made
+    sign-in impossible.** `RabbitProvider.jsx:346` registered an **`async`**
+    `onAuthStateChange` callback that awaited two Supabase queries
+    (`adapter.status()`, `adapter.listProjects()`).
+
+    auth-js invokes every subscriber from inside `_acquireLock` and **awaits**
+    each one (`GoTrueClient._notifyAllSubscribers`). Those queries therefore
+    called `_getAccessToken()` → `getSession()` → `_acquireLock()`, waiting on
+    the lock the callback was already running inside. Self-deadlock, and it
+    stranded the entire auth operation — `mfa.verify()` never resolved, so MFA
+    sign-in was impossible on both surfaces.
+
+    **Fixed** by making the callback return synchronously and deferring its
+    work with `setTimeout(…, 0)`: the lock releases, the queries run a tick
+    later against a settled session. All four subscribers in the tree were
+    audited; the other three were already synchronous.
+    **Guarded** by `src/cloud/auth/authStateCallbacks.test.js`, which fails the
+    build if any subscriber is ever declared `async` again — a source-level
+    check, because this failure is invisible at runtime until it deadlocks in
+    front of a user.
+
+    🔑 **The process lesson, which Audrey named directly and which matters more
+    than the bug:** *"stop doing work off of theories until they are proven."*
+    Five theories preceded this — a reveal-animation handoff, a stranded
+    navigator lock, a `getSession()` deadlock, a stalled Vercel deployment, a
+    stale bundle — and two of them were **shipped as fixes**. Each was
+    plausible; all five were wrong. Two of them were also "disproved" by
+    measurements that could not have worked: a bundle-hash comparison across
+    builds with different `VITE_*` values will always differ, and it was
+    presented as proof of a stale deploy.
+
+    What actually located it, in order, and cheaply:
+    1. `auth.mfa_challenges` — 7 challenges, **0 unverified**, ~110 ms each.
+       The server was healthy; the fault was after `verify`.
+    2. A Network capture — `verify` returned **200 in 113 ms** and **no request
+       followed it**. A hang with no request cannot be a network problem, which
+       eliminated every remaining network theory at once.
+    3. Reading `GoTrueClient._verify` and then grepping the four subscribers.
+
+    **A theory earns a measurement, never a commit.** Recorded as a standing
+    rule in the Claude auto-memory (`feedback_prove_before_acting.md`).
+
 ---
 
 ## 7. Original brief → status traceability
