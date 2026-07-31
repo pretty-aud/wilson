@@ -385,6 +385,8 @@ deployed to all three envs**.
 
 | 17 | 2026-07-30 | **Consolidate, trim, prepare the release** (migration 0030 + suite 38). Scope was reset by Audrey after reading S16's output: absorb what the handbook taught, trim fat, fix what is genuinely broken, write the test plan — then STOP for her review. Hard constraint all session: **no behaviour, layout or visual change**. Block B — the four release-gating defects. **#42/TPN-LOG-005** (open CRITICAL): privilege changes on `workspace_members` went from the browser straight into the table with nothing capturing them; a DEFINER capture trigger now writes the reserved `app_events` admin stream (WIL-4105/4106/4107), firing only when `app_role`/`is_active`/a rate-card grant actually changes — a profile edit must not write an audit line. **#44**: `custom_access_token_hook` re-revoked; verified live that it was callable by **anon**, i.e. reachable with nothing but the public anon key — worse than the gap recorded. The wider 0011 sweep found 8 anon-executable DEFINER functions; 6 leak nothing and the other 2 leak one bit about an already-known UUID, and revoking them was **proven** to be a behaviour change (every anon table read becomes a 42501, because `has_active_membership` backs nearly every policy), so they were filed (#59) rather than shipped blind. **#45**: four fs sinks contained, not the two filed — `mf.id` and `asset.folder_slug` are client-writable too — plus the asset rename/delete pair, which was an arbitrary-*directory-move*, and the unguarded `import-folder`. **#46**: `invite-member` routed through `adminGuard`; not a role change, the only new refusal is the MFA gate, and both dialogs learned the error copy so it is not a dead-end 403. Plus #47 (milestones were dropped on every load — real data loss, now with a test pinning the whole class), #48, #49 (needed BOTH halves — the adapter stub alone leaves the banner up), #50, #51. Block C — **1,840 lines of dead code across 13 files**, proven by a module-reachability BFS from every real entry point and confirmed by an unchanged bundle (3,849.67 kB before and after); six were not on the briefed list. "Leave it and document it" won both Tier-2 judgement calls, and the third **corrected the brief**: `last_updated_at` IS written by a live trigger on four tables, so the recommended drop would have broken every RABBIT UPDATE → `COMMENT ON COLUMN` instead. WIL-1001/1002/1003 kept, not deleted and not wired: both options are barred here (deleting removes visible Diagnostics rows, wiring adds log rows) and two of the three **cannot** be wired client-side at all, because at sign-in failure there is no session for `app_events`' INSERT policy to accept. Tier 3 cleared #58 plus two sites it did not name. **CI blind spot fixed:** the pgTAP failure-replay list stopped at 32, so suites 33–38 failed invisibly — which is exactly how 0030's trigger silently broke `25_app_events`' unfiltered count. All 38 suites (605 assertions) now verified against a new migration before pushing, not just its own suite. Vitest 343/343. **`package.json` → 1.0.0, CHANGELOG.md written, `docs/RELEASE_TESTING.md` written. NOT tagged, NOT merged to `main` — Audrey reviews first.** | `b726e75`, `6ab10c6` |
 
+| 18 | 2026-07-31 | **The invite path** (client + templates only; no migration, no Edge Function, no deploy). Two independent defects, either of which alone made an emailed invite unusable. **#73** — `{{ .ConfirmationURL }}` is a bare `GET /auth/v1/verify?token=…`, so following the link IS the redemption; staging's own rows show both real invites confirmed **12.0 s and 16.7 s** after sending, to a corporate domain and to Gmail, with `email_confirmed_at`/`last_sign_in_at` set and both tokens cleared, before either recipient opened the mail. Templates now carry `{{ .TokenHash }}` to `{SiteURL}/#/recovery?token_hash=…&type=…`, and `verifyOtp` runs only from a button's onClick — verified on the production bundle with the resource-timing buffer confirmed open (2/250): **zero** cross-origin requests on load, **exactly one** (`/auth/v1/verify`) on click. **#74** — found by running the *existing* parser against the fragment GoTrue v2.194.0 actually emits, before writing any replacement: it required `type === 'recovery'`, but `verify.go` echoes the requested type, so an invite arrives as `type=invite` and every **live** invite link was rejected as "already used". Nobody had ever seen it because no invite had survived long enough to be clicked; fixing #73 alone would have shipped a still-broken flow. Parsing extracted to `src/cloud/auth/recoveryLink.js` (pure, 27 cases, one pinning the OLD predicate); both legacy fragment shapes still accepted for links in flight. `{{ .SiteURL }}` not `{{ .RedirectTo }}` — the desktop app's origin is `http://127.0.0.1:<dynamic port>`. #75 (`email_change.html`, unreachable flow) ACCEPTED; #76 (comment expansion) investigated and **dismissed** — GoTrue uses `html/template`, which elides comments. Vitest 353 → 380. **Templates must be re-uploaded by hand to all three projects before any invite works.** | `28dec64` |
+
 Between Sessions 3 and 4 (completed 2026-07-27): GitHub secrets, all functions
 deployed to staging/prod, access-token hook enabled everywhere, Resend domain
 verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
@@ -398,7 +400,14 @@ verified, templates uploaded, `wilsonapp.com` → `petalstudios.co` swap.
 three envs; S17 redeployed `invite-member` (it now bundles `adminGuard`).
 Staging has `ANTHROPIC_API_KEY` set (post-S12); dev/prod keys still per
 OWED_AUDREY §5, and `WILSON_AI_KEY_SECRET` is owed on every env per §9C.
-CLI linked to `wilson-dev`.
+
+⚠️ **The CLI is linked to `wilson-staging` (`rzkirvkotslbovzbsdfh`)**, not
+`wilson-dev` as this line said through S17 — checked against
+`supabase/.temp/project-ref` on 2026-07-31. `supabase db query --linked` and
+`scripts/tap-hosted.py` therefore hit **staging**, which is what the S18
+invite measurements wanted but is emphatically not what a destructive probe
+wants. **Check `supabase/.temp/project-ref` before running anything that
+writes**, and re-link deliberately rather than trusting this file.
 
 ---
 
@@ -1412,6 +1421,96 @@ clean.** They surfaced within about ten minutes of a human actually using it.
 
     **A theory earns a measurement, never a commit.** Recorded as a standing
     rule in the Claude auto-memory (`feedback_prove_before_acting.md`).
+
+### Filed by Session 18 — the invite path (2026-07-31)
+
+Two defects, either of which alone made an emailed invite unusable. Only the
+first was known going in; the second was hiding behind it, and would have
+surfaced the instant the first was fixed on its own.
+
+73. 🚨 **CLOSED S18 (`28dec64`) — an emailed invite was redeemed by machines
+    before the human clicked.** `{{ .ConfirmationURL }}` is a bare
+    `GET /auth/v1/verify?token=…`, so *following the link is the redemption*.
+    Anything that fetches links to scan them spends the invite first.
+
+    **Measured on wilson-staging**, both invites Audrey sent on 2026-07-31:
+
+    | recipient | invited → confirmed | tokens |
+    |---|---|---|
+    | corporate domain (`zerospace.co`) | **16.70 s** | both cleared |
+    | Gmail | **12.04 s** | both cleared |
+
+    with `email_confirmed_at` and `last_sign_in_at` set on both, and neither
+    recipient having opened the mail. Two different providers rules out a
+    single client's quirk.
+
+    ⚠️ **What is measured and what is not.** That a *machine* did it is
+    measured — no human was at either mailbox. *Which* machine is not:
+    `auth.audit_log_entries` is empty on the hosted project (0 rows), so
+    there is no IP to attribute it to, and the popular "mail scanners do
+    this" explanation stays an inference. **It does not matter to the fix.**
+    The class of defect is "a GET mutates state", and the remedy — move
+    redemption behind a click — closes it whoever the fetcher was. Recorded
+    this way deliberately: naming a culprit we cannot evidence is how S17
+    lost an hour.
+
+    **Fixed** by carrying `{{ .TokenHash }}` to a page in the app and calling
+    `verifyOtp({ token_hash, type })` only from a button's onClick.
+    **Verified on the production bundle**, with the browser's resource-timing
+    buffer confirmed open (2 of 250 entries — the first attempt at this
+    measurement was worthless because the dev server's unbundled modules had
+    already filled it, and a known-good control fetch was invisible too):
+    loading the link issued **zero** cross-origin requests; clicking issued
+    **exactly one**, to `/auth/v1/verify`.
+
+74. **CLOSED S18 (`28dec64`) — a live, untouched invite link failed anyway.**
+    `ResetPasswordWizard`'s parser required `type === 'recovery'` and returned
+    null otherwise. GoTrue v2.194.0 echoes the *requested* type back into the
+    redirect fragment — `q.Set("type", params.Type)`, `internal/api/verify.go`
+    — so an invite arrives as `type=invite`. The parser returned null and the
+    invitee was shown *"This link has already been used, or it has expired."*
+    on a link that was live. Password resets say `recovery`, so they worked;
+    that asymmetry is why only invites ever looked broken.
+
+    **Nobody had ever seen this**, because no invite had survived long enough
+    for anyone to click it (#73). Fixing #73 alone would have shipped a flow
+    that still did not work, and the failure would have read as "the new
+    token_hash code is broken" rather than as a parser that predates it.
+
+    🔑 **The lesson, and it is not the same one as #72.** #72 was about not
+    acting on unproven theories. This is the converse: **a fix aimed at a
+    known defect must be checked against the path it unblocks**, because the
+    known defect can be masking a second one. What surfaced it was running
+    the *current* parser against the fragment GoTrue actually emits, before
+    writing any replacement — six lines of verbatim code and one `node`
+    invocation, ten minutes ahead of the fix.
+
+    Parsing now lives in `src/cloud/auth/recoveryLink.js` — pure, 27 cases,
+    covering both link shapes. One case pins the **old** predicate so the
+    asymmetry cannot silently return. That path had no coverage of any kind
+    before (#68), which is the reason a defect this simple survived.
+
+75. **ACCEPTED — `supabase/templates/email_change.html` still uses
+    `{{ .ConfirmationURL }}`.** Same GET-redeems shape as #73, and left
+    alone on purpose: **the flow is unreachable.** Email is read-only in
+    `ProfileSection.jsx` and nothing in the app or the Edge Functions calls
+    `updateUser({ email })`, so the template is never rendered and no mail is
+    ever sent. Converting it would have been an untestable change to a dead
+    path during a release freeze. **If email change is ever built, this
+    template must move to the `{{ .TokenHash }}` flow first** — the app side
+    already supports it; `recoveryLink.js` need only accept `email_change`.
+
+76. **NOT A DEFECT — template variables inside HTML comments.** Recorded
+    because it was investigated and dismissed, and someone will wonder again.
+    Both templates carried `{{ .ConfirmationURL }}` in their doc comment,
+    which looked like it would render a live redeemable URL into every
+    message body. It does not: GoTrue parses with Go's **`html/template`**
+    (`internal/mailer/templatemailer/template.go`), which elides HTML
+    comments from output. Documented behaviour of that package, not measured
+    here — no Go toolchain on this machine.
+    The comments now name variables bare anyway, as convention: the point of
+    #73 is that no redeemable URL appears anywhere in the email, and resting
+    that on a stripping step is thin.
 
 ---
 

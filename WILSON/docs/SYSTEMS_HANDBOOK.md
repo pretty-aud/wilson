@@ -1213,11 +1213,29 @@ Squarespace. Templates are uploaded to all three Supabase projects.
 | Recovery | `ForgotPasswordWizard` → `resetPasswordForEmail` | Same wizard |
 | Email change | Supabase Auth | Standard |
 
-The invite template substitutes `ConfirmationURL`, `Email`, and the metadata
+The invite template substitutes `SiteURL`, `TokenHash`, and the metadata
 `company_name`, `inviter_name` and `username`; the copy states 24-hour link
 validity. A newly-invited member's `workspace_members` row is created with
 `onboarded_at` null, which is what makes `NewUserWelcome` appear on first
 sign-in.
+
+**The link is a `token_hash`, not a `ConfirmationURL` (S18, §6 #73).**
+`{{ .ConfirmationURL }}` is a bare `GET /auth/v1/verify?token=…`, so
+*following it is the redemption* — and on staging both of the first two real
+invites were confirmed 12.0 s and 16.7 s after being sent, by something that
+was not the recipient. The templates now carry `{{ .TokenHash }}` to
+`{SiteURL}/#/recovery?token_hash=…&type=invite|recovery`; the wizard parks on
+a button and calls `verifyOtp({ token_hash, type })` only on the click, so a
+GET spends nothing. Both older fragment shapes are still parsed, for links
+minted before the change.
+
+`SiteURL` rather than `RedirectTo`: `RedirectTo` is whatever the client asked
+for, and the desktop app runs on `http://127.0.0.1:<dynamic port>`, which is
+useless in an email. Parsing is in `src/cloud/auth/recoveryLink.js`.
+
+`email_change.html` still uses `ConfirmationURL` — the flow is unreachable
+(email is read-only in `ProfileSection`), so it renders no mail. Move it to
+`TokenHash` **before** building email change (§6 #75).
 
 > **`supabase config push` is deliberately NOT used** for the
 > `site_url` / `additional_redirect_urls` settings. It pushes the whole local

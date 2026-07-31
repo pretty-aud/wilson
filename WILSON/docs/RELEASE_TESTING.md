@@ -152,6 +152,7 @@ everything.
 **A. `Invite by email…`** — they set their own password from a GoTrue invite link.
 → **On dev the link lands nowhere useful** (Step 1). Use it on staging/beta, or just to
 confirm the dialog and the MFA guard behave.
+→ **Needs the S18 templates uploaded to that project first** — see §C's banner.
 
 **B. `Create with password…`** — you hand over the credentials. Fields: `Username`,
 `Display name`, `Role`, `Email (optional)`, `Rate-card access` → `Can view rate card` /
@@ -182,9 +183,10 @@ as each once so they have profiles and appear in the roster.
 
 # PART 2 — What to test
 
-## §A. S17 regression pass — do these first
+## §A. S17 / S18 regression pass — do these first
 
-New this session, so most likely to be wrong.
+Newest code, so most likely to be wrong. §A0 is S17's MFA cluster; the S18
+invite work is exercised in **§C0**, which needs the templates uploaded first.
 
 ### A0. The MFA cluster — found by this document's own first run
 
@@ -260,6 +262,36 @@ automated coverage of this path (§6 #68).
   `[BLOCKING]`
 
 ## §C. Invite and onboarding
+
+> ⚠️ **Do the template upload first, or every check here fails for the same
+> reason.** S18 changed `invite.html` and `recovery.html` to carry
+> `{{ .TokenHash }}` instead of `{{ .ConfirmationURL }}` (§6 #73/#74). They are
+> uploaded **by hand**, in each project's dashboard → Authentication → Email
+> Templates, on **all three** projects. Never `supabase config push` — it would
+> push the local `[auth]` block, whose `smtp.enabled = false` kills hosted
+> Resend email. Until they are uploaded, use `Create with password…`.
+
+**C0. The invite link survives being fetched** — the whole point of S18.
+
+- Send an invite to a **Gmail** address on staging/beta. Before clicking
+  anything, run against that project:
+  ```sql
+  select email, invited_at, email_confirmed_at, last_sign_in_at
+  from auth.users where invited_at is not null order by invited_at desc limit 5;
+  ```
+  Expect `email_confirmed_at` and `last_sign_in_at` **still NULL** minutes
+  later. Before S18 both were set within ~12 s of sending, by something that
+  was not the recipient. `[BLOCKING]`
+- Now click the link → expect a **"Welcome to WILSON… Continue"** screen
+  *first*, not a password form. That button is what spends the token; a page
+  that goes straight to the password fields means the old template is still
+  installed. `[BLOCKING]`
+- Click `Continue` → the password form → set a password. `[BLOCKING]`
+- Click the **same link a second time** → expect *"This link has already been
+  used, or it has expired."* Single-use is still correct and intended; S18
+  moved *when* it is used, not *how often*. `[NOTE]`
+- `Forgot password?` on staging/beta → the same two-step shape (Continue, then
+  the form). Recovery uses the identical mechanism. `[BLOCKING]`
 
 - Email invite on staging/beta → open the link → set a password → expect the **NewUserWelcome**
   flow, then the app in the right company. `[BLOCKING]`
