@@ -413,6 +413,14 @@ writes**, and re-link deliberately rather than trusting this file.
 
 ## 5. Remaining sessions
 
+> ➡️ **Sessions 19 onward live in
+> [`docs/sessions/MASTER_PLAN_S19_ONWARD.md`](sessions/MASTER_PLAN_S19_ONWARD.md).**
+> Written 2026-08-01 from Audrey's first real testing pass. It opens with the
+> finding that outranks everything below it: **Anthropic retired
+> `claude-sonnet-4-20250514` on 2026-06-15, and WILSON hardcodes it at 17 call
+> sites — so most of the app's AI has been failing since that date.** The
+> sections below remain the record of S8–S17 and are not superseded.
+
 ### Session 8 — Dashboard + Notes (TipTap/Yjs) ✅ DONE (2026-07-28)
 
 All four core blocks landed (`1ef4d10` + docs; §4 ledger row 8):
