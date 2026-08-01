@@ -10,6 +10,7 @@ import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
+import { modelFor } from './lib/activeModel'
 import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
@@ -20,6 +21,7 @@ import DashboardPage from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
 import HelpPage from './components/HelpPage'
 import UpdatePrompt from './components/UpdatePrompt'
+import ModelWarningBanner from './components/ModelWarningBanner'
 import { MfaEnrollGate } from './cloud/auth/MfaSection'
 import { updatesSupported, checkForUpdates, onUpdateStatus, getSkippedVersion } from './cloud/updates'
 import { usePermissions } from './permissions'
@@ -816,7 +818,7 @@ export default function App() {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
         try {
           data = await callAI({
-            model: 'claude-haiku-4-5-20251001',
+            model: modelFor('pet.chat'),
             max_tokens: 1024,
             system: companionPrompt + context,
             messages: trimmedMessages,
@@ -1240,6 +1242,10 @@ export default function App() {
       <TitleBar />
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+          {/* Decision D6: a substituted model degrades loudly. Sits above the
+              chrome so it is impossible to miss and does not time out. */}
+          <ModelWarningBanner />
 
           {/* ===== TOP ORANGE BAR ===== */}
           <div style={{

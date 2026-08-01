@@ -24,6 +24,7 @@ import {
 import { otterFetch, otterCloudActive } from './adapters';
 import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
+import { modelFor } from '../../lib/activeModel';
 import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
 import { useAgent } from '../../agent';
@@ -951,7 +952,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       const data = await callAnthropicAPI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('otter.course'),
         maxTokens: 12000,
         systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
@@ -1207,7 +1208,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
       const hasUserRefs = validRefs.length > 0;
       const data = await callAnthropicAPI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('otter.subjectContent'),
         maxTokens: 12000,
         systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
@@ -1440,7 +1441,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
       const hasUserRefs = validRefs.length > 0;
       const data = await callAnthropicAPI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('otter.singleSubject'),
         maxTokens: 12000,
         systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
@@ -1668,7 +1669,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
       const hasUserRefs = validRefs.length > 0;
       const data = await callAnthropicAPI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('otter.agentSubject'),
         maxTokens: 12000,
         systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
@@ -1854,7 +1855,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       const data = await callAnthropicAPI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('otter.agentCourse'),
         maxTokens: 12000,
         systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
@@ -2055,7 +2056,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         else prompt = editingPrompts.codeWrite || CODE_WRITING_PROMPT;
 
         const data = await callAnthropicAPI({
-          model: 'claude-haiku-4-5-20251001',
+          model: modelFor('otter.quiz'),
           maxTokens: 8192,
           systemPrompt: prompt,
           messages: [{ role: 'user', content: context }],

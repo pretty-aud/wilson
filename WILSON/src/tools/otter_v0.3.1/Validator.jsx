@@ -9,11 +9,15 @@ import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
 import { otterFetch } from './adapters';
 // Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function.
 import { callAI } from '../../cloud/aiProxy';
+import { modelFor } from '../../lib/activeModel';
 
 // ── API helper (model-agnostic) ──────────────────────────────────────────────
+// Both call sites below omit `model`, so the fallback is what actually runs.
+// It is kept as a parameter rather than removed because the recursion on
+// `tool_use` passes it back through.
 async function callValidatorAPI({ model, systemPrompt, messages, tools, signal }) {
   const body = {
-    model: model || 'claude-sonnet-4-20250514',
+    model: model || modelFor('otter.validator'),
     max_tokens: 8096,
     system: systemPrompt,
     messages,

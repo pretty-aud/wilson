@@ -26,6 +26,16 @@
 import scriptChunker from './chunkers/script'
 import { callAI } from '../../../cloud/aiProxy'
 import { hasLocalServer } from '../../../lib/localData'
+// Note on the S19 plan: it preferred injecting a resolved model map into
+// `runIngestion` over importing the resolver here, on the grounds that a
+// module-scope const cannot read React state and would "silently ignore every
+// override in S20". That objection applies to the old `MODEL_MATRIX` const —
+// it does not apply to `modelFor`, which is a function that reads the current
+// override sources at call time. So intake resolves models the same way every
+// other call site does, rather than via a second mechanism the provider has to
+// remember to keep in sync. `pipeline.js` stays pure and testable: tests set
+// overrides with `setModelSources` and no React is involved.
+import { modelFor } from '../../../lib/activeModel'
 import treatmentChunker from './chunkers/treatment'
 import gddChunker from './chunkers/gdd'
 import deckChunker from './chunkers/deck'
@@ -42,17 +52,26 @@ import reducers from './reducers'
 // Constants
 // ─────────────────────────────────────────────────────────────
 
-export const MODEL_MATRIX = {
-  script:      'claude-sonnet-4-20250514',
-  treatment:   'claude-sonnet-4-20250514',
-  gdd:         'claude-sonnet-4-20250514',
-  brief:       'claude-sonnet-4-20250514',
-  pitch_bible: 'claude-sonnet-4-20250514',
-  lookbook:    'claude-sonnet-4-20250514',
-  deck:        'claude-haiku-4-5-20251001',
-  outline:     'claude-haiku-4-5-20251001',
-  notes:       'claude-haiku-4-5-20251001',
-  other:       'claude-haiku-4-5-20251001',
+// Document kind -> registry key. This replaces the old MODEL_MATRIX, which
+// mapped each kind straight to a hardcoded model id and was six of the
+// seventeen call sites that died when Sonnet 4 was retired.
+//
+// The values here are registry keys, not model ids, so this map cannot rot:
+// a key is a stable contract, and the model behind it is resolved at call
+// time by `modelFor`. Keep it exhaustive — `document_kind` values come from
+// the classifier and the extension hints below, and an unlisted kind falls
+// back to `other`.
+export const MODEL_KEYS = {
+  script:      'rabbit.intake.script',
+  treatment:   'rabbit.intake.treatment',
+  gdd:         'rabbit.intake.gdd',
+  brief:       'rabbit.intake.brief',
+  pitch_bible: 'rabbit.intake.pitch_bible',
+  lookbook:    'rabbit.intake.lookbook',
+  deck:        'rabbit.intake.deck',
+  outline:     'rabbit.intake.outline',
+  notes:       'rabbit.intake.notes',
+  other:       'rabbit.intake.other',
 }
 
 export const CHUNKERS = {
@@ -273,7 +292,7 @@ async function detectDocumentKind({ file, sampleText }) {
 
 async function haikuClassify(sampleText) {
   const data = await callAI({
-    model: 'claude-haiku-4-5-20251001',
+    model: modelFor('rabbit.classify'),
     max_tokens: 32,
     system:
       'Classify the document. Reply with ONE of: script, treatment, gdd, brief, pitch_bible, lookbook, deck, outline, notes. No other text.',
@@ -356,7 +375,7 @@ async function analyzeChunk({ chunk, personas }) {
 
   const userMessage = `Chunk text:\n\n${chunk.raw_text}`
 
-  const model = MODEL_MATRIX[chunk.document_kind] || MODEL_MATRIX.other
+  const model = modelFor(MODEL_KEYS[chunk.document_kind] || MODEL_KEYS.other)
 
   let lastError
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -521,4 +540,4 @@ export async function runIngestion(opts) {
   }
 }
 
-export default { runIngestion, MODEL_MATRIX, CHUNKERS }
+export default { runIngestion, MODEL_KEYS, CHUNKERS }

@@ -2,6 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { callAI } from '../../cloud/aiProxy';
+import { modelFor } from '../../lib/activeModel';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -449,7 +450,7 @@ Generate 3 color themes for this deck.`;
 
       console.log('Theme gen: calling Haiku API...');
       const data = await callAI({
-        model: 'claude-haiku-4-5-20251001',
+        model: modelFor('dog.themes'),
         max_tokens: 500,
         system: themeColorPrompt,
         messages: [{ role: 'user', content: userMsg }],
@@ -1080,7 +1081,7 @@ ${outputInstructions}${placementPrompt.rules}`;
 
     try {
       const data = await callAI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('dog.pageOutline'),
         max_tokens: 4096,
         system: singlePageSystemPrompt,
         messages: messages,
@@ -1356,7 +1357,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
 
     try {
       const data = await callAI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('dog.regeneratePage'),
         max_tokens: 4096,
         system: singlePageSystemPrompt,
         messages: messages,
@@ -1743,7 +1744,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
         const data = await callAI({
-          model: 'claude-sonnet-4-20250514',
+          model: modelFor('dog.fullDeck'),
           max_tokens: 16384,
           system: fullDeckSystemPrompt,
           messages: currentMessages,
@@ -2873,7 +2874,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       }
 
       const data = await callAI({
-        model: 'claude-haiku-4-5-20251001',
+        model: modelFor('dog.rewrite'),
         max_tokens: 1000,
         system: rewritePrompts[mode],
         messages: [{ role: 'user', content: userContent }],
@@ -2950,7 +2951,7 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         }
 
         const data = await callAI({
-          model: 'claude-haiku-4-5-20251001',
+          model: modelFor('dog.rewriteRedo'),
           max_tokens: 1000,
           system: rewritePrompts[mode],
           messages: [{ role: 'user', content: userContent }],
@@ -3251,7 +3252,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
 
       // 5. API call
       const data = await callAI({
-        model: 'claude-sonnet-4-20250514',
+        model: modelFor('dog.imagePrompts'),
         max_tokens: 8192,
         system: combinedSystem,
         messages: [{ role: 'user', content: userMessage }],
@@ -3523,7 +3524,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       const titles = history.map(h => h.title).join(', ');
       const context = (systemPrompt || '').substring(0, 400);
       const data = await callAI({
-        model: 'claude-haiku-4-5-20251001',
+        model: modelFor('dog.visualDesc'),
         max_tokens: 200,
         system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
         messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }],

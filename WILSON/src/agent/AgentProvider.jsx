@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { callAI, isRetryableAIError } from '../cloud/aiProxy'
 import { loadAgentSkills } from '../lib/localData'
+import { modelFor } from '../lib/activeModel'
 import { otterFetch } from '../tools/otter_v0.3.1/adapters'
 import DiffView from './DiffView'
 import LessonOutlinePopup from './LessonOutlinePopup'
@@ -371,7 +372,7 @@ export default function AgentProvider({ children }) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
         try {
           data = await callAI({
-            model: 'claude-sonnet-4-20250514',
+            model: modelFor('agent.chat'),
             max_tokens: 4096,
             system: systemPrompt,
             messages: trimmedMessages,

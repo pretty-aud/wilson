@@ -104,30 +104,30 @@ export const REGISTRY = [
     label: 'Quiz generation',          hint: 'Writes quiz questions for a subject. Scores are not saved (Known #2).' },
 
   // ── R.A.B.B.I.T. ──────────────────────────────────────────────────────────
-  // Intake is per document type because MODEL_MATRIX always was. A script and
+  // Intake is per document type because the old MODEL_MATRIX always was. A script and
   // a page of notes are not the same job; collapsing them into one setting
   // would remove a capability that already exists.
   { key: 'rabbit.classify',     tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'haikuClassify',
     label: 'Document classifier',      hint: 'Decides what kind of document you uploaded, which picks the model below.' },
-  { key: 'rabbit.intake.script',      tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.script',
+  { key: 'rabbit.intake.script',      tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.script',
     label: 'Intake — Script',          hint: 'Parses assets and scenes out of a screenplay.' },
-  { key: 'rabbit.intake.treatment',   tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.treatment',
+  { key: 'rabbit.intake.treatment',   tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.treatment',
     label: 'Intake — Treatment',       hint: '' },
-  { key: 'rabbit.intake.gdd',         tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.gdd',
+  { key: 'rabbit.intake.gdd',         tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.gdd',
     label: 'Intake — Game design doc', hint: '' },
-  { key: 'rabbit.intake.brief',       tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.brief',
+  { key: 'rabbit.intake.brief',       tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.brief',
     label: 'Intake — Brief',           hint: '' },
-  { key: 'rabbit.intake.pitch_bible', tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.pitch_bible',
+  { key: 'rabbit.intake.pitch_bible', tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.pitch_bible',
     label: 'Intake — Pitch bible',     hint: '' },
-  { key: 'rabbit.intake.lookbook',    tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_MATRIX.lookbook',
+  { key: 'rabbit.intake.lookbook',    tool: 'R.A.B.B.I.T.', tier: 'REASONING', fn: 'MODEL_KEYS.lookbook',
     label: 'Intake — Lookbook',        hint: '' },
-  { key: 'rabbit.intake.deck',        tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_MATRIX.deck',
+  { key: 'rabbit.intake.deck',        tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_KEYS.deck',
     label: 'Intake — Deck',            hint: '' },
-  { key: 'rabbit.intake.outline',     tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_MATRIX.outline',
+  { key: 'rabbit.intake.outline',     tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_KEYS.outline',
     label: 'Intake — Outline',         hint: '' },
-  { key: 'rabbit.intake.notes',       tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_MATRIX.notes',
+  { key: 'rabbit.intake.notes',       tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_KEYS.notes',
     label: 'Intake — Notes',           hint: '' },
-  { key: 'rabbit.intake.other',       tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_MATRIX.other',
+  { key: 'rabbit.intake.other',       tool: 'R.A.B.B.I.T.', tier: 'FAST',      fn: 'MODEL_KEYS.other',
     label: 'Intake — Anything else',   hint: 'The fallback when the classifier can’t place a document.' },
 
   // ── Shared ────────────────────────────────────────────────────────────────
