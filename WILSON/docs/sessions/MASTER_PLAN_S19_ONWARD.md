@@ -80,7 +80,7 @@ Recorded so nobody re-investigates:
 | D4 | 🔑 **Company admins and users may only choose from models the WILSON operator has approved.** Free-text entry is operator-only. Everyone else gets a picker. |
 | D5 | A new model ID is entered as free text by the operator and **validated against Anthropic before it can be saved**. |
 | D6 | A dead or invalid configured model **falls back to a working one and warns**, naming the function. It never fails silently. |
-| D7 | R.A.B.B.I.T. intake stays **per document type** (10 settings) — `MODEL_BY_TYPE` already works that way, and collapsing it would remove capability. |
+| D7 | R.A.B.B.I.T. intake stays **per document type** (10 settings) — `MODEL_MATRIX` already works that way, and collapsing it would remove capability. |
 
 **D4 is the one with teeth.** It means the catalogue of usable models is a
 platform-level asset, and a company admin cannot put every generation on the
