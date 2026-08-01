@@ -1463,6 +1463,22 @@ surfaced the instant the first was fixed on its own.
     loading the link issued **zero** cross-origin requests; clicking issued
     **exactly one**, to `/auth/v1/verify`.
 
+    ✅ **VERIFIED END-TO-END ON STAGING, 2026-08-01**, with a real invite to a
+    real Gmail address — the same provider that consumed the 2026-07-31 pair
+    in 12.0 s:
+
+    | | before (`aud***@gmail.com`) | after (`car***@gmail.com`) |
+    |---|---|---|
+    | invited → `email_confirmed_at` | **12.04 s** | **12 min 48 s** |
+    | what redeemed it | a machine, unclicked | **the recipient's click** |
+
+    At **+11 m 37 s** the row still read `email_confirmed_at` NULL,
+    `last_sign_in_at` NULL, `confirmation_token` unspent — checked
+    deliberately, because "NULL five seconds after sending" would have proved
+    nothing. `email_confirmed_at` 06:53:58 then `last_sign_in_at` 06:54:40,
+    42 s apart: set-password, then sign in with it. Audrey confirmed the
+    "Welcome to WILSON → Continue" screen appeared before the password form.
+
 74. **CLOSED S18 (`28dec64`) — a live, untouched invite link failed anyway.**
     `ResetPasswordWizard`'s parser required `type === 'recovery'` and returned
     null otherwise. GoTrue v2.194.0 echoes the *requested* type back into the

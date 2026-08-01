@@ -273,6 +273,13 @@ automated coverage of this path (§6 #68).
 
 **C0. The invite link survives being fetched** — the whole point of S18.
 
+> ✅ **PASSED on staging 2026-08-01.** Real invite to a Gmail address:
+> unspent at +11 m 37 s, then redeemed at **+12 m 48 s by the click** —
+> against 12.04 s unclicked for the same provider the day before. The
+> Continue screen appeared before the password form, the password was set,
+> and sign-in worked. **Staging templates are uploaded; dev and prod are
+> not** (see the banner above).
+
 - Send an invite to a **Gmail** address on staging/beta. Before clicking
   anything, run against that project:
   ```sql
