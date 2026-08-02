@@ -436,11 +436,15 @@ async function runCases() {
   console.log('  6 FAIL      -> the Validator\'s tool_use recursion cannot work as written')
   console.log('                on the new model and has to be restructured.')
   if (t1.ok && t2.ok) {
-    const bad = t1.stop === 'max_tokens' && t2.stop !== 'max_tokens'
-    console.log(`  7a stop=${t1.stop}, 7b stop=${t2.stop}`)
-    console.log(bad
-      ? `                ${YELLOW}-> thinking is eating the output budget. Every REASONING call\n                   site needs thinking pinned, or WILSON trades a 404 for a\n                   JSON parse error.${RESET}`
-      : '                -> no truncation difference; thinking is not eating the budget.')
+    console.log(`  7a stop=${t1.stop} thinking=${t1.thinking}, `
+      + `7b stop=${t2.stop} thinking=${t2.thinking}`)
+    console.log(`                ${YELLOW}-> 7b is NOT a control. ai-proxy whitelists the upstream body`)
+    console.log('                   to model/max_tokens/messages/stream/system/tools and drops')
+    console.log('                   `thinking` silently, so 7a and 7b sent identical requests.')
+    console.log('                   Identical results here say nothing about thinking.')
+    console.log(`                   thinking=${t1.thinking} does show the model thinks unasked;`)
+    console.log('                   whether that truncates a REAL generation is still open,')
+    console.log(`                   and cannot be tested until ai-proxy forwards the field.${RESET}`)
   }
   console.log('\nPaste this whole output back into the session.')
 }

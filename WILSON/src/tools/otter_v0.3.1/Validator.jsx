@@ -13,9 +13,13 @@ import { modelFor } from '../../lib/activeModel';
 
 // ── API helper (model-agnostic) ──────────────────────────────────────────────
 // Both call sites below omit `model`, so the fallback is what actually runs.
-// It is kept as a parameter rather than removed because the recursion on
-// `tool_use` passes it back through.
-async function callValidatorAPI({ model, systemPrompt, messages, tools, signal }) {
+// It is kept as a parameter rather than removed because the continuation
+// below passes it back through.
+// Bounds the pause_turn continuation below. The previous version recursed with
+// no ceiling at all.
+const MAX_CONTINUATIONS = 3;
+
+async function callValidatorAPI({ model, systemPrompt, messages, tools, signal, depth = 0 }) {
   const body = {
     model: model || modelFor('otter.validator'),
     max_tokens: 8096,
@@ -31,27 +35,33 @@ async function callValidatorAPI({ model, systemPrompt, messages, tools, signal }
   const textBlock = data.content.find(b => b.type === 'text');
   if (textBlock) return textBlock.text;
 
-  // If stop_reason is 'tool_use', we need to continue the conversation
-  // so the model can use web search results and produce a final answer
-  if (data.stop_reason === 'tool_use') {
-    // Collect all tool_use blocks and create tool_result messages
-    const toolUses = data.content.filter(b => b.type === 'tool_use');
-    // For server-side tools like web_search, the results are handled automatically
-    // We need to send another request with the assistant's response to continue
-    const continuedMessages = [
-      ...messages,
-      { role: 'assistant', content: data.content },
-    ];
-
-    // Recurse to get the final text response
+  // Continue a server-side tool run that hit its iteration limit.
+  //
+  // S19 measured the old shape of this branch against claude-sonnet-5 and it
+  // returns 400: "This model does not support assistant message prefill. The
+  // conversation must end with a user message." It branched on
+  // `stop_reason === 'tool_use'`, which is the signal for a CLIENT tool — and
+  // the Validator declares none. The only tool here is server-side web search,
+  // whose real signal is `pause_turn`. So the branch was both unreachable in
+  // practice and invalid if it ever were reached.
+  //
+  // `pause_turn` is resumed by re-sending with the assistant turn appended and
+  // NO trailing user turn — the API recognises the trailing server_tool_use
+  // block and continues. That is the documented shape; it is not the same as
+  // the text prefill that was measured failing.
+  if (data.stop_reason === 'pause_turn' && depth < MAX_CONTINUATIONS) {
     return callValidatorAPI({
       model, systemPrompt,
-      messages: continuedMessages,
+      messages: [...messages, { role: 'assistant', content: data.content }],
       tools, signal,
+      depth: depth + 1,
     });
   }
 
-  throw new Error('No text response from API');
+  if (data.stop_reason === 'pause_turn') {
+    throw new Error(`Validator stopped after ${MAX_CONTINUATIONS} continuations without a final answer.`);
+  }
+  throw new Error(`No text response from API (stop_reason: ${data.stop_reason ?? 'unknown'}).`);
 }
 
 // ── Parse JSON from AI response ──────────────────────────────────────────────
