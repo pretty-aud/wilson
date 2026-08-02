@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react'
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { callAI } from '../../cloud/aiProxy';
-import { modelFor } from '../../lib/activeModel';
+import { modelFor, tuningFor } from '../../lib/activeModel';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -1745,6 +1745,10 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
         const data = await callAI({
           model: modelFor('dog.fullDeck'),
+          // Caps how hard the model thinks. Measured, not guessed — the
+          // rationale and the numbers are on the REGISTRY entry. Without it
+          // this call runs ~138s against ai-proxy's ~150s Edge deadline.
+          ...tuningFor('dog.fullDeck'),
           max_tokens: 16384,
           system: fullDeckSystemPrompt,
           messages: currentMessages,

@@ -70,7 +70,24 @@ export const BUILTIN = {
  */
 export const REGISTRY = [
   // ── D.O.G. ────────────────────────────────────────────────────────────────
-  { key: 'dog.fullDeck',        tool: 'D.O.G.', tier: 'REASONING', fn: 'generateFullDeck',
+  // `effort` is set here, and MEASURED (S19, staging, same prompt and budget):
+  //
+  //   no effort field     137.9s  15194 tok  14 slides
+  //   thinking disabled    51.8s   5443 tok  11 slides
+  //   effort low           57.5s   6549 tok  12 slides
+  //   effort medium        69.1s   7642 tok  13 slides   <- chosen
+  //
+  // ai-proxy streams through an Edge Function with a ~150s deadline, and a
+  // call that overruns loses its stream rather than degrading. The unset case
+  // ran 137.9s — inside the limit, but not by enough to rely on. It also used
+  // 15194 of 16384 tokens, so it was one long deck away from triggering the
+  // continuation loop and spending that 137.9s up to four times over.
+  //
+  // `medium` halves the wall-clock for one fewer slide, and leaves so much
+  // budget spare that a deck finishes in a single call. Disabling thinking
+  // outright was faster still but cost three slides, and Anthropic's guidance
+  // for this model prefers lowering effort over switching thinking off.
+  { key: 'dog.fullDeck',        tool: 'D.O.G.', tier: 'REASONING', fn: 'generateFullDeck', effort: 'medium',
     label: 'Full deck outline',        hint: 'Generates a complete multi-slide deck. The heaviest call in D.O.G. — it can run up to 3 continuation requests for a long deck.' },
   { key: 'dog.pageOutline',     tool: 'D.O.G.', tier: 'REASONING', fn: 'generatePageOutline',
     label: 'Single page outline',      hint: 'Generates one slide from the project documentation.' },
@@ -250,6 +267,33 @@ export function modelsInUse(sources = {}) {
     out.get(model).push(entry)
   }
   return out
+}
+
+/** The five effort levels Anthropic accepts. Anything else is a typo. */
+export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])
+
+/**
+ * Request tuning for one function — the fields beyond `model` that shape how
+ * hard the model works. Spread into the request body alongside `model`.
+ *
+ * Only `dog.fullDeck` sets this today, and only because it was measured
+ * against a hard limit (see its REGISTRY entry). Everything else is nowhere
+ * near ai-proxy's Edge deadline, and guessing at effort for a call site that
+ * is comfortably fast trades output quality for nothing.
+ *
+ * Returns `{}` when a function has no tuning, so spreading it is always safe.
+ *
+ * NOTE: ai-proxy must forward these. It gained that in S19 and is deployed to
+ * STAGING only — dev and prod still drop both fields, so this degrades to
+ * today's behaviour there rather than breaking.
+ */
+export function tuningFor(key) {
+  const entry = BY_KEY[key]
+  if (!entry?.effort || !EFFORT_LEVELS.includes(entry.effort)) return {}
+  return {
+    thinking: { type: 'adaptive' },
+    output_config: { effort: entry.effort },
+  }
 }
 
 /** Every warning the current configuration would produce. Empty means healthy. */

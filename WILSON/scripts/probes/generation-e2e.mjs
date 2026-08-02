@@ -44,7 +44,7 @@ import { FULL_COURSE_OUTLINE_PROMPT } from '../../src/tools/otter_v0.3.1/prompts
 // The same resolver the 28 call sites use. Importing it means this probe tests
 // whatever the registry currently says, so it cannot drift from the app, and a
 // wrong key here fails exactly as it would in production.
-import { modelFor } from '../../src/lib/activeModel.js'
+import { modelFor, tuningFor } from '../../src/lib/activeModel.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -367,7 +367,11 @@ async function main() {
   for (const c of CASES) {
     process.stdout.write(`${DIM} ..  ${c.name}${RESET}\r`)
     // Resolve the model here, from the registry, exactly as the call site does.
-    const r = await generate({ ...c.body, model: modelFor(c.key) }, c.name)
+    // Mirror the call site exactly: model AND tuning both come from the
+    // registry, so this measures what the app sends, not an approximation.
+    const r = await generate(
+      { ...c.body, model: modelFor(c.key), ...tuningFor(c.key) }, c.name,
+    )
 
     if (!r.ok) {
       console.log(`${RED} FAIL ${RESET} ${c.name.padEnd(30)} ${r.status} ${r.type}`)

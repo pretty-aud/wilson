@@ -35,7 +35,11 @@
 // Extension included deliberately. Vite resolves the extensionless form, plain
 // Node's ESM loader does not — and scripts/probes/ import this module directly
 // so a probe tests the registry the app actually ships rather than a copy of it.
-import { resolveModel } from './aiModels.js'
+import { resolveModel, tuningFor } from './aiModels.js'
+
+// Re-exported so a call site needs exactly one import to build a request body:
+//   { model: modelFor(k), ...tuningFor(k), max_tokens, system, messages }
+export { tuningFor }
 
 /**
  * Override sources, in resolution order. Empty until S20 builds the stores.

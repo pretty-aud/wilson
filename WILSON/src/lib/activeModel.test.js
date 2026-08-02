@@ -12,9 +12,9 @@
 // =============================================================================
 
 import { describe, it, expect, beforeEach } from 'vitest'
-import { BUILTIN } from './aiModels'
+import { BUILTIN, REGISTRY, EFFORT_LEVELS } from './aiModels'
 import {
-  modelFor, setModelSources, getModelSources,
+  modelFor, tuningFor, setModelSources, getModelSources,
   subscribeModelWarnings, getModelWarnings, dismissModelWarning, clearModelWarnings,
 } from './activeModel'
 
@@ -100,6 +100,46 @@ describe('modelFor', () => {
     modelFor('otter.course')
     expect(getModelWarnings().map((w) => w.key).sort())
       .toEqual(['dog.fullDeck', 'otter.course'])
+  })
+})
+
+describe('tuningFor', () => {
+  it('returns {} for a function with no measured tuning', () => {
+    // Most call sites are nowhere near ai-proxy's Edge deadline. Spreading an
+    // empty object must be a no-op, not an accidental parameter.
+    expect(tuningFor('otter.course')).toEqual({})
+    expect(tuningFor('dog.themes')).toEqual({})
+  })
+
+  it('caps effort on the full-deck call, which was measured against a hard limit', () => {
+    // S19: unset ran 137.9s against a ~150s Edge deadline and used 15194 of
+    // 16384 tokens; medium ran 69.1s and 7642. If this stops being sent, that
+    // call site silently goes back to a coin flip on every long deck.
+    expect(tuningFor('dog.fullDeck')).toEqual({
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'medium' },
+    })
+  })
+
+  it('ignores an unknown key rather than throwing mid-request', () => {
+    expect(tuningFor('nope.nope')).toEqual({})
+  })
+
+  it('only ever emits effort levels Anthropic accepts', () => {
+    // A typo here is a 400 at generation time, on the heaviest call WILSON
+    // makes — long after anyone would connect it to this line.
+    for (const entry of REGISTRY) {
+      if (entry.effort === undefined) continue
+      expect(EFFORT_LEVELS, `${entry.key} has effort "${entry.effort}"`)
+        .toContain(entry.effort)
+    }
+  })
+
+  it('is spreadable into a request body without disturbing it', () => {
+    const body = { model: modelFor('dog.fullDeck'), ...tuningFor('dog.fullDeck'), max_tokens: 16384 }
+    expect(body.model).toBe(BUILTIN.REASONING)
+    expect(body.max_tokens).toBe(16384)
+    expect(body.output_config.effort).toBe('medium')
   })
 })
 
