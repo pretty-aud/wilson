@@ -50,28 +50,33 @@ RLS.
 
 ## Broken features
 
-### Invites on dev and prod — UNCONFIRMED, needs a 10-second check
-**MEASURED (S18), possibly fixed since.** `invite.html` and `recovery.html`
-were uploaded to staging and verified end to end there (redemption at +12m48s
-by the click). At S18 close-out neither template existed on dev or prod.
+### Email templates — 3 of 6 still unconfirmed
+**Partly resolved 2026-08-02.** The S18 close-out recorded dev and prod as
+missing both templates. That is now known to be at least partly stale — Audrey
+uploaded them on 2026-08-01, after the note was written.
 
-**Audrey believes she uploaded both on 2026-08-01**, i.e. after that note was
-written. It has not been re-checked, and **it cannot be checked from the CLI**:
-`supabase config` offers only `push` (never run it — it would overwrite the
-dashboard from `config.toml`), there is no read command, and the management
-token lives in the OS credential store.
+| Project | invite | recovery |
+|---|---|---|
+| staging | ✅ verified end to end (S18, redeemed at +12m48s by the click) | ✅ |
+| dev | ✅ **confirmed 2026-08-02** — byte-for-byte the repo version | ❓ |
+| prod | ❓ | ❓ |
 
-→ **Confirm in the dashboard, then delete or keep this entry accordingly:**
+→ Check the remaining three, then delete this entry:
   - dev: `https://supabase.com/dashboard/project/eqjzmnvkrakroyqxfsvw/auth/templates`
   - prod: `https://supabase.com/dashboard/project/rqyriuyldhovirbuievt/auth/templates`
 
-  It is not enough that *a* template is present. The S18 fix was the link
-  itself: the correct one contains **`token_hash={{ .TokenHash }}`**. If it
-  contains **`{{ .ConfirmationURL }}`**, it is the broken form — that is a bare
-  `GET /auth/v1/verify?token=…`, so any scanner that follows it *spends the
-  invite* before the person clicks.
+**A template being present is not the check.** The S18 fix was the link inside
+it. Correct: **`token_hash={{ .TokenHash }}`**. Broken:
+**`{{ .ConfirmationURL }}`** — a bare `GET /auth/v1/verify?token=…`, so any
+scanner that follows it *spends the invite before the person clicks* (measured:
+two invites burned within 12.0s and 16.7s of sending, unopened).
 
-Workaround meanwhile: `Create with password…`.
+**Not checkable from here.** `supabase config` exposes only `push` — never run
+it, it would overwrite the dashboard from `config.toml`, whose
+`smtp.enabled = false` would disable hosted Resend email. There is no read
+command, and the management token lives in the OS credential store.
+
+Workaround while any remain unconfirmed: `Create with password…`.
 
 ### `rate_cards.type` does not exist in the cloud schema
 **MEASURED (S18).** Queried staging — the column is absent. `useRateCard.js`
