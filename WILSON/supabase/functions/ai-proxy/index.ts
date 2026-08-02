@@ -224,6 +224,38 @@ Deno.serve(async (req: Request) => {
   if (body.system != null) upstreamBody.system = body.system
   if (Array.isArray(body.tools) && body.tools.length > 0) upstreamBody.tools = body.tools
 
+  // `thinking` and `output_config.effort` — Session 19.
+  //
+  // Both were previously dropped by this whitelist, silently. That mattered
+  // once the Sonnet 4 retirement forced a move to a model that thinks by
+  // default: thinking spends from the same `max_tokens` budget as the answer
+  // AND from wall-clock, and a full D.O.G. deck measured 150.4s against this
+  // function's own ~150s Edge deadline. A call that overruns loses its stream
+  // rather than degrading, so the call sites need to be able to turn thinking
+  // down. They could not even ask.
+  //
+  // Still a whitelist — shapes are rebuilt field by field rather than passed
+  // through, so a client cannot smuggle arbitrary keys into the upstream body.
+  if (body.thinking && typeof body.thinking === 'object') {
+    const t = body.thinking as Record<string, unknown>
+    if (t.type === 'disabled') {
+      upstreamBody.thinking = { type: 'disabled' }
+    } else if (t.type === 'adaptive') {
+      upstreamBody.thinking = t.display === 'summarized'
+        ? { type: 'adaptive', display: 'summarized' }
+        : { type: 'adaptive' }
+    }
+    // Any other shape (notably the removed `enabled` + budget_tokens form,
+    // which 400s on current models) is dropped rather than forwarded.
+  }
+  if (body.output_config && typeof body.output_config === 'object') {
+    const effort = (body.output_config as Record<string, unknown>).effort
+    if (typeof effort === 'string'
+      && ['low', 'medium', 'high', 'xhigh', 'max'].includes(effort)) {
+      upstreamBody.output_config = { effort }
+    }
+  }
+
   const resolved = await resolveAnthropicKey(admin, workspaceId)
   if (!resolved) {
     // 501, not 503: this is a permanent config state, and every client retry
