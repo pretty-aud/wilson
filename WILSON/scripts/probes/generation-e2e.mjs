@@ -41,6 +41,10 @@ import {
   DEFAULT_FULL_DECK_SYSTEM, DEFAULT_FULL_DECK_OUTPUT_FORMAT, DEFAULT_FULL_DECK_INSTRUCTIONS,
 } from '../../src/tools/deck-outline-generator_v0.514/prompts/fullDeckPrompts.js'
 import { FULL_COURSE_OUTLINE_PROMPT } from '../../src/tools/otter_v0.3.1/prompts.js'
+// The same resolver the 28 call sites use. Importing it means this probe tests
+// whatever the registry currently says, so it cannot drift from the app, and a
+// wrong key here fails exactly as it would in production.
+import { modelFor } from '../../src/lib/activeModel.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = join(HERE, '..', '..')
@@ -137,6 +141,12 @@ async function generate(body) {
       const j = JSON.parse(raw)
       type = j?.anthropic?.error?.type || j?.error || '?'
       message = j?.anthropic?.error?.message || ''
+      // ai-proxy's own validator says exactly which field it rejected. Not
+      // reading it cost a run: four cases failed `validation_failed` and the
+      // answer "field: model, required" was in the response the whole time.
+      if (Array.isArray(j?.errors) && j.errors.length) {
+        message = j.errors.map((e) => `${e.field}: ${e.error}`).join(', ')
+      }
     } catch { message = raw.slice(0, 300) }
     return { ok: false, status: res.status, type, message, seconds }
   }
@@ -310,7 +320,8 @@ async function main() {
   const rows = []
   for (const c of CASES) {
     process.stdout.write(`${DIM} ..  ${c.name}${RESET}\r`)
-    const r = await generate(c.body)
+    // Resolve the model here, from the registry, exactly as the call site does.
+    const r = await generate({ ...c.body, model: modelFor(c.key) })
 
     if (!r.ok) {
       console.log(`${RED} FAIL ${RESET} ${c.name.padEnd(30)} ${r.status} ${r.type}`)

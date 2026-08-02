@@ -32,7 +32,10 @@
 // dead model went unnoticed for 47 days.
 // =============================================================================
 
-import { resolveModel } from './aiModels'
+// Extension included deliberately. Vite resolves the extensionless form, plain
+// Node's ESM loader does not — and scripts/probes/ import this module directly
+// so a probe tests the registry the app actually ships rather than a copy of it.
+import { resolveModel } from './aiModels.js'
 
 /**
  * Override sources, in resolution order. Empty until S20 builds the stores.
