@@ -50,33 +50,43 @@ RLS.
 
 ## Broken features
 
-### Email templates — 3 of 6 still unconfirmed
-**Partly resolved 2026-08-02.** The S18 close-out recorded dev and prod as
-missing both templates. That is now known to be at least partly stale — Audrey
-uploaded them on 2026-08-01, after the note was written.
+### wilson-dev auth config was overwritten by an accidental `config push`
+**MEASURED.** S19 (2026-08-02). A `node -e "…"` command written with double
+quotes contained escaped backticks; bash evaluated them anyway and executed
+`supabase config push` against **wilson-dev**, twice. The `[Y/n]` prompts got
+no stdin and defaulted to yes.
 
-| Project | invite | recovery |
+Confirmed applied: on the second run the auth diff had shrunk to one line, so
+everything in the first diff was already written.
+
+| Setting | Was (restore to this) | Now |
 |---|---|---|
-| staging | ✅ verified end to end (S18, redeemed at +12m48s by the click) | ✅ |
-| dev | ✅ **confirmed 2026-08-02** — byte-for-byte the repo version | ❓ |
-| prod | ❓ | ❓ |
+| `site_url` | `http://localhost:3000` | `http://localhost:5203` |
+| `additional_redirect_urls` | `[]` | `["http://localhost:5203"]` |
+| `enable_signup` | `true` | `false` |
+| `mfa.totp.enroll_enabled` | `true` | `false` |
+| `mfa.totp.verify_enabled` | `true` | `false` |
+| `email.enable_signup` | `true` | `false` |
+| `email.enable_confirmations` | `true` | `false` |
+| `email.max_frequency` | `1m0s` | `1s` |
+| `email.otp_length` | `8` | `6` |
 
-→ Check the remaining three, then delete this entry:
-  - dev: `https://supabase.com/dashboard/project/eqjzmnvkrakroyqxfsvw/auth/templates`
-  - prod: `https://supabase.com/dashboard/project/rqyriuyldhovirbuievt/auth/templates`
+**`smtp.enabled` was NOT applied** — it still showed `true → false` as a
+pending diff on the second run, so hosted Resend email on dev is intact. That
+was the specific catastrophe the "never config push" warning exists to prevent,
+and it did not happen.
 
-**A template being present is not the check.** The S18 fix was the link inside
-it. Correct: **`token_hash={{ .TokenHash }}`**. Broken:
-**`{{ .ConfirmationURL }}`** — a bare `GET /auth/v1/verify?token=…`, so any
-scanner that follows it *spends the invite before the person clicks* (measured:
-two invites burned within 12.0s and 16.7s of sending, unopened).
+The three email templates were overwritten with **byte-identical content**
+(CRLF vs LF only), so nothing was lost there.
 
-**Not checkable from here.** `supabase config` exposes only `push` — never run
-it, it would overwrite the dashboard from `config.toml`, whose
-`smtp.enabled = false` would disable hosted Resend email. There is no read
-command, and the management token lives in the OS credential store.
+**Only wilson-dev.** Staging and prod were never targeted.
 
-Workaround while any remain unconfirmed: `Create with password…`.
+→ Restore by hand at
+`https://supabase.com/dashboard/project/eqjzmnvkrakroyqxfsvw/auth/providers`
+and the URL-configuration page. `site_url` matters most: the invite and
+recovery templates build their links from `{{ .SiteURL }}`.
+**Do not fix this with the CLI** — that means running the command that caused
+it. **Audrey's action.**
 
 ### `rate_cards.type` does not exist in the cloud schema
 **MEASURED (S18).** Queried staging — the column is absent. `useRateCard.js`
@@ -151,4 +161,11 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| S19 (2026-08-02) | staging `service_role` exposure | — (file created; existing entries seeded from MASTER_PLAN §6 and the S21–S25 plan) |
+| S19 (2026-08-02) | staging `service_role` exposure; **wilson-dev auth config overwritten** by an accidental `config push` | **email templates** — confirmed by Audrey on all three projects, both invite and recovery. The entry was seeded from a stale S18 note; dev was already correct when this file was written. |
+
+Both S19 additions are the same root cause: **a shell command built by string
+interpolation, where the content was not safe for the shell.** The first
+printed a `service_role` key into a transcript because a `grep -v` filter
+assumed line-per-key JSON; the second ran `supabase config push` because bash
+evaluated backticks inside a double-quoted `node -e`. Neither was a reasoning
+error — both were quoting. See the standing rule in `MASTER_PLAN.md`.

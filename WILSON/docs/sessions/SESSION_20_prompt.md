@@ -121,6 +121,18 @@ catalogue; delete it when they do.**
 
 ## Traps
 
+- 🚨 **NEVER run `supabase config push`, and never build a shell command by
+  interpolating content into it.** One rule, because they were one incident.
+  On 2026-08-02 bash evaluated backticks inside a double-quoted `node -e "…"`
+  and ran `config push` against wilson-dev — twice, `[Y/n]` defaulting to yes
+  on absent stdin, nine auth settings applied (`docs/OUTSTANDING.md`). The same
+  session had already printed a `service_role` key into a transcript via a
+  `grep -v` that assumed line-per-key JSON.
+  **Write scripts to a file and run the file.** Select fields (`jq -r '.x'`)
+  rather than filtering output whose shape you have not seen. Prefer
+  Edit/Write over shell heredocs. Neither was a reasoning error; both were
+  quoting. There is no read-only form of `config push` — do not reach for it
+  to inspect remote state either.
 - **`git add -A` sweeps untracked files into a PUBLIC commit.** Stage explicit
   paths. There is still an untracked `docs/messed up handbook.pdf`.
 - **The ai-proxy body whitelist drops unknown fields silently.** Adding a
@@ -156,9 +168,9 @@ write `docs/sessions/SESSION_21_prompt.md` → update `docs/MASTER_PLAN.md`
 ## Still owed by Audrey
 
 - 🚨 Rotate `smoke_admin` (blocks the tag) and the staging `service_role` key.
-- **Upload `invite.html` + `recovery.html` to dev and prod.** Verified on
-  staging (S18); invites cannot work on the other two until this is done.
-  Never `supabase config push`.
+- ~~Upload  +  to dev and prod.~~ **DONE**,
+  confirmed 2026-08-02 — all three projects carry both templates. They are
+  pasted by hand; never .
 - Complete `docs/RELEASE_TESTING.md`.
 - **v1.0.0 is prepared, NOT tagged, NOT merged to `main`.** S18's reason to
   hold — every Sonnet-4 path 404ing — **is gone**. `smoke_admin` and the

@@ -1608,6 +1608,32 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
    thorough — padding it makes the real ones harder to see. Interim,
    unverified, or planned work is not an entry; that belongs in the forward
    plan. A bug fixed in the same session belongs in a commit message.
+2b. 🚨 **NEVER run `supabase config push`. There is no legitimate use of it in
+   this repo.** It overwrites the remote auth config from local `config.toml`,
+   whose `smtp.enabled = false` would disable hosted Resend email outright.
+   Email templates are pasted **by hand** in each dashboard. The CLI has no
+   read command for remote auth config, so there is also no "just looking"
+   version of it — do not reach for it to inspect state.
+
+   **It was run accidentally on 2026-08-02 and it did apply** (S19; see
+   `docs/OUTSTANDING.md`). Not by anyone deciding to run it — by bash
+   evaluating backticks inside a double-quoted `node -e "…"`, twice, with the
+   `[Y/n]` prompts defaulting to yes on absent stdin. `smtp.enabled` happened
+   not to apply; nine other auth settings on wilson-dev did.
+
+2c. 🚨 **Never build a shell command by interpolating content into it.** Both
+   of S19's incidents were quoting, not reasoning: the above, and a `grep -v`
+   filter that printed a `service_role` key into a transcript because
+   `supabase projects api-keys` returns every key on one JSON line.
+
+   - Write scripts to a **file** and run the file. Do not use `node -e "…"`
+     with embedded backticks, `$(…)`, or `${…}` — bash evaluates all three
+     inside double quotes regardless of what the payload is meant to be.
+   - To extract one field from a command's output, **select that field**
+     (`python -c`, `jq -r '.field'`). Never filter with `grep -v` and assume
+     the shape of what you have not looked at.
+   - Prefer the Edit/Write tools over shell heredocs for file edits.
+
 3. **Adversarial review before every feature commit** (independent finders →
    verify → fix confirmed findings pre-commit). S6: 12/12 fixed; S7: 11 fixed;
    S13: 10 confirmed fixed (incl. a reviewer-stamp forgery), 1 refuted,

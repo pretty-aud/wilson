@@ -321,8 +321,9 @@ fix time.
 - **Deploy `ai-proxy` to dev and prod.** S19 taught it to forward `thinking`
   and `output_config.effort`; only staging has it. Until then D.O.G.'s deck
   runs at ~138s there instead of ~59s — degraded, not broken.
-- **Upload `invite.html` + `recovery.html` to dev and prod.** Staging is done and
-  verified end-to-end (S18); the other two are not, so invites cannot work there.
+- ~~Upload  +  to dev and prod.~~ **DONE** —
+  Audrey confirmed 2026-08-02 that both templates are in place on all three
+  projects. Never ; they are pasted by hand.
 - **v1.0.0 is prepared, not tagged, not merged.** Recommendation: hold. Tagging
   a release where every Sonnet-4 path 404s is a version number applied to a
   broken build. Revisit after S19.
@@ -351,6 +352,18 @@ fix time.
    is linked to **staging**, not dev.
 5. **Stage explicit paths.** `git add -A` sweeps untracked files into a public
    commit.
+5b. 🚨 **Never run `supabase config push`, and never build a shell command by
+   interpolating content into it.** These are one rule because they were one
+   incident: on 2026-08-02 bash evaluated backticks inside a double-quoted
+   `node -e "…"` and ran `config push` against wilson-dev — twice, prompts
+   defaulting to yes on absent stdin, nine auth settings applied. The same
+   session had already printed a `service_role` key into a transcript via a
+   `grep -v` that assumed line-per-key JSON.
+
+   Write scripts to a file and run the file. Select fields (`jq -r '.x'`,
+   `python -c`) rather than filtering output you have not seen the shape of.
+   Prefer Edit/Write over shell heredocs. Neither incident was a reasoning
+   error; both were quoting.
 6. **End every session by updating `docs/OUTSTANDING.md`** — the single answer
    to "what is broken right now". Add only what is **broken and not yet
    fixed**, including anything the session itself broke; delete what it fixed,
