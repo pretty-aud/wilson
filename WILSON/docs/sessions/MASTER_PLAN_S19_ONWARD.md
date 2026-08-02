@@ -24,6 +24,14 @@ a commit.
 
 ---
 
+> **STATUS 2026-08-02 — the outage is over.** S19 shipped and Block E passed
+> 4/4 against staging. The diagnosis below was confirmed by direct measurement:
+> `claude-sonnet-4-20250514` returns `404 not_found_error` while
+> `claude-haiku-4-5-20251001` returns 200 on the same call. Everything now
+> resolves through the registry. The rest of this section is kept as the record
+> of how it was reasoned about — including the parts it got wrong, which are
+> marked in the S19 block below.
+
 ## The headline: WILSON's AI has been down for 47 days
 
 **MEASURED.** Anthropic retired `claude-sonnet-4-20250514` on **2026-06-15**
@@ -99,31 +107,70 @@ Sessions are ordered by *what unblocks the most*, not by difficulty.
 
 ---
 
-### S19 — Unblock the AI outage
+### S19 — Unblock the AI outage ✅ COMPLETE (2026-08-02)
 
-**Goal: every tool generates again.** No UI, no migration, no Edge Function.
-Deliberately the smallest change that ends the outage, because the control
-plane (S20) is a much larger build and the tools should not wait for it.
+**Goal: every tool generates again.** Achieved and measured end to end.
 
-| Block | Work |
+| Block | Work | Status |
+|---|---|---|
+| A ✅ | `src/lib/aiModels.js` — the registry: 28 functions, three-tier resolution, retired-model detection, loud fallback. | Done, committed with this plan |
+| B ✅ | All 28 call sites now `modelFor(key)`. Six files. `MODEL_MATRIX` → `MODEL_KEYS`. | `8a73d44` |
+| C ✅ | `activeModel.js` + `ModelWarningBanner` — loud fallback per D6. | `8a73d44` |
+| D ✅ | `noHardcodedModels.test.js`. **Proven by breaking it three ways**, not by watching it pass. | `8a73d44` |
+| E ✅ | Four full-size generations, checked the way WILSON parses them. **4/4.** | `scripts/probes/generation-e2e.mjs` |
+
+**Exit criteria met.** Final Block E run, staging, `claude-sonnet-5`:
+
+```
+D.O.G. full deck       end_turn  out=6676  59.1s  12 slides parsed
+O.T.T.E.R. outline     end_turn  out=2521  24.0s   9 subjects
+O.T.T.E.R. + search    end_turn  out=3658  37.6s   JSON parsed
+R.A.B.B.I.T. intake    end_turn  out=3283  31.0s   7 assets, 10 tasks
+```
+
+441 vitest (was 416: +15 activeModel, +5 guard, +5 tuning). Build clean.
+
+#### The plan's framing was wrong, and the probe is why that was cheap
+
+This file called the migration "close to a find-and-replace" and listed three
+things as "checked and found clean". Reading Anthropic's current API reference
+turned up three risks it missed, and **a probe settled all three before any of
+them was acted on** (`scripts/probes/ai-models.mjs`):
+
+| Risk | Verdict |
 |---|---|
-| A ✅ | `src/lib/aiModels.js` — the registry: 28 functions, three-tier resolution, retired-model detection, loud fallback. **Done, 36 tests, committed with this plan.** |
-| B | Rewire all 28 call sites to `resolveModel(key)`. Touches 6 files. |
-| C | Surface the warning from D6 — a real banner, not a console line. |
-| D | Guard test: no raw `claude-` literal anywhere in `src/` outside `aiModels.js`. Same source-level pattern as `authStateCallbacks.test.js`. |
-| E | Verify one real generation per tool against staging. |
+| O.T.T.E.R.'s `web_search_20250305` + old beta header predate sonnet-5 | **REFUTED.** 200 with and without the header, and with the new tool version. Five working call sites would have been rewritten for nothing. |
+| The Validator's `tool_use` recursion ends on an assistant turn | **CONFIRMED.** 400: *"This model does not support assistant message prefill."* Fixed in `dab9046`. |
+| Adaptive thinking eats the `max_tokens` budget | **Half right, and the wrong half.** It costs *latency*, not truncation — and the truncation it does cause D.O.G. already handles. |
 
-**Exit:** a deck generates, an O.T.T.E.R. course generates, a RABBIT script
-intake parses. Vitest green. A `WIL-6001` row with token counts appears in Logs
-for each.
+**MEASURED — `ai-proxy` whitelisted the upstream body** to
+`model/max_tokens/messages/stream/system/tools`, silently dropping `thinking`
+and `output_config`. That is why the first probe's own "thinking is fine"
+control was not a control at all. S19 added both fields (`d1046b9`).
 
-**Defaults it ships with** — `REASONING` → `claude-sonnet-5` (the like-for-like
-Sonnet 4 successor), `FAST` → `claude-haiku-4-5-20251001` (unchanged; it never
-broke). Both become editable in S20.
+**MEASURED — full-deck latency**, same prompt, same 16384 budget, one run:
 
-> ⚠️ **The guard test in Block D is the point of the session.** Without it the
-> next retirement is just as invisible as this one. With it, a hardcoded model
-> ID cannot reach `main`.
+| | seconds | tokens | slides |
+|---|---|---|---|
+| no effort field | 137.9 | 15194 | 14 |
+| `thinking: disabled` | 51.8 | 5443 | 11 |
+| `effort: low` | 57.5 | 6549 | 12 |
+| **`effort: medium`** ← chosen | **69.1** | **7642** | **13** |
+
+`ai-proxy` runs on an Edge Function with a **~150s deadline**, and a call that
+overruns loses its stream rather than degrading. 137.9s was inside it but not
+by enough to depend on — and at 15194 of 16384 tokens it was one long deck
+from triggering the continuation loop and paying that four times over. `medium`
+lives on the REGISTRY entry via `tuningFor(key)`, with the numbers beside it.
+
+> ⚠️ **`ai-proxy` is deployed to STAGING only.** dev and prod still drop
+> `thinking`/`output_config`, so the deck runs at the old ~138s there. It
+> degrades rather than breaks. Deploy with
+> `npx supabase functions deploy ai-proxy --project-ref <ref>`.
+
+> ⚠️ **The guard test in Block D was the point of the session.** A hardcoded
+> model ID can no longer reach `main`, nor can a `modelFor()` key that is not
+> in the registry, nor a retired `VALIDATION_MODEL` in `operator-ai-keys`.
 
 ---
 
@@ -265,6 +312,15 @@ fix time.
 - 🚨 **Rotate `smoke_admin`** — published in the public repo, permanent in git
   history. `OWED_AUDREY.md` §0, TPN-SDLC-007. **The one open CRITICAL, and it
   blocks the tag.**
+- 🚨 **Rotate `wilson-staging`'s legacy `service_role` key** (S19, 2026-08-02).
+  `supabase projects api-keys` returns every key as one JSON blob; a filter
+  that assumed line-per-key printed the whole thing into a session transcript.
+  It bypasses RLS. Dashboard → wilson-staging → Settings → API → Legacy API
+  keys → roll `service_role`. The `anon` key beside it is publishable and needs
+  nothing. Rolling it updates the Edge Function secrets that read it.
+- **Deploy `ai-proxy` to dev and prod.** S19 taught it to forward `thinking`
+  and `output_config.effort`; only staging has it. Until then D.O.G.'s deck
+  runs at ~138s there instead of ~59s — degraded, not broken.
 - **Upload `invite.html` + `recovery.html` to dev and prod.** Staging is done and
   verified end-to-end (S18); the other two are not, so invites cannot work there.
 - **v1.0.0 is prepared, not tagged, not merged.** Recommendation: hold. Tagging
