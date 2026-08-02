@@ -1050,10 +1050,27 @@ precisely how the pre-proxy divergence bugs happened.
 
 **The contract.** Clients `POST` to `{SUPABASE_URL}/functions/v1/ai-proxy`
 through the single helper `callAI()` in `src/cloud/aiProxy.js`. Accepted body
-fields: `model`, `max_tokens`, `messages`, `system`, `tools`, `betas`, and
-`tool` — WILSON's own attribution tag (≤40 chars), which is logged and
-**never forwarded upstream**. The upstream body is a whitelist reconstruction,
-not a passthrough, so clients cannot smuggle extra fields.
+fields: `model`, `max_tokens`, `messages`, `system`, `tools`, `betas`,
+`thinking`, `output_config`, and `tool` — WILSON's own attribution tag
+(≤40 chars), which is logged and **never forwarded upstream**. The upstream
+body is a whitelist reconstruction, not a passthrough, so clients cannot
+smuggle extra fields.
+
+> **`thinking` and `output_config` were added in S19, and the whitelist is why
+> they had to be.** Anything not on this list is dropped *silently* — no error,
+> no log line. Before S19 those two were absent, so every call site's
+> `thinking` was discarded on the way upstream and nobody could tell. That
+> mattered once the Sonnet 4 retirement forced a move to a model that thinks by
+> default, because thinking spends from the same `max_tokens` budget as the
+> answer *and* from wall-clock. It also silently invalidated a probe's control
+> case: two requests differing only by `thinking` were identical upstream.
+>
+> Both are shape-checked rather than passed through: `thinking` accepts only
+> `{type:"disabled"}` and `{type:"adaptive"}` (plus `display:"summarized"`) —
+> the removed `enabled` + `budget_tokens` form is dropped, because it 400s on
+> current models — and `output_config` accepts only a valid `effort` level.
+>
+> **Adding a field to a call site is not enough; it must be added here too.**
 
 **Auth**: `requireActiveMember` — token claims plus a live `workspace_members`
 re-check. A deactivated member gets `403 forbidden` even with an unexpired
@@ -1097,14 +1114,46 @@ Token counts are sniffed out of the SSE itself. Today these rows are read
 through the Admin Terminal's generic Logs section, which renders `context` as
 JSON — there is no purpose-built spend dashboard yet (§17).
 
-**Two model ids exist in the entire codebase:**
+**Model ids live in exactly one file: `src/lib/aiModels.js`.** (Before S19 they
+were string literals at 28 call sites, and 17 of those named
+`claude-sonnet-4-20250514` — retired by Anthropic on 2026-06-15, which took
+most of WILSON's AI down for 47 days without anyone being able to see why.)
 
-| Model | Used for |
+Every call site now asks the registry:
+
+```js
+const data = await callAI({ model: modelFor('dog.fullDeck'), ...tuningFor('dog.fullDeck'), … })
+```
+
+| Piece | What it is |
 |---|---|
-| `claude-sonnet-4-20250514` | Course outlines and subject content, deck outlines, image prompts, agent turns, the Validator, and heavier RABBIT intake document kinds |
-| `claude-haiku-4-5-20251001` | Companion chat, theme colours, text rewrites, quiz generation, lighter intake kinds and the classifier, and the operator key-validation round trip |
+| `REGISTRY` | All 28 call sites. Each has a stable `key`, a user-facing `label`/`hint`, and a `tier`. **The key is a persistence contract** — settings are stored against it, so renaming one discards whatever was configured. |
+| `BUILTIN` | The floor: `REASONING` → `claude-sonnet-5`, `FAST` → `claude-haiku-4-5-20251001`. |
+| `resolveModel()` | Cascade: user → workspace → platform → built-in. A retired or malformed configured model **falls back and returns a warning**, which `ModelWarningBanner` shows (decision D6 — never a silent substitution). |
+| `tuningFor()` | Optional per-function `thinking`/`effort`. Only `dog.fullDeck` sets one, and only because it was measured against a hard limit (below). |
+| `RETIRED` | Known-dead ids with their dates, so a stale setting recovers with no network round trip. |
 
-Each call site hardcodes its model; there is no shared default constant. Retry
+**`noHardcodedModels.test.js` fails the build** on a raw `claude-` literal
+anywhere in `src/` outside the registry, on a `modelFor()` key that is not in
+`REGISTRY`, on a bad `MODEL_KEYS` entry, or if `operator-ai-keys`'
+`VALIDATION_MODEL` is ever retired. That test is the reason a retirement cannot
+hide again; swapping the string only fixed the day.
+
+**`dog.fullDeck` carries `effort: 'medium'`, and it is load-bearing.** ai-proxy
+streams through an Edge Function with a **~150s deadline**, and a call that
+overruns loses its stream rather than degrading. Measured S19, same prompt and
+16384 budget: unset ran **137.9s / 15194 tokens**, `medium` ran **69.1s / 7642**.
+The unset case was both close to the deadline and one long deck from triggering
+the continuation loop and paying that four times over. See the REGISTRY entry
+for the full four-variant table.
+
+Users can override the model per function in D.O.G.'s prompts tab — the picker
+sits directly above the prompt it applies to, because the prompt and the model
+are one decision. Choices persist via `userModelPrefs` (localStorage, the
+`user` tier) and apply to the next generation without a reload. S20 replaces
+that with operator-curated catalogue + workspace/platform tiers.
+
+Retry
 policy is deliberately inconsistent by caller — O.T.T.E.R.'s shared wrapper
 retries 3× on `429/503/529`/overload text with `[3000, 6000, 12000] ms` delays;
 RABBIT's intake retries 3× with linear backoff; the Validator and D.O.G. do
@@ -2134,7 +2183,23 @@ have not moved since April.
 
 Everything below is *known*, not discovered by a reader. The live list is
 `docs/MASTER_PLAN.md` §6; TPN findings live in `TPN_AUDIT/FINDINGS.md`; owed
-human actions live in `docs/OWED_AUDREY.md`.
+human actions live in `docs/OWED_AUDREY.md`; **everything currently broken and
+unfixed is `docs/OUTSTANDING.md`** (S19), which is the one to read at the start
+of a session — this section is limits by design, that file is faults.
+
+**AI generation (S19)**
+
+- **`ai-proxy` streams through a Supabase Edge Function with a ~150s deadline,
+  and a call that overruns loses its stream rather than degrading.** It is a
+  cliff, not a slope. This became live in S19: the replacement model thinks
+  before answering where Sonnet 4 did not, which put D.O.G.'s full-deck call at
+  a measured 137.9s until `effort: 'medium'` brought it to 69.1s. Any new call
+  site with a large `max_tokens` should be timed, not assumed — and effort is
+  the lever, set on the REGISTRY entry (§ ai-proxy).
+- **The ai-proxy body whitelist drops unknown fields silently.** Adding a
+  parameter at a call site does nothing until it is added to the Edge Function
+  too, with no error to say so. This cost S19 a probe control before it was
+  spotted.
 
 > **Session 17 closed the four release-gating entries this section opened**
 > (privilege-change auditing, the access-token hook grant, the `managed-files`
