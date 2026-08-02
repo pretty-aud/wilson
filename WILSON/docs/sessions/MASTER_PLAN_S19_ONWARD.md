@@ -345,3 +345,11 @@ fix time.
    is linked to **staging**, not dev.
 5. **Stage explicit paths.** `git add -A` sweeps untracked files into a public
    commit.
+6. **End every session by updating `docs/OUTSTANDING.md`** — the single answer
+   to "what is broken right now". Add only what is **broken and not yet
+   fixed**, including anything the session itself broke; delete what it fixed,
+   citing the commit; tag each entry MEASURED / REPORTED / INFERRED.
+   **Adding nothing is a correct outcome** — a session that fixes things and
+   breaks nothing leaves the file alone. Do not pad it to look thorough;
+   padding buries the real entries. Interim, unverified, or planned work is
+   not an entry — that belongs in this file instead.

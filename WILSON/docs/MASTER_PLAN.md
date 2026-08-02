@@ -1581,8 +1581,20 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 2. **Close-out ritual:** feature commit → CI green → deploy migrations
    dev → staging → prod (dry-run before each) → re-link Supabase CLI to
    `wilson-dev` → write `docs/sessions/SESSION_NN+1_prompt.md` → **update this
-   MASTER_PLAN (§4 ledger, §5 scope, §6 gaps, §7 statuses)** → update the
-   Claude auto-memory → docs commit + push.
+   MASTER_PLAN (§4 ledger, §5 scope, §6 gaps, §7 statuses)** → **update
+   `docs/OUTSTANDING.md`** → update the Claude auto-memory → docs commit + push.
+
+   **On `docs/OUTSTANDING.md`** (added S19, Audrey's request): it is the single
+   answer to "what is broken right now". Add an entry only for something
+   **broken and not yet fixed** — including anything the session itself broke.
+   Delete entries the session fixed, citing the commit. Tag each
+   MEASURED / REPORTED / INFERRED.
+
+   **Adding nothing is a correct outcome.** A session that fixes things and
+   breaks nothing leaves the file untouched. Do not invent entries to look
+   thorough — padding it makes the real ones harder to see. Interim,
+   unverified, or planned work is not an entry; that belongs in the forward
+   plan. A bug fixed in the same session belongs in a commit message.
 3. **Adversarial review before every feature commit** (independent finders →
    verify → fix confirmed findings pre-commit). S6: 12/12 fixed; S7: 11 fixed;
    S13: 10 confirmed fixed (incl. a reviewer-stamp forgery), 1 refuted,
