@@ -244,6 +244,10 @@ const CASES = [
   {
     name: 'D.O.G. full deck',
     key: 'dog.fullDeck',
+    // generateFullDeck wraps this call in a loop that retries on max_tokens up
+    // to 3 times, appending the partial output plus a "continue" USER turn.
+    // Truncation here is the design, not a fault.
+    continues: true,
     body: {
       max_tokens: 16384,
       system: `${DEFAULT_FULL_DECK_SYSTEM}\n\n${DEFAULT_FULL_DECK_OUTPUT_FORMAT}`,
@@ -374,18 +378,33 @@ async function main() {
 
     const verdict = c.check(r.text)
     const truncated = r.stop === 'max_tokens'
-    const label = verdict.ok && !truncated ? `${GREEN} PASS ${RESET}` : `${RED} FAIL ${RESET}`
+    // D.O.G.'s full-deck call runs inside a continuation loop (up to 3 retries,
+    // each ending on a user turn, so not the prefill shape that 400s). For that
+    // call site max_tokens is designed behaviour, not failure — judging a single
+    // request by criteria the app does not use would report a false alarm.
+    const truncationIsFatal = truncated && !c.continues
+    const label = verdict.ok && !truncationIsFatal ? `${GREEN} PASS ${RESET}` : `${RED} FAIL ${RESET}`
     const think = r.thinking ? `${YELLOW}thinking=${r.thinking}${RESET}` : 'thinking=0'
     console.log(`${label} ${c.name.padEnd(30)} stop=${String(r.stop).padEnd(10)} `
       + `out=${String(r.outTokens).padEnd(6)} ${think}  ${r.seconds}s`)
-    console.log(`        ${DIM}${verdict.ok ? verdict.detail : verdict.why}`
-      + `${truncated ? ' — TRUNCATED at max_tokens' : ''}${RESET}`)
-    rows.push({ c, r, verdict })
+    const note = truncated
+      ? (c.continues
+        ? ' — truncated at max_tokens, as designed; the app continues (up to 3x)'
+        : ' — TRUNCATED at max_tokens')
+      : ''
+    console.log(`        ${DIM}${verdict.ok ? verdict.detail : verdict.why}${note}${RESET}`)
+    // ai-proxy streams through a Supabase Edge Function with a ~150s deadline.
+    // A single call near that is fragile, and D.O.G. makes up to four of them.
+    if (Number(r.seconds) > 120) {
+      console.log(`        ${YELLOW}${r.seconds}s — near ai-proxy's ~150s Edge deadline${RESET}`)
+    }
+    rows.push({ c, r, verdict, truncationIsFatal })
   }
 
   // ── Readout ────────────────────────────────────────────────────────────────
-  const failed = rows.filter((x) => !x.verdict.ok || x.r.stop === 'max_tokens')
-  const truncated = rows.filter((x) => x.r?.stop === 'max_tokens')
+  const failed = rows.filter((x) => !x.verdict.ok || x.truncationIsFatal)
+  const truncated = rows.filter((x) => x.truncationIsFatal)
+  const slow = rows.filter((x) => Number(x.r?.seconds) > 120)
   const thought = rows.filter((x) => x.r?.thinking > 0)
 
   console.log(`\n${BOLD}${rows.length - failed.length}/${rows.length} generations usable${RESET}\n`)
@@ -405,8 +424,15 @@ async function main() {
     console.log('     measured ceiling, and it raises cost on every call.')
   }
   if (thought.length && !truncated.length) {
-    console.log(`${DIM}${thought.length} generation(s) emitted thinking blocks and still finished`)
-    console.log(`cleanly, so thinking is not currently costing WILSON an answer.${RESET}`)
+    console.log(`${DIM}${thought.length} generation(s) emitted thinking blocks and still produced`)
+    console.log(`output WILSON can parse, so thinking is not costing an answer.${RESET}`)
+  }
+  if (slow.length) {
+    console.log(`\n${YELLOW}${slow.length} generation(s) ran over 120s${RESET} against ai-proxy's ~150s Edge`)
+    console.log('deadline. That is the real cost of thinking here, not truncation: D.O.G.')
+    console.log('makes up to four of these calls per deck, and a call that overruns the')
+    console.log('deadline loses the stream rather than degrading. Worth forwarding')
+    console.log('`thinking` in ai-proxy so the heavy call sites can switch it off.')
   }
 }
 
