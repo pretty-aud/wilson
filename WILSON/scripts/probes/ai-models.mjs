@@ -87,15 +87,78 @@ const ALT = 'claude-sonnet-4-6'
 
 // ── Prompt for the login if it isn't in the environment ─────────────────────
 
-function ask(question, { hidden = false } = {}) {
-  return new Promise((resolve) => {
-    const rl = createInterface({ input: process.stdin, output: process.stdout })
-    if (!hidden) return rl.question(question, (a) => { rl.close(); resolve(a.trim()) })
+let pipedLines = null
 
-    // Mask the password. `_writeToOutput` is the documented seam for this.
+async function nextPipedLine() {
+  if (pipedLines === null) {
+    const chunks = []
+    for await (const c of process.stdin) chunks.push(c)
+    pipedLines = Buffer.concat(chunks).toString('utf8').split(/\r?\n/)
+  }
+  return (pipedLines.shift() ?? '').trim()
+}
+
+/**
+ * Read one line from the terminal, optionally masked.
+ *
+ * Deliberately does NOT use `readline`. The first version of this opened a
+ * fresh readline interface per question and masked by stubbing
+ * `_writeToOutput`; the second interface immediately consumed the newline the
+ * first one left in the buffer and resolved with an empty string, so the
+ * password prompt never appeared and an empty password went to GoTrue. It
+ * looked exactly like a wrong password.
+ *
+ * Raw stdin, one listener at a time, is boring and does not have that failure
+ * mode. Falls back to a plain line read when stdin isn't a TTY (CI, pipes).
+ */
+function ask(question, { hidden = false } = {}) {
+  const stdin = process.stdin
+
+  // Piped input (CI, `printf ... | node ...`): drain stdin once into a queue
+  // and serve from it. Opening a readline per question has the same defect as
+  // the version this replaces — the second one races the first one's close.
+  if (!stdin.isTTY) return nextPipedLine()
+
+  return new Promise((resolve) => {
     process.stdout.write(question)
-    rl._writeToOutput = () => {}
-    rl.question('', (a) => { rl.close(); process.stdout.write('\n'); resolve(a.trim()) })
+    stdin.setRawMode(true)
+    stdin.resume()
+    stdin.setEncoding('utf8')
+
+    let buf = ''
+    const finish = (value) => {
+      stdin.setRawMode(false)
+      stdin.pause()
+      stdin.removeListener('data', onData)
+      process.stdout.write('\n')
+      resolve(value)
+    }
+
+    // Compared by code point, not by literal: control characters do not
+    // survive every editor and copy path, and a silently-eaten one here is
+    // how the previous version submitted an empty password.
+    const CR = 13, LF = 10, CTRL_C = 3, CTRL_D = 4, BACKSPACE = 8, DEL = 127
+    // backspace, space, backspace — rubs the last * off the screen
+    const ERASE = String.fromCharCode(BACKSPACE, 32, BACKSPACE)
+
+    const onData = (chunk) => {
+      // A paste arrives as one chunk, so walk it a character at a time.
+      for (const ch of chunk) {
+        const code = ch.charCodeAt(0)
+        if (code === CR || code === LF) return finish(buf.trim())
+        if (code === CTRL_C) { process.stdout.write(String.fromCharCode(LF)); process.exit(130) }
+        if (code === CTRL_D) return finish(buf.trim())
+        if (code === BACKSPACE || code === DEL) {
+          if (buf.length) { buf = buf.slice(0, -1); process.stdout.write(ERASE) }
+          continue
+        }
+        if (code < 32) continue // ignore any other control character
+        buf += ch
+        process.stdout.write(hidden ? '*' : ch)
+      }
+    }
+
+    stdin.on('data', onData)
   })
 }
 
@@ -187,7 +250,11 @@ async function main() {
 
   const username = process.env.PROBE_USERNAME || await ask('WILSON username: ')
   const password = process.env.PROBE_PASSWORD || await ask('WILSON password: ', { hidden: true })
-  if (!username || !password) die('Need a username and password to get a token.')
+  if (!username) die('No username entered.')
+  if (!password) {
+    die('No password was captured, so nothing was sent. This is a probe bug, '
+      + 'not a wrong password — tell Claude the prompt returned empty.')
+  }
 
   // resolve-login -> email, then GoTrue -> access_token. Same two steps as
   // scripts/probes/issue-session.sh.
@@ -198,6 +265,11 @@ async function main() {
   })
   const rlJson = await rl.json().catch(() => ({}))
   if (!rlJson.email) die(`resolve-login (${rl.status}) gave no email: ${JSON.stringify(rlJson)}`)
+  // Printed before the password is used, so an `invalid_credentials` further
+  // down can be read as "wrong password for THIS account" rather than a
+  // mystery. The account is whichever one exists on the project named above.
+  console.log(`${DIM}username resolved to ${rlJson.email}${RESET}`)
+  console.log()
 
   const si = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: 'POST',
@@ -206,7 +278,19 @@ async function main() {
   })
   const siJson = await si.json().catch(() => ({}))
   token = siJson.access_token
-  if (!token) die(`sign-in (${si.status}) gave no token: ${siJson.error_description || JSON.stringify(siJson)}`)
+  if (!token) {
+    const why = siJson.error_description || siJson.msg || JSON.stringify(siJson)
+    if (siJson.error_code === 'invalid_credentials') {
+      console.error(`${RED}FAIL${RESET} sign-in rejected the password for ${rlJson.email}.`)
+      console.error(`${DIM}The account exists on project ${ref} — resolve-login found it — so this`)
+      console.error('is the password, not the username. Passwords are per-project: if you set')
+      console.error('this one up on staging, it will not work here. To probe staging instead:')
+      console.error(`  $env:SUPABASE_URL="https://rzkirvkotslbovzbsdfh.supabase.co"`)
+      console.error(`  $env:SUPABASE_ANON_KEY="<staging anon key>"${RESET}`)
+      process.exit(1)
+    }
+    die(`sign-in (${si.status}) gave no token: ${why}`)
+  }
   console.log(`${DIM}signed in as ${rlJson.email}${RESET}`)
 
   console.log(`\n${BOLD}Controls — case 1 MUST pass, case 2 MUST fail${RESET}`)
