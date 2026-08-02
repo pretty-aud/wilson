@@ -51,10 +51,11 @@ beats the platform default, a user's beats the admin's.
 
 ### 🚨 Do these first
 
-1. **Apply migration 0031.** It is committed and has **never been applied to any
-   environment** — only run inside rolled-back transactions. dev → staging →
-   prod, dry-run each. Check `supabase/.temp/project-ref` first.
-2. **Deploy `operator-models` to staging and prod.** It is on dev only.
+1. **Apply migration 0031 to PROD.** dev and staging are done and verified
+   (2026-08-02). Dry-run first; `db push` has no `--project-ref`, so prod needs
+   `supabase link --project-ref rqyriuyldhovirbuievt` and a re-link back to dev
+   afterwards. Verify with a query, not the CLI's success line.
+2. **Deploy `operator-models` to prod.** It is on dev and staging.
 3. **Rotate `smoke_admin`** — the one open CRITICAL, still blocking the tag.
    `OWED_AUDREY.md` §0. Audrey only.
 4. **Rotate `wilson-staging`'s legacy `service_role` key** (S19 exposure).

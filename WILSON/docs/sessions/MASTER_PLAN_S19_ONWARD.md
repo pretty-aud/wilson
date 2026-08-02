@@ -223,12 +223,13 @@ suites, +55 assertions), 472 vitest (was 454), both vite entries build clean.
 > an unknown ID have **not** been verified here. Reusing a proven call beats a
 > plausible one.
 
-> ⚠️ **Migration 0031 is committed and NOT YET APPLIED to any environment.** It
-> has only ever run inside rolled-back transactions against wilson-dev. Apply
-> dev → staging → prod. Note that pushing `feat/multi-user-v1` auto-deploys the
-> **STAGING-backed** beta host, so staging should be migrated at or before the
-> push — the UI degrades honestly without the tables ("no models available")
-> rather than breaking, but it is a bad look.
+> **Migration 0031 is applied to dev and staging** (2026-08-02), each verified
+> after apply with the same seven-check query rather than trusting the CLI's
+> success line. `operator-models` is deployed to both. **Prod has neither** —
+> apply 0031 and deploy the function there when you are ready.
+> Staging was migrated before the push deliberately: `feat/multi-user-v1`
+> auto-deploys the **STAGING-backed** beta host, and without the tables the new
+> Models surfaces render "no models available" — honest, but it reads as broken.
 
 ---
 
@@ -360,9 +361,10 @@ fix time.
   > the same code staging passed on". Whether dev now forwards the fields is
   > INFERRED — confirming it needs `PROBE_USERNAME`/`PROBE_PASSWORD`, so it is
   > Audrey's to run: `node scripts/probes/ai-models.mjs --dev`.
-- **Deploy `operator-models` to staging and prod.** On wilson-dev already
-  (401 unauthenticated, 405 on GET — measured). The operator console's Models
-  section shows "not deployed in this environment yet" until it lands.
+- **Deploy `operator-models` to prod.** On dev and staging already (401
+  unauthenticated, 405 on GET — measured on both). The operator console's
+  Models section shows "not deployed in this environment yet" until it lands.
+- **Apply migration 0031 to prod.** dev and staging are done and verified.
 - ~~Upload  +  to dev and prod.~~ **DONE** —
   Audrey confirmed 2026-08-02 that both templates are in place on all three
   projects. Never ; they are pasted by hand.
