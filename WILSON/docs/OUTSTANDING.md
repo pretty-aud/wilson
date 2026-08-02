@@ -50,44 +50,6 @@ RLS.
 
 ## Broken features
 
-### wilson-dev auth config was overwritten by an accidental `config push`
-**MEASURED.** S19 (2026-08-02). A `node -e "…"` command written with double
-quotes contained escaped backticks; bash evaluated them anyway and executed
-`supabase config push` against **wilson-dev**, twice. The `[Y/n]` prompts got
-no stdin and defaulted to yes.
-
-Confirmed applied: on the second run the auth diff had shrunk to one line, so
-everything in the first diff was already written.
-
-| Setting | Was (restore to this) | Now |
-|---|---|---|
-| `site_url` | `http://localhost:3000` | `http://localhost:5203` |
-| `additional_redirect_urls` | `[]` | `["http://localhost:5203"]` |
-| `enable_signup` | `true` | `false` |
-| `mfa.totp.enroll_enabled` | `true` | `false` |
-| `mfa.totp.verify_enabled` | `true` | `false` |
-| `email.enable_signup` | `true` | `false` |
-| `email.enable_confirmations` | `true` | `false` |
-| `email.max_frequency` | `1m0s` | `1s` |
-| `email.otp_length` | `8` | `6` |
-
-**`smtp.enabled` was NOT applied** — it still showed `true → false` as a
-pending diff on the second run, so hosted Resend email on dev is intact. That
-was the specific catastrophe the "never config push" warning exists to prevent,
-and it did not happen.
-
-The three email templates were overwritten with **byte-identical content**
-(CRLF vs LF only), so nothing was lost there.
-
-**Only wilson-dev.** Staging and prod were never targeted.
-
-→ Restore by hand at
-`https://supabase.com/dashboard/project/eqjzmnvkrakroyqxfsvw/auth/providers`
-and the URL-configuration page. `site_url` matters most: the invite and
-recovery templates build their links from `{{ .SiteURL }}`.
-**Do not fix this with the CLI** — that means running the command that caused
-it. **Audrey's action.**
-
 ### `rate_cards.type` does not exist in the cloud schema
 **MEASURED (S18).** Queried staging — the column is absent. `useRateCard.js`
 reads and writes `c.type === 'general' | 'internal'`, so the whole
@@ -161,11 +123,17 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
-| S19 (2026-08-02) | staging `service_role` exposure; **wilson-dev auth config overwritten** by an accidental `config push` | **email templates** — confirmed by Audrey on all three projects, both invite and recovery. The entry was seeded from a stale S18 note; dev was already correct when this file was written. |
+| S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 
-Both S19 additions are the same root cause: **a shell command built by string
+Both S19 additions were the same root cause: **a shell command built by string
 interpolation, where the content was not safe for the shell.** The first
 printed a `service_role` key into a transcript because a `grep -v` filter
 assumed line-per-key JSON; the second ran `supabase config push` because bash
 evaluated backticks inside a double-quoted `node -e`. Neither was a reasoning
 error — both were quoting. See the standing rule in `MASTER_PLAN.md`.
+
+One lesson from closing the second one, worth keeping: **the push diff showed
+what it attempted, not what it changed.** Of nine settings listed, only two
+were actually off when checked — `Enable email provider` and TOTP. Site URL,
+OTP length, signup and confirm-email were all still original. Reading the live
+state first would have replaced a nine-row restore list with a two-row one.
