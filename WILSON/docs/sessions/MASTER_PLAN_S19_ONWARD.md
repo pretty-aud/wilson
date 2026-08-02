@@ -331,6 +331,12 @@ fix time.
 
 ## Standing rules for these sessions
 
+0. **Read `docs/OUTSTANDING.md` before planning anything.** It is everything
+   currently known to be broken, in one place. Several entries are REPORTED
+   rather than diagnosed — starting to code against one of those is fixing a
+   guess, which is rule 1 in a different costume. It is also the fastest way
+   to see whether what you are about to build sits on top of something already
+   broken.
 1. **A theory earns a measurement, never a commit.**
    (`feedback_prove_before_acting.md`.) Label everything measured / inferred /
    guessed — Audrey reads these as claims and acts on them.

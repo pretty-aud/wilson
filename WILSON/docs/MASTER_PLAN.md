@@ -58,6 +58,13 @@ Core capabilities of v1.0.0:
 > as a release gate. This section is the plan's *summary* of it — deliberately
 > shorter, and it defers to the handbook wherever the two differ.
 >
+> **The handbook describes what is meant to happen. `docs/OUTSTANDING.md` lists
+> what currently does not** — everything known broken and unfixed, tagged
+> MEASURED / REPORTED / INFERRED. Read it at the start of every session
+> (rule 1) and update it at the end (rule 2). The two are complements: taking
+> the handbook as a description of live behaviour, without the outstanding
+> list, is how a session ends up building on something already broken.
+>
 > One caveat learned in S17: the handbook is not automatically right either.
 > Its §15 Vitest count was stale where this plan's was correct. Where they
 > disagree, **check the code** — do not sync one to the other mechanically.
@@ -1577,7 +1584,12 @@ Legend: ✅ done · 🔶 partial · ⬜ planned (session #) · ❓ needs in-app 
 ## 8. Operating rituals (standing rules for every session)
 
 1. **First tool call of a session:** `git status` on `feat/multi-user-v1` —
-   confirm clean, read the prior session's commit. No code before that.
+   confirm clean, read the prior session's commit. No code before that. Then
+   read **`docs/OUTSTANDING.md`** — everything currently known to be broken,
+   in one place. Read it *before* planning, not after: several entries are
+   REPORTED rather than diagnosed, and a session that starts coding against
+   one of those is fixing a guess. It is also the fastest way to notice that
+   the thing you are about to build sits on top of something already broken.
 2. **Close-out ritual:** feature commit → CI green → deploy migrations
    dev → staging → prod (dry-run before each) → re-link Supabase CLI to
    `wilson-dev` → write `docs/sessions/SESSION_NN+1_prompt.md` → **update this
