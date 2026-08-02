@@ -3,6 +3,7 @@ import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, 
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
 import { callAI } from '../../cloud/aiProxy';
 import { modelFor, tuningFor } from '../../lib/activeModel';
+import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -4626,6 +4627,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
                         <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4660,6 +4662,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
                         <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4699,6 +4702,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.theme_prompt && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
                         <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4801,6 +4805,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_api_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
                         <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>

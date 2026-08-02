@@ -114,6 +114,24 @@ export function clearModelWarnings() {
  * @param {string} key a REGISTRY key — see `aiModels.js`
  * @returns {string} a model id that is safe to send
  */
+/**
+ * What this function WOULD resolve to if the user had chosen nothing — the
+ * workspace/platform/built-in answer, ignoring the user tier.
+ *
+ * The settings picker needs this and cannot get it from `modelFor`: once an
+ * override is set, `modelFor` returns the override, so a picker using it to
+ * label the default showed people their own choice as the thing they had
+ * replaced ("overridden — was Opus 5" when Opus 5 was the new value).
+ *
+ * Deliberately not `BUILTIN[entry.tier]` — that is only right today because
+ * the workspace and platform tiers are empty. S20 fills them, and this keeps
+ * answering the question that was actually asked.
+ */
+export function defaultModelFor(key) {
+  const { user: _ignored, ...withoutUser } = sources
+  return resolveModel(key, withoutUser).model
+}
+
 export function modelFor(key) {
   const { model, warning } = resolveModel(key, sources)
   if (warning) {

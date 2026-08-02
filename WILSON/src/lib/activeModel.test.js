@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { BUILTIN, REGISTRY, EFFORT_LEVELS } from './aiModels'
 import {
-  modelFor, tuningFor, setModelSources, getModelSources,
+  modelFor, defaultModelFor, tuningFor, setModelSources, getModelSources,
   subscribeModelWarnings, getModelWarnings, dismissModelWarning, clearModelWarnings,
 } from './activeModel'
 
@@ -100,6 +100,31 @@ describe('modelFor', () => {
     modelFor('otter.course')
     expect(getModelWarnings().map((w) => w.key).sort())
       .toEqual(['dog.fullDeck', 'otter.course'])
+  })
+})
+
+describe('defaultModelFor', () => {
+  it('ignores the user tier so the picker can name the real default', () => {
+    // The bug this exists to prevent: the settings picker used modelFor() to
+    // label the default, so after choosing Opus 5 it read "overridden — was
+    // Opus 5". It was showing people their own choice as what they replaced.
+    setModelSources({ user: { 'dog.fullDeck': 'claude-opus-5' } })
+    expect(modelFor('dog.fullDeck')).toBe('claude-opus-5')
+    expect(defaultModelFor('dog.fullDeck')).toBe(BUILTIN.REASONING)
+  })
+
+  it('still honours the tiers above the user', () => {
+    // Not the same as reading BUILTIN[tier] — that only looks correct while
+    // workspace and platform are empty, which stops being true in S20.
+    setModelSources({
+      workspace: { 'dog.fullDeck': 'claude-sonnet-4-6' },
+      user: { 'dog.fullDeck': 'claude-opus-5' },
+    })
+    expect(defaultModelFor('dog.fullDeck')).toBe('claude-sonnet-4-6')
+  })
+
+  it('equals the effective model when the user has chosen nothing', () => {
+    expect(defaultModelFor('dog.themes')).toBe(modelFor('dog.themes'))
   })
 })
 

@@ -269,6 +269,27 @@ export function modelsInUse(sources = {}) {
   return out
 }
 
+/**
+ * Models a user may pick from in the settings panel.
+ *
+ * ⚠️ PLACEHOLDER. Decision D4 says the catalogue is operator-curated: WILSON's
+ * operator approves models, and admins and users choose from that list. S20
+ * builds `platform_approved_models` and this constant goes away — the picker
+ * will read the catalogue instead. Until then this hardcoded list is what the
+ * dropdown offers, so keep it short and keep it to models that are known good.
+ *
+ * `sonnet-5` and `haiku-4-5` are MEASURED working through ai-proxy (S19 probe);
+ * `sonnet-4-6` too. `opus-5` is documented current but was not probed — it is
+ * offered because it is the obvious "make it better" choice, and a bad model id
+ * degrades loudly through resolveModel() rather than failing silently.
+ */
+export const SELECTABLE_MODELS = Object.freeze([
+  { id: 'claude-opus-5', label: 'Opus 5', hint: 'Most capable. Slowest and dearest.' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', hint: 'The default for heavier work.' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'Previous generation. Does not think by default.' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', hint: 'Fastest and cheapest. The default for light work.' },
+])
+
 /** The five effort levels Anthropic accepts. Anything else is a typo. */
 export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])
 
