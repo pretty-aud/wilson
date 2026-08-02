@@ -147,5 +147,10 @@ verify_jwt = false
 [functions.operator-ai-keys]
 verify_jwt = false
 
+# Session 20: the model control plane's write path. Same operatorGuard,
+# same gateway opt-out rationale.
+[functions.operator-models]
+verify_jwt = false
+
 [analytics]
 enabled = false

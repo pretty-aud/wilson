@@ -11,6 +11,7 @@ import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { modelFor } from './lib/activeModel'
+import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
 import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
@@ -301,6 +302,29 @@ export default function App() {
           });
         }
       } catch { /* non-fatal; user can still use the app without onboarding */ }
+    })();
+    return () => { cancelled = true; };
+  }, [authed]);
+
+  // Session 20: fill the three model override tiers from Supabase once there is
+  // a session, and move any S19 localStorage preferences into the user tier.
+  //
+  // main.jsx has already applied the cached tiers synchronously, so this is a
+  // refresh rather than the first fill — which matters because resolution is
+  // synchronous and a generation fired before this resolves would otherwise
+  // fall through to the built-in floor and say nothing about it.
+  //
+  // Deliberately non-fatal: if these reads fail the app keeps the cached tiers
+  // and keeps generating. A catalogue outage must not become an AI outage.
+  useEffect(() => {
+    if (!authed) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await migrateLegacyUserModelPrefs();
+        if (cancelled) return;
+        await loadModelSources();
+      } catch { /* cached tiers stand; never block generation on this */ }
     })();
     return () => { cancelled = true; };
   }, [authed]);

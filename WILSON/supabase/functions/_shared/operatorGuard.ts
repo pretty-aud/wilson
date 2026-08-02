@@ -134,6 +134,12 @@ export async function requirePlatformOperator(req: Request): Promise<GuardResult
 // snapshot is what keeps a certificate readable once the workspace row is
 // gone; pass them from the row you read BEFORE the delete.
 
+// Keep in step with the CHECK on platform_audit.action (0028, extended by
+// 0031). Session 20 found this union had drifted: it was missing
+// 'operator.granted' and 'operator.revoked', which 0028 has allowed since S15.
+// Nothing logged them, so the drift was inert — but a union that is narrower
+// than the constraint silently makes a valid action unloggable from TypeScript,
+// which is a trap rather than a safety net.
 export type PlatformAuditFields = {
   action:
     | 'workspace.created'
@@ -144,6 +150,14 @@ export type PlatformAuditFields = {
     | 'blob.purged'
     | 'ai_key.set'
     | 'ai_key.cleared'
+    | 'operator.granted'
+    | 'operator.revoked'
+    // Session 20 — the model control plane
+    | 'model.approved'
+    | 'model.retired'
+    | 'model.restored'
+    | 'model.default_set'
+    | 'model.default_cleared'
   message: string
   workspaceId?: string | null
   workspaceSlug?: string | null

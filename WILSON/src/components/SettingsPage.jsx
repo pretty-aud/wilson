@@ -18,6 +18,7 @@ import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
 import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
+import UserModelsSection from './settings/UserModelsSection'
 
 
 export default function SettingsPage({
@@ -263,9 +264,14 @@ export default function SettingsPage({
     persistDepartments(departments.map(d => d === oldName ? trimmed : d))
   }
 
+  // Session 20: Models is its own tab rather than a block inside General.
+  // 28 functions grouped by tool is a screenful, and burying the only place
+  // that answers "why is this function using that model?" under a scroll is
+  // how the last outage stayed invisible for 47 days.
   const tabs = [
     { key: 'general', label: 'General' },
     { key: 'profile', label: 'Profile' },
+    { key: 'models',  label: 'Models' },
     { key: 'rabbit',  label: 'RABBIT' },
     { key: 'teams',   label: 'Teams' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
@@ -308,6 +314,11 @@ export default function SettingsPage({
               <MfaSecuritySection />
             </>
           )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  MODELS TAB (Session 20 — the user tier of the cascade)    */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'models' && <UserModelsSection />}
 
           {/* ═══════════════════════════════════════════════════════════ */}
           {/*  GENERAL TAB                                              */}

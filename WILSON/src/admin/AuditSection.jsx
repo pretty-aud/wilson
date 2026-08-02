@@ -52,6 +52,15 @@ const ACTIONS = [
   ['blob.purged', 'Blobs purged'],
   ['ai_key.set', 'AI key set'],
   ['ai_key.cleared', 'AI key cleared'],
+  // Session 20 — the model control plane. These must stay in step with the
+  // CHECK on platform_audit.action (0028, extended by 0031) and with
+  // PlatformAuditFields in _shared/operatorGuard.ts. A filter that omits an
+  // action does not error; it just quietly hides those rows.
+  ['model.approved', 'Model approved'],
+  ['model.retired', 'Model retired'],
+  ['model.restored', 'Model restored'],
+  ['model.default_set', 'Default set'],
+  ['model.default_cleared', 'Default cleared'],
 ]
 
 // PostgREST codes for "relation does not exist" — migration not deployed here

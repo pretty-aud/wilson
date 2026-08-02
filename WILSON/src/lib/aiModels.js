@@ -87,7 +87,19 @@ export const REGISTRY = [
   // budget spare that a deck finishes in a single call. Disabling thinking
   // outright was faster still but cost three slides, and Anthropic's guidance
   // for this model prefers lowering effort over switching thinking off.
-  { key: 'dog.fullDeck',        tool: 'D.O.G.', tier: 'REASONING', fn: 'generateFullDeck', effort: 'medium',
+  //
+  // `carriesEffort` marks a call site that actually SPREADS `tuningFor(key)`
+  // into its request body. Session 20 added it because the operator console
+  // offers an effort control, and offering one for a function whose call path
+  // drops the field would be a setting that visibly does nothing — the exact
+  // class of silent no-op this module exists to eliminate.
+  //
+  // Today exactly one call site qualifies: DeckOutlineGenerator.jsx:1752.
+  // O.T.T.E.R.'s callAnthropicAPI wrapper and R.A.B.B.I.T.'s intake pipeline
+  // build their bodies without it, so setting effort for those would be
+  // stored, displayed, and ignored. Set this flag ONLY when you have added the
+  // `...tuningFor(key)` spread to that function's request body.
+  { key: 'dog.fullDeck',        tool: 'D.O.G.', tier: 'REASONING', fn: 'generateFullDeck', effort: 'medium', carriesEffort: true,
     label: 'Full deck outline',        hint: 'Generates a complete multi-slide deck. The heaviest call in D.O.G. — it can run up to 3 continuation requests for a long deck.' },
   { key: 'dog.pageOutline',     tool: 'D.O.G.', tier: 'REASONING', fn: 'generatePageOutline',
     label: 'Single page outline',      hint: 'Generates one slide from the project documentation.' },
@@ -269,26 +281,17 @@ export function modelsInUse(sources = {}) {
   return out
 }
 
-/**
- * Models a user may pick from in the settings panel.
- *
- * ⚠️ PLACEHOLDER. Decision D4 says the catalogue is operator-curated: WILSON's
- * operator approves models, and admins and users choose from that list. S20
- * builds `platform_approved_models` and this constant goes away — the picker
- * will read the catalogue instead. Until then this hardcoded list is what the
- * dropdown offers, so keep it short and keep it to models that are known good.
- *
- * `sonnet-5` and `haiku-4-5` are MEASURED working through ai-proxy (S19 probe);
- * `sonnet-4-6` too. `opus-5` is documented current but was not probed — it is
- * offered because it is the obvious "make it better" choice, and a bad model id
- * degrades loudly through resolveModel() rather than failing silently.
- */
-export const SELECTABLE_MODELS = Object.freeze([
-  { id: 'claude-opus-5', label: 'Opus 5', hint: 'Most capable. Slowest and dearest.' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5', hint: 'The default for heavier work.' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', hint: 'Previous generation. Does not think by default.' },
-  { id: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5', hint: 'Fastest and cheapest. The default for light work.' },
-])
+// SELECTABLE_MODELS lived here in S19 and is GONE as of Session 20.
+//
+// It was a hardcoded list of four ids, marked PLACEHOLDER in its own comment,
+// and it was the only thing the picker could offer. D4 says the catalogue is
+// operator-curated, so the list now lives in `platform_approved_models`
+// (migration 0031) and is read through `modelSources.js`. Its four entries were
+// seeded into that table by the migration, so nothing was lost in the move.
+//
+// Do not reintroduce a constant here. A second, code-side list is precisely how
+// the catalogue and the pickers would drift apart, and the drift would be
+// invisible: both would look right in isolation.
 
 /** The five effort levels Anthropic accepts. Anything else is a typo. */
 export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max'])

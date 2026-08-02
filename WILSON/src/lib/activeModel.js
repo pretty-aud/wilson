@@ -35,11 +35,48 @@
 // Extension included deliberately. Vite resolves the extensionless form, plain
 // Node's ESM loader does not — and scripts/probes/ import this module directly
 // so a probe tests the registry the app actually ships rather than a copy of it.
-import { resolveModel, tuningFor } from './aiModels.js'
+import { resolveModel, tuningFor as builtinTuningFor, EFFORT_LEVELS } from './aiModels.js'
 
-// Re-exported so a call site needs exactly one import to build a request body:
-//   { model: modelFor(k), ...tuningFor(k), max_tokens, system, messages }
-export { tuningFor }
+// ── Effort, and why it is not a fourth entry in `sources` ────────────────────
+// Session 20. Effort is stored on platform_model_defaults and ONLY there:
+// companies choose the model, the platform chooses how hard it thinks
+// (Audrey, 2026-08-02). ai-proxy streams through an Edge Function and S19
+// measured D.O.G.'s full deck at 137.9s unset against 69.1s at `medium`, so
+// this is a lever with a sharp edge and a company admin cannot see the
+// measurement behind it.
+//
+// It is kept separate from `sources` rather than folded in as a fourth tier
+// because the two are different shapes — `sources` maps a registry key to a
+// MODEL, this maps a registry key to an EFFORT — and merging them would make
+// resolveModel's cascade mean two things at once.
+
+let platformEffort = {}
+
+/** Replace the operator-set effort map. Called by the loader. */
+export function setPlatformEffort(map) {
+  platformEffort = map && typeof map === 'object' ? map : {}
+}
+
+/** Current effort overrides — for the settings surfaces and tests. */
+export function getPlatformEffort() {
+  return platformEffort
+}
+
+/**
+ * Request tuning for one function, preferring the operator's stored value over
+ * the built-in on the REGISTRY entry.
+ *
+ * Exported under the same name S19 used so call sites need exactly one import
+ * to build a request body:
+ *   { model: modelFor(k), ...tuningFor(k), max_tokens, system, messages }
+ */
+export function tuningFor(key) {
+  const stored = platformEffort[key]
+  if (typeof stored === 'string' && EFFORT_LEVELS.includes(stored)) {
+    return { thinking: { type: 'adaptive' }, output_config: { effort: stored } }
+  }
+  return builtinTuningFor(key)
+}
 
 /**
  * Override sources, in resolution order. Empty until S20 builds the stores.
@@ -64,6 +101,51 @@ export function setModelSources(next) {
 /** Current sources — exported for tests and for the S20 settings surfaces. */
 export function getModelSources() {
   return sources
+}
+
+/**
+ * Replace ONE tier, leaving the other two exactly as they were.
+ *
+ * Session 20. `setModelSources` above replaces all three, which was right when
+ * localStorage was the only writer — there was one loader and it knew
+ * everything. There are now three tiers arriving from three queries at three
+ * different moments, and a loader that called `setModelSources({ workspace })`
+ * would silently wipe the user's own choices on the way past. That failure is
+ * invisible: resolution simply falls through to the next tier and generates
+ * happily with the wrong model.
+ *
+ * @param {'user'|'workspace'|'platform'} tier
+ * @param {Record<string,string>|null} map  registry key -> model id
+ */
+export function updateModelSource(tier, map) {
+  if (tier !== 'user' && tier !== 'workspace' && tier !== 'platform') {
+    throw new Error(`updateModelSource: unknown tier "${tier}"`)
+  }
+  sources = { ...sources, [tier]: map ?? null }
+}
+
+// ── Load state ───────────────────────────────────────────────────────────────
+// The workspace and platform tiers come from Supabase, so there is a window
+// between app start and their arrival during which resolution falls through to
+// the built-in floor and reports NO warning — an absent tier is not a
+// misconfigured one, so resolveModel has nothing to complain about.
+//
+// The cache in `modelSources.js` closes that window in the normal case by
+// hydrating synchronously from the last known good values. This flag exists so
+// a surface that genuinely needs to know (the settings panel, which would
+// otherwise draw "inherited from: built-in" for every row on first paint) can
+// tell "nothing is configured" from "nothing has loaded yet".
+
+let loaded = false
+
+/** True once a real load has completed at least once this session. */
+export function areModelSourcesLoaded() {
+  return loaded
+}
+
+/** Called by the loader when the three tiers have been read from the database. */
+export function markModelSourcesLoaded(value = true) {
+  loaded = Boolean(value)
 }
 
 // ── Warning store ────────────────────────────────────────────────────────────

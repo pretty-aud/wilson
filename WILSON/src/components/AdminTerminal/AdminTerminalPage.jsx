@@ -20,7 +20,7 @@
 
 import { useState } from 'react'
 import {
-  Users, Building2, ScrollText, Activity, Lock, Terminal, GitPullRequestArrow,
+  Users, Building2, ScrollText, Activity, Lock, Terminal, GitPullRequestArrow, Cpu,
 } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
@@ -29,14 +29,21 @@ import CompanySection from './CompanySection'
 import LogsSection from './LogsSection'
 import DiagnosticsSection from './DiagnosticsSection'
 import ChangeRequestsSection from './ChangeRequestsSection'
+import ModelsSection from './ModelsSection'
 
 // Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
 // Serial Position keeps the two most-used sections at the ends: Users first,
 // Diagnostics last. Requests sits next to Company because deciding what the
 // company's standard courses say is company administration.
+//
+// Session 20 adds a sixth — still inside 7±2. Models sits beside Company for
+// the same reason Requests does: choosing which model the whole company
+// generates on is company administration, not a per-user preference. The
+// per-user one lives in SYSTEM SETTINGS and beats this.
 const NAV = [
   { key: 'users', label: 'Users', icon: Users },
   { key: 'company', label: 'Company', icon: Building2 },
+  { key: 'models', label: 'Models', icon: Cpu },
   { key: 'requests', label: 'Requests', icon: GitPullRequestArrow },
   { key: 'logs', label: 'Logs', icon: ScrollText },
   { key: 'diagnostics', label: 'Diagnostics', icon: Activity },
@@ -108,6 +115,9 @@ function AdminTerminalBody({ workspaceId }) {
           </div>
           <div className="h-full min-h-0 overflow-y-auto wilson-light-scroll" style={{ display: section === 'company' ? 'block' : 'none' }}>
             <CompanySection isActive={section === 'company'} wm={wm} />
+          </div>
+          <div className="h-full min-h-0" style={{ display: section === 'models' ? 'block' : 'none' }}>
+            <ModelsSection isActive={section === 'models'} />
           </div>
           <div className="h-full min-h-0" style={{ display: section === 'requests' ? 'block' : 'none' }}>
             <ChangeRequestsSection isActive={section === 'requests'} />

@@ -45,6 +45,11 @@ const FRIENDLY = {
   encrypt_failed: 'Could not encrypt the key — nothing was stored.',
   bad_json: 'Malformed request.',
   method_not_allowed: 'Malformed request.',
+  // Session 20 — the model catalogue.
+  model_rejected: 'Anthropic does not recognise that model ID — nothing was saved.',
+  model_not_approved: 'That model is not in the approved catalogue.',
+  model_retired: 'That model is retired — restore it before making it a default.',
+  read_failed: 'Could not read the model catalogue. Try again in a moment.',
 }
 
 async function callOperatorFn(name, body) {
@@ -125,6 +130,65 @@ export function setWorkspaceAiKey(workspaceId, apiKey) {
 
 export function clearWorkspaceAiKey(workspaceId) {
   return callOperatorFn('operator-ai-keys', { action: 'clear', workspace_id: workspaceId })
+}
+
+// ── Session 20: the model control plane ──────────────────────────────────────
+// These go through an Edge Function rather than PostgREST for a reason worth
+// stating: migration 0031 gives platform_approved_models and
+// platform_model_defaults NO write policy and revokes the write privileges, so
+// there is no direct path even for an operator. That is what makes the
+// Anthropic validation below non-optional instead of a courtesy.
+
+/** The catalogue plus every platform default, in one call. */
+export function listModels() {
+  return callOperatorFn('operator-models', { action: 'list' })
+}
+
+/**
+ * Add a model to the catalogue, or update one that is already there.
+ *
+ * The server validates the id against Anthropic first: a 404 is refused
+ * outright, while a rate limit or an outage is inconclusive and saves the row
+ * marked `unverified` rather than rejecting a model that is probably fine.
+ * The result's `validated` says which happened.
+ */
+export function approveModel({ modelId, label, hint, sortOrder }) {
+  return callOperatorFn('operator-models', {
+    action: 'approve',
+    model_id: modelId,
+    label,
+    hint: hint || '',
+    sort_order: typeof sortOrder === 'number' ? sortOrder : 100,
+  })
+}
+
+/**
+ * Retire (or restore) a model. Always soft — the row stays, so a company that
+ * had already selected it keeps generating. The response reports how many
+ * workspace and user overrides still point at it.
+ */
+export function setModelRetired(modelId, retired) {
+  return callOperatorFn('operator-models', {
+    action: retired ? 'retire' : 'restore',
+    model_id: modelId,
+  })
+}
+
+/** Pin the platform default for one function. Empty model = built-in floor. */
+export function setPlatformDefault({ registryKey, modelId, effort }) {
+  return callOperatorFn('operator-models', {
+    action: 'set_default',
+    registry_key: registryKey,
+    model_id: modelId || '',
+    effort: effort || '',
+  })
+}
+
+export function clearPlatformDefault(registryKey) {
+  return callOperatorFn('operator-models', {
+    action: 'clear_default',
+    registry_key: registryKey,
+  })
 }
 
 /** True when the function isn't deployed in this environment yet. */

@@ -29,15 +29,21 @@
 // =============================================================================
 
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, ScrollText, LogOut } from 'lucide-react'
+import { Building2, ScrollText, LogOut, Cpu } from 'lucide-react'
 import { supabase, hydrateSupabase } from '../cloud/auth/supabaseClient'
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
 import OperatorLogin from './OperatorLogin'
 import CompaniesSection from './CompaniesSection'
 import AuditSection from './AuditSection'
+import ModelsSection from './ModelsSection'
 
+// Three now, not two. The Miller's Law note in the header still holds — the
+// count is deliberate — but Models earns its place: it is the only surface in
+// WILSON where a model can be added, and D4 makes it the source every company's
+// picker reads from. It destroys nothing, which is why it sits below Companies.
 const NAV = [
   { key: 'companies', label: 'Companies', icon: Building2 },
+  { key: 'models', label: 'Models', icon: Cpu },
   { key: 'audit', label: 'Audit', icon: ScrollText },
 ]
 
@@ -210,6 +216,12 @@ export default function OperatorApp() {
               style={{ display: section === 'companies' ? 'block' : 'none' }}
             >
               <CompaniesSection isActive={section === 'companies'} />
+            </div>
+            <div
+              className="h-full min-h-0 overflow-y-auto wilson-light-scroll"
+              style={{ display: section === 'models' ? 'block' : 'none' }}
+            >
+              <ModelsSection isActive={section === 'models'} />
             </div>
             <div
               className="h-full min-h-0 overflow-y-auto wilson-light-scroll"
