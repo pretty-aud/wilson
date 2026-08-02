@@ -120,19 +120,61 @@ function ask(question, { hidden = false } = {}) {
 
 let token = null
 
+// Hard ceiling per generation. `fetch` has no default timeout, so without this
+// a stalled connection hangs the probe forever with no way to tell that from a
+// slow deck. 240s is above ai-proxy's own ~150s Edge deadline on purpose: if
+// the Edge function gives up first, that is itself the finding.
+const TIMEOUT_MS = 240_000
+
 /** Reassemble the SSE stream the way src/cloud/anthropicStream.js does. */
-async function generate(body) {
+async function generate(body, label = '') {
   const started = Date.now()
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/ai-proxy`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      apikey: ANON_KEY,
-      authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify(body),
-  })
-  const raw = await res.text()
+  const elapsed = () => ((Date.now() - started) / 1000).toFixed(0)
+
+  let res
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/ai-proxy`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        apikey: ANON_KEY,
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    })
+  } catch (err) {
+    const why = err?.name === 'TimeoutError'
+      ? `no response in ${TIMEOUT_MS / 1000}s`
+      : (err?.message || String(err))
+    return { ok: false, status: 0, type: 'timeout', message: why, seconds: elapsed() }
+  }
+
+  // Read the stream as it arrives and show it moving. A 16k-token generation
+  // with thinking on runs for minutes; a probe that prints nothing until it
+  // finishes is indistinguishable from one that has hung, which is how the
+  // first Block E run looked.
+  let raw = ''
+  if (res.status === 200 && res.body) {
+    const decoder = new TextDecoder()
+    let lastTick = 0
+    for await (const chunk of res.body) {
+      raw += decoder.decode(chunk, { stream: true })
+      const now = Date.now()
+      if (now - lastTick > 1000) {
+        lastTick = now
+        const thinkingNow = raw.includes('"type":"thinking"')
+        process.stdout.write(
+          `${DIM} ..  ${label} — ${elapsed()}s, ${(raw.length / 1024).toFixed(0)}kb`
+          + `${thinkingNow ? ', thinking' : ''}          ${RESET}\r`,
+        )
+      }
+    }
+    raw += decoder.decode()
+  } else {
+    raw = await res.text()
+  }
+  process.stdout.write(`${' '.repeat(72)}\r`)
   const seconds = ((Date.now() - started) / 1000).toFixed(1)
 
   if (res.status !== 200) {
@@ -321,7 +363,7 @@ async function main() {
   for (const c of CASES) {
     process.stdout.write(`${DIM} ..  ${c.name}${RESET}\r`)
     // Resolve the model here, from the registry, exactly as the call site does.
-    const r = await generate({ ...c.body, model: modelFor(c.key) })
+    const r = await generate({ ...c.body, model: modelFor(c.key) }, c.name)
 
     if (!r.ok) {
       console.log(`${RED} FAIL ${RESET} ${c.name.padEnd(30)} ${r.status} ${r.type}`)
