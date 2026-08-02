@@ -56,8 +56,17 @@ const die = (msg) => { console.error(`${RED}FAIL${RESET} ${msg}`); process.exit(
 
 // ── Config ───────────────────────────────────────────────────────────────────
 
+// `--staging` / `--dev` pick which env file to read. This exists because
+// pasting a long anon key into PowerShell loses its quotes, and the shell then
+// tries to run the key as a command — a failure that looks nothing like the
+// copy/paste problem it is. Choosing a file needs no quoting at all.
+const ARG_ENV = process.argv.includes('--staging') ? '.env.staging'
+  : process.argv.includes('--dev') ? '.env.development'
+  : null
+
 function loadEnvFile() {
-  for (const name of ['.env.local', '.env.development']) {
+  const candidates = ARG_ENV ? [ARG_ENV] : ['.env.local', '.env.development']
+  for (const name of candidates) {
     const path = join(ROOT, name)
     if (!existsSync(path)) continue
     const out = {}
