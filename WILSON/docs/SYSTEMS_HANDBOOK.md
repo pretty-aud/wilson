@@ -802,6 +802,7 @@ only matter if someone **replays a migration by hand**:
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
 | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
+| `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
 ordering rule.
@@ -2050,11 +2051,14 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 38 suites under `supabase/tests/rls/`, 605 assertions, run in CI
+**pgTAP** — 42 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+per model control-plane table; the CI coverage guard globs `*_<table>.sql`, so a
+table cannot share a suite file with another), **624 assertions** — run in CI
 against a fresh local stack. Coverage spans the 13 RABBIT tables, membership
 and provisioning, the member directory, edit history, project members, soft
 delete, both realtime channels, admin grants, `app_events`, the five O.T.T.E.R.
-tables plus trash and change-request apply, the file lifecycle, and the four
+tables plus trash and change-request apply, the file lifecycle, the four
+model control-plane tables, and the four
 Session-15 suites (AI keys, platform audit, rate limits, workspace write
 lockdown).
 

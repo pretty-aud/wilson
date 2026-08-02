@@ -174,27 +174,61 @@ lives on the REGISTRY entry via `tuningFor(key)`, with the numbers beside it.
 
 ---
 
-### S20 — The model control plane
+### S20 — The model control plane ✅ COMPLETE (2026-08-02, `6e422d2`)
 
 **Goal: Audrey adds a model in one place, and every company can use it.**
 
-| Block | Work |
-|---|---|
-| A | Migration 0032: `platform_approved_models` (operator-curated catalogue), `platform_model_defaults`, `workspace_model_overrides`. RLS per D4 — companies **read** the catalogue, only `platform_operators` writes it. Follows the `workspace_ai_keys` precedent (S15). |
-| B | Edge Function `operator-models`: add / retire / list approved models. **Validation before save (D5)** reuses the proven `validateKey` call shape — a 1-token `POST /v1/messages` on the candidate model. **404 = refuse; 429/5xx/network = inconclusive, do not treat as invalid.** That last clause is copied deliberately from `operator-ai-keys`: refusing a good model because Anthropic was briefly busy is its own bug. |
-| C | Operator console: manage the catalogue (free text + validate), set the 28 platform defaults. |
-| D | Admin Terminal: company admin overrides, **picker restricted to the approved catalogue**. |
-| E | `SYSTEM SETTINGS`: per-user overrides, same restricted picker, showing which tier each value is inherited from. |
-| F | pgTAP suite 39 for the new RLS. |
+| Block | Work | Status |
+|---|---|---|
+| A ✅ | **Migration 0031** — `platform_approved_models`, `platform_model_defaults`, `workspace_model_overrides`, **and `user_model_overrides`**. | Done |
+| B ✅ | Edge Function `operator-models`: list / approve / retire / restore / set_default / clear_default, with D5 validation. | Done, deployed to dev |
+| C ✅ | Operator console → **Models**: catalogue (free text + validate) and the 28 platform defaults. | Done |
+| D ✅ | Admin Terminal → **Models**: company overrides from a restricted picker. | Done |
+| E ✅ | `SYSTEM SETTINGS` → **Models** tab: per-user overrides showing the inherited tier, plus `modelSources.js` and the localStorage migration. | Done |
+| F ✅ | pgTAP **39–42**, one per table. | 42/42 suites |
 
-**Exit:** operator adds a model → it appears in every company's picker.
-An admin's override beats the platform default; a user's beats the admin's.
-A non-operator cannot write the catalogue — proven by pgTAP, not by inspection.
+**Exit criteria met.** 42/42 pgTAP (`collected == planned` in each; was 38
+suites, +55 assertions), 472 vitest (was 454), both vite entries build clean.
+
+#### Five things this plan got wrong, found before they cost anything
+
+| The plan said | What was true |
+|---|---|
+| "Migration 0032" | There is no 0031 — the chain ran 0000–0030 contiguously. Numbered **0031** (Audrey's call). |
+| Three tables | **Four.** Block E says "migrate `userModelPrefs` into the user tier" and Block A never listed a user table. It had nowhere to land. |
+| "pgTAP suite 39" (singular) | CI's coverage guard globs `supabase/tests/rls/*_<table>.sql`, so four tables need **four files**. One suite cannot satisfy it. The hardcoded failure-replay list at `rls.yml:112` needed extending too — S17's own comment records suites 33–38 failing **invisibly** for exactly that reason. |
+| "reuses the proven `validateKey` call shape" | The **body** is the same; the **status handling is inverted**. `validateKey` validates a KEY and returns ok for anything that is not 401/403 — *including a 404* — because an unknown model with a good key still proves the key works. Validating a MODEL makes 404 the refuse signal. Copying it wholesale would have made D5 accept every typo. |
+| "Follows the `workspace_ai_keys` precedent" in the same sentence as "companies **read** the catalogue" | Incompatible. `workspace_ai_keys` is zero-policy, `REVOKE ALL FROM anon, authenticated` — readable by nobody. The catalogue needed the **first unscoped `USING (true)` read policy in the schema**. Stated in 0031's header because it looks like a mistake and is not. |
+
+#### What review caught that testing would not have
+
+- **`setModelSources` replaced all three tiers.** Correct when localStorage was
+  the only writer; with three async loaders a `setModelSources({ workspace })`
+  silently blanks the user's own choices, and nothing complains — resolution
+  just falls through and generates with the wrong model. `updateModelSource`
+  replaces one tier. Proven by breaking it and watching five tests fail.
+- **The async-load window.** `resolveModel` warns when a *configured* model is
+  rejected; an *absent* tier is not a misconfiguration, so it returns
+  `warning: null`. A generation fired before the queries land uses the built-in
+  floor and says nothing. localStorage is now a **cache** hydrated
+  synchronously in `main.jsx`, not the source of truth.
+- **Effort had no delivery path.** `tuningFor(key)` read only the REGISTRY entry
+  and is spread at exactly ONE call site (`DeckOutlineGenerator.jsx:1752`). An
+  operator control for all 28 would have been 27 settings that save, display and
+  do nothing. `carriesEffort` marks the ones that work; `activeModel.tuningFor`
+  now prefers the stored value.
 
 > Why `POST /v1/messages` and not `GET /v1/models/{id}` for validation: the POST
 > shape is already proven in this codebase. The Models API's error semantics for
 > an unknown ID have **not** been verified here. Reusing a proven call beats a
 > plausible one.
+
+> ⚠️ **Migration 0031 is committed and NOT YET APPLIED to any environment.** It
+> has only ever run inside rolled-back transactions against wilson-dev. Apply
+> dev → staging → prod. Note that pushing `feat/multi-user-v1` auto-deploys the
+> **STAGING-backed** beta host, so staging should be migrated at or before the
+> push — the UI degrades honestly without the tables ("no models available")
+> rather than breaking, but it is a bad look.
 
 ---
 
@@ -318,9 +352,17 @@ fix time.
   It bypasses RLS. Dashboard → wilson-staging → Settings → API → Legacy API
   keys → roll `service_role`. The `anon` key beside it is publishable and needs
   nothing. Rolling it updates the Edge Function secrets that read it.
-- **Deploy `ai-proxy` to dev and prod.** S19 taught it to forward `thinking`
-  and `output_config.effort`; only staging has it. Until then D.O.G.'s deck
-  runs at ~138s there instead of ~59s — degraded, not broken.
+- **Deploy `ai-proxy` to prod.** S19 taught it to forward `thinking` and
+  `output_config.effort`. Staging had it; **S20 deployed it to wilson-dev**
+  (2026-08-02). Prod still drops both fields, so D.O.G.'s deck runs at ~138s
+  there instead of ~59s — degraded, not broken.
+  > The dev deploy is MEASURED only as far as "the upload succeeded and it is
+  > the same code staging passed on". Whether dev now forwards the fields is
+  > INFERRED — confirming it needs `PROBE_USERNAME`/`PROBE_PASSWORD`, so it is
+  > Audrey's to run: `node scripts/probes/ai-models.mjs --dev`.
+- **Deploy `operator-models` to staging and prod.** On wilson-dev already
+  (401 unauthenticated, 405 on GET — measured). The operator console's Models
+  section shows "not deployed in this environment yet" until it lands.
 - ~~Upload  +  to dev and prod.~~ **DONE** —
   Audrey confirmed 2026-08-02 that both templates are in place on all three
   projects. Never ; they are pasted by hand.

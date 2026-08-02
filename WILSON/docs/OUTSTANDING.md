@@ -108,6 +108,24 @@ is no in-app way to change a password.
 **MEASURED.** Known #2. Both generate correctly and neither result is
 persisted, so the work is lost on navigation.
 
+### D4 is enforced for stored settings, not for a hand-made request
+**MEASURED (S20).** Migration 0031 FKs both override tables to
+`platform_approved_models`, so an admin or user cannot *persist* an unapproved
+model — verified against wilson-dev, the insert fails on
+`workspace_model_overrides_model_id_fkey`. What is **not** covered: `ai-proxy`
+does not check the requested model against the catalogue, so an authenticated
+user with devtools can POST an arbitrary model id on a one-off request and it
+will be served.
+
+This is a deliberate scope decision (Audrey, 2026-08-02), not an oversight: a
+catalogue read on the path of every AI call turns a database hiccup into an AI
+outage, which is the exact failure class that cost 47 days. D4's stated purpose
+— stopping a company admin putting every generation on the priciest model —
+holds, because that requires *storing* a choice.
+→ Fix if it ever needs to be airtight: check `model` against a cached catalogue
+in `ai-proxy` and 403 on a miss, failing **open** if the catalogue read itself
+fails. Not scheduled.
+
 ### Welcome page has a phantom cursor
 **REPORTED.** A black cursor blinks permanently, unattached to any input, and
 keeps blinking on the right while typing elsewhere. Likely the shared
@@ -124,6 +142,7 @@ Kept so the file's own history is visible without `git log`.
 | Session | Added | Removed |
 |---|---|---|
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
+| S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
 
 Both S19 additions were the same root cause: **a shell command built by string
 interpolation, where the content was not safe for the shell.** The first
