@@ -83,10 +83,43 @@ const { file: envFile, vars: envVars } = loadEnvFile()
 const SUPABASE_URL = process.env.SUPABASE_URL || envVars.VITE_SUPABASE_URL
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || envVars.VITE_SUPABASE_ANON_KEY
 
+// Say where each value actually came from. An env var silently beating the
+// file, while the banner still names the file, turns a stale override into a
+// mystery — and an override is exactly what needs to be visible here.
+const urlFrom = process.env.SUPABASE_URL ? '$env:SUPABASE_URL' : envFile
+const keyFrom = process.env.SUPABASE_ANON_KEY ? '$env:SUPABASE_ANON_KEY' : envFile
+
 if (!SUPABASE_URL || !ANON_KEY) {
   die('No Supabase URL/anon key. Expected VITE_SUPABASE_URL and '
     + 'VITE_SUPABASE_ANON_KEY in .env.local or .env.development, '
     + 'run from the WILSON folder.')
+}
+
+// A key pasted into PowerShell can arrive mangled — quotes stripped, or the
+// characters replaced with bullets by whatever it was copied from. Left alone,
+// that surfaces from deep inside the HTTP stack as
+// "Cannot convert argument to a ByteString", which says nothing about the
+// cause. Headers are ASCII-only, so check here and name the real problem.
+const badChar = [...ANON_KEY].find((ch) => ch.charCodeAt(0) > 126 || ch.charCodeAt(0) < 33)
+if (badChar) {
+  const code = badChar.charCodeAt(0)
+  console.error(`${RED}FAIL${RESET} The anon key from ${keyFrom} is not a usable key.`)
+  console.error(`${DIM}It contains character ${code} (${JSON.stringify(badChar)}), and an API key can`)
+  console.error('only contain plain ASCII. It was mangled on the way in — copied from')
+  console.error('something that displayed it as bullets, or the quotes were stripped.')
+  console.error('')
+  console.error('Fix: stop pasting keys. Open a NEW PowerShell window (which clears the')
+  console.error('bad variable) and run:')
+  console.error(`  node scripts/probes/ai-models.mjs --staging${RESET}`)
+  process.exit(1)
+}
+if (!/^ey[A-Za-z0-9_.-]+$/.test(ANON_KEY) && !ANON_KEY.startsWith('sb_publishable_')) {
+  console.error(`${RED}FAIL${RESET} The anon key from ${keyFrom} doesn't look like a Supabase key.`)
+  console.error(`${DIM}Expected a JWT starting "ey" or an "sb_publishable_" key; got `
+    + `${ANON_KEY.length} chars starting "${ANON_KEY.slice(0, 6)}".`)
+  console.error('Open a new PowerShell window and use: node scripts/probes/ai-models.mjs --staging')
+  console.error(RESET)
+  process.exit(1)
 }
 
 const REASONING = process.env.REASONING_MODEL || 'claude-sonnet-5'
@@ -254,8 +287,8 @@ async function main() {
   // are the same everywhere — so if case 1 fails here, switching environments
   // is the fix, not a reason to distrust the readings.
   const ref = (SUPABASE_URL.match(/https:\/\/([a-z0-9]+)\./) || [])[1] || '?'
-  console.log(`${DIM}Project: ${ref}${envFile ? `  (from ${envFile})` : ''}${RESET}`)
-  console.log(`${DIM}To use a different one: $env:SUPABASE_URL / $env:SUPABASE_ANON_KEY${RESET}`)
+  console.log(`${DIM}Project: ${ref}  (url from ${urlFrom}, key from ${keyFrom})${RESET}`)
+  console.log(`${DIM}To switch: node scripts/probes/ai-models.mjs --staging  (or --dev)${RESET}`)
 
   // Escape hatch: paste an access token from a browser session that is already
   // signed in, and skip the login entirely. Passwords are per-project and it
