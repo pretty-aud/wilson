@@ -248,6 +248,17 @@ async function main() {
   console.log(`${DIM}Project: ${ref}${envFile ? `  (from ${envFile})` : ''}${RESET}`)
   console.log(`${DIM}To use a different one: $env:SUPABASE_URL / $env:SUPABASE_ANON_KEY${RESET}`)
 
+  // Escape hatch: paste an access token from a browser session that is already
+  // signed in, and skip the login entirely. Passwords are per-project and it
+  // is easy to have a working session without knowing which password goes with
+  // which environment. In WILSON, devtools -> Application -> Local Storage ->
+  // the `sb-…-auth-token` entry -> `access_token`.
+  if (process.env.PROBE_ACCESS_TOKEN) {
+    token = process.env.PROBE_ACCESS_TOKEN.trim()
+    console.log(`${DIM}using PROBE_ACCESS_TOKEN (${token.length} chars) — skipping sign-in${RESET}`)
+    return runCases()
+  }
+
   const username = process.env.PROBE_USERNAME || await ask('WILSON username: ')
   const password = process.env.PROBE_PASSWORD || await ask('WILSON password: ', { hidden: true })
   if (!username) die('No username entered.')
@@ -292,6 +303,12 @@ async function main() {
     die(`sign-in (${si.status}) gave no token: ${why}`)
   }
   console.log(`${DIM}signed in as ${rlJson.email}${RESET}`)
+  return runCases()
+}
+
+// Everything past authentication. Split out so PROBE_ACCESS_TOKEN can jump
+// straight here without going through resolve-login and GoTrue.
+async function runCases() {
 
   console.log(`\n${BOLD}Controls — case 1 MUST pass, case 2 MUST fail${RESET}`)
   const c1 = await probe(`1. FAST alive (${FAST})`,
@@ -301,7 +318,18 @@ async function main() {
 
   if (!c1.ok) {
     console.log(`\n${RED}${BOLD}STOP.${RESET} Case 1 failed, so the probe is broken — not the models.`)
-    console.log('Every other reading would be meaningless. Check the workspace AI key first.')
+    console.log('Every other reading would be meaningless. What to fix depends on why:')
+    if (c1.status === 401) {
+      console.log(`  ${DIM}401 — the token was rejected. Expired, or minted for a different`)
+      console.log(`  project than ${SUPABASE_URL}. Sign in again, or drop PROBE_ACCESS_TOKEN.${RESET}`)
+    } else if (c1.status === 403) {
+      console.log(`  ${DIM}403 — the account authenticated but is not active in a workspace.${RESET}`)
+    } else if (c1.type === 'ai_not_configured') {
+      console.log(`  ${DIM}This workspace has no Anthropic key. Set one in the operator console,`)
+      console.log(`  or point the probe at an environment that has one.${RESET}`)
+    } else {
+      console.log(`  ${DIM}Status ${c1.status}, ${c1.type}. Anthropic's own message is above.${RESET}`)
+    }
     process.exit(1)
   }
   if (c2.ok) {
