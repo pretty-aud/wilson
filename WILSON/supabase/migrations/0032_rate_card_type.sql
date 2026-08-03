@@ -12,15 +12,16 @@
 --
 -- The break, measured:
 --   * useRateCard.js writes `type` on all four upsertRateCard call sites
---     (:136 'general', :143 'internal', :158 the untyped-card backfill,
---     :169 'internal') and reads it at :152, :153 and :183.
+--     (:149 'general', :156 'internal', :171 the untyped-card backfill,
+--     :182 'internal') and reads it at :165, :166 and :249. (Line numbers are
+--     post-`10fcd29`, which moved the load path into sharedLoadRateCards.)
 --   * supabaseAdapter.js:861 upserts through sanitize(card, ['created_at']),
 --     a pure DENYLIST — so `type` is passed straight to PostgREST rather than
 --     being dropped, and PostgREST rejects the whole insert with PGRST204
 --     because the column does not exist.
 --   * Net effect, and the one root cause behind two separate reports: the
 --     "type column" error on the Rate Card page, and the Internal card being
---     unreachable (:183 falls back to the first card, which is General).
+--     unreachable (:249 falls back to the first card, which is General).
 --
 -- Design notes:
 --
@@ -34,7 +35,7 @@
 --     existing row backfills to 'general', a workspace that already holds two
 --     rate cards would violate it and ABORT this migration on staging/prod —
 --     a schema change that fails only where there is real data is the worst
---     kind. The client already tolerates duplicates: useRateCard.js:183 picks
+--     kind. The client already tolerates duplicates: useRateCard.js:249 picks
 --     with .find(), first match wins. If one-card-per-type is ever wanted it
 --     needs its own migration that de-duplicates first.
 --
@@ -59,7 +60,7 @@
 --
 --     Safe because nothing reads rate_cards before sign-in: both access
 --     points (supabaseAdapter.js:857, :861) require a workspace_id, and
---     useRateCard.js:117 early-returns without one. So no request changes
+--     useRateCard.js:236 early-returns without one. So no request changes
 --     from "empty result" to 42501.
 --
 --     The other 25 tables are NOT touched here — that is a sweep of its own
@@ -90,7 +91,7 @@ BEGIN
 END $$;
 
 -- Lookups are always "the general card / the internal card for this
--- workspace" (useRateCard.js:152-153, :183), never a scan by type alone.
+-- workspace" (useRateCard.js:165-166, :249), never a scan by type alone.
 CREATE INDEX IF NOT EXISTS rate_cards_workspace_type_idx
   ON public.rate_cards (workspace_id, type);
 
