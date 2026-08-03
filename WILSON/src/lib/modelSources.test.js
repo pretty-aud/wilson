@@ -46,17 +46,21 @@ function makeQuery(table) {
   return chain
 }
 
+// Hoisted so the mock factory (which vitest lifts above the imports) can reach
+// it, and so a test can swap in a getSession that never settles.
+const hoisted = vi.hoisted(() => ({ getSessionImpl: null }))
+
+const OK_SESSION = {
+  data: { session: { user: { id: 'user-1', app_metadata: { workspace_id: 'ws-1' } } } },
+}
+
 vi.mock('../cloud/auth/supabaseClient', () => ({
   supabase: {
     from: (table) => makeQuery(table),
     auth: {
-      getSession: async () => ({
-        data: {
-          session: {
-            user: { id: 'user-1', app_metadata: { workspace_id: 'ws-1' } },
-          },
-        },
-      }),
+      getSession: () => (hoisted.getSessionImpl
+        ? hoisted.getSessionImpl()
+        : Promise.resolve(OK_SESSION)),
     },
   },
 }))
@@ -69,7 +73,9 @@ import {
 } from './activeModel'
 import {
   hydrateModelSourcesFromCache, cachedApprovedModels, loadModelSources,
+  setUserModelOverride, setWorkspaceModelOverride,
 } from './modelSources'
+import { AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 
 // Minimal localStorage, since the vitest environment is 'node'.
 function installStorage(initial = {}) {
@@ -89,6 +95,46 @@ beforeEach(() => {
   setPlatformEffort({})
   responses.clear()
   installStorage()
+  hoisted.getSessionImpl = null
+})
+
+describe('a hung getSession does not strand the caller', () => {
+  // The defect this guards is not hypothetical and not somebody else's: S20
+  // shipped two unbounded `getSession()` awaits here. A pending promise is not
+  // recoverable the way a rejected one is — the pickers clear `busy` in the
+  // NEXT step, so a hang leaves the dropdown greyed out permanently, with no
+  // error and nothing in the console. That is the Profile-panel defect shape,
+  // self-inflicted. See docs/OUTSTANDING.md.
+  for (const [name, fn] of [
+    ['setUserModelOverride', setUserModelOverride],
+    ['setWorkspaceModelOverride', setWorkspaceModelOverride],
+  ]) {
+    it(`${name} rejects rather than hanging forever`, async () => {
+      vi.useFakeTimers()
+      try {
+        hoisted.getSessionImpl = () => new Promise(() => {}) // never settles
+        const pending = fn('dog.themes', 'claude-opus-5')
+        await vi.advanceTimersByTimeAsync(AUTH_TIMEOUT_MS + 50)
+        const res = await pending
+        expect(res.ok).toBe(false)
+        expect(res.error).toMatch(/timed out/i)
+        // And it must say nothing was written — reporting a hang as a save is
+        // how someone ends up generating with a model they never got.
+        expect(res.error).toMatch(/nothing was saved/i)
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+  }
+
+  it('reports being signed out differently from a timeout', async () => {
+    // Different causes, different remedies. Telling someone to sign in again
+    // when the network stalled sends them to the wrong place.
+    hoisted.getSessionImpl = () => Promise.resolve({ data: { session: null } })
+    const res = await setUserModelOverride('dog.themes', 'claude-opus-5')
+    expect(res.ok).toBe(false)
+    expect(res.error).toBe('not signed in')
+  })
 })
 
 describe('platform effort', () => {

@@ -46,6 +46,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
+import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 import { BY_KEY, isWellFormedModelId } from './aiModels'
 import { updateModelSource, markModelSourcesLoaded, setPlatformEffort } from './activeModel'
 import { loadUserModelPrefs } from './userModelPrefs'
@@ -220,6 +221,36 @@ export function cachedApprovedModels() {
 }
 
 /**
+ * Who is signed in, and to which company — with a ceiling on the await.
+ *
+ * `getSession()` is unbounded by default, and a pending promise is not
+ * recoverable the way a rejected one is: the caller's `busy` flag is cleared by
+ * the NEXT step, so a hang here leaves a dropdown greyed out forever with no
+ * error and nothing in the console. That is the same defect shape as the
+ * Profile panel (`docs/OUTSTANDING.md`), and both writers below reached it —
+ * so it is bounded once, here, rather than at each call site.
+ *
+ * A timeout is reported distinctly from "signed out". They need different
+ * remedies, and conflating them would tell someone to sign in again when the
+ * truth is that the network stalled.
+ */
+async function currentIdentity() {
+  let sess
+  try {
+    const res = await withTimeout(
+      supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
+    )
+    sess = res?.data
+  } catch (err) {
+    return { error: `${err?.message ?? 'could not read your session'} — nothing was saved` }
+  }
+  const userId = sess?.session?.user?.id
+  const workspaceId = sess?.session?.user?.app_metadata?.workspace_id
+  if (!userId || !workspaceId) return { error: 'not signed in' }
+  return { userId, workspaceId }
+}
+
+/**
  * Set or clear the signed-in user's override for one function.
  *
  * @param {string} key      a REGISTRY key
@@ -228,10 +259,8 @@ export function cachedApprovedModels() {
 export async function setUserModelOverride(key, modelId) {
   if (!BY_KEY[key]) return { ok: false, error: `unknown function "${key}"` }
 
-  const { data: sess } = await supabase.auth.getSession()
-  const userId = sess?.session?.user?.id
-  const workspaceId = sess?.session?.user?.app_metadata?.workspace_id
-  if (!userId || !workspaceId) return { ok: false, error: 'not signed in' }
+  const { userId, workspaceId, error: idErr } = await currentIdentity()
+  if (idErr) return { ok: false, error: idErr }
 
   try {
     if (!modelId) {
@@ -278,10 +307,8 @@ export async function setUserModelOverride(key, modelId) {
 export async function setWorkspaceModelOverride(key, modelId) {
   if (!BY_KEY[key]) return { ok: false, error: `unknown function "${key}"` }
 
-  const { data: sess } = await supabase.auth.getSession()
-  const workspaceId = sess?.session?.user?.app_metadata?.workspace_id
-  const userId = sess?.session?.user?.id
-  if (!workspaceId) return { ok: false, error: 'not signed in' }
+  const { userId, workspaceId, error: idErr } = await currentIdentity()
+  if (idErr) return { ok: false, error: idErr }
 
   try {
     if (!modelId) {

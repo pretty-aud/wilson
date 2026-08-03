@@ -84,19 +84,31 @@ a broken handler. Reads as "storage is broken" when Supabase is in fact working.
 → S22.
 
 ### Profile panel can spin forever
-**INFERRED.** `ProfileSection.jsx:66` awaits `getSession()` inside a
-`Promise.all` with no timeout; if it never resolves, `setLoading(false)` never
-runs. Matches Audrey's "loading profile and then never loads anything". 18
-`getSession()` call sites are unbounded; only the 4 auth screens S17 fixed use
-`withTimeout`. `aiProxy.js:65` is on the same list and sits on the path of
-every AI call.
-→ **Settle before fixing:** open the stuck panel, devtools → Network. If a
-`workspace_members` request returns 200 while the UI still says loading, the
-fault is after the await and this is confirmed.
+**INFERRED, and currently NOT REPRODUCING (Audrey, 2026-08-02).**
+`ProfileSection.jsx:66` awaits `getSession()` inside a `Promise.all` with no
+timeout; if it never resolves, `setLoading(false)` never runs. Matches Audrey's
+"loading profile and then never loads anything".
+
+**Not reproducing is not evidence it is fixed, and for this defect the two look
+identical.** An unbounded await only hangs when the request actually stalls —
+almost always `getSession()` returns in milliseconds. Intermittency is the
+expected signature. Nothing plausibly repaired it either: S17 added
+`withTimeout` to four auth screens only, and S19/S20 never touched
+`ProfileSection.jsx`.
+
+**MEASURED (S20): the class is 26 call sites, not the 18 previously recorded**,
+and only 4 files use `withTimeout` — all of them S17's auth screens.
+`aiProxy.js:65` is on the list and sits on the path of every AI call.
+→ S21 sweeps the class with `withTimeout` as **hardening**, reported as such.
+Without a reproduction it cannot be claimed to fix this specific report.
+An unbounded await on a network call has no upside regardless: a rejected
+promise is recoverable, a pending one is not.
 
 ### Avatar does not persist
-**REPORTED.** Possibly the same root cause as the Profile panel above; re-check
-after that one is settled.
+**REPORTED.** Possibly the same root cause as the Profile panel above. Since
+that one has stopped reproducing, re-check whether this has too — if the avatar
+still fails while the panel loads cleanly, they are separate and this needs its
+own diagnosis rather than inheriting the timeout sweep.
 
 ### Password change is missing from SYSTEM SETTINGS
 **MEASURED.** S15 deleted the panel because it drove a dead local-credential
@@ -143,6 +155,7 @@ Kept so the file's own history is visible without `git log`.
 |---|---|---|
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
+| S20, later the same day | nothing new. The Profile-panel entry was **corrected**: the unbounded-`getSession()` class is 26 sites, not 18, and S20 itself added two of them (`modelSources.js`, both writers). Those two are now bounded with `withTimeout` and pinned by tests that fail with a hang when the bound is removed. The rest of the class is S21's sweep. | nothing |
 
 Both S19 additions were the same root cause: **a shell command built by string
 interpolation, where the content was not safe for the shell.** The first
