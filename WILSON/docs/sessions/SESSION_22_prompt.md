@@ -63,8 +63,14 @@ lost TRUNCATE.
 4. **v1.0.0 is prepared, NOT tagged, NOT merged to `main`.** Ask before
    tagging, and ask **again** before merging to `main` (Vercel's production
    branch).
-5. Confirm dev's `ai-proxy` forwards the tuning fields:
-   `node scripts/probes/ai-models.mjs --dev` (needs credentials).
+5. Confirm the tuning fields survive **at runtime**:
+   `node scripts/probes/ai-models.mjs --dev` (needs
+   `PROBE_USERNAME`/`PROBE_PASSWORD`). The *deploy* is no longer in question —
+   all three envs run byte-identical `ai-proxy` source matching HEAD, MEASURED
+   2026-08-03 by diffing downloaded deployments. What is still unobserved is
+   the end-to-end behaviour. **Deployed code ≠ observed behaviour**, and the
+   old "~138s on dev vs ~59s" figure rested on a bad inference from deploy
+   version numbers — do not repeat it until this probe runs.
 
 ---
 

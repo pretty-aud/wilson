@@ -163,10 +163,16 @@ by enough to depend on — and at 15194 of 16384 tokens it was one long deck
 from triggering the continuation loop and paying that four times over. `medium`
 lives on the REGISTRY entry via `tuningFor(key)`, with the numbers beside it.
 
-> ⚠️ **`ai-proxy` is deployed to STAGING only.** dev and prod still drop
-> `thinking`/`output_config`, so the deck runs at the old ~138s there. It
-> degrades rather than breaks. Deploy with
-> `npx supabase functions deploy ai-proxy --project-ref <ref>`.
+> ✅ **RESOLVED — this warning is obsolete (MEASURED 2026-08-03, S21).** All
+> three environments run **byte-identical** `ai-proxy` source, matching the
+> repo's HEAD: `index.ts` plus all four `_shared/` files compare equal on dev,
+> staging and prod. The forwarding is present in that source
+> (`ai-proxy/index.ts:239` `thinking`, `:251-254` `output_config.effort`).
+>
+> Verified by downloading each deployment into a throwaway `--workdir` and
+> diffing — **not** by reading the version numbers, which are per-project deploy
+> counters (prod v6, dev/staging v8) and say nothing about whether the code
+> matches. Nothing to deploy.
 
 > ⚠️ **The guard test in Block D was the point of the session.** A hardcoded
 > model ID can no longer reach `main`, nor can a `modelFor()` key that is not
@@ -379,17 +385,26 @@ fix time.
   It bypasses RLS. Dashboard → wilson-staging → Settings → API → Legacy API
   keys → roll `service_role`. The `anon` key beside it is publishable and needs
   nothing. Rolling it updates the Edge Function secrets that read it.
-- **Deploy `ai-proxy` to prod.** S19 taught it to forward `thinking` and
-  `output_config.effort`. Staging had it; **S20 deployed it to wilson-dev**
-  (2026-08-02). Prod still drops both fields, so D.O.G.'s deck runs at ~138s
-  there instead of ~59s — degraded, not broken.
-  > The dev deploy is MEASURED only as far as "the upload succeeded and it is
-  > the same code staging passed on". Whether dev now forwards the fields is
-  > INFERRED — confirming it needs `PROBE_USERNAME`/`PROBE_PASSWORD`, so it is
-  > Audrey's to run: `node scripts/probes/ai-models.mjs --dev`.
-- **Deploy `operator-models` to prod.** On dev and staging already (401
-  unauthenticated, 405 on GET — measured on both). The operator console's
-  Models section shows "not deployed in this environment yet" until it lands.
+- ~~**Deploy `ai-proxy` to prod.**~~ ✅ **DONE — nothing was owed.** MEASURED
+  2026-08-03 (S21): dev, staging and prod all run **byte-identical** source
+  matching the repo's HEAD — `ai-proxy/index.ts` and all four `_shared/` files
+  diff equal on every project. The tuning-field forwarding is in that source
+  (`index.ts:239`, `:251-254`).
+
+  This entry was wrong for two sessions, and the reason is worth keeping: the
+  only evidence ever cited was the deploy *version number*, which counts
+  deploys per project and is not comparable across them (prod v6 vs dev/staging
+  v8 — the lower number was the current code). **Diff the source; do not read
+  the version.** Download each deployment into a throwaway `--workdir` so the
+  repo's own `supabase/functions/` is never overwritten.
+
+  Still genuinely unconfirmed, and still Audrey's: whether the fields survive
+  end-to-end **at runtime**, which needs `PROBE_USERNAME`/`PROBE_PASSWORD` —
+  `node scripts/probes/ai-models.mjs --dev`. Deployed code ≠ observed behaviour.
+  The "~138s vs ~59s on dev" claim rested on the same bad inference and should
+  not be repeated until that probe runs.
+- ~~**Deploy `operator-models` to prod.**~~ ✅ **DONE (S21, 2026-08-02).** Now
+  on all three projects; prod verified ACTIVE alongside migration 0031.
 - **Apply migration 0031 to prod.** dev and staging are done and verified.
 - ~~Upload  +  to dev and prod.~~ **DONE** —
   Audrey confirmed 2026-08-02 that both templates are in place on all three
