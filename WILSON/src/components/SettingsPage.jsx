@@ -273,7 +273,10 @@ export default function SettingsPage({
     { key: 'general', label: 'General' },
     { key: 'profile', label: 'Profile' },
     { key: 'models',  label: 'Models' },
-    { key: 'rabbit',  label: 'RABBIT' },
+    // Session 22: labelled "Storage", not "RABBIT". The tab is about where
+    // data lives, and naming it after the tool told users nothing. The KEY
+    // stays 'rabbit' — it is the only thing the panel below switches on.
+    { key: 'rabbit',  label: 'Storage' },
     { key: 'teams',   label: 'Teams' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
     { key: 'skills', label: 'Agent Skills' },
@@ -590,10 +593,17 @@ export default function SettingsPage({
                       mode === 'supabase'     ? 'Supabase'      :
                       mode === 'local_server' ? 'Local Server'  :
                       mode === 'google_drive' ? 'Google Drive'  : mode
+                    // Session 22: the copy, not the logic, was the bug. On the
+                    // web all three buttons are disabled BY CONSTRUCTION —
+                    // Supabase because it is `active`, the other two because
+                    // they are `unavailableOnWeb` — and three dead buttons
+                    // read as "storage is broken" when Supabase is working
+                    // perfectly. Nothing here changes which backend is used;
+                    // it changes what the panel says about it.
                     const hint = unavailableOnWeb
-                      ? 'Available in the desktop app only'
-                      : mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
-                        mode === 'local_server' ? 'In-app Express server (default — single user)'      :
+                      ? 'Desktop app only — needs the local server or Drive bridge'
+                      : mode === 'supabase'     ? "WILSON's own cloud backend. Already connected — no account to link and nothing to set up." :
+                        mode === 'local_server' ? 'In-app Express server (desktop only — single user)' :
                         mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
                     return (
                       <button
@@ -617,6 +627,18 @@ export default function SettingsPage({
                         <div className="flex flex-col">
                           <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                             {label}
+                            {/* Session 22: an active backend is disabled because
+                                you are already on it, not because it failed.
+                                Say so — this badge is the whole difference
+                                between "connected" and "dead". */}
+                            {active && (
+                              <span
+                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
+                                style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #166534' }}
+                              >
+                                In use
+                              </span>
+                            )}
                             {!writes && (
                               <span
                                 className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
