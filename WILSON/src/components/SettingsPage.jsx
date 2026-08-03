@@ -6,6 +6,7 @@ import CurrencyPicker from './settings/CurrencyPicker'
 import TaskTemplateManager from './TaskTemplates/TaskTemplateManager'
 import AgentSkillsSection from './settings/AgentSkillsSection'
 import ProfileSection from './settings/ProfileSection'
+import PasswordSection from './settings/PasswordSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
@@ -551,19 +552,14 @@ export default function SettingsPage({
                   a plaintext credential in otter-data/wilson-auth.json that
                   nothing has checked since the Supabase login landed in S2.
                   Editing a credential that grants nothing is worse than having
-                  no panel — it implies a security control exists. Both hosts
-                  now say the same true thing, so this is no longer a
-                  hasLocalServer() branch. */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Change Password
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Your password is managed by your workspace account. Use
-                  “Forgot password” on the sign-in screen to reset it, or ask
-                  a workspace admin.
-                </p>
-              </div>
+                  no panel — it implies a security control exists.
+
+                  Session 21 restores it against Supabase. The component keeps
+                  S15's copy verbatim for the no-session case, so local-only
+                  mode still says the one true thing rather than showing a form
+                  that cannot work. See PasswordSection.jsx for why there is no
+                  current-password field (it would downgrade an MFA session). */}
+              <PasswordSection />
             </>
           )}
 

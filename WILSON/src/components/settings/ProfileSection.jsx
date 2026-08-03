@@ -19,6 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
+import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from '../../cloud/auth/withTimeout'
 import { usePermissions } from '../../permissions/usePermissions'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import { loadOtterSettings } from '../../lib/localData'
@@ -64,28 +65,53 @@ export default function ProfileSection({ onSaved }) {
     }
     let cancelled = false
     ;(async () => {
-      const [{ data: member, error: selErr }, { data: sess }] = await Promise.all([
-        supabase
-          .from('workspace_members')
-          .select('*')
-          .eq('workspace_id', perms.workspaceId)
-          .eq('user_id', perms.userId)
-          .maybeSingle(),
-        supabase.auth.getSession(),
-      ])
-      if (cancelled) return
-      if (selErr) {
-        // A failed SELECT is not "no profile" — say what actually happened.
-        setError(`Could not load your profile: ${selErr.message}`)
-      } else if (member) {
-        setRow(member)
-        setDisplayName(member.display_name || '')
-        setPronouns(member.pronouns || '')
-        setTitle(member.title || '')
-        setDepartment(member.department || '')
+      // Session 21. `setLoading(false)` used to sit at the end of this block
+      // with no try/finally, so ANY path that did not reach the last line left
+      // the panel on "Loading profile…" forever — the reported defect.
+      //
+      // Both legs below can hang, not just the auth one. supabase-js binds
+      // `_getAccessToken()` into fetchWithAuth for every PostgREST request, and
+      // that awaits `auth.getSession()` internally (supabase-js 2.101.1,
+      // dist/index.mjs:523-528) — so the workspace_members SELECT carries the
+      // same unbounded wait as the explicit getSession() beside it. Bounding
+      // only the explicit call would have left the panel able to spin on the
+      // other leg. The finally is what actually closes this.
+      try {
+        const [{ data: member, error: selErr }, { data: sess }] = await Promise.all([
+          supabase
+            .from('workspace_members')
+            .select('*')
+            .eq('workspace_id', perms.workspaceId)
+            .eq('user_id', perms.userId)
+            .maybeSingle(),
+          withTimeout(supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session'),
+        ])
+        if (cancelled) return
+        if (selErr) {
+          // A failed SELECT is not "no profile" — say what actually happened.
+          setError(`Could not load your profile: ${selErr.message}`)
+        } else if (member) {
+          setRow(member)
+          setDisplayName(member.display_name || '')
+          setPronouns(member.pronouns || '')
+          setTitle(member.title || '')
+          setDepartment(member.department || '')
+        }
+        setEmail(sess?.session?.user?.email || '')
+      } catch (err) {
+        // A stall is not "no profile" either. Distinguish it, for the reason
+        // modelSources.js:233 gives: telling someone to sign in again when the
+        // network stalled sends them to the wrong remedy.
+        if (!cancelled) {
+          setError(
+            err instanceof TimeoutError
+              ? 'The server did not respond while loading your profile. Check your connection and try again.'
+              : `Could not load your profile: ${err?.message ?? String(err)}`,
+          )
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
       }
-      setEmail(sess?.session?.user?.email || '')
-      setLoading(false)
     })()
     loadOtterSettings().then(data => {
       if (!cancelled && Array.isArray(data?.rabbit?.departments) && data.rabbit.departments.length) {
@@ -164,14 +190,26 @@ export default function ProfileSection({ onSaved }) {
         .select()
         .maybeSingle()
       if (updErr) throw updErr
+      // An RLS-refused UPDATE matches zero rows and raises NOTHING: postgrest
+      // returns 200 with a null body, so `updErr` alone reports success for a
+      // write that never landed. `setRow(data || {...row, ...patch})` then
+      // painted the new avatar from local state and the panel said "Saved" —
+      // right up until the next mount re-read the old row. That is the shape
+      // of "avatar does not persist". Same reasoning as modelSources.js:275.
+      if (!data) throw new Error('Nothing was saved — the update matched no row. Check that your membership is still active.')
 
-      setRow(data || { ...row, ...patch })
+      setRow(data)
       setAvatarFile(null)
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2500)
-      onSaved?.(data || patch)
+      onSaved?.(data)
     } catch (err) {
       setError(err?.message || String(err))
+      // Drop the pending pick so the UI reverts to the STORED avatar. Leaving
+      // it set kept the blob-URL preview on screen, which made every failure
+      // mode — upload rejected, zero-row write, anything — look exactly like a
+      // success until the next mount.
+      setAvatarFile(null)
     } finally {
       setBusy(false)
     }
@@ -207,11 +245,14 @@ export default function ProfileSection({ onSaved }) {
         .select()
         .maybeSingle()
       if (updErr) throw updErr
-      const next = data || { ...row, avatar_url: null }
-      setRow(next)
+      // Same zero-row masking as handleSave — a refused removal would have
+      // reported "Saved" and shown no avatar, and the blob is already gone by
+      // this point, so a silent failure here loses the image either way.
+      if (!data) throw new Error('Nothing was saved — the update matched no row. Check that your membership is still active.')
+      setRow(data)
       setSavedFlash(true)
       setTimeout(() => setSavedFlash(false), 2500)
-      onSaved?.(next)
+      onSaved?.(data)
     } catch (err) {
       setError(err?.message || String(err))
     } finally {

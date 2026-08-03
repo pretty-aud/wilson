@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
+import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from './auth/withTimeout'
 import { assembleStreamedMessage } from './anthropicStream'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
@@ -36,6 +37,9 @@ const FRIENDLY = {
   method_not_allowed: 'Malformed AI request.',
   upstream_unreachable: 'Could not reach the AI service — try again.',
   network: 'Network error — check your connection.',
+  // Distinct from `unauthorized` on purpose: a stalled session read is a
+  // network problem, and "sign in again" is the wrong remedy for it.
+  session_stalled: 'Could not read your session — check your connection and try again.',
 }
 
 export class AIProxyError extends Error {
@@ -60,11 +64,27 @@ export class AIProxyError extends Error {
  *         aborts reject with the usual AbortError.
  */
 export async function callAI(body, { signal } = {}) {
+  // Session 21. This await sits in front of EVERY AI call in WILSON, and it
+  // was unbounded: a stalled getSession() left the caller's spinner running
+  // forever with nothing in the console.
+  //
+  // The ceiling alone is not the whole fix. Letting a timeout fall through to
+  // the `!token` branch below would report "Sign in to use AI features." to a
+  // signed-in user whose network stalled — the precise misdiagnosis
+  // modelSources.js:233 exists to prevent, and it sends them to a remedy that
+  // cannot work. A stall gets its own code and message.
   let token = null
   try {
-    const { data } = await supabase.auth.getSession()
+    const { data } = await withTimeout(
+      supabase.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
+    )
     token = data?.session?.access_token ?? null
-  } catch { /* handled below */ }
+  } catch (err) {
+    if (err instanceof TimeoutError) {
+      throw new AIProxyError(FRIENDLY.session_stalled, 0, 'session_stalled')
+    }
+    /* anything else: fall through to the !token branch */
+  }
   if (!token) {
     throw new AIProxyError(FRIENDLY.unauthorized, 401, 'unauthorized')
   }

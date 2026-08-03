@@ -90,6 +90,125 @@ export function computeEntryTotal(entry, deptDefaults = []) {
 }
 
 
+// ─── Shared auto-create guard (Session 21) ───────────────────────────────────
+//
+// There are EIGHT independent useRateCard() consumers — RateCardPage,
+// SettingsPage, TeamMembersPage, TaskDetailPopup, BudgetView, ScenesView,
+// LevelsView, ExperiencesView — and no provider or cache between them. Each
+// mount runs its own loadRateCards(), and the auto-create block below fires
+// whenever it observes zero cards. Two instances mounting together therefore
+// both observe zero and both create the pair.
+//
+// This is not hypothetical. The local Electron store, which has been
+// persisting `type` since April, holds FOUR 'Internal Rate Card' rows for one
+// workspace, created inside 53 ms of each other on 2026-04-11 — four mounts,
+// none of which saw the others. (The same workspace holds three 'general'
+// cards too, but those are older and from a different code path, so they are
+// not evidence of THIS race.)
+//
+// It has been invisible in cloud mode only because the create FAILED there:
+// `type` did not exist, so PostgREST rejected every insert with PGRST204.
+// Migration 0032 removes that accidental brake, so without this guard the fix
+// would trade "no rate cards" for "seven rate cards" — a fresh way for the
+// surface to lie.
+//
+// A shared in-flight promise per workspace collapses concurrent mounts onto
+// one load-and-create. It does not address two DEVICES racing; that needs a
+// uniqueness constraint the data cannot currently take (see 0032's header).
+const inFlightLoads = new Map()
+
+/** Test seam: concurrent-mount dedup is global, so tests must be able to clear it. */
+export function __resetRateCardLoadCache() {
+  inFlightLoads.clear()
+}
+
+/**
+ * List a workspace's rate cards, creating the General/Internal pair when the
+ * workspace has none and the adapter can write.
+ *
+ * @returns {Promise<{cards: Array, softError: string|null}>} softError is a
+ *   failure that must be SHOWN but must not discard the cards we did get — a
+ *   silently-missing internal card makes member-rate writes land on General.
+ */
+async function loadOrCreateRateCards(adapter, workspaceId) {
+  let cards = await adapter.listRateCards(workspaceId)
+  if (!Array.isArray(cards)) cards = []
+  let softError = null
+
+  // Auto-create General + Internal when none exist. Session 17 (§6 #49): only
+  // where the adapter can actually write. Google Drive is read-only in v0.1, so
+  // this branch used to call the throwing upsertRateCard stub and leave a
+  // permanent red banner — making the empty read look like a failure instead of
+  // an empty page.
+  if (cards.length === 0 && adapterSupportsWrites(adapter.mode)) {
+    try {
+      const generalCard = await adapter.upsertRateCard({
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: 'General Rate Card',
+        type: 'general',
+        is_default: true,
+      })
+      const internalCard = await adapter.upsertRateCard({
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: 'Internal Rate Card',
+        type: 'internal',
+        is_default: false,
+      })
+      cards = [generalCard, internalCard].filter(Boolean)
+    } catch (err) {
+      softError = err.message || String(err)
+    }
+  } else {
+    // Ensure both types exist (migration from old single rate card)
+    const hasGeneral = cards.some(c => c.type === 'general')
+    const hasInternal = cards.some(c => c.type === 'internal')
+    // Tag untyped cards as general
+    if (!hasGeneral) {
+      for (const c of cards) {
+        if (!c.type) {
+          c.type = 'general'
+          try { await adapter.upsertRateCard(c) } catch { /* cosmetic */ }
+        }
+      }
+    }
+    if (!hasInternal && adapterSupportsWrites(adapter.mode)) {
+      try {
+        const internalCard = await adapter.upsertRateCard({
+          id: uuidv4(),
+          workspace_id: workspaceId,
+          name: 'Internal Rate Card',
+          type: 'internal',
+          is_default: false,
+        })
+        if (internalCard) cards.push(internalCard)
+      } catch (err) {
+        // Surface it — a silently-missing internal card makes member-rate
+        // writes land on the General card (see TeamMembersPage guard).
+        softError = err.message || String(err)
+      }
+    }
+  }
+  return { cards, softError }
+}
+
+/**
+ * loadOrCreateRateCards, deduplicated per workspace for the lifetime of one
+ * in-flight call. Every concurrent caller awaits the SAME promise, so the
+ * create runs once no matter how many hook instances mount together.
+ */
+export function sharedLoadRateCards(adapter, workspaceId) {
+  const existing = inFlightLoads.get(workspaceId)
+  if (existing) return existing
+  const p = loadOrCreateRateCards(adapter, workspaceId)
+    // Cleared on BOTH paths: a failed load that stayed cached would wedge every
+    // later mount onto the same rejection with no way to retry.
+    .finally(() => { inFlightLoads.delete(workspaceId) })
+  inFlightLoads.set(workspaceId, p)
+  return p
+}
+
 export function useRateCard() {
   const rabbit = useRabbit()
   const getAdapter = rabbit?.getAdapter
@@ -120,64 +239,11 @@ export function useRateCard() {
     setLoading(true)
     setError(null)
     try {
-      let cards = await adapter.listRateCards(workspaceId)
-      if (!Array.isArray(cards)) cards = []
-      // Auto-create General + Internal rate cards if none exist.
-      // Session 17 (§6 #49): only where the adapter can actually write.
-      // Google Drive is read-only in v0.1, so this branch used to call the
-      // throwing upsertRateCard stub and leave a permanent red banner —
-      // making the empty read look like a failure instead of an empty page.
-      if (cards.length === 0 && adapterSupportsWrites(adapter.mode)) {
-        try {
-          const generalCard = await adapter.upsertRateCard({
-            id: uuidv4(),
-            workspace_id: workspaceId,
-            name: 'General Rate Card',
-            type: 'general',
-            is_default: true,
-          })
-          const internalCard = await adapter.upsertRateCard({
-            id: uuidv4(),
-            workspace_id: workspaceId,
-            name: 'Internal Rate Card',
-            type: 'internal',
-            is_default: false,
-          })
-          cards = [generalCard, internalCard].filter(Boolean)
-        } catch (err) {
-          if (mountedRef.current) setError(err.message || String(err))
-        }
-      } else {
-        // Ensure both types exist (migration from old single rate card)
-        const hasGeneral = cards.some(c => c.type === 'general')
-        const hasInternal = cards.some(c => c.type === 'internal')
-        // Tag untyped cards as general
-        if (!hasGeneral) {
-          for (const c of cards) {
-            if (!c.type) {
-              c.type = 'general'
-              try { await adapter.upsertRateCard(c) } catch {}
-            }
-          }
-        }
-        if (!hasInternal) {
-          try {
-            const internalCard = await adapter.upsertRateCard({
-              id: uuidv4(),
-              workspace_id: workspaceId,
-              name: 'Internal Rate Card',
-              type: 'internal',
-              is_default: false,
-            })
-            if (internalCard) cards.push(internalCard)
-          } catch (err) {
-            // Surface it — a silently-missing internal card makes member-rate
-            // writes land on the General card (see TeamMembersPage guard).
-            if (mountedRef.current) setError(err.message || String(err))
-          }
-        }
-      }
+      // Shared per workspace: eight hook instances mounting together must not
+      // each create a card pair. See sharedLoadRateCards above.
+      const { cards, softError } = await sharedLoadRateCards(adapter, workspaceId)
       if (!mountedRef.current) return
+      if (softError) setError(softError)
       setRateCards(cards)
       // Pick the default (general) card, or the first one.
       const next = cards.find(c => c.is_default) || cards.find(c => c.type === 'general') || cards[0] || null
