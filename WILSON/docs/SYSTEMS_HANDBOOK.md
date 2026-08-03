@@ -1182,7 +1182,7 @@ not push-to-`main`, where branch protection makes it redundant.
 | **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
 
 The coverage gate runs **before** Postgres boots and fails fast; its allowlist
-currently names 26 tables. On failure the pgTAP job re-runs 19 named suites
+currently names 30 tables. On failure the pgTAP job re-runs 29 named suites
 through raw `psql` so the actual SQL error and SQLSTATE surface as GitHub
 annotations instead of being hidden behind pg_prove's TAP summary.
 
@@ -2053,7 +2053,7 @@ else.
 
 **pgTAP** — 42 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; the CI coverage guard globs `*_<table>.sql`, so a
-table cannot share a suite file with another), **624 assertions** — run in CI
+table cannot share a suite file with another), **629 assertions** — run in CI
 against a fresh local stack. Coverage spans the 13 RABBIT tables, membership
 and provisioning, the member directory, edit history, project members, soft
 delete, both realtime channels, admin grants, `app_events`, the five O.T.T.E.R.

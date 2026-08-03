@@ -48,15 +48,33 @@ RLS.
 
 ---
 
-## Broken features
+## 🚨 Security — not blocking the tag, but wide
 
-### `rate_cards.type` does not exist in the cloud schema
-**MEASURED (S18).** Queried staging — the column is absent. `useRateCard.js`
-reads and writes `c.type === 'general' | 'internal'`, so the whole
-internal-vs-general rate card feature keys on a column that was never added.
-One root cause behind two of Audrey's reports (the "type column" error, and
-being unable to reach the internal card). `rate_card_entries` is fine.
-→ Migration 0033 + backfill to `'general'` + pgTAP. Planned for S21.
+### `anon` holds ALL privileges on 25 public tables
+**MEASURED (S21, wilson-dev, 2026-08-02).** `anon` holds
+DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on **26 of the 36**
+public tables. Only ten are clean — the ones 0028, 0030 and 0031 explicitly
+revoked. This is migration 0011's blanket
+`GRANT` + `ALTER DEFAULT PRIVILEGES`, still in force everywhere no later
+migration undid it.
+
+Found by accident: 0032 grew the standing `ok(NOT has_table_privilege('anon',…))`
+assertion into `07_rate_cards.sql` and it **failed**. 0032 closed `rate_cards`,
+leaving 25.
+
+**Nothing leaks today** — every one of those tables has RLS enabled and forced,
+and an anon caller carries no JWT so the policies deny. The exposure is that
+RLS is the *only* barrier: one permissive policy mistake, or one table where
+RLS is dropped, is immediately world-readable. `TRUNCATE` is not subject to RLS
+at all (not reachable through PostgREST, which never issues it).
+
+→ A sweep of its own. **Do not blanket-revoke** — each table needs its
+legitimate `authenticated` grants preserved, which is why 0032 did one table
+and stopped. The query that lists them is in the S22 prompt.
+
+---
+
+## Broken features
 
 ### R.A.B.B.I.T. task management
 **REPORTED.** Not yet reproduced or diagnosed — budget diagnosis time, not
@@ -83,38 +101,64 @@ two are *unavailableOnWeb* (disabled). All three disabled by construction, not
 a broken handler. Reads as "storage is broken" when Supabase is in fact working.
 → S22.
 
-### Profile panel can spin forever
-**INFERRED, and currently NOT REPRODUCING (Audrey, 2026-08-02).**
-`ProfileSection.jsx:66` awaits `getSession()` inside a `Promise.all` with no
-timeout; if it never resolves, `setLoading(false)` never runs. Matches Audrey's
-"loading profile and then never loads anything".
+### One hung `getSession()` pins the whole app's auth, and `withTimeout` cannot unpin it
+**MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
+replaces the old "Profile panel can spin forever" entry, which framed the
+problem as N independent call sites. It is not.
 
-**Not reproducing is not evidence it is fixed, and for this defect the two look
-identical.** An unbounded await only hangs when the request actually stalls —
-almost always `getSession()` returns in milliseconds. Intermittency is the
-expected signature. Nothing plausibly repaired it either: S17 added
-`withTimeout` to four auth screens only, and S19/S20 never touched
-`ProfileSection.jsx`.
+Two facts, both read out of `node_modules`:
 
-**MEASURED (S20): the class is 26 call sites, not the 18 previously recorded**,
-and only 4 files use `withTimeout` — all of them S17's auth screens.
-`aiProxy.js:65` is on the list and sits on the path of every AI call.
-→ S21 sweeps the class with `withTimeout` as **hardening**, reported as such.
-Without a reproduction it cannot be claimed to fix this specific report.
-An unbounded await on a network call has no upside regardless: a rejected
-promise is recoverable, a pending one is not.
+1. **The class is far larger than the explicit call sites.** supabase-js binds
+   `_getAccessToken()` into `fetchWithAuth` for *every* PostgREST, Storage and
+   Functions request, and that awaits `auth.getSession()` internally
+   (`supabase-js/dist/index.mjs:523-528`). So every `.from(...)` carries the
+   same unbounded wait. Counting `.auth.getSession()` occurrences understates
+   it by an order of magnitude.
+2. **`withTimeout` races, it does not abort** — by design
+   (`withTimeout.js:16-19`). The abandoned call still holds `lockAcquired` in
+   auth-js, and the lock is global per `storageKey`. Every later auth operation
+   then queues in `pendingInLock`, which consults **no** acquire timeout
+   (`GoTrueClient.js:2232-2251`). All three clients share the one lock —
+   RABBIT's `sharedAuthedClient` is the same instance.
+
+**Consequence, and why the planned "sweep the 22 sites" was not done:** bounding
+a call site restores *that site's UI* and nothing else. A sweep would have gone
+green and left the app just as stuck, while letting the session report the class
+as closed.
+
+What S21 did instead (`10fcd29`): fixed the two places where the defect was
+actually reachable and reportable — `ProfileSection`'s loader now has
+`try/catch/finally` so `loading` clears on every path (the `Promise.all`'s
+*other* leg is unbounded too, so bounding only the auth call would not have
+closed it), and `aiProxy`'s pre-flight is bounded with its own code and message
+rather than falling through to "Sign in to use AI features."
+
+→ The real remediation is probably an app-level circuit-breaker or forced
+re-hydrate, not per-site ceilings. **Design it before writing it.**
 
 ### Avatar does not persist
-**REPORTED.** Possibly the same root cause as the Profile panel above. Since
-that one has stopped reproducing, re-check whether this has too — if the avatar
-still fails while the panel loads cleanly, they are separate and this needs its
-own diagnosis rather than inheriting the timeout sweep.
+**REPORTED; root cause still unproven.** S21 falsified four hypotheses by
+measurement — the `avatar_url` column, the `user-avatars` bucket (public, 2 MB,
+correct MIME list), the storage policies, and the `isOwnAvatarUrl` render guard
+all exist and are correct, and the self-guard trigger RAISES rather than
+silently reverting and does not block `avatar_url` on a self-update.
 
-### Password change is missing from SYSTEM SETTINGS
-**MEASURED.** S15 deleted the panel because it drove a dead local-credential
-route (§6 #32). The copy now sends users to the sign-in screen instead. There
-is no in-app way to change a password.
-→ Wire it to Supabase properly. S21.
+**Definitively NOT the same cause as the loader hang above** — if the load
+hangs, the component early-returns "Loading profile…" and the avatar controls
+are never mounted, so no upload can start.
+
+`10fcd29` fixed two things that were making every failure mode *look like
+success*: an RLS-refused UPDATE matches zero rows and raises nothing, and the
+code merged the patch into local state anyway; and the `catch` never cleared
+`avatarFile`, so the blob preview survived any failure until the next mount.
+
+→ **That makes a silent failure loud; it does not prove the report is fixed.**
+If it recurs, the panel will now say what went wrong — capture that message.
+The one candidate not yet excluded is whether the Storage API populates
+`request.jwt.claims` with `app_metadata` at all; if it does not,
+`current_workspace_id()` is NULL inside the storage policy and every upload is
+refused in every environment. One devtools Network capture of the
+`POST /storage/v1/object/user-avatars/...` settles it.
 
 ### O.T.T.E.R. validator findings and quiz scores are not saved
 **MEASURED.** Known #2. Both generate correctly and neither result is
@@ -156,6 +200,19 @@ Kept so the file's own history is visible without `git log`.
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
 | S20, later the same day | nothing new. The Profile-panel entry was **corrected**: the unbounded-`getSession()` class is 26 sites, not 18, and S20 itself added two of them (`modelSources.js`, both writers). Those two are now bounded with `withTimeout` and pinned by tests that fail with a hang when the bound is removed. The rest of the class is S21's sweep. | nothing |
+| S21 (2026-08-02) | the **`anon` privilege spread** (25 tables remaining) — found by a test assertion failing, not by looking for it. The **auth-js global lock**, which replaces the old Profile-panel entry with a correct account of why per-site ceilings do not fix it. | **`rate_cards.type`** (0032 + `10fcd29`, applied and verified on dev, staging and prod). **Password change missing** (`10fcd29`). **Profile panel spins forever** — superseded, see above. The avatar entry is kept but rewritten: four hypotheses falsified, the success-masking fixed, root cause still open. |
+
+S21's own lesson, and the reason the `anon` entry exists at all: **a test
+assertion written to the house convention found a hole nobody was looking for.**
+The migration was scoped to add one column. The suite grew the standing
+`ok(NOT has_table_privilege('anon', …))` probe because that is what the
+convention says to do, it failed, and 26 tables turned out to be open. Two
+independent investigators had both reasoned — correctly, from the migration
+text — that no REVOKE was needed, because `ALTER TABLE ADD COLUMN` creates no
+new object and so does not trip 0011's trap. That reasoning was sound and the
+conclusion was still wrong, because nobody had checked the *existing* grant
+state. Reasoning about what a migration does is not a substitute for querying
+what is there.
 
 Both S19 additions were the same root cause: **a shell command built by string
 interpolation, where the content was not safe for the shell.** The first

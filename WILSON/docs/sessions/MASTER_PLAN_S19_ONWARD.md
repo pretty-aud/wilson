@@ -233,9 +233,35 @@ suites, +55 assertions), 472 vitest (was 454), both vite entries build clean.
 
 ---
 
-### S21 — Data correctness and the reliability sweep
+### S21 — Data correctness and the reliability sweep ✅ DONE (`10fcd29`, 2026-08-02)
 
 **Goal: the settings and rate-card surfaces stop lying.**
+
+> **Outcome, and the three places this plan was wrong.** All four items landed;
+> migration **0032** (not 0033 — S20 took 0031) is applied and verified on dev,
+> staging and prod, as are 0031 and `operator-models`, which finally reached
+> prod this session.
+>
+> 1. **"Migration 0033"** — wrong here and in `OUTSTANDING.md`; the chain is
+>    contiguous and the next number was 0032. Only `SESSION_21_prompt.md` had it
+>    right.
+> 2. **"18 call sites"** below is wrong twice over. S20 had already corrected it
+>    to 26. The deeper error is the *unit*: supabase-js awaits `getSession()`
+>    inside `_getAccessToken()` for every PostgREST call, so counting explicit
+>    `.auth.getSession()` occurrences understates the class by an order of
+>    magnitude — and `withTimeout` races without aborting, so a bounded-but-
+>    abandoned call still holds auth-js's global lock. **The sweep this plan
+>    asked for would have gone green and left the app just as stuck.** It was
+>    not done; the two reachable defects were fixed instead and the real
+>    constraint is recorded in `OUTSTANDING.md`.
+> 3. **"C — likely the same effect as B"** — false, and provably so. If the load
+>    hangs, the component early-returns "Loading profile…" and the avatar
+>    controls never mount, so no upload can start. The two are disjoint.
+>
+> One thing the plan did not anticipate at all: adding the column **unlocks** an
+> auto-create race that cloud mode had been accidentally braking, and the
+> pgTAP suite's standing `anon` assertion failed, exposing that `anon` holds ALL
+> privileges on 26 of 36 public tables. Both are in `OUTSTANDING.md`.
 
 **A. `rate_cards.type` does not exist — MEASURED.** Queried staging:
 
