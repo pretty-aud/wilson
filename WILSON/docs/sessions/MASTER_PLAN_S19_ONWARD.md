@@ -304,7 +304,43 @@ users to go to the sign-in screen. Wire it to Supabase properly.
 
 ---
 
-### S22 — Storage and connections
+### S22 — Storage, connections, and the privilege sweep ✅ DONE (`494a13d`, `8709b1e`, 2026-08-03)
+
+**Shipped, all verified by query on dev, staging AND prod:**
+
+- **Migration 0033 — the anon privilege sweep.** 25 tables → 0. It also closed
+  two things that were not in this plan, because asking what *else* 0011's
+  blanket grant touched turned them up:
+  - **Seven SECURITY DEFINER functions were anon-executable** — they run as
+    their owner and bypass RLS, and PostgREST serves them at `/rest/v1/rpc/`,
+    so unlike the table grants this was a **live pre-auth RLS bypass**.
+    `project_is_staffed(uuid)` is `SELECT EXISTS(...FROM project_members...)`
+    with no caller dependency at all.
+  - **0011's `ALTER DEFAULT PRIVILEGES` was still armed**, so the 25-table fix
+    alone would have left table 37 born exposed.
+  Proven safe before writing SQL: only two policies in the schema are
+  anon-satisfiable (both `USING (true)`, both on already-clean tables), and an
+  empirical `SET ROLE anon` probe read **0 of 25** tables. pgTAP 629 → **655**.
+- **Storage tab honest copy** — tab renamed `RABBIT` → `Storage`, an "In use"
+  badge on the active backend, and copy that finally says Supabase is WILSON's
+  own zero-setup backend. No logic touched.
+- **R.A.B.B.I.T. task creation diagnosed** — root cause reproduced at the
+  database (`23502` on `tasks.asset_id`). **Not fixed by design**; see
+  `OUTSTANDING.md` for why the obvious fix is insufficient. → S24.
+
+**Corrections this session made to this document and the handbook:**
+- Standing rule 4 below said the CLI is linked to **staging**. It was linked to
+  **wilson-dev**, and S21's close-out says it left it there. Rule corrected.
+- `SYSTEMS_HANDBOOK.md` said migrations `0000–0029` are on all three
+  environments. It is `0000–0033`.
+- **UNKNOWN narrowed:** `supabaseAdapter.uploadFile`/`listFiles` contain zero
+  `electronAPI` references, so the cloud file path is not desktop-gated *at the
+  adapter level*. Whether the web UI surfaces an upload control is still
+  UNKNOWN — reaching it needs a signed-in session.
+
+---
+
+### S22 — original brief (kept for the record)
 
 **Goal: the storage tab stops looking broken, and the web tells the truth.**
 
@@ -435,8 +471,13 @@ fix time.
 3. **Run the whole pgTAP set before pushing a migration.** `tap-hosted.py` runs
    one suite; CI runs all of them against one database, and a new writer changes
    other suites' counts.
-4. **Check `supabase/.temp/project-ref` before anything that writes.** The CLI
-   is linked to **staging**, not dev.
+4. **Read `supabase/.temp/linked-project.json` before anything that writes —
+   read it, never recall it.** Two corrections (S22, 2026-08-03): the file is
+   `linked-project.json`, not `project-ref`; and it was linked to **wilson-dev**
+   (`eqjzmnvkrakroyqxfsvw`), not staging, exactly as S21's close-out left it.
+   The close-out ritual re-links to dev, so dev is the expected resting state —
+   but a stale claim in this rule is precisely how someone writes to the wrong
+   database, so **check, do not trust this sentence either.**
 5. **Stage explicit paths.** `git add -A` sweeps untracked files into a public
    commit.
 5b. 🚨 **Never run `supabase config push`, and never build a shell command by

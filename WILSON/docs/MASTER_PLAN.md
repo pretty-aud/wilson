@@ -414,18 +414,56 @@ without INSERT, `anon` without SELECT, four seeded catalogue rows, the widened
 pre-S20 ones are on all three envs; S17 redeployed `invite-member` (it now
 bundles `adminGuard`). S20 added a thirteenth, `operator-models`, **on dev +
 staging** (401 unauthenticated / 405 on GET measured on both), and deployed the
-S19 `ai-proxy` to wilson-dev — **prod's `ai-proxy` still silently drops
-`thinking`/`output_config`.**
+S19 `ai-proxy` to wilson-dev. ~~**prod's `ai-proxy` still silently drops
+`thinking`/`output_config`.**~~ **WITHDRAWN (S21, 2026-08-03)** — dev, staging
+and prod all run **byte-identical** `ai-proxy` source matching HEAD, and the
+tuning forwarding was confirmed at runtime on staging (probe 7a/7b:
+`thinking=1, out=551` vs `thinking=0, out=453`). The claim rested on deploy
+**version numbers**, which count per project and are not comparable across
+them. **Diff the source, never the version.**
 Staging has `ANTHROPIC_API_KEY` set (post-S12); dev/prod keys still per
 OWED_AUDREY §5, and `WILSON_AI_KEY_SECRET` is owed on every env per §9C.
 
-⚠️ **The CLI is linked to `wilson-staging` (`rzkirvkotslbovzbsdfh`)**, not
-`wilson-dev` as this line said through S17 — checked against
-`supabase/.temp/project-ref` on 2026-07-31. `supabase db query --linked` and
-`scripts/tap-hosted.py` therefore hit **staging**, which is what the S18
-invite measurements wanted but is emphatically not what a destructive probe
-wants. **Check `supabase/.temp/project-ref` before running anything that
-writes**, and re-link deliberately rather than trusting this file.
+⚠️ **Do not trust any sentence in this file about which project is linked —
+including this one.** The file is `supabase/.temp/linked-project.json` (not
+`project-ref`, as this section said through S21). **Read it before running
+anything that writes**, and re-link deliberately.
+
+Measured 2026-08-03 (S22): it was on **`wilson-dev`** (`eqjzmnvkrakroyqxfsvw`),
+not staging. The close-out ritual re-links to dev at the end of every session,
+so dev is the expected resting state; the "linked to staging" claim above dated
+from S18 and had been wrong for four sessions.
+
+---
+
+### Session 22 (2026-08-03) — the privilege sweep, storage copy, task diagnosis
+
+`494a13d` + `8709b1e`. **Migration 0033**, applied and verified **by query** on
+dev, staging and prod.
+
+- **`anon` privilege spread closed: 25 tables → 0.** Proven safe *before* any
+  SQL: only two policies in the schema are anon-satisfiable (both `USING
+  (true)`, both on already-clean tables), and an empirical `SET ROLE anon`
+  probe read **0 of 25** tables (17 empty, 8 already raising).
+- **Seven SECURITY DEFINER functions were anon-executable** — a *live*
+  pre-auth RLS bypass, since they run as owner and PostgREST serves them at
+  `/rest/v1/rpc/`. Not in the plan; found by asking what else 0011's blanket
+  grant touched. The revoke had to name **PUBLIC**, not just `anon` — each
+  carried a bare `=X/postgres` aclitem, so the naive statement would have been
+  a silent no-op. This reverses a deliberate S17-era decision; §17 of the
+  handbook records the three measurements that retire the original objection.
+- **0011's `ALTER DEFAULT PRIVILEGES` disarmed** for `anon`, so new tables are
+  no longer born exposed. Stated limit: a second armed entry is granted by
+  `supabase_admin`, which `postgres` is not a member of and cannot revoke; it
+  applies only to objects `supabase_admin` creates.
+- **pgTAP 629 → 655** (25 table probes + 1 schema-wide SECURITY DEFINER guard,
+  across 24 existing suites; no new files, no `rls.yml` edit). vitest 482
+  unchanged. All four CI jobs green.
+- **Storage tab** renamed `RABBIT` → `Storage`, "In use" badge on the active
+  backend, honest copy. No logic touched.
+- **R.A.B.B.I.T. task creation diagnosed, not fixed** (deliberately): reproduced
+  `23502` on `tasks.asset_id`. The obvious fix is insufficient — see
+  `OUTSTANDING.md` and `SESSION_23_prompt.md`.
 
 ---
 
@@ -1258,7 +1296,7 @@ undecided gap at a release is a decision nobody made.
 | 41 | 🚨 **OWED — Audrey only** | The published `smoke_admin` credential (TPN-SDLC-007, open CRITICAL). Every occurrence is out of the working tree and the instructions that told operators to rotate it *back* to the literal are rewritten — but the value is in git history permanently, so **rotation is the only remedy and only Audrey can do it**. `OWED_AUDREY.md` §0. |
 | 42 | **CLOSED S17** (`b726e75`) | TPN-LOG-005. `trg_ws_members_audit` captures every privilege change into the reserved `app_events` admin stream. |
 | 43 | **ACCEPTED** | Teardown cannot see blobs no row points at. The row-derived sweep covers every blob the product itself created; the residue is a failed-insert upload whose 1-hour cleanup window lapsed. |
-| 44 | **CLOSED S17** (`b726e75`) | `custom_access_token_hook` re-revoked. **Sharpened during the fix:** it was callable by `anon`, not merely by any signed-in caller — reachable with nothing but the public anon key. |
+| 44 | **CLOSED S17** (`b726e75`); **wider audit CLOSED S22** (`494a13d`) | `custom_access_token_hook` re-revoked. **Sharpened during the fix:** it was callable by `anon`, not merely by any signed-in caller — reachable with nothing but the public anon key. **The follow-up this entry asked for — "audit which other DEFINER functions were meant to be locked" — was finally done in S22, and found seven still open** (`can_comment_project`, `can_manage_project_roster`, `can_write_project`, `fn_comment_project_id`, `has_active_membership`, `project_is_staffed`, `project_role_for`). Migration 0033 revoked them **from `PUBLIC, anon`** — naming only `anon` would have been a silent no-op, since each carried a bare `=X/postgres` aclitem. 0011's `ALTER DEFAULT PRIVILEGES` was disarmed in the same migration, so this cannot re-arm itself, and `35_platform_audit.sql` now asserts the count is zero. |
 | 45 | **CLOSED S17** (`b726e75`) | Managed-files containment — and wider than filed: four fs sinks, not two, plus the asset rename/delete pair, which was an arbitrary-*directory-move*. |
 | 46 | **CLOSED S17** (`b726e75`) | `invite-member` routed through `adminGuard`. **Does not close every admin-minting path** — see #66. |
 | 47 | **CLOSED S17** (`b726e75`) | Milestones survive a load, in both adapters, with a test that pins the whole class. |

@@ -343,7 +343,9 @@ nothing to deep-link to.
 | `wilson-staging` | `rzkirvkotslbovzbsdfh` | The Vercel beta web deployment |
 | `wilson-prod` | `rqyriuyldhovirbuievt` | Production |
 
-Migrations `0000`–`0029` and every Edge Function are deployed to **all three**.
+Migrations `0000`–`0033` and every Edge Function are deployed to **all three**.
+(Was written as `0000`–`0029` until S22; 0030–0032 landed in S20/S21 and 0033
+in S22, each verified **by query** on all three, not by the CLI's success line.)
 
 **Anon keys are public by design and ship inside the web bundle.** This is not
 a leak: sign-ups are off, every table carries RLS — all but four with `FORCE`
@@ -495,7 +497,7 @@ seat.
 | `authenticated` | Every signed-in client. Subject to RLS. Granted broad table privileges by 0011 as a convenience — **RLS is the real boundary**, with targeted `REVOKE`s layered on sensitive tables. |
 | `anon` | Anonymous. Revoked everywhere sensitive. |
 | `service_role` | Edge Functions. **Bypasses RLS.** Sole executor of provisioning, purges, `operator_workspace_summary()`, `fn_rate_limit_hit()`, teardown. |
-| `supabase_auth_admin` | The *intended* sole grantee of the access-token hook. 0001/0003 grant it and revoke from `anon`/`authenticated`/`public` — but 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens it, and 0011 re-locks only `provision_workspace_and_admin` and `workspace_directory()`. See §17. |
+| `supabase_auth_admin` | The *intended* sole grantee of the access-token hook. 0001/0003 grant it and revoke from `anon`/`authenticated`/`public` — but 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens it, and 0011 re-locks only `provision_workspace_and_admin` and `workspace_directory()`. **0030 re-locked the hook itself and 0033 (S22) swept the remainder** — seven SECURITY DEFINER functions were still anon-executable, and the revoke had to name `PUBLIC` as well as `anon` because each carried a bare `=X/postgres` aclitem. `35_platform_audit.sql` now asserts that **no** SECURITY DEFINER function in `public` is anon-executable, so this cannot silently re-open. See §17. |
 | `postgres` | Owns SECURITY DEFINER objects; runs migrations and pgTAP. |
 
 `ENABLE` **and** `FORCE ROW LEVEL SECURITY` are set on: `workspaces`,
@@ -802,6 +804,7 @@ only matter if someone **replays a migration by hand**:
 | `0022` | `0025` **and** `0026` | 0022 recreates `fn_otter_cr_review`, `otter_courses_select`, the CR policies and `otter_course_index()` at their Session-10 definitions — and every 0022 post-condition still passes in that half-reverted state. |
 | `0002` | `0029` | 0002 recreates `workspaces_write_operator` at its `FOR ALL` definition, re-opening the defect where an operator's ordinary browser session could `DELETE FROM workspaces`. |
 | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
+| `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
@@ -2215,15 +2218,39 @@ of a session — this section is limits by design, that file is faults.
 
 **Security-adjacent**
 
-- Eight SECURITY DEFINER functions are executable by `anon`. Six key on
-  `auth.uid()` and leak nothing; `project_is_staffed` and
-  `fn_comment_project_id` have no caller gate but reveal one bit about a UUID
-  the caller must already hold. Left alone deliberately: revoking them from
-  `anon` was **tested** and is a behaviour change, because
-  `has_active_membership` backs nearly every policy and every anonymous table
-  read would turn from an empty result into a 42501. The right post-1.0 fix is
-  an `auth.uid() IS NOT NULL` guard inside the two ungated functions, not a
-  grant change.
+- ~~Eight SECURITY DEFINER functions are executable by `anon`.~~ ✅ **CLOSED by
+  migration 0033 (S22, 2026-08-03).** The count was **seven**, measured, not
+  eight. Five key on `auth.uid()` and leak nothing; `project_is_staffed` and
+  `fn_comment_project_id` have no caller gate.
+
+  **This reverses a deliberate decision, so here is exactly why it is now
+  safe.** The earlier reasoning was that revoking would turn every anonymous
+  table read from an empty result into a 42501, because `has_active_membership`
+  backs nearly every policy. Three measurements retire that objection:
+
+  1. **It was already not true that anon reads returned empty.** Probing all 25
+     anon-granted tables as `SET ROLE anon` with no JWT: 17 returned empty and
+     **8 already raised** `permission denied for function is_platform_operator`
+     / `otter_is_course_owner` / `otter_has_editor_grant`. The "empty result"
+     premise held for two thirds of the tables, not all of them.
+  2. **0033 revokes the table grants in the same migration**, so an anon read
+     now stops at the *grant* check with 42501 before any policy is evaluated.
+     The function revoke therefore introduces no failure mode the table revoke
+     had not already introduced.
+  3. **No client code calls any of the seven directly.** All nine `.rpc()` call
+     sites in `src/` target other functions; these seven are reached only from
+     inside policies, which are evaluated as the *querying* role —
+     `authenticated`, which keeps EXECUTE (asserted in 0033's post-condition).
+     The one auth-screen read of a revoked table,
+     `LoginScreen.fetchUserWorkspaces()` on `public.workspaces`, runs **after**
+     sign-in (both call sites are behind a session check) and additionally does
+     `if (error) return []`, so it is doubly unaffected.
+
+  The suggested `auth.uid() IS NOT NULL` guard inside the two ungated functions
+  is still worth doing as defence in depth, but it is no longer load-bearing.
+  `35_platform_audit.sql` now asserts that **zero** SECURITY DEFINER functions
+  in `public` are anon-executable — a count, not a named list, so it fails for
+  a function nobody has thought of yet.
 - `provision-workspace` can still create an `admin` from a public,
   pre-authentication endpoint. This is by design — it is self-serve company
   creation and the caller becomes the first admin — but it means "no

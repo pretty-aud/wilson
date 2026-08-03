@@ -48,43 +48,83 @@ RLS.
 
 ---
 
-## 🚨 Security — not blocking the tag, but wide
-
-### `anon` holds ALL privileges on 25 public tables
-**MEASURED (S21, wilson-dev, 2026-08-02).** `anon` holds
-DELETE/INSERT/REFERENCES/SELECT/TRIGGER/TRUNCATE/UPDATE on **26 of the 36**
-public tables. Only ten are clean — the ones 0028, 0030 and 0031 explicitly
-revoked. This is migration 0011's blanket
-`GRANT` + `ALTER DEFAULT PRIVILEGES`, still in force everywhere no later
-migration undid it.
-
-Found by accident: 0032 grew the standing `ok(NOT has_table_privilege('anon',…))`
-assertion into `07_rate_cards.sql` and it **failed**. 0032 closed `rate_cards`,
-leaving 25.
-
-**Nothing leaks today** — every one of those tables has RLS enabled and forced,
-and an anon caller carries no JWT so the policies deny. The exposure is that
-RLS is the *only* barrier: one permissive policy mistake, or one table where
-RLS is dropped, is immediately world-readable. `TRUNCATE` is not subject to RLS
-at all (not reachable through PostgREST, which never issues it).
-
-→ A sweep of its own. **Do not blanket-revoke** — each table needs its
-legitimate `authenticated` grants preserved, which is why 0032 did one table
-and stopped. The query that lists them is in the S22 prompt.
-
----
-
 ## Broken features
 
-### R.A.B.B.I.T. task management
-**REPORTED.** Not yet reproduced or diagnosed — budget diagnosis time, not
-just fix time.
-- New-task button in Tasks does nothing.
-- Board view: typing a task and pressing Enter makes it vanish.
-- Assignee dropdown does not populate. Partial lead: `ProjectTasksView.jsx:159`
-  filters the roster to `project_members` when `projectIsStaffed`, and falls
-  back to the whole roster when not — so either staffing rows are missing or
-  the roster is empty. **Query both before touching code.**
+### R.A.B.B.I.T. task creation fails in cloud mode — `tasks.asset_id` is NOT NULL and nothing supplies it
+**MEASURED (S22, wilson-dev, 2026-08-03) — reproduced at the database, not
+inferred.** This replaces the first two bullets of the old REPORTED entry;
+they are one defect in a shared write path, not two.
+
+Inserting the exact payload the UI sends, as an authenticated admin member of
+the fixture workspace, via `tests.rls_setup()` + real JWT claims:
+
+```
+23502: null value in column "asset_id" of relation "tasks"
+       violates not-null constraint
+```
+
+The chain, every hop read:
+- `ProjectTasksView.jsx:406` `handleAddTask` sends `{title, status, priority}`.
+  The toolbar button (`:635`) passes no defaults; the Board's inline add
+  (`:1582-1594`) only sets `asset_id` when `kanbanGroup === 'asset'`, and the
+  default group is `'status'`.
+- `RabbitProvider.jsx:1577` adds `id`/`project_id`/`status`/`priority` — still
+  no `asset_id`.
+- `0000_rabbit_base_schema.sql:178` — `asset_id uuid not null references
+  assets(id)`. No migration ever relaxed it. Contrast `workspace_id`, which
+  IS auto-stamped by `trg_tasks_populate_workspace` (`0004:161-164`) — which
+  is why adding `workspace_id` by hand changes nothing (measured, case B).
+- `supabaseAdapter.js:83` `unwrap` throws; `RabbitProvider.jsx:1584` awaits
+  the adapter **before** `setBundle` at `:1587`, so no row is ever added to
+  state and there is no optimistic row to flicker.
+- `ProjectTasksView.jsx:406` has no `try/catch` and the `onClick` arrow drops
+  the rejected promise. No `unhandledrejection` handler exists anywhere in
+  `src/` or `electron/`. **Net effect on screen: nothing at all.**
+
+So "the button does nothing" is literal. And in Board view what *vanishes* is
+the typed text, not a rendered card — `commitAdd` clears the input
+unconditionally before the write resolves. The optimistic-insert theory in the
+old plan doc is **refuted**: there is no optimistic state on this path.
+
+Cloud-mode only. The local Express route (`main.cjs:1090-1098`) writes
+`req.body` into a JSON bundle with no column check, so the same click succeeds
+on Local Server. **Cheap falsifying test before anyone edits code:** switch
+R.A.B.B.I.T. to Local Server and click New task. Works locally + dead in cloud
+confirms this; dead in both refutes it. (The web build forces `supabase`, so
+the beta always takes the failing path.)
+
+→ **Not fixed here — deliberately.** The obvious fix is wrong on its own:
+`0014_soft_delete.sql:238` makes `tasks_select` require
+`EXISTS (SELECT 1 FROM assets a WHERE a.id = tasks.asset_id)`, so a task with
+a NULL `asset_id` fails its own SELECT policy and `.single()` returns PGRST116.
+Making the column nullable would **move** the failure, not remove it. Both must
+change together, and whether a task may exist without an asset is a product
+decision, not a schema detail. Also worth knowing: there is **no automated
+coverage of task creation at any layer** — no vitest, no pgTAP. That is why a
+total failure shipped unnoticed. → S24.
+
+### R.A.B.B.I.T. assignee dropdown does not populate
+**REPORTED; cause NOT ESTABLISHED (S22).** Kept separate from the entry above
+because it is a different path and the diagnosis did not converge.
+
+The documented lead was **wrong**: `ProjectTasksView.jsx:159` filters to
+`project_members` only when staffed, and `project_members` has **zero rows**
+(measured on dev), so the *fallback* branch runs and returns the whole
+workspace roster. That branch is correct and does what its comment says.
+
+Two survivors, either of which could be what Audrey saw:
+1. **The roster is genuinely almost empty.** Measured on dev: 2
+   `workspace_members` rows across 4 workspaces. A dropdown offering one name
+   looks broken but is accurate. **Check the roster count in her workspace
+   first** — this needs no code change.
+2. **Two *other* assignee dropdowns are unconditionally empty in cloud mode** —
+   `ProjectAssetsView.jsx:2108` (asset-detail task rows) and
+   `TimelineView.jsx:4228` (task editor). Both read a legacy roster that the
+   Supabase adapter never populates: `supabaseAdapter.loadProject` (`:247`)
+   omits `teamAssignments` entirely and the adapter has no `listTeamMembers`.
+   These are hard-empty regardless of roster size.
+
+→ Establish **which dropdown** before writing code. S24.
 
 ### Scenes / levels / experiences are unavailable on cloud projects
 **MEASURED.** Local-only by design — the Supabase adapter throws (Known #5).
@@ -92,14 +132,6 @@ Audrey calls these crucial, so the current behaviour is a silent throw where
 there should at least be honest copy.
 → Decision pending: make them cloud-capable (migration + RLS + adapter + suite,
 a session of its own) or keep local and say so in the UI.
-
-### Storage tab: every backend button is disabled on the web
-**MEASURED (S18).** `RabbitProvider.jsx:312` forces `'supabase'` when
-`window.electronAPI` is absent; `SettingsPage.jsx:595` then disables each button
-when `active || unavailableOnWeb`. Supabase is *active* (disabled) and the other
-two are *unavailableOnWeb* (disabled). All three disabled by construction, not
-a broken handler. Reads as "storage is broken" when Supabase is in fact working.
-→ S22.
 
 ### One hung `getSession()` pins the whole app's auth, and `withTimeout` cannot unpin it
 **MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
@@ -200,7 +232,27 @@ Kept so the file's own history is visible without `git log`.
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
 | S20, later the same day | nothing new. The Profile-panel entry was **corrected**: the unbounded-`getSession()` class is 26 sites, not 18, and S20 itself added two of them (`modelSources.js`, both writers). Those two are now bounded with `withTimeout` and pinned by tests that fail with a hang when the bound is removed. The rest of the class is S21's sweep. | nothing |
+| S22 (2026-08-03) | the R.A.B.B.I.T. task-creation entry, **upgraded REPORTED → MEASURED** with a reproduced `23502` and a named cause, plus a separate **assignee-dropdown** entry whose documented lead turned out to point at a branch that never runs. Neither is new breakage — the old entry was one line of guesswork and is now two entries of evidence. | the **`anon` privilege spread** (0033 + `494a13d`, applied and verified **by query** on dev, staging and prod: 25 tables → 0, and 7 anon-executable SECURITY DEFINER functions → 0). **Storage tab reads as broken on the web** (`8709b1e`). |
 | S21 (2026-08-02) | the **`anon` privilege spread** (25 tables remaining) — found by a test assertion failing, not by looking for it. The **auth-js global lock**, which replaces the old Profile-panel entry with a correct account of why per-site ceilings do not fix it. | **`rate_cards.type`** (0032 + `10fcd29`, applied and verified on dev, staging and prod). **Password change missing** (`10fcd29`). **Profile panel spins forever** — superseded, see above. The avatar entry is kept but rewritten: four hypotheses falsified, the success-masking fixed, root cause still open. |
+
+S22's lesson, and it is about **grantees, not grants**. The 25 tables were
+granted to `anon` explicitly, so `REVOKE ... FROM anon` worked. The seven
+SECURITY DEFINER functions were granted to **PUBLIC** — every one carried a
+bare `=X/postgres` aclitem — so the same statement against them would have been
+a **silent no-op**: no error, migration reports success, hole still open, and
+nothing visible afterwards without re-querying the ACL. 0011:42 already knew
+this (`REVOKE ... FROM PUBLIC, anon`) and the knowledge had not travelled.
+**Check who actually holds the privilege before writing the REVOKE, and make
+the post-condition scan every object rather than the ones you listed.** The
+scan is what would have caught it; the list is what would have missed it.
+
+The second half of the lesson is about scope. The recorded problem was "25
+tables". Asking what *else* migration 0011's blanket grant touched found two
+more things nobody had written down — the anon-executable SECURITY DEFINER
+functions (a live pre-auth RLS bypass, not a latent grant) and the still-armed
+`ALTER DEFAULT PRIVILEGES` that would have re-opened the hole on the next
+`CREATE TABLE`. Fixing only the documented 25 would have been a correct fix to
+a third of the problem, and would have read as complete.
 
 S21's own lesson, and the reason the `anon` entry exists at all: **a test
 assertion written to the house convention found a hole nobody was looking for.**
