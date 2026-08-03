@@ -10,7 +10,7 @@
 
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(14);
 
 SELECT * FROM tests.rls_setup();
 
@@ -143,6 +143,22 @@ SELECT tests.login_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
 
 SELECT is((SELECT count(*)::int FROM public.otter_progress),
           0, 'another workspace sees no progress rows');
+
+
+-- ── 0033: the migration-0011 privilege trap, for otter_progress ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on otter_progress; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.otter_progress', 'SELECT') OR
+    has_table_privilege('anon', 'public.otter_progress', 'INSERT') OR
+    has_table_privilege('anon', 'public.otter_progress', 'UPDATE') OR
+    has_table_privilege('anon', 'public.otter_progress', 'DELETE')
+  ),
+  'anon holds no table privilege on otter_progress'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

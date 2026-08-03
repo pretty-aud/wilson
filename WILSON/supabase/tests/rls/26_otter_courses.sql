@@ -11,7 +11,7 @@
 
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(34);
 
 SELECT * FROM tests.rls_setup();
 
@@ -324,6 +324,22 @@ UPDATE public.otter_courses
 
 SELECT ok(public.purge_otter_trash() >= 1,
           'purge_otter_trash sweeps rows trashed more than 30 days ago');
+
+
+-- ── 0033: the migration-0011 privilege trap, for otter_courses ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on otter_courses; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.otter_courses', 'SELECT') OR
+    has_table_privilege('anon', 'public.otter_courses', 'INSERT') OR
+    has_table_privilege('anon', 'public.otter_courses', 'UPDATE') OR
+    has_table_privilege('anon', 'public.otter_courses', 'DELETE')
+  ),
+  'anon holds no table privilege on otter_courses'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -10,7 +10,7 @@
 
 BEGIN;
 
-SELECT plan(18);
+SELECT plan(19);
 
 SELECT * FROM tests.rls_setup();
 
@@ -181,6 +181,22 @@ SELECT tests.login_as('a7a7a7a7-a7a7-a7a7-a7a7-a7a7a7a7a7a7',
 
 SELECT is((SELECT count(*)::int FROM public.otter_subjects),
           0, 'a deactivated member reads no subjects');
+
+
+-- ── 0033: the migration-0011 privilege trap, for otter_subjects ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on otter_subjects; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.otter_subjects', 'SELECT') OR
+    has_table_privilege('anon', 'public.otter_subjects', 'INSERT') OR
+    has_table_privilege('anon', 'public.otter_subjects', 'UPDATE') OR
+    has_table_privilege('anon', 'public.otter_subjects', 'DELETE')
+  ),
+  'anon holds no table privilege on otter_subjects'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

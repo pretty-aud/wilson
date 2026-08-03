@@ -1,6 +1,6 @@
 -- pgTAP: task_dependencies RLS (parent-join via tasks, both sides)
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 
 SELECT * FROM tests.rls_setup();
 
@@ -55,6 +55,22 @@ SELECT is(
   (SELECT created_by FROM public.task_dependencies WHERE id = 'aaaa1111-0000-0000-0000-00000000d199'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'task_dependencies audit trigger populates created_by'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for task_dependencies ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on task_dependencies; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.task_dependencies', 'SELECT') OR
+    has_table_privilege('anon', 'public.task_dependencies', 'INSERT') OR
+    has_table_privilege('anon', 'public.task_dependencies', 'UPDATE') OR
+    has_table_privilege('anon', 'public.task_dependencies', 'DELETE')
+  ),
+  'anon holds no table privilege on task_dependencies'
 );
 
 SELECT * FROM finish();

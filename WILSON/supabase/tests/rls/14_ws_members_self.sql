@@ -5,7 +5,7 @@
 -- and self-username changes.
 
 BEGIN;
-SELECT plan(7);
+SELECT plan(8);
 
 SELECT * FROM tests.rls_setup();
 
@@ -129,6 +129,22 @@ WITH upd AS (
 )
 SELECT is((SELECT count(*)::int FROM upd), 0,
           'admin cannot UPDATE members in other workspaces');
+
+
+-- ── 0033: the migration-0011 privilege trap, for workspace_members ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on workspace_members; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.workspace_members', 'SELECT') OR
+    has_table_privilege('anon', 'public.workspace_members', 'INSERT') OR
+    has_table_privilege('anon', 'public.workspace_members', 'UPDATE') OR
+    has_table_privilege('anon', 'public.workspace_members', 'DELETE')
+  ),
+  'anon holds no table privilege on workspace_members'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

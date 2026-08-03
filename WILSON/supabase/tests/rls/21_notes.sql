@@ -11,7 +11,7 @@
 -- De-auth pair before every persona switch: tests schema is runner-only.
 
 BEGIN;
-SELECT plan(18);
+SELECT plan(19);
 
 SELECT * FROM tests.rls_setup();
 
@@ -222,6 +222,22 @@ SELECT ok(
   (SELECT relrowsecurity AND relforcerowsecurity
      FROM pg_class WHERE oid = 'public.notes'::regclass),
   'notes has RLS enabled and forced'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for notes ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on notes; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.notes', 'SELECT') OR
+    has_table_privilege('anon', 'public.notes', 'INSERT') OR
+    has_table_privilege('anon', 'public.notes', 'UPDATE') OR
+    has_table_privilege('anon', 'public.notes', 'DELETE')
+  ),
+  'anon holds no table privilege on notes'
 );
 
 SELECT * FROM finish();

@@ -23,7 +23,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(14);
+SELECT plan(15);
 
 SELECT * FROM tests.rls_setup();
 
@@ -147,6 +147,22 @@ SELECT is(
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
+
+
+-- ── 0033: the migration-0011 privilege trap, for workspaces ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on workspaces; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.workspaces', 'SELECT') OR
+    has_table_privilege('anon', 'public.workspaces', 'INSERT') OR
+    has_table_privilege('anon', 'public.workspaces', 'UPDATE') OR
+    has_table_privilege('anon', 'public.workspaces', 'DELETE')
+  ),
+  'anon holds no table privilege on workspaces'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

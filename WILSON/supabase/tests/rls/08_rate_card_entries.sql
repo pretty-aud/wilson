@@ -1,7 +1,7 @@
 -- pgTAP: rate_card_entries RLS (parent-join via rate_cards; role-scoped
 -- since migration 0015 — SELECT admin+manager, writes admin only)
 BEGIN;
-SELECT plan(8);
+SELECT plan(9);
 
 SELECT * FROM tests.rls_setup();
 
@@ -158,6 +158,22 @@ SELECT throws_ok(
             'aaaa1111-0000-0000-0000-000000000e01', 'sneaky', 'sneaky')$$,
   'new row violates row-level security policy for table "rate_card_entries"',
   'manager cannot INSERT rate_card_entries'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for rate_card_entries ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on rate_card_entries; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.rate_card_entries', 'SELECT') OR
+    has_table_privilege('anon', 'public.rate_card_entries', 'INSERT') OR
+    has_table_privilege('anon', 'public.rate_card_entries', 'UPDATE') OR
+    has_table_privilege('anon', 'public.rate_card_entries', 'DELETE')
+  ),
+  'anon holds no table privilege on rate_card_entries'
 );
 
 SELECT * FROM finish();

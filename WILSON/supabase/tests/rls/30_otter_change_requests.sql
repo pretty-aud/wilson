@@ -12,7 +12,7 @@
 
 BEGIN;
 
-SELECT plan(16);
+SELECT plan(17);
 
 SELECT * FROM tests.rls_setup();
 
@@ -185,6 +185,22 @@ SELECT is((SELECT proposed_by FROM public.otter_change_requests
             WHERE id='0a000005-0000-0000-0000-000000000002'),
           'cccccccc-cccc-cccc-cccc-cccccccccccc'::uuid,
           'proposed_by is immutable');
+
+
+-- ── 0033: the migration-0011 privilege trap, for otter_change_requests ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on otter_change_requests; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.otter_change_requests', 'SELECT') OR
+    has_table_privilege('anon', 'public.otter_change_requests', 'INSERT') OR
+    has_table_privilege('anon', 'public.otter_change_requests', 'UPDATE') OR
+    has_table_privilege('anon', 'public.otter_change_requests', 'DELETE')
+  ),
+  'anon holds no table privilege on otter_change_requests'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

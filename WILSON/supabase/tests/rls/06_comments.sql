@@ -1,6 +1,6 @@
 -- pgTAP: comments RLS (polymorphic — denormalized workspace_id via trigger)
 BEGIN;
-SELECT plan(5);
+SELECT plan(6);
 
 SELECT * FROM tests.rls_setup();
 
@@ -46,6 +46,22 @@ SELECT is(
   (SELECT created_by FROM public.comments WHERE id = 'aaaa1111-0000-0000-0000-0000000c0099'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'comments audit trigger populates created_by'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for comments ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on comments; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.comments', 'SELECT') OR
+    has_table_privilege('anon', 'public.comments', 'INSERT') OR
+    has_table_privilege('anon', 'public.comments', 'UPDATE') OR
+    has_table_privilege('anon', 'public.comments', 'DELETE')
+  ),
+  'anon holds no table privilege on comments'
 );
 
 SELECT * FROM finish();

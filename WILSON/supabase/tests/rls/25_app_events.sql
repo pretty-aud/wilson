@@ -6,7 +6,7 @@
 
 BEGIN;
 
-SELECT plan(13);
+SELECT plan(14);
 
 SELECT * FROM tests.rls_setup();
 
@@ -177,6 +177,22 @@ UPDATE public.app_events
 SELECT is(
   public.purge_app_events()::int,
   1, 'purge_app_events sweeps rows older than 90 days');
+
+
+-- ── 0033: the migration-0011 privilege trap, for app_events ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on app_events; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.app_events', 'SELECT') OR
+    has_table_privilege('anon', 'public.app_events', 'INSERT') OR
+    has_table_privilege('anon', 'public.app_events', 'UPDATE') OR
+    has_table_privilege('anon', 'public.app_events', 'DELETE')
+  ),
+  'anon holds no table privilege on app_events'
+);
 
 SELECT * FROM finish();
 ROLLBACK;

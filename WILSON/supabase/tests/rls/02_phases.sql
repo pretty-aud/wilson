@@ -1,6 +1,6 @@
 -- pgTAP: phases RLS (parent-join via projects)
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 
 SELECT * FROM tests.rls_setup();
 
@@ -37,6 +37,22 @@ SELECT is(
   (SELECT created_by FROM public.phases WHERE id = 'aaaa1111-0000-0000-0000-000000000a99'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'phases audit trigger populates created_by'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for phases ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on phases; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.phases', 'SELECT') OR
+    has_table_privilege('anon', 'public.phases', 'INSERT') OR
+    has_table_privilege('anon', 'public.phases', 'UPDATE') OR
+    has_table_privilege('anon', 'public.phases', 'DELETE')
+  ),
+  'anon holds no table privilege on phases'
 );
 
 SELECT * FROM finish();

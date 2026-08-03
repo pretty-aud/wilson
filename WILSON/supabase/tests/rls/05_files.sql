@@ -1,6 +1,6 @@
 -- pgTAP: files RLS (direct workspace_id)
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 
 SELECT * FROM tests.rls_setup();
 
@@ -40,6 +40,22 @@ SELECT is(
   (SELECT created_by FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-00000000ff99'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'files audit trigger populates created_by'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for files ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on files; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.files', 'SELECT') OR
+    has_table_privilege('anon', 'public.files', 'INSERT') OR
+    has_table_privilege('anon', 'public.files', 'UPDATE') OR
+    has_table_privilege('anon', 'public.files', 'DELETE')
+  ),
+  'anon holds no table privilege on files'
 );
 
 SELECT * FROM finish();

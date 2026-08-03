@@ -9,7 +9,7 @@
 -- seeded here — project_a stays unstaffed, as every other suite assumes.
 
 BEGIN;
-SELECT plan(25);
+SELECT plan(26);
 
 SELECT * FROM tests.rls_setup();
 
@@ -583,6 +583,22 @@ SELECT throws_ok(
      WHERE id = 'aaaa1111-0000-0000-0000-00000000a5a1'$$,
   'new row violates row-level security policy for table "assets"',
   'member cannot move an asset into a project they cannot write'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for project_members ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on project_members; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.project_members', 'SELECT') OR
+    has_table_privilege('anon', 'public.project_members', 'INSERT') OR
+    has_table_privilege('anon', 'public.project_members', 'UPDATE') OR
+    has_table_privilege('anon', 'public.project_members', 'DELETE')
+  ),
+  'anon holds no table privilege on project_members'
 );
 
 SELECT * FROM finish();

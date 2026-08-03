@@ -28,7 +28,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(21);
+SELECT plan(24);
 
 SELECT * FROM tests.rls_setup();
 
@@ -230,6 +230,64 @@ SELECT is(
       AND action = 'workspace.teardown'),
   'Doomed Studio',
   'the teardown certificate survives the workspace and still names it'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for auth_attempt_log ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on auth_attempt_log; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.auth_attempt_log', 'SELECT') OR
+    has_table_privilege('anon', 'public.auth_attempt_log', 'INSERT') OR
+    has_table_privilege('anon', 'public.auth_attempt_log', 'UPDATE') OR
+    has_table_privilege('anon', 'public.auth_attempt_log', 'DELETE')
+  ),
+  'anon holds no table privilege on auth_attempt_log'
+);
+
+-- ── 0033: the migration-0011 privilege trap, for platform_operators ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on platform_operators; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.platform_operators', 'SELECT') OR
+    has_table_privilege('anon', 'public.platform_operators', 'INSERT') OR
+    has_table_privilege('anon', 'public.platform_operators', 'UPDATE') OR
+    has_table_privilege('anon', 'public.platform_operators', 'DELETE')
+  ),
+  'anon holds no table privilege on platform_operators'
+);
+
+-- ── 0033: no SECURITY DEFINER function in public is executable by anon ──
+-- Schema-wide rather than specific to this suite's tables; it lives here
+-- because this is already where the anon function-privilege guards are (see
+-- the operator_workspace_summary probe above).
+--
+-- A SECURITY DEFINER function runs as its OWNER and bypasses RLS by
+-- construction, and PostgREST exposes every public function at
+-- /rest/v1/rpc/<name> — so anon EXECUTE on one is a pre-auth RLS bypass, not
+-- a latent grant. 0011:23 granted EXECUTE on ALL functions to anon; 0033
+-- revoked the seven that were still reachable (project_is_staffed and
+-- fn_comment_project_id being real data oracles, the other five caller
+-- predicates).
+--
+-- This is a count rather than a named list on purpose: it fails for a
+-- function nobody has thought of yet, including one re-opened by a
+-- CREATE OR REPLACE that resets the ACL.
+SELECT is(
+  (SELECT count(*)::int
+     FROM pg_proc p
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.prokind = 'f'
+      AND p.prosecdef
+      AND has_function_privilege('anon', p.oid, 'EXECUTE')),
+  0,
+  '0033: no SECURITY DEFINER function in public is executable by anon'
 );
 
 SELECT * FROM finish();

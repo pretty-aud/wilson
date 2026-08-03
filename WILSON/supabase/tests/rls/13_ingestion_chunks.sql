@@ -1,6 +1,6 @@
 -- pgTAP: ingestion_chunks RLS (parent-join via ingestion_runs → projects)
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 
 SELECT * FROM tests.rls_setup();
 
@@ -42,6 +42,22 @@ SELECT is(
   (SELECT created_by FROM public.ingestion_chunks WHERE id = 'aaaa1111-0000-0000-0000-00000000ae99'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'ingestion_chunks audit trigger populates created_by'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for ingestion_chunks ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on ingestion_chunks; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.ingestion_chunks', 'SELECT') OR
+    has_table_privilege('anon', 'public.ingestion_chunks', 'INSERT') OR
+    has_table_privilege('anon', 'public.ingestion_chunks', 'UPDATE') OR
+    has_table_privilege('anon', 'public.ingestion_chunks', 'DELETE')
+  ),
+  'anon holds no table privilege on ingestion_chunks'
 );
 
 SELECT * FROM finish();

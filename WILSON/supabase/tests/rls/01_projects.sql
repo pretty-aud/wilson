@@ -1,6 +1,6 @@
 -- pgTAP: projects RLS
 BEGIN;
-SELECT plan(4);
+SELECT plan(5);
 
 -- Seed the shared fixture (ws_a, ws_b, user_a, user_b, project_a, project_b).
 SELECT * FROM tests.rls_setup();
@@ -58,6 +58,22 @@ SELECT is(
   (SELECT created_by FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000099'),
   'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
   'fn_audit_touch populates created_by from auth.uid()'
+);
+
+
+-- ── 0033: the migration-0011 privilege trap, for projects ──
+-- 0011's blanket GRANT plus its ALTER DEFAULT PRIVILEGES left anon holding
+-- every table privilege on projects; 0033 revoked it. Assert the revoke rather
+-- than assume it — a policy-only check passes while a privilege hole is wide
+-- open, which is exactly how 26 tables stayed open until S21 tripped over one.
+SELECT ok(
+  NOT (
+    has_table_privilege('anon', 'public.projects', 'SELECT') OR
+    has_table_privilege('anon', 'public.projects', 'INSERT') OR
+    has_table_privilege('anon', 'public.projects', 'UPDATE') OR
+    has_table_privilege('anon', 'public.projects', 'DELETE')
+  ),
+  'anon holds no table privilege on projects'
 );
 
 SELECT * FROM finish();
