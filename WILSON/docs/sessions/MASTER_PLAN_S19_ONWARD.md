@@ -398,11 +398,13 @@ fix time.
   the version.** Download each deployment into a throwaway `--workdir` so the
   repo's own `supabase/functions/` is never overwritten.
 
-  Still genuinely unconfirmed, and still Audrey's: whether the fields survive
-  end-to-end **at runtime**, which needs `PROBE_USERNAME`/`PROBE_PASSWORD` —
-  `node scripts/probes/ai-models.mjs --dev`. Deployed code ≠ observed behaviour.
-  The "~138s vs ~59s on dev" claim rested on the same bad inference and should
-  not be repeated until that probe runs.
+  ✅ **Runtime behaviour CONFIRMED too (2026-08-03, staging).** Probe cases
+  7a/7b: `thinking` omitted → `thinking=1, out=551`; `thinking: disabled` →
+  `thinking=0, out=453`. That field is the only difference between the two
+  requests, so it reached Anthropic. Nothing about the tuning fields is open.
+
+  The "~138s vs ~59s on dev" claim is **withdrawn** — it rested on the deploy
+  version inference, and the forwarding was in place all along.
 - ~~**Deploy `operator-models` to prod.**~~ ✅ **DONE (S21, 2026-08-02).** Now
   on all three projects; prod verified ACTIVE alongside migration 0031.
 - **Apply migration 0031 to prod.** dev and staging are done and verified.

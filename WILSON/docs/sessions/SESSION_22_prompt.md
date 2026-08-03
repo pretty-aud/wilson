@@ -63,14 +63,21 @@ lost TRUNCATE.
 4. **v1.0.0 is prepared, NOT tagged, NOT merged to `main`.** Ask before
    tagging, and ask **again** before merging to `main` (Vercel's production
    branch).
-5. Confirm the tuning fields survive **at runtime**:
-   `node scripts/probes/ai-models.mjs --dev` (needs
-   `PROBE_USERNAME`/`PROBE_PASSWORD`). The *deploy* is no longer in question —
-   all three envs run byte-identical `ai-proxy` source matching HEAD, MEASURED
-   2026-08-03 by diffing downloaded deployments. What is still unobserved is
-   the end-to-end behaviour. **Deployed code ≠ observed behaviour**, and the
-   old "~138s on dev vs ~59s" figure rested on a bad inference from deploy
-   version numbers — do not repeat it until this probe runs.
+5. ~~Confirm the tuning fields survive at runtime.~~ ✅ **DONE — CONFIRMED
+   2026-08-03 against staging.** `node scripts/probes/ai-models.mjs --staging`,
+   cases 7a/7b: thinking omitted → `thinking=1, out=551`; thinking disabled →
+   `thinking=0, out=453`. The `thinking` field is the **only** difference
+   between those two requests, so it reached Anthropic. `ai-proxy` forwards it
+   end to end, on source byte-identical across all three envs.
+
+   Two notes for whoever runs this next. **The probe's own footer asserted the
+   opposite** — "ai-proxy … drops `thinking` silently, so 7a and 7b sent
+   identical requests" — text written before S19 taught it to forward. Taking
+   the legend at face value would have recorded the wrong conclusion from a
+   correct measurement; the *numbers* refuted it. The legend is now fixed and
+   branches on whether 7a and 7b actually differ. And **passwords are
+   per-project**: `audrey` resolves to `admin@petalstudios.co` on dev but
+   `audrey@petalstudios.co` on staging, so use `--staging`.
 
 ---
 

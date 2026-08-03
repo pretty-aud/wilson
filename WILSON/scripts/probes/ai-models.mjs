@@ -430,21 +430,37 @@ async function runCases() {
   const passed = results.filter((r) => r.ok).length
   console.log(`\n${BOLD}${passed} passed, ${results.length - passed} failed${RESET}\n`)
   console.log('What each answer means:')
+  console.log('  2 FAIL      -> EXPECTED. The retired model must 404; that is the control')
+  console.log('                proving a dead model is distinguishable from a live one.')
+  console.log('                Case 2 PASSING would be the alarming result.')
   console.log('  5a/5b FAIL  -> O.T.T.E.R. needs its web-search tool version and/or beta')
   console.log('                header changed too. A model swap alone leaves the five')
   console.log('                research paths broken.')
-  console.log('  6 FAIL      -> the Validator\'s tool_use recursion cannot work as written')
-  console.log('                on the new model and has to be restructured.')
+  console.log('                (Measured PASSING on sonnet-5 in S19 and again 2026-08-03 —')
+  console.log('                 five call sites were nearly rewritten for nothing.)')
+  console.log('  6 FAIL      -> STALE CASE as of S19, not a live defect. This sends a TEXT')
+  console.log('                assistant prefill, which sonnet-5 rejects — correctly. The')
+  console.log('                Validator no longer sends that shape: Validator.jsx:52')
+  console.log('                branches on `pause_turn` (the server-tool signal) and appends')
+  console.log('                an assistant turn ending in server_tool_use, which is the')
+  console.log('                documented resume. The old branch keyed on `tool_use`, a')
+  console.log('                CLIENT-tool signal the Validator never emits. Rewrite this')
+  console.log('                case to the pause_turn shape or drop it.')
   if (t1.ok && t2.ok) {
     console.log(`  7a stop=${t1.stop} thinking=${t1.thinking}, `
       + `7b stop=${t2.stop} thinking=${t2.thinking}`)
-    console.log(`                ${YELLOW}-> 7b is NOT a control. ai-proxy whitelists the upstream body`)
-    console.log('                   to model/max_tokens/messages/stream/system/tools and drops')
-    console.log('                   `thinking` silently, so 7a and 7b sent identical requests.')
-    console.log('                   Identical results here say nothing about thinking.')
-    console.log(`                   thinking=${t1.thinking} does show the model thinks unasked;`)
-    console.log('                   whether that truncates a REAL generation is still open,')
-    console.log(`                   and cannot be tested until ai-proxy forwards the field.${RESET}`)
+    if (t1.thinking !== t2.thinking) {
+      console.log(`                ${YELLOW}-> THE FIELD IS FORWARDED. 7a and 7b differ, and the ONLY`)
+      console.log('                   difference between them is the `thinking` field — so it')
+      console.log('                   reached Anthropic. ai-proxy\'s whitelist now includes it')
+      console.log(`                   (ai-proxy/index.ts:239, :251-254).${RESET}`)
+    } else {
+      console.log(`                ${YELLOW}-> INCONCLUSIVE. 7a and 7b came back identical, which is`)
+      console.log('                   what you would see if `thinking` never reached Anthropic.')
+      console.log('                   Check that the DEPLOYED ai-proxy carries the forwarding —')
+      console.log('                   diff the downloaded source, do NOT read the deploy version')
+      console.log(`                   number, which counts per project and is not comparable.${RESET}`)
+    }
   }
   console.log('\nPaste this whole output back into the session.')
 }
