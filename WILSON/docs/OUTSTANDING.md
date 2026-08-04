@@ -84,6 +84,35 @@ account the session holds, and whether New asset is present while New task is
 gone. Separately, the UX is wrong either way — a reviewer should be told why
 they cannot add, not have the control silently disappear.
 
+### The budget system does not exist in the cloud schema
+**MEASURED (S23, 2026-08-03).** Reported by Audrey as "the default contingency
+and margin come up as 0%" and "i have tried to update the percentage and it
+doesn't save". The cause is not a save bug: checked against a full census of
+all 36 public tables, there is **no `budget_lines`, `budget_actuals`,
+`budget_versions` or `expenses` table, and no `margin` or `contingency` column
+anywhere in the database.** The cloud schema holds only
+`projects.budget_currency` and the rate fields on `rate_card_entries`
+(`day_rate`, `week_rate`, `month_rate`, `wage`, `burden`, `burden_type`,
+`overhead`, `overhead_type`).
+
+Those structures exist only in the local JSON bundle — `mirrorProjectDatabases`
+on `origin/main` writes `budget.json` with exactly `budgetLines`,
+`budgetActuals`, `budgetVersions`, `expenses`. So there is nowhere in the cloud
+to persist a percentage, and the 0% is what an absent value renders as.
+
+Same defect class as `tasks.asset_id` and `assets.start_date`, one layer up: a
+UI built against a local schema the cloud migration never gained.
+
+Also reported and unbuilt: the crew/team tab should show each member's title
+plus a **separate, manager-editable project job title**; the budget's phases
+tab should list the timeline's phases; and a phase should total
+`(task cost = rate × days) + expenses`.
+
+→ **S27**, scoped in `docs/sessions/SESSION_27_prompt.md`, which carries the
+open questions and the 🚨 warning that a job title must NOT be written into
+`project_members.project_role` (a permission column read by
+`can_write_project()`).
+
 ### Task templates do not exist in cloud mode
 **MEASURED (S23).** `listProjectTaskTemplates` / `listTaskTemplates` have zero
 occurrences in `supabaseAdapter.js` — they are `localServerAdapter`-only — so

@@ -376,7 +376,25 @@ below are superseded; only one of them actually moves.
 | **S24** | Scenes/shots/levels/experiences at **adapter parity** | old S24 already called this "a session of its own" |
 | **S25** | Backend-agnostic **folder tree** wired to the company's storage backend | **new** — Audrey's requirement, 2026-08-03 |
 | **S26** | Files everywhere, on that tree | **= old S23, absorbed not delayed** — it always needed the folder tree first |
-| **S27** | Design pass | = old S25, shifted by two |
+| **S27** | **Budget system pass** | **new** — Audrey, 2026-08-03. See `SESSION_27_prompt.md` |
+| **S28** | Design pass | = old S25, shifted by three |
+
+**S27 headline, MEASURED 2026-08-03:** the cloud schema has **no budget tables
+at all** — checked against a full census of all 36 public tables. No
+`budget_lines`, `budget_actuals`, `budget_versions` or `expenses`, and **no
+`margin` or `contingency` column anywhere**. Only `projects.budget_currency`
+and the rate fields on `rate_card_entries`. Those structures live solely in
+main's local `budget.json`. That fully explains "contingency and margin come up
+as 0% and won't save": there is nowhere to save them. Same defect class as
+`tasks.asset_id` and `assets.start_date` — a UI built against a local schema
+the cloud never gained, so the fix is mostly migrations.
+
+🚨 **The trap in that session:** Audrey wants a per-project **job title** column
+on the crew/team view ("you can have a company/title role AND a separate
+project role"). `project_members.project_role` is a **permission** role read by
+`can_write_project()` and friends — writing a job title into it would break
+every R.A.B.B.I.T. permission gate, in exactly the silent way S23 spent hours
+chasing. It needs its own column.
 
 **The requirements Audrey stated (2026-08-03), verbatim in substance:**
 - R.A.B.B.I.T. is also a **project file manager**; the folder tree must reflect
