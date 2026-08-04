@@ -386,8 +386,8 @@ below are superseded; only one of them actually moves.
 |---|---|---|---|
 | **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
 | **S24** | **Budget system** — ✅ **DONE (`b07b6c9`)** | moved forward from S27; it was the gap that stopped R.A.B.B.I.T. doing its job | `SESSION_24_prompt.md` |
-| **S25** | Scenes/shots/levels/experiences at **adapter parity** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
-| **S26** | Backend-agnostic **folder tree** + writes the project manifest | needs scenes to exist before it can give each one a folder | *to write* |
+| **S25** | Scenes/shots/levels/experiences at **adapter parity** — ✅ **DONE (`183b4c2`)** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
+| **S26** | Backend-agnostic **folder tree** + writes the project manifest | needs scenes to exist before it can give each one a folder | `SESSION_26_prompt.md` |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources | manages the folders S26 creates | *to write* |
 | **S28** | Design pass | unchanged, still last | *to write* |
 
@@ -400,8 +400,17 @@ or three separate rediscoveries:
   `projects.margin` column is probably only the default a new line inherits.
   Guessing that shape before the model exists would put a wrong column in a
   money system, which is worse than a missing one — code starts reading it.
-- **S25** → `code`, `scene_start_number`, `scene_digits`, `shot_digits`.
-- **S26** → `folder_slug`, `folder_root`.
+- ~~**S25** → `code`, `scene_start_number`, `scene_digits`, `shot_digits`.~~
+  ✅ **DONE by 0040 — and this line was WRONG about the first column and
+  incomplete about the rest.** S25 added **seventeen**, taking `projects` from
+  31 to 48. `code` is **not** among them: nothing in the app has ever written
+  a bare `code` key, so the column would have been dead on arrival. The real
+  one is `project_code`. The thirteen this line never mentioned —
+  `scene_separator`, `fps`, `uses_realtime_engine`, five `engine_*` fields,
+  the three `*_enabled` toggles, `project_type` and `project_tier` — are all
+  written by the Project Control Panel and were all being silently discarded.
+  Derived from a grep of the panel and the views, not from this table.
+- **S26** → `folder_slug`, `folder_root`, `files_dir`.
 
 **DECIDED (Audrey, 2026-08-03): the database is authoritative and the project
 folder's file is a generated MIRROR.** Written on change; read only for
@@ -495,6 +504,49 @@ card later."*
 are `role rate × days`, so every total stays zero until Audrey enters rates.
 The budget now says so in a banner rather than rendering a confident $0.
 
+### ✅ S25 OUTCOME (2026-08-04, `183b4c2`) — and the third repeat of one mistake
+
+**Shipped, applied and verified BY QUERY on dev, staging AND prod:** migration
+0040 — `scenes`, `shots`, `levels`, `experiences` (RLS enabled and forced, 16
+policies, no `FOR ALL`, workspace-stamp and touch triggers, **zero privileges
+held by `anon` or `PUBLIC`**, scanned across all four rather than assumed) and
+seventeen `projects` columns (31 → 48). `supabaseAdapter` gained four list
+methods it never had and real bodies for the eight that threw. Naming
+extracted to `entityNaming.js`. pgTAP **47 → 51 suites, 721 → 768
+assertions**, `collected == planned` on every suite, whole set re-run green.
+vitest **521 → 556**. All four CI jobs green on `183b4c2`.
+
+> 🚨 **THIS DOCUMENT NAMED THE WRONG COLUMN AGAIN — the THIRD time in three
+> sessions.** S20 was told "migration 0032" when the next number was 0031.
+> S24 was told the budget gap was `margin`/`contingency` when the UI reads
+> `budget_margin_pct`/`budget_contingency_pct` and seven more. S25 was told to
+> add `code`, when nothing in the app has ever *written* a `code` key and the
+> real column is `project_code`.
+>
+> The pattern is identical every time: the plan names a field that appears in
+> a **read** and never checks that anything **writes** it. Adding `code` would
+> have closed the documented gap, satisfied review, and left the client-facing
+> topsheet printing `--` forever — a fix that fixes nothing, which is worse
+> than no fix because it also closes the ticket.
+>
+> **The habit that catches it, and it is cheap:** before adding a column,
+> grep for the WRITER, not the reader. One command over `src/` enumerated
+> every field the Project Control Panel writes and found thirteen more drifted
+> columns this table never listed. pgTAP `48_scenes` probe 18 now asserts
+> `projects.code` does not exist, so the documented-but-wrong fix fails loudly
+> if anyone tries it later.
+
+> ⚠️ **What S25 did NOT deliver, and why it is recorded rather than glossed.**
+> **Task templates** were in the brief and were not built. They are not a
+> missing adapter method: Local Server stores them as individual JSON files in
+> their own directory, workspace-scoped with a project-scoped read, so cloud
+> parity needs a fifth table, RLS, a pgTAP suite and five methods. That is its
+> own block, not the tail of a session that had already added four tables.
+> **The two assignee dropdowns were not confirmed at runtime either** — the
+> job there was to WATCH them populate, and reaching them needs a signed-in
+> session against staging that nothing in this repo automates. Both stay in
+> `OUTSTANDING.md`; neither was quietly marked done.
+
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
 **MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,
@@ -509,10 +561,11 @@ after 0036: `public.projects` now has **31** columns.
 |---|---|---|
 | ~~`budget_actual_column_mode`~~ | ~~S24~~ | ✅ **added by 0036**, along with eight more the table below never listed |
 | ~~`margin`, `contingency`~~ | ~~S24~~ | ✅ **the names were wrong** — shipped as `budget_margin_pct` / `budget_contingency_pct` in 0036 |
-| `code` | **S25** | scene/shot auto-naming has no settings to read, AND `ClientViewTab.jsx:129` prints `--` for the project code on the client-facing topsheet |
-| `scene_start_number`, `scene_digits`, `shot_digits` | **S25** | scene/shot auto-naming has no settings to read |
-| `scenes_enabled`, `levels_enabled`, `experiences_enabled` | **S25** | **newly found in S24.** `BudgetView.jsx:54-57` gates the By Scene / By Shot / By Level / By Experience tabs on these, so all four silently vanish on every cloud project. Add them **with** the entities, not before — a toggle that reveals four blank tabs is worse than a hidden one |
-| `folder_slug`, `folder_root` | **S26** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug` |
+| ~~`code`~~ | ~~S25~~ | ❌ **NEVER ADDED, AND MUST NOT BE.** `project.code` is a wrong READ in ClientViewTab, not a missing column — nothing has ever written it. 0040 added **`project_code`** (the column the app writes) and fixed the reader. pgTAP asserts `code` stays absent |
+| ~~`scene_start_number`, `scene_digits`, `shot_digits`~~ | ~~S25~~ | ✅ **added by 0040**, together with `scene_separator` and `fps`, which this table never listed and the auto-naming also reads |
+| ~~`scenes_enabled`, `levels_enabled`, `experiences_enabled`~~ | ~~S25~~ | ✅ **added by 0040, WITH the entities.** They default FALSE, so applying the migration changed nothing on screen — the tabs appear only when a toggle is turned on |
+| ~~`uses_realtime_engine`, `engine_*` ×5, `project_type`, `project_tier`~~ | ~~S25~~ | ✅ **added by 0040. Never listed here at all** — found by grepping the Project Control Panel for what it WRITES. `project_type` matters most: `handleTypeChange` applies a template that sets the three toggles, so without the column, choosing a type flipped the toggles and lost the type that explained why |
+| `folder_slug`, `folder_root`, `files_dir` | **S26** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug`. `files_dir` is written by the relink reset at `ProjectSummaryView.jsx:949` and dropped today |
 
 Not a missing column but the same family: `ClientViewTab.jsx:108,126,177` reads
 `project.name`, which has never existed — the column is `title`. That is a
@@ -610,13 +663,19 @@ project-scoped rates do not exist as columns yet (see the cross-session finding
 above), so S25 can create the folder and the file's *shape*, but the content
 depends on S27. Sequence deliberately, or S25 ships a manifest of nulls.
 
-**Design decision owed before S25 builds anything:** Supabase Storage has no
-real folders — it is object storage with path prefixes, so an *empty* folder
-cannot exist. Either a placeholder object per folder (a `.keep`) or a
-**`folders` table as the source of truth** with the storage path derived from
-it. Recommend the table: it survives a backend switch, makes "toggle off hides
-but never deletes" trivial, and behaves identically on Local Server, Supabase
-and Drive. **Put this to Audrey in S24's close-out.**
+✅ **DECIDED (Audrey, 2026-08-04): a `folders` TABLE is the source of truth.**
+Asked in S25's close-out and answered. Supabase Storage has no real folders —
+it is object storage with path prefixes, so an *empty* folder cannot exist,
+and "toggle off must never delete" requires a folder that outlives its
+contents. The table records the tree; the storage path is derived from it. It
+survives a backend switch and behaves identically on Local Server, Supabase
+and Drive, where a `.keep` placeholder would exist only where the files do.
+**S26 is unblocked — do not re-open this.**
+
+The names come from `entityNaming.js` (S25): `fileSlugify` lives there
+precisely because `electron/main.cjs` holds an identical copy, and a folder
+slug that disagrees between the renderer and the Electron main process would
+create two folders for one scene.
 
 ---
 

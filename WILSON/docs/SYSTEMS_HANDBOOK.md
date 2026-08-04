@@ -1185,9 +1185,17 @@ not push-to-`main`, where branch protection makes it redundant.
 | **Playwright auth** | `npx playwright test` against `wilson-dev` | The auth, invite and reset flows end to end |
 
 The coverage gate runs **before** Postgres boots and fails fast; its allowlist
-currently names 30 tables. On failure the pgTAP job re-runs 29 named suites
-through raw `psql` so the actual SQL error and SQLSTATE surface as GitHub
-annotations instead of being hidden behind pg_prove's TAP summary.
+currently names **39 tables** (counted from `rls.yml`, 2026-08-04 — it read
+"30" for several sessions after the list had grown). On failure the pgTAP job
+re-runs **38 named suites** through raw `psql` so the actual SQL error and
+SQLSTATE surface as GitHub annotations instead of being hidden behind
+pg_prove's TAP summary.
+
+🚨 **Both lists are hardcoded and BOTH must be extended when a table is
+added.** The allowlist failing is loud; the replay list failing is **silent** —
+S17 recorded suites 33–38 failing invisibly for exactly that reason, with the
+annotation cheerfully reporting "replay produced no ERROR lines" for every
+file it did replay.
 
 Repository secrets consumed (names only): `DEV_SUPABASE_URL`,
 `DEV_SUPABASE_ANON_KEY`, `DEV_PROBE_USERNAME`, `DEV_PROBE_PASSWORD`. The
@@ -1684,10 +1692,14 @@ survive the visit (§17).
 
 **Object model**: project → phase → asset → task (a task may hang off an asset
 *or* directly off a phase). Optional, project-toggleable modules add scenes →
-shots, levels, and experiences; milestones sit directly on the project. Only
-the core hierarchy has cloud tables — scenes, shots, levels, experiences and
-milestones are **local-only** and their Supabase adapter methods throw with a
-stated reason.
+shots, levels, and experiences; milestones sit directly on the project.
+**Session 25 (migration 0040) gave scenes, shots, levels and experiences real
+cloud tables**, so they now work identically on both adapters — the toggles
+that reveal them (`projects.scenes_enabled` / `levels_enabled` /
+`experiences_enabled`) became columns in the same migration, because the tabs
+gate on them and adding the flags first would have unhidden views whose every
+write threw. **`milestones` remains local-only** and its Supabase adapter
+methods still throw with a stated reason.
 
 **Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
 toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.
@@ -2054,10 +2066,11 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 47 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
-per model control-plane table; **Session 24 added 43–47, one per money table**;
-the CI coverage guard globs `*_<table>.sql`, so a table cannot share a suite
-file with another), **721 assertions** — run in CI against a fresh local stack.
+**pgTAP** — 51 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+per model control-plane table; **Session 24 added 43–47, one per money table;
+Session 25 added 48–51, one per entity table**; the CI coverage guard globs
+`*_<table>.sql`, so a table cannot share a suite file with another),
+**768 assertions** — run in CI against a fresh local stack.
 (0038 added four to the existing `05_files` suite rather than a new file: it
 adds no table, so the coverage guard's `*_<table>.sql` glob still resolves.)
 Coverage spans the 13 RABBIT tables, membership and provisioning, the member

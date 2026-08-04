@@ -51,9 +51,41 @@ RLS.
 ## Broken features
 
 ### Every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag
-**MEASURED gate, cause NOT ESTABLISHED (S22/S23, 2026-08-03).** Audrey reported
-the New Task button first showing the label "export", then disappearing from
-the Tasks tab *and* Board view.
+**MEASURED gate, cause STILL NOT ESTABLISHED — but narrowed hard in S25
+(2026-08-04), and the two leading theories are now both REFUTED.** Audrey
+reported the New Task button first showing the label "export", then
+disappearing from the Tasks tab *and* Board view.
+
+> **S25 update — what is now excluded.**
+>
+> 1. **It is not the wrong account.** Asked directly, Audrey confirms she was
+>    signed in as **`audrey`** on the beta, which is staging-backed, where she
+>    is a workspace **admin** *and* a project **manager**. `canOnProject:134`
+>    returns true for `appRole` admin or manager before any other branch runs.
+>    The `audrey2` / `tester` candidates below are dead.
+> 2. **It is not consumers ignoring `ready`.** That entry said "consumers
+>    ignore its `ready` flag". They do not: `ProjectTasksView.jsx:202,216` and
+>    `ProjectAssetsView.jsx:187,200` both pass `ready: permsReady`, and
+>    `canOnProject:131` returns **true** when `ready === false` — S23 already
+>    made "still loading" fail OPEN. A slow or hung `getSession()` therefore
+>    leaves the buttons PRESENT, not missing.
+>
+> **The one surviving candidate**, by elimination: `ready` is true but
+> `perms.role` is **null or not 'admin'** — i.e. the session's JWT carries no
+> `app_role` in `app_metadata` (`usePermissions.js:65` is
+> `md.app_role ?? null`). With `appRole` null, a **staffed** project (staging's
+> `project_members` has rows) and `projectRole` unresolved, `:138` returns
+> false and all six surfaces vanish. A stale token issued before a role change
+> would do it.
+>
+> → **ONE OBSERVATION SETTLES IT, AND IT COSTS FIVE SECONDS.** `perms.role`
+> drives more than these buttons: `Home.jsx:56` shows the admin Resources
+> items only when `perms.role === 'admin'`, and `AdminTerminalPage.jsx:55`
+> renders nothing until `perms.ready`. **Next time the New task button is
+> missing, check whether the Admin Terminal is also missing from the nav.**
+> Both gone = the claim is absent and this is confirmed; Admin Terminal
+> present while New task is gone = the claim is fine and the cause is
+> elsewhere entirely. Do not write a fix before that observation exists.
 
 The gate is certain. `canOnProject(..., 'project.entity.write')`
 (`projectRoleMatrix.js:70-76`) drives a single `canWrite` boolean that hides
@@ -109,31 +141,24 @@ anything. The session was scoped as "build the budget" and was actually "give
 the finished budget a database". Reading the UI before designing the schema is
 what turned a guess into a measurement.
 
-### Four budget tabs can never render in cloud
-**MEASURED (S24, 2026-08-03).** `BudgetView.jsx:54-57` gates the By Scene, By
-Shot, By Level and By Experience tabs on `project.scenes_enabled`,
-`project.levels_enabled` and `project.experiences_enabled`. None of those three
-is a column — `grep -rni "scenes_enabled" supabase/` returns nothing — so
-`TABS.filter(t => !t.requires || project?.[t.requires])` (`:183`) drops all four
-on every cloud project, permanently and silently.
+### ~~Four budget tabs can never render in cloud~~ — FIXED (S25, `183b4c2`)
+Deleted per the rule for this file. Migration 0040 adds `scenes_enabled`,
+`levels_enabled` and `experiences_enabled` (with the entities, not before
+them), applied and verified **by query** on dev, staging and prod. The four
+tabs appear once the matching toggle is on.
 
-Not fixed here deliberately: the tabs would render empty anyway, because
-scenes/shots/levels/experiences have no cloud tables at all (the Supabase
-adapter throws). Adding the flag columns before the entities exist would be a
-toggle that reveals four blank tabs. → **S25**, with the entities.
+### ~~Client View prints "Project" and "--"~~ — FIXED (S25, `183b4c2`)
+**And the fix was NOT the one both plan documents specified**, which is the
+part worth keeping. They said to add a `projects.code` column. MEASURED:
+nothing in `src/` or `electron/` has ever *written* a bare `code` key on a
+project — the only writer is `ProjectSummaryView.jsx:605`,
+`update('project_code', v)`. `project.code` was a **wrong read**, exactly like
+`project.name` (the column is `title`), not a missing column.
 
-### Client View prints "Project" and "--" instead of the project name and code
-**MEASURED (S24).** `ClientViewTab.jsx:108,126,177` reads `project?.name` and
-`:129,184` reads `project?.code`. The cloud column is `title`, and the writer at
-`ProjectSummaryView.jsx:605` sends `project_code`. So the client-facing
-topsheet — the one document that leaves the building — renders the fallback
-strings on every cloud project.
-
-Since `b07b6c9` these keys are dropped by the new `projects` allowlist with a
-console warning rather than rejecting the whole patch, so they no longer break
-unrelated saves. **The wrong output is unchanged.** `code` is already on S25's
-list of `projects` columns to add; `name` is not a missing column but a wrong
-read that should be `title`.
+Adding `code` would have closed the documented gap, passed review, and left
+the topsheet printing `--` forever. pgTAP `48_scenes` probe 18 now asserts
+`projects.code` does **not** exist, so the next attempt to "close the gap"
+fails instead of shipping. Third repetition of the S24 `margin` lesson.
 
 ### ~~The budget UI has no client-side permission gate~~ — FIXED (S24, `dfdf386`)
 The Budget tab is now hidden from anyone who is not a workspace admin or a
@@ -183,7 +208,18 @@ dropdown is permanently empty. The template branch
 `role_slug` bug there unreachable (the real column is `assigned_role_slug`).
 `task_template_id` is dropped by the S23 adapter allowlist rather than given a
 column, because a column for a feature with no cloud implementation is schema
-debt. → S24 adapter parity.
+debt.
+
+**NOT fixed in S25 — deliberately deferred, and this is the one scoped item
+that session did not deliver.** It was in the S25 brief alongside the four
+entities, and it is a genuinely separate feature rather than a missing
+method: on Local Server, templates are individual JSON files in their own
+directory (`electron/main.cjs:2088-2131`), workspace-scoped with a
+project-scoped read. Cloud parity therefore needs a fifth table, its own RLS,
+its own pgTAP suite and five adapter methods — not the two-line addition the
+brief's phrasing implies. Scoping it into the tail of a session that had
+already added four tables would have meant a money-adjacent schema written in
+a hurry. → **S26 or later; size it as its own block, not a footnote.**
 
 ### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
 Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
@@ -242,9 +278,19 @@ coverage of task creation at any layer** — no vitest, no pgTAP. That is why a
 total failure shipped unnoticed. → S24.
 -->
 
-**Still true and still owed:** there is **no automated coverage of item
-creation at any layer** — no vitest, no pgTAP. A total, permanent failure of
-the app's primary action shipped unnoticed for that reason alone. → S24.
+**Partly closed by S25 (`183b4c2`), and worth stating precisely.** There is
+now creation coverage for the FOUR NEW entity tables — pgTAP 48-51 exercise
+the real create payloads, and `columnAllowlist.test.js` imports the actual
+`COLUMN_ALLOWLIST` (rather than mirroring it, as the older adapter tests do)
+so a missing entry fails a test instead of a runtime request.
+`supabaseLoadProject.test.js` closes the matching read-side gap: the existing
+bundle-key guard only ever covered the LOCAL adapter, which is why S24's
+permanently-empty `budgetVersions` was found by reading rather than by a test.
+
+**Still uncovered: `tasks` and `assets` creation itself** — the two payloads
+that actually broke in S23 have no vitest around them and no pgTAP insert
+probe. The allowlist test covers the mechanism; it does not cover those two
+tables' own payloads. That is the remaining half.
 
 ### Two of the four assignee dropdowns are hard-empty in cloud mode
 **MEASURED (S23).** Upgraded from the S22 entry, which reasoned from **dev**
@@ -260,10 +306,15 @@ conclusion was measured against the wrong database.
   `loadProject` now returns `teamAssignments` from `project_members` (it was
   omitting the key, and the provider's
   `setBundle({ ...EMPTY_BUNDLE, ...next })` reset it to `[]` on every load).
-  ⚠️ **This is CODE-level, not observed.** The adapter method exists and is
-  built; nobody has watched these two dropdowns populate in the running app.
-  Confirm before deleting this entry — the fix was a by-product of the budget
-  work (the Crew/Team tab needs the same roster), not a targeted repair.
+  ⚠️ **This is CODE-level, not observed. STILL NOT OBSERVED after S25.** The
+  adapter method exists and is built; nobody has watched these two dropdowns
+  populate in the running app. S25 was asked to confirm this at runtime and
+  **did not** — reaching those dropdowns needs a signed-in session against
+  staging with a staffed project, which no automated check in this repo
+  performs. Recorded as still-unverified rather than quietly closed: the fix
+  was a by-product of the budget work (the Crew/Team tab needs the same
+  roster), not a targeted repair, and an unwatched fix is not a fix.
+  → **One look at the Timeline task editor on the beta settles it.**
 - `ProjectTasksView`'s dropdown is on the healthy `workspace_directory()` path
   and intersects correctly — but if the roster ever resolves to `[]`, the
   staffed branch filters an empty list and yields `[]` too, and
@@ -274,12 +325,20 @@ conclusion was measured against the wrong database.
 → Roster-error surfacing is still owed: `useRosterMembers` swallowing the error
 means a broken RPC and an empty workspace look identical everywhere. S25.
 
-### Scenes / levels / experiences are unavailable on cloud projects
-**MEASURED.** Local-only by design — the Supabase adapter throws (Known #5).
-Audrey calls these crucial, so the current behaviour is a silent throw where
-there should at least be honest copy.
-→ Decision pending: make them cloud-capable (migration + RLS + adapter + suite,
-a session of its own) or keep local and say so in the UI.
+### ~~Scenes / levels / experiences are unavailable on cloud projects~~ — FIXED (S25, `183b4c2`)
+Deleted per the rule for this file. Migration 0040 creates `scenes`, `shots`,
+`levels` and `experiences` with RLS enabled and forced, sixteen policies, no
+`FOR ALL` arm and zero privileges held by `anon` or `PUBLIC` — applied and
+verified **by query** on dev, staging and prod. `supabaseAdapter` gained the
+four list methods it never had and real implementations for the eight methods
+that threw. Naming moved to `entityNaming.js` so both adapters name
+identically.
+
+They use `can_write_project`, **not** `can_access_project_money`: scenes are
+ordinary project content and a team member must be able to create one.
+Borrowing the money gate would have locked the feature to managers and nobody
+would have noticed until someone tried to add a scene. pgTAP `48_scenes`
+asserts a project member CAN write and a reviewer can read but not write.
 
 ### One hung `getSession()` pins the whole app's auth, and `withTimeout` cannot unpin it
 **MEASURED (S21, against `@supabase/auth-js` 2.101.1 as installed.)** This
@@ -377,6 +436,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S25 (2026-08-04) | **nothing new is broken.** Two entries were NARROWED rather than added: the `canWrite` gate (both leading theories refuted — Audrey confirms the account was `audrey`, who is admin AND project manager, and `canOnProject` already fails OPEN while permissions load, so a hung session leaves buttons PRESENT), and **task templates**, which S25 was scoped to fix and deliberately did not — it needs a fifth table and a suite, not a method. The assignee-dropdown entry is re-marked **still unobserved**: S25 was asked to confirm it at runtime and could not. | **scenes/levels/experiences unavailable in cloud**, **four budget tabs that can never render**, and **Client View printing "Project" and "--"** — all three by 0040 + `183b4c2`, applied and verified **by query** on dev, staging and prod. The Client View fix is recorded above because the documented fix (`add projects.code`) would have fixed nothing. |
 | S24 (2026-08-03) | **four budget tabs that can never render** (they gate on three `projects` columns that do not exist), **Client View printing "Project" and "--"** (it reads `project.name`/`project.code`; the column is `title`), **no client-side gate on the budget UI** (a UX defect now that RLS is the authority), and **desktop-only invoice folders** in the Crew/Talent tabs. All four are pre-existing and were found by reading the budget UI properly for the first time; none is new breakage. | **the budget system's absence from the cloud schema** (0036 + 0037 + `b07b6c9`, applied and verified **by query** on dev, staging and prod). The assignee-dropdown entry was **narrowed, not closed** — the two hard-empty dropdowns' stated cause is removed at code level but has not been watched working. |
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
