@@ -1340,6 +1340,10 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
   })
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [creating, setCreating] = useState(false)
+  // Session 23: handleConfirm had try/finally with NO catch, so a rejected
+  // write left the button flashing "Creating…" and changed nothing on screen.
+  // That is the whole reason a total failure read as "nothing populated".
+  const [error, setError] = useState(null)
 
   // Load templates available to this project
   const [projectTemplates, setProjectTemplates] = useState([])
@@ -1360,6 +1364,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
   async function handleConfirm() {
     if (!ctx?.addAsset || !draft.name.trim()) return
     setCreating(true)
+    setError(null)
     try {
       // 1. Create the asset
       const created = await ctx.addAsset({
@@ -1370,7 +1375,12 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
         description: draft.description,
         start_date: draft.start_date || null,
         due_date: draft.due_date || null,
-        task_template_id: selectedTemplateId || null,
+        // Session 23: only send this when a template was actually picked.
+        // It is not a column on public.assets (the adapter allowlist drops
+        // it), and sending `null` unconditionally meant a warning on every
+        // single create for a dropdown that is permanently empty in cloud —
+        // listProjectTaskTemplates exists only on localServerAdapter.
+        ...(selectedTemplateId ? { task_template_id: selectedTemplateId } : {}),
       })
       if (!created?.id) return
 
@@ -1419,6 +1429,10 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
       }
 
       onCreated(created.id)
+    } catch (err) {
+      // Say what went wrong instead of silently doing nothing. The dialog
+      // stays open with the user's input intact so they can retry.
+      setError(err?.message || String(err))
     } finally {
       setCreating(false)
     }
@@ -1580,6 +1594,18 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             )}
           </div>
         </div>
+
+        {/* Session 23: a failed create must say so. Matches the Timeline task
+            dialog's error box — the only reason that surface's failures were
+            ever visible, while this one's were not. */}
+        {error && (
+          <div
+            className="mx-5 mb-3 px-3 py-2 text-[11.5px] font-mono rounded"
+            style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
+          >
+            {error}
+          </div>
+        )}
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>

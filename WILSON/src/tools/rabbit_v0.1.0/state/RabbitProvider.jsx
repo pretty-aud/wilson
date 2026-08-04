@@ -1581,7 +1581,24 @@ export function RabbitProvider({ children }) {
       priority:     'medium',
       ...task,
     };
-    const created = await adapterRef.current.upsertTask(row);
+    // Session 23: report a failed create instead of dropping it. Every add
+    // affordance — the toolbar button, the table add-rows, the per-group
+    // rows, the row menu and both kanban adds — routes through here and NONE
+    // of them has a catch, so a rejection was invisible in all six places at
+    // once. That is why "the New task button does nothing" was literally
+    // true: the throw happened before the setBundle below, so the table
+    // rendered identically before and after the click.
+    //
+    // setError AND rethrow: the provider banner reports it, and callers that
+    // do have their own catch (TimelineView.jsx:3791) still get to show it
+    // in their dialog. Swallowing here would silence those.
+    let created;
+    try {
+      created = await adapterRef.current.upsertTask(row);
+    } catch (err) {
+      setError(err?.message || String(err));
+      throw err;
+    }
     const finalRow = created || row;
     // Upsert, not append — see addPhase (broadcast echo race).
     setBundle(prev => ({

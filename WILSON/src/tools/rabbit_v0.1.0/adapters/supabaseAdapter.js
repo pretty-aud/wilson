@@ -108,6 +108,76 @@ function sanitize(obj, drop = []) {
   return out;
 }
 
+// ── Session 23: column ALLOWLISTS ───────────────────────────────
+// sanitize() above is a DENYLIST — it removes the keys it is told about and
+// passes everything else straight to PostgREST, which rejects the WHOLE
+// request with PGRST204 the moment one key is not a column. That is a whole
+// defect class, not a typo:
+//
+//   * the New Asset dialog sent start_date, due_date, task_template_id
+//   * the Timeline task editor sent phase_id, scene_id, shot_id, level_id,
+//     experience_id
+//   * drag-to-phase, the bulk phase setter, the inline phase cell and
+//     TaskDetailPopup all sent phase_id on a PATCH
+//
+// and because `x || null` still emits the key, blank fields failed too — so
+// no user input could avoid it. Every one of those rejections was swallowed
+// by a caller with no catch, which is why it looked like "nothing happens".
+//
+// 0034 added tasks.phase_id and 0035 added assets.start_date/due_date, so
+// those are now real. What remains genuinely unbacked is scene/shot/level/
+// experience (no cloud tables until S24 — the adapter throws for them) and
+// task_template_id (listProjectTaskTemplates is localServer-only, so the
+// dropdown is permanently empty in cloud).
+//
+// Dropping the rest is right, but dropping it QUIETLY would repeat the
+// original sin in a new place: the user's typed value would vanish with no
+// error at all. So this warns every time, loudly, naming the table and the
+// keys. If a warning fires for a field a user can actually edit, that field
+// needs a column — not a bigger allowlist.
+//
+// created_at / updated_at are deliberately absent: they are server-managed
+// and were already dropped by the sanitize() callers this replaces.
+
+const TASK_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'asset_id', 'phase_id',
+  'title', 'description', 'status', 'priority',
+  'start_date', 'end_date', 'bid_days', 'logged_days',
+  'assigned_position', 'assigned_role_slug', 'assigned_user_id',
+  'assignee_id', 'reviewer_id', 'notes',
+  'last_updated_by', 'last_updated_at', 'deleted_at', 'deleted_by',
+  'created_by', 'updated_by',
+]);
+
+const ASSET_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'phase_id',
+  'name', 'type', 'type_label', 'description', 'thumbnail_url', 'status',
+  'sort_order', 'start_date', 'due_date',
+  'last_updated_by', 'last_updated_at', 'deleted_at', 'deleted_by',
+  'created_by', 'updated_by',
+]);
+
+const COLUMN_ALLOWLIST = { tasks: TASK_COLUMNS, assets: ASSET_COLUMNS };
+
+function toColumns(table, obj) {
+  const allow = COLUMN_ALLOWLIST[table];
+  if (!allow || !obj || typeof obj !== 'object') return obj;
+  const out = {};
+  const dropped = [];
+  for (const [k, v] of Object.entries(obj)) {
+    if (allow.has(k)) out[k] = v;
+    else dropped.push(k);
+  }
+  if (dropped.length) {
+    console.warn(
+      `[supabase] dropped ${dropped.length} field(s) not present on public.${table}: ` +
+      `${dropped.join(', ')}. The write proceeded WITHOUT them. If a user can edit ` +
+      `one of these, it needs a column — see supabaseAdapter COLUMN_ALLOWLIST.`
+    );
+  }
+  return out;
+}
+
 // Columns a per-field patch must never carry: identity/tenancy, audit
 // stamps, and the trash columns (RPC-only under the 0014 policies — a
 // plain UPDATE with deleted_at either 42501s or silently no-ops).
@@ -175,7 +245,11 @@ function mapDogProjectFields(row) {
 // methods the provider prefers when present.
 async function patchRow(table, id, patch) {
   const client = await requireClient();
-  const row = sanitize(patch, PATCH_DROP);
+  // Session 23: the allowlist applies to PATCH too. Every phase-setting
+  // gesture — drag between phase groups, the bulk setter, the inline cell,
+  // TaskDetailPopup — sent phase_id before 0034 added the column, and each
+  // one showed the change optimistically while the write died with PGRST204.
+  const row = toColumns(table, sanitize(patch, PATCH_DROP));
   // Views clear fields by passing undefined (e.g. drag to the 'Unassigned'
   // group). JSON serialization would silently DROP those keys, turning the
   // gesture into an empty PATCH body (PostgREST error) — send NULL instead,
@@ -344,7 +418,7 @@ export function supabaseAdapter() {
     },
     async upsertAsset(asset) {
       const client = await requireClient();
-      const row = sanitize(asset, ['created_at', 'updated_at']);
+      const row = toColumns('assets', sanitize(asset, ['created_at', 'updated_at']));
       return unwrap(await client.from('assets').upsert(row).select().single());
     },
     async patchAsset(id, patch) { return patchRow('assets', id, patch); },
@@ -369,7 +443,7 @@ export function supabaseAdapter() {
     },
     async upsertTask(task) {
       const client = await requireClient();
-      const row = sanitize(task, ['created_at', 'updated_at']);
+      const row = toColumns('tasks', sanitize(task, ['created_at', 'updated_at']));
       return unwrap(await client.from('tasks').upsert(row).select().single());
     },
     async patchTask(id, patch) { return patchRow('tasks', id, patch); },
