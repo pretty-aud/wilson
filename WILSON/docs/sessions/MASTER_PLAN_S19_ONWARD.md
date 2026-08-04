@@ -457,6 +457,45 @@ chasing. It needs its own column.
   designed in — but nothing ever creates a SCENES/ or SHOTS/ folder, and
   levels/experiences are not in that switch at all.
 
+### The project manifest file (Audrey, 2026-08-03) — S25 writes it, S26 surfaces it
+
+> *"a lot of these project specific details like unique margin, unique
+> contingency, unique team member rates, all project details in the project
+> panel should be saved in the project folder as a file the system can read.
+> these details of the project should also be seen in the project page in the
+> resources section of wilson."*
+
+So the project folder carries a **manifest** of the project's own settings —
+project-unique margin and contingency, project-scoped team member rates, and
+everything else in the project panel — and Resources gains a project view that
+shows them. (Resources today is only a nav slide-out: Projects, Rate Card,
+Settings — `App.jsx:784`. This is a new surface, not a tweak.)
+
+🚨 **The question that must be answered before a line of this is written:
+which copy is authoritative?** Audrey has also said, firmly, *"database
+information lives in the supabase databases"* — and main's `_DATABASES/` folder
+is the cautionary tale, because it was a real second datastore.
+
+Two coherent designs, and they are not compatible:
+- **DB authoritative, file is a generated mirror.** Written on change, read
+  only for portability/recovery/handoff. Divergence is impossible because the
+  file is never an input. This matches her database rule and is the
+  recommendation.
+- **File authoritative.** Then Supabase is a cache, and every multi-user
+  guarantee in the system (RLS, realtime, LWW) is undermined.
+
+"a file the system can read" is the ambiguous phrase. **Read for what?** If it
+is for restore/import, define that as an explicit, user-initiated action with a
+visible diff — never a silent read-back that can overwrite what the database
+says. Two writable copies of the same project settings WILL diverge, and the
+one that loses will be the one someone edited more recently in the other place.
+
+**Note the ordering consequence:** the manifest cannot be written until the
+project settings actually persist. `margin`, `contingency` and the
+project-scoped rates do not exist as columns yet (see the cross-session finding
+above), so S25 can create the folder and the file's *shape*, but the content
+depends on S27. Sequence deliberately, or S25 ships a manifest of nulls.
+
 **Design decision owed before S25 builds anything:** Supabase Storage has no
 real folders — it is object storage with path prefixes, so an *empty* folder
 cannot exist. Either a placeholder object per folder (a `.keep`) or a
