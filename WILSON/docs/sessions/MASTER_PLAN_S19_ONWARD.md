@@ -490,7 +490,7 @@ silently re-opens them.** The Client View's `project.name` / `project.code` was
   to them once the desktop-only route went). Existing folders are never
   deleted.
 - ~~**The project control panel gate is CARRIED TO S25**~~ ✅ **DONE in S25
-  (`0c1e9a2`).** Both questions this file said had to be settled first were,
+  (`ccb90e7`).** Both questions this file said had to be settled first were,
   and neither answer was the expected one. **Which screen:** not a judgement
   call — `ProjectSummaryView.jsx:166` renders a header literally reading
   "Project Control Panel". **Which rule:** its own, not the money rule.

@@ -167,7 +167,7 @@ manager on that project, via `canSeeProjectMoney()` — the client mirror of
 late for a project manager rather than being shown to a reviewer and snatched
 back; `Rabbit.jsx` also redirects to Summary if a hidden tab is somehow open.
 
-**The project control panel gate is now DONE too (S25, `0c1e9a2`).** Both
+**The project control panel gate is now DONE too (S25, `ccb90e7`).** Both
 questions the S25 brief said had to be answered first were — and neither
 answer was the expected one:
 
