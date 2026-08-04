@@ -50,6 +50,14 @@ function arrayBufferToBase64(buf) {
   return btoa(binary);
 }
 
+// Session 26: the folder tree is returned in path order on BOTH backends.
+// Supabase does it with `.order('path')`; the local bundle is a plain array,
+// so it is sorted here. Copied rather than sorted in place — the caller owns
+// the bundle and mutating it would reorder the file on the next write.
+function sortByPath(rows) {
+  return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
+}
+
 export function localServerAdapter() {
   return {
     mode: 'local_server',
@@ -94,7 +102,15 @@ export function localServerAdapter() {
         // Session 26 — same reason as every key above it: setActiveProject
         // does setBundle({ ...EMPTY_BUNDLE, ...next }), so an omitted key is
         // reset to [] on every load, project switch and realtime refetch.
-        folders:         bundle.folders || [],
+        //
+        // Sorted by path to match the Supabase adapter's `.order('path')`.
+        // The bundle is an array and therefore in INSERTION order — root,
+        // then categories, then whichever entity happened to be created
+        // first — so without this the two backends return the same tree in
+        // different orders and any consumer that trusts the order (a
+        // depth-first render, say) draws two different pictures. Same trap
+        // S25 called out for scenes, where the fix was `.order('sort_order')`.
+        folders:         sortByPath(bundle.folders),
         // Session 17 (§6 #47): omitting this dropped every milestone on load.
         // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
         // missing key reset the array — real data loss on every reload,
@@ -469,7 +485,7 @@ export function localServerAdapter() {
     // Both sides plan the tree with the same folderPaths.js, which is what
     // stops the two backends filing the same project differently.
     listFolders: async (projectId) =>
-      (await jfetch(`${BASE}/projects/${projectId}`)).folders || [],
+      sortByPath((await jfetch(`${BASE}/projects/${projectId}`)).folders),
 
     ensureProjectFolders: (projectId) =>
       jfetch(`${BASE}/projects/${projectId}/folders/ensure`, {
