@@ -1,9 +1,10 @@
 # SESSION 26 launch prompt — the backend-agnostic FOLDER TREE
 
-> **STATE AFTER S25 (2026-08-04, `183b4c2`), so you do not re-measure it:**
-> migrations run **0000–0040** on dev, staging and prod (next free number is
-> **0041**); pgTAP is **51 suites / 768 assertions**; vitest is **556**. All
-> four CI jobs green. `public.projects` has **48 columns**.
+> **STATE AFTER S25 (2026-08-04, `183b4c2` … `31d0d17`), so you do not
+> re-measure it:** migrations run **0000–0040** on dev, staging and prod (next
+> free number is **0041**); pgTAP is **51 suites / 768 assertions**; vitest is
+> **583**. All four CI jobs green on every pushed commit. `public.projects` has
+> **48 columns**.
 >
 > ✅ **Scenes, shots, levels and experiences are REAL on both adapters now.**
 > Migration 0040 created all four with RLS enabled and forced, 16 policies, no
@@ -12,6 +13,17 @@
 > `loadProject`, and all four have `COLUMN_ALLOWLIST` entries. Auto-naming now
 > lives in `src/tools/rabbit_v0.1.0/entityNaming.js` — **use it, do not
 > re-implement it**; `fileSlugify` is in there for you.
+>
+> ✅ **The Project Control Panel is gated (`ccb90e7`), and the rule is unlike
+> every other one.** Audrey: *"managers and reviewers should be able to see and
+> press the button and open the control panel, the budget block is managers
+> only. basic team members do not need access to the panel at all."* So
+> `project.settings.open` is the **only** action where a REVIEWER outranks a
+> MEMBER — `project.entity.write` is the exact inverse on those two seats.
+> **Relevant to you only if you touch permissions:** `PROJECT_ACTIONS` is the
+> extension point, and `projectRoleMatrix.test.js` has a completeness check
+> that forces a new action to fill in all 24 appRole × projectRole × staffed
+> combinations. It will fail rather than let you half-specify a contract.
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`, not
 > `Claude_Work/`.**
@@ -73,7 +85,7 @@ where files already do.
 
 - **Migration 0041** — the `folders` table, plus the `projects` columns this
   session consumes: `folder_slug`, `folder_root`, `files_dir`. (`files_dir` is
-  written by the relink reset at `ProjectSummaryView.jsx:949` and is dropped
+  written by the relink reset at `ProjectSummaryView.jsx:1010` and is dropped
   today.) Follow 0040's shape exactly: RLS enabled **and forced**, four
   policies, **no `FOR ALL` arm**, `REVOKE ALL … FROM PUBLIC, anon`, the
   `fn_populate_workspace_from_project` and `touch_updated_at` triggers.
@@ -89,7 +101,7 @@ where files already do.
   `ensureAssetFolder` and the per-scene/shot/level/experience equivalents,
   implemented for `supabaseAdapter`, `localServerAdapter` and (read-only)
   `googleDriveAdapter`.
-- **`FileManager.jsx:87` already computes**
+- **`FileManager.jsx:84` already computes**
   `parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'` — that was
   designed in. Nothing ever creates a `SCENES/` or `SHOTS/` folder, and
   levels/experiences are not in that switch at all.
@@ -106,11 +118,14 @@ where files already do.
 
 ### 🚨 Traps specific to this session
 
-- **`fileSlugify` exists in TWO places** — `entityNaming.js` (renderer) and
-  `electron/main.cjs`. They are identical today. A slug that disagrees between
-  the renderer and the Electron main process creates **two folders for one
-  scene**. Import the shared one wherever you can reach it, and if `main.cjs`
-  cannot, pin the two together with a test.
+- **`fileSlugify` exists in exactly TWO places, verified 2026-08-04** —
+  `entityNaming.js:110` (renderer) and `electron/main.cjs:77` (main process).
+  They are identical today. A slug that disagrees between the two creates **two
+  folders for one scene**. There was a THIRD copy in `FileManager.jsx` and S25
+  removed it (`43be524`) precisely because this session builds on these slugs.
+  `main.cjs` cannot import from the renderer bundle, so that duplicate is
+  unavoidable — **pin the two together with a test rather than leaving them to
+  drift.**
 - **`<slug>_DATABASES/` must NOT be ported.** On `main` that folder was not a
   files folder, it was the DATASTORE — `mirrorProjectDatabases` wrote
   `project.json`, `team.json`, `tasks.json`, `timeline.json`, `budget.json`
@@ -145,27 +160,42 @@ this repo automates. **One look at the Timeline task editor on the beta closes
 it.** Do not delete the `OUTSTANDING.md` entry without that look.
 
 ### Every create button can vanish behind one `canWrite` flag
-**Both leading theories are now REFUTED** (S25) and the entry in
-`OUTSTANDING.md` carries the detail:
-1. Not the wrong account — Audrey confirms she was `audrey`, who is workspace
-   **admin** and project **manager**; `canOnProject:134` returns true for
-   either before any other branch runs.
-2. Not consumers ignoring `ready` — both R.A.B.B.I.T. views DO pass it, and
-   `canOnProject:131` returns **true** when `ready === false`. A hung
-   `getSession()` leaves the buttons **present**, not missing.
+
+**Read this whole section before acting on any part of it.** The first half is
+what S25 established; the second half is S25 partly walking it back. Taking
+either alone will send you somewhere wrong.
+
+**One theory is firmly refuted, on code rather than testimony:**
+
+- **NOT "consumers ignore the `ready` flag".** Both R.A.B.B.I.T. views DO pass
+  it (`ProjectTasksView.jsx:202,216`, `ProjectAssetsView.jsx:187,200`), and
+  `canOnProject:131` returns **true** when `ready === false` — S23 already made
+  "still loading" fail OPEN. A slow or hung `getSession()` therefore leaves the
+  buttons **PRESENT**. This one needs no further checking; it is read straight
+  out of the source.
+
+**The other is UNCERTAIN, and S25 initially recorded it as refuted in error:**
+
+- **"Wrong account"** was reported refuted because Audrey answered `audrey`
+  when asked which account she held. She later clarified that she runs **two
+  accounts in two browsers simultaneously** — admin in one, `tester` in the
+  other — and that the original sighting was in "the browser logged into the
+  admin portal". Asked which front door that was, she said **"I'm not sure."**
+  So the account is *probably* an admin one, on her recollection, and that is
+  **testimony, not measurement.** Treat it as INFERRED.
 
 🚨 **The observation test was RUN and did NOT settle it — do not read the
 result as a confirmation.** Audrey reported "Admin Terminal and New task are
-gone" on 2026-08-04, which looks decisive and is not: she was on the
-**`tester`** account, in a different browser from the one that produced the
-original report. For a non-admin with no manager/member seat on a staffed
-project, both controls are *correctly* absent.
+gone" on 2026-08-04, which looks decisive and is not: she was on **`tester`**,
+in the *other* browser. For a non-admin holding no manager/member seat on a
+staffed project, both controls are **correctly** absent. That data point is
+about `tester` and says nothing about the admin case. **The test only means
+anything re-run in the browser that produced the symptom.**
 
-**She runs two accounts in two browsers at once** — admin in one, `tester` in
-the other. So "which account" has to be pinned to the specific browser AND
-moment, never asked in general. This investigation has now been sent down a
-wrong path by an account assumption **twice**, from opposite directions (S23,
-then S25).
+**The standing lesson, now twice-earned:** "which account/database" cannot be
+asked in general — it has to be pinned to a specific browser at a specific
+moment. S22/S23 reasoned about the wrong *database*; S25 about the wrong
+*account*. Same shape, opposite directions.
 
 **The live lead, measured as far as it goes:** the original sighting was in
 "the browser logged into the admin portal", and the two surfaces use
