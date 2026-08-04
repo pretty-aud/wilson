@@ -160,9 +160,19 @@ the obvious implementation would have let any project member download the
 invoice PDF, which is the amount they had just been denied. pgTAP `05_files`
 covers it (5 → 9 assertions).
 
-⚠️ **Invoices attached by the OLD desktop-only code are still local-disk
-paths.** They open only on the machine that created them. The UI now says so
-and invites a re-attach, instead of a button that silently does nothing.
+**No legacy invoice attachments exist — MEASURED, not assumed (2026-08-04).**
+Queried all three environments (`budget_actuals` rows carrying an
+`attachment_path` that is not a `file:` reference: **0**, on dev, staging and
+prod — the table was created hours earlier by 0037) and every local project
+bundle on this machine (four projects including LEGEND ROAD: **0** budget
+actuals of any kind). Attaching never worked on the web, so nothing was ever
+stranded on one computer.
+
+The `InvoiceAttachment` component still handles a legacy absolute path, and
+`resolveFileBaseDir` still falls back to the old directory — both are correct
+if such a file ever turns up, and cost nothing. But this was briefly written up
+as a caveat for Audrey, which it is not: **the population is empty.** Recorded
+here so nobody re-adds it as a known limitation without querying first.
 
 ### Task templates do not exist in cloud mode
 **MEASURED (S23).** `listProjectTaskTemplates` / `listTaskTemplates` have zero
