@@ -27,11 +27,12 @@
 > existed; the column is `title`. One-word fix, take it while you are there.
 
 > **STATE AFTER S24, so you do not re-measure it:** migrations run
-> **0000–0038** on dev, staging and prod (next free number is **0039**); pgTAP
+> **0000–0039** on dev, staging and prod (next free number is **0040**); pgTAP
 > is **47 suites / 721 assertions**; vitest is **521**.
-> 🚨 **0027 → 0038: replaying 0027 silently re-opens every invoice** to any
-> project member, and reports success while doing it. If you ever replay 0027,
-> replay 0038 after it. `supabaseAdapter` now
+> 🚨 **0027 → 0038 → 0039: replaying an EARLIER one silently re-opens every
+> invoice** to any project member, and reports success while doing it. Those
+> three share the six `rabbit-files` storage policies, and each rewrites what
+> the one before it created. **Replay forwards only.** `supabaseAdapter` now
 > has the full budget surface, `listTeamMembers` (over the existing
 > `workspace_directory()` RPC) and `teamAssignments` in `loadProject`.
 > ⚠️ **`listTeamMembers` landing means the two hard-empty assignee dropdowns
@@ -99,8 +100,9 @@ dev, staging and prod; all four CI jobs green.
 **Proven, not claimed:** the exact payload that returned `23502` before now
 SUCCEEDS on staging, re-run through the same probe.
 
-**pgTAP 42 suites / 655 assertions, vitest 482.** Unchanged by S23 — and that
-is itself a finding: *nothing* tests item creation, which is why a total
+**pgTAP 42 suites / 655 assertions, vitest 482** *(the numbers AS AT THE END
+OF S23 — S24 took them to 47 / 721 / 521; see the state block at the top of
+this file)*. Unchanged by S23 — and that is itself a finding: *nothing* tests item creation, which is why a total
 failure of the app's primary action shipped unnoticed. Fix that this session.
 
 ---
@@ -133,7 +135,13 @@ Scope:
   its template branch is dead code. Same parity problem; fix it here.
 - **The two hard-empty assignee dropdowns** — `TimelineView.jsx:4228` and
   `ProjectAssetsView.jsx:2108` read `useTeamMembers`, which needs
-  `adapter.listTeamMembers`, which exists only on localServer. Same fix shape.
+  `adapter.listTeamMembers`. ⚠️ **UPDATED BY S24 — this is probably already
+  fixed.** That method now exists on `supabaseAdapter` (over the
+  `workspace_directory()` RPC), and `loadProject` now returns
+  `teamAssignments`. Nobody has watched the dropdowns populate, so the job here
+  is to CONFIRM at runtime and delete the `OUTSTANDING.md` entry, not to build
+  it again. If they are still empty, the cause is something else and the old
+  diagnosis no longer applies.
 - **Add the missing creation coverage** — vitest around the adapter payloads
   (an allowlist regression is invisible otherwise) and pgTAP for the new tables.
 
