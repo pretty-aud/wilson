@@ -39,6 +39,7 @@ import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembe
 import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject } from '../../../permissions/projectRoleMatrix'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+import NewTaskPopup from '../components/NewTaskPopup'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 
@@ -191,6 +192,10 @@ export default function ProjectTasksView() {
 
   // Task detail popup
   const [detailTaskId, setDetailTaskId] = useState(null)
+  // Session 23: null = closed. An object = the popup is open, seeded with the
+  // defaults its trigger passed (group add-rows supply phase_id/asset_id/etc).
+  // Nothing is written until Confirm & Create.
+  const [newTaskDraft, setNewTaskDraft] = useState(null)
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only
   // hides the affordance below manager.
@@ -411,29 +416,20 @@ export default function ProjectTasksView() {
   }
 
   // ── Task creation ──
-  // Session 23: open the detail popup on the new task so the user can fill in
-  // the details, instead of dropping a blank row into the table and leaving
-  // them to find it. addTask returns the created row (RabbitProvider:1614).
+  // Session 23: open a draft popup; write nothing until the user confirms.
+  // Audrey asked for this shape explicitly, matching New Asset — "nothing is
+  // saved until you confirm". The first cut created the row and then opened
+  // the detail popup on it, which left an untitled task behind whenever the
+  // popup was dismissed.
   //
-  // The row is created FIRST and the popup edits it, rather than the popup
-  // drafting a row and committing on save. That keeps one write path — the
-  // popup already patches through ctx.updateTask — and it means the inline
-  // add-row buttons, which pass group defaults, behave identically. The
-  // trade-off is that dismissing the popup leaves an untitled task, same as
-  // the old inline behaviour did; it is visible in the table and deletable.
-  //
-  // No try/catch here on purpose: addTask now reports failures through the
-  // provider's error channel and rethrows, so a failed create surfaces and
-  // simply does not open a popup for a task that does not exist.
-  async function handleAddTask(defaults = {}) {
+  // Every add affordance routes through here — the toolbar, the table
+  // add-rows, the per-group rows and both kanban adds — so the group defaults
+  // those triggers pass (phase_id when grouped by phase, asset_id when grouped
+  // by asset, and so on) become the popup's seed values rather than being
+  // written blind.
+  function handleAddTask(defaults = {}) {
     if (!ctx?.addTask) return
-    const created = await ctx.addTask({
-      title: '',
-      status: 'waiting_to_start',
-      priority: 'medium',
-      ...defaults,
-    })
-    if (created?.id) setDetailTaskId(created.id)
+    setNewTaskDraft(defaults || {})
   }
 
   // ── Phase creation ──
@@ -767,6 +763,19 @@ export default function ProjectTasksView() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ── New task popup (Session 23) — drafts locally, commits on confirm ── */}
+      {newTaskDraft && (
+        <NewTaskPopup
+          ctx={ctx}
+          defaults={newTaskDraft}
+          phases={phases}
+          assets={assets}
+          members={projectMembers}
+          onCreated={() => setNewTaskDraft(null)}
+          onClose={() => setNewTaskDraft(null)}
+        />
       )}
 
       {/* ── Task detail popup ── */}
