@@ -104,8 +104,13 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
       ? `<tr><td>Production Fee</td><td>${fmtCurrency(markupAmt, currency)}</td></tr>`
       : ''
 
+    // Session 25: the title and code below were project.name / project.code.
+    // NEITHER has ever been a column. The project title is 'title', and the
+    // code the app actually writes is 'project_code'
+    // (ProjectSummaryView.jsx:605) — so this printed "Project" and "--" on
+    // every cloud project, on the one document that leaves the building.
     printWin.document.write(`
-      <!DOCTYPE html><html><head><title>${project?.name || 'Budget'} - Client Estimate</title>
+      <!DOCTYPE html><html><head><title>${project?.title || 'Budget'} - Client Estimate</title>
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Courier New', monospace; padding: 40px; color: #1c1917; }
@@ -123,10 +128,10 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
         .signature { margin-top: 48px; font-size: 10px; }
         .signature .line { border-bottom: 1px solid #1c1917; width: 200px; height: 20px; display: inline-block; margin-left: 8px; }
       </style></head><body>
-        <h1>${project?.name || 'Project'}</h1>
+        <h1>${project?.title || 'Project'}</h1>
         <h2>Estimated Budget</h2>
         <div class="meta">
-          <div class="meta-item"><label>Project Code</label>${project?.code || '--'}</div>
+          <div class="meta-item"><label>Project Code</label>${project?.project_code || '--'}</div>
           <div class="meta-item"><label>Date</label>${new Date().toLocaleDateString()}</div>
         </div>
         <table>
@@ -174,14 +179,14 @@ export default function ClientViewTab({ budget, budgetHook, project, tasks, role
       {/* Preview card */}
       <div ref={printRef} className="rounded-sm p-6" style={{ backgroundColor: '#fafaf9', border: '1px solid #d6d3d1' }}>
         <h2 className="text-lg font-mono font-bold uppercase tracking-wider mb-1" style={{ color: '#1c1917' }}>
-          {project?.name || 'Project'}
+          {project?.title || 'Project'}
         </h2>
         <p className="text-[11.5px] font-mono mb-4" style={{ color: '#78716c' }}>Estimated Budget</p>
 
         <div className="flex gap-8 mb-5 text-[11.5px] font-mono">
           <div>
             <span className="text-[9.5px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Project Code</span>
-            <span style={{ color: '#1c1917' }}>{project?.code || '--'}</span>
+            <span style={{ color: '#1c1917' }}>{project?.project_code || '--'}</span>
           </div>
           <div>
             <span className="text-[9.5px] uppercase tracking-widest block" style={{ color: '#78716c' }}>Date</span>

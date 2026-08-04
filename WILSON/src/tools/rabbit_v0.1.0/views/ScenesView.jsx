@@ -35,6 +35,15 @@ import { useRateCard } from '../../../components/RateCard/useRateCard'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import RelationsPanel, { NewTaskSidePopup } from '../components/RelationsPanel'
+// Session 25: naming moved out of this file. It had five copies here and in
+// ProjectSummaryView, and S26 needs the same strings to name folders.
+import {
+  formatSceneCode as sceneCodeFor,
+  formatShotCode as shotCodeFor,
+  nextSceneNumber as nextSceneNumberFor,
+  nextShotNumber as nextShotNumberFor,
+  fileSlugify,
+} from '../entityNaming'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -212,14 +221,6 @@ function fmtNumber(n) {
   return n.toLocaleString()
 }
 
-function fileSlugify(str) {
-  return str.trim()
-    .replace(/[^a-zA-Z0-9\s]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join('-')
-}
 
 
 // ─────────────────────────────────────────────────────
@@ -335,33 +336,27 @@ export default function ScenesView() {
   }, [scenes, shots.length, sceneTotals, fps])
 
   // ── Auto-naming helpers ──
-  const nextSceneNumber = useMemo(() => {
-    const nums = scenes.map(s => s.scene_number).filter(n => typeof n === 'number')
-    if (nums.length === 0) return project?.scene_start_number ?? 1
-    return Math.max(...nums) + 1
-  }, [scenes, project?.scene_start_number])
+  // Thin wrappers over ../entityNaming so this view, the settings preview and
+  // S26's folder tree all produce the same strings. See that module's header.
+  const nextSceneNumber = useMemo(
+    () => nextSceneNumberFor(scenes, project),
+    [scenes, project?.scene_start_number],
+  )
 
-  const formatSceneCode = useCallback((num) => {
-    const code = project?.project_code || 'PROJ'
-    const sep = project?.scene_separator || '_'
-    const digits = project?.scene_digits ?? 3
-    return `${code}${sep}SC${String(num).padStart(digits, '0')}`
-  }, [project?.project_code, project?.scene_separator, project?.scene_digits])
+  const formatSceneCode = useCallback(
+    (num) => sceneCodeFor(project, num),
+    [project?.project_code, project?.scene_separator, project?.scene_digits],
+  )
 
-  const nextShotNumberForScene = useCallback((sceneId) => {
-    const sceneShots = shotsByScene[sceneId] || []
-    const nums = sceneShots.map(s => s.shot_number).filter(n => typeof n === 'number')
-    if (nums.length === 0) return project?.scene_start_number ?? 1
-    return Math.max(...nums) + 1
-  }, [shotsByScene, project?.scene_start_number])
+  const nextShotNumberForScene = useCallback(
+    (sceneId) => nextShotNumberFor(shotsByScene[sceneId] || [], project),
+    [shotsByScene, project?.scene_start_number],
+  )
 
-  const formatShotCode = useCallback((sceneNum, shotNum) => {
-    const code = project?.project_code || 'PROJ'
-    const sep = project?.scene_separator || '_'
-    const sDigits = project?.scene_digits ?? 3
-    const hDigits = project?.shot_digits ?? 4
-    return `${code}${sep}SC${String(sceneNum).padStart(sDigits, '0')}${sep}SH${String(shotNum).padStart(hDigits, '0')}`
-  }, [project?.project_code, project?.scene_separator, project?.scene_digits, project?.shot_digits])
+  const formatShotCode = useCallback(
+    (sceneNum, shotNum) => shotCodeFor(project, sceneNum, shotNum),
+    [project?.project_code, project?.scene_separator, project?.scene_digits, project?.shot_digits],
+  )
 
   // ── CRUD handlers ──
   const handleNewScene = useCallback(async () => {
@@ -2102,10 +2097,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
     } catch (err) { console.error('Failed to create task:', err) }
   }
 
-  const code = project?.project_code || 'PROJ'
-  const sep = project?.scene_separator || '_'
-  const digits = project?.scene_digits ?? 3
-  const sceneCode = `${code}${sep}SC${String(scene.scene_number ?? 0).padStart(digits, '0')}`
+  const sceneCode = sceneCodeFor(project, scene.scene_number ?? 0)
   const sceneSlug = fileSlugify(scene.name || 'Untitled-Scene')
   const sceneFolderPath = `SCENES/${sceneSlug}/`
   const fileCount = managedFiles.filter(f => f.scene_id === scene.id && !f.deleted_at).length
@@ -2537,11 +2529,7 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
   }
 
   // Build shot code
-  const code = project?.project_code || 'PROJ'
-  const sep = project?.scene_separator || '_'
-  const sDigits = project?.scene_digits ?? 3
-  const hDigits = project?.shot_digits ?? 4
-  const shotCode = `${code}${sep}SC${String(scene?.scene_number ?? 0).padStart(sDigits, '0')}${sep}SH${String(shot.shot_number ?? 0).padStart(hDigits, '0')}`
+  const shotCode = shotCodeFor(project, scene?.scene_number ?? 0, shot.shot_number ?? 0)
   const shotSlug = fileSlugify(shot.name || 'Untitled-Shot')
   const shotFolderPath = `SHOTS/${shotSlug}/`
 

@@ -90,6 +90,31 @@ function unwrap({ data, error }) {
   return data;
 }
 
+// Session 25: a bundle list whose table may not exist yet.
+//
+// `feat/multi-user-v1` auto-deploys the STAGING-backed beta on every push, so
+// there is a real window in which the client is newer than the database. A
+// bare unwrap() would 42P01 inside loadProject's Promise.all and make EVERY
+// project fail to open until the migration lands — turning a missing feature
+// into a total outage. Degrading to "no scenes yet" is the honest behaviour
+// for that window.
+//
+// Only "relation does not exist" is absorbed. An RLS refusal, a network fault
+// or any other error still throws, because those must not look like an empty
+// list — that is precisely the mistake useRosterMembers makes, where a broken
+// RPC and an empty workspace are indistinguishable at every call site.
+// unwrap() itself cannot do this: it raises a new Error and drops `.code`.
+function unwrapOptionalTable({ data, error }) {
+  if (error) {
+    if (error.code === '42P01' || error.code === 'PGRST205') return [];
+    lastError = error.message || String(error);
+    throw new Error(`[supabase] ${lastError}`);
+  }
+  lastError  = null;
+  lastSyncAt = new Date();
+  return data || [];
+}
+
 async function requireClient() {
   const client = await getClient();
   if (!client) {
@@ -184,9 +209,58 @@ const PROJECT_COLUMNS = new Set([
   'budget_agency_pct', 'budget_agency_enabled',
   'budget_actual_column_mode', 'budget_actual_column_count',
   'budget_active', 'budget_active_version_id', 'budget_finalized',
+  // 0040 — the Project Control Panel's other seventeen fields, every one of
+  // them written by ProjectSummaryView and silently dropped until now.
+  //
+  // NOTE `project_code`, NOT `code`. Nothing in the app has ever written a
+  // bare `code` key on a project; ClientViewTab merely READ one that never
+  // existed. Both plan documents said to add `code` — see 0040's header.
+  'project_code', 'scene_separator', 'scene_digits', 'shot_digits',
+  'scene_start_number', 'fps',
+  'scenes_enabled', 'levels_enabled', 'experiences_enabled',
+  'uses_realtime_engine', 'engine_type', 'engine_proprietary_name',
+  'engine_version', 'engine_project_name', 'engine_repo_url',
+  'project_type', 'project_tier',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
+
+// ── 0040: the four entity tables ─────────────────────────────────────────
+// Every one of these needs an allowlist entry, not because of the columns it
+// HAS but because of the keys the UI sends that are not columns:
+//   * addLevel / addExperience send `files` — an array of picked files from
+//     the create dialog (LevelsView.jsx:1009). It has no column and belongs
+//     to the folder/files work in S26.
+//   * RabbitProvider re-sends whole rows on update (`{ ...existing, ...patch }`,
+//     RabbitProvider.jsx:1333), so created_at/updated_at ride along.
+// A table with NO entry passes through toColumns UNFILTERED, and one unknown
+// key PGRST204s the entire request — that was the S23 "New task does
+// nothing". The dropped keys are warned about, so a warning naming a field a
+// user can edit means that field needs a column, not a bigger allowlist.
+const SCENE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'name', 'description', 'notes',
+  'scene_number', 'status', 'type', 'time_of_day', 'thumbnail_image',
+  'start_date', 'end_date', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
+const SHOT_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'scene_id', 'name', 'description',
+  'notes', 'shot_number', 'status', 'type', 'time_of_day', 'framing',
+  'camera_movement', 'frame_count', 'thumbnail_image',
+  'start_date', 'end_date', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
+// Levels and experiences are the same shape — LevelsView.jsx and
+// ExperiencesView.jsx are the same component with different nouns.
+const LEVEL_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'name', 'description', 'notes',
+  'status', 'thumbnail_image', 'start_date', 'end_date', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
+const EXPERIENCE_COLUMNS = new Set(LEVEL_COLUMNS);
 
 const BUDGET_LINE_COLUMNS = new Set([
   'id', 'project_id', 'workspace_id',
@@ -224,7 +298,7 @@ const PROJECT_RATE_OVERRIDE_COLUMNS = new Set([
   'created_by', 'updated_by',
 ]);
 
-const COLUMN_ALLOWLIST = {
+export const COLUMN_ALLOWLIST = {
   tasks: TASK_COLUMNS,
   assets: ASSET_COLUMNS,
   projects: PROJECT_COLUMNS,
@@ -233,6 +307,10 @@ const COLUMN_ALLOWLIST = {
   budget_versions: BUDGET_VERSION_COLUMNS,
   expenses: EXPENSE_COLUMNS,
   project_rate_overrides: PROJECT_RATE_OVERRIDE_COLUMNS,
+  scenes: SCENE_COLUMNS,
+  shots: SHOT_COLUMNS,
+  levels: LEVEL_COLUMNS,
+  experiences: EXPERIENCE_COLUMNS,
 };
 
 // Session 24: the UI initialises date fields to the empty STRING, not null —
@@ -251,7 +329,14 @@ function blankDatesToNull(row) {
   return out;
 }
 
-function toColumns(table, obj) {
+// Exported for columnAllowlist.test.js. The older adapter tests
+// (projectAttachments.test.js) MIRROR the logic they check, and say so as an
+// honest limitation — a mirrored copy keeps passing while the adapter
+// regresses. Exporting the real thing removes that gap for the allowlist,
+// which is the piece with no other visible symptom: a missing entry does not
+// fail a build, a type check or a render. It rejects one PostgREST request at
+// runtime and the save appears to do nothing.
+export function toColumns(table, obj) {
   const allow = COLUMN_ALLOWLIST[table];
   if (!allow || !obj || typeof obj !== 'object') return obj;
   const out = {};
@@ -405,7 +490,14 @@ export function supabaseAdapter() {
       // budgetLines/budgetActuals are deliberately NOT here: they are owned by
       // the useBudgetLines hook, which loads them through its own adapter
       // calls and is not part of EMPTY_BUNDLE.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers] =
+      //
+      // Session 25: scenes/shots/levels/experiences join the bundle for the
+      // same reason budgetVersions did — EMPTY_BUNDLE resets any key this
+      // omits, so ctx.scenes (ScenesView.jsx:231) would read [] no matter what
+      // the database held. They use unwrapOptionalTable so a client deployed
+      // ahead of migration 0040 shows no scenes instead of failing every
+      // project load; see the helper for why only 42P01 is absorbed.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -435,10 +527,22 @@ export function supabaseAdapter() {
           client.from('project_members')
             .select('project_id, user_id, project_role, project_title')
             .eq('project_id', projectId).then(unwrap).catch(() => []),
+          // Ordered by sort_order to match the local bundle, which is an
+          // array and therefore ordered by construction. Without this the two
+          // adapters would disagree on row order for the same project.
+          client.from('scenes').select('*').eq('project_id', projectId)
+            .order('sort_order').then(unwrapOptionalTable),
+          client.from('shots').select('*').eq('project_id', projectId)
+            .order('sort_order').then(unwrapOptionalTable),
+          client.from('levels').select('*').eq('project_id', projectId)
+            .order('sort_order').then(unwrapOptionalTable),
+          client.from('experiences').select('*').eq('project_id', projectId)
+            .order('sort_order').then(unwrapOptionalTable),
         ]);
       return {
         project, phases, assets, tasks, dependencies, taskLinks, files,
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
+        scenes, shots, levels, experiences,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -1288,21 +1392,88 @@ export function supabaseAdapter() {
       unwrap(await client.from('project_rate_overrides').delete().eq('id', id));
     },
 
-    // ── Scenes (tables pending — Phase 2) ─────────────────────
-    async upsertScene()  { throw new Error('[supabase] scenes table not yet created — use local_server adapter'); },
-    async deleteScene()  { throw new Error('[supabase] scenes table not yet created — use local_server adapter'); },
+    // ── Scenes / shots / levels / experiences (0040) ──────────
+    //
+    // Session 25 — adapter PARITY. Audrey: "it shouldn't only be cloud. it
+    // should be able to live in a local server as well." These eight methods
+    // threw "table not yet created" until now, which is why the three views
+    // were cloud-dead; the tabs themselves were also hidden, because
+    // Rabbit.jsx:85-87 gates them on projects.scenes_enabled and friends,
+    // which were not columns either. Both halves had to land together.
+    //
+    // Shape matches localServerAdapter exactly: list(projectId),
+    // upsert(row) and delete(id, projectId). The projectId argument on the
+    // deletes is unused here — the id is a UUID primary key and RLS already
+    // scopes it to the caller's workspace — but it is in the signature for
+    // interface parity, the same way listFileEvents carries one.
+    //
+    // Every upsert runs toColumns: RabbitProvider re-sends the whole existing
+    // row on update, and the level/experience create dialog sends a `files`
+    // array that has no column (S26 owns files). Without the allowlist those
+    // keys PGRST204 the entire write, which is exactly how task creation
+    // broke in S23.
+    async listScenes(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client.from('scenes').select('*')
+        .eq('project_id', projectId).order('sort_order'));
+    },
+    async upsertScene(scene) {
+      const client = await requireClient();
+      const row = toColumns('scenes', blankDatesToNull(scene));
+      return unwrap(await client.from('scenes').upsert(row).select().single());
+    },
+    async deleteScene(id, _projectId) {
+      const client = await requireClient();
+      // Child shots go with it via ON DELETE CASCADE (0040). The UI also
+      // deletes them one by one first (ScenesView.jsx:398-402); the cascade
+      // makes the outcome atomic rather than dependent on that loop finishing.
+      unwrap(await client.from('scenes').delete().eq('id', id));
+    },
 
-    // ── Shots (tables pending — Phase 2) ─────────────────────
-    async upsertShot()   { throw new Error('[supabase] shots table not yet created — use local_server adapter'); },
-    async deleteShot()   { throw new Error('[supabase] shots table not yet created — use local_server adapter'); },
+    async listShots(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client.from('shots').select('*')
+        .eq('project_id', projectId).order('sort_order'));
+    },
+    async upsertShot(shot) {
+      const client = await requireClient();
+      const row = toColumns('shots', blankDatesToNull(shot));
+      return unwrap(await client.from('shots').upsert(row).select().single());
+    },
+    async deleteShot(id, _projectId) {
+      const client = await requireClient();
+      unwrap(await client.from('shots').delete().eq('id', id));
+    },
 
-    // ── Levels (tables pending — Phase 2) ────────────────────
-    async upsertLevel()  { throw new Error('[supabase] levels table not yet created — use local_server adapter'); },
-    async deleteLevel()  { throw new Error('[supabase] levels table not yet created — use local_server adapter'); },
+    async listLevels(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client.from('levels').select('*')
+        .eq('project_id', projectId).order('sort_order'));
+    },
+    async upsertLevel(level) {
+      const client = await requireClient();
+      const row = toColumns('levels', blankDatesToNull(level));
+      return unwrap(await client.from('levels').upsert(row).select().single());
+    },
+    async deleteLevel(id, _projectId) {
+      const client = await requireClient();
+      unwrap(await client.from('levels').delete().eq('id', id));
+    },
 
-    // ── Experiences (tables pending — Phase 2) ───────────────
-    async upsertExperience() { throw new Error('[supabase] experiences table not yet created — use local_server adapter'); },
-    async deleteExperience() { throw new Error('[supabase] experiences table not yet created — use local_server adapter'); },
+    async listExperiences(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client.from('experiences').select('*')
+        .eq('project_id', projectId).order('sort_order'));
+    },
+    async upsertExperience(experience) {
+      const client = await requireClient();
+      const row = toColumns('experiences', blankDatesToNull(experience));
+      return unwrap(await client.from('experiences').upsert(row).select().single());
+    },
+    async deleteExperience(id, _projectId) {
+      const client = await requireClient();
+      unwrap(await client.from('experiences').delete().eq('id', id));
+    },
 
     // ── Milestones (tables pending — Phase 2) ───────────────
     async upsertMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },

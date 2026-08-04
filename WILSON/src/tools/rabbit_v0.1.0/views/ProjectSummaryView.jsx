@@ -23,6 +23,9 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canSeeProjectMoney } from '../../../permissions/projectRoleMatrix'
+import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
 import RelinkDialog from '../components/RelinkDialog'
@@ -43,8 +46,25 @@ export default function ProjectSummaryView() {
   const setActiveProject = ctx?.setActiveProject
   const createProject    = ctx?.createProject
   const tm = useTeamMembers()
+  const perms = usePermissions()
   const [showSettings, setShowSettings] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  // Session 25. Audrey, 2026-08-04: "the producer manager should be the only
+  // one to see the budget section. the rest is fine." So the Project Control
+  // Panel stays reachable by everyone who can open the project, and only the
+  // Budget Variables block inside it is gated.
+  //
+  // Same predicate as the Budget TAB (Rabbit.jsx:78) and the same one that
+  // mirrors can_access_project_money() in SQL, so the client and the database
+  // agree about who money belongs to. It fails CLOSED: the block appears a
+  // beat late for a manager rather than being shown to a member and snatched
+  // back. RLS is still the authority — this only stops showing a control that
+  // would write a value the database will refuse.
+  const canSeeMoney = canSeeProjectMoney({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+  })
 
   const allProjects = useMemo(() => {
     return Object.values(projectsIndex).sort((a, b) => {
@@ -175,7 +195,7 @@ export default function ProjectSummaryView() {
               <LayoutDashboard className="w-3 h-3" /> Dashboard
             </button>
           </div>
-          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} />
+          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} canSeeMoney={canSeeMoney} />
         </>) : (<>
 
         {/* ── All projects gallery strip ── */}
@@ -519,7 +539,7 @@ const ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']
 
 const SECTION_ACCENT = '#fb923c'
 
-function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
+function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = false }) {
   const update = useCallback((field, value) => {
     ctx?.updateProject?.(project.id, { [field]: value })
   }, [ctx, project?.id])
@@ -633,10 +653,15 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
         </div>
       </div>
 
-      {/* ── Two-column grid: Budget + Files & Storage ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Budget + Files & Storage ──
+          Session 25: the Budget block is manager/admin only. When it is
+          hidden the grid collapses to one column rather than leaving a blank
+          half — an empty column reads as a broken layout, which is how a
+          permission boundary gets reported as a bug. */}
+      <div className={canSeeMoney ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6'}>
 
-        {/* LEFT: Budget */}
+        {/* LEFT: Budget — money is manager-only (Audrey, 2026-08-04) */}
+        {canSeeMoney && (
         <SettingsSection title="Budget Variables" icon={DollarSign} accent={SECTION_ACCENT}>
           <div className="grid grid-cols-2 gap-3">
             <SettingsField label="Currency">
@@ -683,6 +708,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
             </SettingsField>
           </div>
         </SettingsSection>
+        )}
 
         {/* RIGHT: Files & Storage */}
         <ProjectFilesSection files={files} managedFiles={managedFiles} ctx={ctx} project={project} update={update} />
@@ -726,11 +752,16 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
               <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
                 <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Preview:</span>
                 <span className="text-[11px] font-mono font-bold tracking-wide" style={{ color: '#fb923c' }}>
-                  {(project.project_code || 'PROJ')
-                    + (project.scene_separator || '_')
-                    + 'SC' + String(project.scene_start_number ?? 1).padStart(project.scene_digits ?? 3, '0')
-                    + (project.scene_separator || '_')
-                    + 'SH' + String(project.scene_start_number ?? 1).padStart(project.shot_digits ?? 4, '0')}
+                  {/* Session 25: built by the SAME function the Scenes view
+                      names with (../entityNaming), so the preview cannot
+                      drift from what the New Shot button actually produces.
+                      It previews the first shot of the first scene, hence
+                      the start number in both positions. */}
+                  {formatShotCode(
+                    project,
+                    project.scene_start_number ?? 1,
+                    project.scene_start_number ?? 1,
+                  )}
                 </span>
               </div>
 
