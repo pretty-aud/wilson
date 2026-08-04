@@ -51,32 +51,42 @@ RLS.
 ## Broken features
 
 ### Every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag
-**MEASURED gate, cause STILL NOT ESTABLISHED — but narrowed hard in S25
-(2026-08-04), and the two leading theories are now both REFUTED.** Audrey
-reported the New Task button first showing the label "export", then
-disappearing from the Tasks tab *and* Board view.
+**MEASURED gate, cause STILL NOT ESTABLISHED.** Audrey reported the New Task
+button first showing the label "export", then disappearing from the Tasks tab
+*and* Board view.
 
-> **S25 update — what is now excluded.**
+> 🚨 **S26 correction to this entry's own header.** It said "the two leading
+> theories are now both REFUTED" and then, twelve lines further down,
+> explained that one of them was reopened. A reader acting on the first half
+> would rule out the very thing the second half revives. The identical
+> contradiction was found and fixed in `SESSION_26_prompt.md` (`267c4c3`); the
+> fix was never carried across to here, so it survived a session longer.
+> **Exactly one theory is refuted, and the two are separated below by KIND of
+> evidence rather than by verdict.**
 >
-> 1. **It is not the wrong account.** Asked directly, Audrey confirms she was
->    signed in as **`audrey`** on the beta, which is staging-backed, where she
->    is a workspace **admin** *and* a project **manager**. `canOnProject:134`
->    returns true for `appRole` admin or manager before any other branch runs.
->    The `audrey2` / `tester` candidates below are dead.
-> 2. **It is not consumers ignoring `ready`.** That entry said "consumers
->    ignore its `ready` flag". They do not: `ProjectTasksView.jsx:202,216` and
->    `ProjectAssetsView.jsx:187,200` both pass `ready: permsReady`, and
->    `canOnProject:131` returns **true** when `ready === false` — S23 already
->    made "still loading" fail OPEN. A slow or hung `getSession()` therefore
->    leaves the buttons PRESENT, not missing.
+> **REFUTED, on CODE — needs no further checking.** Not "consumers ignore the
+> `ready` flag". They do not: `ProjectTasksView.jsx:202,216` and
+> `ProjectAssetsView.jsx:187,200` both pass `ready: permsReady`, and
+> `canOnProject:131` returns **true** when `ready === false` — S23 already
+> made "still loading" fail OPEN. A slow or hung `getSession()` therefore
+> leaves the buttons PRESENT, not missing. This is read straight out of the
+> source and needs no runtime observation.
 >
-> **The one surviving candidate**, by elimination: `ready` is true but
-> `perms.role` is **null or not 'admin'** — i.e. the session's JWT carries no
-> `app_role` in `app_metadata` (`usePermissions.js:65` is
-> `md.app_role ?? null`). With `appRole` null, a **staffed** project (staging's
-> `project_members` has rows) and `projectRole` unresolved, `:138` returns
-> false and all six surfaces vanish. A stale token issued before a role change
-> would do it.
+> **UNCERTAIN, and it rests on TESTIMONY — treat as INFERRED.** "Wrong
+> account" was recorded as refuted because Audrey answered `audrey` when asked
+> which account she held. She later clarified that she runs **two accounts in
+> two browsers at the same time** — admin in one, `tester` in the other — and
+> that the original sighting was in "the browser logged into the admin
+> portal". Asked which front door that was, she said **"I'm not sure."** So
+> the account is *probably* an admin one, on her recollection. That is not a
+> measurement.
+>
+> **The candidate that survives if the account really was admin:** `ready` is
+> true but `perms.role` is **null** — the session's JWT carries no `app_role`
+> in `app_metadata` (`usePermissions.js:65` is `md.app_role ?? null`). With
+> `appRole` null, a **staffed** project (staging's `project_members` has rows)
+> and `projectRole` unresolved, `:138` returns false and all six surfaces
+> vanish. A stale token issued before a role change would do it.
 >
 > → **THE OBSERVATION WAS ATTEMPTED AND DID NOT SETTLE IT — read this before
 > re-running it.** The test is: when New task is missing, is the Admin Terminal
@@ -121,25 +131,17 @@ rendering glitch: the JSX order is `[count, Export, [Phase, Key Date, New
 task]]`, so dropping the gated three leaves Export in New task's pixel
 position.
 
-**The cause is not established, and two measurements argue against the obvious
-one.** `canWrite === false` requires a session that is neither app
-admin/manager *nor* project manager/member. On staging `audrey` is **both**
-(workspace admin, project manager) and cannot satisfy that conjunction. And
-decisively: `setShowNewAssetPopup(true)` has exactly one caller — the
-`canWrite`-gated button — so the fact that she *opened* the New Asset dialog
-proves `canWrite` was **true** at that moment, and both views compute it from
+**The single most useful fact remains a user action, not a code reading:**
+`setShowNewAssetPopup(true)` has exactly one caller — the `canWrite`-gated
+button — so the fact that Audrey *opened* the New Asset dialog proves
+`canWrite` was **true** at that moment, and both views compute it from
 identical inputs.
 
-Candidates not excluded: the session is `audrey2` (app_role `user`, project
-role `reviewer` — the one account that fits) or `tester`; or
-`usePermissions` returns `role: null` while its own `getSession()` is
-outstanding, since consumers ignore its `ready` flag and the known auth-lock
-defect can hold that read forever.
-
-→ **Do not write a fix from this.** One runtime observation settles it: which
-account the session holds, and whether New asset is present while New task is
-gone. Separately, the UX is wrong either way — a reviewer should be told why
-they cannot add, not have the control silently disappear.
+→ **Do not write a fix from this.** One runtime observation settles it, and it
+only counts **in the browser that produced the symptom**: which account that
+session holds, and whether the Admin Terminal is missing at the same moment
+the New task button is. Separately, the UX is wrong either way — a reviewer
+should be told why they cannot add, not have the control silently disappear.
 
 ### ~~The budget system does not exist in the cloud schema~~ — FIXED (S24, `b07b6c9`)
 Deleted per the rule for this file. Migrations 0036 + 0037 applied and verified
@@ -462,6 +464,35 @@ holds, because that requires *storing* a choice.
 in `ai-proxy` and 403 on a miss, failing **open** if the catalogue read itself
 fails. Not scheduled.
 
+### Project-scoped team member rates are not in the project manifest
+**MEASURED (S26).** Audrey, 2026-08-03, asked for "unique margin, unique
+contingency, unique team member rates, all project details in the project
+panel" to be saved in the project folder as a readable file. `PROJECT.json`
+now carries all of that **except the rates**, and this is a stated limit of
+what shipped rather than an oversight.
+
+Two policies, both read off wilson-dev on 2026-08-04:
+
+- `project_rate_overrides_select` :: `can_access_project_money(project_id)`
+  — **manager only.**
+- `rabbit_files_select` :: any authenticated user, any object under
+  `projects/<id>/` whose **third** path segment is not `INVOICES`, where the
+  project row is visible. A manifest at `projects/<id>/PROJECT.json` has no
+  third segment, so `upper(NULL) IS DISTINCT FROM 'INVOICES'` is true and the
+  base policy applies.
+
+So including rates would let every project member download the figures RLS had
+just denied them — the S24 invoice defect in a new file. Margin and
+contingency ARE included, and that was checked separately: `projects_select`
+admits any active workspace member, so those were already readable by anyone
+who can open the project.
+
+→ Rates need a money-gated path of their own. `INVOICES` is the only gated
+segment that exists and is the wrong name for it. Designing a second one is a
+storage-policy change, and 0038 shipping that segment lowercase — which
+inverted the gate until 0039 — is the standing evidence for not doing it in a
+hurry. **Audrey's call; size it with S27, which owns file paths.**
+
 ### Welcome page has a phantom cursor
 **REPORTED.** A black cursor blinks permanently, unattached to any input, and
 keeps blinking on the right while typing elsewhere. Likely the shared
@@ -477,6 +508,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S26 (2026-08-04) | **one entry: project-scoped rates are absent from the manifest** — a stated limit of what shipped, with the two policies that force it. Nothing regressed. The `canWrite` entry was **corrected**, not narrowed: its header claimed both leading theories were refuted while its own body reopened one of them, the same self-contradiction `267c4c3` had already fixed in the S26 brief and never carried across here. Exactly one theory is refuted, on code; the other rests on testimony and is marked INFERRED. | nothing was fixed that was on this list. S26 built new capability rather than repairing existing breakage. |
 | S25 (2026-08-04) | **nothing new is broken.** Two entries were NARROWED rather than added: the `canWrite` gate (both leading theories refuted — Audrey confirms the account was `audrey`, who is admin AND project manager, and `canOnProject` already fails OPEN while permissions load, so a hung session leaves buttons PRESENT), and **task templates**, which S25 was scoped to fix and deliberately did not — it needs a fifth table and a suite, not a method. The assignee-dropdown entry is re-marked **still unobserved**: S25 was asked to confirm it at runtime and could not. | **scenes/levels/experiences unavailable in cloud**, **four budget tabs that can never render**, and **Client View printing "Project" and "--"** — all three by 0040 + `183b4c2`, applied and verified **by query** on dev, staging and prod. The Client View fix is recorded above because the documented fix (`add projects.code`) would have fixed nothing. |
 | S24 (2026-08-03) | **four budget tabs that can never render** (they gate on three `projects` columns that do not exist), **Client View printing "Project" and "--"** (it reads `project.name`/`project.code`; the column is `title`), **no client-side gate on the budget UI** (a UX defect now that RLS is the authority), and **desktop-only invoice folders** in the Crew/Talent tabs. All four are pre-existing and were found by reading the budget UI properly for the first time; none is new breakage. | **the budget system's absence from the cloud schema** (0036 + 0037 + `b07b6c9`, applied and verified **by query** on dev, staging and prod). The assignee-dropdown entry was **narrowed, not closed** — the two hard-empty dropdowns' stated cause is removed at code level but has not been watched working. |
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |

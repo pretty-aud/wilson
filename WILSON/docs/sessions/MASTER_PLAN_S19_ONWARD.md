@@ -387,7 +387,7 @@ below are superseded; only one of them actually moves.
 | **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
 | **S24** | **Budget system** — ✅ **DONE (`b07b6c9`)** | moved forward from S27; it was the gap that stopped R.A.B.B.I.T. doing its job | `SESSION_24_prompt.md` |
 | **S25** | Scenes/shots/levels/experiences at **adapter parity** — ✅ **DONE (`183b4c2`)** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
-| **S26** | Backend-agnostic **folder tree** + writes the project manifest | needs scenes to exist before it can give each one a folder | `SESSION_26_prompt.md` |
+| **S26** | Backend-agnostic **folder tree** + the project manifest — ✅ **DONE (`071682b`)** | needed scenes to exist before it could give each one a folder | `SESSION_26_prompt.md` |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources | manages the folders S26 creates | *to write* |
 | **S28** | Design pass | unchanged, still last | *to write* |
 
@@ -410,7 +410,27 @@ or three separate rediscoveries:
   the three `*_enabled` toggles, `project_type` and `project_tier` — are all
   written by the Project Control Panel and were all being silently discarded.
   Derived from a grep of the panel and the views, not from this table.
-- **S26** → `folder_slug`, `folder_root`, `files_dir`.
+- ~~**S26** → `folder_slug`, `folder_root`, `files_dir`.~~
+  ✅ **DONE by 0041 — and this line was WRONG about the third column.**
+  `folder_slug` and `folder_root` were added; **`files_dir` was not, and
+  should not be.** MEASURED 2026-08-04: the writer this line rests on
+  (`ProjectSummaryView.jsx:1010`, `update('files_dir', null)`) sits inside
+  `{project?.files_dir && ( … )}`, so it renders only when the column is
+  already NON-NULL and all it ever writes is null. The only thing that sets a
+  non-null value is the local Express relink route, and
+  `relinkScan`/`relinkApply` are **local_server ONLY** — zero occurrences in
+  the Supabase and Drive adapters, and `adapters/index.js:121` says so in the
+  contract. On Supabase the value can never become non-null, the block can
+  never render, and the write can never fire.
+
+  This is the FOURTH time a plan document has named a column the code does not
+  write (S20's migration number, S24's `margin`, S25's `code`) — but it is not
+  the same KIND of error as `code`, and conflating them would cause the
+  opposite mistake. `code` is a wrong NAME that must never exist, and 0040's
+  suite asserts its absence. `files_dir` is the RIGHT name for a feature with
+  no cloud implementation, i.e. `task_template_id`. **It arrives with relink,
+  not before, and nothing asserts its absence** — pinning that would only have
+  to be deleted by the session that legitimately adds it.
 
 **DECIDED (Audrey, 2026-08-03): the database is authoritative and the project
 folder's file is a generated MIRROR.** Written on change; read only for
@@ -557,6 +577,60 @@ vitest **521 → 556**. All four CI jobs green on `183b4c2`.
 > session against staging that nothing in this repo automates. Both stay in
 > `OUTSTANDING.md`; neither was quietly marked done.
 
+### ✅ S26 OUTCOME (2026-08-04, `071682b`) — the folder tree, and a fourth plan-vs-code miss
+
+**Migration 0041** creates `public.folders`, applied and verified **by query**
+on dev, staging and prod: RLS enabled *and* forced, four policies, no `FOR ALL`
+arm, nine CHECK constraints, eight FKs, and **zero privileges held by `anon` or
+`PUBLIC`** — checked by scanning every grantee, not by trusting the REVOKE.
+52 pgTAP suites / **790 assertions** (768 → 790), `planned == collected` on
+every one. 658 vitest (583 → 658).
+
+**A TABLE, not a path convention** (Audrey, 2026-08-04, settled). Supabase
+Storage has no real folders — it is object storage with prefixes, so an EMPTY
+folder cannot exist, and "toggling a category off must never delete the
+folders" needs a folder that outlives its contents.
+
+**Paths are computed CLIENT-side** in `folderPaths.js` and stored, following
+S25's naming decision for the same stated reason: Local Server is a JSON bundle
+with no Postgres in it, so a generated column would exist on one backend only.
+
+> 🚨 **THE FOURTH CONSECUTIVE PLAN-VS-CODE MISS, and the first where the right
+> answer was to add NOTHING.** S20 named the wrong migration number, S24 named
+> `margin` instead of `budget_margin_pct`, S25 named `code` when the writer was
+> `project_code`. This time both plan documents named `files_dir` — the right
+> NAME, with a real citation — and the correct action was still to leave it
+> out, because the writer is unreachable on the backend the column would live
+> on.
+>
+> **The distinction is load-bearing and easy to get backwards.** `code` must
+> never exist and pgTAP asserts its absence. `files_dir` SHOULD exist, later,
+> alongside the relink feature it belongs to — so nothing asserts its absence,
+> because that assertion would only have to be deleted by the session doing
+> the legitimate work. "Grep for the writer" is not enough on its own: ask
+> whether the writer can RUN on the backend in question.
+
+> 🚨 **WHAT THE MANIFEST DELIBERATELY OMITS — the one part of Audrey's request
+> S26 did not deliver.** She asked for "unique margin, unique contingency,
+> unique team member rates". Margin and contingency are in `PROJECT.json`; the
+> **rates are not**. MEASURED: `project_rate_overrides_select` is gated by
+> `can_access_project_money` (manager only), while `rabbit_files_select` admits
+> any authenticated user to any object under `projects/<id>/` whose third path
+> segment is not `INVOICES` — and the manifest has no third segment. Including
+> rates would hand every team member the figures RLS had just denied them, the
+> S24 invoice defect in a new file. Recorded in `OUTSTANDING.md`; needs a
+> money-gated path, which is S27's to design.
+
+> ⚠️ **Two things found while building, both recorded rather than glossed.**
+> A unit test caught a real defect before it shipped: `fileSlugify` strips
+> everything non-alphanumeric, so an entity named `..` is TRUTHY and slugifies
+> to `''`, giving a path of `SCENES/`. The idiom every existing caller uses
+> (`name || 'Untitled-Thing'`) does not catch it — the guard has to be on the
+> OUTPUT. And `.github/workflows/rls.yml`'s failure-replay list had **never**
+> been exhaustive: thirteen original Session-2 suites were missing, so a
+> failure in any of them produced the same misleading "no ERROR lines"
+> annotation S17 was burned by. All 52 are now listed.
+
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
 **MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,
@@ -567,6 +641,11 @@ the audit/soft-delete set. **Every one of the following is ABSENT:**
 **STATUS 2026-08-03: the budget half is CLOSED, the rest is not.** Re-measured
 after 0036: `public.projects` now has **31** columns.
 
+**STATUS 2026-08-04, MEASURED on all three environments: this drift is now
+CLOSED.** 0040 took it to 48 and 0041 to **50**. Every row below is struck
+through except `files_dir`, which is struck through because it must not be
+added here at all — see its cell.
+
 | Missing column | Needed by | Symptom today |
 |---|---|---|
 | ~~`budget_actual_column_mode`~~ | ~~S24~~ | ✅ **added by 0036**, along with eight more the table below never listed |
@@ -575,7 +654,8 @@ after 0036: `public.projects` now has **31** columns.
 | ~~`scene_start_number`, `scene_digits`, `shot_digits`~~ | ~~S25~~ | ✅ **added by 0040**, together with `scene_separator` and `fps`, which this table never listed and the auto-naming also reads |
 | ~~`scenes_enabled`, `levels_enabled`, `experiences_enabled`~~ | ~~S25~~ | ✅ **added by 0040, WITH the entities.** They default FALSE, so applying the migration changed nothing on screen — the tabs appear only when a toggle is turned on |
 | ~~`uses_realtime_engine`, `engine_*` ×5, `project_type`, `project_tier`~~ | ~~S25~~ | ✅ **added by 0040. Never listed here at all** — found by grepping the Project Control Panel for what it WRITES. `project_type` matters most: `handleTypeChange` applies a template that sets the three toggles, so without the column, choosing a type flipped the toggles and lost the type that explained why |
-| `folder_slug`, `folder_root`, `files_dir` | **S26** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug`. `files_dir` is written by the relink reset at `ProjectSummaryView.jsx:949` and dropped today |
+| ~~`folder_slug`, `folder_root`~~ | ~~S26~~ | ✅ **added by 0041.** `folder_root` had a reachable writer today — `ProjectSummaryView.jsx:401` and `:987`, both needing `window.electronAPI.pickDirectory`, which exists in Electron regardless of the SELECTED BACKEND. The desktop app in cloud mode was hitting it and the value was being dropped with a console warning |
+| ~~`files_dir`~~ | ~~S26~~ | ❌ **NOT ADDED, deliberately.** Its stated writer (`ProjectSummaryView.jsx:1010`, and the line number here said :949) is unreachable in cloud: the block renders only when the column is already non-null, and only the local relink route ever sets one — `relinkScan`/`relinkApply` are local_server ONLY. Unlike `code` this is the RIGHT name for a feature with no cloud implementation, so nothing asserts its absence: it arrives WITH relink |
 
 Not a missing column but the same family: `ClientViewTab.jsx:108,126,177` reads
 `project.name`, which has never existed — the column is `title`. That is a
@@ -630,7 +710,7 @@ chasing. It needs its own column.
 - `folder_slug` is persisted on the project and on each asset.
 - Auto-naming: scene `CODE{sep}SC{n}` padded to `scene_digits` (default 3);
   shot `CODE{sep}SC{n}{sep}SH{n}` padded to `shot_digits` (default 4).
-- **The gap is real and precise:** `FileManager.jsx:87` already computes
+- ~~**The gap is real and precise:**~~ ✅ **CLOSED by 0041 + `071682b`.** `FileManager.jsx:84` (not :87) already computes
   `parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'` — those were
   designed in — but nothing ever creates a SCENES/ or SHOTS/ folder, and
   levels/experiences are not in that switch at all.
@@ -667,11 +747,14 @@ everything asked for — the folder is self-describing, readable and portable �
 at no such cost. main's `_DATABASES/` is the cautionary tale: it was a real
 second datastore, and **database information lives in Supabase.**
 
-**Note the ordering consequence:** the manifest cannot be written until the
-project settings actually persist. `margin`, `contingency` and the
-project-scoped rates do not exist as columns yet (see the cross-session finding
-above), so S25 can create the folder and the file's *shape*, but the content
-depends on S27. Sequence deliberately, or S25 ships a manifest of nulls.
+~~**Note the ordering consequence:**~~ ✅ **RESOLVED.** The worry was that the
+manifest would be a file of nulls because the settings had no columns. 0036
+and 0040 gave them columns, so when S26 wrote it (`071682b`) it carried real
+values. **One exception, and it is not an ordering problem:** project-scoped
+rates are deliberately EXCLUDED, because the manifest's storage path is
+readable by every project member while `project_rate_overrides` is
+manager-only. See `OUTSTANDING.md` — it needs a money-gated path, which is
+S27's to design.
 
 ✅ **DECIDED (Audrey, 2026-08-04): a `folders` TABLE is the source of truth.**
 Asked in S25's close-out and answered. Supabase Storage has no real folders —

@@ -1376,12 +1376,20 @@ through one adapter. The database enum is
 | `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ (the only one) |
 | `google_drive` | **Not a path** — the Drive file's opaque id | `files/{id}?alt=media` | Every write throws `readOnly()` | ✗ |
 
-`local_server` resolution order (`main.cjs:895-911`): the project's `files_dir`
-override if set **and still present on disk** → `{project_folder}/{slug}_FILES`
-→ an internal fallback under `rabbit-data/projects/{id}/files`. None of
-`files_dir` / `folder_root` / `folder_slug` exist as database columns — they are
-local-bundle fields, which is why relink and folder mirroring are local-only
-features.
+`local_server` resolution order: the project's `files_dir` override if set
+**and still present on disk** → `{project_folder}/{slug}_FILES` → an internal
+fallback under `rabbit-data/projects/{id}/files`.
+
+⚠️ **Corrected in S26 — this paragraph used to say none of `files_dir` /
+`folder_root` / `folder_slug` were database columns.** Two of the three now
+are. 0041 added **`folder_slug`** (the folder tree's anchor, so a project can
+be renamed without moving its folder) and **`folder_root`** (the absolute
+directory, written from Electron in EITHER backend — the desktop app in cloud
+mode reaches `ProjectSummaryView.jsx:401` and `:987` and the value was being
+dropped). **`files_dir` is still bundle-only, deliberately**: its only writer
+is the relink flow, and `relinkScan`/`relinkApply` are `local_server` ONLY, so
+a cloud column would be written by nothing. It arrives with relink, if relink
+ever comes to cloud.
 
 ### 12.2 Relink — find, preview, **apply**
 
@@ -1500,6 +1508,59 @@ silently dropped.
 - **File blobs** — metadata only; blobs live in the company's storage provider.
 
 ---
+
+### 12.6 The folder tree (S26, migration 0041)
+
+Audrey, 2026-08-03: R.A.B.B.I.T. is also a project file manager, and the tree
+must reflect in **whichever storage backend the company selected**.
+
+**`public.folders` is the source of truth and the storage path is DERIVED from
+it** (Audrey's decision, 2026-08-04, settled). Supabase Storage has no real
+folders — it is object storage with path prefixes, so an *empty* folder cannot
+exist as an object, and "toggling a category off must never delete the folders"
+requires a folder that outlives its contents.
+
+```
+<project folder>            kind='root',     path=''
+├── ASSETS/                 kind='category', path='ASSETS'
+│   └── Hero-Ship/          kind='entity',   path='ASSETS/Hero-Ship'
+├── SCENES/   SHOTS/        revealed by projects.scenes_enabled
+├── LEVELS/                 revealed by projects.levels_enabled
+├── EXPERIENCES/            revealed by projects.experiences_enabled
+└── INVOICES/               always
+```
+
+- **`path` is relative to the project folder**, so the same string works on
+  every backend: disk resolves it against `folder_root`, Supabase against
+  `projects/<id>/` in `rabbit-files`.
+- **`path` is computed CLIENT-side** in `folderPaths.js`, never in Postgres —
+  Local Server is a JSON bundle with no Postgres in it, so a generated column
+  would exist on one backend only. Same reasoning S25 applied to entity names.
+- **Five nullable entity FKs**, not a polymorphic `(type, id)` pair: a
+  polymorphic id cannot be a foreign key, so nothing would stop a folder
+  pointing at a deleted scene.
+- **`folders` uses `can_write_project`, NOT the money gate.** A team member has
+  to be able to create an asset, and an asset that cannot get a folder has not
+  really been created. The INVOICES *folder row* is visible to any project
+  reader — a folder is a name, not a payment; the invoice FILES inside stay
+  manager-only at both layers (0038/0039).
+- **A rename MOVES the folder.** The `label` column exists so a future session
+  can switch to a stable slug without a migration, but today the slug follows
+  the name — which is what `electron/main.cjs` already did for assets, so no
+  existing local project changed behaviour.
+- 🚨 **`<slug>_DATABASES` is NOT in the tree and must never be.** On `main`
+  that was the DATASTORE, not a files folder. `electron/main.cjs` still creates
+  it for existing local projects; nothing extends it.
+- 🚨 **`fileSlugify` and the category list exist in TWO copies** — the renderer
+  and `electron/main.cjs`, which cannot import from the renderer bundle.
+  `folderParity.test.js` reads that file as text and fails when they diverge,
+  covering both planners as well as the slug function.
+
+**`PROJECT.json`** sits at the project root: a generated MIRROR of the
+project's settings, the database staying authoritative. Written debounced on
+every settings change; read only for portability, recovery and handoff. It
+**excludes per-member rate overrides** — those are manager-only while the
+manifest's path is readable by any project member. See §17.
 
 ## 13. The three tools, the shell, and the agent
 
@@ -2239,6 +2300,47 @@ of a session — this section is limits by design, that file is faults.
   parameter at a call site does nothing until it is added to the Edge Function
   too, with no error to say so. This cost S19 a probe control before it was
   spotted.
+
+**The folder tree and the manifest (S26)**
+
+- **Per-member rate overrides are NOT in `PROJECT.json`, and this is a stated
+  limit rather than an oversight.** Audrey asked for "unique margin, unique
+  contingency, unique team member rates" in the project folder's file. Margin
+  and contingency are there — `projects_select` admits any active workspace
+  member, so they were already readable by anyone who can open the project.
+  Rates are not: `project_rate_overrides_select` is gated by
+  `can_access_project_money` (manager-only), while `rabbit_files_select`
+  admits any project member to any object under `projects/<id>/` whose **third**
+  path segment is not `INVOICES` — and the manifest has no third segment.
+  Including them would hand every team member the figures RLS just denied.
+  Rates need a money-gated path of their own; `OUTSTANDING.md` carries it.
+- **`<slug>_FILES` is not modelled in the folder tree.** Its name embeds the
+  project slug, so it is the one folder whose path is not backend-neutral.
+  Left out rather than inventing a `FILES` category the disk does not have.
+- **A category folder is created when its toggle is on or its first entity
+  appears — never speculatively**, so a film project gets no `LEVELS/`.
+  Turning a toggle back OFF removes nothing: a disabled category is simply
+  absent from the plan, and neither implementation has a path that deletes a
+  row the plan omits.
+- **Renaming an entity MOVES its folder.** The `label` column exists so a
+  future session can switch to a stable slug with no migration, but today the
+  slug follows the name — matching what `electron/main.cjs` already did for
+  assets, so no existing local project changed behaviour. Once S27 puts real
+  files under these paths, "rename" becomes "copy every object" on Supabase and
+  the decision is worth revisiting.
+
+**Test coverage has a shape, and it has a hole (S26)**
+
+- 🚨 **Nothing in the vitest suite MOUNTS `RabbitProvider`.** The suite is pure
+  modules; there is no `@testing-library` in this repo and no eslint config.
+  S26 shipped a commit where the provider threw on first render — a temporal
+  dead zone in a `useCallback` dependency array — and **658 vitest, 52 pgTAP
+  suites and two production builds all went green** while the app rendered a
+  blank page. Only the Playwright job caught it.
+- **So Playwright's green status is load-bearing in a way the other three jobs'
+  is not:** *"the app renders at all"* is a claim only that job makes. A
+  Playwright failure is not to be waved off as flaky before checking
+  `document.getElementById('root').children.length` against the dev server.
 
 **Money and the budget (S24)**
 
