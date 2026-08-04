@@ -370,14 +370,34 @@ Audrey specified a body of R.A.B.B.I.T. work that did not exist when this plan
 was written, and capped it at **four sessions**. The old S23/S24/S25 sections
 below are superseded; only one of them actually moves.
 
-| # | Session | Provenance |
-|---|---|---|
-| **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE 2026-08-03 (`2727328`)** | old S24, pulled forward: nothing could be created at all |
-| **S24** | Scenes/shots/levels/experiences at **adapter parity** | old S24 already called this "a session of its own" |
-| **S25** | Backend-agnostic **folder tree** wired to the company's storage backend | **new** — Audrey's requirement, 2026-08-03 |
-| **S26** | Files everywhere, on that tree | **= old S23, absorbed not delayed** — it always needed the folder tree first |
-| **S27** | **Budget system pass** | **new** — Audrey, 2026-08-03. See `SESSION_27_prompt.md` |
-| **S28** | Design pass | = old S25, shifted by three |
+**REORDERED by Audrey, 2026-08-03 — this table is the authority.**
+
+| # | Session | Why here | Prompt |
+|---|---|---|---|
+| **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
+| **S24** | **Budget system** | **moved forward from S27.** Depends on nothing else in the chain, and it is the gap that stops R.A.B.B.I.T. doing its job — no bid, no actuals, no margin, no per-project rates | `SESSION_24_prompt.md` |
+| **S25** | Scenes/shots/levels/experiences at **adapter parity** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
+| **S26** | Backend-agnostic **folder tree** + writes the project manifest | needs scenes to exist before it can give each one a folder | *to write* |
+| **S27** | **Files everywhere** + the manifest surfaced in Resources | manages the folders S26 creates | *to write* |
+| **S28** | Design pass | unchanged, still last | *to write* |
+
+**The `projects` drift is SPLIT, each half closed by the session that consumes
+it** (Audrey: *"splitting is fine"*) — rather than one orphan migration session,
+or three separate rediscoveries:
+- **S24** → `budget_actual_column_mode`, and whatever margin/contingency shape
+  its line-item model actually needs. **Deliberately NOT pre-added**, because
+  Audrey's spec bakes margin and contingency into *every line item*, so a
+  `projects.margin` column is probably only the default a new line inherits.
+  Guessing that shape before the model exists would put a wrong column in a
+  money system, which is worse than a missing one — code starts reading it.
+- **S25** → `code`, `scene_start_number`, `scene_digits`, `shot_digits`.
+- **S26** → `folder_slug`, `folder_root`.
+
+**DECIDED (Audrey, 2026-08-03): the database is authoritative and the project
+folder's file is a generated MIRROR.** Written on change; read only for
+portability, recovery and handoff; never an input to normal operation. Any
+import must be an explicit, user-initiated action that shows a diff first.
+This is settled — do not reopen it.
 
 **S27 headline, MEASURED 2026-08-03:** the cloud schema has **no budget tables
 at all** — checked against a full census of all 36 public tables. No
@@ -471,24 +491,23 @@ everything else in the project panel — and Resources gains a project view that
 shows them. (Resources today is only a nav slide-out: Projects, Rate Card,
 Settings — `App.jsx:784`. This is a new surface, not a tweak.)
 
-🚨 **The question that must be answered before a line of this is written:
-which copy is authoritative?** Audrey has also said, firmly, *"database
-information lives in the supabase databases"* — and main's `_DATABASES/` folder
-is the cautionary tale, because it was a real second datastore.
+✅ **DECIDED (Audrey, 2026-08-03): the database is authoritative; the file is a
+generated MIRROR.** Settled — do not reopen.
 
-Two coherent designs, and they are not compatible:
-- **DB authoritative, file is a generated mirror.** Written on change, read
-  only for portability/recovery/handoff. Divergence is impossible because the
-  file is never an input. This matches her database rule and is the
-  recommendation.
-- **File authoritative.** Then Supabase is a cache, and every multi-user
-  guarantee in the system (RLS, realtime, LWW) is undermined.
+- Written whenever settings change.
+- Read **only** for portability, recovery and handoff. It is **never an input
+  to normal operation.**
+- If a folder is ever imported from elsewhere, that is an **explicit,
+  user-initiated action that shows a diff before writing** — never a silent
+  read-back.
 
-"a file the system can read" is the ambiguous phrase. **Read for what?** If it
-is for restore/import, define that as an explicit, user-initiated action with a
-visible diff — never a silent read-back that can overwrite what the database
-says. Two writable copies of the same project settings WILL diverge, and the
-one that loses will be the one someone edited more recently in the other place.
+The reason, recorded so it is not re-litigated: RLS, realtime and
+last-writer-wins all assume a single authority. The moment a file can write
+back, two people editing in two places produce a silent overwrite in which the
+loser is whoever's edit landed second, with no record of it. A mirror delivers
+everything asked for — the folder is self-describing, readable and portable —
+at no such cost. main's `_DATABASES/` is the cautionary tale: it was a real
+second datastore, and **database information lives in Supabase.**
 
 **Note the ordering consequence:** the manifest cannot be written until the
 project settings actually persist. `margin`, `contingency` and the
