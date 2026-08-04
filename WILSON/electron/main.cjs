@@ -1758,6 +1758,78 @@ function startLocalServer(distPath) {
       }
     });
 
+    // ── The project rates mirror (Session 27) ─────────────────────
+    //
+    // The third thing Audrey asked for on 2026-08-03 and the one S26 left
+    // out. On Supabase it needs a money-gated storage path, because the
+    // manifest's path is readable by every project member while the rates
+    // themselves are manager-only. Audrey chose a gated file over leaving
+    // them app-only (2026-08-04).
+    //
+    // 🚨 THE SEGMENT AND FILENAME ARE DUPLICATED FROM
+    // src/tools/rabbit_v0.1.0/projectRates.js, AND THE DUPLICATE IS
+    // UNAVOIDABLE — the main process cannot import from the renderer bundle,
+    // exactly as with fileSlugify and FOLDER_CATEGORIES above.
+    // folderParity.test.js reads THIS FILE AS TEXT and fails when the two
+    // disagree, because a rates file written to a segment the Supabase policy
+    // does not recognise is world-readable within the project and nothing
+    // errors. On local disk the segment is just a folder name; keeping the two
+    // identical is what makes a project folder portable between backends.
+    const RATES_SEGMENT  = 'FINANCE';
+    const RATES_FILENAME = 'RATES.json';
+
+    function buildProjectRatesFor(bundle) {
+      const p = bundle.project || {};
+      const overrides = bundle.projectRateOverrides || [];
+      return {
+        wilson_rates_version: 1,
+        generated_at: new Date().toISOString(),
+        project_id: p.id || null,
+        project_title: p.title || null,
+        currency: p.budget_currency || null,
+        authority: 'database',
+        confidentiality:
+          'MANAGER-ONLY. This file lives in a restricted folder because it states '
+          + 'what individual people are paid. WILSON serves it only to project '
+          + 'managers and workspace admins. Treat a copy taken out of that folder '
+          + 'as confidential.',
+        note:
+          'Generated MIRROR of the project-scoped rate overrides held in WILSON. '
+          + 'The database is authoritative: editing this file changes nothing. It '
+          + 'exists for portability, recovery and handoff.',
+        overrides: overrides.map(o => ({
+          scope:      o.member_id ? 'member' : 'role',
+          role_slug:  o.role_slug || null,
+          member_id:  o.member_id || null,
+          day_rate:   o.day_rate ?? null,
+          week_rate:  o.week_rate ?? null,
+          month_rate: o.month_rate ?? null,
+          wage:       o.wage ?? null,
+          currency:   o.currency || null,
+          notes:      o.notes || '',
+        })).sort((a, b) =>
+          (a.scope + (a.role_slug || a.member_id || '')).localeCompare(
+            b.scope + (b.role_slug || b.member_id || ''))),
+        count: overrides.length,
+      };
+    }
+
+    expressApp.post('/api/rabbit/projects/:projectId/rates-mirror', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const root = resolveProjectFolder(bundle);
+      if (!root) return res.json({ written: false, reason: 'no project folder configured' });
+      const dir = path.join(root, RATES_SEGMENT);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        const target = path.join(dir, RATES_FILENAME);
+        writeJSON(target, buildProjectRatesFor(bundle));
+        res.json({ written: true, path: target });
+      } catch (e) {
+        res.status(500).json({ error: `rates mirror write failed: ${e.message}` });
+      }
+    });
+
     // ── Invoice folder resolution ─────────────────────────────────
     // Returns the absolute folder path for crew or talent invoice files.
     // Creates the folder if it doesn't exist yet.

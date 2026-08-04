@@ -44,6 +44,13 @@ describe('every client-written table has an allowlist entry', () => {
     }
   })
 
+  it('covers files, which S27 put in front of the user in three new places', () => {
+    // `files` had no entry until S27. That was survivable only because the one
+    // writer built its row literally; the Resources folder view, the entity
+    // FileManagers and the ProjectsPage drop zone all patch file rows now.
+    expect(COLUMN_ALLOWLIST.files, 'files has no COLUMN_ALLOWLIST entry').toBeDefined()
+  })
+
   it('a table with no entry passes everything through — the hazard, pinned', () => {
     // Documents WHY the check above matters. If this ever stops being true,
     // the reasoning in the adapter's comments needs revisiting.
@@ -140,6 +147,38 @@ describe('levels and experiences — the `files` key that has no column', () => 
   it('does not warn when every key is a real column', () => {
     toColumns('levels', { id: 'l1', name: 'Level 1' })
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('files — the local managedFiles field names that have no columns', () => {
+  // 🚨 S27 makes FileManager serve BOTH stores. The local_server managedFiles
+  // records are loose JSON with fields that were never columns here, and
+  // shared code paths will hand them straight to updateFile. One of them would
+  // PGRST204 the whole patch and the notes edit would silently do nothing —
+  // the S23 New Task failure, on a different surface.
+  it('keeps the 0043 links and drops the local-only field names', () => {
+    const out = toColumns('files', {
+      id: 'f1', project_id: 'p1',
+      scene_id: 's1', shot_id: null, level_id: null,
+      experience_id: null, folder_id: 'fo1',
+      is_core_definer: true,
+      // local managedFiles shape — none of these is a column
+      stored_name: 'hero_v001.png', version_label: 'v001',
+      extension: '.png', original_name: 'hero.png', notes: 'a note',
+    })
+    expect(out).toEqual({
+      id: 'f1', project_id: 'p1',
+      scene_id: 's1', shot_id: null, level_id: null,
+      experience_id: null, folder_id: 'fo1',
+      is_core_definer: true,
+    })
+  })
+
+  it('keeps a NULL entity link rather than dropping the key', () => {
+    // Dropping the KEY leaves the old link in place; sending null unlinks.
+    // Moving a file out of a scene relies on the second.
+    expect(toColumns('files', { id: 'f1', scene_id: null, folder_id: null }))
+      .toEqual({ id: 'f1', scene_id: null, folder_id: null })
   })
 })
 

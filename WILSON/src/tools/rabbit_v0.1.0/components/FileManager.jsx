@@ -26,7 +26,7 @@
 //   - Chunking: files grouped by asset, properties organized in columns
 //   - Fitts's Law: large add button, delete tucked away in full mode only
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Plus, Download, Trash2, Table as TableIcon, LayoutGrid,
   FolderOpen, Pencil, X, Check, Loader2,
@@ -79,19 +79,64 @@ export default function FileManager({
   const [copyProgress, setCopyProgress] = useState(null) // { fileName, percent }
   const [editingNotes, setEditingNotes] = useState(null) // file id
   const [notesDraft, setNotesDraft] = useState('')
+  const [uploadError, setUploadError] = useState(null)
+  const cloudInputRef = useRef(null)
 
-  // Filter to only files for this parent (asset or shot), exclude soft-deleted
+  // ── Session 27: WHICH file store is behind this component ──────────────
+  //
+  // 🚨 This used to be `window.electronAPI?.rabbit`, and that was the bug.
+  // That test is true whenever WILSON runs as a desktop app — including when
+  // the SELECTED backend is Supabase. So in cloud mode the Add files button
+  // called ctx.addManagedFile, which throws "Managed files require the Local
+  // Server backend", and handleAddFiles' own early return meant that on the
+  // web it did not even get that far. Files were unreachable from every entity
+  // surface in cloud: assets, scenes, shots and the task editor.
+  //
+  //   managed (local_server + desktop) — versioned records beside real files
+  //     on disk, added through a native picker and a streaming copy.
+  //   cloud   (everything else)        — `files` rows + the rabbit-files
+  //     bucket, added through a plain <input type="file">. S24 established
+  //     that this works everywhere, Electron's renderer being Chromium.
+  //
+  // One component, two stores, because the alternative is two file managers
+  // that drift.
+  const managed = ctx?.supportsManagedFiles === true
+
+  // Filter to only files for this parent, exclude soft-deleted.
+  //
+  // The predicate is IDENTICAL for both stores, which is not a coincidence:
+  // migration 0043 gave `files` the scene_id/shot_id columns this component
+  // had always filtered on. They existed only in the local JSON store before,
+  // so in cloud this matched nothing and showed an empty list rather than an
+  // error — which is why nobody found it.
   const parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'
   const parentName = sceneName || shotName || assetName
+  const sourceFiles = managed ? files : (ctx?.files || [])
   const assetFiles = useMemo(() =>
-    files.filter(f => {
+    sourceFiles.filter(f => {
       if (f.deleted_at) return false
+      // Invoices are manager-only and have their own surface. RLS already
+      // hides them from anyone who cannot see them, but a manager WOULD get
+      // them here, filed under whatever entity the budget line belonged to.
+      if (f.is_financial) return false
       if (sceneId) return f.scene_id === sceneId
       if (shotId) return f.shot_id === shotId
       return f.asset_id === assetId
     }).sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || '')),
-    [files, assetId, shotId, sceneId]
+    [sourceFiles, assetId, shotId, sceneId]
   )
+
+  // The two stores name things differently: managed records carry a versioned
+  // stored_name, cloud rows carry the original name. One accessor rather than
+  // a conditional at every render site.
+  const displayName = (f) => f.stored_name || f.name || 'file'
+
+  const uploadScope = useMemo(() => ({
+    sceneId: sceneId || null,
+    shotId:  shotId  || null,
+    assetId: assetId || null,
+    taskId:  taskId  || null,
+  }), [sceneId, shotId, assetId, taskId])
 
   // Listen for copy progress IPC events
   useEffect(() => {
@@ -103,8 +148,36 @@ export default function FileManager({
     return unsub
   }, [])
 
-  // ── Add files handler ──
-  const handleAddFiles = useCallback(async () => {
+  // ── Add files: cloud (Session 27) ──
+  //
+  // A plain <input type="file">, the same choice InvoiceAttachment made in
+  // S24 — Electron's renderer is Chromium, so the desktop bridge was never
+  // needed to pick a file and requiring it is what made this desktop-only.
+  const handleAddCloudFiles = useCallback(async (fileList) => {
+    if (!fileList?.length || !ctx?.uploadFile) return
+    setCopying(true)
+    setUploadError(null)
+    try {
+      for (const file of Array.from(fileList)) {
+        // taskTitle renaming is a managed-store behaviour: those records carry
+        // a separate file_name and a version label. A cloud row keeps the real
+        // filename, which is also what gets downloaded.
+        await ctx.uploadFile(file, uploadScope)
+      }
+      onFileAdded?.()
+    } catch (err) {
+      // 🚨 LOUD. The old managed path swallowed everything into console.error,
+      // so a refused upload looked exactly like a successful one that produced
+      // no row. RLS refusals are the common case here (a reviewer, a project
+      // they cannot write to) and the user has to be told which.
+      setUploadError(err?.message || String(err))
+    } finally {
+      setCopying(false)
+    }
+  }, [ctx, uploadScope, onFileAdded])
+
+  // ── Add files: managed / Local Server ──
+  const handleAddManagedFiles = useCallback(async () => {
     const api = window.electronAPI?.rabbit
     if (!api) return
     const filePaths = await api.pickFiles()
@@ -171,14 +244,40 @@ export default function FileManager({
 
       onFileAdded?.()
     } catch (err) {
-      console.error('File add failed:', err)
+      setUploadError(err?.message || String(err))
     } finally {
       setCopying(false)
       setCopyProgress(null)
     }
   }, [ctx, assetId, shotId, parentName, parentType, project, taskTitle, taskId, onFileAdded])
 
-  // ── Download handler ──
+  // ── Download: cloud (Session 27) ──
+  // The managed path below opens an OS explorer window at the file's folder,
+  // which only means anything when the file is on this machine. A cloud file
+  // is a blob in a bucket, so this actually downloads it.
+  const handleCloudDownload = useCallback(async (file) => {
+    if (!ctx?.downloadFile) return
+    setUploadError(null)
+    let url
+    try {
+      const blob = await ctx.downloadFile(file)
+      url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = displayName(file)
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } catch (err) {
+      setUploadError(err?.message || String(err))
+    } finally {
+      // Revoking synchronously can cancel the download in some browsers; a
+      // tick after the click is enough and never leaks the object URL.
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    }
+  }, [ctx])
+
+  // ── Download handler (managed) ──
   const handleDownload = useCallback(async (file) => {
     const api = window.electronAPI?.rabbit
     if (!api) return
@@ -202,14 +301,24 @@ export default function FileManager({
 
   // ── Delete handler ──
   const handleDelete = useCallback(async (file) => {
-    if (!window.confirm(`Delete "${file.stored_name}"? This will move the file to trash.`)) return
+    const label = displayName(file)
+    if (!window.confirm(
+      managed
+        ? `Delete "${label}"? This will move the file to trash.`
+        : `Delete "${label}"? It can be restored by an admin.`
+    )) return
     try {
-      await ctx.deleteManagedFile(file.id, false)
+      // Cloud deletes are SOFT (0014) — deleteFile sets deleted_at and the
+      // blob is deliberately left in place so a restore has something to
+      // restore. Managed deletes go to the OS trash. The confirm copy differs
+      // because the promise being made to the user differs.
+      if (managed) await ctx.deleteManagedFile(file.id, false)
+      else await ctx.deleteFile(file.id)
       onFileDeleted?.()
     } catch (err) {
-      console.error('File delete failed:', err)
+      setUploadError(err?.message || String(err))
     }
-  }, [ctx, onFileDeleted])
+  }, [ctx, managed, onFileDeleted])
 
   // ── Open folder in explorer ──
   const handleOpenFolder = useCallback(async () => {
@@ -251,20 +360,39 @@ export default function FileManager({
           <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
             Files ({assetFiles.length})
           </span>
-          <button
-            type="button"
-            onClick={handleOpenFolder}
-            className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors"
-            title="Open folder in explorer"
-            style={{ color: '#a8a29e' }}
-          >
-            <FolderOpen className="w-3 h-3" />
-          </button>
+          {/* Opening an OS explorer window only means anything when the file
+              is on this machine. In cloud mode there is no folder to open, so
+              the control is absent rather than present and inert. */}
+          {managed && (
+            <button
+              type="button"
+              onClick={handleOpenFolder}
+              className="p-0.5 rounded-sm hover:bg-stone-700 transition-colors"
+              title="Open folder in explorer"
+              style={{ color: '#a8a29e' }}
+            >
+              <FolderOpen className="w-3 h-3" />
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-1">
+          {/* The cloud picker. Hidden input + a button, so the button can look
+              identical in both modes. */}
+          {!managed && (
+            <input
+              ref={cloudInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                handleAddCloudFiles(e.target.files)
+                e.target.value = ''
+              }}
+            />
+          )}
           <button
             type="button"
-            onClick={handleAddFiles}
+            onClick={() => (managed ? handleAddManagedFiles() : cloudInputRef.current?.click())}
             disabled={copying}
             className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:brightness-110 transition-colors"
             style={{
@@ -275,7 +403,7 @@ export default function FileManager({
             }}
           >
             {copying ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
-            {copying ? 'Copying...' : 'Add files'}
+            {copying ? (managed ? 'Copying...' : 'Uploading...') : 'Add files'}
           </button>
           <button
             type="button"
@@ -303,6 +431,20 @@ export default function FileManager({
           </button>
         </div>
       </div>
+
+      {/* 🚨 A refused upload used to reach console.error and nothing else, so
+          "nothing happened" covered both an RLS refusal and a successful
+          upload that produced no row. On this surface the common refusal is a
+          real permission answer — a reviewer, or a project the user cannot
+          write to — and it has to say so. */}
+      {uploadError && (
+        <div
+          className="mb-2 px-2 py-1 rounded-sm text-[10px] font-mono"
+          style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
+        >
+          {uploadError}
+        </div>
+      )}
 
       {/* Copy progress bar */}
       {copyProgress && (
@@ -356,9 +498,13 @@ export default function FileManager({
                 <Td>
                   <div className="flex flex-col">
                     <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1', maxWidth: 180 }}>
-                      {f.stored_name}
+                      {displayName(f)}
                     </span>
-                    {editingNotes === f.id ? (
+                    {/* Notes are a managed-record field. `files` has no notes
+                        column, and inventing one for a field nobody has asked
+                        for is how schema debt starts — so the editor is absent
+                        in cloud rather than saving into nothing. */}
+                    {!managed ? null : editingNotes === f.id ? (
                       <div className="flex items-center gap-1 mt-0.5">
                         <input
                           autoFocus
@@ -392,8 +538,12 @@ export default function FileManager({
                   </div>
                 </Td>
                 <Td>
+                  {/* Versioning belongs to the managed store, which mints a
+                      stored_name per version. A cloud row has no version, and
+                      printing "v001" on every one of them would be a confident
+                      lie about a feature that is not there. */}
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
-                    {f.version_label || 'v001'}
+                    {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                 </Td>
                 <Td>
@@ -410,9 +560,9 @@ export default function FileManager({
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={() => handleDownload(f)}
+                      onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
                       className="p-1 rounded-sm hover:bg-stone-700"
-                      title="Show in explorer"
+                      title={managed ? 'Show in explorer' : 'Download'}
                       style={{ color: '#a8a29e' }}
                     >
                       <Download className="w-3 h-3" />
@@ -450,11 +600,11 @@ export default function FileManager({
               </div>
               <div className="p-2 flex flex-col gap-0.5">
                 <span className="text-[10px] font-mono truncate" style={{ color: '#d6d3d1' }}>
-                  {f.file_name}{f.extension}
+                  {displayName(f)}
                 </span>
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-mono px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
-                    {f.version_label || 'v001'}
+                    {f.version_label || (managed ? 'v001' : '--')}
                   </span>
                   <span className="text-[9px] font-mono" style={{ color: '#78716c' }}>
                     {formatBytes(f.size_bytes)}
@@ -467,9 +617,9 @@ export default function FileManager({
               >
                 <button
                   type="button"
-                  onClick={() => handleDownload(f)}
+                  onClick={() => (managed ? handleDownload(f) : handleCloudDownload(f))}
                   className="p-1 rounded-sm hover:bg-stone-700"
-                  title="Show in explorer"
+                  title={managed ? 'Show in explorer' : 'Download'}
                   style={{ color: '#a8a29e' }}
                 >
                   <Download className="w-3 h-3" />

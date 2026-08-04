@@ -51,6 +51,7 @@ import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
+import { serializeProjectRates, projectRatesPath } from '../projectRates';
 
 // ───────────────────────────────────────────────────────────────
 // Module-level singleton. One cached client reference per app session;
@@ -318,8 +319,36 @@ const PROJECT_RATE_OVERRIDE_COLUMNS = new Set([
   'created_by', 'updated_by',
 ]);
 
+// ── Session 27 ──────────────────────────────────────────────────────────
+// `files` had NO allowlist entry, which was survivable only because the one
+// writer (uploadFile) builds its row literally and updateFile's callers sent
+// nothing exotic. S27 puts a file surface in front of the user in three new
+// places — the Resources folder view, the entity FileManagers and the
+// ProjectsPage drop zone — and every one of them patches file rows. A table
+// with no entry passes through toColumns UNFILTERED, so the first invented
+// key PGRST204s the whole request and the save silently does nothing.
+//
+// 0043's five new links are here; so are the local `managedFiles` field names
+// deliberately ABSENT — stored_name, version_label, extension, original_name,
+// notes. Those belong to the local_server JSON store and have no columns. If
+// one shows up in the dropped-key warning, that is the signal to decide
+// whether it deserves a column, not to widen this set.
+const FILE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id',
+  'phase_id', 'asset_id', 'task_id',
+  // 0043 — where it is filed, and what it is about.
+  'scene_id', 'shot_id', 'level_id', 'experience_id', 'folder_id',
+  'name', 'mime_type', 'size_bytes',
+  'storage_provider', 'storage_path', 'thumbnail_url',
+  'kind', 'is_core_definer', 'is_financial',
+  'uploaded_at',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+  'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
+]);
+
 export const COLUMN_ALLOWLIST = {
   tasks: TASK_COLUMNS,
+  files: FILE_COLUMNS,
   assets: ASSET_COLUMNS,
   projects: PROJECT_COLUMNS,
   budget_lines: BUDGET_LINE_COLUMNS,
@@ -333,6 +362,42 @@ export const COLUMN_ALLOWLIST = {
   experiences: EXPERIENCE_COLUMNS,
   folders: FOLDER_COLUMNS,
 };
+
+/**
+ * Session 27 — which entity's FOLDER a file goes in, and therefore which path
+ * segment it gets. Exported for uploadScope.test.js; pure, so it is tested
+ * directly rather than through a stubbed Storage client.
+ *
+ * The CONTAINER is deliberately not the same thing as the file's entity links.
+ * TaskDetailPopup mounts FileManager with assetId AND taskId: that file lives
+ * in the asset's folder and is the task's attachment. 0043's header calls
+ * these the two axes.
+ *
+ * The order matches FileManager.jsx:84's own parentType chain — scene before
+ * shot — so the component and the adapter cannot disagree about where a file
+ * went. (A shot is inside a scene, so shot-first would read more naturally;
+ * FileManager is only ever handed one of the two, and matching the existing
+ * component is worth more than tidiness here.)
+ *
+ * 🚨 EVERY `seg` IS LOWERCASE AND NONE IS A RESERVED WORD. This value becomes
+ * the THIRD path segment of the storage key, which is the money gate
+ * (migration 0042, public.rabbit_money_segment). A segment colliding with
+ * INVOICES or FINANCE in any case would file an ordinary attachment into the
+ * manager-only namespace, where the person who uploaded it could not read it
+ * back — and no error would be raised at any layer.
+ */
+export function uploadContainerFor(scope = {}, projectId = null) {
+  return (
+    scope.sceneId      ? { seg: 'scenes',      key: 'scene_id',      id: scope.sceneId } :
+    scope.shotId       ? { seg: 'shots',       key: 'shot_id',       id: scope.shotId } :
+    scope.levelId      ? { seg: 'levels',      key: 'level_id',      id: scope.levelId } :
+    scope.experienceId ? { seg: 'experiences', key: 'experience_id', id: scope.experienceId } :
+    scope.assetId      ? { seg: 'assets',      key: null,            id: scope.assetId } :
+    scope.taskId       ? { seg: 'tasks',       key: null,            id: scope.taskId } :
+    scope.phaseId      ? { seg: 'phases',      key: null,            id: scope.phaseId } :
+                         { seg: 'project',     key: null,            id: projectId }
+  );
+}
 
 // Session 24: the UI initialises date fields to the empty STRING, not null —
 // `purchase_date: ''` at useExpenses.js:105. Postgres 22007s on '' for a date
@@ -829,17 +894,49 @@ export function supabaseAdapter() {
       // would have inverted the gate completely — the new object would miss
       // the money-gated policy (invisible to managers) and fall through to
       // the base ones (visible to every project member). Keep the two in step.
-      const entity =
-        scope.financial ? 'INVOICES' :
-        scope.taskId    ? 'tasks'  :
-        scope.assetId   ? 'assets' :
-        scope.phaseId   ? 'phases' :
-        'project';
-      const entityId = scope.financial
-        ? (scope.lineId || projectId)
-        : (scope.taskId || scope.assetId || scope.phaseId || projectId);
+      // Session 27: the CONTAINER — the entity whose folder this file lives
+      // in. Deliberately separate from task_id/phase_id, which say what the
+      // file is ABOUT and do not move it: TaskDetailPopup mounts FileManager
+      // with assetId AND taskId, and that file belongs in the asset's folder
+      // while still being the task's attachment. 0043's header calls these the
+      // two axes; this is the single writer that keeps them agreeing.
+      //
+      // The order matches FileManager.jsx:84's own parentType chain (scene
+      // before shot) so the component and the adapter cannot disagree about
+      // where a file went.
+      //
+      // 🚨 EVERY SEGMENT HERE IS LOWERCASE AND NONE OF THEM IS A RESERVED
+      // WORD. This string becomes the THIRD path segment, which is the money
+      // gate (migration 0042, public.rabbit_money_segment). A container
+      // segment that collided with INVOICES or FINANCE — in any case — would
+      // file an ordinary attachment inside the manager-only namespace, where
+      // the person who uploaded it could no longer read it back. Pinned by
+      // uploadScope.test.js.
+      const container = uploadContainerFor(scope, projectId);
+
+      const entity   = scope.financial ? 'INVOICES' : container.seg;
+      const entityId = scope.financial ? (scope.lineId || projectId) : container.id;
       const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
       const storagePath = `projects/${projectId}/${entity}/${entityId}/${Date.now()}-${safeName}`;
+
+      // The folder row this file belongs to (0043). The caller may pass one —
+      // the folder view knows exactly where it dropped the file — otherwise
+      // resolve it from the container entity, which is the same lookup
+      // ensureEntityFolder does. Best-effort on purpose: a missing folder row
+      // must not refuse an upload. The file is still fully addressable by its
+      // storage_path and its entity link, and the next ensureEntityFolder
+      // reconciles the tree.
+      let folderId = scope.folderId || null;
+      if (!folderId && container.key) {
+        try {
+          const { data } = await client
+            .from('folders').select('id')
+            .eq('project_id', projectId)
+            .eq(container.key, container.id)
+            .maybeSingle();
+          folderId = data?.id || null;
+        } catch { /* the tree is a convenience here, not a precondition */ }
+      }
 
       const { error: upErr } = await client
         .storage
@@ -859,6 +956,13 @@ export function supabaseAdapter() {
         phase_id:         scope.phaseId || null,
         asset_id:         scope.assetId || null,
         task_id:          scope.taskId  || null,
+        // 0043. Written unconditionally so a file that moves between entities
+        // has every stale link cleared rather than accumulating them.
+        scene_id:         scope.sceneId      || null,
+        shot_id:          scope.shotId       || null,
+        level_id:         scope.levelId      || null,
+        experience_id:    scope.experienceId || null,
+        folder_id:        folderId,
         name:             file?.name || safeName,
         mime_type:        file?.type || null,
         size_bytes:       file?.size ?? null,
@@ -896,7 +1000,14 @@ export function supabaseAdapter() {
 
     async updateFile(id, patch) {
       const client = await requireClient();
-      return unwrap(await client.from('files').update(sanitize(patch, ['id', 'uploaded_at'])).eq('id', id).select().single());
+      // Session 27: toColumns as well as sanitize. The denylist stops the two
+      // fields that must never be patched; the ALLOWLIST is what stops an
+      // unknown key taking the whole request with it (PGRST204). S27 puts
+      // three new surfaces in front of file rows, and the local managedFiles
+      // store uses field names — stored_name, notes, version_label — that have
+      // no columns here and would otherwise arrive intact from shared code.
+      const row = toColumns('files', sanitize(patch, ['id', 'uploaded_at']));
+      return unwrap(await client.from('files').update(row).eq('id', id).select().single());
     },
 
     async deleteFile(id) {
@@ -1664,6 +1775,17 @@ export function supabaseAdapter() {
     // file and a collision means two files; this one is a regenerated mirror
     // and a collision means the newer copy wins, which is exactly right.
     //
+    // 🚨 THAT upsert DID NOT WORK UNTIL MIGRATION 0042 (Session 27), and the
+    // failure was invisible. Supabase Storage implements upsert-over-an-
+    // existing-object as an UPDATE on storage.objects, and this bucket had no
+    // UPDATE policy at all — 0027 created SELECT/INSERT/DELETE and nothing
+    // since had added one. So the FIRST write of a project's manifest
+    // succeeded and every write after it was refused, for the life of the
+    // project. RabbitProvider.writeManifestSoon caught the throw and logged
+    // "the manifest is a mirror and is rewritten on the next change", which
+    // was never going to happen. Measured with a rolled-back probe before
+    // 0042 was written; pgTAP 53 probe 6 is the regression test.
+    //
     // No `files` row is created, on purpose. The manifest is not a user's
     // file — showing it in the Files list would invite someone to edit or
     // delete the thing the folder describes itself with, and its lifecycle is
@@ -1681,6 +1803,36 @@ export function supabaseAdapter() {
         throw new Error(`[supabase] manifest write failed: ${error.message}`);
       }
       return { path: `projects/${projectId}/${MANIFEST_FILENAME}` };
+    },
+
+    // The rates mirror — the third thing Audrey asked for on 2026-08-03 and
+    // the one S26 had to leave out, because PROJECT.json is readable by every
+    // project member and these figures are manager-only.
+    //
+    // 🚨 THE PATH IS THE GATE. projectRatesPath puts this under the FINANCE
+    // segment, which public.rabbit_money_segment() classifies as money-gated,
+    // which makes the four rabbit_files_money_* policies apply and the three
+    // base ones NOT apply. Write this to any other prefix and it becomes
+    // world-readable within the project — silently, with no error, because
+    // the base insert policy would happily accept it. See projectRates.js.
+    //
+    // Nothing here checks whether the caller is a manager, and that is
+    // deliberate: RLS is the authority. A non-manager reaching this gets a
+    // storage refusal from rabbit_files_money_insert, which is the same answer
+    // by a mechanism that cannot be bypassed by calling the adapter directly.
+    async writeProjectRates(projectId, mirror) {
+      const client = await requireClient();
+      const path = projectRatesPath(projectId);
+      const body = new Blob([serializeProjectRates(mirror)], { type: 'application/json' });
+      const { error } = await client.storage.from('rabbit-files').upload(
+        path, body,
+        { upsert: true, contentType: 'application/json', cacheControl: '0' },
+      );
+      if (error) {
+        lastError = error.message;
+        throw new Error(`[supabase] rates mirror write failed: ${error.message}`);
+      }
+      return { path };
     },
 
     async deleteFolder(id, _projectId) {

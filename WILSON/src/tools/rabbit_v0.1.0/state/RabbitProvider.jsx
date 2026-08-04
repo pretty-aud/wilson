@@ -34,7 +34,7 @@ import { v4 as uuidv4 } from 'uuid';
 // loaded bundle and handed to the adapter, so both backends mirror the
 // same shape — that is the one job a portable manifest has.
 import { buildProjectManifest } from '../projectManifest';
-import { selectAdapter, ADAPTER_MODES } from '../adapters';
+import { selectAdapter, ADAPTER_MODES, adapterSupportsWrites } from '../adapters';
 import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
 import { runIngestion } from '../intake/pipeline';
@@ -1066,6 +1066,43 @@ export function RabbitProvider({ children }) {
       return null;
     }
   }, [mergeFolder]);
+
+  // ── Backfill the tree for a project that predates 0041 (Session 27) ────
+  //
+  // 🚨 MEASURED 2026-08-04: public.folders had ZERO rows on dev, staging AND
+  // prod, while dev held 3 live projects and staging 1. The tree S26 built had
+  // never materialised anywhere.
+  //
+  // The cause was not a bug — it was that ensureProjectFoldersFor had exactly
+  // ONE caller, createProject. Every project in existence predates 0041, so
+  // the only way any of them could get a tree was for someone to happen to
+  // create an asset/scene/shot/level/experience, which is what triggers
+  // ensureEntityFolderFor and its root backfill. Nobody had.
+  //
+  // That was survivable while nothing displayed the tree. S27 puts it on
+  // screen, and a folder view that is empty for every project that already
+  // exists reads as broken software rather than as an unreconciled project.
+  //
+  // Idempotent and cheap: it fires only when a loaded bundle has NO folders at
+  // all, and ensureProjectFolders reads before it inserts. Read-only backends
+  // are skipped rather than allowed to throw once per project open — Drive
+  // implements the method as a thrower, so the feature-detect inside
+  // ensureProjectFoldersFor does not catch this case.
+  //
+  // Declared HERE, below both folder callbacks, and that is load-bearing for
+  // the same reason recorded above createProject: a dependency array is
+  // evaluated DURING RENDER, so naming ensureProjectFoldersFor from an effect
+  // declared above it puts the callback in the temporal dead zone and the
+  // whole provider throws on first render. That shipped once already (S26,
+  // fixed in ca27d47) and three of four CI jobs went green on it.
+  const loadedProjectId = bundle.project?.id || null;
+  const loadedFolderCount = (bundle.folders || []).length;
+  useEffect(() => {
+    if (!loadedProjectId || loadedProjectId !== activeProjectId) return;
+    if (loadedFolderCount > 0) return;
+    if (!adapterSupportsWrites(adapterMode)) return;
+    ensureProjectFoldersFor(loadedProjectId, bundleRef.current?.project);
+  }, [loadedProjectId, activeProjectId, loadedFolderCount, adapterMode, ensureProjectFoldersFor]);
 
   const createProject = useCallback(async (payload) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -2171,6 +2208,21 @@ export function RabbitProvider({ children }) {
     () => adapterRef.current.updateFile(fileId, { ...patch, project_id: activeProjectId }),
   ), [optimistic, activeProjectId]);
 
+  // Session 27. `files` had upload and patch on the context but no delete and
+  // no download, because the only consumer was a read-mostly table. FileManager
+  // now serves this store too and needs the whole verb set.
+  const deleteFile = useCallback((fileId) => optimistic(
+    prev => ({ ...prev, files: prev.files.filter(f => f.id !== fileId) }),
+    () => adapterRef.current.deleteFile(fileId, activeProjectId),
+  ), [optimistic, activeProjectId]);
+
+  // Returns a Blob. Not optimistic and not state — a read straight through to
+  // the backend, which is the only one that can turn a storage_path into bytes.
+  const downloadFile = useCallback(async (file) => {
+    if (!adapterRef.current?.downloadFile) throw new Error('this backend cannot download files');
+    return adapterRef.current.downloadFile(file);
+  }, []);
+
   // ── Managed files (asset-folder-based, versioned) ──────
   const addManagedFile = useCallback(async (record) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -2646,8 +2698,23 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+
+    // Session 27. WHICH file store this backend actually has.
+    //
+    // managedFiles is a local_server-ONLY subsystem: createManagedFile exists
+    // on that adapter and nowhere else, and its whole add/download/open-folder
+    // flow runs through window.electronAPI.rabbit — a native picker, a
+    // streaming copy, an OS explorer window. BOTH conditions are required, and
+    // that is the whole point: Local Server only runs inside the desktop app,
+    // but the SELECTED backend can be Supabase while running there. FileManager
+    // guarded on "are we in Electron", which is true regardless of the selected
+    // backend, so in cloud mode its Add files button reached a subsystem that
+    // does not exist and did nothing at all.
+    supportsManagedFiles:
+      adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
+
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
     addLevel, updateLevel, deleteLevel,
@@ -2684,7 +2751,7 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

@@ -311,6 +311,7 @@ export function googleDriveAdapter() {
     ensureEntityFolder:   readOnly('ensureEntityFolder'),
     deleteFolder:         readOnly('deleteFolder'),
     writeProjectManifest: readOnly('writeProjectManifest'),
+    writeProjectRates:    readOnly('writeProjectRates'),
 
     // No realtime on Drive.
     subscribeProjectChanges: () => () => {},

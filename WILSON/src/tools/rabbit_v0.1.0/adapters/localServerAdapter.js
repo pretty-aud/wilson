@@ -518,6 +518,18 @@ export function localServerAdapter() {
         body:    JSON.stringify({}),
       }),
 
+    // Session 27. Same server-builds-it reasoning as the manifest, and the
+    // mirror argument is accepted and IGNORED so one provider call serves both
+    // backends: the server reads the overrides from the bundle, which is the
+    // copy the file has to agree with. On Supabase the equivalent method is
+    // handed a client-built mirror because there is no server to build one.
+    writeProjectRates: (projectId, _mirror) =>
+      jfetch(`${BASE}/projects/${projectId}/rates-mirror`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
+
     // ── Milestones ────────────────────────────────────────────
     listMilestones: async (projectId) =>
       (await jfetch(`${BASE}/projects/${projectId}`)).milestones || [],

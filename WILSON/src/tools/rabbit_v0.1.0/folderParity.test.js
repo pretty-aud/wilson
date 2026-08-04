@@ -30,6 +30,8 @@ import { fileSlugify } from './entityNaming'
 import {
   FOLDER_CATEGORIES, ENTITY_FK_COLUMN, planEntityFolder, planProjectFolders,
 } from './folderPaths'
+import { RATES_SEGMENT, RATES_FILENAME, projectRatesPath } from './projectRates'
+import { MANIFEST_FILENAME } from './projectManifest'
 
 const MAIN_CJS = readFileSync(
   new URL('../../../electron/main.cjs', import.meta.url), 'utf-8',
@@ -260,5 +262,55 @@ describe('the folder categories agree between the two processes', () => {
     for (const list of [mainCategories, FOLDER_CATEGORIES]) {
       expect(list.some(c => /DATABASES/i.test(c.slug))).toBe(false)
     }
+  })
+})
+
+
+// ── Session 27: the rates mirror path ───────────────────────────────────────
+
+/** Lift a top-level `const NAME = 'value';` string literal. */
+function extractStringConst(source, name) {
+  const m = new RegExp(`const\\s+${name}\\s*=\\s*'([^']*)'`).exec(source)
+  if (!m) throw new Error(`main.cjs no longer defines ${name} — parity cannot be checked`)
+  return m[1]
+}
+
+describe('the rates mirror path is identical in both processes', () => {
+  // 🚨 THIS ONE IS A SECURITY BOUNDARY, NOT JUST A TIDINESS ONE.
+  //
+  // On Supabase the segment IS the gate: public.rabbit_money_segment() decides
+  // which paths are manager-only, the three base storage policies negate it
+  // and the four money policies assert it. A rates file written to a segment
+  // that function does not recognise is not gated at all — it falls through to
+  // the base SELECT policy, which admits ANY authenticated project member.
+  //
+  // So a typo here does not throw, does not fail a build, and does not show an
+  // error. It publishes what individual people are paid to the whole project.
+  // 0038 already did the case-sensitivity version of this to invoices and it
+  // took 0039 to undo it.
+  //
+  // main.cjs writes the same folder on local disk, where it is merely a folder
+  // name — but a project folder that is portable between backends has to put
+  // it in the same place, which is the manifest's whole job.
+  it('main.cjs and projectRates.js agree on the segment and filename', () => {
+    expect(extractStringConst(MAIN_CJS, 'RATES_SEGMENT')).toBe(RATES_SEGMENT)
+    expect(extractStringConst(MAIN_CJS, 'RATES_FILENAME')).toBe(RATES_FILENAME)
+  })
+
+  it('the segment is one migration 0042 actually gates', () => {
+    // The value is asserted literally rather than only compared across the two
+    // copies: two identical copies of a WRONG segment would satisfy the test
+    // above and still be ungated. pgTAP 53 probes the database side of this
+    // same string — if you change it, both have to move together.
+    expect(RATES_SEGMENT).toBe('FINANCE')
+  })
+
+  it('the rates path has a third segment and the manifest does not', () => {
+    // This is the entire reason the two files live in different places. The
+    // gate keys on foldername[3]: PROJECT.json has none, so it stays readable
+    // by the team; RATES.json has FINANCE, so it does not.
+    expect(projectRatesPath('p1').split('/')).toEqual(
+      ['projects', 'p1', 'FINANCE', 'RATES.json'])
+    expect(`projects/p1/${MANIFEST_FILENAME}`.split('/')).toHaveLength(3)
   })
 })

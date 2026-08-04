@@ -6,8 +6,18 @@
 -- amount while serving the document that states it is not a policy, it is a
 -- leak. `files.is_financial` plus the money gate closes it, and these probes
 -- are what stop it being reopened by a well-meaning simplification.
+--
+-- Probes 10-12 were added by Session 27 / migration 0043, which gave `files`
+-- the four entity links FileManager has always filtered on and the folder_id
+-- that ties a file to the 0041 tree. They are FUNCTIONAL rather than
+-- catalogue checks on purpose: the migration's own post-condition already
+-- asserts the FKs are SET NULL, and re-asserting that here would only prove
+-- the migration ran. What these prove is the BEHAVIOUR that choice buys —
+-- that deleting a scene or a folder does not take the file row with it.
+-- CASCADE and SET NULL differ by one word in the DDL and by "the blob is
+-- still there but nothing knows where" in production.
 BEGIN;
-SELECT plan(9);
+SELECT plan(12);
 
 SELECT * FROM tests.rls_setup();
 
@@ -159,6 +169,67 @@ SELECT ok(
   ),
   'anon holds no table privilege on files'
 );
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- 0043 — the entity and folder links
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- Fixtures: one scene, one asset, one root folder, all on project A.
+INSERT INTO public.assets (id, project_id, name)
+VALUES ('aaaa1111-0000-0000-0000-0000000000a1',
+        'aaaa1111-0000-0000-0000-000000000001', 'Hero')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.scenes (id, project_id, name)
+VALUES ('aaaa1111-0000-0000-0000-0000000000c1',
+        'aaaa1111-0000-0000-0000-000000000001', 'Sc001')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO public.folders (id, project_id, workspace_id, parent_id, kind, slug, path)
+VALUES ('aaaa1111-0000-0000-0000-0000000000d1',
+        'aaaa1111-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111',
+        NULL, 'root', 'project-a', '')
+ON CONFLICT (id) DO NOTHING;
+
+-- 10: the two axes are independent. phase_id/asset_id/task_id have always been
+-- settable together, so an exclusivity constraint on the new columns would
+-- refuse rows the existing upload path already writes. A file filed under
+-- ASSETS/Hero while being ABOUT a scene is the ordinary case, not an edge one.
+SELECT lives_ok(
+  $$INSERT INTO public.files
+      (id, project_id, name, storage_provider, storage_path,
+       folder_id, scene_id, asset_id)
+    VALUES ('aaaa1111-0000-0000-0000-00000000fe01',
+            'aaaa1111-0000-0000-0000-000000000001',
+            'ref.png', 'supabase', 'projects/a/scenes/c1/1-ref.png',
+            'aaaa1111-0000-0000-0000-0000000000d1',
+            'aaaa1111-0000-0000-0000-0000000000c1',
+            'aaaa1111-0000-0000-0000-0000000000a1')$$,
+  '0043: a file may carry folder_id, scene_id and asset_id at once');
+
+-- 11: deleting the SCENE must not delete the file. A CASCADE here would
+-- destroy the only record of where the blob lives, leaving an object in the
+-- bucket that nothing references and only the GC orphan scan can ever find.
+DELETE FROM public.scenes WHERE id = 'aaaa1111-0000-0000-0000-0000000000c1';
+
+SELECT is(
+  (SELECT count(*)::int FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01' AND scene_id IS NULL),
+  1,
+  '0043: deleting a scene clears files.scene_id and KEEPS the file row');
+
+-- 12: and the same for the folder. This is also Audrey's requirement seen from
+-- the other side — "toggling a category off must never delete the folders"
+-- would mean little if removing a folder deleted the files that were in it.
+DELETE FROM public.folders WHERE id = 'aaaa1111-0000-0000-0000-0000000000d1';
+
+SELECT is(
+  (SELECT count(*)::int FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-00000000fe01' AND folder_id IS NULL),
+  1,
+  '0043: deleting a folder clears files.folder_id and KEEPS the file row');
 
 SELECT * FROM finish();
 ROLLBACK;

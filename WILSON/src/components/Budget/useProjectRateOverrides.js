@@ -23,10 +23,12 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { buildProjectRatesMirror } from '../../tools/rabbit_v0.1.0/projectRates'
 
 export function useProjectRateOverrides() {
   const rabbit = useRabbit()
   const getAdapter    = rabbit?.getAdapter
+  const project       = rabbit?.project
   const projectId     = rabbit?.project?.id
   const adapterMode   = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
@@ -37,6 +39,56 @@ export function useProjectRateOverrides() {
 
   const mountedRef = useRef(true)
   useEffect(() => () => { mountedRef.current = false }, [])
+
+  // ── The rates mirror (Session 27) ─────────────────────────────────────
+  //
+  // Audrey, 2026-08-03: the project's own rates should live in the project
+  // folder as a readable file. S26 shipped the manifest without them because
+  // the manifest's path is readable by every project member; 0042 gives them
+  // a manager-only path and this is the writer.
+  //
+  // It lives HERE, next to the store, rather than in RabbitProvider like the
+  // manifest, for one reason: RLS already decided. Anyone who successfully
+  // wrote a project rate override is money-cleared by definition, so the
+  // mirror is written by exactly the people allowed to read it and no caller
+  // has to re-derive the permission. A non-manager who somehow reached this
+  // gets a storage refusal, which is the same answer from the authority.
+  const mirrorTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(mirrorTimerRef.current), [])
+
+  // Debounced like writeManifestSoon — the rate inputs write on change, so a
+  // pass over a crew list would otherwise upload one object per keystroke.
+  //
+  // The overrides are passed IN rather than read from state at fire time.
+  // That is deliberate: state could belong to a different project by then,
+  // and this payload/target pair is captured together, so it is not possible
+  // to write project A's rates into project B's folder. writeManifestSoon
+  // needs an explicit id guard for exactly this; passing the data avoids it.
+  const writeRatesMirrorSoon = useCallback((nextOverrides) => {
+    if (!getAdapter || !projectId) return
+    const adapter = getAdapter()
+    // Feature-detect: Drive is read-only, and a client older than this session
+    // has no such method.
+    if (typeof adapter?.writeProjectRates !== 'function') return
+    const snapshot = { id: projectId, project, list: nextOverrides }
+    clearTimeout(mirrorTimerRef.current)
+    mirrorTimerRef.current = setTimeout(async () => {
+      try {
+        await adapter.writeProjectRates(
+          snapshot.id,
+          buildProjectRatesMirror(snapshot.project, snapshot.list, new Date().toISOString()),
+        )
+      } catch (err) {
+        // Best-effort, and it must stay that way: the rates themselves are
+        // saved in the database, which is authoritative. A folder that cannot
+        // be written is not a reason to fail the edit the user just made.
+        console.warn(
+          `[rabbit] could not write the rates mirror for ${snapshot.id}: `
+          + `${err.message || err}. The rates are saved — this file is a mirror.`
+        )
+      }
+    }, 1500)
+  }, [getAdapter, projectId, project])
 
   const load = useCallback(async () => {
     if (!getAdapter || !projectId) return
@@ -80,37 +132,45 @@ export function useProjectRateOverrides() {
       ...rates,
     }
 
-    setOverrides(prev => {
-      const i = prev.findIndex(o => o.id === row.id)
-      if (i >= 0) return prev.map(o => (o.id === row.id ? { ...o, ...row } : o))
-      return [...prev, row]
-    })
+    const next = overrides.some(o => o.id === row.id)
+      ? overrides.map(o => (o.id === row.id ? { ...o, ...row } : o))
+      : [...overrides, row]
+    setOverrides(next)
 
     try {
       const saved = await adapter.upsertProjectRateOverride(row)
       if (mountedRef.current && saved?.id) {
         setOverrides(prev => prev.map(o => (o.id === row.id ? { ...row, ...saved } : o)))
       }
+      // Only after the write LANDED. Mirroring an optimistic value would put a
+      // rate in the project folder that the database refused.
+      writeRatesMirrorSoon(next.map(o => (o.id === row.id ? { ...row, ...(saved || {}) } : o)))
       return saved || row
     } catch (err) {
       if (mountedRef.current) setError(err.message || String(err))
       return null
     }
-  }, [getAdapter, projectId, overrides])
+  }, [getAdapter, projectId, overrides, writeRatesMirrorSoon])
 
   // Clearing an override is how a line goes back to the company rate card.
   const clearOverride = useCallback(async (id) => {
     if (!getAdapter || !projectId) return
     const adapter = getAdapter()
-    setOverrides(prev => prev.filter(o => o.id !== id))
+    const next = overrides.filter(o => o.id !== id)
+    setOverrides(next)
     try {
       if (adapter?.deleteProjectRateOverride) {
         await adapter.deleteProjectRateOverride(id, projectId)
       }
+      // A REMOVED rate has to reach the mirror too. A file that keeps showing
+      // a rate the project no longer uses is worse than no file, because it
+      // reads as current — and this is the direction that gets forgotten,
+      // since nothing on screen changes to prompt it.
+      writeRatesMirrorSoon(next)
     } catch (err) {
       if (mountedRef.current) setError(err.message || String(err))
     }
-  }, [getAdapter, projectId])
+  }, [getAdapter, projectId, overrides, writeRatesMirrorSoon])
 
   return { overrides, loading, error, reload: load, setOverride, clearOverride }
 }
