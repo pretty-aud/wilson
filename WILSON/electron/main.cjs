@@ -783,6 +783,9 @@ function startLocalServer(distPath) {
         expenses:        [],
         budgetLines:     [],
         budgetActuals:   [],
+        // Session 24: a rate edited inside a project is project-scoped and
+        // must never write back to the workspace rate card.
+        projectRateOverrides: [],
         scenes:          [],
         shots:           [],
         levels:          [],
@@ -1242,6 +1245,7 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('expenses',        'expenses');
     rabbitSubentityRoutes('budget-lines',    'budgetLines');
     rabbitSubentityRoutes('budget-actuals',  'budgetActuals');
+    rabbitSubentityRoutes('project-rate-overrides', 'projectRateOverrides');
     rabbitSubentityRoutes('scenes',          'scenes');
     rabbitSubentityRoutes('shots',           'shots');
     rabbitSubentityRoutes('levels',          'levels');

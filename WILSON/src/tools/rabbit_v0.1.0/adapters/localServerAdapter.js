@@ -337,6 +337,21 @@ export function localServerAdapter() {
       body:    JSON.stringify({ folderPath }),
     }),
 
+    // ── Project rate overrides (Session 24) ─────────────────────
+    // A rate edited inside a project is PROJECT-SCOPED and must never write
+    // back to the workspace rate card. Same shape as the Supabase adapter so
+    // one UI serves both backends.
+    listProjectRateOverrides: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).projectRateOverrides || [],
+    upsertProjectRateOverride: (override) =>
+      jfetch(`${BASE}/projects/${override.project_id}/project-rate-overrides`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(override),
+      }),
+    deleteProjectRateOverride: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/project-rate-overrides/${id}`, { method: 'DELETE' }),
+
     // ── Budget versions ─────────────────────────────────────────
     listBudgetVersions: async (projectId) =>
       (await jfetch(`${BASE}/projects/${projectId}`)).budgetVersions || [],

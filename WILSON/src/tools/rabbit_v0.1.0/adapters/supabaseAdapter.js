@@ -157,7 +157,99 @@ const ASSET_COLUMNS = new Set([
   'created_by', 'updated_by',
 ]);
 
-const COLUMN_ALLOWLIST = { tasks: TASK_COLUMNS, assets: ASSET_COLUMNS };
+// ── Session 24 ──────────────────────────────────────────────────
+// `projects` had NO allowlist, and toColumns() returns the object untouched
+// when a table has no entry (see the `if (!allow …) return obj` below). So
+// updateProject sent whatever it was handed straight to PostgREST, and one
+// unknown key rejected the WHOLE patch with PGRST204 — the pre-S23 behaviour,
+// still live on the one table the project settings panel writes to.
+//
+// That is the mechanism behind "I have tried to update the percentage and it
+// doesn't save". The nine budget_* columns did not exist (0036 adds them),
+// and the budget views also read `project.name` and `project.code`, which are
+// STILL not columns — the cloud table has `title`, and the writer at
+// ProjectSummaryView.jsx:605 sends `project_code`. Without an allowlist those
+// strays would keep poisoning unrelated saves even after 0036.
+//
+// Listed from a census of the live table (2026-08-03, wilson-dev AND
+// wilson-staging), not from a document. The audit/tenancy columns are
+// included so this set mirrors the table faithfully; PATCH_DROP strips them
+// before they ever reach here.
+const PROJECT_COLUMNS = new Set([
+  'id', 'workspace_id', 'title', 'description', 'status', 'status_tag',
+  'start_date', 'end_date', 'budget_total', 'budget_currency',
+  'client_name', 'cover_image_url', 'producer_id', 'director_id',
+  // 0036 — the budget settings the UI has always read and never saved.
+  'budget_margin_pct', 'budget_contingency_pct',
+  'budget_agency_pct', 'budget_agency_enabled',
+  'budget_actual_column_mode', 'budget_actual_column_count',
+  'budget_active', 'budget_active_version_id', 'budget_finalized',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+  'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
+]);
+
+const BUDGET_LINE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id',
+  'sheet', 'department', 'sort_order', 'label', 'description',
+  'is_section_header', 'team_member_id', 'role_slug',
+  'rate', 'days', 'qty', 'cost', 'is_na_days', 'is_na_qty',
+  'margin_pct', 'contingency_pct',
+  'agency_opt_out', 'talent_agency_fee_pct',
+  'talent_type', 'agent_name', 'agency_name', 'email', 'phone', 'union_id',
+  'created_by', 'updated_by',
+]);
+
+const BUDGET_ACTUAL_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'line_id', 'column_index', 'value',
+  'invoice_number', 'expense_id', 'source', 'notes',
+  'attachment_name', 'attachment_path',
+  'created_by', 'updated_by',
+]);
+
+const BUDGET_VERSION_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'name', 'type', 'is_active',
+  'snapshot', 'locked_at', 'locked_by', 'created_by', 'updated_by',
+]);
+
+const EXPENSE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'title', 'description',
+  'estimated_cost', 'actual_cost', 'purchase_date',
+  'asset_ids', 'phase_ids', 'task_ids', 'file_ids',
+  'created_by', 'updated_by',
+]);
+
+const PROJECT_RATE_OVERRIDE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'role_slug', 'member_id',
+  'day_rate', 'week_rate', 'month_rate', 'wage', 'currency', 'notes',
+  'created_by', 'updated_by',
+]);
+
+const COLUMN_ALLOWLIST = {
+  tasks: TASK_COLUMNS,
+  assets: ASSET_COLUMNS,
+  projects: PROJECT_COLUMNS,
+  budget_lines: BUDGET_LINE_COLUMNS,
+  budget_actuals: BUDGET_ACTUAL_COLUMNS,
+  budget_versions: BUDGET_VERSION_COLUMNS,
+  expenses: EXPENSE_COLUMNS,
+  project_rate_overrides: PROJECT_RATE_OVERRIDE_COLUMNS,
+};
+
+// Session 24: the UI initialises date fields to the empty STRING, not null —
+// `purchase_date: ''` at useExpenses.js:105. Postgres 22007s on '' for a date
+// column and takes the whole request with it. `x || null` is not enough on
+// its own here (that was the S23 lesson about the KEY still being emitted);
+// the value has to become a real NULL.
+const DATE_FIELDS = new Set(['purchase_date', 'start_date', 'end_date', 'due_date', 'locked_at']);
+
+function blankDatesToNull(row) {
+  if (!row || typeof row !== 'object') return row;
+  const out = { ...row };
+  for (const k of Object.keys(out)) {
+    if (DATE_FIELDS.has(k) && out[k] === '') out[k] = null;
+  }
+  return out;
+}
 
 function toColumns(table, obj) {
   const allow = COLUMN_ALLOWLIST[table];
@@ -304,7 +396,16 @@ export function supabaseAdapter() {
 
     async loadProject(projectId) {
       const client = await requireClient();
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns] =
+      // Session 24: budgetVersions and expenses join the bundle. The provider
+      // does setBundle({ ...EMPTY_BUNDLE, ...next }), so any key this omits is
+      // RESET TO [] on every load — which is why ctx.budgetVersions
+      // (BudgetView.jsx:104) was permanently empty in cloud regardless of what
+      // was in the database.
+      //
+      // budgetLines/budgetActuals are deliberately NOT here: they are owned by
+      // the useBudgetLines hook, which loads them through its own adapter
+      // calls and is not part of EMPTY_BUNDLE.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -317,8 +418,34 @@ export function supabaseAdapter() {
           client.from('asset_versions').select('*, asset:assets!inner(project_id)').eq('asset.project_id', projectId).then(unwrap).catch(() => []),
           client.from('comments').select('*').then(unwrap), // entity_id filter happens client-side
           client.from('ingestion_runs').select('*').eq('project_id', projectId).then(unwrap),
+          // Money is manager-only at the RLS layer (0037), so for a reviewer
+          // or team member these legitimately return []. Catch rather than
+          // fail the whole project load — a non-manager opening a project must
+          // still get the project.
+          client.from('budget_versions').select('*').eq('project_id', projectId)
+            .order('created_at').then(unwrap).catch(() => []),
+          client.from('expenses').select('*').eq('project_id', projectId)
+            .then(unwrap).catch(() => []),
+          // teamAssignments: which workspace members are ON this project.
+          // In cloud that IS project_members. Mapped to the local bundle's
+          // shape (`member_id`) so BudgetView.jsx:124 resolves the same way
+          // on both adapters. project_title (0036) is the per-project JOB
+          // TITLE and rides along here — it is NOT project_role, which is the
+          // permission column every RLS gate reads.
+          client.from('project_members')
+            .select('project_id, user_id, project_role, project_title')
+            .eq('project_id', projectId).then(unwrap).catch(() => []),
         ]);
-      return { project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns };
+      return {
+        project, phases, assets, tasks, dependencies, taskLinks, files,
+        assetVersions, comments, ingestionRuns, budgetVersions, expenses,
+        teamAssignments: (projectMembers || []).map(m => ({
+          project_id: m.project_id,
+          member_id: m.user_id,
+          project_role: m.project_role,
+          project_title: m.project_title || '',
+        })),
+      };
     },
 
     async createProject(payload) {
@@ -352,7 +479,14 @@ export function supabaseAdapter() {
 
     async updateProject(id, patch) {
       const client = await requireClient();
-      const { row, droppedAttachments } = mapDogProjectFields(sanitize(patch, PATCH_DROP));
+      const mapped = mapDogProjectFields(sanitize(patch, PATCH_DROP));
+      const droppedAttachments = mapped.droppedAttachments;
+      // Session 24: apply the allowlist AFTER mapDogProjectFields, so its
+      // startDate -> start_date renames land on real column names first.
+      // Before this, one unknown key (project.name, project.code, the nine
+      // budget_* fields) rejected the entire patch with PGRST204 and the save
+      // silently did nothing.
+      const row = toColumns('projects', blankDatesToNull(mapped.row));
       // Session 15: this check used to sit INSIDE the `row is empty` branch,
       // so it only fired for attachments-ONLY patches. A mixed patch — say
       // { title, documents } from a rename that happened to carry the file
@@ -688,6 +822,24 @@ export function supabaseAdapter() {
         .eq('project_id', projectId)
         .eq('user_id', userId));
     },
+    // Session 24: the per-project JOB TITLE ("Lead Animator") — 0036's
+    // project_members.project_title.
+    //
+    // 🚨 This is deliberately a SEPARATE method from upsertProjectMember, and
+    // it touches a different column. `project_role` is the PERMISSION setting
+    // (manager/member/reviewer) that project_role_for() and every RLS gate
+    // read. Writing a job title into it would silently break who can edit and
+    // who can see money — an UPDATE here can never reach that column.
+    async updateProjectMemberTitle(projectId, userId, projectTitle) {
+      const client = await requireClient();
+      return unwrap(await client
+        .from('project_members')
+        .update({ project_title: projectTitle || null })
+        .eq('project_id', projectId)
+        .eq('user_id', userId)
+        .select()
+        .single());
+    },
 
     // ── Dashboard: cross-project "my tasks" (Session 8) ───────
     // One indexed query over tasks.assignee_id / reviewer_id (0013) —
@@ -958,6 +1110,160 @@ export function supabaseAdapter() {
     async deleteRateCardEntry(id) {
       const client = await requireClient();
       unwrap(await client.from('rate_card_entries').delete().eq('id', id));
+    },
+
+    // ── Team members (Session 24) ─────────────────────────────
+    //
+    // The Crew/Team budget tab is driven by useTeamMembers() ∩ the project's
+    // teamAssignments. `listTeamMembers` existed ONLY on localServerAdapter,
+    // so in cloud `tm.members` was [] and the Crew tab rendered no one at all
+    // — Audrey's "show each team member and their title" could not work.
+    //
+    // There is no separate cloud `team_members` table and there should not be
+    // one: the roster already exists as workspace_members, exposed through
+    // the workspace_directory() RPC (0010), which is SECURITY DEFINER and
+    // already filters by the caller's LIVE membership rather than a JWT claim.
+    // Mapped onto the local shape so one UI serves both adapters.
+    //
+    // Read only, deliberately. Creating/removing workspace members is the
+    // Admin Terminal's job and goes through admin-create-user; a budget tab
+    // must not be able to mint people. useTeamMembers feature-detects each
+    // method separately, so the absent writers degrade cleanly.
+    async listTeamMembers() {
+      const client = await requireClient();
+      const rows = unwrap(await client.rpc('workspace_directory')) || [];
+      return rows
+        .filter(r => r.is_active !== false)
+        .map(r => ({
+          id: r.user_id,                       // cloud identity IS the user id
+          user_id: r.user_id,
+          name: r.display_name || r.username || '(unnamed)',
+          username: r.username,
+          title: r.title || '',                // company job title
+          department: r.department || '',
+          avatar_url: r.avatar_url || null,
+          email: r.email || null,
+          app_role: r.app_role,
+          // No cloud column. The local bundle carries it; defaulting keeps
+          // CrewTeamTab's grouping working rather than rendering undefined.
+          employment_type: 'fulltime',
+        }));
+    },
+
+    // ── Budget (Session 24, migrations 0036 + 0037) ───────────
+    //
+    // Until this block existed, supabaseAdapter had ZERO budget methods, and
+    // every consumer feature-detects: `if (!adapter?.listBudgetLines) return`
+    // (useBudgetLines.js:60) returns BEFORE setLoading/setError, so the whole
+    // budget rendered empty in cloud with no error and no console warning.
+    // The methods below are the localServerAdapter surface, matched name for
+    // name and argument for argument, so one UI serves both adapters.
+    //
+    // Reads are NOT wrapped in .catch(() => []): a reviewer's SELECT returns
+    // an empty set rather than an error, so there is nothing to swallow, and
+    // swallowing a genuine failure here would make a broken budget look like
+    // an empty one. That distinction is exactly what useRosterMembers got
+    // wrong (OUTSTANDING: an RPC failure and an empty workspace are
+    // indistinguishable at every call site).
+
+    async listBudgetLines(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('budget_lines').select('*')
+        .eq('project_id', projectId).order('sort_order'));
+    },
+    async upsertBudgetLine(line) {
+      const client = await requireClient();
+      const row = toColumns('budget_lines', blankDatesToNull(line));
+      return unwrap(await client.from('budget_lines').upsert(row).select().single());
+    },
+    async updateBudgetLine(id, projectId, patch) {
+      // Per-field LWW, same rule as every other patch* method: send only what
+      // changed, so a collaborator's edit to a different column survives.
+      // NOTE margin_pct/contingency_pct are cleared by writing NULL — that is
+      // how a line goes back to inheriting the project default — and patchRow
+      // converts undefined to null for exactly that reason.
+      return patchRow('budget_lines', id, patch);
+    },
+    async deleteBudgetLine(id) {
+      const client = await requireClient();
+      unwrap(await client.from('budget_lines').delete().eq('id', id));
+    },
+
+    async listBudgetActuals(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('budget_actuals').select('*')
+        .eq('project_id', projectId));
+    },
+    async upsertBudgetActual(actual) {
+      const client = await requireClient();
+      const row = toColumns('budget_actuals', blankDatesToNull(actual));
+      return unwrap(await client.from('budget_actuals').upsert(row).select().single());
+    },
+    async updateBudgetActual(id, projectId, patch) {
+      return patchRow('budget_actuals', id, patch);
+    },
+    async deleteBudgetActual(id) {
+      const client = await requireClient();
+      unwrap(await client.from('budget_actuals').delete().eq('id', id));
+    },
+
+    async listBudgetVersions(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('budget_versions').select('*')
+        .eq('project_id', projectId).order('created_at'));
+    },
+    async upsertBudgetVersion(version) {
+      const client = await requireClient();
+      // BudgetView spreads the WHOLE existing row back on every activate/
+      // rename (`{ ...v, is_active }`, `{ ...activeVersion, snapshot }`), so
+      // this payload carries created_at/updated_at and anything else the row
+      // happens to hold. The allowlist is what stops those server-managed
+      // columns reaching PostgREST.
+      const row = toColumns('budget_versions', blankDatesToNull(version));
+      return unwrap(await client.from('budget_versions').upsert(row).select().single());
+    },
+    async deleteBudgetVersion(id) {
+      const client = await requireClient();
+      unwrap(await client.from('budget_versions').delete().eq('id', id));
+    },
+
+    async listExpenses(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('expenses').select('*')
+        .eq('project_id', projectId));
+    },
+    async upsertExpense(expense) {
+      const client = await requireClient();
+      // purchase_date arrives as '' from useExpenses.js:105 — a bare '' is a
+      // 22007 on a date column and takes the whole request with it.
+      const row = toColumns('expenses', blankDatesToNull(expense));
+      return unwrap(await client.from('expenses').upsert(row).select().single());
+    },
+    async updateExpense(id, projectId, patch) {
+      return patchRow('expenses', id, blankDatesToNull(patch));
+    },
+    async deleteExpense(id) {
+      const client = await requireClient();
+      unwrap(await client.from('expenses').delete().eq('id', id));
+    },
+
+    // Project-scoped rate overrides. A rate edited inside a project lands
+    // HERE and must never write back to rate_cards / rate_card_entries, which
+    // are workspace-wide — otherwise one project's negotiated rate silently
+    // rewrites every other project's numbers.
+    async listProjectRateOverrides(projectId) {
+      const client = await requireClient();
+      return unwrap(await client.from('project_rate_overrides').select('*')
+        .eq('project_id', projectId));
+    },
+    async upsertProjectRateOverride(override) {
+      const client = await requireClient();
+      const row = toColumns('project_rate_overrides', blankDatesToNull(override));
+      return unwrap(await client.from('project_rate_overrides').upsert(row).select().single());
+    },
+    async deleteProjectRateOverride(id) {
+      const client = await requireClient();
+      unwrap(await client.from('project_rate_overrides').delete().eq('id', id));
     },
 
     // ── Scenes (tables pending — Phase 2) ─────────────────────

@@ -251,6 +251,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
 
 export default function CrewTeamTab({
   budgetHook, project, tasks, roleRates, rateCard, teamMembers, expenses, currency,
+  projectTitles, onSaveProjectTitle,
 }) {
   const { lines, lineComputations, actualsByLine, addLine, updateLine, upsertActual, deleteActual } = budgetHook || {}
 
@@ -557,6 +558,31 @@ export default function CrewTeamTab({
                   <div style={{ width: W_NAME, backgroundColor: '#1c1917' }} className="px-3 py-2 min-w-0">
                     <div className="text-[11.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{row.name}</div>
                     {row.title && <div className="text-[9.5px] font-mono truncate" style={{ color: '#78716c' }}>{row.title}{row.roleSlug ? ` · ${row.roleSlug}` : ''}</div>}
+                    {/* Session 24 — the PROJECT job title, e.g. "Lead
+                        Animator". Audrey: "you can have a company/title role
+                        AND a separate project role", and the manager types
+                        this one in. The line above is the COMPANY title;
+                        this is per project, and neither is the permission
+                        role. Only rendered where it can actually be saved —
+                        an input that silently discards what you type is
+                        worse than no input. */}
+                    {onSaveProjectTitle && !String(row.id).startsWith('unassigned-') && (
+                      <input
+                        type="text"
+                        defaultValue={projectTitles?.[row.id] || ''}
+                        placeholder="+ project role"
+                        onBlur={e => {
+                          const v = e.target.value.trim()
+                          if (v !== (projectTitles?.[row.id] || '')) {
+                            onSaveProjectTitle(row.id, v)?.catch?.(err =>
+                              console.error('project title save failed:', err))
+                          }
+                        }}
+                        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
+                        className="w-full bg-transparent outline-none text-[9.5px] font-mono truncate mt-0.5"
+                        style={{ color: '#fb923c' }}
+                      />
+                    )}
                   </div>
                   <div style={{ width: W_TYPE, backgroundColor: '#1c1917' }} className="px-2 py-2 flex items-center">
                     <span className="text-[9.5px] font-mono px-1 py-0.5 rounded-sm" style={{

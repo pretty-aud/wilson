@@ -550,6 +550,35 @@ export function RabbitProvider({ children }) {
     }
   }, [adapterMode, activeProjectId, projectMembers]);
 
+  // Session 24: the per-project JOB TITLE, e.g. "Lead Animator".
+  //
+  // 🚨 Distinct from updateProjectMemberRole above, which writes
+  // `project_role` — the PERMISSION column (manager/member/reviewer) that
+  // can_write_project() and every other RLS gate read. Audrey asked for "a
+  // company/title role AND a separate project role"; conflating the two would
+  // make controls silently vanish, which is the exact failure S23 chased.
+  const updateProjectMemberTitle = useCallback(async (userId, projectTitle) => {
+    if (adapterMode !== 'supabase' || !activeProjectId) return null;
+    if (typeof adapterRef.current?.updateProjectMemberTitle !== 'function') return null;
+    const snapshot = projectMembers;
+    setProjectMembers(prev => prev.map(m =>
+      m.user_id === userId ? { ...m, project_title: projectTitle } : m));
+    try {
+      const saved = await adapterRef.current.updateProjectMemberTitle(
+        activeProjectId, userId, projectTitle,
+      );
+      if (rosterMountedRef.current && saved) {
+        setProjectMembers(prev => prev.map(m =>
+          m.user_id === userId ? { ...m, ...saved } : m));
+      }
+      return saved;
+    } catch (err) {
+      if (rosterMountedRef.current) setProjectMembers(snapshot);
+      setError(err.message || String(err));
+      throw err;
+    }
+  }, [adapterMode, activeProjectId, projectMembers]);
+
   const removeProjectMember = useCallback(async (userId) => {
     if (adapterMode !== 'supabase' || !activeProjectId) return;
     if (typeof adapterRef.current?.removeProjectMember !== 'function') return;
@@ -2387,6 +2416,7 @@ export function RabbitProvider({ children }) {
     refreshProjectMembers,
     addProjectMember,
     updateProjectMemberRole,
+    updateProjectMemberTitle,
     removeProjectMember,
     myProjectRole,
     projectIsStaffed,
@@ -2439,6 +2469,7 @@ export function RabbitProvider({ children }) {
     startIngestion, acceptIngestion, discardIngestion,
     ingestionRun, startBackgroundIngestion, cancelBackgroundIngestion, dismissBackgroundIngestion,
     projectMembers, refreshProjectMembers, addProjectMember, updateProjectMemberRole,
+    updateProjectMemberTitle,
     removeProjectMember, myProjectRole, projectIsStaffed,
     realtimeStatus, presentUsers, reloadActiveProject, revertHistoryEntry,
     workspaceRealtimeStatus, workspacePresentUsers, subscribeWorkspaceEvents,
