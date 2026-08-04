@@ -214,6 +214,9 @@ export function googleDriveAdapter() {
         shots:         bundle.shots || [],
         levels:        bundle.levels || [],
         experiences:   bundle.experiences || [],
+        // Session 26. Drive is read-only, so the tree is whatever the bundle
+        // was exported with — it renders, it is not built here.
+        folders:       bundle.folders || [],
         // Session 17 (§6 #47): same omission as localServerAdapter — see the
         // comment there. Milestones reverted to [] on every reload.
         milestones:    bundle.milestones || [],
@@ -223,6 +226,14 @@ export function googleDriveAdapter() {
     async listFiles(projectId) {
       const bundle = await this.loadProject(projectId);
       return bundle.files || [];
+    },
+
+    // Session 26. Reads the exported bundle, exactly as listFiles does — not
+    // a `() => []` stub, which would make an exported tree invisible while
+    // loadProject was returning it, i.e. two answers to the same question.
+    async listFolders(projectId) {
+      const bundle = await this.loadProject(projectId);
+      return bundle.folders || [];
     },
 
     async downloadFile(file) {
@@ -293,6 +304,13 @@ export function googleDriveAdapter() {
     deleteExperience:     readOnly('deleteExperience'),
     upsertMilestone:      readOnly('upsertMilestone'),
     deleteMilestone:      readOnly('deleteMilestone'),
+    // Session 26 — folders. The READ is implemented above, beside listFiles.
+    // These three are writes and stay loud: a silent no-op would report a
+    // folder as created when nothing exists anywhere.
+    ensureProjectFolders: readOnly('ensureProjectFolders'),
+    ensureEntityFolder:   readOnly('ensureEntityFolder'),
+    deleteFolder:         readOnly('deleteFolder'),
+    writeProjectManifest: readOnly('writeProjectManifest'),
 
     // No realtime on Drive.
     subscribeProjectChanges: () => () => {},

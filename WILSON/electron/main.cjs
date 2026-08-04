@@ -749,8 +749,21 @@ function startLocalServer(distPath) {
       if (!bundle.levels)          { bundle.levels          = []; dirty = true; }
       if (!bundle.experiences)     { bundle.experiences     = []; dirty = true; }
       if (!bundle.fileEvents)      { bundle.fileEvents      = []; dirty = true; }
+      if (!bundle.folders)         { bundle.folders         = []; dirty = true; }
       // Ensure sub-folder structure exists on first access
       try { ensureProjectFolders(bundle); } catch {}
+      // Session 26: the tree, reconciled on read so a project that predates
+      // 0041 gains its rows without anyone having to migrate anything. It
+      // converges — once every planned folder has a row nothing changes, so
+      // this does not rewrite the bundle on every request.
+      //
+      // The rows are recorded even when no directory can be made, then the
+      // directories are made for whatever rows exist. Doing it in that order
+      // is what lets a project pick a location later and get its whole tree.
+      try {
+        if (ensureProjectFolderRows(bundle, projectId)) dirty = true;
+        materializeFolderDirs(bundle);
+      } catch (e) { console.error('folder reconcile failed:', e.message); }
       if (dirty) {
         try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
       }
@@ -790,6 +803,10 @@ function startLocalServer(distPath) {
         shots:           [],
         levels:          [],
         experiences:     [],
+        // Session 26: the folder tree. Mirrors public.folders so the same
+        // bundle key exists on both backends and loadProject returns the
+        // same shape either way.
+        folders:         [],
         fileEvents:      [],
       };
     }
@@ -835,12 +852,70 @@ function startLocalServer(distPath) {
       return fs.existsSync(resolved) ? resolved : null;
     }
 
+    // ── Session 26: the folder categories ────────────────────
+    //
+    // 🚨 THIS LIST IS DUPLICATED, AND THE DUPLICATE IS UNAVOIDABLE.
+    // The renderer's copy is FOLDER_CATEGORIES in
+    // src/tools/rabbit_v0.1.0/folderPaths.js. The main process cannot import
+    // from the renderer bundle — the same constraint that forces the second
+    // copy of fileSlugify above it. A category slug that disagrees between
+    // the two would file the same scene in two different folders.
+    //
+    // folderParity.test.js reads BOTH files and fails when they diverge, so
+    // this is pinned rather than left to drift. That is the whole reason S25
+    // removed the THIRD copy of fileSlugify (43be524) before this session
+    // started building on these slugs.
+    //
+    // ASSETS/SCENES/SHOTS were designed in long ago — FileManager.jsx:84 has
+    // computed `parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' :
+    // 'ASSETS'` all along, and nothing ever created the first two. LEVELS and
+    // EXPERIENCES were not even in that switch.
+    //
+    // INVOICES keeps its exact spelling: migration 0039 matches that segment
+    // with upper() on the Supabase side and the case is load-bearing there.
+    const FOLDER_CATEGORIES = [
+      { slug: 'ASSETS',      entityType: 'asset',      enabledBy: null },
+      { slug: 'SCENES',      entityType: 'scene',      enabledBy: 'scenes_enabled' },
+      { slug: 'SHOTS',       entityType: 'shot',       enabledBy: 'scenes_enabled' },
+      { slug: 'LEVELS',      entityType: 'level',      enabledBy: 'levels_enabled' },
+      { slug: 'EXPERIENCES', entityType: 'experience', enabledBy: 'experiences_enabled' },
+      { slug: 'INVOICES',    entityType: 'invoice',    enabledBy: null },
+    ];
+
+    const FOLDER_ENTITY_FK = {
+      asset:      'asset_id',
+      scene:      'scene_id',
+      shot:       'shot_id',
+      level:      'level_id',
+      experience: 'experience_id',
+    };
+
+    const FOLDER_BUNDLE_KEY = {
+      asset: 'assets', scene: 'scenes', shot: 'shots',
+      level: 'levels', experience: 'experiences',
+    };
+
+    const FOLDER_FALLBACK_NAME = {
+      asset:      'Untitled-Asset',
+      scene:      'Untitled-Scene',
+      shot:       'Untitled-Shot',
+      level:      'Untitled-Level',
+      experience: 'Untitled-Experience',
+    };
+
     function ensureProjectFolders(bundle) {
       const root = resolveProjectFolder(bundle);
       if (!root) return;
       const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
       const dirs = [
         path.join(root, 'ASSETS'),
+        // 🚨 NOT ported to the folders TABLE, and it must not be. On `main`
+        // this was never a files folder, it was the DATASTORE —
+        // mirrorProjectDatabases writes project.json, team.json, tasks.json,
+        // timeline.json and budget.json into it. Database information lives
+        // in Supabase. It keeps being created here so existing local projects
+        // are untouched, and it is deliberately absent from FOLDER_CATEGORIES
+        // so it never becomes a second copy of every project in the cloud.
         path.join(root, `${slug}_DATABASES`),
         path.join(root, `${slug}_FILES`),
         // Session 24 (Audrey): one folder called INVOICES, created with the
@@ -857,6 +932,161 @@ function startLocalServer(distPath) {
       for (const d of dirs) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
       }
+    }
+
+    // ── Session 26: the folder tree, as rows AND as directories ─────────
+    //
+    // Two things happen here and they are deliberately independent:
+    //
+    //   1. ROWS are recorded in bundle.folders ALWAYS, even when the project
+    //      has no folder on disk yet. The tree is the model; the directories
+    //      are a projection of it. A project configured with a location
+    //      later, or exported to cloud, keeps the structure it already had.
+    //   2. DIRECTORIES are created only when a root resolves, because that
+    //      is the only time there is anywhere to put them.
+    //
+    // 🚨 NOTHING HERE DELETES. Turning a category off removes it from the
+    // R.A.B.B.I.T. view and leaves every folder exactly where it is —
+    // Audrey, 2026-08-03. A category that is off is simply not PLANNED, so
+    // an existing row for it survives untouched.
+
+    // 🚨 THE FALLBACK FIRES ON AN EMPTY SLUG, NOT ON A MISSING NAME.
+    // fileSlugify strips everything non-alphanumeric, so a name of '..' or
+    // '###' is TRUTHY and slugifies to ''. `x || 'Untitled'` therefore lets
+    // an empty final segment through, and the bundle has no CHECK constraint
+    // to catch it the way public.folders does. The renderer's copy is
+    // slugOrFallback in folderPaths.js; folderParity.test.js pins them.
+    function slugOrFallback(name, fallback) {
+      return fileSlugify(name || '') || fileSlugify(fallback);
+    }
+
+    function planProjectFolderList(project) {
+      const out = [{
+        kind: 'root',
+        entityType: null,
+        slug: project?.folder_slug || slugOrFallback(project?.title, 'Untitled-Project'),
+        label: project?.title || null,
+        path: '',
+        parentPath: null,
+      }];
+      for (const c of FOLDER_CATEGORIES) {
+        if (c.enabledBy && !project?.[c.enabledBy]) continue;
+        out.push({
+          kind: 'category', entityType: c.entityType, slug: c.slug,
+          label: null, path: c.slug, parentPath: '',
+        });
+      }
+      return out;
+    }
+
+    function planEntityFolderFor(entityType, entity) {
+      const c = FOLDER_CATEGORIES.find(x => x.entityType === entityType);
+      if (!c) return null;
+      const slug = slugOrFallback(entity?.name, FOLDER_FALLBACK_NAME[entityType] || 'Untitled');
+      return {
+        category: {
+          kind: 'category', entityType: c.entityType, slug: c.slug,
+          label: null, path: c.slug, parentPath: '',
+        },
+        folder: {
+          kind: 'entity', entityType, slug,
+          label: entity?.name || null,
+          path: `${c.slug}/${slug}`, parentPath: c.slug,
+          fk: FOLDER_ENTITY_FK[entityType], entityId: entity?.id || null,
+        },
+      };
+    }
+
+    // Adds the row when its path is free. Returns true when it wrote one, so
+    // callers can decide whether the bundle needs persisting.
+    function addFolderRow(bundle, projectId, planned) {
+      if (!bundle.folders) bundle.folders = [];
+      if (bundle.folders.some(f => f.path === planned.path)) return false;
+      const parent = planned.parentPath === null
+        ? null
+        : bundle.folders.find(f => f.path === planned.parentPath);
+      const now = new Date().toISOString();
+      const row = {
+        id:            uuidv4(),
+        project_id:    projectId,
+        parent_id:     parent ? parent.id : null,
+        kind:          planned.kind,
+        entity_type:   planned.entityType || null,
+        asset_id:      null,
+        scene_id:      null,
+        shot_id:       null,
+        level_id:      null,
+        experience_id: null,
+        slug:          planned.slug,
+        label:         planned.label || null,
+        path:          planned.path,
+        sort_order:    bundle.folders.length,
+        created_at:    now,
+        updated_at:    now,
+      };
+      if (planned.fk) row[planned.fk] = planned.entityId;
+      bundle.folders.push(row);
+      return true;
+    }
+
+    // Every row's directory. Contained against the project root for the
+    // reason S17 (#45 family) had to retro-fit resolveContainedFilePath: a
+    // slug reaches this from client-supplied entity names, and mkdirSync on
+    // an uncontained path writes outside the project.
+    function materializeFolderDirs(bundle) {
+      const root = resolveProjectFolder(bundle);
+      if (!root) return;
+      for (const f of bundle.folders || []) {
+        if (!f.path) continue;
+        const dir = resolveContainedFilePath(root, f.path);
+        if (dir && !fs.existsSync(dir)) {
+          try { fs.mkdirSync(dir, { recursive: true }); }
+          catch (e) { console.error('folder mkdir failed:', f.path, e.message); }
+        }
+      }
+    }
+
+    function ensureProjectFolderRows(bundle, projectId) {
+      let changed = false;
+      for (const planned of planProjectFolderList(bundle.project)) {
+        if (addFolderRow(bundle, projectId, planned)) changed = true;
+      }
+      return changed;
+    }
+
+    // One entity's own folder. Audrey: five scenes means FIVE folders under
+    // SCENES/, not one shared one.
+    //
+    // 🚨 The existing row is found by the entity FK, never by path. Renaming
+    // the entity changes the path, so a path lookup would miss the row and
+    // add a SECOND folder for one scene — the exact defect this session
+    // exists to prevent. On the Supabase side the database refuses that
+    // (folders_scene_uniq); the local bundle has no such backstop, so getting
+    // the lookup right is the whole guard here.
+    function ensureEntityFolderRow(bundle, projectId, entityType, entity) {
+      const planned = planEntityFolderFor(entityType, entity);
+      if (!planned) return { row: null, changed: false };
+      if (!bundle.folders) bundle.folders = [];
+      let changed = ensureProjectFolderRows(bundle, projectId);
+      if (addFolderRow(bundle, projectId, planned.category)) changed = true;
+
+      const fk = FOLDER_ENTITY_FK[entityType];
+      const mine = bundle.folders.find(f => f[fk] && f[fk] === entity?.id);
+      if (mine) {
+        if (mine.path !== planned.folder.path) {
+          mine.slug = planned.folder.slug;
+          mine.path = planned.folder.path;
+          mine.label = planned.folder.label;
+          mine.updated_at = new Date().toISOString();
+          changed = true;
+        }
+        return { row: mine, changed };
+      }
+      if (addFolderRow(bundle, projectId, planned.folder)) changed = true;
+      return {
+        row: bundle.folders.find(f => f.path === planned.folder.path) || null,
+        changed,
+      };
     }
 
     function mirrorProjectDatabases(projectId, bundle) {
@@ -1144,7 +1374,11 @@ function startLocalServer(distPath) {
     // Each entity type lives as an array on the project bundle. The
     // factory generates POST/PATCH/DELETE routes that load → mutate
     // → save the whole bundle. Single-user, low write rate, fine.
-    function rabbitSubentityRoutes(entityName, bundleKey) {
+    // Session 26: `folderEntityType` opts an entity into the folder tree.
+    // Passing it gives every row of that type its own folder on create AND
+    // moves the folder when the row is renamed. Entities without it (phases,
+    // tasks, comments…) are unaffected — they are not things with folders.
+    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null) {
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -1152,6 +1386,10 @@ function startLocalServer(distPath) {
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
         const row = rabbitTouch({ ...req.body, project_id: req.params.projectId });
         const result = rabbitUpsertInto(bundle[bundleKey], row);
+        if (folderEntityType) {
+          ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, result);
+          materializeFolderDirs(bundle);
+        }
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(result);
       });
@@ -1164,6 +1402,15 @@ function startLocalServer(distPath) {
         const idx = arr.findIndex(x => x.id === req.params.id);
         if (idx < 0) return rabbitNotFound(res, entityName);
         arr[idx] = { ...arr[idx], ...req.body, id: req.params.id, updated_at: new Date().toISOString() };
+        if (folderEntityType) {
+          // A rename moves the folder ROW here and CREATES the new directory
+          // below — the old directory is deliberately left in place with
+          // whatever is inside it. Moving files is S27's job (it owns the
+          // file paths); silently relocating a user's files as a side effect
+          // of a rename is not something to do without owning that path.
+          ensureEntityFolderRow(bundle, req.params.projectId, folderEntityType, arr[idx]);
+          materializeFolderDirs(bundle);
+        }
         writeRabbitBundle(req.params.projectId, bundle);
         res.json(arr[idx]);
       });
@@ -1211,6 +1458,10 @@ function startLocalServer(distPath) {
       if (!row.folder_slug && row.name) row.folder_slug = fileSlugify(row.name);
       const result = rabbitUpsertInto(bundle.assets, row);
       ensureAssetFolder(bundle, result.name);
+      // Session 26: the directory was already being made; now it is also
+      // RECORDED, so an asset folder is part of the same tree as a scene's
+      // and survives a move to another backend.
+      ensureEntityFolderRow(bundle, req.params.projectId, 'asset', result);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json(result);
     });
@@ -1255,6 +1506,12 @@ function startLocalServer(distPath) {
           }
         }
       }
+      // Session 26: keep the tree in step with the directory this route just
+      // renamed. Assets are the one entity where the folder ALREADY moved on
+      // rename, which is why folderPaths.js chose "rename moves the folder"
+      // for all five — it is the behaviour that was already here, so no
+      // existing local project changes.
+      ensureEntityFolderRow(bundle, req.params.projectId, 'asset', newAsset);
       writeRabbitBundle(req.params.projectId, bundle);
       res.json(newAsset);
     });
@@ -1302,11 +1559,165 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('budget-lines',    'budgetLines');
     rabbitSubentityRoutes('budget-actuals',  'budgetActuals');
     rabbitSubentityRoutes('project-rate-overrides', 'projectRateOverrides');
-    rabbitSubentityRoutes('scenes',          'scenes');
-    rabbitSubentityRoutes('shots',           'shots');
-    rabbitSubentityRoutes('levels',          'levels');
-    rabbitSubentityRoutes('experiences',     'experiences');
+    // Session 26: the four entity types that get their own folders. Assets
+    // are the fifth and have their own routes below (they already had folder
+    // side-effects before this session).
+    rabbitSubentityRoutes('scenes',          'scenes',      'scene');
+    rabbitSubentityRoutes('shots',           'shots',       'shot');
+    rabbitSubentityRoutes('levels',          'levels',      'level');
+    rabbitSubentityRoutes('experiences',     'experiences', 'experience');
     rabbitSubentityRoutes('milestones',      'milestones');
+
+    // ── Folder tree routes (Session 26) ───────────────────────────
+    //
+    // The Local Server half of the adapter's folder interface. The Supabase
+    // half writes rows to public.folders; this writes rows to the bundle AND
+    // real directories to disk, which is the difference the whole
+    // "backend-agnostic" requirement is about.
+    //
+    // Note there is no route to CREATE a folder from an arbitrary path. Every
+    // folder here comes from a plan — the project's categories, or one
+    // entity's own folder — so a client cannot name a directory directly.
+    // That, plus resolveContainedFilePath in materializeFolderDirs, is what
+    // keeps mkdirSync inside the project.
+    expressApp.post('/api/rabbit/projects/:projectId/folders/ensure', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      ensureProjectFolderRows(bundle, req.params.projectId);
+      materializeFolderDirs(bundle);
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ folders: bundle.folders || [] });
+    });
+
+    // The project is read from the BUNDLE, never from the request body: the
+    // bundle is the copy the folder has to agree with, and a stale render
+    // posting its own copy would file the folder under an old name.
+    expressApp.post('/api/rabbit/projects/:projectId/folders/ensure-entity', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const { entityType, entityId } = req.body || {};
+      const bundleKey = FOLDER_BUNDLE_KEY[entityType];
+      if (!bundleKey) return res.status(400).json({ error: `unknown folder entity type: ${entityType}` });
+      const entity = (bundle[bundleKey] || []).find(x => x.id === entityId);
+      if (!entity) return rabbitNotFound(res, entityType);
+      const { row } = ensureEntityFolderRow(bundle, req.params.projectId, entityType, entity);
+      materializeFolderDirs(bundle);
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json(row);
+    });
+
+    // 🚨 This is NOT what a category toggle calls. Toggling scenes_enabled
+    // off hides the tab and deletes nothing (Audrey, 2026-08-03) — a
+    // disabled category is simply not planned, so its rows survive. This is
+    // for a folder a user removes deliberately, and even then only the ROW
+    // and its descendants go: the directory on disk is left alone, because
+    // nothing in this session deletes a byte of anyone's work.
+    expressApp.delete('/api/rabbit/projects/:projectId/folders/:id', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      if (!bundle.folders) bundle.folders = [];
+      const target = bundle.folders.find(f => f.id === req.params.id);
+      if (!target) return rabbitNotFound(res, 'folder');
+      // Mirror the parent_id ON DELETE CASCADE the Supabase side gets for
+      // free, so the two backends leave the same tree behind.
+      const doomed = new Set([target.id]);
+      let grew = true;
+      while (grew) {
+        grew = false;
+        for (const f of bundle.folders) {
+          if (!doomed.has(f.id) && f.parent_id && doomed.has(f.parent_id)) {
+            doomed.add(f.id);
+            grew = true;
+          }
+        }
+      }
+      bundle.folders = bundle.folders.filter(f => !doomed.has(f.id));
+      writeRabbitBundle(req.params.projectId, bundle);
+      res.json({ ok: true, removed: doomed.size });
+    });
+
+    // ── The project manifest (Session 26) ─────────────────────────
+    //
+    // Audrey, 2026-08-03: the project's own details should be "saved in the
+    // project folder as a file the system can read".
+    //
+    // ✅ The DATABASE is authoritative and this file is a generated MIRROR
+    // (Audrey, 2026-08-03) — written on change, read only for portability,
+    // recovery and handoff, never an input to normal operation.
+    //
+    // 🚨 THIS IS NOT `_DATABASES/`. That folder holds project.json, team.json,
+    // tasks.json, timeline.json and budget.json — a full second datastore,
+    // and the reason the mirror rule exists at all. The manifest is ONE file
+    // of SETTINGS at the project root, beside ASSETS/ and SCENES/, where a
+    // person browsing the folder will actually find it.
+    //
+    // Per-member rate overrides are excluded here for the same reason as on
+    // the Supabase side, even though a local folder is not multi-tenant: two
+    // backends producing two different manifests would make the file
+    // unportable, which is the one job it has. See projectManifest.js.
+    const MANIFEST_FILENAME = 'PROJECT.json';
+
+    function buildProjectManifestFor(bundle) {
+      const p = bundle.project || {};
+      const omit = new Set([
+        'workspace_id', 'created_by', 'updated_by',
+        'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
+        'documents', 'visualAssets',
+      ]);
+      const project = {};
+      for (const [k, v] of Object.entries(p)) {
+        if (!omit.has(k)) project[k] = v;
+      }
+      return {
+        wilson_manifest_version: 1,
+        generated_at: new Date().toISOString(),
+        authority: 'database',
+        note:
+          'Generated MIRROR of the project settings held in WILSON. The database '
+          + 'is authoritative: editing this file changes nothing. It exists for '
+          + 'portability, recovery and handoff. Importing it is an explicit action '
+          + 'in WILSON that shows a diff first.',
+        omitted:
+          'Per-member rate overrides are NOT included. They are manager-only in '
+          + 'WILSON, and this file is readable by everyone who can open the project.',
+        project,
+        folders: (bundle.folders || []).map(f => ({
+          kind: f.kind, path: f.path, slug: f.slug,
+          label: f.label || null, entity_type: f.entity_type || null,
+        })).sort((a, b) => a.path.localeCompare(b.path)),
+        team: (bundle.teamAssignments || []).map(m => ({
+          member_id:     m.member_id || m.user_id || null,
+          project_role:  m.project_role || null,
+          project_title: m.project_title || '',
+        })),
+        counts: {
+          assets:      (bundle.assets      || []).length,
+          scenes:      (bundle.scenes      || []).length,
+          shots:       (bundle.shots       || []).length,
+          levels:      (bundle.levels      || []).length,
+          experiences: (bundle.experiences || []).length,
+          phases:      (bundle.phases      || []).length,
+          tasks:       (bundle.tasks       || []).length,
+        },
+      };
+    }
+
+    expressApp.post('/api/rabbit/projects/:projectId/manifest', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const root = resolveProjectFolder(bundle);
+      // No project folder configured yet is not an error — there is simply
+      // nowhere to put it. Reported rather than thrown so the caller can say
+      // so instead of showing a failure the user cannot act on.
+      if (!root) return res.json({ written: false, reason: 'no project folder configured' });
+      const target = path.join(root, MANIFEST_FILENAME);
+      try {
+        writeJSON(target, buildProjectManifestFor(bundle));
+        res.json({ written: true, path: target });
+      } catch (e) {
+        res.status(500).json({ error: `manifest write failed: ${e.message}` });
+      }
+    });
 
     // ── Invoice folder resolution ─────────────────────────────────
     // Returns the absolute folder path for crew or talent invoice files.

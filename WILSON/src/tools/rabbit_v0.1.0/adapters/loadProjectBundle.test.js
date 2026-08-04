@@ -38,6 +38,11 @@ const EXPECTED_KEYS = [
   'assetVersions', 'comments', 'ingestionRuns', 'teamAssignments',
   'managedFiles', 'budgetVersions', 'projectTeam',
   'scenes', 'shots', 'levels', 'experiences', 'milestones',
+  // Session 26. `folders` is read straight off the bundle (ctx.folders), so
+  // unlike `expenses` above it MUST survive loadProject — an omitted key
+  // would be reset to [] by the EMPTY_BUNDLE spread and the whole tree would
+  // vanish on every project switch.
+  'folders',
 ]
 
 /** A server bundle with one identifiable row in every collection. */

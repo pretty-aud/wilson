@@ -30,6 +30,10 @@ import React, {
   useState,
 } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+// Session 26: the project folder's self-description. Built here from the
+// loaded bundle and handed to the adapter, so both backends mirror the
+// same shape — that is the one job a portable manifest has.
+import { buildProjectManifest } from '../projectManifest';
 import { selectAdapter, ADAPTER_MODES } from '../adapters';
 import { resetSupabaseAdapter } from '../adapters/supabaseAdapter';
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient';
@@ -100,6 +104,10 @@ const EMPTY_BUNDLE = {
   levels:         [],
   experiences:    [],
   milestones:     [],
+  // Session 26 (migration 0041): the project folder tree. Adding a key here
+  // means every adapter's loadProject must return it — see the pointer above
+  // and adapters/loadProjectBundle.test.js, which fails when one does not.
+  folders:        [],
 };
 
 function indexById(rows) {
@@ -943,6 +951,110 @@ export function RabbitProvider({ children }) {
   }, [scheduleRealtimeRefetch]);
 
   // ── Projects (mutators on the index, not the bundle) ────
+  // ── Folder tree (Session 26, migration 0041) ─────────────
+  //
+  // Audrey: R.A.B.B.I.T. is also a project file manager, and the tree must
+  // reflect in whichever storage backend the company selected. The adapters
+  // do the work; these two decide WHEN, and what a failure means.
+  //
+  // 🚨 FOLDER FAILURES DO NOT FAIL THE THING THAT NEEDED THE FOLDER.
+  // Creating a scene is the user's goal; the folder is a consequence. If the
+  // folder write fails — a client running ahead of 0041, Drive's read-only
+  // stubs, a dropped connection — the scene must still be created, and the
+  // next create or reload reconciles the tree. The opposite policy would turn
+  // "no folders yet" into "nothing can be created", which is the S23 failure
+  // shape with a new cause.
+  //
+  // It is warned about rather than swallowed. `sanitize`'s dropped-key
+  // warning is the house precedent: the message names what to do about it.
+  const mergeFolder = useCallback((row) => {
+    if (!row) return;
+    setBundle(prev => {
+      const rest = (prev.folders || []).filter(f => f.id !== row.id);
+      return { ...prev, folders: [...rest, row].sort((a, b) => a.path.localeCompare(b.path)) };
+    });
+  }, []);
+
+  const ensureProjectFoldersFor = useCallback(async (projectId, project) => {
+    const adapter = adapterRef.current;
+    // Feature-detect: Drive is read-only and a client older than this session
+    // has no such method. Both are "no tree here", not an error.
+    if (!adapter || !projectId || typeof adapter.ensureProjectFolders !== 'function') return null;
+    try {
+      const res = await adapter.ensureProjectFolders(projectId, project);
+      const rows = res?.folders || res || [];
+      if (projectId === activeProjectIdRef.current && Array.isArray(rows)) {
+        setBundle(prev => ({ ...prev, folders: rows }));
+      }
+      // The manifest carries the tree, so a rebuilt tree makes it stale.
+      writeManifestSoon(projectId);
+      return rows;
+    } catch (err) {
+      console.warn(
+        `[rabbit] could not create the folder tree for project ${projectId}: ` +
+        `${err.message || err}. The project is unaffected; the tree is rebuilt ` +
+        `the next time an asset, scene, shot, level or experience is created.`
+      );
+      return null;
+    }
+  }, [writeManifestSoon]);
+
+  const ensureEntityFolderFor = useCallback(async (entityType, entity) => {
+    const adapter = adapterRef.current;
+    const projectId = activeProjectIdRef.current;
+    if (!adapter || !projectId || typeof adapter.ensureEntityFolder !== 'function') return null;
+    try {
+      const row = await adapter.ensureEntityFolder(
+        projectId, bundleRef.current?.project, entityType, entity,
+      );
+      mergeFolder(row);
+      return row;
+    } catch (err) {
+      console.warn(
+        `[rabbit] could not create the folder for ${entityType} ` +
+        `"${entity?.name || entity?.id}": ${err.message || err}. The ` +
+        `${entityType} itself was saved.`
+      );
+      return null;
+    }
+  }, [mergeFolder]);
+
+  // The project manifest — a generated MIRROR written into the project
+  // folder whenever settings change (Audrey, 2026-08-03; the database stays
+  // authoritative). projectManifest.js records what it leaves out and why.
+  //
+  // DEBOUNCED, because updateProject fires per FIELD: the control panel's
+  // inputs each write on change, so a settings pass would otherwise upload
+  // one object per keystroke-ish edit. 1.5s after the last write is soon
+  // enough for a file nothing reads during normal operation.
+  const manifestTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(manifestTimerRef.current), []);
+
+  const writeManifestSoon = useCallback((projectId) => {
+    const adapter = adapterRef.current;
+    // Feature-detect: Drive is read-only, and an older client has no method.
+    if (!adapter || !projectId || typeof adapter.writeProjectManifest !== 'function') return;
+    clearTimeout(manifestTimerRef.current);
+    manifestTimerRef.current = setTimeout(async () => {
+      // The project may have been switched during the wait. Writing then
+      // would describe project A into project B's folder.
+      if (activeProjectIdRef.current !== projectId) return;
+      try {
+        const b = bundleRef.current;
+        await adapter.writeProjectManifest(
+          projectId,
+          buildProjectManifest(b?.project, b, new Date().toISOString()),
+        );
+      } catch (err) {
+        console.warn(
+          `[rabbit] could not write the project manifest for ${projectId}: ` +
+          `${err.message || err}. The settings themselves are saved — the ` +
+          `manifest is a mirror and is rewritten on the next change.`
+        );
+      }
+    }, 1500);
+  }, []);
+
   const createProject = useCallback(async (payload) => {
     if (!adapterRef.current) throw new Error('no adapter');
     const draft = {
@@ -960,8 +1072,13 @@ export function RabbitProvider({ children }) {
     // alongside the canonical RABBIT fields. The unified store
     // means callers can put anything they need on a project.
     setProjectsIndex(idx => ({ ...idx, [created.id]: { ...created } }));
+    // Session 26: a new project gets its folder tree immediately, so the
+    // structure exists before the first asset does. Non-blocking for the
+    // reason ensureFoldersFor explains — a project is not a failure because
+    // a folder row is.
+    ensureProjectFoldersFor(created.id, created);
     return created;
-  }, []);
+  }, [ensureProjectFoldersFor]);
 
   const updateProject = useCallback(async (id, patch) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -982,8 +1099,11 @@ export function RabbitProvider({ children }) {
     if (id === activeProjectId) {
       setBundle(prev => ({ ...prev, project: { ...prev.project, ...updated } }));
     }
+    // Session 26: the folder's copy of the settings follows the database's.
+    // Debounced — see writeManifestSoon; this fires per FIELD.
+    writeManifestSoon(id);
     return updated;
-  }, [activeProjectId, notePendingFields, clearPendingFields]);
+  }, [activeProjectId, notePendingFields, clearPendingFields, writeManifestSoon]);
 
   const deleteProject = useCallback(async (id) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -1164,12 +1284,17 @@ export function RabbitProvider({ children }) {
         ? prev.assets.map(a => (a.id === finalRow.id ? { ...a, ...finalRow } : a))
         : [...prev.assets, finalRow],
     }));
+    // Session 26: assets are the fifth entity with a folder of their own. The
+    // Local Server has created the DIRECTORY since long before this session
+    // (electron/main.cjs ensureAssetFolder); this records the ROW, on both
+    // backends, so an asset folder is part of the same tree as a scene's.
+    ensureEntityFolderFor('asset', finalRow);
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteAsset(finalRow.id)],
       redoOps: [() => mutationsRef.current.addAsset(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, ensureEntityFolderFor]);
 
   const updateAsset = useCallback(async (id, patch) => {
     const oldAsset = bundleRef.current.assets.find(a => a.id === id);
@@ -1191,6 +1316,11 @@ export function RabbitProvider({ children }) {
     } finally {
       clearPendingFields('assets', id, fields);
     }
+    // Session 26: renaming an asset already moved its directory on Local
+    // Server; the folder row follows so the two do not drift apart.
+    if (patch?.name !== undefined) {
+      ensureEntityFolderFor('asset', { ...oldAsset, ...patch, id });
+    }
     if (oldAsset) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateAsset(id, oldValues)],
@@ -1198,7 +1328,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic, notePendingFields, clearPendingFields]);
+  }, [optimistic, notePendingFields, clearPendingFields, ensureEntityFolderFor]);
 
   const deleteAsset = useCallback(async (id) => {
     const oldAsset = bundleRef.current.assets.find(a => a.id === id);
@@ -1315,12 +1445,18 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertScene(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, scenes: [...prev.scenes, finalRow] }));
+    // Session 26: the entity's own folder. Audrey — five scenes means
+    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
+    // awaited: the scene is already saved and in state, and a folder that
+    // cannot be written must not undo that. ensureEntityFolderFor warns
+    // and the next create or reload reconciles.
+    ensureEntityFolderFor('scene', finalRow);
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteScene(finalRow.id)],
       redoOps: [() => mutationsRef.current.addScene(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, ensureEntityFolderFor]);
 
   const updateScene = useCallback(async (id, patch) => {
     const oldScene = bundleRef.current.scenes.find(s => s.id === id);
@@ -1332,6 +1468,13 @@ export function RabbitProvider({ children }) {
       prev => ({ ...prev, scenes: prev.scenes.map(s => s.id === id ? { ...s, ...patch } : s) }),
       () => adapterRef.current.upsertScene({ ...bundleRef.current.scenes.find(s => s.id === id), ...patch, id }),
     );
+    // Session 26: a rename MOVES the folder — folderPaths.js records why
+    // that was chosen over keeping the slug and changing only the label.
+    // Only fires when the name actually rides in the patch; every other
+    // edit leaves the tree alone.
+    if (patch?.name !== undefined) {
+      ensureEntityFolderFor('scene', { ...oldScene, ...patch, id });
+    }
     if (oldScene) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateScene(id, oldValues)],
@@ -1339,7 +1482,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, ensureEntityFolderFor]);
 
   const deleteScene = useCallback(async (id) => {
     const oldScene = bundleRef.current.scenes.find(s => s.id === id);
@@ -1369,12 +1512,18 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertShot(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, shots: [...prev.shots, finalRow] }));
+    // Session 26: the entity's own folder. Audrey — five scenes means
+    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
+    // awaited: the shot is already saved and in state, and a folder that
+    // cannot be written must not undo that. ensureEntityFolderFor warns
+    // and the next create or reload reconciles.
+    ensureEntityFolderFor('shot', finalRow);
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteShot(finalRow.id)],
       redoOps: [() => mutationsRef.current.addShot(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, ensureEntityFolderFor]);
 
   const updateShot = useCallback(async (id, patch) => {
     const oldShot = bundleRef.current.shots.find(s => s.id === id);
@@ -1386,6 +1535,13 @@ export function RabbitProvider({ children }) {
       prev => ({ ...prev, shots: prev.shots.map(s => s.id === id ? { ...s, ...patch } : s) }),
       () => adapterRef.current.upsertShot({ ...bundleRef.current.shots.find(s => s.id === id), ...patch, id }),
     );
+    // Session 26: a rename MOVES the folder — folderPaths.js records why
+    // that was chosen over keeping the slug and changing only the label.
+    // Only fires when the name actually rides in the patch; every other
+    // edit leaves the tree alone.
+    if (patch?.name !== undefined) {
+      ensureEntityFolderFor('shot', { ...oldShot, ...patch, id });
+    }
     if (oldShot) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateShot(id, oldValues)],
@@ -1393,7 +1549,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, ensureEntityFolderFor]);
 
   const deleteShot = useCallback(async (id) => {
     const oldShot = bundleRef.current.shots.find(s => s.id === id);
@@ -1423,12 +1579,18 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertLevel(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, levels: [...prev.levels, finalRow] }));
+    // Session 26: the entity's own folder. Audrey — five scenes means
+    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
+    // awaited: the level is already saved and in state, and a folder that
+    // cannot be written must not undo that. ensureEntityFolderFor warns
+    // and the next create or reload reconciles.
+    ensureEntityFolderFor('level', finalRow);
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteLevel(finalRow.id)],
       redoOps: [() => mutationsRef.current.addLevel(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, ensureEntityFolderFor]);
 
   const updateLevel = useCallback(async (id, patch) => {
     const oldLevel = bundleRef.current.levels.find(l => l.id === id);
@@ -1440,6 +1602,13 @@ export function RabbitProvider({ children }) {
       prev => ({ ...prev, levels: prev.levels.map(l => l.id === id ? { ...l, ...patch } : l) }),
       () => adapterRef.current.upsertLevel({ ...bundleRef.current.levels.find(l => l.id === id), ...patch, id }),
     );
+    // Session 26: a rename MOVES the folder — folderPaths.js records why
+    // that was chosen over keeping the slug and changing only the label.
+    // Only fires when the name actually rides in the patch; every other
+    // edit leaves the tree alone.
+    if (patch?.name !== undefined) {
+      ensureEntityFolderFor('level', { ...oldLevel, ...patch, id });
+    }
     if (oldLevel) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateLevel(id, oldValues)],
@@ -1447,7 +1616,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, ensureEntityFolderFor]);
 
   const deleteLevel = useCallback(async (id) => {
     const oldLevel = bundleRef.current.levels.find(l => l.id === id);
@@ -1477,12 +1646,18 @@ export function RabbitProvider({ children }) {
     const created = await adapterRef.current.upsertExperience(row);
     const finalRow = created || row;
     setBundle(prev => ({ ...prev, experiences: [...prev.experiences, finalRow] }));
+    // Session 26: the entity's own folder. Audrey — five scenes means
+    // FIVE folders under SCENES/, not one shared one. Deliberately NOT
+    // awaited: the experience is already saved and in state, and a folder that
+    // cannot be written must not undo that. ensureEntityFolderFor warns
+    // and the next create or reload reconciles.
+    ensureEntityFolderFor('experience', finalRow);
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteExperience(finalRow.id)],
       redoOps: [() => mutationsRef.current.addExperience(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, ensureEntityFolderFor]);
 
   const updateExperience = useCallback(async (id, patch) => {
     const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
@@ -1494,6 +1669,13 @@ export function RabbitProvider({ children }) {
       prev => ({ ...prev, experiences: prev.experiences.map(e => e.id === id ? { ...e, ...patch } : e) }),
       () => adapterRef.current.upsertExperience({ ...bundleRef.current.experiences.find(e => e.id === id), ...patch, id }),
     );
+    // Session 26: a rename MOVES the folder — folderPaths.js records why
+    // that was chosen over keeping the slug and changing only the label.
+    // Only fires when the name actually rides in the patch; every other
+    // edit leaves the tree alone.
+    if (patch?.name !== undefined) {
+      ensureEntityFolderFor('experience', { ...oldExperience, ...patch, id });
+    }
     if (oldExperience) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateExperience(id, oldValues)],
@@ -1501,7 +1683,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, ensureEntityFolderFor]);
 
   const deleteExperience = useCallback(async (id) => {
     const oldExperience = bundleRef.current.experiences.find(e => e.id === id);
@@ -2396,6 +2578,8 @@ export function RabbitProvider({ children }) {
     levels:          bundle.levels || [],
     experiences:     bundle.experiences || [],
     milestones:      bundle.milestones || [],
+    // Session 26: the project folder tree (migration 0041). S27 renders it.
+    folders:         bundle.folders || [],
     loadingProject,
     error,
 
@@ -2458,6 +2642,12 @@ export function RabbitProvider({ children }) {
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
 
+    // folders (Session 26). Exposed so S27's Files view can rebuild the
+    // tree for a project that predates 0041 without inventing its own
+    // path rules — folderPaths.js stays the only place paths are decided.
+    ensureProjectFolders: ensureProjectFoldersFor,
+    ensureEntityFolder:   ensureEntityFolderFor,
+
     // history
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
 
@@ -2489,6 +2679,7 @@ export function RabbitProvider({ children }) {
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
+    ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,
   ]);

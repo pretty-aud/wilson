@@ -77,6 +77,7 @@ const CLOUD_BUNDLE_KEYS = [
   'assetVersions', 'comments', 'ingestionRuns', 'budgetVersions', 'expenses',
   'teamAssignments',
   'scenes', 'shots', 'levels', 'experiences',
+  'folders',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {
@@ -101,6 +102,39 @@ describe('supabaseAdapter.loadProject — bundle key coverage', () => {
     expect(bundle.shots).toEqual([{ id: 'sh1', scene_id: 'sc1' }])
     expect(bundle.levels).toEqual([{ id: 'lv1' }])
     expect(bundle.experiences).toEqual([{ id: 'ex1' }])
+  })
+})
+
+describe('the folder tree rides the same load (Session 26, 0041)', () => {
+  it('carries folders through with their rows', async () => {
+    globalThis.__testSupabase = makeClient({
+      projects: { data: { id: 'p1', title: 'Project One' }, error: null },
+      folders:  { data: [
+        { id: 'f1', kind: 'root',     path: '' },
+        { id: 'f2', kind: 'category', path: 'SCENES' },
+      ], error: null },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.folders).toHaveLength(2)
+    expect(bundle.folders[0].path).toBe('')
+  })
+
+  it('degrades to an empty tree on a client deployed ahead of 0041', async () => {
+    // Same reasoning as the 0040 block below: `feat/multi-user-v1`
+    // auto-deploys the staging-backed beta on push, so a client can reach a
+    // database without public.folders. No folder tree must not become no
+    // project.
+    globalThis.__testSupabase = makeClient({
+      projects: { data: { id: 'p1', title: 'Project One' }, error: null },
+      folders:  { data: null, error: { code: '42P01', message: 'relation "public.folders" does not exist' } },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.project).toEqual({ id: 'p1', title: 'Project One' })
+    expect(bundle.folders).toEqual([])
   })
 })
 

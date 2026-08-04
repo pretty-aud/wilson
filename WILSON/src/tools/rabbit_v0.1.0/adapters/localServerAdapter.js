@@ -91,6 +91,10 @@ export function localServerAdapter() {
         shots:           bundle.shots || [],
         levels:          bundle.levels || [],
         experiences:     bundle.experiences || [],
+        // Session 26 — same reason as every key above it: setActiveProject
+        // does setBundle({ ...EMPTY_BUNDLE, ...next }), so an omitted key is
+        // reset to [] on every load, project switch and realtime refetch.
+        folders:         bundle.folders || [],
         // Session 17 (§6 #47): omitting this dropped every milestone on load.
         // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
         // missing key reset the array — real data loss on every reload,
@@ -454,6 +458,49 @@ export function localServerAdapter() {
     }),
     deleteExperience: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/experiences/${id}`, { method: 'DELETE' }),
+
+    // ── Folders (Session 26) ───────────────────────────────────
+    //
+    // The same three methods the Supabase adapter exposes, so the provider
+    // calls one interface. The difference is where the work happens: here the
+    // Express route creates REAL DIRECTORIES with fs.mkdirSync and records
+    // them in the bundle, because Local Server has an actual filesystem.
+    //
+    // Both sides plan the tree with the same folderPaths.js, which is what
+    // stops the two backends filing the same project differently.
+    listFolders: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).folders || [],
+
+    ensureProjectFolders: (projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/ensure`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
+
+    // The project is NOT sent: the server reads it from the bundle, which is
+    // the copy the folder actually has to agree with. Sending the client's
+    // copy would let a stale render create a folder under the old name.
+    ensureEntityFolder: (projectId, project, entityType, entity) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/ensure-entity`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ entityType, entityId: entity?.id }),
+      }),
+
+    deleteFolder: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/${id}`, { method: 'DELETE' }),
+
+    // The manifest is written by the SERVER, not posted from here: the server
+    // has the bundle, and the bundle is the copy the file has to mirror.
+    // Posting a client-built manifest would let a stale render write a
+    // description of a project as it was three edits ago.
+    writeProjectManifest: (projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/manifest`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
 
     // ── Milestones ────────────────────────────────────────────
     listMilestones: async (projectId) =>

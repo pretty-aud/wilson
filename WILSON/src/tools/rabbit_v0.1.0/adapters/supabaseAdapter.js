@@ -44,6 +44,13 @@
 // task_links, rate_card_entries) stay hard-delete.
 
 import { supabase as sharedAuthedClient } from '../../../cloud/auth/supabaseClient.js';
+// Session 26: paths are computed here, not in Postgres, so the Local Server
+// route and this adapter produce the SAME tree for the same project. See
+// folderPaths.js — the reasoning is S25's, applied to folders instead of names.
+import {
+  planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
+} from '../folderPaths';
+import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 
 // ───────────────────────────────────────────────────────────────
 // Module-level singleton. One cached client reference per app session;
@@ -262,6 +269,19 @@ const LEVEL_COLUMNS = new Set([
 
 const EXPERIENCE_COLUMNS = new Set(LEVEL_COLUMNS);
 
+// ── 0041: the folder tree ────────────────────────────────────────────────
+// `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
+// provider re-sends whole rows on update and PATCH_DROP strips it first.
+// `parentPath` / `entityType` are NOT columns — folderInsertRow translates a
+// plan into a row, and a plan carries neither.
+const FOLDER_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'parent_id',
+  'kind', 'entity_type',
+  'asset_id', 'scene_id', 'shot_id', 'level_id', 'experience_id',
+  'slug', 'label', 'path', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
 const BUDGET_LINE_COLUMNS = new Set([
   'id', 'project_id', 'workspace_id',
   'sheet', 'department', 'sort_order', 'label', 'description',
@@ -311,6 +331,7 @@ export const COLUMN_ALLOWLIST = {
   shots: SHOT_COLUMNS,
   levels: LEVEL_COLUMNS,
   experiences: EXPERIENCE_COLUMNS,
+  folders: FOLDER_COLUMNS,
 };
 
 // Session 24: the UI initialises date fields to the empty STRING, not null —
@@ -353,6 +374,71 @@ export function toColumns(table, obj) {
     );
   }
   return out;
+}
+
+// ── Folder-tree helpers (Session 26, migration 0041) ────────────────────
+//
+// Module-level rather than methods, because nothing else in this adapter uses
+// `this` — one destructured `const { listFolders } = adapter` would break
+// every method that leaned on it, silently and only at runtime.
+
+function listFoldersWith(client, projectId) {
+  // unwrapOptionalTable: a client deployed ahead of 0041 shows no folders
+  // rather than failing every project load. Same treatment 0040's tables got,
+  // and for the same reason — the web build ships continuously.
+  return client.from('folders').select('*')
+    .eq('project_id', projectId).order('path').then(unwrapOptionalTable);
+}
+
+async function foldersByPath(client, projectId) {
+  const rows = await listFoldersWith(client, projectId);
+  return new Map((rows || []).map(f => [f.path, f]));
+}
+
+// A planned folder becomes a row. `parent_id` is resolved from the sibling
+// map rather than sent by the caller, because a plan is computed before any
+// row exists and a category's parent may have been inserted moments ago.
+function folderInsertRow(projectId, planned, byPath) {
+  const parent = planned.parentPath === null ? null : byPath.get(planned.parentPath);
+  const row = {
+    project_id:  projectId,
+    parent_id:   parent ? parent.id : null,
+    kind:        planned.kind,
+    entity_type: planned.entityType || null,
+    slug:        planned.slug,
+    label:       planned.label || null,
+    path:        planned.path,
+  };
+  for (const fk of Object.values(ENTITY_FK_COLUMN)) {
+    if (planned[fk]) row[fk] = planned[fk];
+  }
+  // workspace_id is stamped by trg_folders_populate_workspace, exactly as it
+  // is for scenes — no client sends it.
+  return toColumns('folders', row);
+}
+
+// Inserts when absent, mutates `byPath` in place, returns the new row or null
+// when nothing was created. Used by both ensure* methods so they cannot drift.
+async function insertFolderIfMissing(client, projectId, planned, byPath) {
+  if (byPath.has(planned.path)) return null;
+  const ins = await client.from('folders')
+    .insert(folderInsertRow(projectId, planned, byPath)).select().single();
+  if (ins.error) {
+    // 23505 means a collaborator created the same folder between our read and
+    // our write. That is not a failure — the folder exists, which is all the
+    // caller asked for. Re-read so the map carries the row THEY inserted,
+    // because a later child needs its real id for parent_id.
+    if (ins.error.code !== '23505') {
+      lastError = ins.error.message;
+      throw new Error(`[supabase] ${ins.error.message}`);
+    }
+    for (const f of (await listFoldersWith(client, projectId)) || []) {
+      byPath.set(f.path, f);
+    }
+    return null;
+  }
+  byPath.set(ins.data.path, ins.data);
+  return ins.data;
 }
 
 // Columns a per-field patch must never carry: identity/tenancy, audit
@@ -497,7 +583,11 @@ export function supabaseAdapter() {
       // the database held. They use unwrapOptionalTable so a client deployed
       // ahead of migration 0040 shows no scenes instead of failing every
       // project load; see the helper for why only 42P01 is absorbed.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences] =
+      //
+      // Session 26: `folders` joins for the third time for the same reason.
+      // Ordered by path so the tree renders depth-first without a client-side
+      // sort, and so both adapters return it in the same order.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -538,11 +628,13 @@ export function supabaseAdapter() {
             .order('sort_order').then(unwrapOptionalTable),
           client.from('experiences').select('*').eq('project_id', projectId)
             .order('sort_order').then(unwrapOptionalTable),
+          client.from('folders').select('*').eq('project_id', projectId)
+            .order('path').then(unwrapOptionalTable),
         ]);
       return {
         project, phases, assets, tasks, dependencies, taskLinks, files,
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
-        scenes, shots, levels, experiences,
+        scenes, shots, levels, experiences, folders,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -1473,6 +1565,132 @@ export function supabaseAdapter() {
     async deleteExperience(id, _projectId) {
       const client = await requireClient();
       unwrap(await client.from('experiences').delete().eq('id', id));
+    },
+
+    // ── Folders (0041) ────────────────────────────────────────
+    //
+    // Session 26 — the backend-agnostic folder tree. Audrey: R.A.B.B.I.T. is
+    // also a project file manager and the tree must reflect in whichever
+    // storage backend the company selected, not local disk only.
+    //
+    // The TABLE is the source of truth (Audrey, 2026-08-04) and the storage
+    // path is derived from it. Supabase Storage has no real folders — it is
+    // object storage with path prefixes, so an EMPTY folder cannot exist as
+    // an object at all, and "toggling a category off never deletes the
+    // folders" needs a folder that outlives its contents.
+    //
+    // Which is why nothing here writes to storage. A `.keep` placeholder
+    // would exist only where files already do, and would make the empty
+    // folders — the ones the requirement is about — the only ones that
+    // vanish. The rows ARE the folders; S27 files objects under their paths.
+    //
+    // Paths come from folderPaths.js, shared with the Local Server route, so
+    // the same project produces the same tree on both backends.
+    async listFolders(projectId) {
+      const client = await requireClient();
+      return listFoldersWith(client, projectId);
+    },
+
+    // Idempotent, and idempotent the expensive way on purpose: it READS the
+    // existing rows and inserts only what is missing, rather than upserting
+    // the plan. An upsert would need a conflict target, and the natural one
+    // (project_id, path) is exactly what a rename changes — so an upsert
+    // would silently create a second row for a renamed folder instead of
+    // moving the first. That is the double-folder bug this session exists to
+    // prevent, arriving through the back door.
+    async ensureProjectFolders(projectId, project) {
+      const client = await requireClient();
+      const byPath = await foldersByPath(client, projectId);
+      const created = [];
+      // Sequential, not Promise.all: a category's parent_id is the id of a
+      // row this same loop may have just inserted.
+      for (const planned of planProjectFolders(project)) {
+        const row = await insertFolderIfMissing(client, projectId, planned, byPath);
+        if (row) created.push(row);
+      }
+      return { folders: [...byPath.values()], created };
+    },
+
+    // The per-entity folder. Audrey, explicitly: five scenes means five
+    // independent folders under SCENES/, not one shared one.
+    //
+    // Creates the category lazily too — a scene can exist from before the
+    // toggle was flipped, and its folder must not be orphaned.
+    async ensureEntityFolder(projectId, project, entityType, entity) {
+      const client = await requireClient();
+      const planned = planEntityFolder(project, entityType, entity);
+      if (!planned) throw new Error(`[supabase] unknown folder entity type: ${entityType}`);
+      const fk = ENTITY_FK_COLUMN[entityType];
+      const byPath = await foldersByPath(client, projectId);
+
+      // Renaming the entity MOVES its folder (folderPaths.js explains why),
+      // and this is checked before anything is inserted. Matching on the FK
+      // rather than the path is the whole point: the path is the thing that
+      // changed, so a path lookup would miss the existing row and create a
+      // second folder for one scene — the exact defect this session exists to
+      // prevent. The database would refuse it (folders_scene_uniq), which is
+      // the backstop, not the plan.
+      const mine = [...byPath.values()].find(f => f[fk] && f[fk] === entity?.id);
+      if (mine) {
+        if (mine.path === planned.folder.path) return mine;
+        return unwrap(await client.from('folders')
+          .update({
+            slug:  planned.folder.slug,
+            path:  planned.folder.path,
+            label: planned.folder.label,
+          })
+          .eq('id', mine.id).select().single());
+      }
+
+      // The root has to exist before a category can point at it, and a
+      // project created before 0041 has no rows at all.
+      if (!byPath.has('')) {
+        for (const step of planProjectFolders(project)) {
+          await insertFolderIfMissing(client, projectId, step, byPath);
+        }
+      }
+      for (const step of [planned.category, planned.folder]) {
+        await insertFolderIfMissing(client, projectId, step, byPath);
+      }
+      return byPath.get(planned.folder.path) || null;
+    },
+
+    // The project manifest — a generated MIRROR of the project's settings,
+    // written into the project folder so the folder is self-describing
+    // (Audrey, 2026-08-03). See projectManifest.js for what it deliberately
+    // leaves out and the storage policy that forced that.
+    //
+    // upsert: true, unlike uploadFile. Every other upload is a distinct user
+    // file and a collision means two files; this one is a regenerated mirror
+    // and a collision means the newer copy wins, which is exactly right.
+    //
+    // No `files` row is created, on purpose. The manifest is not a user's
+    // file — showing it in the Files list would invite someone to edit or
+    // delete the thing the folder describes itself with, and its lifecycle is
+    // "rewritten whenever settings change", which the file lifecycle (0027)
+    // does not model.
+    async writeProjectManifest(projectId, manifest) {
+      const client = await requireClient();
+      const body = new Blob([serializeProjectManifest(manifest)], { type: 'application/json' });
+      const { error } = await client.storage.from('rabbit-files').upload(
+        `projects/${projectId}/${MANIFEST_FILENAME}`, body,
+        { upsert: true, contentType: 'application/json', cacheControl: '0' },
+      );
+      if (error) {
+        lastError = error.message;
+        throw new Error(`[supabase] manifest write failed: ${error.message}`);
+      }
+      return { path: `projects/${projectId}/${MANIFEST_FILENAME}` };
+    },
+
+    async deleteFolder(id, _projectId) {
+      const client = await requireClient();
+      // Descendants go with it via parent_id ON DELETE CASCADE (0041).
+      // 🚨 This is NOT what a category toggle calls. Toggling scenes_enabled
+      // off hides the tab and deletes nothing — Audrey's stated requirement,
+      // pinned by pgTAP 52 probe 17. This is for a folder a user removes on
+      // purpose.
+      unwrap(await client.from('folders').delete().eq('id', id));
     },
 
     // ── Milestones (tables pending — Phase 2) ───────────────
