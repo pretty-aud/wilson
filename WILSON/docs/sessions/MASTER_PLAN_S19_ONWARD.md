@@ -372,6 +372,16 @@ below are superseded; only one of them actually moves.
 
 **REORDERED by Audrey, 2026-08-03 — this table is the authority.**
 
+> ℹ️ **S22 and S23 were executed in ONE conversation** (2026-08-03). The
+> conversation opened on the S22 brief, completed it (`494a13d`, `8709b1e`,
+> `a92fa65`) and wrote `SESSION_23_prompt.md` — then Audrey reported she could
+> not create anything, so it went straight on and executed that S23 brief in
+> the same sitting (`2727328` … `c21e47d`) rather than stopping. Both sessions'
+> work is done, deployed to all three environments and verified; there is no
+> gap and nothing was skipped. **Session numbers track units of WORK, not
+> conversations** — if a future session rolls into the next brief, say so
+> explicitly at the time, because not saying it is what made this confusing.
+
 | # | Session | Why here | Prompt |
 |---|---|---|---|
 | **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
