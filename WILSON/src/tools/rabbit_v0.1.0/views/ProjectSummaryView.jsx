@@ -24,7 +24,7 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canSeeProjectMoney } from '../../../permissions/projectRoleMatrix'
+import { canSeeProjectMoney, canOnProject } from '../../../permissions/projectRoleMatrix'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
@@ -65,6 +65,34 @@ export default function ProjectSummaryView() {
     appRole: perms?.role,
     projectRole: ctx?.myProjectRole,
   })
+
+  // Session 25. Audrey, 2026-08-04: "managers and reviewers should be able to
+  // see and press the button and open the control panel … basic team members
+  // do not need access to the panel at all."
+  //
+  // Gated in TWO places below, not one: the button that opens it AND the
+  // branch that renders it. She asked for no ACCESS, not a missing link — and
+  // `setShowSettings(true)` has a second caller (handleNewProject, :124), so
+  // gating only the button would still let the panel open by another route.
+  //
+  // `ready` is passed so a session still resolving reads as "not yet known"
+  // rather than "denied" — otherwise a manager whose getSession() hangs loses
+  // the control panel permanently, which is the exact failure shape behind the
+  // vanishing-create-button investigation.
+  const canOpenControlPanel = canOnProject({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: perms?.ready,
+  }, 'project.settings.open')
+
+  // A panel that is open when access is lost must not stay open — the same
+  // rule Rabbit.jsx:96-98 applies to hidden tabs. Without this, someone
+  // already inside the panel when their seat resolves keeps the whole screen
+  // mounted with only the button gone.
+  useEffect(() => {
+    if (!canOpenControlPanel && showSettings) setShowSettings(false)
+  }, [canOpenControlPanel, showSettings])
 
   const allProjects = useMemo(() => {
     return Object.values(projectsIndex).sort((a, b) => {
@@ -177,7 +205,7 @@ export default function ProjectSummaryView() {
     <div className="h-full overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div className="p-6 flex flex-col gap-4">
 
-        {showSettings ? (<>
+        {showSettings && canOpenControlPanel ? (<>
           {/* ── Back to dashboard bar ── */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -316,14 +344,16 @@ export default function ProjectSummaryView() {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
-              style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              <Settings className="w-3 h-3" /> Control Panel
-            </button>
+            {canOpenControlPanel && (
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
+                style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
+              >
+                <Settings className="w-3 h-3" /> Control Panel
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
             <Stat icon={Layers} label="Phases" value={phases.length} />

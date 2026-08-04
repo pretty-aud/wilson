@@ -489,8 +489,18 @@ silently re-opens them.** The Client View's `project.name` / `project.code` was
   main's three separate invoice folders are no longer created (nothing wrote
   to them once the desktop-only route went). Existing folders are never
   deleted.
-- **The project control panel gate is CARRIED TO S25**, at her request, rather
-  than left sitting in `OUTSTANDING.md`.
+- ~~**The project control panel gate is CARRIED TO S25**~~ ✅ **DONE in S25
+  (`0c1e9a2`).** Both questions this file said had to be settled first were,
+  and neither answer was the expected one. **Which screen:** not a judgement
+  call — `ProjectSummaryView.jsx:166` renders a header literally reading
+  "Project Control Panel". **Which rule:** its own, not the money rule.
+  Audrey, 2026-08-04: *"managers and reviewers should be able to see and press
+  the button and open the control panel, the budget block is managers only.
+  basic team members do not need access to the panel at all."*
+  🚨 `project.settings.open` is the **only** action where a reviewer outranks
+  a member — `project.entity.write` is the exact inverse on those two seats,
+  and `canSeeProjectMoney` admits neither. Every existing gate was wrong here
+  in a way that would have passed review.
 
 **Answered by Audrey and now settled** (do not re-ask): money = a project
 manager **or** a workspace admin — a workspace *manager* holding only a project

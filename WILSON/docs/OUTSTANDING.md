@@ -167,12 +167,28 @@ manager on that project, via `canSeeProjectMoney()` — the client mirror of
 late for a project manager rather than being shown to a reviewer and snatched
 back; `Rabbit.jsx` also redirects to Summary if a hidden tab is somehow open.
 
-**Still owed, and narrower than the original entry:** Audrey also asked that
-non-managers have **no access to the project control panel**. That is a
-separate route-level gate and does not exist yet.
-→ **SCHEDULED into S25 at Audrey's request** (2026-08-04), with the two
-questions that must be answered first: which screen she actually means, and
-whether it wants the money rule or its own. See `SESSION_25_prompt.md`.
+**The project control panel gate is now DONE too (S25, `0c1e9a2`).** Both
+questions the S25 brief said had to be answered first were — and neither
+answer was the expected one:
+
+- **Which screen?** Not a judgement call at all: `ProjectSummaryView.jsx:166`
+  renders a header literally reading **"Project Control Panel"**. Asking
+  Audrey which screen she meant would have been the S24 mistake (four of nine
+  "questions for Audrey" were answerable from the code).
+- **Which rule?** **Its own** — and emphatically not the money rule. Audrey,
+  2026-08-04: *"managers and reviewers should be able to see and press the
+  button and open the control panel, the budget block is managers only. basic
+  team members do not need access to the panel at all."*
+
+🚨 **`project.settings.open` is the ONLY action where a reviewer outranks a
+member.** `project.entity.write` is the exact inverse on those two seats, and
+`canSeeProjectMoney` admits neither — so every existing gate was wrong here in
+a way that would have passed review. Gated in **two** places (the button and
+the render branch), because `setShowSettings(true)` has a second caller
+(`:124`, straight after creating a project) and she asked for no access rather
+than a missing link. The unstaffed opening is load-bearing: a new project has
+no members yet, so without it creating a project would lock you out of
+configuring it.
 
 ### ~~Crew and Talent invoice folders are desktop-only~~ — FIXED (S24, `dfdf386`)
 Both tabs now attach invoices through `InvoiceAttachment`, which picks with a

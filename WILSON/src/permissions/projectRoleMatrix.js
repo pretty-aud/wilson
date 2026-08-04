@@ -47,6 +47,7 @@ export const PROJECT_ACTIONS = Object.freeze([
   'project.comment.write',
   'project.entity.write',
   'project.roster.manage',
+  'project.settings.open',
 ])
 
 /**
@@ -144,6 +145,33 @@ export function canOnProject(ctx, action) {
     // unstaffed opening — initial staffing is app admin/manager only.
     case 'project.roster.manage':
       return projectRole === 'manager'
+
+    // Session 25 — the Project Control Panel (ProjectSummaryView's settings
+    // screen: naming, fps, the scenes/levels/experiences toggles, the engine
+    // fields, the project folder, and the Budget block).
+    //
+    // Audrey, 2026-08-04: "managers and reviewers should be able to see and
+    // press the button and open the control panel, the budget block is
+    // managers only. basic team members do not need access to the panel at
+    // all."
+    //
+    // 🚨 This is the ONLY action where a reviewer outranks a member, so it
+    // cannot borrow any existing gate. `project.entity.write` is the exact
+    // inverse on those two seats (a member writes, a reviewer does not), and
+    // `canSeeProjectMoney` admits neither. Reusing either would have been
+    // wrong in a way that looks right in review.
+    //
+    // The unstaffed opening is load-bearing rather than copied: a brand-new
+    // project has no project_members rows, and ProjectSummaryView:124 opens
+    // this very panel immediately after createProject so the user can set the
+    // title and type. Without it, creating a project would lock you out of
+    // configuring the thing you just made.
+    //
+    // The BUDGET BLOCK INSIDE the panel keeps its own stricter gate
+    // (canSeeProjectMoney), so admitting reviewers here does not admit them to
+    // money. That separation is the whole design: an open shell, a closed safe.
+    case 'project.settings.open':
+      return !isStaffed || projectRole === 'manager' || projectRole === 'reviewer'
     default:
       return false
   }
