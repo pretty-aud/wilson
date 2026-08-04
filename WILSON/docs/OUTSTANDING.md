@@ -84,44 +84,78 @@ account the session holds, and whether New asset is present while New task is
 gone. Separately, the UX is wrong either way — a reviewer should be told why
 they cannot add, not have the control silently disappear.
 
-### The budget system does not exist in the cloud schema
-**MEASURED (S23, 2026-08-03).** Reported by Audrey as "the default contingency
-and margin come up as 0%" and "i have tried to update the percentage and it
-doesn't save". The cause is not a save bug: checked against a full census of
-all 36 public tables, there is **no `budget_lines`, `budget_actuals`,
-`budget_versions` or `expenses` table, and no `margin` or `contingency` column
-anywhere in the database.** The cloud schema holds only
-`projects.budget_currency` and the rate fields on `rate_card_entries`
-(`day_rate`, `week_rate`, `month_rate`, `wage`, `burden`, `burden_type`,
-`overhead`, `overhead_type`).
+### ~~The budget system does not exist in the cloud schema~~ — FIXED (S24, `b07b6c9`)
+Deleted per the rule for this file. Migrations 0036 + 0037 applied and verified
+**by query** on dev, staging and prod: nine budget settings on `projects`,
+`project_members.project_title`, and five money tables (`budget_lines`,
+`budget_actuals`, `budget_versions`, `expenses`, `project_rate_overrides`) with
+manager-only RLS. The adapter gained the fifteen budget methods it never had.
 
-Those structures exist only in the local JSON bundle — `mirrorProjectDatabases`
-on `origin/main` writes `budget.json` with exactly `budgetLines`,
-`budgetActuals`, `budgetVersions`, `expenses`. So there is nowhere in the cloud
-to persist a percentage, and the 0% is what an absent value renders as.
+**Three residues are NOT fixed and are recorded separately below**: the four
+scene/shot/level/experience budget tabs, the Client View's `project.name` /
+`project.code`, and the absent client-side gate.
 
-Same defect class as `tasks.asset_id` and `assets.start_date`, one layer up: a
-UI built against a local schema the cloud migration never gained.
+The lesson worth carrying: **the plan documents named the wrong columns.** Both
+`MASTER_PLAN_S19_ONWARD.md` and `SESSION_24_prompt.md` said the gap was
+`margin` and `contingency`. The UI reads `budget_margin_pct` and
+`budget_contingency_pct`, plus seven more. Adding `projects.margin` would have
+closed the documented gap, satisfied review, and left Audrey's reported bug
+100% intact. The columns were derived from a grep of the views instead.
 
-**Wider than the budget — `projects` is missing columns three planned sessions
-need.** MEASURED: `public.projects` has 22 columns, and ALL of these are
-absent: `budget_actual_column_mode` (so the pay-cadence selector at
-`ProjectSummaryView.jsx:669` cannot save either), `margin`, `contingency`,
-`code`, `scene_start_number`, `scene_digits`, `shot_digits` (S24's scene/shot
-auto-naming has no settings to read) and `folder_slug` / `folder_root` (S25's
-folder tree has no anchor — main's `ensureProjectFolders` keys off
-`folder_slug`). One defect class, not four bugs: the UI was built against
-main's local JSON project shape and the cloud table never gained the fields.
+Second lesson: **the React was already finished.** The whole budget — bid,
+actuals grid, versions, per-line margin with project-default inheritance, the
+client topsheet — was written and had been sitting there unable to persist
+anything. The session was scoped as "build the budget" and was actually "give
+the finished budget a database". Reading the UI before designing the schema is
+what turned a guess into a measurement.
 
-Also reported and unbuilt: the crew/team tab should show each member's title
-plus a **separate, manager-editable project job title**; the budget's phases
-tab should list the timeline's phases; and a phase should total
-`(task cost = rate × days) + expenses`.
+### Four budget tabs can never render in cloud
+**MEASURED (S24, 2026-08-03).** `BudgetView.jsx:54-57` gates the By Scene, By
+Shot, By Level and By Experience tabs on `project.scenes_enabled`,
+`project.levels_enabled` and `project.experiences_enabled`. None of those three
+is a column — `grep -rni "scenes_enabled" supabase/` returns nothing — so
+`TABS.filter(t => !t.requires || project?.[t.requires])` (`:183`) drops all four
+on every cloud project, permanently and silently.
 
-→ **S27**, scoped in `docs/sessions/SESSION_27_prompt.md`, which carries the
-open questions and the 🚨 warning that a job title must NOT be written into
-`project_members.project_role` (a permission column read by
-`can_write_project()`).
+Not fixed here deliberately: the tabs would render empty anyway, because
+scenes/shots/levels/experiences have no cloud tables at all (the Supabase
+adapter throws). Adding the flag columns before the entities exist would be a
+toggle that reveals four blank tabs. → **S25**, with the entities.
+
+### Client View prints "Project" and "--" instead of the project name and code
+**MEASURED (S24).** `ClientViewTab.jsx:108,126,177` reads `project?.name` and
+`:129,184` reads `project?.code`. The cloud column is `title`, and the writer at
+`ProjectSummaryView.jsx:605` sends `project_code`. So the client-facing
+topsheet — the one document that leaves the building — renders the fallback
+strings on every cloud project.
+
+Since `b07b6c9` these keys are dropped by the new `projects` allowlist with a
+console warning rather than rejecting the whole patch, so they no longer break
+unrelated saves. **The wrong output is unchanged.** `code` is already on S25's
+list of `projects` columns to add; `name` is not a missing column but a wrong
+read that should be `title`.
+
+### The budget UI has no client-side permission gate
+**MEASURED (S24).** `BudgetView.jsx` (2900+ lines) contains zero permission
+checks — `grep -n "usePermissions\|canOnProject\|PermissionGate"` returns
+nothing.
+
+**This is a UX defect, not a security one.** Migration 0037 makes the database
+the authority: a reviewer or team member now reads zero rows from every money
+table, proven by pgTAP suite 43. But they still see the Budget tab, its chrome
+and a page of zeroes, with nothing saying why — the same "control silently does
+the wrong thing" pattern as the `canWrite` entry above. Audrey also asked that
+non-managers have **no access to the project control panel**, which is a
+route-level gate that does not exist yet.
+→ Add a read capability to `projectRoleMatrix.js` (it currently has only three
+actions, all writes) and gate the tab and the panel. S25 or S28.
+
+### Crew and Talent invoice folders are desktop-only
+**MEASURED (S24).** `CrewTeamTab.jsx:17,80` and `TalentTab.jsx:17,92` `fetch`
+`http://localhost:19854/api/rabbit/projects/${id}/invoice-folder` directly,
+bypassing the adapter, and also call `window.rabbitDesktop.pickFiles`. On the
+staging-backed web beta there is no local server and no `rabbitDesktop`, so the
+invoice-attachment affordances fail. The rest of both tabs works.
 
 ### Task templates do not exist in cloud mode
 **MEASURED (S23).** `listProjectTaskTemplates` / `listTaskTemplates` have zero
@@ -201,12 +235,18 @@ where `project_members` is empty. On **staging** — Audrey's actual environment
 — it has 3 rows, so the *staffed* branch runs, not the fallback. The S22
 conclusion was measured against the wrong database.
 
-- `TimelineView.jsx:4228` (task editor) and `ProjectAssetsView.jsx:2108`
-  (asset-detail task rows) are **unconditionally empty in cloud**, independent
-  of roster, claims or RLS: both read `useTeamMembers`, which early-returns
-  without `adapter.listTeamMembers`, and that method exists **only** on
-  `localServerAdapter`. `supabaseAdapter.loadProject` (`:247`) also omits
-  `teamAssignments` entirely. Audrey was most likely looking at one of these.
+- ~~`TimelineView.jsx:4228` (task editor) and `ProjectAssetsView.jsx:2108`
+  (asset-detail task rows) are unconditionally empty in cloud~~ — **the stated
+  cause is REMOVED (S24, `b07b6c9`).** Both early-returned because
+  `adapter.listTeamMembers` existed only on `localServerAdapter`; the Supabase
+  adapter now implements it over the existing `workspace_directory()` RPC, and
+  `loadProject` now returns `teamAssignments` from `project_members` (it was
+  omitting the key, and the provider's
+  `setBundle({ ...EMPTY_BUNDLE, ...next })` reset it to `[]` on every load).
+  ⚠️ **This is CODE-level, not observed.** The adapter method exists and is
+  built; nobody has watched these two dropdowns populate in the running app.
+  Confirm before deleting this entry — the fix was a by-product of the budget
+  work (the Crew/Team tab needs the same roster), not a targeted repair.
 - `ProjectTasksView`'s dropdown is on the healthy `workspace_directory()` path
   and intersects correctly — but if the roster ever resolves to `[]`, the
   staffed branch filters an empty list and yields `[]` too, and
@@ -214,8 +254,8 @@ conclusion was measured against the wrong database.
   RPC failure and a genuinely empty workspace are indistinguishable at every
   call site.
 
-→ Fix the two legacy dropdowns via adapter parity, and surface the roster
-error. S24.
+→ Roster-error surfacing is still owed: `useRosterMembers` swallowing the error
+means a broken RPC and an empty workspace look identical everywhere. S25.
 
 ### Scenes / levels / experiences are unavailable on cloud projects
 **MEASURED.** Local-only by design — the Supabase adapter throws (Known #5).
@@ -320,6 +360,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S24 (2026-08-03) | **four budget tabs that can never render** (they gate on three `projects` columns that do not exist), **Client View printing "Project" and "--"** (it reads `project.name`/`project.code`; the column is `title`), **no client-side gate on the budget UI** (a UX defect now that RLS is the authority), and **desktop-only invoice folders** in the Crew/Talent tabs. All four are pre-existing and were found by reading the budget UI properly for the first time; none is new breakage. | **the budget system's absence from the cloud schema** (0036 + 0037 + `b07b6c9`, applied and verified **by query** on dev, staging and prod). The assignee-dropdown entry was **narrowed, not closed** — the two hard-empty dropdowns' stated cause is removed at code level but has not been watched working. |
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
 | S20, later the same day | nothing new. The Profile-panel entry was **corrected**: the unbounded-`getSession()` class is 26 sites, not 18, and S20 itself added two of them (`modelSources.js`, both writers). Those two are now bounded with `withTimeout` and pinned by tests that fail with a hang when the bound is removed. The rest of the class is S21's sweep. | nothing |

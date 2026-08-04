@@ -2054,16 +2054,32 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 42 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
-per model control-plane table; the CI coverage guard globs `*_<table>.sql`, so a
-table cannot share a suite file with another), **629 assertions** — run in CI
-against a fresh local stack. Coverage spans the 13 RABBIT tables, membership
-and provisioning, the member directory, edit history, project members, soft
-delete, both realtime channels, admin grants, `app_events`, the five O.T.T.E.R.
-tables plus trash and change-request apply, the file lifecycle, the four
-model control-plane tables, and the four
+**pgTAP** — 47 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+per model control-plane table; **Session 24 added 43–47, one per money table**;
+the CI coverage guard globs `*_<table>.sql`, so a table cannot share a suite
+file with another), **717 assertions** — run in CI against a fresh local stack.
+Coverage spans the 13 RABBIT tables, membership and provisioning, the member
+directory, edit history, project members, soft delete, both realtime channels,
+admin grants, `app_events`, the five O.T.T.E.R. tables plus trash and
+change-request apply, the file lifecycle, the four model control-plane tables,
+the five budget tables, and the four
 Session-15 suites (AI keys, platform audit, rate limits, workspace write
 lockdown).
+
+> These counts were **629 / 42 suites** until 2026-08-03 and had been stale
+> since S22 — this section is a **gate, not an oracle** (S21 corrected its
+> suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
+> assertion count again). Both figures here are measured: 47 files by glob,
+> 717 by summing every `SELECT plan(N)`. **Check the code.**
+
+**Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
+definition of the rules that decide what a production is bid at: the
+project-default **fallback** (NULL inherits; an explicit `0` does not), margin
+and contingency applied **independently to the base** rather than compounded,
+and rate resolution as *project override → workspace rate card → blank*. Pinned
+by 24 vitest cases, which were proven by breaking the source three ways. Before
+Session 24 those rules were duplicated inline across four view files with no
+test at any layer.
 
 **Vitest** — 15 suites, 343 cases, all pure modules: the SSE reassembler,
 invite parsing, dashboard task model, note sync, CSV export, both permission
@@ -2207,6 +2223,40 @@ of a session — this section is limits by design, that file is faults.
   parameter at a call site does nothing until it is added to the Edge Function
   too, with no error to say so. This cost S19 a probe control before it was
   spotted.
+
+**Money and the budget (S24)**
+
+- **Money is manager-only in the DATABASE, and the UI does not know it yet.**
+  `can_access_project_money()` gates all five money tables: a workspace admin
+  of the project's own workspace, or a `project_members` row with
+  `project_role = 'manager'`. A workspace *manager* holding only a project
+  `member` seat gets nothing. It deliberately has **no unstaffed-project
+  opening**, unlike `can_write_project()`. `BudgetView.jsx` still renders its
+  chrome for everyone — the data is empty and safe, the experience is not
+  (`OUTSTANDING.md`).
+- **Margin and contingency are each applied to the BASE, never compounded**,
+  and per-line percentages are a **fallback**: `NULL` inherits the project
+  default, an explicit `0` does not. Both rules live in `budgetMath.js` under
+  test. `NOT NULL DEFAULT 0` on `budget_lines.margin_pct` would silently pin
+  every line at 0% — a migration post-condition now refuses that.
+- **A rate edited inside a project must never reach the rate card.**
+  `rate_cards` / `rate_card_entries` are workspace-wide;
+  `project_rate_overrides` is the project-scoped layer, resolving
+  *project override → rate card → blank*. Writing project rates back to the
+  card would rewrite every other project's numbers, silently and
+  unreconstructably.
+- **Actuals are a line × pay-period grid, entered by hand.** They are NOT
+  derived from `tasks.logged_days`. External people are typed in from invoices;
+  internal staff will be written by a **timecard system that does not exist**
+  and is explicitly out of scope until after the current session plan. Its seam
+  is `budget_actuals.source`.
+- **`budget_versions.snapshot` stores the percentages as applied.** Reading them
+  live would let a later edit to a project default rewrite a closed project's
+  history.
+- **A bid needs a rate card.** Bids are `role rate × days`, so with no
+  rate-card entries every total is legitimately zero. The beta had zero cards
+  and zero entries as of 2026-08-03; the budget now says so rather than
+  rendering a confident $0.
 
 > **Session 17 closed the four release-gating entries this section opened**
 > (privilege-change auditing, the access-token hook grant, the `managed-files`

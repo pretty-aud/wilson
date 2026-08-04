@@ -385,7 +385,7 @@ below are superseded; only one of them actually moves.
 | # | Session | Why here | Prompt |
 |---|---|---|---|
 | **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
-| **S24** | **Budget system** | **moved forward from S27.** Depends on nothing else in the chain, and it is the gap that stops R.A.B.B.I.T. doing its job — no bid, no actuals, no margin, no per-project rates | `SESSION_24_prompt.md` |
+| **S24** | **Budget system** — ✅ **DONE (`b07b6c9`)** | moved forward from S27; it was the gap that stopped R.A.B.B.I.T. doing its job | `SESSION_24_prompt.md` |
 | **S25** | Scenes/shots/levels/experiences at **adapter parity** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
 | **S26** | Backend-agnostic **folder tree** + writes the project manifest | needs scenes to exist before it can give each one a folder | *to write* |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources | manages the folders S26 creates | *to write* |
@@ -419,6 +419,60 @@ as 0% and won't save": there is nowhere to save them. Same defect class as
 `tasks.asset_id` and `assets.start_date` — a UI built against a local schema
 the cloud never gained, so the fix is mostly migrations.
 
+### ✅ S24 OUTCOME (2026-08-03, `b07b6c9`) — and the two things this plan got wrong
+
+**Shipped, applied and verified BY QUERY on dev, staging AND prod:** migrations
+0036 (nine budget settings on `projects` + `project_members.project_title`) and
+0037 (`budget_lines`, `budget_actuals`, `budget_versions`, `expenses`,
+`project_rate_overrides`, all manager-only at the RLS layer via the new
+`can_access_project_money()`); fifteen budget methods on `supabaseAdapter`
+where there had been none; pgTAP 43–47 (**42 → 47 suites, 655 → 717
+assertions**, `collected == planned` on every run); `budgetMath.js` + 24 vitest
+cases (**488 → 512**), proven by breaking the source three ways.
+
+> 🚨 **1. THIS DOCUMENT NAMED THE WRONG COLUMNS, and the wrong name would have
+> shipped a fix that fixed nothing.** The table below said `margin` and
+> `contingency`. The UI reads **`budget_margin_pct`** and
+> **`budget_contingency_pct`**, and it reads **seven more besides**
+> (`budget_agency_pct`, `budget_agency_enabled`, `budget_actual_column_count`,
+> `budget_active`, `budget_active_version_id`, `budget_finalized`, alongside
+> the `budget_actual_column_mode` this file did have right).
+>
+> Adding `projects.margin` would have closed the documented gap, passed review,
+> and left Audrey's reported bug completely intact — the percentage would still
+> have read 0% and still not saved. **A planning document is a claim about the
+> code, and it decays exactly like any other claim.** The columns that shipped
+> were taken from a grep of the budget views.
+
+> 🚨 **2. "The fix is mostly migrations" was right for the wrong reason.** This
+> file assumed the budget UI needed building. It was already **complete** —
+> `useBudgetLines`, `CrewTeamTab`, `TalentTab`, `ClientViewTab` and
+> `BudgetView` already implement the bid, the line × pay-period actuals grid,
+> versions with an immutable snapshot, per-line margin/contingency inheriting
+> from the project default, and the role-priced bid Audrey later specified from
+> scratch. It had simply never been able to persist anything.
+>
+> Four of the session's nine "open questions" were therefore answerable from
+> the code and should never have been put to Audrey: margin and contingency are
+> applied **independently to the base, not compounded** (three files agree);
+> per-line percentages are a **fallback, not a seed** (NULL inherits, and a
+> reset writes NULL back); expenses already carry **estimated_cost AND
+> actual_cost on one row**; and the budget's Phases tab already reads the
+> **same `ctx.phases` the timeline does**. Read the UI before designing a schema
+> for it.
+
+**Answered by Audrey and now settled** (do not re-ask): money = a project
+manager **or** a workspace admin — a workspace *manager* holding only a project
+`member` seat does **not** qualify; the existing `grant_rate_card_view` /
+`grant_rate_card_edit` flags do **not** gate budgets (nobody has either ticked,
+including Audrey, so layering them would have hidden every budget); the project
+job title is its **own column**; no rate-card seeding — *"i will input the rate
+card later."*
+
+**⚠️ The rate card is EMPTY on the beta** (0 cards, 0 entries, measured). Bids
+are `role rate × days`, so every total stays zero until Audrey enters rates.
+The budget now says so in a banner rather than rendering a confident $0.
+
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
 **MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,
@@ -426,12 +480,21 @@ title, description, status, status_tag, start_date, end_date, budget_total,
 budget_currency, client_name, cover_image_url, producer_id, director_id, and
 the audit/soft-delete set. **Every one of the following is ABSENT:**
 
+**STATUS 2026-08-03: the budget half is CLOSED, the rest is not.** Re-measured
+after 0036: `public.projects` now has **31** columns.
+
 | Missing column | Needed by | Symptom today |
 |---|---|---|
-| `budget_actual_column_mode` | S27 | the pay-cadence selector (`ProjectSummaryView.jsx:669`) cannot save |
-| `margin`, `contingency` | S27 | both read 0% and cannot save |
-| `code`, `scene_start_number`, `scene_digits`, `shot_digits` | **S24** | scene/shot auto-naming has no settings to read |
-| `folder_slug`, `folder_root` | **S25** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug` |
+| ~~`budget_actual_column_mode`~~ | ~~S24~~ | ✅ **added by 0036**, along with eight more the table below never listed |
+| ~~`margin`, `contingency`~~ | ~~S24~~ | ✅ **the names were wrong** — shipped as `budget_margin_pct` / `budget_contingency_pct` in 0036 |
+| `code` | **S25** | scene/shot auto-naming has no settings to read, AND `ClientViewTab.jsx:129` prints `--` for the project code on the client-facing topsheet |
+| `scene_start_number`, `scene_digits`, `shot_digits` | **S25** | scene/shot auto-naming has no settings to read |
+| `scenes_enabled`, `levels_enabled`, `experiences_enabled` | **S25** | **newly found in S24.** `BudgetView.jsx:54-57` gates the By Scene / By Shot / By Level / By Experience tabs on these, so all four silently vanish on every cloud project. Add them **with** the entities, not before — a toggle that reveals four blank tabs is worse than a hidden one |
+| `folder_slug`, `folder_root` | **S26** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug` |
+
+Not a missing column but the same family: `ClientViewTab.jsx:108,126,177` reads
+`project.name`, which has never existed — the column is `title`. That is a
+one-word fix, not a migration.
 
 This is one defect class, not four bugs: **the UI was built against main's local
 JSON project shape, and the cloud `projects` table never gained the fields.**

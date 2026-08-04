@@ -3,12 +3,39 @@
 > **Renumbered from S24 (Audrey, 2026-08-03)** when the budget moved forward.
 >
 > 🚨 **OPEN THIS SESSION BY CLOSING ITS HALF OF THE `projects` DRIFT.**
-> MEASURED: `public.projects` has 22 columns and does NOT have `code`,
+> **RE-MEASURED after S24 (2026-08-03):** `public.projects` now has **31**
+> columns — 0036 added the nine budget settings. It still does NOT have `code`,
 > `scene_start_number`, `scene_digits` or `shot_digits` — the settings the
 > scene/shot auto-naming reads. Port the naming and you will hit this
 > immediately. Add those four here; leave `folder_slug` / `folder_root` to the
-> folder session and the budget columns to S24, each closed by the session that
-> actually consumes them (Audrey: "splitting is fine").
+> folder session (Audrey: "splitting is fine"). The budget columns are DONE.
+>
+> ➕ **THREE MORE, FOUND IN S24, AND THEY BELONG TO THIS SESSION:**
+> `scenes_enabled`, `levels_enabled` and `experiences_enabled` do not exist
+> either. `BudgetView.jsx:54-57` gates the **By Scene / By Shot / By Level /
+> By Experience** budget tabs on exactly those three, and `:183` filters them
+> out, so all four tabs silently vanish on every cloud project today.
+> **Add them WITH the entities, never before** — a toggle that reveals four
+> blank tabs is worse than a hidden one. Getting scenes/shots into the cloud
+> therefore lights up four budget tabs for free, which is worth knowing before
+> you scope.
+>
+> Also: `code` is needed by more than auto-naming. `ClientViewTab.jsx:129,184`
+> prints `--` for the project code on the **client-facing topsheet**, the one
+> document that leaves the building. Its sibling bug needs no migration at all
+> — `ClientViewTab.jsx:108,126,177` reads `project.name`, which has never
+> existed; the column is `title`. One-word fix, take it while you are there.
+
+> **STATE AFTER S24, so you do not re-measure it:** migrations run
+> **0000–0037** on dev, staging and prod (next free number is **0038**); pgTAP
+> is **47 suites / 717 assertions**; vitest is **512**. `supabaseAdapter` now
+> has the full budget surface, `listTeamMembers` (over the existing
+> `workspace_directory()` RPC) and `teamAssignments` in `loadProject`.
+> ⚠️ **`listTeamMembers` landing means the two hard-empty assignee dropdowns
+> in `TimelineView` and `ProjectAssetsView` should now populate — nobody has
+> watched them do it.** Confirm at runtime before deleting that
+> `OUTSTANDING.md` entry; it was a by-product of the budget work, not a
+> targeted repair.
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`, not
 > `Claude_Work/`.**
