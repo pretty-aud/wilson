@@ -2057,7 +2057,9 @@ else.
 **pgTAP** — 47 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table**;
 the CI coverage guard globs `*_<table>.sql`, so a table cannot share a suite
-file with another), **717 assertions** — run in CI against a fresh local stack.
+file with another), **721 assertions** — run in CI against a fresh local stack.
+(0038 added four to the existing `05_files` suite rather than a new file: it
+adds no table, so the coverage guard's `*_<table>.sql` glob still resolves.)
 Coverage spans the 13 RABBIT tables, membership and provisioning, the member
 directory, edit history, project members, soft delete, both realtime channels,
 admin grants, `app_events`, the five O.T.T.E.R. tables plus trash and
@@ -2066,7 +2068,8 @@ the five budget tables, and the four
 Session-15 suites (AI keys, platform audit, rate limits, workspace write
 lockdown).
 
-> These counts were **629 / 42 suites** until 2026-08-03 and had been stale
+> These counts were **629 / 42 suites** until 2026-08-03, and 717 for the few
+> hours between S24's two commits, and had been stale
 > since S22 — this section is a **gate, not an oracle** (S21 corrected its
 > suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
 > assertion count again). Both figures here are measured: 47 files by glob,
@@ -2253,6 +2256,21 @@ of a session — this section is limits by design, that file is faults.
 - **`budget_versions.snapshot` stores the percentages as applied.** Reading them
   live would let a later edit to a project default rewrite a closed project's
   history.
+- **Invoices are financial documents and are gated as such (0038).** Attaching
+  one works on the **web** now — a plain `<input type="file">` plus
+  `adapter.uploadFile()`, no desktop bridge. 🚨 The blob and the row are gated
+  **independently**: `files.is_financial` guards the record, and a reserved
+  `invoices` path segment guards the object, because either alone is a way in.
+  The ordinary file rules admit any workspace member who can see the project,
+  so the obvious implementation would have served the invoice PDF to exactly
+  the people denied the amount on it. 🚨 **Re-running 0027 silently re-opens
+  this** — it owns the three base storage policies and would recreate them
+  without the exclusion, reporting success. Replay 0038 after it.
+- **The Budget tab is hidden from non-managers** by `canSeeProjectMoney()`,
+  the client mirror of the database gate. It fails CLOSED, and the direction
+  is deliberate: the tab APPEARS a beat late for a project manager rather than
+  being shown to a reviewer and snatched back. Still owed: a route-level gate
+  on the project control panel.
 - **A bid needs a rate card.** Bids are `role rate × days`, so with no
   rate-card entries every total is legitimately zero. The beta had zero cards
   and zero entries as of 2026-08-03; the budget now says so rather than

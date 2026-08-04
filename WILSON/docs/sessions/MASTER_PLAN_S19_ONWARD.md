@@ -461,6 +461,16 @@ cases (**488 → 512**), proven by breaking the source three ways.
 > **same `ctx.phases` the timeline does**. Read the UI before designing a schema
 > for it.
 
+**Follow-up shipped the same session (`dfdf386`)**, from Audrey's replies to
+the close-out: the **Budget tab is hidden from non-managers**, and **invoice
+attachment works on the web**. The second needed migration 0038, because the
+obvious implementation would have served the invoice PDF to exactly the people
+0037 had just denied the amount on it — the ordinary file and storage rules
+admit any workspace member who can see the project. Invoices are now gated at
+the row AND the blob, independently. 🚨 **0027 → 0038, and replaying 0027
+silently re-opens them.** The Client View's `project.name` / `project.code` was
+**deferred by Audrey** and stays in `OUTSTANDING.md`.
+
 **Answered by Audrey and now settled** (do not re-ask): money = a project
 manager **or** a workspace admin — a workspace *manager* holding only a project
 `member` seat does **not** qualify; the existing `grant_rate_card_view` /

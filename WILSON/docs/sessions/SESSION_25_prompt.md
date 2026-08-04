@@ -27,8 +27,11 @@
 > existed; the column is `title`. One-word fix, take it while you are there.
 
 > **STATE AFTER S24, so you do not re-measure it:** migrations run
-> **0000–0037** on dev, staging and prod (next free number is **0038**); pgTAP
-> is **47 suites / 717 assertions**; vitest is **512**. `supabaseAdapter` now
+> **0000–0038** on dev, staging and prod (next free number is **0039**); pgTAP
+> is **47 suites / 721 assertions**; vitest is **521**.
+> 🚨 **0027 → 0038: replaying 0027 silently re-opens every invoice** to any
+> project member, and reports success while doing it. If you ever replay 0027,
+> replay 0038 after it. `supabaseAdapter` now
 > has the full budget surface, `listTeamMembers` (over the existing
 > `workspace_directory()` RPC) and `teamAssignments` in `loadProject`.
 > ⚠️ **`listTeamMembers` landing means the two hard-empty assignee dropdowns
