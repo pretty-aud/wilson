@@ -55,7 +55,13 @@ import {
   Users, Film, Gamepad2, Sparkles, Diamond,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+// Session 23: useRosterMembers, NOT useTeamMembers. useTeamMembers early-returns
+// when `adapter.listTeamMembers` is missing, and that method exists ONLY on
+// localServerAdapter — so in cloud mode it silently yielded an empty roster and
+// the "Assigned to" dropdown here could never be populated. useRosterMembers is
+// the adapter-agnostic one: workspace_directory() in supabase mode, the legacy
+// registry in local_server. Same `{ members }` shape, so this is a drop-in.
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../rabbitHelpContent.jsx'
@@ -176,7 +182,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   const milestones  = ctx?.milestones || []
   const teamAssignments = ctx?.teamAssignments || []
 
-  const tm = useTeamMembers()
+  const tm = useRosterMembers()
 
   const [zoomId, setZoomId] = useState('week')
   const zoom = ZOOM_LEVELS.find(z => z.id === zoomId) || ZOOM_LEVELS[1]
@@ -3682,18 +3688,36 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   const experiences = ctx?.experiences || []
 
   // Team members for the "Assigned To" dropdown
-  const tm = useTeamMembers()
+  const tm = useRosterMembers()
   const teamAssignments = ctx?.teamAssignments || []
   const memberById = useMemo(() => {
     const map = {}
     for (const m of tm.members) map[m.id] = m
     return map
   }, [tm.members])
+  // Session 23: mirrors ProjectTasksView's roster branch so "Assigned To"
+  // works in BOTH adapters — Audrey: "i should be able to do it in both".
+  //
+  // Swapping useTeamMembers for useRosterMembers above was necessary but NOT
+  // sufficient: this list was built purely from `teamAssignments`, which is
+  // the LEGACY local-mode shape. supabaseAdapter.loadProject never returns it,
+  // so in cloud it is always [] and the dropdown stayed empty no matter how
+  // well the roster loaded.
+  //
+  // Cloud: offer the project's staffed members, falling back to the whole
+  // workspace roster when the project has no roster yet (same contract as the
+  // Tasks tab and TaskDetailPopup — an unstaffed project is open to all).
+  // Local: the legacy team assignments, unchanged.
   const projectMembers = useMemo(() => {
+    if (tm.mode === 'supabase') {
+      if (!ctx?.projectIsStaffed) return tm.members
+      const staffedIds = new Set((ctx?.projectMembers || []).map(pm => pm.user_id))
+      return tm.members.filter(m => staffedIds.has(m.id))
+    }
     return teamAssignments
       .map(a => memberById[a.member_id])
       .filter(Boolean)
-  }, [teamAssignments, memberById])
+  }, [tm.mode, tm.members, ctx?.projectIsStaffed, ctx?.projectMembers, teamAssignments, memberById])
 
   const isTask = editor.mode === 'task'
   const isMilestone = editor.mode === 'milestone'

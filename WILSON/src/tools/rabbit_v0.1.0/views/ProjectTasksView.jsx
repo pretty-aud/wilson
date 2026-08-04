@@ -411,14 +411,29 @@ export default function ProjectTasksView() {
   }
 
   // ── Task creation ──
+  // Session 23: open the detail popup on the new task so the user can fill in
+  // the details, instead of dropping a blank row into the table and leaving
+  // them to find it. addTask returns the created row (RabbitProvider:1614).
+  //
+  // The row is created FIRST and the popup edits it, rather than the popup
+  // drafting a row and committing on save. That keeps one write path — the
+  // popup already patches through ctx.updateTask — and it means the inline
+  // add-row buttons, which pass group defaults, behave identically. The
+  // trade-off is that dismissing the popup leaves an untitled task, same as
+  // the old inline behaviour did; it is visible in the table and deletable.
+  //
+  // No try/catch here on purpose: addTask now reports failures through the
+  // provider's error channel and rethrows, so a failed create surfaces and
+  // simply does not open a popup for a task that does not exist.
   async function handleAddTask(defaults = {}) {
     if (!ctx?.addTask) return
-    await ctx.addTask({
+    const created = await ctx.addTask({
       title: '',
       status: 'waiting_to_start',
       priority: 'medium',
       ...defaults,
     })
+    if (created?.id) setDetailTaskId(created.id)
   }
 
   // ── Phase creation ──
