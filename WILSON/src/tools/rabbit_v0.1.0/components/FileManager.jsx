@@ -33,6 +33,7 @@ import {
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import FileThumbnail from './FileThumbnail'
+import { fileSlugify } from '../entityNaming'
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -48,15 +49,12 @@ function formatDate(iso) {
   return `${m[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`
 }
 
-// Slugify matching the server's fileSlugify
-function fileSlugify(str) {
-  return str.trim()
-    .replace(/[^a-zA-Z0-9\s]+/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-    .join('-')
-}
+// Session 25: this was a third verbatim copy of fileSlugify, carrying the
+// comment "Slugify matching the server's fileSlugify" — which names the hazard
+// exactly. S26 builds the folder tree off these slugs, and a slug that
+// disagrees between two renderer files creates two folders for one scene.
+// One copy now lives in ../entityNaming.js alongside the naming it belongs to.
+// The remaining duplicate is electron/main.cjs, which cannot import from here.
 
 export default function FileManager({
   files = [],
