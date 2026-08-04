@@ -108,4 +108,50 @@ describe('canOnProject() edge cases', () => {
     expect(canOnProject({ appRole: 'platform_operator', projectRole: null, isStaffed: true }, 'project.entity.write')).toBe(false)
     expect(canOnProject({ appRole: 'user', projectRole: 'MANAGER', isStaffed: true }, 'project.entity.write')).toBe(false)
   })
+
+  // ── Session 23: ready === false means "not yet known", never "denied" ──
+  // usePermissions leaves `role` null until its getSession() settles, and
+  // consumers ignored the `ready` flag — so a session read in flight looked
+  // identical to a real denial and the create controls vanished. If the read
+  // never settles (the auth-js global lock defect) they vanish forever, for a
+  // fully authorised admin. These pin the fix; the previous test above is the
+  // deliberate contrast — same ctx, ready omitted, still denied.
+  describe('ready flag', () => {
+    const pending = { appRole: null, projectRole: null, isStaffed: true, ready: false }
+
+    it('a pending session is not a denial, for every action', () => {
+      expect(canOnProject(pending, 'project.entity.write')).toBe(true)
+      expect(canOnProject(pending, 'project.comment.write')).toBe(true)
+      expect(canOnProject(pending, 'project.roster.manage')).toBe(true)
+    })
+
+    it('still rejects an unknown action while pending — ready is not a master key', () => {
+      expect(canOnProject(pending, 'project.nonsense')).toBe(false)
+      expect(canOnProject(pending, undefined)).toBe(false)
+    })
+
+    it('ready:true is exactly the old behaviour', () => {
+      const ctx = { appRole: null, projectRole: null, isStaffed: true, ready: true }
+      expect(canOnProject(ctx, 'project.entity.write')).toBe(false)
+      expect(canOnProject({ ...ctx, projectRole: 'member' }, 'project.entity.write')).toBe(true)
+    })
+
+    it('defaults to ready when the field is absent, so old callers are unaffected', () => {
+      const ctx = { appRole: null, projectRole: null, isStaffed: true }
+      expect(canOnProject(ctx, 'project.entity.write')).toBe(false)
+    })
+
+    it('once resolved, a real denial still denies — pending must not be sticky', () => {
+      expect(canOnProject({ ...pending, ready: true }, 'project.entity.write')).toBe(false)
+    })
+
+    it("audrey's real staging shape is permitted either way, ready or not", () => {
+      // workspace admin AND project manager on a staffed project (measured
+      // 2026-08-03). Two independent routes to true — which is why the gate
+      // was NOT the cause of her vanished button.
+      const audrey = { appRole: 'admin', projectRole: 'manager', isStaffed: true }
+      expect(canOnProject({ ...audrey, ready: true }, 'project.entity.write')).toBe(true)
+      expect(canOnProject({ ...audrey, ready: false }, 'project.entity.write')).toBe(true)
+    })
+  })
 })

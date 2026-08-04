@@ -67,7 +67,30 @@ export function canOnProject(ctx, action) {
     }
     return false
   }
-  const { appRole, projectRole, isStaffed } = ctx || {}
+  const { appRole, projectRole, isStaffed, ready = true } = ctx || {}
+
+  // Session 23: "still loading" must never masquerade as "denied".
+  //
+  // usePermissions exposes a `ready` flag for exactly this, and roughly a
+  // dozen consumers — including both R.A.B.B.I.T. views — ignored it. Until
+  // its getSession() settles, `appRole` is null, so every branch below fails
+  // closed and a control gated on the result DISAPPEARS. That is the wrong
+  // failure: it is indistinguishable from a real denial, it gives the user no
+  // way to tell which it is, and if the session read never settles at all —
+  // the known auth-js lock defect, where an abandoned getSession() holds the
+  // global per-storageKey lock — the control is gone permanently for someone
+  // who is fully authorised.
+  //
+  // So an unknown answer resolves to "not yet denied" rather than "denied".
+  // This is not a security decision: the database is the authority, and the
+  // same rule is enforced there by can_write_project() / project_role_for()
+  // inside the RLS policies (0013). The worst case here is that someone sees
+  // a control for a moment and gets a real, visible error if they use it —
+  // strictly better than an admin silently losing the primary action.
+  //
+  // Callers that do NOT pass `ready` are unaffected: it defaults to true.
+  if (ready === false) return true
+
   // current_app_role() IN ('admin', 'manager') — bypasses every gate.
   if (appRole === 'admin' || appRole === 'manager') return true
   switch (action) {

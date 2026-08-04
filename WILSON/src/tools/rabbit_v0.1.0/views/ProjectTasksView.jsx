@@ -194,14 +194,22 @@ export default function ProjectTasksView() {
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only
   // hides the affordance below manager.
-  const { can, role } = usePermissions()
+  const { can, role, ready: permsReady } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyTaskId, setHistoryTaskId] = useState(null)
 
   // Entity writes (Session 6) — DB-side RLS is the real gate; this only
   // hides write affordances for staffed-project reviewers.
+  // `ready` matters: without it, a session read still in flight leaves `role`
+  // null and every New task affordance in this view — toolbar, add-rows,
+  // per-group rows, row menu, both kanban adds — silently disappears.
   const canWrite = canOnProject(
-    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
+    {
+      appRole: role,
+      projectRole: ctx?.myProjectRole,
+      isStaffed: ctx?.projectIsStaffed,
+      ready: permsReady,
+    },
     'project.entity.write'
   )
 

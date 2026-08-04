@@ -184,14 +184,21 @@ export default function ProjectAssetsView() {
 
   // Edit history (Session 5) — DB-side RLS is the real gate; this only
   // hides the affordance below manager.
-  const { can, role } = usePermissions()
+  const { can, role, ready: permsReady } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyAssetId, setHistoryAssetId] = useState(null)
 
   // Entity writes (Session 6) — DB-side RLS is the real gate; this only
   // hides write affordances for staffed-project reviewers.
+  // See ProjectTasksView — the New asset button is behind this same flag, so
+  // a session read still in flight would take it away too.
   const canWrite = canOnProject(
-    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
+    {
+      appRole: role,
+      projectRole: ctx?.myProjectRole,
+      isStaffed: ctx?.projectIsStaffed,
+      ready: permsReady,
+    },
     'project.entity.write'
   )
 
