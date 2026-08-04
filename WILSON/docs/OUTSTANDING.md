@@ -135,7 +135,7 @@ unrelated saves. **The wrong output is unchanged.** `code` is already on S25's
 list of `projects` columns to add; `name` is not a missing column but a wrong
 read that should be `title`.
 
-### ~~The budget UI has no client-side permission gate~~ — FIXED (S24, `0a1e3f0`)
+### ~~The budget UI has no client-side permission gate~~ — FIXED (S24, `dfdf386`)
 The Budget tab is now hidden from anyone who is not a workspace admin or a
 manager on that project, via `canSeeProjectMoney()` — the client mirror of
 `can_access_project_money()`. It fails CLOSED, so the tab **appears** a beat
@@ -146,7 +146,7 @@ back; `Rabbit.jsx` also redirects to Summary if a hidden tab is somehow open.
 non-managers have **no access to the project control panel**. That is a
 separate route-level gate and does not exist yet. → S25 or S28.
 
-### ~~Crew and Talent invoice folders are desktop-only~~ — FIXED (S24, `0a1e3f0`)
+### ~~Crew and Talent invoice folders are desktop-only~~ — FIXED (S24, `dfdf386`)
 Both tabs now attach invoices through `InvoiceAttachment`, which picks with a
 plain `<input type="file">` (Electron's renderer is Chromium, so the desktop
 bridge was never needed to choose a file) and stores through the adapter's
