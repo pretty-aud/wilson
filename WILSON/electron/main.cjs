@@ -947,10 +947,26 @@ function startLocalServer(distPath) {
 
     // Which base a given file row resolves against. storage_path stays a bare
     // filename either way, so the containment guard keeps working unchanged.
+    //
+    // The existence check is not belt-and-braces, it closes a real window: an
+    // invoice uploaded while the project had NO folder configured lands in the
+    // files dir (the fallback above), and if a folder is configured later this
+    // would start resolving to <root>/INVOICES and report the body missing.
+    // Ordinary files have the same characteristic and the relink flow is their
+    // recovery — but invoices are deliberately excluded from relink, so
+    // without this they would have no way back. Prefer the invoices dir, fall
+    // back to wherever the body actually is.
     function resolveFileBaseDir(bundle, projectId, file) {
-      return file?.is_financial
-        ? resolveProjectInvoicesDir(bundle, projectId)
-        : resolveProjectFilesDir(bundle, projectId);
+      const filesDir = resolveProjectFilesDir(bundle, projectId);
+      if (!file?.is_financial) return filesDir;
+      const invoicesDir = resolveProjectInvoicesDir(bundle, projectId);
+      const here = resolveContainedFilePath(invoicesDir, file.storage_path);
+      if (here && fs.existsSync(here)) return invoicesDir;
+      const legacy = resolveContainedFilePath(filesDir, file.storage_path);
+      if (legacy && fs.existsSync(legacy)) return filesDir;
+      // Neither has it — return the canonical home so the 410 names the place
+      // the file is supposed to be, not the place it once was.
+      return invoicesDir;
     }
 
     // ── File lifecycle helpers (Session 14) ───────────────────
