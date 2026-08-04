@@ -103,6 +103,16 @@ to persist a percentage, and the 0% is what an absent value renders as.
 Same defect class as `tasks.asset_id` and `assets.start_date`, one layer up: a
 UI built against a local schema the cloud migration never gained.
 
+**Wider than the budget — `projects` is missing columns three planned sessions
+need.** MEASURED: `public.projects` has 22 columns, and ALL of these are
+absent: `budget_actual_column_mode` (so the pay-cadence selector at
+`ProjectSummaryView.jsx:669` cannot save either), `margin`, `contingency`,
+`code`, `scene_start_number`, `scene_digits`, `shot_digits` (S24's scene/shot
+auto-naming has no settings to read) and `folder_slug` / `folder_root` (S25's
+folder tree has no anchor — main's `ensureProjectFolders` keys off
+`folder_slug`). One defect class, not four bugs: the UI was built against
+main's local JSON project shape and the cloud table never gained the fields.
+
 Also reported and unbuilt: the crew/team tab should show each member's title
 plus a **separate, manager-editable project job title**; the budget's phases
 tab should list the timeline's phases; and a phase should total

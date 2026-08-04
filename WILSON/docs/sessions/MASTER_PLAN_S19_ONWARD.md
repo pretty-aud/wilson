@@ -389,6 +389,33 @@ as 0% and won't save": there is nowhere to save them. Same defect class as
 `tasks.asset_id` and `assets.start_date` — a UI built against a local schema
 the cloud never gained, so the fix is mostly migrations.
 
+### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
+
+**MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,
+title, description, status, status_tag, start_date, end_date, budget_total,
+budget_currency, client_name, cover_image_url, producer_id, director_id, and
+the audit/soft-delete set. **Every one of the following is ABSENT:**
+
+| Missing column | Needed by | Symptom today |
+|---|---|---|
+| `budget_actual_column_mode` | S27 | the pay-cadence selector (`ProjectSummaryView.jsx:669`) cannot save |
+| `margin`, `contingency` | S27 | both read 0% and cannot save |
+| `code`, `scene_start_number`, `scene_digits`, `shot_digits` | **S24** | scene/shot auto-naming has no settings to read |
+| `folder_slug`, `folder_root` | **S25** | the folder tree has no anchor — `ensureProjectFolders` keys off `folder_slug` |
+
+This is one defect class, not four bugs: **the UI was built against main's local
+JSON project shape, and the cloud `projects` table never gained the fields.**
+Same as `tasks.asset_id` and `assets.start_date`, which S23 fixed.
+
+**Act on it early rather than per-session.** S24 will discover the naming
+columns missing the moment it ports the auto-naming, and S25 will discover
+`folder_slug` missing the moment it ports `ensureProjectFolders`. Consider one
+migration that closes the `projects` drift up front — but **enumerate the local
+shape against the cloud table first and decide each field deliberately**, rather
+than copying main's bundle wholesale. Audrey's standing rule applies: database
+information lives in Supabase, and `budget.json` / the local bundle were
+datastores of necessity, not designs.
+
 🚨 **The trap in that session:** Audrey wants a per-project **job title** column
 on the crew/team view ("you can have a company/title role AND a separate
 project role"). `project_members.project_role` is a **permission** role read by

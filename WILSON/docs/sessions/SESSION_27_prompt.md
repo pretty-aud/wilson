@@ -195,21 +195,80 @@ is a decision, not an assumption. Note there are now three related concepts:
 - **Talent** is not modelled through tasks; its days are typed directly into
   the budget view.
 
+## ANSWERED, round 2 (Audrey, 2026-08-03)
+
+### Pay cadence — the selector already exists, and it also cannot save
+**MEASURED.** `ProjectSummaryView.jsx:669` offers
+`ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']`, written to
+`project.budget_actual_column_mode` and read by `BudgetView.jsx:638`,
+`CrewTeamTab.jsx:259` and `TalentTab.jsx:308` (all defaulting to
+`'fortnightly'`).
+
+🚨 **`projects.budget_actual_column_mode` does NOT exist in the cloud schema.**
+`projects` has 22 columns and that is not one of them. So the cadence dropdown
+is the same defect as the contingency percentage: it renders, it accepts a
+choice, and there is nowhere to persist it. Use the existing three-option
+vocabulary — do not invent a new one — and add the column.
+
+`'count'` is the odd one out and is not a time cadence at all; establish what
+it means (a fixed number of unlabelled columns?) before building period
+boundaries around it.
+
+### The financial model — margin IS the profit
+Audrey, verbatim in substance:
+- **The bid has margin and contingency baked into EVERY LINE ITEM**, not
+  applied once at the bottom.
+- **Actual cost to the company** = the total of all line items **minus** the
+  margin and contingency that were added.
+- **Profit** = bid total (the targeted budget) − actual final cost.
+- **FINAL** is a **locked snapshot**, surfaced as a view inside the project.
+
+Consequences to design for, and they are not cosmetic:
+- A line item must store enough to reconstruct **base cost**, **contingency**
+  and **margin** separately. If only the marked-up total is stored, "actual
+  cost to the company" cannot be recovered and profit becomes underivable.
+- The snapshot must be **immutable** once taken, and record who took it and
+  when — a "final" that silently drifts is worse than no final.
+- Store the percentages **as applied at the time** on the snapshot. If they are
+  only ever read live from the project, changing a default later would rewrite
+  history.
+
+### 🚨 Money is manager-only, and this is an RLS requirement
+Audrey, verbatim in substance: *"only managers should see anything relating to
+money. so actuals, bids, rates, etc. reviewers and team members should not see
+financial values anywhere AND should have NO ACCESS to the project control
+panel."*
+
+**This cannot be done by hiding UI.** Every R.A.B.B.I.T. table is reachable
+through PostgREST with the caller's own JWT — a team member who opens devtools
+can read any row RLS permits, whatever the React renders. So:
+- Budget, expense, rate-override and actuals tables need **RLS policies that
+  deny non-managers outright**, not just components that skip rendering.
+- Any **phase/task rollup that exposes cost** is itself financial data and
+  needs the same gating. A total is not less sensitive than its parts.
+- The project control panel needs a route-level gate as well as a hidden nav
+  entry.
+
+**Open sub-question — WHICH manager?** "Reviewers and team members" are
+*project* roles (`project_members.project_role` ∈ manager/member/reviewer), so
+this most likely means `project_role = 'manager'`. But `workspace_members.app_role`
+also has `admin`/`manager`. Is a workspace admin who holds no project seat
+allowed to see a project's money? Confirm before writing the policy — this is
+exactly the kind of "obvious" assumption that S22 and S23 both proved wrong.
+
+**Also reconcile with what already exists:** `workspace_members` carries
+`grant_rate_card_view` and `grant_rate_card_edit` (0015), which today gate rate
+visibility independently of any project role. Does the new manager-only rule
+**supersede** those flags, or layer with them? Two overlapping permission
+systems for the same data is how the 0011 privilege spread happened.
+
 ## STILL OPEN — put these to Audrey before building
 
-1. **"timecard" vs "rate card".** She wrote *"the default population of each of
-   these should be the corresponding rate on the timecard based on the role of
-   that person"*. Everything around it says **rate card**, and the timecard
-   system does not exist yet — almost certainly a slip, but confirm, because it
-   changes where the default rate is read from.
-2. **Pay periods.** What cadence — weekly, fortnightly, monthly? Configured per
-   workspace or per project? Do period boundaries need to be stored (so a
-   historical actual stays attached to the right period when the cadence
-   changes)? The actuals grid cannot be designed without this.
-3. **Is FINAL a locked snapshot or a view?** If it is a snapshot, it must be
-   immutable once taken and should record who took it and when. If it is just
-   "actual, viewed after wrap", it needs no storage at all. Profit implies a
-   client/contract value — where does that come from?
+1. ~~"timecard" vs "rate card"~~ — Audrey: *"fine for now"*. Proceed on **rate
+   card**; the timecard system does not exist yet.
+2. **What does the `'count'` cadence option mean?** (see above)
+3. **Does a workspace admin without a project seat count as a "manager" for
+   money?** (see above)
 4. **Do BID and ACTUAL both carry expenses**, and are they the same expense
    rows (estimated vs actual columns on one row) or two separate sets?
 5. **When a real person replaces a role on a bid line** — does the role line
