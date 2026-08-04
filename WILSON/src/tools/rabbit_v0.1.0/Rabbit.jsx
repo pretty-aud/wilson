@@ -37,6 +37,8 @@ import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
 import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
+import { usePermissions } from '../../permissions/usePermissions'
+import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
 import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
 import ViewTabs from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
@@ -57,17 +59,43 @@ import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
   const agent = useAgent()
+  const perms = usePermissions()
   const project = ctx?.project
   const [activeView, setActiveView] = useState('summary')
 
   // ── Dynamic tab visibility based on project toggle fields ──
+  //
+  // Session 24: Budget joins this list, but on PERMISSION rather than a
+  // project toggle. Audrey: "only managers should see anything relating to
+  // money … reviewers and team members should not see financial values
+  // anywhere." Migration 0037 already makes that true of the DATA — a
+  // non-manager reads zero rows from every money table — but they were still
+  // shown the tab and a page of zeroes, with nothing saying why.
+  //
+  // canSeeProjectMoney mirrors can_access_project_money(uuid) exactly, and
+  // fails CLOSED: see its comment for why the tab APPEARS late for a project
+  // manager rather than vanishing late for a reviewer.
+  const canSeeMoney = canSeeProjectMoney({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+  })
+
   const hiddenTabs = useMemo(() => {
     const hidden = new Set()
     if (!project?.scenes_enabled) hidden.add('scenes')
     if (!project?.levels_enabled) hidden.add('levels')
     if (!project?.experiences_enabled) hidden.add('experiences')
+    if (!canSeeMoney) hidden.add('budget')
     return hidden
-  }, [project?.scenes_enabled, project?.levels_enabled, project?.experiences_enabled])
+  }, [project?.scenes_enabled, project?.levels_enabled, project?.experiences_enabled, canSeeMoney])
+
+  // A hidden tab must not stay open. Without this, someone already sitting on
+  // Budget when their access resolves keeps the view mounted with only the
+  // button gone — and the same applies to toggling scenes/levels off while
+  // viewing them.
+  useEffect(() => {
+    if (hiddenTabs.has(activeView)) setActiveView('summary')
+  }, [hiddenTabs, activeView])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())

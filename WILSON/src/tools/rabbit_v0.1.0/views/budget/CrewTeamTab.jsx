@@ -13,8 +13,12 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { Users, X, RotateCcw, Paperclip, FolderOpen } from 'lucide-react'
 import { COLUMN_MODES } from '../../../../components/Budget/useBudgetLines'
+import InvoiceAttachment from '../../../../components/Budget/InvoiceAttachment'
+import { useRabbit } from '../../state/RabbitProvider'
 
-const BASE_URL = 'http://localhost:19854/api/rabbit'
+// Session 24: the local-server BASE_URL that used to sit here is gone.
+// Invoice attachment now goes through the adapter (InvoiceAttachment),
+// so it works on the web and on Local Server alike.
 
 function fmtCurrency(val, currency = 'USD') {
   const n = Number(val) || 0
@@ -54,7 +58,7 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
   const [invoice, setInvoice] = useState(actual?.invoice_number || '')
   const [attachName, setAttachName] = useState(actual?.attachment_name || '')
   const [attachPath, setAttachPath] = useState(actual?.attachment_path || '')
-  const [copying, setCopying] = useState(false)
+  const getAdapter = useRabbit()?.getAdapter
   const ref = useRef(null)
 
   useEffect(() => {
@@ -70,34 +74,6 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
     ? pos.y - popH - 4
     : pos.y + pos.h + 4
 
-  async function handleAttach() {
-    const api = window.rabbitDesktop
-    if (!api?.pickFiles) return
-    const files = await api.pickFiles()
-    if (!files?.length) return
-    setCopying(true)
-    try {
-      const res = await fetch(`${BASE_URL}/projects/${projectId}/invoice-folder`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'crew', memberName }),
-      })
-      const { folderPath } = await res.json()
-      const srcPath = files[0]
-      const fileName = srcPath.split(/[\\/]/).pop()
-      await api.copyFile({ sourcePath: srcPath, destDir: folderPath, destFileName: fileName })
-      const finalPath = folderPath + '\\' + fileName
-      setAttachName(fileName)
-      setAttachPath(finalPath)
-    } catch (err) {
-      console.error('attach invoice failed:', err)
-    } finally {
-      setCopying(false)
-    }
-  }
-
-  function handleOpenFolder() {
-    if (attachPath) window.rabbitDesktop?.openInExplorer?.({ filePath: attachPath })
-  }
 
   function handleSave() {
     onSave({
@@ -134,30 +110,14 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
           className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
       </div>
-      {/* Invoice file attachment */}
-      <div className="flex flex-col gap-0.5">
-        <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice File</label>
-        {attachName ? (
-          <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#fb923c' }} />
-            <span className="flex-1 text-[10.5px] font-mono truncate" style={{ color: '#d6d3d1' }}>{attachName}</span>
-            <button type="button" onClick={handleOpenFolder} className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Show in explorer">
-              <FolderOpen className="w-3 h-3" style={{ color: '#a8a29e' }} />
-            </button>
-            <button type="button" onClick={() => { setAttachName(''); setAttachPath('') }}
-              className="p-0.5 hover:bg-stone-700 rounded transition-colors" title="Remove attachment">
-              <X className="w-3 h-3" style={{ color: '#ef4444' }} />
-            </button>
-          </div>
-        ) : (
-          <button type="button" onClick={handleAttach} disabled={copying}
-            className="flex items-center gap-1.5 px-2 py-1.5 text-[10.5px] font-mono rounded-sm transition-colors hover:bg-stone-700"
-            style={{ border: '1px solid #44403c', color: '#a8a29e' }}>
-            <Paperclip className="w-3 h-3" />
-            {copying ? 'Copying...' : 'Attach Invoice'}
-          </button>
-        )}
-      </div>
+      <InvoiceAttachment
+        getAdapter={getAdapter}
+        projectId={projectId}
+        lineId={actual?.line_id || null}
+        name={attachName}
+        path={attachPath}
+        onChange={({ name, path }) => { setAttachName(name); setAttachPath(path) }}
+      />
       <div className="flex items-center gap-2 mt-1">
         <button type="button" onClick={handleSave}
           className="flex-1 px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider font-bold rounded-sm"

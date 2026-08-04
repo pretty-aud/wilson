@@ -50,6 +50,45 @@ export const PROJECT_ACTIONS = Object.freeze([
 ])
 
 /**
+ * Session 24 — MONEY. Deliberately NOT part of PROJECT_ACTIONS / canOnProject.
+ *
+ * Three ways this differs from every other project permission, each of which
+ * would be wrong if it went through canOnProject():
+ *
+ *  1. **A workspace `manager` does NOT qualify.** canOnProject bypasses every
+ *     gate for `appRole` admin OR manager (`:95`). Audrey's rule is admin OR
+ *     *project* manager — on staging `derek` is a workspace manager holding
+ *     only a project `member` seat, and he must not see money.
+ *  2. **There is no unstaffed-project opening.** canOnProject returns true for
+ *     everyone when `isStaffed` is false. Money fails CLOSED.
+ *  3. **It fails CLOSED while permissions are still loading**, where
+ *     canOnProject deliberately fails open (`ready === false` returns true).
+ *
+ * On (3) — the direction is the whole point. `appRole` is decoded from the JWT
+ * with no network call, so a workspace admin resolves instantly and never sees
+ * a flicker. A project manager's seat arrives with the project roster a beat
+ * later, so their Budget tab APPEARS shortly after load. The opposite choice
+ * would show the tab to a reviewer and then snatch it away, which is the exact
+ * "control silently vanishes with no explanation" pattern that cost S23 hours.
+ * A tab that arrives late is a small annoyance; one that vanishes is a bug
+ * report.
+ *
+ * This is the client mirror of `can_access_project_money(uuid)` (0037). The
+ * DATABASE is the authority — a reviewer reads zero rows from every money
+ * table whatever React does. This function exists so they are not shown an
+ * empty page they cannot be told the reason for.
+ *
+ * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
+ *           projectRole: 'manager'|'reviewer'|'member'|null|undefined }} ctx
+ * @returns {boolean}
+ */
+export function canSeeProjectMoney(ctx) {
+  const { appRole, projectRole } = ctx || {}
+  if (appRole === 'admin') return true
+  return projectRole === 'manager'
+}
+
+/**
  * Returns true if the caller may perform the given project-scoped action.
  * Returns false for unknown actions. Missing/null ctx fields are safe and
  * behave like an unseated app user on an unstaffed project.

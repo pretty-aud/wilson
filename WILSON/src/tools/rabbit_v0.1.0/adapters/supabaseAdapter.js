@@ -619,12 +619,22 @@ export function supabaseAdapter() {
     // ── Files (Storage + metadata row) ────────────────────────
     async uploadFile(projectId, scope = {}, file) {
       const client = await requireClient();
+      // Session 24: `invoices` is a RESERVED path segment, and the check
+      // comes first so a financial file can never be filed under another
+      // entity. Storage policy `rabbit_files_invoices_select` (0038) keys on
+      // exactly this third segment, and the three base rabbit-files policies
+      // exclude it — so the segment IS the gate for the blob, while
+      // files.is_financial gates the row. Changing either without the other
+      // opens a hole.
       const entity =
-        scope.taskId  ? 'tasks'  :
-        scope.assetId ? 'assets' :
-        scope.phaseId ? 'phases' :
+        scope.financial ? 'invoices' :
+        scope.taskId    ? 'tasks'  :
+        scope.assetId   ? 'assets' :
+        scope.phaseId   ? 'phases' :
         'project';
-      const entityId = scope.taskId || scope.assetId || scope.phaseId || projectId;
+      const entityId = scope.financial
+        ? (scope.lineId || projectId)
+        : (scope.taskId || scope.assetId || scope.phaseId || projectId);
       const safeName = (file?.name || 'file').replace(/[^a-zA-Z0-9._-]+/g, '_');
       const storagePath = `projects/${projectId}/${entity}/${entityId}/${Date.now()}-${safeName}`;
 
@@ -653,6 +663,11 @@ export function supabaseAdapter() {
         storage_path:     storagePath,
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
+        // 0038. Must agree with the `invoices` path segment above: the row
+        // and the blob are gated independently, and either one alone is a way
+        // in — the amount is useless to hide if the invoice stating it is
+        // readable.
+        is_financial:     !!scope.financial,
       };
       const ins = await client.from('files').insert(row).select().single();
       if (ins.error) {
