@@ -55,7 +55,87 @@ the folder work applies here too: **database information lives in Supabase.**
 
 ---
 
-## What Audrey asked for (2026-08-03, verbatim in substance)
+## THE MODEL — Audrey's spec, 2026-08-03. Read this before the older list below.
+
+**A production budget has THREE STATES, and they are computed in genuinely
+different ways. This is the central fact of the session; treating them as one
+table with a status column will produce the wrong system.**
+
+### 1. BID — estimated cost
+- `rate × days assigned`, plus all expenses on the project.
+- 🚨 **Tasks must be creatable and costable BEFORE real people exist.** The
+  producer assigns each task to a **ROLE from the rate card**, not a person.
+  There must be a dropdown of the roles a project can have, sourced from the
+  rate card, writing the task's assigned-role value.
+- The system sums those into the bid.
+- **Talent is NOT modelled through tasks.** Talent days are typed directly into
+  the budget view.
+
+**MEASURED — this is nearly schema-complete already:**
+`rate_card_entries.role_label` and `.role_slug` are both **NOT NULL**, and
+`tasks.assigned_role_slug` / `.assigned_position` already exist. So the bid
+line is `tasks.bid_days × rate_card_entries.day_rate` joined on
+`assigned_role_slug`. `member_id` on an entry is **nullable**, which is what
+lets one card hold both role rates (no member) and person rates (member set).
+
+### 2. ACTUAL — what it really cost
+Computed a completely different way, **per pay period**, per line item:
+- **Freelancers / external:** the production team manually enters each
+  invoice total into that line item's actual cell for the pay period.
+- **Internal staff:** a **timecard / time-tracking system that does not exist
+  yet**. Audrey: *"this is for after we finish all our sessions."* At the end
+  of each pay period its totals will be written into the matching cell.
+  **Design the actuals store so that system can fill it later; do NOT build
+  time tracking in this session.**
+
+→ Actuals need a **line-item × pay-period grid**, not a single number.
+
+### 3. FINAL — the simplest
+A final version of the actual budget once the project is done, for the team to
+review total cost, profit, and so on.
+
+---
+
+### The Team tab splits in two
+
+1. **Actual team** — the real people and their details.
+2. **Bid estimated team** — every ROLE assigned to a task during the bid, with
+   rates pulled from the rate card.
+
+As a project moves toward being awarded, the manager progressively replaces
+roles with real people **in the bid view**, and the numbers move with it:
+- The manager can **see and edit the rate for each team member**.
+- Each rate **defaults from the rate card, by that person's role**.
+- If a person's role is blank (it shouldn't be) the rate is blank and the
+  manager types it in.
+- **Assigning a real person to a project role switches that line to the
+  person's INTERNAL rate.** The external/day rate is mainly a *bidding*
+  instrument.
+- Totals therefore change as real people land — *"latter is not always true"*,
+  i.e. do not assume the bid and the staffed estimate agree.
+
+### 🚨 Rate edits inside a project are PROJECT-SCOPED
+
+Audrey, twice, for both real people and bid roles:
+
+> *"when a manager makes a change on the rate card in a project that is going to
+> be project specific meaning the managers change should not change the internal
+> rate card. some projects will have different rates for people."*
+
+**A rate edited inside a project must never write back to the workspace rate
+card.** This is the single most important schema consequence in the session:
+`rate_cards` / `rate_card_entries` are workspace-level, so the project needs
+its own override layer — keyed by **role_slug** (bid) and by **member_id**
+(staffed), resolving as: project override → rate card → blank.
+
+Get this wrong in the obvious way (editing the shared card) and one project's
+negotiated rate silently rewrites every other project's numbers. That is a
+data-integrity failure that would be very hard to notice and impossible to
+reconstruct afterwards.
+
+---
+
+## What Audrey asked for first (2026-08-03) — the tab-level asks
 
 1. **Default contingency and margin show 0% and will not save.** There are TWO
    levels and both must persist: the **default percentages** *and* the
@@ -101,37 +181,53 @@ is a decision, not an assumption. Note there are now three related concepts:
 
 ---
 
-## Questions to put to Audrey BEFORE building (she invited them)
+## ANSWERED by Audrey (2026-08-03) — do not re-ask
 
-1. **Which rate prices a task?** `rate_cards.type` is `'general'` (client-facing
-   day rates) or `'internal'` (per-person `wage`/`burden`/`overhead`). "Actual
-   cost" suggests **internal**, but a client-facing budget would use general.
-   Is the phase actual an *internal cost* number, a *client price* number, or
-   both side by side?
-2. **Which days?** `tasks` has `bid_days` (estimate) and `logged_days`
-   (actual). Her formula says actuals → `logged_days`. **But is anything
-   populating `logged_days` today?** If nothing does, the actuals total will be
-   0 for a different reason, and time capture becomes part of this session's
-   scope. **Measure before promising the formula works.**
-3. **Days or hours?** She wrote "total days/hours". `bid_days`/`logged_days`
-   are days; rate cards carry day/week/month rates. Is there an hours concept
-   that needs a unit and a conversion, or is days the unit?
-4. **Expenses** — no table exists. What are the categories (items, talent, …),
-   and does "talent" come from the existing Talent tab? Are expenses attached
-   to a **phase**, a **task**, or either?
-5. **Default percentages — default for whom?** Workspace-wide (a company
-   default every new project inherits) or per rate card? And when a project
-   overrides, is the default a *fallback* or a *seed copied at creation*?
-   (Fallback keeps projects in sync when the default changes; seed freezes
-   them. This decides the schema.)
-6. **Margin and contingency — applied to what, in what order?** On cost, on
-   cost+contingency, before or after each other? A budget that computes these
-   in the wrong order is wrong in a way nobody notices for months.
-7. **Are per-person rates confidential?** `rate_cards.type='internal'` carries
-   wages, and `workspace_members` has `grant_rate_card_view` /
-   `grant_rate_card_edit`. If phase actuals expose internal cost, the *phase
-   totals themselves* may need the same gating — this is an RLS design point,
-   not a UI one.
+- **Which rate prices a task?** BID uses the **role's rate from the rate card**
+  (external/day rate — "the external rate is mainly just used for bidding").
+  Once a real person is assigned, the line switches to that person's
+  **INTERNAL** rate. So both cards are in play, at different stages.
+- **Which days for the bid?** `bid_days` × the role's rate card rate.
+- **Actuals do NOT come from `logged_days`.** They are entered per pay period —
+  manually from invoices for external people, and later automatically from a
+  timecard system that will be built **after** all currently planned sessions.
+  This removes time-capture from this session's scope.
+- **Talent** is not modelled through tasks; its days are typed directly into
+  the budget view.
+
+## STILL OPEN — put these to Audrey before building
+
+1. **"timecard" vs "rate card".** She wrote *"the default population of each of
+   these should be the corresponding rate on the timecard based on the role of
+   that person"*. Everything around it says **rate card**, and the timecard
+   system does not exist yet — almost certainly a slip, but confirm, because it
+   changes where the default rate is read from.
+2. **Pay periods.** What cadence — weekly, fortnightly, monthly? Configured per
+   workspace or per project? Do period boundaries need to be stored (so a
+   historical actual stays attached to the right period when the cadence
+   changes)? The actuals grid cannot be designed without this.
+3. **Is FINAL a locked snapshot or a view?** If it is a snapshot, it must be
+   immutable once taken and should record who took it and when. If it is just
+   "actual, viewed after wrap", it needs no storage at all. Profit implies a
+   client/contract value — where does that come from?
+4. **Do BID and ACTUAL both carry expenses**, and are they the same expense
+   rows (estimated vs actual columns on one row) or two separate sets?
+5. **When a real person replaces a role on a bid line** — does the role line
+   convert in place, or does the person sit alongside it so the original bid
+   stays comparable? This decides whether bid history survives staffing.
+6. **Bid versioning.** main's local bundle had `budgetVersions`. Do bids need
+   revisions (v1, v2, "client asked for a cheaper option")?
+7. **Margin and contingency — order of application.** On cost, on
+   cost + contingency, or each independently? A budget that applies these in
+   the wrong order is wrong in a way nobody notices for months.
+8. **Default percentages — fallback or seed?** If a project inherits the
+   company default, does changing the default later move existing projects
+   (fallback) or not (seed copied at creation)? This decides the schema.
+9. **Are rates confidential?** `rate_cards.type='internal'` carries wages, and
+   `workspace_members` already has `grant_rate_card_view` /
+   `grant_rate_card_edit`. If actuals and phase totals expose internal cost,
+   **those totals need the same gating** — an RLS design point, not a UI one.
+   This matters more now that actuals are per-person invoice totals.
 
 ---
 
@@ -143,6 +239,17 @@ is a decision, not an assumption. Note there are now three related concepts:
   `ok(NOT has_table_privilege('anon', …))` probe. **`RLS_TABLES` in
   `.github/workflows/rls.yml` (GIT ROOT) must gain every new table**, and any
   new suite file must also join the replay list at `rls.yml:114`.
+- **A PROJECT-SCOPED rate override table** — the one non-obvious table. Keyed
+  by `role_slug` for bid lines and `member_id` for staffed lines, resolving
+  project override → workspace rate card → blank. Without it, a manager
+  negotiating one project's rate silently rewrites every other project.
+- **An actuals grid**: line item × pay period, with the cell as the unit of
+  storage. Built so the future timecard system can write internal totals into
+  the same cells the production team types external invoice totals into.
+- **Three states, not one flag.** Bid and actual are computed from different
+  inputs by different people at different times; final is a review of actual.
+  Model them so a bid can be revised without touching actuals, and so actuals
+  can accrue per period without disturbing the bid.
 - **`project_members.project_title`** — free text, distinct from
   `project_role`.
 - **Adapter parity** — the budget must work on **local server and Supabase**,
