@@ -205,3 +205,12 @@ auto-memory → docs commit + push.
 > including anything this session breaks; delete what it fixes, citing the
 > commit; tag MEASURED / REPORTED / INFERRED. **Adding nothing is a correct
 > outcome.** Do not pad it to look thorough — padding buries the real entries.
+
+> **FINALLY, in the chat — both required:**
+> 1. **List the remaining sessions**, one line each, a few words only, marking
+>    any that are done.
+> 2. **A layman's breakdown of what this session accomplished**, in bullet
+>    points, plain English — **no jargon, no table names, no migration numbers,
+>    no file paths.** Write what CHANGED FOR AUDREY, not what was done to the
+>    code, and say plainly what is fixed, what is only diagnosed, and what she
+>    needs to do herself. This is the part she actually reads.

@@ -653,6 +653,35 @@ fix time.
    `python -c`) rather than filtering output you have not seen the shape of.
    Prefer Edit/Write over shell heredocs. Neither incident was a reasoning
    error; both were quoting.
+7. **Finish every session with two things for Audrey, in the chat — not in a
+   file she has to go and open.** Both are required, both go at the very end,
+   after the work is committed and pushed:
+
+   **a. The remaining sessions**, one line each, a few words only:
+
+   > - **S25** — scenes/shots/levels/experiences on both adapters
+   > - **S26** — folder tree in the company's storage backend
+   > - **S27** — files everywhere + project manifest in Resources
+   > - **S28** — design pass
+
+   Mark any that are done. If the order changed, say so.
+
+   **b. A layman's breakdown of what the session accomplished**, as bullet
+   points, in plain English. **No jargon, no table names, no migration numbers,
+   no file paths.** Write what CHANGED FOR HER, not what was done to the code.
+
+   > ✅ "You can create tasks again — every one you made before tonight was
+   > silently failing."
+   > ❌ "Migration 0034 dropped the NOT NULL on `tasks.asset_id` and relaxed
+   > `tasks_select`."
+   >
+   > ✅ "Your team's wages can't leak to people outside the company."
+   > ❌ "Revoked anon EXECUTE on seven SECURITY DEFINER functions."
+
+   Say plainly what is fixed, what is only diagnosed, and what she needs to do
+   herself. The technical record already exists in the commits and the docs —
+   this is the part she actually reads.
+
 6. **End every session by updating `docs/OUTSTANDING.md`** — the single answer
    to "what is broken right now". Add only what is **broken and not yet
    fixed**, including anything the session itself broke; delete what it fixed,

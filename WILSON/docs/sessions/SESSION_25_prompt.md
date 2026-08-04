@@ -16,7 +16,7 @@
 > 1. `git status` on `feat/multi-user-v1`
 > 2. read **`docs/OUTSTANDING.md`** — everything currently broken
 > 3. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md` — **the sequence changed;
->    read the "THE SESSION SEQUENCE CHANGED" block first**
+>    read the REORDERED sequence table first - it is the authority**
 > 4. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
 >    S23 left it on `wilson-dev` (`eqjzmnvkrakroyqxfsvw`).
 
@@ -75,7 +75,7 @@ failure of the app's primary action shipped unnoticed. Fix that this session.
 
 ---
 
-## S24 — scenes, shots, levels, experiences on BOTH adapters
+## S25 — scenes, shots, levels, experiences on BOTH adapters
 
 **Audrey, explicitly: "it shouldn't only be cloud. it should be able to live in
 a local server as well."** They already work in `local_server` (JSON bundle —
@@ -116,7 +116,8 @@ deliberately whether a task references them.
 object storage with prefixes, so an *empty* folder cannot exist. Either a
 placeholder object per folder or a **`folders` table as source of truth**
 (recommended: survives a backend switch, makes "toggle off never deletes"
-trivial, identical on all three backends). S25 cannot start without it.
+trivial, identical on all three backends). **S26, the folder session,
+  cannot start without it.**
 
 ---
 
@@ -191,3 +192,16 @@ docs commit + push.
 > including anything this session breaks; delete what it fixes, citing the
 > commit; tag MEASURED / REPORTED / INFERRED. **Adding nothing is a correct
 > outcome.**
+
+> **THEN, FINALLY, IN THE CHAT — both required, after everything is pushed:**
+>
+> 1. **List the remaining sessions**, one line each, a few words only, marking
+>    any that are done. If the order changed, say so.
+> 2. **A layman's breakdown of what this session accomplished**, in bullet
+>    points, plain English. **No jargon, no table names, no migration numbers,
+>    no file paths.** Write what CHANGED FOR AUDREY, not what was done to the
+>    code — "you can create tasks again, every one you made before tonight was
+>    silently failing", not "dropped the NOT NULL on tasks.asset_id". Say
+>    plainly what is fixed, what is only diagnosed, and what she needs to do
+>    herself. The technical record is already in the commits; this is the part
+>    she actually reads.

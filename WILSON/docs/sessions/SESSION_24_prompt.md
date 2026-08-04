@@ -376,3 +376,16 @@ re-link CLI to `wilson-dev` → write the next session prompt → update
 `docs/MASTER_PLAN.md` (§4 ledger, §6 gaps) and `MASTER_PLAN_S19_ONWARD.md` →
 update `docs/SYSTEMS_HANDBOOK.md` if behaviour changed → **update
 `docs/OUTSTANDING.md`** → update the Claude auto-memory → docs commit + push.
+
+> **THEN, FINALLY, IN THE CHAT — both required, after everything is pushed:**
+>
+> 1. **List the remaining sessions**, one line each, a few words only, marking
+>    any that are done. If the order changed, say so.
+> 2. **A layman's breakdown of what this session accomplished**, in bullet
+>    points, plain English. **No jargon, no table names, no migration numbers,
+>    no file paths.** Write what CHANGED FOR AUDREY, not what was done to the
+>    code — "you can create tasks again, every one you made before tonight was
+>    silently failing", not "dropped the NOT NULL on tasks.asset_id". Say
+>    plainly what is fixed, what is only diagnosed, and what she needs to do
+>    herself. The technical record is already in the commits; this is the part
+>    she actually reads.
