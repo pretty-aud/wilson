@@ -78,14 +78,39 @@ disappearing from the Tasks tab *and* Board view.
 > false and all six surfaces vanish. A stale token issued before a role change
 > would do it.
 >
-> → **ONE OBSERVATION SETTLES IT, AND IT COSTS FIVE SECONDS.** `perms.role`
-> drives more than these buttons: `Home.jsx:56` shows the admin Resources
-> items only when `perms.role === 'admin'`, and `AdminTerminalPage.jsx:55`
-> renders nothing until `perms.ready`. **Next time the New task button is
-> missing, check whether the Admin Terminal is also missing from the nav.**
-> Both gone = the claim is absent and this is confirmed; Admin Terminal
-> present while New task is gone = the claim is fine and the cause is
-> elsewhere entirely. Do not write a fix before that observation exists.
+> → **THE OBSERVATION WAS ATTEMPTED AND DID NOT SETTLE IT — read this before
+> re-running it.** The test is: when New task is missing, is the Admin Terminal
+> also missing? (`Home.jsx:56` gates the admin Resources items on
+> `perms.role === 'admin'`; `AdminTerminalPage.jsx:55` renders nothing until
+> `perms.ready`.)
+>
+> Audrey ran it on 2026-08-04 and reported **both gone** — which looked like a
+> confirmation and is **not one**. She was signed into the **`tester`** account
+> at the time, in a different browser from the one that produced the original
+> report. For a non-admin with no manager/member seat on a staffed project,
+> both controls are *supposed* to be absent. **That is the gate working
+> correctly, and it is not evidence about the admin case at all.**
+>
+> 🚨 **The test only means anything in the browser that produced the symptom.**
+> Audrey runs two accounts in two browsers simultaneously — admin in one,
+> `tester` in the other — so "which account" must be established for the
+> specific browser AND the specific moment, not in general. This is the second
+> time this investigation has been sent down a wrong path by an account
+> assumption (S23 had it too, from the opposite direction).
+>
+> **NEW LEAD, and it is MEASURED as far as it goes.** The original sighting was
+> in "the browser logged into the admin portal". WILSON serves two surfaces
+> with **different session storage keys** — `supabaseClient.js:44`:
+> `storageKey: surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app'`.
+> So a browser authenticated to the operator console does not share a session
+> with the product app.
+>
+> **What is NOT established:** whether that produces this symptom. A product
+> app with no session at all would show the login screen, not a project with a
+> missing button — so crossover alone does not explain it, and may require both
+> sessions present. **Do not write a fix from this.** It is a hypothesis with
+> one measured leg, which is exactly the state that has burned three sessions
+> here already.
 
 The gate is certain. `canOnProject(..., 'project.entity.write')`
 (`projectRoleMatrix.js:70-76`) drives a single `canWrite` boolean that hides

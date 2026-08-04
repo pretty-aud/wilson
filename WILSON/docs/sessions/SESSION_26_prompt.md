@@ -154,11 +154,26 @@ it.** Do not delete the `OUTSTANDING.md` entry without that look.
    `canOnProject:131` returns **true** when `ready === false`. A hung
    `getSession()` leaves the buttons **present**, not missing.
 
-The one surviving candidate is that `perms.role` is null because the session's
-JWT carries no `app_role` in `app_metadata`. **ONE OBSERVATION SETTLES IT:
-next time New task is missing, is the Admin Terminal also missing from the
-nav?** Both gone confirms it; Admin Terminal present refutes it too and the
-cause is elsewhere. **Do not write a fix before that observation exists.**
+🚨 **The observation test was RUN and did NOT settle it — do not read the
+result as a confirmation.** Audrey reported "Admin Terminal and New task are
+gone" on 2026-08-04, which looks decisive and is not: she was on the
+**`tester`** account, in a different browser from the one that produced the
+original report. For a non-admin with no manager/member seat on a staffed
+project, both controls are *correctly* absent.
+
+**She runs two accounts in two browsers at once** — admin in one, `tester` in
+the other. So "which account" has to be pinned to the specific browser AND
+moment, never asked in general. This investigation has now been sent down a
+wrong path by an account assumption **twice**, from opposite directions (S23,
+then S25).
+
+**The live lead, measured as far as it goes:** the original sighting was in
+"the browser logged into the admin portal", and the two surfaces use
+**different session storage keys** — `supabaseClient.js:44`,
+`surface === 'admin' ? 'sb-wilson-operator' : 'sb-wilson-app'`. **Not
+established:** whether that produces the symptom. No session at all would show
+the login screen rather than a project with a missing button, so crossover
+alone is not sufficient. **Do not write a fix from one measured leg.**
 
 ---
 
