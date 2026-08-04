@@ -761,8 +761,20 @@ function startLocalServer(distPath) {
       // directories are made for whatever rows exist. Doing it in that order
       // is what lets a project pick a location later and get its whole tree.
       try {
-        if (ensureProjectFolderRows(bundle, projectId)) dirty = true;
-        materializeFolderDirs(bundle);
+        if (ensureProjectFolderRows(bundle, projectId)) {
+          dirty = true;
+          // Only when rows were actually ADDED. readRabbitBundle runs on every
+          // API request, and materializeFolderDirs is one existsSync per
+          // folder — on a project with a few hundred entities that is a few
+          // hundred stat calls on every call, to discover nothing changed.
+          // The paths are deterministic, so this converges after one pass.
+          //
+          // Configuring a folder location LATER is the case this would
+          // otherwise miss: the rows already exist, so nothing is added and
+          // no directory gets made. The project PATCH route covers it — that
+          // is where folder_root is written.
+          materializeFolderDirs(bundle);
+        }
       } catch (e) { console.error('folder reconcile failed:', e.message); }
       if (dirty) {
         try { writeJSON(rabbitBundlePath(projectId), bundle); } catch {}
@@ -1360,6 +1372,20 @@ function startLocalServer(distPath) {
         }
         bundle.project.folder_slug = newSlug;
       }
+      // Session 26. This route is where folder_root is written (the "Change"
+      // button in the Files & Storage panel), so it is the one place a
+      // project can acquire a location it did not have. Re-plan and
+      // materialize here, or a project configured after its rows already
+      // existed would have a tree in the bundle and nothing on disk.
+      //
+      // Also catches a toggle being switched ON: scenes_enabled arriving true
+      // means SCENES/ and SHOTS/ are now planned. Switching one OFF removes
+      // nothing — a disabled category is simply absent from the plan, and
+      // nothing here deletes (Audrey, 2026-08-03).
+      try {
+        ensureProjectFolderRows(bundle, req.params.id);
+        materializeFolderDirs(bundle);
+      } catch (e) { console.error('folder reconcile failed:', e.message); }
       writeRabbitBundle(req.params.id, bundle);
       res.json(bundle.project);
     });

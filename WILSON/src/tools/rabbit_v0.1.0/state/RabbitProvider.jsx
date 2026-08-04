@@ -951,6 +951,54 @@ export function RabbitProvider({ children }) {
   }, [scheduleRealtimeRefetch]);
 
   // ── Projects (mutators on the index, not the bundle) ────
+  // 🚨 DECLARED BEFORE THE FOLDER CALLBACKS, AND THAT ORDER IS LOAD-BEARING.
+  // ensureProjectFoldersFor lists writeManifestSoon in its useCallback
+  // dependency array, and a dependency array is evaluated DURING RENDER —
+  // not lazily when the callback runs. Declaring this below it put
+  // writeManifestSoon in the temporal dead zone on the very first render, so
+  // RabbitProvider threw ReferenceError and the whole app rendered blank.
+  //
+  // Neither 658 unit tests nor two production builds caught it: nothing in
+  // the vitest suite MOUNTS the provider, and a TDZ error is perfectly valid
+  // JavaScript to bundle. Playwright caught it, which is the only reason
+  // that job exists.
+  // The project manifest — a generated MIRROR written into the project
+  // folder whenever settings change (Audrey, 2026-08-03; the database stays
+  // authoritative). projectManifest.js records what it leaves out and why.
+  //
+  // DEBOUNCED, because updateProject fires per FIELD: the control panel's
+  // inputs each write on change, so a settings pass would otherwise upload
+  // one object per keystroke-ish edit. 1.5s after the last write is soon
+  // enough for a file nothing reads during normal operation.
+  const manifestTimerRef = useRef(null);
+  useEffect(() => () => clearTimeout(manifestTimerRef.current), []);
+
+  const writeManifestSoon = useCallback((projectId) => {
+    const adapter = adapterRef.current;
+    // Feature-detect: Drive is read-only, and an older client has no method.
+    if (!adapter || !projectId || typeof adapter.writeProjectManifest !== 'function') return;
+    clearTimeout(manifestTimerRef.current);
+    manifestTimerRef.current = setTimeout(async () => {
+      // The project may have been switched during the wait. Writing then
+      // would describe project A into project B's folder.
+      if (activeProjectIdRef.current !== projectId) return;
+      try {
+        const b = bundleRef.current;
+        await adapter.writeProjectManifest(
+          projectId,
+          buildProjectManifest(b?.project, b, new Date().toISOString()),
+        );
+      } catch (err) {
+        console.warn(
+          `[rabbit] could not write the project manifest for ${projectId}: ` +
+          `${err.message || err}. The settings themselves are saved — the ` +
+          `manifest is a mirror and is rewritten on the next change.`
+        );
+      }
+    }, 1500);
+  }, []);
+
+
   // ── Folder tree (Session 26, migration 0041) ─────────────
   //
   // Audrey: R.A.B.B.I.T. is also a project file manager, and the tree must
@@ -1018,42 +1066,6 @@ export function RabbitProvider({ children }) {
       return null;
     }
   }, [mergeFolder]);
-
-  // The project manifest — a generated MIRROR written into the project
-  // folder whenever settings change (Audrey, 2026-08-03; the database stays
-  // authoritative). projectManifest.js records what it leaves out and why.
-  //
-  // DEBOUNCED, because updateProject fires per FIELD: the control panel's
-  // inputs each write on change, so a settings pass would otherwise upload
-  // one object per keystroke-ish edit. 1.5s after the last write is soon
-  // enough for a file nothing reads during normal operation.
-  const manifestTimerRef = useRef(null);
-  useEffect(() => () => clearTimeout(manifestTimerRef.current), []);
-
-  const writeManifestSoon = useCallback((projectId) => {
-    const adapter = adapterRef.current;
-    // Feature-detect: Drive is read-only, and an older client has no method.
-    if (!adapter || !projectId || typeof adapter.writeProjectManifest !== 'function') return;
-    clearTimeout(manifestTimerRef.current);
-    manifestTimerRef.current = setTimeout(async () => {
-      // The project may have been switched during the wait. Writing then
-      // would describe project A into project B's folder.
-      if (activeProjectIdRef.current !== projectId) return;
-      try {
-        const b = bundleRef.current;
-        await adapter.writeProjectManifest(
-          projectId,
-          buildProjectManifest(b?.project, b, new Date().toISOString()),
-        );
-      } catch (err) {
-        console.warn(
-          `[rabbit] could not write the project manifest for ${projectId}: ` +
-          `${err.message || err}. The settings themselves are saved — the ` +
-          `manifest is a mirror and is rewritten on the next change.`
-        );
-      }
-    }, 1500);
-  }, []);
 
   const createProject = useCallback(async (payload) => {
     if (!adapterRef.current) throw new Error('no adapter');
