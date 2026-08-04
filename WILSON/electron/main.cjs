@@ -1609,9 +1609,13 @@ function startLocalServer(distPath) {
     expressApp.post('/api/rabbit/projects/:projectId/folders/ensure', (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
-      ensureProjectFolderRows(bundle, req.params.projectId);
-      materializeFolderDirs(bundle);
-      writeRabbitBundle(req.params.projectId, bundle);
+      // Only write when something actually changed. writeRabbitBundle also
+      // re-mirrors _DATABASES, so a no-op ensure would rewrite six JSON files
+      // to discover the tree was already correct.
+      if (ensureProjectFolderRows(bundle, req.params.projectId)) {
+        materializeFolderDirs(bundle);
+        writeRabbitBundle(req.params.projectId, bundle);
+      }
       res.json({ folders: bundle.folders || [] });
     });
 
@@ -1626,9 +1630,18 @@ function startLocalServer(distPath) {
       if (!bundleKey) return res.status(400).json({ error: `unknown folder entity type: ${entityType}` });
       const entity = (bundle[bundleKey] || []).find(x => x.id === entityId);
       if (!entity) return rabbitNotFound(res, entityType);
-      const { row } = ensureEntityFolderRow(bundle, req.params.projectId, entityType, entity);
-      materializeFolderDirs(bundle);
-      writeRabbitBundle(req.params.projectId, bundle);
+      // The sub-entity POST/PATCH routes already call this for the four
+      // entity types, and the provider calls it again through the adapter so
+      // that the SUPABASE path gets its folder. On Local Server that makes
+      // this the second, redundant visit — idempotent, but writeRabbitBundle
+      // is not free (it re-mirrors _DATABASES). Only write on a real change.
+      const { row, changed } = ensureEntityFolderRow(
+        bundle, req.params.projectId, entityType, entity,
+      );
+      if (changed) {
+        materializeFolderDirs(bundle);
+        writeRabbitBundle(req.params.projectId, bundle);
+      }
       res.json(row);
     });
 
