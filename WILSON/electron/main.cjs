@@ -843,9 +843,16 @@ function startLocalServer(distPath) {
         path.join(root, 'ASSETS'),
         path.join(root, `${slug}_DATABASES`),
         path.join(root, `${slug}_FILES`),
-        path.join(root, `${slug}_RECEIPTS&INVOICES`),
-        path.join(root, `${slug}_CREWINVOICES`),
-        path.join(root, `${slug}_TALENTINVOICES`),
+        // Session 24 (Audrey): one folder called INVOICES, created with the
+        // project so it is there before the first invoice is attached.
+        //
+        // This REPLACES main's three — <slug>_RECEIPTS&INVOICES,
+        // <slug>_CREWINVOICES and <slug>_TALENTINVOICES. They are no longer
+        // created, because nothing writes to them: the only writer was the
+        // invoice-folder route, which the adapter-backed attachment flow
+        // replaced. Existing folders on disk are left exactly where they are
+        // — this stops making new empty ones, it never deletes.
+        path.join(root, 'INVOICES'),
       ];
       for (const d of dirs) {
         if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
@@ -911,6 +918,39 @@ function startLocalServer(distPath) {
       }
       // Fallback to internal storage
       return getRabbitFilesDir(projectId);
+    }
+
+    // Session 24. Audrey: "invoices should go into the project folder. it
+    // should be in a nested folder in the project called INVOICES."
+    //
+    // A SIBLING of <slug>_FILES, not a child: invoices are the project's
+    // financial record, not general project files, and the relink flow below
+    // deliberately leaves them alone.
+    //
+    // Note this supersedes main's three separate invoice folders
+    // (<slug>_RECEIPTS&INVOICES, <slug>_CREWINVOICES, <slug>_TALENTINVOICES).
+    // Audrey asked for one folder called INVOICES; the split is not carried
+    // over. The name matches the reserved cloud path segment exactly, so the
+    // two backends put invoices somewhere a person would recognise as the
+    // same place.
+    function resolveProjectInvoicesDir(bundle, projectId) {
+      const root = resolveProjectFolder(bundle);
+      if (root) {
+        const dir = path.join(root, 'INVOICES');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      }
+      // No project folder configured — fall back to wherever ordinary files
+      // go, so an invoice is never written somewhere unreachable.
+      return resolveProjectFilesDir(bundle, projectId);
+    }
+
+    // Which base a given file row resolves against. storage_path stays a bare
+    // filename either way, so the containment guard keeps working unchanged.
+    function resolveFileBaseDir(bundle, projectId, file) {
+      return file?.is_financial
+        ? resolveProjectInvoicesDir(bundle, projectId)
+        : resolveProjectFilesDir(bundle, projectId);
     }
 
     // ── File lifecycle helpers (Session 14) ───────────────────
@@ -1255,28 +1295,12 @@ function startLocalServer(distPath) {
     // ── Invoice folder resolution ─────────────────────────────────
     // Returns the absolute folder path for crew or talent invoice files.
     // Creates the folder if it doesn't exist yet.
-    expressApp.post('/api/rabbit/projects/:projectId/invoice-folder', (req, res) => {
-      const bundle = readRabbitBundle(req.params.projectId);
-      if (!bundle) return rabbitNotFound(res);
-      const root = resolveProjectFolder(bundle);
-      if (!root) return res.status(400).json({ error: 'no project folder configured' });
-      const slug = bundle.project.folder_slug || fileSlugify(bundle.project.title || 'Untitled-Project');
-      const { type, memberName } = req.body; // type: 'crew' | 'talent' | 'receipts'
-      let folderPath;
-      if (type === 'receipts') {
-        folderPath = path.join(root, `${slug}_RECEIPTS&INVOICES`);
-      } else if (type === 'crew') {
-        const safeName = fileSlugify(memberName || 'Unknown');
-        folderPath = path.join(root, `${slug}_CREWINVOICES`, `${slug}_${safeName}`);
-      } else if (type === 'talent') {
-        const safeName = fileSlugify(memberName || 'Unknown');
-        folderPath = path.join(root, `${slug}_TALENTINVOICES`, `${slug}_${safeName}`);
-      } else {
-        return res.status(400).json({ error: 'invalid type — must be crew, talent, or receipts' });
-      }
-      if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
-      res.json({ ok: true, folderPath });
-    });
+    // Session 24: the POST /invoice-folder route was removed here. It handed
+    // the renderer an absolute path on the local disk so the desktop bridge
+    // could copy a file into it — which is exactly why invoice attachment
+    // could not work on the web. Attachment now goes through the adapter
+    // (uploadFile), so both backends and both surfaces share one path, and
+    // invoices land in <project>/INVOICES.
 
     // ── Project Team: project-scoped copy of workspace team members ──
     // Bulk-sync: replaces projectTeam with the provided array of members
@@ -1316,7 +1340,10 @@ function startLocalServer(distPath) {
       const fileId = uuidv4();
       const safeName = name.replace(/[^a-zA-Z0-9._-]+/g, '_');
       const diskName = `${fileId}-${safeName}`;
-      const filesDir = resolveProjectFilesDir(bundle, req.params.projectId);
+      const isFinancial = !!scope.financial;
+      const filesDir = isFinancial
+        ? resolveProjectInvoicesDir(bundle, req.params.projectId)
+        : resolveProjectFilesDir(bundle, req.params.projectId);
       fs.writeFileSync(path.join(filesDir, diskName), Buffer.from(base64, 'base64'));
 
       const row = rabbitTouch({
@@ -1332,6 +1359,9 @@ function startLocalServer(distPath) {
         storage_path:     diskName,
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
+        // Mirrors public.files.is_financial (0038). On Local Server it also
+        // decides which directory the body resolves against.
+        is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
       });
       bundle.files.push(row);
@@ -1354,7 +1384,7 @@ function startLocalServer(distPath) {
       const file = bundle.files.find(f => f.id === req.params.id);
       if (!file) return rabbitNotFound(res, 'file');
       const diskPath = resolveContainedFilePath(
-        resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
+        resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
       if (!diskPath) return res.status(400).json({ error: 'invalid storage path' });
       if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
       res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
@@ -1381,7 +1411,7 @@ function startLocalServer(distPath) {
       const file = bundle.files.find(f => f.id === req.params.id);
       if (file) {
         const diskPath = resolveContainedFilePath(
-          resolveProjectFilesDir(bundle, req.params.projectId), file.storage_path);
+          resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
         // blob_removed keeps the certificate honest: a certificate must
         // not assert a disposal that never happened (uncontained legacy
         // path, or the body was already gone).
@@ -1441,6 +1471,11 @@ function startLocalServer(distPath) {
       const missing = [];
       const resolved = [];
       for (const f of bundle.files) {
+        // Session 24: invoices live in <project>/INVOICES and are not part of
+        // the files home this flow relinks. Including them would report every
+        // one as missing — and a relink would then offer to move the
+        // project's financial record somewhere else.
+        if (f.is_financial) continue;
         const p = resolveContainedFilePath(filesDir, f.storage_path);
         (p && fs.existsSync(p) ? resolved : missing).push({
           id: f.id, name: f.name, storage_path: f.storage_path,

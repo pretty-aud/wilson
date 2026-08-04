@@ -84,7 +84,7 @@ INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, 
 VALUES ('aaaa1111-0000-0000-0000-00000000ff77',
         'aaaa1111-0000-0000-0000-000000000001',
         'invoice-001.pdf', 'supabase',
-        'projects/aaaa1111-0000-0000-0000-000000000001/invoices/x/1-invoice-001.pdf',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/x/1-invoice-001.pdf',
         true);
 
 -- 6: ordinary files are unaffected — the flag defaults to false.

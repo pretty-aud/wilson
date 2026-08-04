@@ -471,6 +471,18 @@ the row AND the blob, independently. 🚨 **0027 → 0038, and replaying 0027
 silently re-opens them.** The Client View's `project.name` / `project.code` was
 **deferred by Audrey** and stays in `OUTSTANDING.md`.
 
+**Two further asks, both actioned 2026-08-04:**
+- **Invoices live in `INVOICES`.** Audrey: *"invoices should go into the
+  project folder. it should be in a nested folder in the project called
+  INVOICES."* Migration 0039 makes the storage gate match the segment
+  case-insensitively, so the rename could not invert it; on Local Server
+  `INVOICES/` is created with the project as a SIBLING of `<slug>_FILES`, and
+  main's three separate invoice folders are no longer created (nothing wrote
+  to them once the desktop-only route went). Existing folders are never
+  deleted.
+- **The project control panel gate is CARRIED TO S25**, at her request, rather
+  than left sitting in `OUTSTANDING.md`.
+
 **Answered by Audrey and now settled** (do not re-ask): money = a project
 manager **or** a workspace admin — a workspace *manager* holding only a project
 `member` seat does **not** qualify; the existing `grant_rate_card_view` /

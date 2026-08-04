@@ -619,15 +619,22 @@ export function supabaseAdapter() {
     // ── Files (Storage + metadata row) ────────────────────────
     async uploadFile(projectId, scope = {}, file) {
       const client = await requireClient();
-      // Session 24: `invoices` is a RESERVED path segment, and the check
+      // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
-      // entity. Storage policy `rabbit_files_invoices_select` (0038) keys on
-      // exactly this third segment, and the three base rabbit-files policies
-      // exclude it — so the segment IS the gate for the blob, while
+      // entity. Storage policy `rabbit_files_invoices_select` keys on exactly
+      // this third segment, and the three base rabbit-files policies exclude
+      // it — so the segment IS the gate for the blob, while
       // files.is_financial gates the row. Changing either without the other
       // opens a hole.
+      //
+      // 🚨 The case of this string is load-bearing and is matched by
+      // migration 0039 with upper(). Audrey asked for the folder to be called
+      // INVOICES; 0038 had shipped it lowercase. Renaming here WITHOUT 0039
+      // would have inverted the gate completely — the new object would miss
+      // the money-gated policy (invisible to managers) and fall through to
+      // the base ones (visible to every project member). Keep the two in step.
       const entity =
-        scope.financial ? 'invoices' :
+        scope.financial ? 'INVOICES' :
         scope.taskId    ? 'tasks'  :
         scope.assetId   ? 'assets' :
         scope.phaseId   ? 'phases' :

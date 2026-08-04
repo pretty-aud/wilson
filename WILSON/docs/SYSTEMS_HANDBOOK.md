@@ -2266,6 +2266,14 @@ of a session — this section is limits by design, that file is faults.
   the people denied the amount on it. 🚨 **Re-running 0027 silently re-opens
   this** — it owns the three base storage policies and would recreate them
   without the exclusion, reporting success. Replay 0038 after it.
+- **Invoices live in a folder called `INVOICES`** — a sibling of
+  `<slug>_FILES` in the project folder on Local Server, and the reserved
+  third path segment in cloud storage. 🚨 **The case of that segment is
+  load-bearing.** The six storage policies compare it with `upper()` (0039);
+  renaming it in the adapter without that would have INVERTED the gate —
+  the object misses the money-gated policy (invisible to managers) and falls
+  through to the base ones (visible to every project member). Keep the
+  adapter string and the policies in step.
 - **The Budget tab is hidden from non-managers** by `canSeeProjectMoney()`,
   the client mirror of the database gate. It fails CLOSED, and the direction
   is deliberate: the tab APPEARS a beat late for a project manager rather than

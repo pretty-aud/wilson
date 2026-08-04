@@ -144,7 +144,10 @@ back; `Rabbit.jsx` also redirects to Summary if a hidden tab is somehow open.
 
 **Still owed, and narrower than the original entry:** Audrey also asked that
 non-managers have **no access to the project control panel**. That is a
-separate route-level gate and does not exist yet. → S25 or S28.
+separate route-level gate and does not exist yet.
+→ **SCHEDULED into S25 at Audrey's request** (2026-08-04), with the two
+questions that must be answered first: which screen she actually means, and
+whether it wants the money rule or its own. See `SESSION_25_prompt.md`.
 
 ### ~~Crew and Talent invoice folders are desktop-only~~ — FIXED (S24, `dfdf386`)
 Both tabs now attach invoices through `InvoiceAttachment`, which picks with a

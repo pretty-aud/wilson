@@ -137,6 +137,30 @@ Scope:
 - **Add the missing creation coverage** — vitest around the adapter payloads
   (an allowlist regression is invisible otherwise) and pgTAP for the new tables.
 
+- 🚨 **CARRIED FROM S24 AT AUDREY'S REQUEST — gate the project control panel.**
+  She asked for two things when money became manager-only: *"reviewers and team
+  members should not see financial values anywhere AND should have NO ACCESS to
+  the project control panel."* S24 delivered the first (the data is gated by
+  `can_access_project_money()`, and the Budget tab is hidden by
+  `canSeeProjectMoney()`); the second was **not** built and she asked for it to
+  be scheduled rather than left in `OUTSTANDING.md`.
+
+  It is a **route-level** gate, not another hidden button — the point is that
+  the panel cannot be reached, not that its link is missing. Two things to
+  settle before writing it, neither of which S24 established:
+  1. **Which surface is "the project control panel"?** Confirm with Audrey
+     which screen she means before gating anything — guessing here hides a
+     screen someone needs.
+  2. **Which rule?** `canSeeProjectMoney` (admin OR project manager) is the
+     money rule. The panel may hold non-financial settings too, in which case
+     it wants its own predicate rather than borrowing this one. Do not
+     assume they are the same gate just because they were asked for in the
+     same sentence.
+
+  Reuse `canSeeProjectMoney()` if and only if the panel really is money; it
+  already exists, is unit-tested, and fails closed in the direction that makes
+  controls appear late rather than vanish.
+
 **Do NOT add scene/shot/level/experience columns to `tasks` yet.** 0034's
 header says why: those four fields are on the Timeline task payload and are
 dropped by the allowlist today. Once these entities are real, decide
