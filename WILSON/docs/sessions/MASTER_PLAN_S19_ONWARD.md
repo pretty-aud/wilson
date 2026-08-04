@@ -364,7 +364,65 @@ construction, not a broken handler.**
 
 ---
 
-### S23 — Files everywhere
+### ⚠️ THE SESSION SEQUENCE CHANGED (2026-08-03) — read this before the sections below
+
+Audrey specified a body of R.A.B.B.I.T. work that did not exist when this plan
+was written, and capped it at **four sessions**. The old S23/S24/S25 sections
+below are superseded; only one of them actually moves.
+
+| # | Session | Provenance |
+|---|---|---|
+| **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE 2026-08-03 (`2727328`)** | old S24, pulled forward: nothing could be created at all |
+| **S24** | Scenes/shots/levels/experiences at **adapter parity** | old S24 already called this "a session of its own" |
+| **S25** | Backend-agnostic **folder tree** wired to the company's storage backend | **new** — Audrey's requirement, 2026-08-03 |
+| **S26** | Files everywhere, on that tree | **= old S23, absorbed not delayed** — it always needed the folder tree first |
+| **S27** | Design pass | = old S25, shifted by two |
+
+**The requirements Audrey stated (2026-08-03), verbatim in substance:**
+- R.A.B.B.I.T. is also a **project file manager**; the folder tree must reflect
+  in **whichever storage backend the company selected** — not local disk only,
+  which is all `fs.mkdirSync` in `electron/main.cjs` can do today.
+- Assets are first-class items, each with its **own folder** of elements/files.
+- Scenes, shots, levels and experiences each get their **own folder** — 5
+  scenes means 5 independent folders under `SCENES/`, not one shared folder.
+- Toggling a category **on** creates them; toggling **off** must only remove
+  them from the R.A.B.B.I.T. view and **never delete the folders**.
+- Scenes and shots take their names **from the auto-naming system**.
+- Scenes/shots/levels/experiences must work on **local server too**, not
+  cloud-only. One entity shape, implemented on both adapters.
+- **Database information lives in Supabase.** This kills a naive port: on main
+  `<slug>_DATABASES/` was not a files folder, it was the datastore —
+  `mirrorProjectDatabases` wrote `project.json`, `team.json`, `tasks.json`,
+  `timeline.json`, `budget.json` into it. In the cloud model that folder must
+  become an **export target, not a source of truth**, or the port would
+  reintroduce a second, diverging copy of every project on disk.
+
+**What main actually does, MEASURED (`origin/main`, 2026-08-03):**
+- `ensureProjectFolders` (`electron/main.cjs:823`) creates `ASSETS/`,
+  `<slug>_DATABASES/`, `<slug>_FILES/`, `<slug>_RECEIPTS&INVOICES/`,
+  `<slug>_CREWINVOICES/`, `<slug>_TALENTINVOICES/`.
+- `ensureAssetFolder` → `<root>/ASSETS/<fileSlugify(assetName)>/`; renaming an
+  asset renames the folder **and** rewrites the `ASSETS/<oldSlug>/` prefix on
+  every managed file.
+- `folder_slug` is persisted on the project and on each asset.
+- Auto-naming: scene `CODE{sep}SC{n}` padded to `scene_digits` (default 3);
+  shot `CODE{sep}SC{n}{sep}SH{n}` padded to `shot_digits` (default 4).
+- **The gap is real and precise:** `FileManager.jsx:87` already computes
+  `parentType = sceneId ? 'SCENES' : shotId ? 'SHOTS' : 'ASSETS'` — those were
+  designed in — but nothing ever creates a SCENES/ or SHOTS/ folder, and
+  levels/experiences are not in that switch at all.
+
+**Design decision owed before S25 builds anything:** Supabase Storage has no
+real folders — it is object storage with path prefixes, so an *empty* folder
+cannot exist. Either a placeholder object per folder (a `.keep`) or a
+**`folders` table as the source of truth** with the storage path derived from
+it. Recommend the table: it survives a backend switch, makes "toggle off hides
+but never deletes" trivial, and behaves identically on Local Server, Supabase
+and Drive. **Put this to Audrey in S24's close-out.**
+
+---
+
+### S23 — Files everywhere (SUPERSEDED — this content is now S26)
 
 **Goal:** files visible and attachable from the Resources page, D.O.G., and
 R.A.B.B.I.T. against one project — Audrey's largest single ask.

@@ -50,10 +50,58 @@ RLS.
 
 ## Broken features
 
-### R.A.B.B.I.T. task creation fails in cloud mode — `tasks.asset_id` is NOT NULL and nothing supplies it
-**MEASURED (S22, wilson-dev, 2026-08-03) — reproduced at the database, not
-inferred.** This replaces the first two bullets of the old REPORTED entry;
-they are one defect in a shared write path, not two.
+### Every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag
+**MEASURED gate, cause NOT ESTABLISHED (S22/S23, 2026-08-03).** Audrey reported
+the New Task button first showing the label "export", then disappearing from
+the Tasks tab *and* Board view.
+
+The gate is certain. `canOnProject(..., 'project.entity.write')`
+(`projectRoleMatrix.js:70-76`) drives a single `canWrite` boolean that hides
+the toolbar New task, every add-row, the per-group rows, the row menu action,
+both kanban add affordances **and** the New Asset button — six surfaces from
+one flag. The "export" observation is confirmed as its signature, not a
+rendering glitch: the JSX order is `[count, Export, [Phase, Key Date, New
+task]]`, so dropping the gated three leaves Export in New task's pixel
+position.
+
+**The cause is not established, and two measurements argue against the obvious
+one.** `canWrite === false` requires a session that is neither app
+admin/manager *nor* project manager/member. On staging `audrey` is **both**
+(workspace admin, project manager) and cannot satisfy that conjunction. And
+decisively: `setShowNewAssetPopup(true)` has exactly one caller — the
+`canWrite`-gated button — so the fact that she *opened* the New Asset dialog
+proves `canWrite` was **true** at that moment, and both views compute it from
+identical inputs.
+
+Candidates not excluded: the session is `audrey2` (app_role `user`, project
+role `reviewer` — the one account that fits) or `tester`; or
+`usePermissions` returns `role: null` while its own `getSession()` is
+outstanding, since consumers ignore its `ready` flag and the known auth-lock
+defect can hold that read forever.
+
+→ **Do not write a fix from this.** One runtime observation settles it: which
+account the session holds, and whether New asset is present while New task is
+gone. Separately, the UX is wrong either way — a reviewer should be told why
+they cannot add, not have the control silently disappear.
+
+### Task templates do not exist in cloud mode
+**MEASURED (S23).** `listProjectTaskTemplates` / `listTaskTemplates` have zero
+occurrences in `supabaseAdapter.js` — they are `localServerAdapter`-only — so
+`useTaskTemplates` returns `[]` and the New Asset dialog's Task Template
+dropdown is permanently empty. The template branch
+(`ProjectAssetsView.jsx:1378-1419`) is dead code in cloud, which also makes its
+`role_slug` bug there unreachable (the real column is `assigned_role_slug`).
+`task_template_id` is dropped by the S23 adapter allowlist rather than given a
+column, because a column for a feature with no cloud implementation is schema
+debt. → S24 adapter parity.
+
+### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
+Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
+column allowlist; proven by re-running the original probe, where the exact
+payload that returned `23502` now SUCCEEDS on staging. Detail is in the commit
+and the session log below.
+
+<!-- removed: the original entry's evidence now lives in 2727328's message
 
 Inserting the exact payload the UI sends, as an authenticated admin member of
 the fixture workspace, via `tests.rls_setup()` + real JWT claims:
@@ -102,29 +150,33 @@ change together, and whether a task may exist without an asset is a product
 decision, not a schema detail. Also worth knowing: there is **no automated
 coverage of task creation at any layer** — no vitest, no pgTAP. That is why a
 total failure shipped unnoticed. → S24.
+-->
 
-### R.A.B.B.I.T. assignee dropdown does not populate
-**REPORTED; cause NOT ESTABLISHED (S22).** Kept separate from the entry above
-because it is a different path and the diagnosis did not converge.
+**Still true and still owed:** there is **no automated coverage of item
+creation at any layer** — no vitest, no pgTAP. A total, permanent failure of
+the app's primary action shipped unnoticed for that reason alone. → S24.
 
-The documented lead was **wrong**: `ProjectTasksView.jsx:159` filters to
-`project_members` only when staffed, and `project_members` has **zero rows**
-(measured on dev), so the *fallback* branch runs and returns the whole
-workspace roster. That branch is correct and does what its comment says.
+### Two of the four assignee dropdowns are hard-empty in cloud mode
+**MEASURED (S23).** Upgraded from the S22 entry, which reasoned from **dev**
+where `project_members` is empty. On **staging** — Audrey's actual environment
+— it has 3 rows, so the *staffed* branch runs, not the fallback. The S22
+conclusion was measured against the wrong database.
 
-Two survivors, either of which could be what Audrey saw:
-1. **The roster is genuinely almost empty.** Measured on dev: 2
-   `workspace_members` rows across 4 workspaces. A dropdown offering one name
-   looks broken but is accurate. **Check the roster count in her workspace
-   first** — this needs no code change.
-2. **Two *other* assignee dropdowns are unconditionally empty in cloud mode** —
-   `ProjectAssetsView.jsx:2108` (asset-detail task rows) and
-   `TimelineView.jsx:4228` (task editor). Both read a legacy roster that the
-   Supabase adapter never populates: `supabaseAdapter.loadProject` (`:247`)
-   omits `teamAssignments` entirely and the adapter has no `listTeamMembers`.
-   These are hard-empty regardless of roster size.
+- `TimelineView.jsx:4228` (task editor) and `ProjectAssetsView.jsx:2108`
+  (asset-detail task rows) are **unconditionally empty in cloud**, independent
+  of roster, claims or RLS: both read `useTeamMembers`, which early-returns
+  without `adapter.listTeamMembers`, and that method exists **only** on
+  `localServerAdapter`. `supabaseAdapter.loadProject` (`:247`) also omits
+  `teamAssignments` entirely. Audrey was most likely looking at one of these.
+- `ProjectTasksView`'s dropdown is on the healthy `workspace_directory()` path
+  and intersects correctly — but if the roster ever resolves to `[]`, the
+  staffed branch filters an empty list and yields `[]` too, and
+  `useRosterMembers` **drops the error** rather than passing it through, so an
+  RPC failure and a genuinely empty workspace are indistinguishable at every
+  call site.
 
-→ Establish **which dropdown** before writing code. S24.
+→ Fix the two legacy dropdowns via adapter parity, and surface the roster
+error. S24.
 
 ### Scenes / levels / experiences are unavailable on cloud projects
 **MEASURED.** Local-only by design — the Supabase adapter throws (Known #5).
@@ -232,8 +284,26 @@ Kept so the file's own history is visible without `git log`.
 | S19 (2026-08-02) | staging `service_role` exposure | **email templates** (confirmed on all three projects; the entry was seeded from a stale S18 note). **wilson-dev auth config** — added and closed the same session; restored by hand, CI green on `68c9758`. |
 | S20 (2026-08-02) | the D4 / `ai-proxy` boundary above — recorded because it is a stated limit of what shipped, not because anything regressed | nothing (S20 touched none of the entries below the security block) |
 | S20, later the same day | nothing new. The Profile-panel entry was **corrected**: the unbounded-`getSession()` class is 26 sites, not 18, and S20 itself added two of them (`modelSources.js`, both writers). Those two are now bounded with `withTimeout` and pinned by tests that fail with a hang when the bound is removed. The rest of the class is S21's sweep. | nothing |
+| S23 (2026-08-03) | **every create button can vanish behind one `canWrite` flag** — the gate is MEASURED, the cause is NOT ESTABLISHED, and the leading theory was refuted by the fact that opening the New Asset dialog proves the flag was true. **Task templates absent in cloud.** Both are pre-existing, neither was introduced this session. | **R.A.B.B.I.T. item creation** (0034 + 0035 + `2727328`, applied and verified by query on all three envs; the original failing payload now SUCCEEDS on staging). The assignee-dropdown entry was **corrected, not closed** — S22 measured it against dev, where the roster is empty; staging behaves differently and two dropdowns are hard-empty for a different reason entirely. |
 | S22 (2026-08-03) | the R.A.B.B.I.T. task-creation entry, **upgraded REPORTED → MEASURED** with a reproduced `23502` and a named cause, plus a separate **assignee-dropdown** entry whose documented lead turned out to point at a branch that never runs. Neither is new breakage — the old entry was one line of guesswork and is now two entries of evidence. | the **`anon` privilege spread** (0033 + `494a13d`, applied and verified **by query** on dev, staging and prod: 25 tables → 0, and 7 anon-executable SECURITY DEFINER functions → 0). **Storage tab reads as broken on the web** (`8709b1e`). |
 | S21 (2026-08-02) | the **`anon` privilege spread** (25 tables remaining) — found by a test assertion failing, not by looking for it. The **auth-js global lock**, which replaces the old Profile-panel entry with a correct account of why per-site ceilings do not fix it. | **`rate_cards.type`** (0032 + `10fcd29`, applied and verified on dev, staging and prod). **Password change missing** (`10fcd29`). **Profile panel spins forever** — superseded, see above. The avatar entry is kept but rewritten: four hypotheses falsified, the success-masking fixed, root cause still open. |
+
+S23's lesson is **measure the environment the user is actually in.** S22
+measured `project_members` on wilson-dev, found zero rows, and concluded the
+staffed branch never runs — sound reasoning from a real query. But Audrey uses
+the beta, which is **staging-backed**, where that table has three rows and the
+opposite branch runs. The measurement was correct and the conclusion was wrong
+because it was taken from the wrong database. Checking `.env.local` (dev) vs
+the beta host (staging) is one command and it reframes every roster symptom.
+
+Its corollary is about evidence ranking. The single most useful fact in the
+whole investigation was not found by reading permission code: it is that
+`setShowNewAssetPopup(true)` has exactly one caller, the `canWrite`-gated
+button — so **Audrey having opened that dialog proves the flag was true**. A
+user action that requires a precondition is direct evidence about that
+precondition, and it outranks any amount of reasoning about how the flag is
+computed. Two agents had built confident stories that this one observation
+killed.
 
 S22's lesson, and it is about **grantees, not grants**. The 25 tables were
 granted to `anon` explicitly, so `REVOKE ... FROM anon` worked. The seven
