@@ -124,8 +124,31 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
 
   // ── Fix state ──────────────────────────────────────────────────────────────
   const [fixLoading, setFixLoading] = useState(false);
-  const [acceptedFixes, setAcceptedFixes] = useState(new Set());
-  const [declinedFixes, setDeclinedFixes] = useState(new Set());
+  // Session 30: keyed BY AUDIT.
+  //
+  // This was two flat Sets of fix INDICES shared across every audit in the run.
+  // An index carries no identity of its own, so the obvious hazard is one
+  // lesson's outcomes showing up on another's — and that was NOT reachable,
+  // because selecting an audit in the sidebar cleared both Sets (the reset that
+  // used to sit in that onClick). The defect was the cure: outcomes were
+  // DISCARDED on every audit switch. Accept a fix on lesson A, look at lesson
+  // B, come back — A's fix reads unhandled and invites a second Accept, which
+  // then cannot match `fix.original` because the first one already replaced it.
+  // Silently, under the old code.
+  //
+  // Keying by audit keeps each lesson's outcomes across navigation and removes
+  // the need for the reset, so the hazard cannot come back either.
+  //
+  //   { [auditId]: { [fixIndex]: { status: 'accepted' | 'declined' | 'failed',
+  //                                error?: string } } }
+  const [fixState, setFixState] = useState({});
+
+  const setFixOutcome = useCallback((auditId, index, outcome) => {
+    setFixState(prev => ({
+      ...prev,
+      [auditId]: { ...(prev[auditId] ?? {}), [index]: outcome },
+    }));
+  }, []);
 
   // ── Refs ────────────────────────────────────────────────────────────────────
   const abortRef = useRef(null);
@@ -135,6 +158,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
   const [cacheVersion, setCacheVersion] = useState(0);
 
   const selectedAudit = auditResults.find(a => a.id === selectedAuditId) || null;
+  const auditFixState = fixState[selectedAuditId] ?? {};
 
   // ── Fetch ALL subjects across ALL software into cache ────────────────────
   const [loadingSubjects, setLoadingSubjects] = useState(false);
@@ -377,8 +401,9 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
     if (inaccurate.length === 0) return;
 
     setFixLoading(true);
-    setAcceptedFixes(new Set());
-    setDeclinedFixes(new Set());
+    // Only THIS audit's outcomes are cleared. Wiping the whole map would
+    // re-introduce the cross-audit bleed from the other direction.
+    setFixState(prev => ({ ...prev, [selectedAudit.id]: {} }));
 
     try {
       const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
@@ -415,12 +440,37 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
   }, [selectedAudit, subjectCacheRef]);
 
   // ── Apply a single fix ─────────────────────────────────────────────────────
+  //
+  // 🚨 THE DEFECT THIS SESSION EXISTS TO FIX. Every failure path below used to
+  // end in a bare `return` or a console.error, and the ONLY path that reported
+  // anything to the user was the success one — which ran whether or not the
+  // save had happened. `otterFetch` resolves for every HTTP status (it is
+  // fetch's contract, and in cloud mode it manufactures the Response itself,
+  // adapters/index.js:127), so `await otterFetch(...)` succeeded on a 404 and on
+  // a 403 alike and the fix was ticked green. Against Local Server, where all
+  // of Audrey's courses live, there was no PUT route at all — so EVERY accepted
+  // fix 404ed and every one of them displayed as applied.
+  //
+  // The same trap is already recorded one file away, about a different write:
+  // supabaseOtterAdapter.js:253-255, "because no O.T.T.E.R. call site checks
+  // res.ok the UI would have reported every generated subject as saved while
+  // nothing at all was written."
+  //
+  // Returns true only when the corrected lesson is actually stored, so
+  // acceptAllFixes can stop instead of stacking identical refusals.
   const applyFix = useCallback(async (fix, fixIndex) => {
-    if (!selectedAudit) return;
+    if (!selectedAudit) return false;
+    const auditId = selectedAudit.id;
+    const fail = (error) => {
+      setFixOutcome(auditId, fixIndex, { status: 'failed', error });
+      return false;
+    };
 
     const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
-    let fullSub = subjectCacheRef.current[cacheKey];
-    if (!fullSub) return;
+    const fullSub = subjectCacheRef.current[cacheKey];
+    if (!fullSub) {
+      return fail('This lesson is no longer loaded. Reopen the audit and try again.');
+    }
 
     // Deep clone the subject
     const updated = JSON.parse(JSON.stringify(fullSub));
@@ -436,32 +486,49 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
     }
 
     if (!applied) {
-      console.warn('Could not find original text to replace');
-      return;
+      return fail('The original wording is no longer in this lesson — it may have been edited, or this fix may already have been applied.');
     }
 
+    let res;
     try {
-      await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
+      res = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
       });
-      subjectCacheRef.current[cacheKey] = updated;
-      setAcceptedFixes(prev => new Set([...prev, fixIndex]));
     } catch (err) {
-      console.error('Failed to apply fix:', err);
+      return fail(err?.message || 'The correction could not be sent.');
     }
-  }, [selectedAudit, subjectCacheRef]);
+
+    if (!res.ok) {
+      // Both backends answer JSON on refusal — cloud through otterFetch's error
+      // shape, local through the Express handlers — but a bare 404 from Express
+      // is HTML, so the parse has to be allowed to fail.
+      const detail = await res.json().then(b => b?.error).catch(() => null);
+      return fail(detail || `The correction was refused (HTTP ${res.status}) and has NOT been saved.`);
+    }
+
+    subjectCacheRef.current[cacheKey] = updated;
+    setFixOutcome(auditId, fixIndex, { status: 'accepted' });
+    return true;
+  }, [selectedAudit, subjectCacheRef, setFixOutcome]);
 
   // ── Accept all fixes ───────────────────────────────────────────────────────
   const acceptAllFixes = useCallback(async () => {
     if (!selectedAudit?.fixes) return;
+    const current = fixState[selectedAudit.id] ?? {};
 
     for (let i = 0; i < selectedAudit.fixes.length; i++) {
-      if (acceptedFixes.has(i) || declinedFixes.has(i)) continue;
-      await applyFix(selectedAudit.fixes[i], i);
+      const status = current[i]?.status;
+      if (status === 'accepted' || status === 'declined') continue;
+      const saved = await applyFix(selectedAudit.fixes[i], i);
+      // Stop at the first refusal. Every fix here writes the SAME subject
+      // through the same route, so whatever refused one refuses all of them;
+      // carrying on would stack identical errors and spend the round trips to
+      // earn them.
+      if (!saved) break;
     }
-  }, [selectedAudit, acceptedFixes, declinedFixes, applyFix]);
+  }, [selectedAudit, fixState, applyFix]);
 
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -472,7 +539,12 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
   const activeItem = validationQueue.find(q => q.status === 'in-progress');
   const completedQueue = validationQueue.filter(q => q.status === 'completed' || q.status === 'failed');
   const inaccurateCount = selectedAudit?.findings?.filter(f => f.verdict === 'inaccurate').length || 0;
-  const hasUnhandledFixes = selectedAudit?.fixes?.some((_, i) => !acceptedFixes.has(i) && !declinedFixes.has(i));
+  // 'failed' deliberately counts as UNHANDLED, so "Accept All Fixes" stays
+  // available to retry a refusal once the cause is dealt with.
+  const hasUnhandledFixes = selectedAudit?.fixes?.some((_, i) => {
+    const status = auditFixState[i]?.status;
+    return status !== 'accepted' && status !== 'declined';
+  });
 
   // ── Toggle lessons by group (software / subject / section) ───────────────
   const toggleSoftwareLessons = (sw) => {
@@ -778,14 +850,13 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
           ) : (
             auditResults.map(audit => {
               const gc = gradeColor(audit.grade);
+              // Selecting an audit no longer resets the accepted/declined
+              // state: fixState is keyed by audit id, so switching lessons
+              // keeps what you already decided rather than throwing it away.
               return (
                 <button
                   key={audit.id}
-                  onClick={() => {
-                    setSelectedAuditId(audit.id);
-                    setAcceptedFixes(new Set());
-                    setDeclinedFixes(new Set());
-                  }}
+                  onClick={() => setSelectedAuditId(audit.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-left border-b border-stone-700/50 transition-colors ${
                     selectedAuditId === audit.id ? 'bg-stone-700' : 'hover:bg-stone-700/50'
                   }`}
@@ -885,10 +956,9 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
                         key={fi}
                         fix={fix}
                         index={fi}
-                        accepted={acceptedFixes.has(fi)}
-                        declined={declinedFixes.has(fi)}
+                        outcome={auditFixState[fi]}
                         onAccept={() => applyFix(fix, fi)}
-                        onDecline={() => setDeclinedFixes(prev => new Set([...prev, fi]))}
+                        onDecline={() => setFixOutcome(selectedAudit.id, fi, { status: 'declined' })}
                       />
                     ))}
                   </div>
@@ -947,7 +1017,11 @@ function FindingCard({ finding }) {
 
 
 // ── Fix Card ─────────────────────────────────────────────────────────────────
-function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
+function FixCard({ fix, index, outcome, onAccept, onDecline }) {
+  const accepted = outcome?.status === 'accepted';
+  const declined = outcome?.status === 'declined';
+  const failed   = outcome?.status === 'failed';
+
   if (accepted) {
     return (
       <div className="border border-green-700/50 bg-green-950/20 rounded-sm p-3 flex items-center gap-2">
@@ -988,6 +1062,17 @@ function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
           </div>
         </div>
       </div>
+      {/* Session 30: a refused save says so, here, next to the fix it refused.
+          Before this the same click produced a green "Fix #n applied" whether
+          the correction reached the course or not. */}
+      {failed && (
+        <div className="px-3 py-2 bg-red-950/30 border-t border-red-800/50 flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
+          <span className="text-xs text-red-300 leading-relaxed">
+            <span className="font-bold">Not saved.</span> {outcome.error}
+          </span>
+        </div>
+      )}
       <div className="px-3 py-2 bg-stone-800 border-t border-stone-700 flex items-center gap-2 justify-end">
         <button
           onClick={onDecline}
@@ -999,7 +1084,7 @@ function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
           onClick={onAccept}
           className="px-3 py-1 text-xs font-bold text-white bg-green-700 rounded-sm hover:bg-green-600 transition-colors"
         >
-          Accept Fix
+          {failed ? 'Try Again' : 'Accept Fix'}
         </button>
       </div>
     </div>

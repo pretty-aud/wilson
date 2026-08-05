@@ -336,6 +336,31 @@ function startLocalServer(distPath) {
       res.json({ slug: req.params.sub, ...data });
     });
 
+    // Session 30: the route the Validator's "Accept Fix" has always called and
+    // that has never existed here. Validator.jsx:444 issues a PUT after
+    // rewriting one lesson's content; against this server it 404ed, and because
+    // the call site did not check res.ok the fix was reported APPLIED while
+    // nothing was written. Cloud mode has mapped this PUT onto subject.save
+    // since Session 10 (otterRoutes.js:166), so adding it here is parity, not
+    // a new feature — Audrey's six local courses are on this backend.
+    //
+    // subject_order is preserved from the stored file when the body omits it:
+    // the Validator PUTs back the object it GET'd, which carries the order, but
+    // a caller that sends only content must not silently move the subject to
+    // the end of the curriculum.
+    expressApp.put('/api/software/:slug/subjects/:sub', (req, res) => {
+      const subjDir = path.join(getSoftwareDir(), req.params.slug, 'subjects');
+      if (!fs.existsSync(subjDir)) return res.status(404).json({ error: 'Not found' });
+      const filePath = path.join(subjDir, `${req.params.sub}.json`);
+      const existing = readJSON(filePath);
+      if (!existing) return res.status(404).json({ error: 'Not found' });
+      const body = { ...req.body };
+      delete body.slug; // the URL is authoritative; a stray slug must not fork the file
+      if (body.subject_order == null) body.subject_order = existing.subject_order;
+      writeJSON(filePath, body);
+      res.json({ slug: req.params.sub, ...body });
+    });
+
     expressApp.delete('/api/software/:slug/subjects/:sub', (req, res) => {
       const filePath = path.join(getSoftwareDir(), req.params.slug, 'subjects', `${req.params.sub}.json`);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);

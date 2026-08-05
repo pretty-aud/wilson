@@ -53,8 +53,11 @@ describe('parseOtterRoute — subject routes', () => {
       .toEqual({ op: 'subject.reorder', slug: 'blender' })
   })
 
-  // Validator.jsx:441 PUTs here; no Express route ever existed, so applying a
-  // validator fix silently 404'd. Cloud mode treats it as the intended save.
+  // Validator.jsx:494 PUTs here (the citation read :441 until S30 re-measured
+  // it). Cloud has always treated it as the intended save; Express had no PUT
+  // route until S30, so applying a validator fix silently 404'd there — and
+  // the call site did not check res.ok, so it reported success anyway.
+  // validatorSave.test.js guards both halves.
   it('maps the Validator PUT onto a subject save', () => {
     expect(p('/api/software/blender/subjects/intro', 'PUT'))
       .toEqual({ op: 'subject.save', slug: 'blender', sub: 'intro' })

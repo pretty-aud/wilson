@@ -159,10 +159,15 @@ export function parseOtterRoute(pathname, method = 'GET') {
       const sub = seg[2]
       if (verb === 'GET')    return { op: 'subject.get', slug, sub }
       if (verb === 'DELETE') return { op: 'subject.delete', slug, sub }
-      // Validator.jsx:441 issues a PUT here. No such Express route exists, so
-      // against the local server it has always been a silent 404 — the
-      // "apply fix" button never persisted anything. Cloud mode treats it as
-      // the save it was clearly meant to be.
+      // Validator.jsx:444 issues a PUT here (`method: 'PUT'` on :445 — the
+      // citation read :441 for two sessions, which is one line past the guard
+      // above the call; re-verify a line number before repeating it).
+      //
+      // Cloud has always treated this as the save it was clearly meant to be.
+      // Session 30 closed the other half: Express had no PUT route, so against
+      // Local Server every "apply fix" 404ed — and the call site did not check
+      // res.ok, so it reported the fix APPLIED regardless. Both ends are real
+      // now (electron/main.cjs, beside the subject GET).
       if (verb === 'PUT')    return { op: 'subject.save', slug, sub }
       return null
     }
