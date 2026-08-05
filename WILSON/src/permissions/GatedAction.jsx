@@ -84,8 +84,12 @@ export default function GatedAction({
   reason,
   children,
   // Wrapper display. Buttons in a flex toolbar want inline-flex; a full-width
-  // row (the Timeline's "New task…" drop zones) wants block so it still fills
-  // its track.
+  // control (the Tasks tab's add-row button, the Board's inline add input)
+  // wants block so it still fills its track.
+  //
+  // ⚠️ Never pass `contents`. It generates no box, so the wrapper would carry
+  // neither the dimming nor the hover that shows the reason — a control that
+  // looks perfectly enabled and does nothing.
   display = 'inline-flex',
   // Denied opacity. Matches the codebase's existing `disabled:opacity-40`.
   opacity = 0.4,
