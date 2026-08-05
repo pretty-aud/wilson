@@ -1424,7 +1424,15 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             status: 'waiting_to_start',
             priority: 'medium',
             bid_days: tmplTask.bid_days || 0,
-            role_slug: tmplTask.role_slug || null,
+            // 🚨 Session 28: this said `role_slug`, which is NOT a column on
+            // `tasks` — the column is `assigned_role_slug`. Because `tasks`
+            // HAS a COLUMN_ALLOWLIST entry, toColumns dropped the key with a
+            // console warning instead of rejecting the request, so every task
+            // a template created arrived with no role on it and every bid
+            // built from those tasks priced at nothing. Quieter than the S23
+            // failure and, until 0044, unreachable: this branch only runs when
+            // a template exists, and none could.
+            assigned_role_slug: tmplTask.role_slug || null,
             start_date: taskStart,
             end_date: taskEnd,
           })
@@ -1727,7 +1735,11 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           status: 'waiting_to_start',
           priority: 'medium',
           bid_days: tmplTask.bid_days || 0,
-          role_slug: tmplTask.role_slug || null,
+          // Session 28 — the same wrong key as the create-with-template path
+          // above. The template's own field really is called `role_slug`
+          // (it is a key inside the jsonb array, not a column); the TASK
+          // column it maps onto is `assigned_role_slug`.
+          assigned_role_slug: tmplTask.role_slug || null,
           start_date: taskStart,
           end_date: taskEnd,
         })

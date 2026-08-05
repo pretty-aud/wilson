@@ -51,6 +51,11 @@ describe('every client-written table has an allowlist entry', () => {
     expect(COLUMN_ALLOWLIST.files, 'files has no COLUMN_ALLOWLIST entry').toBeDefined()
   })
 
+  it('covers task_templates, added in 0044', () => {
+    expect(COLUMN_ALLOWLIST.task_templates,
+      'task_templates has no COLUMN_ALLOWLIST entry').toBeDefined()
+  })
+
   it('a table with no entry passes everything through — the hazard, pinned', () => {
     // Documents WHY the check above matters. If this ever stops being true,
     // the reasoning in the adapter's comments needs revisiting.
@@ -179,6 +184,89 @@ describe('files — the local managedFiles field names that have no columns', ()
     // Moving a file out of a scene relies on the second.
     expect(toColumns('files', { id: 'f1', scene_id: null, folder_id: null }))
       .toEqual({ id: 'f1', scene_id: null, folder_id: null })
+  })
+})
+
+describe('task_templates — the payloads useTaskTemplates sends (Session 28)', () => {
+  // useTaskTemplates.addTemplate builds this literal.
+  const created = {
+    id: 't1', workspace_id: 'w1', project_id: null,
+    name: 'New Template', description: '',
+    tasks: [{
+      id: 'tt1', name: 'Model', role_slug: 'modeler',
+      bid_days: 3, sort_order: 0, depends_on: ['tt0'],
+    }],
+  }
+
+  it('keeps every field the create sends', () => {
+    expect(toColumns('task_templates', created)).toEqual(created)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('does NOT reach inside the tasks array', () => {
+    // 🚨 The template's own task objects live INSIDE the jsonb value, so
+    // toColumns never sees their keys. `role_slug` here is legitimate and must
+    // survive untouched — it is a key in a JSON document, not a column. This
+    // is the exact pair that made the ProjectAssetsView bug confusing: the
+    // template field really IS called role_slug; the TASK column is not.
+    const out = toColumns('task_templates', created)
+    expect(out.tasks[0].role_slug).toBe('modeler')
+    expect(out.tasks[0].depends_on).toEqual(['tt0'])
+  })
+
+  it('keeps a NULL project_id rather than dropping the key', () => {
+    // Dropping the KEY leaves the pin in place; sending null makes the
+    // template global. TemplateScope's checkbox relies on the second — and
+    // 0044's UPDATE policy is what refuses it for a project manager.
+    expect(toColumns('task_templates', { id: 't1', project_id: null }))
+      .toEqual({ id: 't1', project_id: null })
+  })
+
+  it('drops a stray key and warns', () => {
+    const out = toColumns('task_templates', { id: 't1', name: 'x', taskCount: 4 })
+    expect(out).toEqual({ id: 't1', name: 'x' })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.task_templates')
+  })
+})
+
+describe('tasks — the template branch wrote a key that is not a column', () => {
+  // 🚨 THE S28 REGRESSION, PINNED. ProjectAssetsView applied a template by
+  // sending `role_slug`, but TASK_COLUMNS has `assigned_role_slug`. Because
+  // `tasks` HAS an allowlist entry, toColumns dropped the key with a warning
+  // instead of rejecting the request — so the tasks were created successfully
+  // with NO ROLE, and every bid built from them priced at nothing. Quieter
+  // than an un-allowlisted table, and far harder to notice.
+  it('drops role_slug and keeps assigned_role_slug', () => {
+    const out = toColumns('tasks', {
+      title: 'Model', asset_id: 'a1', bid_days: 3,
+      assigned_role_slug: 'modeler', role_slug: 'modeler',
+    })
+    expect(out).toHaveProperty('assigned_role_slug', 'modeler')
+    expect(out).not.toHaveProperty('role_slug')
+  })
+
+  it('the corrected template payload passes clean', () => {
+    const out = toColumns('tasks', {
+      title: 'Model', asset_id: 'a1', phase_id: null,
+      status: 'waiting_to_start', priority: 'medium',
+      bid_days: 3, assigned_role_slug: 'modeler',
+      start_date: '2026-01-01', end_date: '2026-01-03',
+    })
+    expect(warn).not.toHaveBeenCalled()
+    expect(out.assigned_role_slug).toBe('modeler')
+  })
+})
+
+describe('assets — task_template_id arrives with its feature (0044)', () => {
+  // S23 kept this out on the stated rule that "a column for a feature with no
+  // cloud implementation is schema debt", and 0041 applied the same rule to
+  // files_dir. The rule was "it arrives WITH the feature" — 0044 is that
+  // arrival, and both writers become reachable in the same commit.
+  it('keeps task_template_id on the create and the patch', () => {
+    expect(toColumns('assets', { id: 'a1', name: 'Hero', task_template_id: 't1' }))
+      .toEqual({ id: 'a1', name: 'Hero', task_template_id: 't1' })
+    expect(warn).not.toHaveBeenCalled()
   })
 })
 

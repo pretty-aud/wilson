@@ -158,10 +158,16 @@ function sanitize(obj, drop = []) {
 // by a caller with no catch, which is why it looked like "nothing happens".
 //
 // 0034 added tasks.phase_id and 0035 added assets.start_date/due_date, so
-// those are now real. What remains genuinely unbacked is scene/shot/level/
-// experience (no cloud tables until S24 — the adapter throws for them) and
-// task_template_id (listProjectTaskTemplates is localServer-only, so the
-// dropdown is permanently empty in cloud).
+// those are now real. 0040 added scenes/shots/levels/experiences (S25).
+//
+// 🚨 Session 28: `task_template_id` IS NOW A COLUMN, and the rule that kept
+// it out is the reason it is in — not an exception to it. S23 wrote "a column
+// for a feature with no cloud implementation is schema debt", which 0041
+// applied again to `files_dir`. That rule was never "never add it"; it was
+// "it arrives WITH its feature". 0044 is that arrival: task_templates exists,
+// listProjectTaskTemplates is implemented below, and both writers become
+// reachable in the same commit. `files_dir` stays out because its writer
+// (the local relink route) still cannot run on this backend.
 //
 // Dropping the rest is right, but dropping it QUIETLY would repeat the
 // original sin in a new place: the user's typed value would vanish with no
@@ -186,6 +192,11 @@ const ASSET_COLUMNS = new Set([
   'id', 'project_id', 'workspace_id', 'phase_id',
   'name', 'type', 'type_label', 'description', 'thumbnail_url', 'status',
   'sort_order', 'start_date', 'due_date',
+  // 0044. Written at ProjectAssetsView.jsx:1390 (spread into the asset create
+  // when a template is chosen) and :1742 (ctx.updateAsset after applying one
+  // to an existing asset). Both were unreachable until this session, which is
+  // why S23 left it out — see the note above.
+  'task_template_id',
   'last_updated_by', 'last_updated_at', 'deleted_at', 'deleted_by',
   'created_by', 'updated_by',
 ]);
@@ -283,6 +294,22 @@ const FOLDER_COLUMNS = new Set([
   'created_at', 'created_by', 'updated_at', 'updated_by',
 ]);
 
+// ── 0044: task templates ─────────────────────────────────────────────────
+// `tasks` is one JSONB column, not a child table — 0044's header gives the
+// three measured reasons, the first being that the editor's only write path
+// replaces the whole array.
+//
+// 🚨 The template's own task objects ({ id, name, role_slug, bid_days,
+// sort_order, depends_on }) are NOT filtered by anything here and must not be:
+// they live INSIDE the jsonb value, so toColumns never sees them. Adding a
+// field to a template task needs no change in this file. Adding a field to the
+// TEMPLATE does.
+const TASK_TEMPLATE_COLUMNS = new Set([
+  'id', 'workspace_id', 'project_id',
+  'name', 'description', 'tasks',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
 const BUDGET_LINE_COLUMNS = new Set([
   'id', 'project_id', 'workspace_id',
   'sheet', 'department', 'sort_order', 'label', 'description',
@@ -361,6 +388,7 @@ export const COLUMN_ALLOWLIST = {
   levels: LEVEL_COLUMNS,
   experiences: EXPERIENCE_COLUMNS,
   folders: FOLDER_COLUMNS,
+  task_templates: TASK_TEMPLATE_COLUMNS,
 };
 
 /**
@@ -1439,6 +1467,59 @@ export function supabaseAdapter() {
     async deleteRateCardEntry(id) {
       const client = await requireClient();
       unwrap(await client.from('rate_card_entries').delete().eq('id', id));
+    },
+
+    // ── Task templates (Session 28, migration 0044) ───────────
+    //
+    // These five had ZERO occurrences in this file, so useTaskTemplates'
+    // `if (!adapter.listTaskTemplates) return` guards fired on every call and
+    // the New Asset dialog's Task Template dropdown was permanently empty in
+    // cloud. Local Server has had them since S23 (electron/main.cjs:2610).
+    //
+    // 🚨 THE PROJECT READ DELIBERATELY DOES NOT PORT THE LOCAL PREDICATE.
+    // `GET /projects/:id/task-templates` filters on project_id ALONE —
+    // `!t.project_id || t.project_id === id` — which on a single-tenant local
+    // server is fine and in a shared database would hand one workspace every
+    // other workspace's global templates. The `.or()` below is the same
+    // filter; what makes it safe is that RLS supplies the workspace scope the
+    // local route omits (0044's task_templates_select). Port the intent, not
+    // the predicate. pgTAP 54 probes 8-9 assert it with a presence control, so
+    // "sees nothing" cannot pass merely because the table is empty.
+    //
+    // Ordering matches the local routes (name ASC) so the dropdown does not
+    // reshuffle when a company switches backend.
+    async listTaskTemplates(workspaceId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client
+        .from('task_templates').select('*')
+        .eq('workspace_id', workspaceId)
+        .order('name', { ascending: true }));
+    },
+    async listProjectTaskTemplates(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client
+        .from('task_templates').select('*')
+        .or(`project_id.is.null,project_id.eq.${projectId}`)
+        .order('name', { ascending: true }));
+    },
+    async upsertTaskTemplate(template) {
+      const client = await requireClient();
+      return unwrap(await client.from('task_templates')
+        .upsert(toColumns('task_templates', sanitize(template, ['created_at'])))
+        .select().single());
+    },
+    async updateTaskTemplate(id, patch) {
+      const client = await requireClient();
+      return unwrap(await client.from('task_templates')
+        .update(toColumns('task_templates', sanitize(patch, PATCH_DROP)))
+        .eq('id', id).select().single());
+    },
+    async deleteTaskTemplate(id) {
+      const client = await requireClient();
+      // Hard delete, matching Local Server (the route unlinks the file) and
+      // `folders`. task_templates carries no deleted_at, so routing this
+      // through soft_delete_row would 42703 rather than degrade.
+      unwrap(await client.from('task_templates').delete().eq('id', id));
     },
 
     // ── Team members (Session 24) ─────────────────────────────

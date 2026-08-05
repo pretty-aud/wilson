@@ -10,7 +10,10 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { canOnProject, PROJECT_ROLES, PROJECT_ACTIONS } from './projectRoleMatrix'
+import {
+  canOnProject, canSeeProjectMoney, canWriteTaskTemplate,
+  PROJECT_ROLES, PROJECT_ACTIONS,
+} from './projectRoleMatrix'
 
 // One row per (appRole, projectRole, staffed) combination. projectRole null
 // means no seat on the project. Seats on an unstaffed project are incoherent
@@ -194,5 +197,67 @@ describe('canOnProject() edge cases', () => {
       expect(canOnProject({ ...audrey, ready: true }, 'project.entity.write')).toBe(true)
       expect(canOnProject({ ...audrey, ready: false }, 'project.entity.write')).toBe(true)
     })
+  })
+})
+
+
+// ── Session 28: task templates ──────────────────────────────────────────────
+//
+// Audrey, 2026-08-04, asked directly because it is not derivable from the code
+// (Local Server has no roles at all): "admins and managers globally, project
+// managers for their own pinned templates."
+//
+// This is the client mirror of can_write_task_template(uuid) (0044). The
+// EXPECTED table above deliberately does NOT cover it — like canSeeProjectMoney
+// it is not a PROJECT_ACTIONS entry, because a template is workspace-level with
+// an optional project pin and has no "is the project staffed" question to ask.
+describe('canWriteTaskTemplate', () => {
+  it('is not a project action — a template is workspace-level', () => {
+    // If someone later "tidies" this into canOnProject, this fails first.
+    expect(PROJECT_ACTIONS).not.toContain('project.template.write')
+  })
+
+  it('a workspace admin writes anything', () => {
+    expect(canWriteTaskTemplate({ appRole: 'admin', projectRole: null })).toBe(true)
+    expect(canWriteTaskTemplate({ appRole: 'admin', projectRole: 'member' })).toBe(true)
+  })
+
+  // 🚨 THE ONE PLACE THIS DIFFERS FROM THE MONEY RULE, and it is the whole
+  // reason the two functions cannot be merged. Audrey excluded workspace
+  // managers from money; she included them here. Templates are workspace
+  // configuration, wages are not.
+  it('a workspace MANAGER writes templates but still cannot see money', () => {
+    const wsManager = { appRole: 'manager', projectRole: 'member' }
+    expect(canWriteTaskTemplate(wsManager)).toBe(true)
+    expect(canSeeProjectMoney(wsManager)).toBe(false)
+  })
+
+  it('a project manager writes a template pinned to THEIR project', () => {
+    expect(canWriteTaskTemplate({ appRole: 'user', projectRole: 'manager' })).toBe(true)
+  })
+
+  it('a project member and a reviewer write nothing', () => {
+    expect(canWriteTaskTemplate({ appRole: 'user', projectRole: 'member' })).toBe(false)
+    expect(canWriteTaskTemplate({ appRole: 'user', projectRole: 'reviewer' })).toBe(false)
+  })
+
+  it('fails CLOSED on a null/absent context, unlike canOnProject', () => {
+    // canOnProject returns TRUE while permissions load, deliberately. This has
+    // no `ready` opening: the caller passes null projectRole for a GLOBAL
+    // template as a matter of course, so "unknown" and "global" are the same
+    // input here and cannot be told apart. Failing open would show every
+    // member the write controls on every global template.
+    expect(canWriteTaskTemplate(null)).toBe(false)
+    expect(canWriteTaskTemplate({})).toBe(false)
+    expect(canWriteTaskTemplate({ appRole: null, projectRole: null })).toBe(false)
+  })
+
+  it('a GLOBAL template admits nobody below workspace manager', () => {
+    // projectRole is null for a global template by construction, so the
+    // project-manager leg cannot fire. Mirrors project_role_for(NULL) IS NULL
+    // in 0044, which is why that predicate needs its COALESCE.
+    for (const seat of [...PROJECT_ROLES, null]) {
+      expect(canWriteTaskTemplate({ appRole: 'user', projectRole: null, seat })).toBe(false)
+    }
   })
 })

@@ -90,6 +90,48 @@ export function canSeeProjectMoney(ctx) {
 }
 
 /**
+ * Session 28 — TASK TEMPLATES. Like canSeeProjectMoney, deliberately NOT a
+ * PROJECT_ACTIONS entry: a template is workspace-level with an optional
+ * project pin, so canOnProject's (appRole, projectRole, isStaffed) shape does
+ * not describe it. Two ways it differs:
+ *
+ *  1. **There is no unstaffed opening.** canOnProject returns true for
+ *     everyone when isStaffed is false. A GLOBAL template has no project at
+ *     all, so "is the project staffed" is not even a question that can be
+ *     asked about it.
+ *  2. **A workspace `manager` DOES qualify** — unlike money, where Audrey
+ *     excluded them. Templates are workspace configuration; wages are not.
+ *
+ * Audrey, 2026-08-04, asked directly because the local server has no roles and
+ * its open routes say nothing about intent: "admins and managers globally,
+ * project managers for their own pinned templates."
+ *
+ * This is the client mirror of `can_write_task_template(uuid)` (0044). The
+ * DATABASE is the authority. This exists so a member is TOLD why they cannot
+ * edit, instead of watching a row appear and vanish — TaskTemplateManager
+ * never rendered its hook's `error`, so an RLS refusal reached the screen as
+ * nothing at all.
+ *
+ * ⚠️ KNOWN, DELIBERATE MISMATCH, and it fails CLOSED. `projectRole` must be
+ * the caller's seat on THIS template's project, and the only per-project role
+ * the app has in hand is `ctx.myProjectRole` for the project currently open.
+ * So a project manager looking at a template pinned to a DIFFERENT project
+ * sees it read-only here, while the database would let them edit it. Building
+ * the alternative needs a roster query per project from a Settings screen that
+ * has no project context; the honest cheap behaviour is to hide the control
+ * and let them edit it with that project open. Recorded rather than glossed.
+ *
+ * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
+ *           projectRole: 'manager'|'reviewer'|'member'|null|undefined }} ctx
+ * @returns {boolean}
+ */
+export function canWriteTaskTemplate(ctx) {
+  const { appRole, projectRole } = ctx || {}
+  if (appRole === 'admin' || appRole === 'manager') return true
+  return projectRole === 'manager'
+}
+
+/**
  * Returns true if the caller may perform the given project-scoped action.
  * Returns false for unknown actions. Missing/null ctx fields are safe and
  * behave like an unseated app user on an unstaffed project.
