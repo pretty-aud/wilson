@@ -787,7 +787,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   //  and the proxy streams so long generations survive the Edge deadline.
   //  callAI reassembles the stream into the classic message object.)
   // ═══════════════════════════════════════════════════════════════
-  async function callAnthropicAPI({ model, maxTokens, systemPrompt, messages, signal, tools, betas }) {
+  // Session 30: bounds the pause_turn continuation below.
+  const MAX_CONTINUATIONS = 3;
+
+  async function callAnthropicAPI({ model, maxTokens, systemPrompt, messages, signal, tools, betas, depth = 0 }) {
     const body = { model, max_tokens: maxTokens, system: systemPrompt, messages, tool: 'otter' };
     if (tools && tools.length > 0) body.tools = tools;
     if (betas) body.betas = betas;
@@ -795,11 +798,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const MAX_RETRIES = 3;
     const RETRY_DELAYS = [3000, 6000, 12000];
 
+    let data;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       if (signal?.aborted) throw new Error('Cancelled');
 
       try {
-        return await callAI(body, { signal });
+        data = await callAI(body, { signal });
+        break;
       } catch (err) {
         // Retry on overloaded/rate-limited errors, same schedule as before.
         if (isRetryableAIError(err) && attempt < MAX_RETRIES) {
@@ -811,6 +816,51 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         throw err;
       }
     }
+
+    // 🚨 Session 30: RESUME A PAUSED SERVER-SIDE TOOL RUN.
+    //
+    // `pause_turn` is what Anthropic returns when a server-side tool run — here
+    // web_search — hits its iteration limit mid-answer. The turn then ENDS on a
+    // server_tool_use block, so the last TEXT block is a preamble ("Let me look
+    // up Blender's interface...") rather than the JSON. Nothing downstream
+    // checked for it, so generateSubjectContent parsed the preamble and threw
+    // "Failed to parse subject JSON. Try again."
+    //
+    // The Validator already does exactly this and has since S19 (`dab9046`),
+    // which is when web search made it necessary — Validator.jsx:52-59. This
+    // wrapper never got it, and generateSubjectContent is the O.T.T.E.R. call
+    // that uses web_search (max_uses 3) while the course OUTLINE does not.
+    // That asymmetry is why the outline generates and the subject does not.
+    //
+    // Resumed by re-sending with the assistant turn appended and NO trailing
+    // user turn: the API recognises the trailing server_tool_use and continues.
+    // That is the documented shape, and it is NOT the text prefill that S19
+    // measured returning 400.
+    if (data?.stop_reason === 'pause_turn' && depth < MAX_CONTINUATIONS) {
+      return callAnthropicAPI({
+        model, maxTokens, systemPrompt,
+        messages: [...messages, { role: 'assistant', content: data.content }],
+        signal, tools, betas,
+        depth: depth + 1,
+      });
+    }
+
+    return data;
+  }
+
+  /**
+   * What actually came back, for an error a user can act on.
+   *
+   * Every JSON parse failure in this file used to say only "Try again", which
+   * is the same sentence for a paused tool run, a refusal, an empty response
+   * and genuinely malformed JSON. S30 hit two DIFFERENT causes behind two
+   * identical messages in one evening; naming the shape turns the next
+   * recurrence into a measurement instead of another round trip.
+   */
+  function describeResponse(data) {
+    const blocks = (data?.content || []).map(b => b?.type || '?').join(', ') || 'none';
+    const chars = extractTextAndCitations(data).text.length;
+    return `[${data?.stop_reason ?? 'no stop_reason'}; blocks: ${blocks}; ${chars} chars of text]`;
   }
 
   // Extract text + citation sources from API response (handles web_search content blocks)
@@ -981,9 +1031,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error('Failed to parse course outline JSON. Try again.'); }
+          catch { throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`); }
         } else {
-          throw new Error('Failed to parse course outline JSON. Try again.');
+          throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`);
         }
       }
 
@@ -1243,9 +1293,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error('Failed to parse subject JSON. Try again.'); }
+          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
         } else {
-          throw new Error('Failed to parse subject JSON. Try again.');
+          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
         }
       }
 
@@ -1472,9 +1522,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error('Failed to parse subject JSON. Try again.'); }
+          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
         } else {
-          throw new Error('Failed to parse subject JSON. Try again.');
+          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
         }
       }
 
@@ -1700,9 +1750,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error('Failed to parse subject JSON. Try again.'); }
+          catch { throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`); }
         } else {
-          throw new Error('Failed to parse subject JSON. Try again.');
+          throw new Error(`Failed to parse subject JSON. Try again. ${describeResponse(data)}`);
         }
       }
 
@@ -1885,9 +1935,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           try { parsed = JSON.parse(jsonMatch[0]); }
-          catch { throw new Error('Failed to parse course outline JSON. Try again.'); }
+          catch { throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`); }
         } else {
-          throw new Error('Failed to parse course outline JSON. Try again.');
+          throw new Error(`Failed to parse course outline JSON. Try again. ${describeResponse(data)}`);
         }
       }
 
