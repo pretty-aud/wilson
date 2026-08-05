@@ -2253,7 +2253,7 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **40 files, 852 cases** (measured 2026-08-05; this line read "15
+**Vitest** — **41 files, 864 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
@@ -2285,6 +2285,17 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > loop. `Validator.jsx` (S19) and `Otter.jsx` (S30) both do; `pauseTurn.test.js`
 > keeps them that way. **The diagnostic asymmetry: a no-tool call that works
 > beside a web-search call that fails is this, not a prompt problem.**
+>
+> 🚨 **`src/lib/localData.js`'s THREE SAVERS THROW — changed S30.** Its header
+> used to say "every function resolves rather than throws", and that is what
+> made the pet's failures invisible: `savePetData` did not check `res.ok` on
+> its Express POST and `writeLocal` swallowed every localStorage exception
+> (quota exhausted, Safari private mode, enterprise policy), so `App.jsx`'s
+> `catch { /* silent */ }` could not fire even in principle — three layers of
+> silence over one lost pet. **READERS still resolve to defaults**, so a broken
+> store degrades rather than taking a screen down. Callers must handle a
+> rejection and SHOW it; `Otter.jsx`'s `saveSettings` needed a catch it did not
+> have, because two of its call sites drop the promise.
 >
 > Every O.T.T.E.R. parse failure carries `describeResponse(data)` —
 > `[stop_reason; blocks; chars of text]` — because "Try again" was the same

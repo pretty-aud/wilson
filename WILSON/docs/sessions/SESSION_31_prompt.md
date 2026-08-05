@@ -14,13 +14,13 @@
 > settings PER PERSON, everywhere — not per workspace.** She chose this over a
 > per-workspace pet and over a split model. **Do not re-open it.**
 
-> **STATE AFTER S30 — corrected 2026-08-05 at the very end of the session, and
-> the first version of this block was already stale when written.** Migrations
-> **0000–0045** on all three envs, next free **0046**. pgTAP **55 suites / 854
-> assertions**, next free suite **56**. Vitest **855 cases / 40 files** (this
-> block first said 834 / 38 — S30 kept going after it was written). HEAD is
-> **`93638a4`**; all four CI jobs green on **`e0d3b13`**, the last code commit,
-> Playwright included. CLI linked to `wilson-dev`.
+> **STATE AFTER S30 — and this block has now been corrected TWICE, which is
+> itself the lesson: a brief is a claim about the code and it decays while you
+> are writing it.** Migrations **0000–0045** on all three envs, next free
+> **0046**. pgTAP **55 suites / 854 assertions**, next free suite **56**.
+> Vitest **864 cases / 41 files** (this block first said 834 / 38, then
+> 855 / 40). HEAD is **`73828c7`**, the pet-save fix, all four CI jobs green.
+> CLI linked to `wilson-dev`. **Re-measure anyway.**
 >
 > ⚠️ **S30 ran long past its own close-out** because Audrey tested the beta and
 > found three defects in a row. Its outcome section in
@@ -211,13 +211,32 @@ written down:**
    would push that computer's decayed state upward before the user touches
    anything. The brief says a week-old device "must not push its stale numbers
    up on reconnect"; **as written, it does exactly that, unconditionally.**
-2. 🚨 **`savePet` swallows every failure** — `:473` is literally
-   `catch { /* silent */ }`, and `:469` also drops the write entirely if a save
-   is already in flight (`if (!data || petSaving) return`). A pet that fails to
-   reach the cloud would look **identical to one that saved**, because the old
-   state is still on screen. **That is lesson 4 above, already live in the code
-   you are about to make network-dependent.** Fix it in the same session or the
-   first sync failure is invisible.
+2. ✅ **`savePet` used to swallow every failure — FIXED before this session
+   starts (`73828c7`), because Audrey asked for it directly once the brief
+   surfaced it.** Recorded rather than deleted, because the SHAPE is the thing
+   S31 must not reintroduce, and because the obvious fix was the wrong one:
+   - `App.jsx` had `catch { /* silent */ }` **on top of two functions that
+     could not throw** — `savePetData` never checked `res.ok` on its Express
+     POST, and `writeLocal` swallowed every localStorage exception (quota
+     exhausted, Safari private mode, enterprise policy). Fixing only the
+     visible catch would have changed nothing at all.
+   - `savePet` also **dropped** an update whenever a save was in flight, so a
+     30-second decay tick colliding with a slow write was discarded and the pet
+     aged backwards on the next load. It now queues the newest state.
+   - `petSaving` moved from state to a ref: it sat in `savePet`'s dependency
+     list, so `savePet`'s identity changed on every save and rebuilt the
+     30-second interval each time. **Check that when you add a cloud write.**
+   - `PetCompanion` takes a `petSaveError` prop and shows *"<name> isn't being
+     saved"* with the reason.
+
+   🚨 **THE PART THAT MATTERS FOR S31:** `saveOtterSettings` and
+   `saveAgentSkills` now **reject** where they always resolved before, so every
+   caller was audited. `Otter.jsx`'s `saveSettings` had no catch and two of its
+   call sites are `onChange`/`onClick` handlers that drop the promise — a
+   refused write would have become an unhandled rejection. **A cloud pet adds
+   more callers to exactly this surface. Audit them the same way.**
+   `localData.test.js` covers the behaviour (quota, blocked storage, 404, a
+   server message, a non-JSON body, and the control that reads still degrade).
 
 ### 🚨 THE MIGRATION IS THE DANGEROUS PART
 
