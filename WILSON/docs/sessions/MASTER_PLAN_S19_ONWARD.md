@@ -967,6 +967,21 @@ included.
 > DEFAULT PARAMETER. A blunt negative would have had to be deleted later, and
 > the real assertion with it. It is stated positively now.
 
+> ⚠️ **GATING THE HANDLER IS NOT THE WHOLE JOB.** Three follow-up commits
+> (`3e40c1f`, `ced76ac`, `31dddd5`) were all the same class — surfaces still
+> *promising* a write after the handler was gated:
+> - **`flatSelect` sets `cursor: 'pointer'` INLINE**, which beats the
+>   `disabled:cursor-not-allowed` class on the same element. A style attribute
+>   always wins over a Tailwind variant, so a read-only row kept advertising,
+>   cursor-first, that its dropdowns were live. Conditional at the source now,
+>   in both table views.
+> - **The Timeline's two empty states were instructions** — *"click + Phase"*
+>   and *"drag on the overview above to draw a task"*. Telling a reviewer to do
+>   the exact thing the screen refuses is the original complaint wearing
+>   help-text clothing. They state the reason instead.
+>
+> **Check the copy and the cursor, not only the `onClick`.**
+
 > ⚠️ **TWO STATED LIMITS OF WHAT SHIPPED**, here rather than in
 > `OUTSTANDING.md` because they are scope choices, not breakage:
 > - **Hover-revealed row icons still hide rather than grey** (the per-row
