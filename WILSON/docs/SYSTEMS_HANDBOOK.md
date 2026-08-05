@@ -2127,11 +2127,19 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 51 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+**pgTAP** — 53 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
-Session 25 added 48–51, one per entity table**; the CI coverage guard globs
+Session 25 added 48–51, one per entity table; Session 26 added 52_folders;
+Session 27 added 53_money_segments**; the CI coverage guard globs
 `*_<table>.sql`, so a table cannot share a suite file with another),
-**768 assertions** — run in CI against a fresh local stack.
+**808 assertions** — run in CI against a fresh local stack.
+
+> 🚨 **53_money_segments is the first suite covering no table of its own** —
+> it pins `storage.objects` policies and the `rabbit_money_segment` predicate.
+> The coverage guard globs by TABLE name, so a suite like this is invisible to
+> it and nothing would have complained had it been left out of the
+> failure-replay list in `rls.yml`. It was added there by hand. Any future
+> suite that is not named after a table has the same blind spot.
 (0038 added four to the existing `05_files` suite rather than a new file: it
 adds no table, so the coverage guard's `*_<table>.sql` glob still resolves.)
 Coverage spans the 13 RABBIT tables, membership and provisioning, the member
@@ -2146,8 +2154,10 @@ lockdown).
 > hours between S24's two commits, and had been stale
 > since S22 — this section is a **gate, not an oracle** (S21 corrected its
 > suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
-> assertion count again). Both figures here are measured: 47 files by glob,
-> 717 by summing every `SELECT plan(N)`. **Check the code.**
+> assertion count again, S26 and S27 the suite and assertion counts once
+> more). Both figures here are measured, 2026-08-04, by
+> `node scripts/tap-all.mjs` against wilson-dev: **53 suites, 808 planned,
+> 808 passed, `collected == planned` on every one.** **Check the code.**
 
 **Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
 definition of the rules that decide what a production is bid at: the
@@ -2158,11 +2168,21 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — 15 suites, 343 cases, all pure modules: the SSE reassembler,
-invite parsing, dashboard task model, note sync, CSV export, both permission
-matrices, O.T.T.E.R. route parsing and sharing rules, project attachments,
-edit-history formatting and revert, the relink matcher, and the realtime merge
-layer.
+**Vitest** — **34 files, 680 cases** (measured 2026-08-04; this line read "15
+suites, 343 cases" for several sessions), all pure modules: the SSE
+reassembler, invite parsing, dashboard task model, note sync, CSV export, both
+permission matrices, O.T.T.E.R. route parsing and sharing rules, project
+attachments, edit-history formatting and revert, the relink matcher, the
+realtime merge layer, money arithmetic, the adapter column allowlist, entity
+naming, folder paths and folder parity, the project manifest, and — Session 27
+— the project rates mirror and the upload scope.
+
+> 🚨 **What this suite CANNOT tell you.** Nothing in it MOUNTS a React
+> component; there is no `@testing-library` in this repo. S26 shipped an app
+> that rendered a blank page while 658 vitest cases, 52 pgTAP suites and two
+> production builds all passed, because a `useCallback` dependency array named
+> a `const` declared below it and dependency arrays are evaluated **during
+> render**. Playwright is the only job that can see that. See §17.
 
 **Playwright** — two projects. `chromium` covers sign-in → home with an
 RLS-scoped directory, the admin invite flow, and forgot-password. `chromium-web`
@@ -2301,22 +2321,69 @@ of a session — this section is limits by design, that file is faults.
   too, with no error to say so. This cost S19 a probe control before it was
   spotted.
 
+**Files (S27)**
+
+- **There are still THREE file stores, and only two are live.**
+  `public.files` + the `rabbit-files` bucket is the real one on Supabase and
+  Local Server. `managedFiles` is **local_server-ONLY** — versioned records
+  beside real files on disk, reached through `window.electronAPI.rabbit`.
+  `project.documents` / `visualAssets` are base64 data-URLs on the project row,
+  written only on Local Server; the cloud adapter **refuses** a create or
+  update carrying them (S15's `ATTACHMENTS_MSG`) rather than dropping them
+  silently. FileManager picks a store via `ctx.supportsManagedFiles`.
+  🚨 **Do not gate on `window.electronAPI` to decide this.** It is true
+  whenever WILSON runs as a desktop app, *including when the selected backend
+  is Supabase* — which is exactly why files were unreachable from every entity
+  surface in cloud until S27.
+- **A file has two independent axes.** `folder_id` says where it is FILED (a
+  row in the 0041 tree); `scene_id`/`shot_id`/`level_id`/`experience_id`, like
+  `phase_id`/`asset_id`/`task_id` before them, say what it is ABOUT. They agree
+  by construction because `uploadFile` derives the folder from the container
+  entity — one writer. A task attachment legitimately lives in its asset's
+  folder, which is why the task does not move it.
+- **All file links are `ON DELETE SET NULL`.** Deleting a scene, or a folder,
+  must not delete the file ROW: the blob stays in the bucket and the row is the
+  only thing that knows where it is.
+- **Cloud deletes are SOFT and the blob is deliberately left in place** (0014);
+  blob GC remains a documented known gap.
+
 **The folder tree and the manifest (S26)**
 
-- **Per-member rate overrides are NOT in `PROJECT.json`, and this is a stated
-  limit rather than an oversight.** Audrey asked for "unique margin, unique
-  contingency, unique team member rates" in the project folder's file. Margin
-  and contingency are there — `projects_select` admits any active workspace
-  member, so they were already readable by anyone who can open the project.
-  Rates are not: `project_rate_overrides_select` is gated by
-  `can_access_project_money` (manager-only), while `rabbit_files_select`
-  admits any project member to any object under `projects/<id>/` whose **third**
-  path segment is not `INVOICES` — and the manifest has no third segment.
-  Including them would hand every team member the figures RLS just denied.
-  Rates need a money-gated path of their own; `OUTSTANDING.md` carries it.
-- **`<slug>_FILES` is not modelled in the folder tree.** Its name embeds the
-  project slug, so it is the one folder whose path is not backend-neutral.
-  Left out rather than inventing a `FILES` category the disk does not have.
+- **Per-member rate overrides are STILL not in `PROJECT.json`, and now that is
+  a design boundary rather than a gap (S27).** Audrey asked for "unique margin,
+  unique contingency, unique team member rates" in the project folder's file.
+  Margin and contingency are in the manifest — `projects_select` admits any
+  active workspace member, so they were already readable by anyone who can open
+  the project. Rates live in a **separate, money-gated file**,
+  `projects/<id>/FINANCE/RATES.json`, because the manifest's own path is
+  readable by every project member and `project_rate_overrides_select` is
+  manager-only. Putting them in one file would hand the team the figures RLS
+  just denied.
+- 🚨 **`public.rabbit_money_segment(text)` is the ONE definition of a
+  money-gated path segment (0042).** The three base `rabbit-files` storage
+  policies negate it; the four money policies assert it. Adding a third
+  reserved segment is a one-line change to that function — **never** a
+  parallel set of policies, because permissive policies OR together and a base
+  policy that forgets the new segment serves the file to everyone regardless of
+  how correct the gated policy is. That is exactly how 0038 inverted the
+  invoice gate before 0039 fixed it in six places.
+  **It is NULL-safe by construction and that is load-bearing:** a path with no
+  third segment (`PROJECT.json`) must classify as NOT money-gated, or the
+  manifest becomes unreadable and unwritable by everybody.
+- **The manifest could only ever be written ONCE per project, until 0042.**
+  Supabase Storage implements upsert-over-an-existing-object as an UPDATE on
+  `storage.objects`, and that bucket had no UPDATE policy — 0027 created
+  SELECT/INSERT/DELETE and nothing since had added one. The first write landed,
+  every later one was refused, and `writeManifestSoon` logged a reassurance
+  that was false on that backend. Fixed; pgTAP 53 probe 6 is the regression
+  test. **Local Server was never affected.**
+- **`<slug>_FILES` is still not modelled in the folder tree.** Its name embeds
+  the project slug, so it is the one folder whose path is not backend-neutral.
+  S27 owned file storage and deliberately did not reconcile it: cloud files are
+  addressed by an ID-based object key whose **third segment is the money gate**,
+  so making object keys human-readable would move the gate onto a different
+  word. The tree provides the readable view, and Local Server's real
+  directories are where readable paths actually matter.
 - **A category folder is created when its toggle is on or its first entity
   appears — never speculatively**, so a film project gets no `LEVELS/`.
   Turning a toggle back OFF removes nothing: a disabled category is simply

@@ -264,6 +264,14 @@ brief's phrasing implies. Scoping it into the tail of a session that had
 already added four tables would have meant a money-adjacent schema written in
 a hurry. → **S26 or later; size it as its own block, not a footnote.**
 
+**Deferred a THIRD time in S27 — by Audrey's decision, not by drift.** Asked
+directly at the start of the session whether templates should land alongside
+the file work or become their own session, she chose to finish the file layer
+properly. Recorded because "deferred again" and "quietly not done" look
+identical in a git log a month later, and this is the first of the three
+deferrals that was a deliberate choice rather than a session running out of
+room. → **Its own session. It is the oldest item on this list.**
+
 ### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
 Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
 column allowlist; proven by re-running the original probe, where the exact
@@ -464,34 +472,29 @@ holds, because that requires *storing* a choice.
 in `ai-proxy` and 403 on a miss, failing **open** if the catalogue read itself
 fails. Not scheduled.
 
-### Project-scoped team member rates are not in the project manifest
-**MEASURED (S26).** Audrey, 2026-08-03, asked for "unique margin, unique
-contingency, unique team member rates, all project details in the project
-panel" to be saved in the project folder as a readable file. `PROJECT.json`
-now carries all of that **except the rates**, and this is a stated limit of
-what shipped rather than an oversight.
+### ~~Project-scoped team member rates are not in the project manifest~~ — FIXED (S27, `5384d4e`)
+Deleted per the rule for this file. Migration 0042 adds the `FINANCE` path
+segment, gated by `can_access_project_money` exactly as `INVOICES` is, and
+`projectRates.js` writes `projects/<id>/FINANCE/RATES.json` on both writable
+backends. Applied and verified **by query** on dev, staging and prod.
 
-Two policies, both read off wilson-dev on 2026-08-04:
+Audrey chose a gated file over leaving the rates app-only (2026-08-04).
 
-- `project_rate_overrides_select` :: `can_access_project_money(project_id)`
-  — **manager only.**
-- `rabbit_files_select` :: any authenticated user, any object under
-  `projects/<id>/` whose **third** path segment is not `INVOICES`, where the
-  project row is visible. A manifest at `projects/<id>/PROJECT.json` has no
-  third segment, so `upper(NULL) IS DISTINCT FROM 'INVOICES'` is true and the
-  base policy applies.
+The part worth keeping: **the fix was not "add a second gated trio".** Doing
+it the existing way would have put the reserved segment name in EIGHT places
+that all had to agree, and the base three had to exclude BOTH — permissive
+policies OR together, so a base policy that forgot `FINANCE` would serve the
+rates to every project member no matter how correct the gated policy was.
+That is precisely how 0038 failed. 0042 reduces the whole thing to one
+`public.rabbit_money_segment(text)`; the base policies negate it, the money
+policies assert it, and a third segment is a one-line change.
 
-So including rates would let every project member download the figures RLS had
-just denied them — the S24 invoice defect in a new file. Margin and
-contingency ARE included, and that was checked separately: `projects_select`
-admits any active workspace member, so those were already readable by anyone
-who can open the project.
-
-→ Rates need a money-gated path of their own. `INVOICES` is the only gated
-segment that exists and is the wrong name for it. Designing a second one is a
-storage-policy change, and 0038 shipping that segment lowercase — which
-inverted the gate until 0039 — is the standing evidence for not doing it in a
-hurry. **Audrey's call; size it with S27, which owns file paths.**
+🚨 It is **NULL-safe by construction, and that is load-bearing rather than
+tidy.** `projects/<id>/PROJECT.json` has no third path segment, so the
+predicate is called with NULL; a bare `upper(seg) IN (...)` returns NULL,
+`NOT NULL` is NULL, and a NULL policy expression FAILS. Without the coalesce
+the manifest becomes unreadable and unwritable by everyone — pgTAP 53 probes
+1, 5 and 11 all fail together when it is removed, which is how that was found.
 
 ### Welcome page has a phantom cursor
 **REPORTED.** A black cursor blinks permanently, unattached to any input, and
@@ -508,6 +511,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S27 (2026-08-04) | **nothing.** Nothing regressed and nothing new was found broken that is not already listed. The task-templates entry was annotated — its third deferral was Audrey's explicit decision this time, which is worth distinguishing from a session running out of room. ⚠️ The new file surfaces (FileManager in cloud, the Resources drop zone, the folder/manifest panel) are **built and not yet watched working** — that belongs in `MASTER_PLAN_S19_ONWARD.md` per this file's own rule, not here, and it is recorded there. | **project-scoped rates absent from the project folder** (0042 + `5384d4e`, applied and verified **by query** on dev, staging and prod). Two defects that were never on this list were also fixed and are recorded in the commit rather than here, because a thing found and fixed in one session is a commit message: the manifest could only ever be written ONCE per project (no UPDATE policy has ever existed on the rabbit-files bucket), and the folder tree had produced ZERO rows on any environment because its only caller was `createProject`. |
 | S26 (2026-08-04) | **one entry: project-scoped rates are absent from the manifest** — a stated limit of what shipped, with the two policies that force it. Nothing regressed. The `canWrite` entry was **corrected**, not narrowed: its header claimed both leading theories were refuted while its own body reopened one of them, the same self-contradiction `267c4c3` had already fixed in the S26 brief and never carried across here. Exactly one theory is refuted, on code; the other rests on testimony and is marked INFERRED. | nothing was fixed that was on this list. S26 built new capability rather than repairing existing breakage. |
 | S25 (2026-08-04) | **nothing new is broken.** Two entries were NARROWED rather than added: the `canWrite` gate (both leading theories refuted — Audrey confirms the account was `audrey`, who is admin AND project manager, and `canOnProject` already fails OPEN while permissions load, so a hung session leaves buttons PRESENT), and **task templates**, which S25 was scoped to fix and deliberately did not — it needs a fifth table and a suite, not a method. The assignee-dropdown entry is re-marked **still unobserved**: S25 was asked to confirm it at runtime and could not. | **scenes/levels/experiences unavailable in cloud**, **four budget tabs that can never render**, and **Client View printing "Project" and "--"** — all three by 0040 + `183b4c2`, applied and verified **by query** on dev, staging and prod. The Client View fix is recorded above because the documented fix (`add projects.code`) would have fixed nothing. |
 | S24 (2026-08-03) | **four budget tabs that can never render** (they gate on three `projects` columns that do not exist), **Client View printing "Project" and "--"** (it reads `project.name`/`project.code`; the column is `title`), **no client-side gate on the budget UI** (a UX defect now that RLS is the authority), and **desktop-only invoice folders** in the Crew/Talent tabs. All four are pre-existing and were found by reading the budget UI properly for the first time; none is new breakage. | **the budget system's absence from the cloud schema** (0036 + 0037 + `b07b6c9`, applied and verified **by query** on dev, staging and prod). The assignee-dropdown entry was **narrowed, not closed** — the two hard-empty dropdowns' stated cause is removed at code level but has not been watched working. |

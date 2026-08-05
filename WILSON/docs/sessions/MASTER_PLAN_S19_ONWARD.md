@@ -388,8 +388,16 @@ below are superseded; only one of them actually moves.
 | **S24** | **Budget system** — ✅ **DONE (`b07b6c9`)** | moved forward from S27; it was the gap that stopped R.A.B.B.I.T. doing its job | `SESSION_24_prompt.md` |
 | **S25** | Scenes/shots/levels/experiences at **adapter parity** — ✅ **DONE (`183b4c2`)** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
 | **S26** | Backend-agnostic **folder tree** + the project manifest — ✅ **DONE (`071682b`)** | needed scenes to exist before it could give each one a folder | `SESSION_26_prompt.md` |
-| **S27** | **Files everywhere** + the manifest surfaced in Resources | manages the folders S26 creates | *to write* |
-| **S28** | Design pass | unchanged, still last | *to write* |
+| **S27** | **Files everywhere** + the manifest surfaced in Resources — ✅ **DONE (`5384d4e`)** | manages the folders S26 creates | `SESSION_27_prompt.md` |
+| **S28** | **Task templates in cloud**, and the runtime verification sweep | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
+| **S29** | Design pass | unchanged, still last | *to write* |
+
+> ⚠️ **THE SEQUENCE GAINED A SESSION (2026-08-04).** The design pass was S28
+> and is now S29. Task templates have been deferred three times — twice
+> because a session ran out of room, and once (S27) because Audrey was asked
+> directly and chose to finish the file layer properly instead. They need a
+> table, RLS, a pgTAP suite and five adapter methods; that is a session, not a
+> tail. Audrey's to reorder if she would rather have the design pass first.
 
 **The `projects` drift is SPLIT, each half closed by the session that consumes
 it** (Audrey: *"splitting is fine"*) — rather than one orphan migration session,
@@ -630,6 +638,97 @@ with no Postgres in it, so a generated column would exist on one backend only.
 > been exhaustive: thirteen original Session-2 suites were missing, so a
 > failure in any of them produced the same misleading "no ERROR lines"
 > annotation S17 was burned by. All 52 are now listed.
+
+### ✅ S27 OUTCOME (2026-08-04, `5384d4e`) — and two defects nobody had recorded
+
+**Migrations 0042 and 0043**, applied and verified **by query** on dev,
+staging and prod. **53 pgTAP suites / 808 assertions** (52 / 790),
+`planned == collected` on every one. **680 vitest** (658). All four CI jobs
+green, Playwright included.
+
+> 🚨 **THE PROJECT MANIFEST COULD ONLY EVER BE WRITTEN ONCE, AND THE CODE SAID
+> OTHERWISE IN A COMMENT.** S26 shipped `PROJECT.json` as a mirror "rewritten
+> whenever settings change". Supabase Storage implements upsert-over-an-
+> existing-object as an UPDATE on `storage.objects`, and that bucket has never
+> had an UPDATE policy — 0027 created SELECT/INSERT/DELETE, 0038 and 0039
+> rewrote those and added three more for invoices, all SELECT/INSERT/DELETE.
+> So the first write landed and every subsequent one was refused, silently,
+> for the life of the project: `writeManifestSoon` caught the throw and logged
+> *"the manifest is a mirror and is rewritten on the next change."*
+>
+> Found by reading the policy catalogue and then **measured before anything
+> was written** — INSERT succeeds, UPDATE affects ZERO rows, and the same
+> UPDATE against `user-avatars` succeeds, so the probe could see a presence
+> rather than merely fail to see an absence (standing rule 2).
+
+> 🚨 **THE FOLDER TREE HAD NEVER PRODUCED A ROW. ANYWHERE.** MEASURED on all
+> three environments: `public.folders` held **0 rows** on dev (3 live
+> projects), staging (1) and prod (0). Not a bug in 0041 — the tree was
+> correct. `ensureProjectFoldersFor` had exactly ONE caller, `createProject`,
+> and every project in existence predates 0041, so a tree only appeared if
+> someone happened to create an asset or scene. Nobody had.
+>
+> That was invisible while nothing displayed the tree. S27 puts it on screen,
+> where it would have read as broken software for every project Audrey owns.
+> It now reconciles on load, idempotently, skipping read-only backends.
+>
+> **The general lesson: a feature with no caller has no symptom.** Three green
+> CI jobs, a pgTAP suite of 22 assertions and a verified migration all said
+> the folder tree was fine, and all of them were right. What none of them
+> could say is that it never ran.
+
+> ⚠️ **THE FILE LAYER WAS THREE DISCONNECTED STORES**, and this is what
+> "files everywhere" actually meant:
+>
+> | store | state before S27 |
+> |---|---|
+> | `public.files` + `rabbit-files` | worked; the only surface using it was a read-mostly table |
+> | `managedFiles` | local_server-ONLY, and FileManager gated it on `window.electronAPI` — true whenever WILSON runs as a desktop app, **including when the selected backend is Supabase**. Dead in cloud, and dead on the web twice over |
+> | `project.documents` / `visualAssets` | base64 data-URLs on the project row. The cloud adapter REFUSES them (S15's `ATTACHMENTS_MSG`), so the Resources drop zone showed an honest error and went nowhere |
+>
+> The third one is worth stating precisely because it was nearly written up
+> wrong: those uploads are **not** silent data loss. S15 made create and
+> update throw rather than drop, deliberately. The defect was that the honest
+> error was a **dead end** — it told the user to go to RABBIT, and completing
+> the other half (routing that UI through `uploadFile`) had been deferred as
+> §6 #31 ever since. That is now done for cloud; Local Server keeps the legacy
+> arrays, because there they work and D.O.G. reads them.
+
+> 🚨 **ONE PREDICATE, NOT A SECOND PARALLEL TRIO — the design decision.**
+> Audrey chose (2026-08-04) to have project rates travel with the project
+> folder, which needs a money-gated path beside `INVOICES`. Adding it the
+> existing way would have written the reserved segment name into EIGHT
+> policies that all had to agree, and the base three had to exclude BOTH —
+> permissive policies OR together, so a base policy that forgot `FINANCE`
+> serves the rates to every project member however correct the gated policy
+> is. That is exactly how 0038 inverted the invoice gate.
+>
+> `public.rabbit_money_segment(text)` is now the only definition. It is
+> **NULL-safe by construction**, which is load-bearing rather than tidy:
+> `PROJECT.json` has no third path segment, so a bare `upper(seg) IN (...)`
+> returns NULL, `NOT NULL` is NULL, and a NULL policy expression FAILS —
+> making the manifest unreadable and unwritable by everybody. Removing the
+> coalesce fails pgTAP 53 probes 1, 5 and 11 together.
+
+> ⚠️ **WHAT IS BUILT AND NOT YET WATCHED WORKING.** Every new file surface —
+> FileManager in cloud mode, the Resources drop zone, the folder/manifest
+> panel, the rates mirror — is complete at code level and has **not** been
+> exercised by a signed-in user. The app was confirmed to MOUNT (`#root` has
+> 17 descendants and renders the login screen, and `RabbitProvider` wraps the
+> whole tree including the unauthenticated branch, so that is real evidence it
+> did not throw) — but nothing in this repo automates a signed-in session
+> against staging. This is the same gap that has kept the two assignee
+> dropdowns open since S24. → **S28 should watch them, once, and close both.**
+
+> ⚠️ **A storage-path change was FREE this session and will not be again.**
+> MEASURED 2026-08-04: 0 file rows, 0 folder rows, 0 storage objects and 0
+> manifests on all three environments. That is why renaming
+> `rabbit_files_invoices_*` and replacing every base policy was safe to do
+> now. The ID-based object key (`projects/<id>/<entity>/<entityId>/…`) was
+> deliberately KEPT rather than made human-readable: the third segment is the
+> money gate, nobody browses a private bucket by hand, and the folder tree
+> already provides the readable view. Local Server's real directories are
+> where human-readable paths matter, and it has them.
 
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
