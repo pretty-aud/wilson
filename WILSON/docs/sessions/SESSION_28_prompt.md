@@ -1,10 +1,10 @@
 # SESSION 28 launch prompt — TASK TEMPLATES IN CLOUD + the verification sweep
 
-> **STATE AFTER S27 (2026-08-04, `5384d4e`), so you do not re-measure it:**
-> migrations run **0000–0043** on dev, staging and prod (next free number is
-> **0044**); pgTAP is **53 suites / 808 assertions**; vitest is **680**.
-> `public.files` has **29 columns**. `public.projects` has 50. All four CI
-> jobs green, Playwright included.
+> **STATE AFTER S27 (2026-08-04, `5384d4e` feature + `424bc6b` docs), so you do
+> not re-measure it:** migrations run **0000–0043** on dev, staging and prod
+> (next free number is **0044**); pgTAP is **53 suites / 808 assertions**;
+> vitest is **680**. `public.files` has **29 columns**. `public.projects` has
+> 50. All four CI jobs green on both commits, Playwright included.
 >
 > ✅ **The manifest can be rewritten.** 0042 added the UPDATE arm the
 > `rabbit-files` bucket had never had. Before it, `PROJECT.json` was written
@@ -24,6 +24,12 @@
 >
 > ✅ **The folder tree now reconciles on load.** It had produced **zero rows on
 > every environment** because its only caller was `createProject`.
+>
+> ✅ **Files reach every backend.** `FileManager` picks a store via
+> `ctx.supportsManagedFiles`, **never** `window.electronAPI` — that test is
+> true whenever WILSON is a desktop app *including in cloud mode*, which is
+> exactly why files were unreachable from every entity surface. `files` now has
+> a `COLUMN_ALLOWLIST` entry.
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`, not
 > `Claude_Work/`.**
@@ -68,30 +74,55 @@ The cheap check is a census, not a code read: `SELECT count(*)` on the table
 the feature populates, in the environment the user is in. It takes one query
 and it is the only thing that distinguishes "built" from "working".
 
+🚨 **AND IT APPLIES TO THIS SESSION'S OWN WORK.** Task templates have a dead
+UI branch (see below). Creating the table and the adapter methods will make
+every test pass and change nothing on screen, because the thing that would
+call them is unreachable. **Finish by proving a template can be created and
+applied**, not by proving the table exists.
+
 **Label everything MEASURED / INFERRED / GUESSED.**
+
+---
+
+## 🚨 CITE SYMBOLS, NOT LINE NUMBERS — S27 broke its own citation
+
+The first draft of this brief said the local task-template routes were at
+`electron/main.cjs:2088-2131`. They are at **2609–2656**. The number came from
+`OUTSTANDING.md`, written in S23 and correct then — and **S27 itself inserted
+~70 lines into that file**, shifting everything below by hundreds.
+
+Every line number in a document decays, and the sessions that edit a file are
+the ones that invalidate its citations. Two habits:
+
+- **Grep for the symbol** (`getTaskTemplatesDir`, `rabbit_money_segment`) and
+  read the number off the result. Never copy one forward from a doc.
+- **Re-verify any line number you are about to write into a document**, at the
+  moment you write it, after your own edits.
 
 ---
 
 ## 🚨 THE VERIFICATION DEBT — do this FIRST, it is small and it is overdue
 
-Three separate items have now been carried for multiple sessions purely
-because **nothing in this repo automates a signed-in session against
-staging.** They are all closable by one person looking at one browser for
-about five minutes. S25, S26 and S27 were each asked and none could.
+Three items have been carried for multiple sessions purely because **nothing
+in this repo automates a signed-in session against staging.** They are all
+closable by one person looking at one browser for a few minutes. S25, S26 and
+S27 were each asked and none could.
 
 **Do this before writing any code**, because two of the three might already be
 fixed and you would otherwise build on top of an unknown.
 
-1. **The two assignee dropdowns** (`TimelineView.jsx:4228`,
-   `ProjectAssetsView.jsx:2108`). The stated cause was removed at CODE level in
-   S24. Nobody has watched them populate. **One look at the Timeline task
-   editor on the beta closes it.**
-2. **Files in cloud mode.** S27 rebuilt FileManager to serve `public.files`
-   when the backend has no managed-file store, added the Resources drop zone
-   and the folder/manifest panel, and wired the rates mirror. All of it is
-   code-complete and **none of it has been exercised by a signed-in user.**
-   Upload one file to an asset on the beta; it should appear, download, and
-   show up in Resources → PROJECTS → that project.
+1. **The two assignee dropdowns.** The stated cause was removed at CODE level
+   in S24 (`listTeamMembers` on the Supabase adapter, and `loadProject` now
+   returning `teamAssignments` — read at `TimelineView.jsx` ~`:183`/`:357` and
+   `ProjectAssetsView.jsx` ~`:1648-1659`; **grep `teamAssignments`, do not
+   trust those numbers**). Nobody has watched them populate. **One look at the
+   Timeline task editor on the beta closes it.**
+2. **Files in cloud mode — all of S27 is unobserved.** FileManager serving
+   `public.files`, the Resources drop zone, the folder/manifest panel and the
+   rates mirror are code-complete and **have never been exercised by a
+   signed-in user.** Upload one file to an asset on the beta; it should
+   appear, download, and show up in Resources → PROJECTS → that project.
+   Change a project rate and confirm a `FINANCE/RATES.json` object appears.
 3. **The `canWrite` gate.** Read `OUTSTANDING.md`'s entry IN FULL before
    touching it. Exactly one theory is refuted (on code); the other rests on
    testimony. 🚨 **Audrey runs two accounts in two browsers at the same time.**
@@ -107,32 +138,87 @@ fixed and you would otherwise build on top of an unknown.
 sessions ran out of room, and by S27 because Audrey was asked directly and
 chose to finish the file layer instead. It is not a missing adapter method.
 
-### The measured starting position — do not re-derive it
+### MEASURED starting position (2026-08-04, re-read this session)
 
-- On Local Server, templates are **individual JSON files in their own
-  directory** (`electron/main.cjs:2088-2131`), workspace-scoped with a
-  project-scoped read.
-- `listProjectTaskTemplates` / `listTaskTemplates` have **zero occurrences** in
-  `supabaseAdapter.js`, so `useTaskTemplates` returns `[]` and the New Asset
-  dialog's Task Template dropdown is permanently empty in cloud.
-- The template branch (`ProjectAssetsView.jsx:1378-1419`) is **dead code**
-  there, which also makes its `role_slug` bug unreachable — the real column is
-  `assigned_role_slug`. Fix that when the branch comes alive, not before.
-- `task_template_id` is deliberately **dropped by the adapter allowlist**
-  rather than given a column, because a column for a feature with no cloud
-  implementation is schema debt. It arrives WITH the feature.
+**Local Server** — `electron/main.cjs:2609-2656`, five routes over one flat
+directory, `<rabbitDataDir>/task-templates/`, one JSON file per template:
+
+| route | behaviour |
+|---|---|
+| `GET /workspaces/:workspaceId/task-templates` | every template whose `workspace_id` matches |
+| `GET /projects/:projectId/task-templates` | every template with **no** `project_id` **or** a matching one |
+| `POST /workspaces/:workspaceId/task-templates` | stamps `workspace_id`; the body may carry `project_id` |
+| `PATCH /task-templates/:id` | whole-row merge |
+| `DELETE /task-templates/:id` | unlinks the file |
+
+Two things fall out of that, and both shape the schema:
+
+- **A template is EITHER global to the workspace OR pinned to one project** —
+  `project_id` nullable, not a separate table or a join.
+- 🚨 **The project-scoped read is NOT workspace-filtered.** `GET
+  /projects/:id/task-templates` filters on `project_id` alone, so it would
+  return another workspace's global templates. Harmless on a single-tenant
+  local server and **a tenancy leak in cloud** — so do not port the predicate,
+  port the intent. The cloud read must add the workspace scope the local route
+  omits.
+
+**Cloud** — `listProjectTaskTemplates` / `listTaskTemplates` have **zero
+occurrences** in `supabaseAdapter.js`, so `useTaskTemplates` returns `[]` and
+the New Asset dialog's Task Template dropdown is permanently empty.
+
+**The dead branch, and it is TWO sites not one.** `ProjectAssetsView.jsx`
+applies a template in two places — the create-with-template path (~`:1390-1435`)
+and apply-to-existing-asset (~`:1710-1742`). Both build a task with
+`role_slug: tmplTask.role_slug`.
+
+🚨 **`role_slug` is not a column on `tasks`.** `TASK_COLUMNS`
+(`supabaseAdapter.js:179`) has **`assigned_role_slug`**. So this is NOT a
+PGRST204 that kills the request — `toColumns` **drops the key and warns**, and
+the task is created successfully **with no role on it**. A quieter failure
+than the S23 one, and it will not announce itself: the tasks appear, the roles
+are simply missing, and every bid built from them is priced at nothing. Fix
+**both** sites when the branch comes alive, not before.
+
+`task_template_id` is deliberately **dropped by the allowlist** rather than
+given a column, because a column for a feature with no cloud implementation is
+schema debt. It arrives WITH the feature — and note the second site writes it
+onto the ASSET (`ctx.updateAsset(asset.id, { task_template_id })`), so
+`ASSET_COLUMNS` needs it too, not just `tasks`.
+
+### ⚠️ THE ONE THING TO SETTLE BEFORE WRITING SQL — ask Audrey
+
+**Who may create, edit and delete a task template?** This is **not** derivable
+from the code: the local server has no roles at all, so its routes are open by
+construction and tell you nothing about intent.
+
+An earlier draft of this brief asserted the answer ("`can_write_project` is
+the wrong gate, a template is not project content"). **That was a guess
+presented as a finding, in a document whose entire purpose is to stop exactly
+that** — and it is probably wrong, because the measured shape shows templates
+*can* be pinned to a single project, which makes those ones project content.
+
+What is actually known:
+- Templates are workspace-level assets with an optional project pin, like rate
+  cards with a narrower scope.
+- Audrey has already settled the analogous question for money (project manager
+  **or** workspace admin), and separately for the control panel (managers and
+  reviewers, not members) — and 🚨 **those two answers are different**, so
+  there is no house default to fall back on.
+
+→ **Ask, then write the pgTAP probes for the NON-privileged case first.**
 
 ### What it needs — size it as its own block
 
-A table, its own RLS, its own pgTAP suite (54), five adapter methods, and a
-`COLUMN_ALLOWLIST` entry. Plus **two** places in `.github/workflows/rls.yml`:
-`RLS_TABLES` (fails loudly) and the failure-replay list (fails **silently**).
+A table, its own RLS, its own pgTAP suite (**54**), five adapter methods, a
+`COLUMN_ALLOWLIST` entry, and `ASSET_COLUMNS` gaining `task_template_id`. Plus
+**two** places in `.github/workflows/rls.yml`: `RLS_TABLES` (fails loudly) and
+the failure-replay list (fails **silently**).
 
-🚨 **Templates are workspace-scoped with a project-scoped read.** That is not
-the shape of any existing RABBIT table — `can_write_project` is the wrong gate
-because a template is not project content, and the workspace-admin-only shape
-is wrong because ordinary users create templates. **Decide the gate
-deliberately and write the pgTAP probes for a NON-manager first.**
+Decide early whether the template's TASKS are a second table or a JSONB column
+on the template. The local store is one JSON document per template, so a JSONB
+column is the faithful port; a child table is the faithful *schema*. Either is
+defensible — **write down which and why**, because the next session will
+otherwise assume the other one.
 
 ---
 
@@ -168,7 +254,10 @@ deliberately and write the pgTAP probes for a NON-manager first.**
 - **`supabase db query --file` returns only the LAST result set.** One query
   per file.
 - **`sanitize()` is a denylist; `toColumns()` is the allowlist.** Any new table
-  written from the client needs a `COLUMN_ALLOWLIST` entry.
+  written from the client needs a `COLUMN_ALLOWLIST` entry. 🚨 **A dropped key
+  WARNS and continues; an un-allowlisted TABLE PGRST204s the whole request.**
+  Those are different failures — the first loses one field silently (see
+  `role_slug` above), the second loses the entire save.
 - **Ordering rules for manual re-runs:** 0022 → 0025 AND 0026 · 0028 → 0031 ·
   0002 → 0029 · 0011 → 0030 · 0009 → 0020 · 0011 → 0033 · **0027 → 0038 →
   0039 → 0042** · 0040 → 0041 → **0043**. **Replay forwards only.**
@@ -213,17 +302,19 @@ deliberately and write the pgTAP probes for a NON-manager first.**
 
 ## Close-out ritual
 
-Feature commit(s) → CI green (**all four jobs** — a skip is not green, and
-neither is three-out-of-four) → deploy migrations dev → staging → prod
-(dry-run each, verify each **by query**) → re-link CLI to `wilson-dev` → write
-`docs/sessions/SESSION_29_prompt.md` → update `docs/MASTER_PLAN.md` and
-`MASTER_PLAN_S19_ONWARD.md` → update `docs/SYSTEMS_HANDBOOK.md` if behaviour
-changed → **update `docs/OUTSTANDING.md`** → update the Claude auto-memory →
-docs commit + push.
-
-> ⚠️ **Deploy migrations to STAGING BEFORE pushing code.** `feat/multi-user-v1`
-> auto-deploys the STAGING-backed beta host, so code that needs a migration
-> will hit a beta that does not have it yet.
+1. Apply migrations to **dev**, verify **by query**, run `tap-all`.
+2. Feature commit(s).
+3. Apply to **staging**, then **prod** — dry-run each, verify each **by
+   query**. ⚠️ **Staging goes BEFORE the push**: `feat/multi-user-v1`
+   auto-deploys the STAGING-backed beta, so code that needs a migration would
+   otherwise hit a beta that does not have it.
+4. Push → **CI green on all four jobs** (a skip is not green, and neither is
+   three-out-of-four).
+5. Re-link the CLI to `wilson-dev`.
+6. Write `docs/sessions/SESSION_29_prompt.md` → update `docs/MASTER_PLAN.md`
+   and `MASTER_PLAN_S19_ONWARD.md` → update `docs/SYSTEMS_HANDBOOK.md` if
+   behaviour changed → **update `docs/OUTSTANDING.md`** → update the Claude
+   auto-memory → docs commit + push.
 
 > **THEN, FINALLY, IN THE CHAT — both required, after everything is pushed:**
 >

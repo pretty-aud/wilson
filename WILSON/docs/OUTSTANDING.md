@@ -243,15 +243,36 @@ as a caveat for Audrey, which it is not: **the population is empty.** Recorded
 here so nobody re-adds it as a known limitation without querying first.
 
 ### Task templates do not exist in cloud mode
-**MEASURED (S23).** `listProjectTaskTemplates` / `listTaskTemplates` have zero
-occurrences in `supabaseAdapter.js` — they are `localServerAdapter`-only — so
-`useTaskTemplates` returns `[]` and the New Asset dialog's Task Template
-dropdown is permanently empty. The template branch
-(`ProjectAssetsView.jsx:1378-1419`) is dead code in cloud, which also makes its
-`role_slug` bug there unreachable (the real column is `assigned_role_slug`).
+**MEASURED (S23; citations re-verified S27).** `listProjectTaskTemplates` /
+`listTaskTemplates` have zero occurrences in `supabaseAdapter.js` — they are
+`localServerAdapter`-only — so `useTaskTemplates` returns `[]` and the New
+Asset dialog's Task Template dropdown is permanently empty.
 `task_template_id` is dropped by the S23 adapter allowlist rather than given a
 column, because a column for a feature with no cloud implementation is schema
 debt.
+
+**Three corrections made in S27, all from re-reading rather than re-reasoning:**
+
+- The local routes are at **`electron/main.cjs:2609-2656`**, not `:2088-2131`.
+  That number was right when S23 wrote it; **S27 inserted ~70 lines into the
+  same file** and shifted everything below. Cite symbols
+  (`getTaskTemplatesDir`), not line numbers.
+- The dead branch is **TWO sites, not one**: create-with-template
+  (`ProjectAssetsView.jsx` ~`:1390-1435`) and apply-to-existing-asset
+  (~`:1710-1742`). Both write `role_slug`.
+- 🚨 **The `role_slug` bug is quieter than recorded.** `role_slug` is not a
+  column, but `TASK_COLUMNS` **is** an allowlist entry — so `toColumns` drops
+  the key and WARNS rather than PGRST204-ing the request. The tasks are
+  created successfully **with no role on them**, and every bid built from them
+  prices at nothing. An un-allowlisted TABLE kills a whole save; a dropped KEY
+  loses one field silently. Do not conflate them.
+
+**Also measured (S27), and it changes the schema:** the local
+`GET /projects/:id/task-templates` filters on `project_id` alone and is **not
+workspace-filtered**, so it would return another workspace's global templates.
+Harmless on a single-tenant local server, a **tenancy leak in cloud**. Port the
+intent, not the predicate. A template is either global to the workspace or
+pinned to one project (`project_id` nullable).
 
 **NOT fixed in S25 — deliberately deferred, and this is the one scoped item
 that session did not deliver.** It was in the S25 brief alongside the four
@@ -271,6 +292,15 @@ properly. Recorded because "deferred again" and "quietly not done" look
 identical in a git log a month later, and this is the first of the three
 deferrals that was a deliberate choice rather than a session running out of
 room. → **Its own session. It is the oldest item on this list.**
+
+⚠️ **One thing must be settled with Audrey before any SQL is written: who may
+create, edit and delete a template.** It is **not** derivable from the code —
+the local server has no roles at all, so its open routes say nothing about
+intent. And there is no house default to fall back on: she has already given
+*different* answers for money (project manager **or** workspace admin) and for
+the control panel (managers and reviewers, **not** members). A draft of the
+S28 brief asserted an answer here and it has been removed — that is the exact
+plan-vs-code error this file keeps recording.
 
 ### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
 Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
