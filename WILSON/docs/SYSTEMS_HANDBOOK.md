@@ -1900,6 +1900,45 @@ a reload. `PermissionGate` takes exactly one of `requires` (an action) or
 `requiresPlatformOperator`, and renders its fallback while permissions are not
 yet `ready` — so privileged UI never flashes at cold boot.
 
+**Denied controls are SHOWN, greyed, with the reason (Session 29).** Audrey,
+2026-08-04: *"keep button gray and explain why."* `GatedAction`
+(`src/permissions/GatedAction.jsx`) is the one treatment; `WriteReasonProvider`
+carries the sentence to the leaves so it need not be threaded through every
+component signature. Before this, six R.A.B.B.I.T. surfaces HID their create
+controls off a single flag and the Timeline gated nothing at all, so the same
+denial produced three different experiences.
+
+Two traps it exists to avoid, both of which look fine in review:
+
+- 🚨 **A `disabled` `<button>` does not fire mouse events**, so a `title=` on
+  the button itself is unreliable — Chrome will not show it. The reason lives
+  on an interactive wrapper with the children made `inert` inside it. Native
+  `title` is deliberate: there is no Tooltip component in this codebase
+  (verified by grep, 2026-08-04) and the rest of the app already uses `title`.
+- 🚨 **Grey must never mean "loading."** `canOnProject` returns **true** while
+  `ready === false`, on purpose, so a control is never greyed merely because
+  the session has not settled. `projectActionDeniedReason()` inherits that and
+  returns `null` there.
+
+> 🚨 **`ready` IS THE FIELD THAT GETS FORGOTTEN, AND FORGETTING IT IS SILENT.**
+> It defaults to **true** inside `canOnProject`, so omitting it turns "the
+> session has not resolved yet" into "denied" — the control disappears for
+> someone fully authorised, and if `getSession()` hangs it never comes back.
+> S23 fixed exactly this in `ProjectTasksView` and `ProjectAssetsView`; S29
+> found the same omission still live in **three more files**
+> (`TaskDetailPopup`, `DashboardTasksView`, `TeamView`), each of which passed
+> the other three fields and read as correctly gated for five sessions.
+> `useProjectAccess()` now assembles the context in one place, and
+> `writeGate.test.js` fails on any `canOnProject()` call that omits `ready` —
+> resolving both the inline-literal and named-const forms.
+
+> ⚠️ **A GATED CREATE BUTTON DOES NOT MEAN A GATED SCREEN.** S29 found inline
+> row editing completely ungated in **both** `ProjectTasksView` and
+> `ProjectAssetsView` — every cell, dropdown, date, the phase header's name and
+> dates, and kanban drag-drop committed through an unguarded funnel. Both files
+> read as "already gated" because their *create* controls were. When auditing a
+> surface, enumerate what it WRITES, not what it offers to create.
+
 **The Admin Terminal** (`admin` only) has five sections:
 
 | Section | Does | Calls |
@@ -2178,14 +2217,28 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **35 files, 698 cases** (measured 2026-08-04; this line read "15
+**Vitest** — **36 files, 803 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
 attachments, edit-history formatting and revert, the relink matcher, the
 realtime merge layer, money arithmetic, the adapter column allowlist, entity
 naming, folder paths and folder parity, the project manifest, Session 27's
-project rates mirror and upload scope, and — Session 28 — `taskPayloadKeys`.
+project rates mirror and upload scope, Session 28's `taskPayloadKeys`, and —
+Session 29 — `writeGate` plus the denial-reason half of the project matrix.
+
+> ⚠️ **WHAT `writeGate.test.js` CANNOT SEE, stated because a green suite here
+> reads like proof.** Nothing in this suite mounts React, so it can assert that
+> a surface REFERENCES the gate and passes `ready`, but not that a denied
+> control actually renders greyed. Proven, not assumed: deleting `GatedAction`'s
+> dimming entirely leaves **803/803 passing**. The appearance needs a signed-in
+> session, which nothing here automates.
+>
+> The other half of that lesson is why the guard requires the gate to be
+> **called**: its first draft asserted only that `TimelineView.jsx` mentioned
+> `useProjectAccess`, and replacing the call with `const canWrite = true` while
+> leaving the import in place kept all five assertions green — the exact defect
+> S29 existed to fix, reintroducible in one line.
 
 > 🚨 **AN ALLOWLIST TEST PINS THE MECHANISM, NEVER THE CALL SITE**, and the
 > difference is a whole class of bug. `columnAllowlist.test.js` proves

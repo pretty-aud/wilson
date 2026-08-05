@@ -3,10 +3,19 @@
 > **Scheduled by Audrey on 2026-08-04** (*"lets make a new session for this"*),
 > after S28's close-out named it the largest genuinely broken thing left.
 >
-> **STATE AFTER S28:** migrations **0000–0044** on all three envs (next free
-> **0045**); pgTAP **54 suites / 832 assertions**; vitest **35 files / 698**.
-> S29 sits in front of this and touches R.A.B.B.I.T. only — re-read the state
-> line in its close-out rather than trusting these numbers.
+> **STATE AFTER S29 (2026-08-05, `7443fed`) — updated, do not re-measure it:**
+> migrations **0000–0044** on all three envs, next free **0045** (S29 added no
+> SQL — the schema was already right; the client simply never asked). pgTAP is
+> unchanged at **54 suites / 832 assertions**. Vitest is now **36 files / 803
+> cases**. All four CI jobs green.
+>
+> ⚠️ **Two things S29 learned that apply directly here.** First, `ready` was
+> missing from three permission gates that all *looked* correct — if you add a
+> gate to any O.T.T.E.R. surface, `writeGate.test.js` will fail unless you pass
+> it. Second, and more relevant: S29's own guard test PASSED while the gate was
+> stubbed out with `const canWrite = true`. **Prove your test by breaking it,
+> including the breakers you expect to pass** — one of S29's four real findings
+> came from a breaker that did nothing.
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`.**
 > **First tool calls**, in order and before any code:

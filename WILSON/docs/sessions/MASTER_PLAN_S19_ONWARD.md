@@ -390,7 +390,7 @@ below are superseded; only one of them actually moves.
 | **S26** | Backend-agnostic **folder tree** + the project manifest — ✅ **DONE (`071682b`)** | needed scenes to exist before it could give each one a folder | `SESSION_26_prompt.md` |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources — ✅ **DONE (`5384d4e`)** | manages the folders S26 creates | `SESSION_27_prompt.md` |
 | **S28** | **Task templates in cloud** — ✅ **DONE (`06bf564`)** | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
-| **S29** | **The Timeline permission gate** + the verification sweep | the only task-creating surface with no gate; Audrey is hitting it | `SESSION_29_prompt.md` |
+| **S29** | **The Timeline permission gate** — ✅ **DONE (`7443fed`)** | the only task-creating surface with no gate; Audrey was hitting it | `SESSION_29_prompt.md` |
 | **S30** | **O.T.T.E.R. keeps its work** — validator findings, quiz scores | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
 | **S31** | **Per-user settings + the pet + logout** | her account must follow her between computers | `SESSION_31_prompt.md` |
 | **S32** | Design pass | unchanged, still last | `SESSION_32_prompt.md` |
@@ -884,6 +884,107 @@ assertions** (53 / 808), `planned == collected` on every one. **698 vitest**
 > edit it. It fails CLOSED, it is documented in the function, and the
 > alternative is a roster query per project from a Settings screen with no
 > project context.
+
+### ✅ S29 OUTCOME (2026-08-05, `7443fed`) — the first session in this run with no migration, and four defects nobody had recorded
+
+**No SQL.** The schema was already correct: `tasks_insert` requires
+`can_write_project(project_id)` (0013) and always did. The entire defect was
+that the client never asked. Migrations stay **0000–0044**, pgTAP stays **54
+suites / 832 assertions** (unchanged, re-run green in CI). **803 vitest**
+(698 → 803, 35 → 36 files). All four CI jobs green on `7443fed`, Playwright
+included.
+
+> 🚨 **THE FIX IS NOT "ADD A GATE TO THE TIMELINE", AND SIZING IT THAT WAY
+> WOULD HAVE SHIPPED THE S23 BUG AGAIN.** ~12 create affordances funnel through
+> one `openNewTask`. Gating the funnel alone leaves all twelve visible and
+> inert — which is precisely "the button does nothing". The funnel and the
+> affordances had to move together, and they did.
+>
+> **The brief's own citations were right but its characterisation was wrong on
+> one point, which is worth recording because it changed the fix.** It called
+> `:5826`–`:6440` "context-menu items". They are `kind: 'drop-zone'` **row
+> descriptors** emitted by six `buildRowsBy*` functions. So the change was not
+> "gate a menu" but "let the builders keep emitting them and have the two
+> renderers show them disabled" — a different edit in a different place.
+
+> 🚨 **THE TIMELINE'S WRITE SURFACE WAS WIDER THAN TASK CREATION**, and a
+> session scoped to "the New task button" would have left most of it open. It
+> also calls add/update/delete for **phases, milestones and assets** plus
+> link/unlink dependency. Dragging a bar to move or resize it committed a real
+> date change (`:634`, `:684`, `:730`, `:744`, `:762`); dragging a dependency
+> arrow head onto empty space DELETED the dependency. All ungated.
+
+> ✅ **AUDREY'S TREATMENT, APPLIED EVERYWHERE RATHER THAN ON THE TIMELINE
+> ALONE.** *"Keep button gray and explain why"* (2026-08-04). `GatedAction` is
+> that treatment; Tasks, Assets, Board and TaskDetailPopup previously **hid**
+> these controls, so applying it only to the Timeline would have made the app
+> contradict itself screen by screen. This also retires the S23 UX note that
+> `OUTSTANDING.md` had been carrying — *"a reviewer should be told why they
+> cannot add"* — rather than moving it forward again.
+>
+> Two implementation traps, both of which pass review while being wrong:
+> a **`disabled` `<button>` does not fire mouse events**, so a `title` on it is
+> invisible in Chrome (the reason now lives on an interactive wrapper); and
+> `display: contents` generates **no box**, so `opacity` on it does nothing —
+> the first draft of `GatedAction` would have rendered a control that looked
+> perfectly enabled and did nothing.
+
+> 🚨 **FOUR PRE-EXISTING DEFECTS FOUND, NONE OF THEM IN THE BRIEF, ALL FIXED.**
+>
+> 1. **`ready` was missing from THREE gates** — `TaskDetailPopup.jsx`,
+>    `DashboardTasksView.jsx`, `TeamView.jsx`. It defaults to **true**, so each
+>    read "denied" for the whole window before `getSession()` settled, and
+>    permanently if it hung. **That is the S23 bug, still live in three files
+>    that looked correctly gated**, five sessions after it was "fixed". A grep
+>    for "does this file have a gate" says yes; only reading the ARGUMENT says
+>    no.
+> 2. **Inline row editing was completely ungated** in `ProjectTasksView` AND
+>    `ProjectAssetsView` — title, five dropdowns, both dates, bid days, the
+>    phase header's name and dates, and kanban drag-drop, all committing through
+>    an unguarded funnel. **Both files read as "already gated" because their
+>    CREATE buttons were.** The brief itself lists them among the seven files
+>    that "carry a gate", which is true and was not enough.
+>
+> Neither was found by using the app — the people testing it all had
+> permission, so neither has a symptom for them. Both were found by
+> `writeGate.test.js`, which is the argument for the test existing.
+
+> 🚨 **THE MOST USEFUL RESULT OF THE SESSION CAME FROM A BREAKER THAT DID NOT
+> FIRE.** The first `writeGate.test.js` asserted only that `TimelineView.jsx`
+> **mentioned** `useProjectAccess`. Replacing the gate with
+> `const canWrite = true` while leaving the import in place kept **all five
+> assertions green** — the exact defect this session existed to remove,
+> reintroducible in one line, with a clean suite. Requiring the gate to be
+> **called** is what closes it.
+>
+> A second breaker was expected to pass and did: deleting `GatedAction`'s
+> dimming entirely leaves **803/803**. Nothing in this suite mounts React, so
+> the treatment's APPEARANCE is unverifiable here. Recorded rather than implied.
+>
+> A third correction came the same way: the guard's first negative assertion
+> ("the file contains no `canWrite = true`") **failed on the correct code**,
+> because five sub-components legitimately declare `canWrite = true` as a
+> DEFAULT PARAMETER. A blunt negative would have had to be deleted later, and
+> the real assertion with it. It is stated positively now.
+
+> ⚠️ **TWO STATED LIMITS OF WHAT SHIPPED**, here rather than in
+> `OUTSTANDING.md` because they are scope choices, not breakage:
+> - **Hover-revealed row icons still hide rather than grey** (the per-row
+>   delete in Tasks/Assets, the Timeline's dependency grip). The rule applied
+>   is: a control visible at rest greys out and explains itself; a grip that
+>   only materialises on hover is withdrawn, because a greyed dot that appears
+>   under the cursor and then refuses to work teaches nothing.
+> - **`ProjectSummaryView`'s control-panel button still hides.** It gates
+>   `project.settings.open` (correctly, `ready` included) and was not converted.
+>   One surface, one line, whenever someone is next in there.
+
+> ⚠️ **THE VERIFICATION SWEEP IS STILL OPEN — FIFTH SESSION.** The S28 lesson
+> was applied properly this time: a numbered checklist naming the screen, the
+> click and what a pass looks like went to Audrey in the FIRST message rather
+> than at close-out. The observations had not come back before the work was
+> committed. The three items (both assignee dropdowns, cloud files end to end,
+> task templates in the UI carrying their roles) are unchanged in
+> `OUTSTANDING.md` — nothing was quietly narrowed or closed.
 
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
