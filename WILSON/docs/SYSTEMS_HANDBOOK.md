@@ -2253,7 +2253,7 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **39 files, 845 cases** (measured 2026-08-05; this line read "15
+**Vitest** — **40 files, 852 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
@@ -2275,6 +2275,21 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > in `textFromMessage.test.js` now fails the build if one returns.
 > Position-indexing was only ever right by luck — `server_tool_use` and
 > `web_search_tool_result` blocks also precede text.
+
+> 🚨 **ANY CALL CARRYING A SERVER-SIDE TOOL MUST RESUME `pause_turn`.**
+> Anthropic pauses a server-side tool run (here `web_search_20250305`) at its
+> iteration limit; the turn ends on a `server_tool_use` block, so the last text
+> block is a preamble and every JSON parse downstream fails **on a request that
+> succeeded**. Resume by re-sending with the ASSISTANT turn appended and no
+> trailing user turn — S19 measured a prefill returning 400 — and bound the
+> loop. `Validator.jsx` (S19) and `Otter.jsx` (S30) both do; `pauseTurn.test.js`
+> keeps them that way. **The diagnostic asymmetry: a no-tool call that works
+> beside a web-search call that fails is this, not a prompt problem.**
+>
+> Every O.T.T.E.R. parse failure carries `describeResponse(data)` —
+> `[stop_reason; blocks; chars of text]` — because "Try again" was the same
+> sentence for a paused tool run, an empty response, a refusal and malformed
+> JSON, and two distinct defects hid behind it in one evening.
 
 > 🚨 **THE LAST TWO ARE CALLER GUARDS, AND THAT IS A DIFFERENT JOB FROM THE
 > REST OF THIS LIST.** `otterRoutes.test.js` asserted that the parser maps

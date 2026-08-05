@@ -1146,6 +1146,58 @@ been a correct fix to an eighth of the problem. All eight now use
 > scan, proven by reverting `AgentProvider.jsx` and watching it name the line.
 > **845 vitest / 39 files.**
 
+### 🚨 S30 POSTSCRIPT II (`ce11709`) — a paused web search, one hour later
+
+The outline then generated and **"generate subject content" failed**: *"Failed
+to parse subject JSON. Try again."* A different defect behind an almost
+identical message.
+
+Not the same cause and not either obvious one: `generateSubjectContent` already
+uses `extractTextAndCitations` (so `content[0]` is irrelevant there) and already
+guards `stop_reason === 'max_tokens'` with its own wording, so truncation would
+have said so.
+
+**The asymmetry names it, and it came from Audrey's observation rather than from
+reading code:** the course OUTLINE carries no tools and works; subject content
+passes `web_search_20250305` with `max_uses: 3` and fails. `pause_turn` is what
+Anthropic returns when a SERVER-SIDE tool run hits its iteration limit
+mid-answer — the turn ends on a `server_tool_use` block, so the last text block
+is a preamble rather than the JSON, and the parse fails **on a request that
+succeeded**.
+
+**`Validator.jsx` has handled this since S19 (`dab9046`)**, added precisely when
+web search made it necessary, with a written explanation of why `tool_use` is
+the wrong signal. `Otter.jsx`'s own `callAnthropicAPI` never received it.
+
+> 🚨 **THAT IS THE THIRD TIME IN THIS SESSION, AND IT IS THE SESSION'S REAL
+> LESSON.** Every defect S30 fixed was a rule this codebase had already written
+> down and had not carried to the call site: `res.ok` (documented thirty lines
+> away in `supabaseOtterAdapter.js`), `content[0].text` (the correct extractor
+> was in the same file, used at three of six sites), and now `pause_turn` (same
+> folder, added for this exact reason a session earlier). **Finding a defect
+> should be followed by two greps: has this already been solved here, and which
+> OTHER sites should have received the answer.** Fixing only the reported
+> instance was wrong all three times.
+
+> ⚠️ **THIS FIX IS INFERRED, NOT OBSERVED — stated rather than glossed.** The
+> thinking-block defect was reproduced from the real stream shape. This one is
+> traced through code and matches the symptom exactly, but running the live API
+> needs Audrey's password, which a session must not handle. **So the instrument
+> shipped with the fix**: `describeResponse(data)` appends
+> `[stop_reason; blocks; chars of text]` to all seven O.T.T.E.R. parse failures.
+> Two distinct defects hid behind two near-identical "Try again" prompts in one
+> evening and the second cost a full round trip to identify. If it recurs, the
+> message names the cause.
+>
+> `pauseTurn.test.js` (+7) pins that the resume is present, BOUNDED, and appends
+> the assistant turn with no trailing user turn (S19 measured a prefill 400ing),
+> that the Validator keeps its own copy, and that no parse failure ships without
+> a diagnostic — an assertion that earned its place immediately by catching two
+> bare messages in `agentGenerateCourse` that the same commit had missed.
+> Its header records the limit: this is a SOURCE scan, because
+> `callAnthropicAPI` is declared inside the component and is not exported.
+> **852 vitest / 40 files.**
+
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
 **MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,
