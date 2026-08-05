@@ -396,15 +396,46 @@ persisted, so the work is lost on navigation.
 > `otter_progress.quiz_attempts` is a column; `quiz.get` / `quiz.put` exist
 > (`supabaseOtterAdapter.js:404-420`); `otterRoutes.js:200-203` maps
 > `/api/software/:slug/quiz-history` GET/POST onto them; and
-> `otterRoutes.test.js:92-93` asserts that mapping and **passes**. MEASURED:
-> `quiz-history` has **zero** occurrences anywhere else in `src/` — no fetch,
-> no caller, nothing. The quiz UI never writes.
+> `otterRoutes.test.js:92-93` asserts that mapping and **passes**. The quiz UI
+> never writes: `quizScore` is React state (`Otter.jsx:125`), the quiz ends at
+> `setQuizComplete(true)` (`Otter.jsx:2112`), and the results screen's own "Try
+> Again" button (`:4726`) zeroes it.
+>
+> 🚨 **CORRECTED 2026-08-05 — the "zero callers" claim was wrong, and the true
+> version is worse.** This entry said `quiz-history` has *"zero occurrences
+> anywhere else in `src/`"*. It does not. **`quiz.get` has exactly one caller:
+> `supabaseOtterAdapter.js:660`, inside `export.all`** — the admin data
+> takeout, which reads `quizHistory` per course and ships it in the export
+> (`:653`, `:666`).
+>
+> **So every data export WILSON has ever produced carries an empty quiz history
+> while presenting itself as complete.** That is a separate, unfixed defect
+> from "the quiz does not save", and it is the one with a compliance flavour —
+> a takeout is a claim about completeness. It disappears the moment the writer
+> is wired, but if S30 wires only part of this, say which.
+>
+> The accurate statement is: **`quiz.put` has no caller; `quiz.get` has one,
+> and it has only ever read nothing.**
 >
 > **That is the third instance of the same shape** — the folder tree (S27) and
 > task templates (S28) were both complete features with no caller — and the
 > first where a **passing unit test** covers the dead path, which is exactly
 > why green tests are not evidence that something runs. The fix here is
 > WIRING, not building, and the two halves must not be sized as one job.
+>
+> ⚠️ **Three measured traps for whoever wires it** (2026-08-05):
+> `quiz.put` is **whole-array replacement** (`:417`), so posting only the new
+> attempt erases the history — read, append, write. There is a **1 MiB CHECK**
+> on the column (`otter_progress_quiz_sz_chk`, `0022:274`), so append-forever
+> eventually fails and the retention rule must be decided first. And `quiz.put`
+> throws `401` when signed out (`:413`), so the caller needs a visible failure
+> path.
+>
+> ✅ **One thing that looks like a bug and is NOT — do not "fix" it.**
+> `quiz.get` and `progress.get` filter on `course_id` alone with
+> `.maybeSingle()` and no `user_id`, though the table is keyed
+> `(course_id, user_id)`. `otter_progress_select` (`0022:607-612`) carries
+> `AND user_id = auth.uid()`, so RLS returns at most one row.
 
 → **Audrey scheduled this as its own session (2026-08-04): S30.**
 

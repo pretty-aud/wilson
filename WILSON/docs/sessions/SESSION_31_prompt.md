@@ -127,10 +127,29 @@ mode is silent and it destroys something she likes.
 
 ---
 
-## Also in this session — small, and check S30 did not take it
+## Also in this session — small, and **this session definitively owns it**
 
-**There is no way to log out.** MEASURED 2026-08-04: `SettingsPage.jsx` has
-**zero** occurrences of `signOut`, `logout` or `log out`.
+> ⚠️ **RESOLVED 2026-08-05. This used to say "check S30 did not take it", and
+> the S30 brief said the mirror image — each deferred to the other, which is
+> how a thing gets built twice or never.** The logout is **S31's**, because
+> this is the settings session and Audrey's own name for it is "per-user
+> settings + pet + logout". It has been removed from `SESSION_30_prompt.md`.
+
+**There is no way to log out.** MEASURED 2026-08-04, re-verified 2026-08-05:
+`SettingsPage.jsx` has **zero** occurrences of `signOut`, `logout` or
+`log out`.
+
+✅ **But this is WIRING, not building — measured 2026-08-05, and it changes the
+size of the job.** `App.jsx:373-381` already defines `window.wilsonSignOut`: it
+calls `supabase.auth.signOut()`, clears the session, sets `authed` false and
+re-shows the overlay. Its own comment at `:371-372` says *"Exposed on window
+for the next-session Settings panel to wire up; doesn't affect the UI yet."*
+So a previous session built the mechanism and deliberately left the control.
+
+🚨 **That makes it the FOURTH instance of the built-with-no-caller shape** —
+the folder tree (S27), task templates (S28) and O.T.T.E.R.'s quiz history
+(S30) are the others. Check what exists before building; the answer here is
+"a button".
 
 ⚠️ `supabaseClient.js:44` uses **different session storage keys per surface**
 (`sb-wilson-operator` vs `sb-wilson-app`), so a sign-out control must be
