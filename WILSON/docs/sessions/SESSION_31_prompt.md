@@ -107,10 +107,18 @@ A **per-user** store in the database, and it is a real feature, not a patch:
   with no admin bypass, which is exactly the shape you want — **and it is
   ALSO `workspace_id = current_workspace_id()`**, deliberately, because a quiz
   attempt is about courses and courses are workspace-scoped. 0045's header
-  says so explicitly *so that you do not copy it*. The count is now: of 45
-  policied tables, `auth_attempt_log` remains the only purely per-user one.
-  `user_model_overrides` was trap one, `otter_progress` trap two, this is
-  trap three.
+  says so explicitly *so that you do not copy it*. `user_model_overrides` was
+  trap one, `otter_progress` trap two, this is trap three.
+
+  ✅ **AND THE CENSUS THIS BRIEF USED TO QUOTE WAS WRONG — re-measured
+  2026-08-05 against wilson-dev.** It said "44 policied tables, 39 workspace-
+  scoped, exactly one (`auth_attempt_log`) purely per-user". The real numbers
+  are **45 policied, 40 workspace-scoped, and TWO purely per-user:
+  `auth_attempt_log` and `platform_operators`.** Three more
+  (`platform_approved_models`, `platform_audit`, `platform_model_defaults`)
+  scope by neither. So a per-user precedent does exist — `platform_operators`
+  — and it is worth reading before you invent one. **Re-run the census; do not
+  trust this paragraph either.**
 - Adapter methods, and a `COLUMN_ALLOWLIST` entry if it is written through
   R.A.B.B.I.T.'s adapter.
 - A decision on what "settings" covers. `localData.js` names three stores; the
