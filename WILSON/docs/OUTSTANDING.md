@@ -242,65 +242,48 @@ if such a file ever turns up, and cost nothing. But this was briefly written up
 as a caveat for Audrey, which it is not: **the population is empty.** Recorded
 here so nobody re-adds it as a known limitation without querying first.
 
-### Task templates do not exist in cloud mode
-**MEASURED (S23; citations re-verified S27).** `listProjectTaskTemplates` /
-`listTaskTemplates` have zero occurrences in `supabaseAdapter.js` — they are
-`localServerAdapter`-only — so `useTaskTemplates` returns `[]` and the New
-Asset dialog's Task Template dropdown is permanently empty.
-`task_template_id` is dropped by the S23 adapter allowlist rather than given a
-column, because a column for a feature with no cloud implementation is schema
-debt.
+### ~~Task templates do not exist in cloud mode~~ — FIXED (S28, `06bf564`)
+Deleted per the rule for this file. Migration 0044 creates `public.task_templates`
+(RLS enabled and forced, four policies, no `FOR ALL` arm, zero privileges held
+by `anon` or `PUBLIC`) plus `assets.task_template_id`, applied and verified **by
+query** on dev, staging and prod. `supabaseAdapter` gained the five methods it
+never had; pgTAP `54_task_templates` is 24 assertions, proven by six deliberate
+breakers.
 
-**Three corrections made in S27, all from re-reading rather than re-reasoning:**
+**Audrey settled the permission question (2026-08-04)** — the thing this entry
+said had to be settled before any SQL was written: *workspace admins and
+managers globally, project managers additionally for templates pinned to their
+own project.* One definition, `can_write_task_template(uuid)`, mirrored on the
+client by `canWriteTaskTemplate()`.
 
-- The local routes are at **`electron/main.cjs:2609-2656`**, not `:2088-2131`.
-  That number was right when S23 wrote it; **S27 inserted ~70 lines into the
-  same file** and shifted everything below. Cite symbols
-  (`getTaskTemplatesDir`), not line numbers.
-- The dead branch is **TWO sites, not one**: create-with-template
-  (`ProjectAssetsView.jsx` ~`:1390-1435`) and apply-to-existing-asset
-  (~`:1710-1742`). Both write `role_slug`.
-- 🚨 **The `role_slug` bug is quieter than recorded.** `role_slug` is not a
-  column, but `TASK_COLUMNS` **is** an allowlist entry — so `toColumns` drops
-  the key and WARNS rather than PGRST204-ing the request. The tasks are
-  created successfully **with no role on them**, and every bid built from them
-  prices at nothing. An un-allowlisted TABLE kills a whole save; a dropped KEY
-  loses one field silently. Do not conflate them.
+Three things worth keeping:
 
-**Also measured (S27), and it changes the schema:** the local
-`GET /projects/:id/task-templates` filters on `project_id` alone and is **not
-workspace-filtered**, so it would return another workspace's global templates.
-Harmless on a single-tenant local server, a **tenancy leak in cloud**. Port the
-intent, not the predicate. A template is either global to the workspace or
-pinned to one project (`project_id` nullable).
+- 🚨 **The feature had never produced a row on ANY backend.** MEASURED before
+  anything was written: `%APPDATA%\wilson\rabbit-data\task-templates\` exists
+  and is **empty**, so there were zero templates on Local Server too, where it
+  has worked the whole time. The S27 lesson applied *before* the fact rather
+  than after it — creating the table would have made every test pass and
+  changed nothing on screen. `scripts/probes/task-templates-e2e.sql` is the
+  answer: it walks create → project read → asset stamped → template applied →
+  **roles present** → template deleted without taking the asset, as an
+  authenticated user against real rows, and rolls back. 6/6 on dev and staging.
+- 🚨 **The `role_slug` bug was real and is fixed at both sites**
+  (`ProjectAssetsView.jsx:1427` and `:1730`, re-verified by grep this session).
+  The probe's breaker — omit the key, exactly as `toColumns` did — reports
+  `roles were [<NULL>, <NULL>]`, which is what shipped. `taskPayloadKeys.test.js`
+  now guards the CALL SITE, which the allowlist tests cannot: they pin
+  `toColumns`, so reverting the view left them green.
+- **`assets.task_template_id` arrives here, and that is the `files_dir` rule
+  being FOLLOWED.** "A column for a feature with no cloud implementation is
+  schema debt" was always "it arrives WITH the feature". Both writers became
+  reachable in the same commit. `files_dir` stays out, because its writer still
+  cannot run on this backend.
 
-**NOT fixed in S25 — deliberately deferred, and this is the one scoped item
-that session did not deliver.** It was in the S25 brief alongside the four
-entities, and it is a genuinely separate feature rather than a missing
-method: on Local Server, templates are individual JSON files in their own
-directory (`electron/main.cjs:2088-2131`), workspace-scoped with a
-project-scoped read. Cloud parity therefore needs a fifth table, its own RLS,
-its own pgTAP suite and five adapter methods — not the two-line addition the
-brief's phrasing implies. Scoping it into the tail of a session that had
-already added four tables would have meant a money-adjacent schema written in
-a hurry. → **S26 or later; size it as its own block, not a footnote.**
-
-**Deferred a THIRD time in S27 — by Audrey's decision, not by drift.** Asked
-directly at the start of the session whether templates should land alongside
-the file work or become their own session, she chose to finish the file layer
-properly. Recorded because "deferred again" and "quietly not done" look
-identical in a git log a month later, and this is the first of the three
-deferrals that was a deliberate choice rather than a session running out of
-room. → **Its own session. It is the oldest item on this list.**
-
-⚠️ **One thing must be settled with Audrey before any SQL is written: who may
-create, edit and delete a template.** It is **not** derivable from the code —
-the local server has no roles at all, so its open routes say nothing about
-intent. And there is no house default to fall back on: she has already given
-*different* answers for money (project manager **or** workspace admin) and for
-the control panel (managers and reviewers, **not** members). A draft of the
-S28 brief asserted an answer here and it has been removed — that is the exact
-plan-vs-code error this file keeps recording.
+**The tenancy leak was not ported.** The local `GET /projects/:id/task-templates`
+filters on `project_id` alone and would return another workspace's global
+templates. The cloud adapter runs the same filter and RLS supplies the
+workspace scope the route omits — pinned by suite 54 probes 8-9, which carry a
+**presence control** so "sees nothing" cannot pass on an empty table.
 
 ### ~~R.A.B.B.I.T. item creation fails in cloud mode~~ — FIXED (S23, `2727328`)
 Deleted per the rule for this file. Migrations 0034 + 0035 and the adapter
@@ -541,6 +524,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S28 (2026-08-04) | **nothing.** Nothing regressed and nothing new was found broken. One stated limit of what shipped is recorded in `MASTER_PLAN_S19_ONWARD.md` rather than here, per this file's own rule: `canWriteTaskTemplate` is stricter than RLS for a project manager viewing a template pinned to a project they do not currently have open — deliberate, documented in the function, and fails CLOSED. The three verification items were **not** closed: Audrey was given a checklist and the observations had not come back by the time the work was committed, so the dropdown entry below stays exactly as it was rather than being quietly narrowed. | **task templates absent in cloud** (0044 + `06bf564`, applied and verified **by query** on dev, staging and prod, and proven end to end by a rolled-back probe on dev AND staging). The `role_slug` defect recorded inside that entry went with it — it was reachable only through the branch 0044 brought to life, and it is fixed at both sites with a source-level guard that fails if either is reverted. |
 | S27 (2026-08-04) | **nothing.** Nothing regressed and nothing new was found broken that is not already listed. The task-templates entry was annotated — its third deferral was Audrey's explicit decision this time, which is worth distinguishing from a session running out of room. ⚠️ The new file surfaces (FileManager in cloud, the Resources drop zone, the folder/manifest panel) are **built and not yet watched working** — that belongs in `MASTER_PLAN_S19_ONWARD.md` per this file's own rule, not here, and it is recorded there. | **project-scoped rates absent from the project folder** (0042 + `5384d4e`, applied and verified **by query** on dev, staging and prod). Two defects that were never on this list were also fixed and are recorded in the commit rather than here, because a thing found and fixed in one session is a commit message: the manifest could only ever be written ONCE per project (no UPDATE policy has ever existed on the rabbit-files bucket), and the folder tree had produced ZERO rows on any environment because its only caller was `createProject`. |
 | S26 (2026-08-04) | **one entry: project-scoped rates are absent from the manifest** — a stated limit of what shipped, with the two policies that force it. Nothing regressed. The `canWrite` entry was **corrected**, not narrowed: its header claimed both leading theories were refuted while its own body reopened one of them, the same self-contradiction `267c4c3` had already fixed in the S26 brief and never carried across here. Exactly one theory is refuted, on code; the other rests on testimony and is marked INFERRED. | nothing was fixed that was on this list. S26 built new capability rather than repairing existing breakage. |
 | S25 (2026-08-04) | **nothing new is broken.** Two entries were NARROWED rather than added: the `canWrite` gate (both leading theories refuted — Audrey confirms the account was `audrey`, who is admin AND project manager, and `canOnProject` already fails OPEN while permissions load, so a hung session leaves buttons PRESENT), and **task templates**, which S25 was scoped to fix and deliberately did not — it needs a fifth table and a suite, not a method. The assignee-dropdown entry is re-marked **still unobserved**: S25 was asked to confirm it at runtime and could not. | **scenes/levels/experiences unavailable in cloud**, **four budget tabs that can never render**, and **Client View printing "Project" and "--"** — all three by 0040 + `183b4c2`, applied and verified **by query** on dev, staging and prod. The Client View fix is recorded above because the documented fix (`add projects.code`) would have fixed nothing. |

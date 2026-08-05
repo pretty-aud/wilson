@@ -389,15 +389,23 @@ below are superseded; only one of them actually moves.
 | **S25** | Scenes/shots/levels/experiences at **adapter parity** — ✅ **DONE (`183b4c2`)** | prerequisite for per-scene folders | `SESSION_25_prompt.md` |
 | **S26** | Backend-agnostic **folder tree** + the project manifest — ✅ **DONE (`071682b`)** | needed scenes to exist before it could give each one a folder | `SESSION_26_prompt.md` |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources — ✅ **DONE (`5384d4e`)** | manages the folders S26 creates | `SESSION_27_prompt.md` |
-| **S28** | **Task templates in cloud**, and the runtime verification sweep | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
-| **S29** | Design pass | unchanged, still last | *to write* |
+| **S28** | **Task templates in cloud** — ✅ **DONE (`06bf564`)** | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
+| **S29** | Design pass, **and the runtime verification sweep it inherits** | unchanged, still last | `SESSION_29_prompt.md` |
 
 > ⚠️ **THE SEQUENCE GAINED A SESSION (2026-08-04).** The design pass was S28
-> and is now S29. Task templates have been deferred three times — twice
+> and is now S29. Task templates had been deferred three times — twice
 > because a session ran out of room, and once (S27) because Audrey was asked
-> directly and chose to finish the file layer properly instead. They need a
-> table, RLS, a pgTAP suite and five adapter methods; that is a session, not a
-> tail. Audrey's to reorder if she would rather have the design pass first.
+> directly and chose to finish the file layer properly instead.
+>
+> ⚠️ **S28 SHIPPED THE TEMPLATES AND DID NOT CLOSE THE VERIFICATION SWEEP.**
+> Its brief scoped both. The templates are done and proven end to end at the
+> database; the three runtime items still need a signed-in session against the
+> beta, which nothing in this repo automates. Audrey was given an explicit
+> four-item checklist in the chat this time rather than a general request — the
+> observations had not come back before the work was committed, so they carry
+> to S29 **unnarrowed**. This is the fourth session in a row where the blocker
+> is the same one thing, and it is not a code problem: it is five minutes of
+> someone looking at a browser.
 
 **The `projects` drift is SPLIT, each half closed by the session that consumes
 it** (Audrey: *"splitting is fine"*) — rather than one orphan migration session,
@@ -729,6 +737,115 @@ green, Playwright included.
 > money gate, nobody browses a private bucket by hand, and the folder tree
 > already provides the readable view. Local Server's real directories are
 > where human-readable paths matter, and it has them.
+
+### ✅ S28 OUTCOME (2026-08-04, `06bf564`) — and the first plan document in six sessions that named nothing wrong
+
+**Migration 0044**, applied and verified **by query** on dev, staging and prod:
+`public.task_templates` (RLS enabled *and* forced, four policies, no `FOR ALL`
+arm, a composite FK, and **zero privileges held by `anon` or `PUBLIC`** —
+scanned rather than assumed) plus `assets.task_template_id` with `ON DELETE SET
+NULL` (`confdeltype` verified as `n`, not `c`). **54 pgTAP suites / 832
+assertions** (53 / 808), `planned == collected` on every one. **698 vitest**
+(680). Build clean.
+
+> ✅ **AUDREY ANSWERED THE ONE QUESTION THAT GATED THE SQL** (2026-08-04):
+> *workspace admins and managers globally; project managers additionally for
+> templates pinned to their own project.* Asked because it genuinely was not
+> derivable — the local server has no roles, so its wide-open routes say
+> nothing about intent, and the two nearest precedents disagree with each other
+> (money admits a project manager but **not** a workspace manager; the control
+> panel admits reviewers but **not** members). A draft of the S28 brief had
+> asserted an answer and it was struck out before the session started; that
+> removal is the reason this is right.
+
+> 🚨 **THE FEATURE HAD NEVER PRODUCED A ROW ON ANY BACKEND**, and this was
+> MEASURED before a line was written rather than discovered afterwards.
+> `%APPDATA%\wilson\rabbit-data\task-templates\` exists and is **empty** — so
+> the count was zero on Local Server too, where the feature has worked the
+> whole time, not merely in cloud where it was structurally impossible.
+>
+> That is S27's lesson arriving *before* the fact for the first time. Creating
+> the table would have made 54 suites and 698 unit tests pass and changed
+> nothing whatsoever on screen. So the session's exit criterion was not "the
+> table exists" but "a template can be created and APPLIED":
+> `scripts/probes/task-templates-e2e.sql` walks create → project read → asset
+> stamped → template applied → **roles present** → template deleted without
+> taking the asset, as an authenticated user against real rows, and rolls back.
+> **6/6 on dev and on staging.**
+
+> 🚨 **A DEAD BRANCH WAS HIDING A LIVE BUG, IN TWO PLACES.**
+> `ProjectAssetsView` applied a template by sending `role_slug`. That is not a
+> column — `tasks` has `assigned_role_slug` — and because `tasks` **has** an
+> allowlist entry, `toColumns` dropped the key with a console warning instead
+> of rejecting the request. Tasks were created successfully **with no role**,
+> and every bid built from them priced at nothing.
+>
+> The probe's breaker reproduces it exactly: omit the key, as `toColumns` did,
+> and step 5 reports `roles were [<NULL>, <NULL>]`. Two tasks, created fine,
+> both worthless.
+>
+> ⚠️ **The allowlist tests could not have caught this and still cannot.** They
+> pin `toColumns` — the mechanism — and say nothing about which key the CALL
+> SITE sends, so reverting the view leaves every one of them green. That is
+> what `taskPayloadKeys.test.js` is for, and it was proven by reverting one
+> site: it named `ProjectAssetsView.jsx:1731`. It is deliberately narrow (the
+> argument object of an `addTask()` call, nothing else) because a blanket
+> "no `role_slug` in `src/`" scan would be wrong twice over —
+> `TaskTemplateManager` uses the key legitimately inside the jsonb, and
+> `budget_lines` has a real `role_slug` **column**.
+
+> ✅ **`assets.task_template_id` ARRIVING HERE IS THE `files_dir` RULE BEING
+> FOLLOWED, NOT AN EXCEPTION TO IT.** S23 kept it out because "a column for a
+> feature with no cloud implementation is schema debt", and 0041 applied the
+> same reasoning to `files_dir`. That rule was never "never add it" — it was
+> **"it arrives WITH its feature"**, and both writers became reachable in this
+> same commit. `files_dir` stays out, because its writer still cannot run on
+> this backend. Three shapes now, and they must not be collapsed: `code` is a
+> wrong NAME whose absence is asserted; `files_dir` is a right name still
+> waiting for its feature; `task_template_id` is a right name whose feature has
+> now landed.
+
+> 🚨 **TWO OF THE SIX BREAKERS DID NOT FIRE, AND BOTH CORRECTED A COMMENT
+> RATHER THAN THE CODE.** This is the part worth carrying:
+>
+> | breaker | result |
+> |---|---|
+> | `WITH CHECK` weakened to the workspace clause | probe 15 fails, alone ✅ |
+> | **`WITH CHECK` omitted entirely** | **24/24 still pass** — Postgres reuses `USING` as the new-row check |
+> | `can_write_project` instead of the new gate | probes 11 **and** 17 fail |
+> | `CASCADE` instead of `SET NULL` | probe 22 fails |
+> | composite FK dropped | probe 20 fails |
+> | **`COALESCE` removed from the predicate** | **24/24 still pass** — defensive, not load-bearing today |
+>
+> The migration's first draft said "with `USING` alone a project manager could
+> re-point their pinned template at NULL". **That was wrong**, and only running
+> it showed so. The real hazard is a `WITH CHECK` that is merely *weaker* than
+> `USING` — which is the shape `folders_update` and every other UPDATE policy
+> in this schema already uses, so copying the house style is what would open
+> it. The invariant is "WITH CHECK must not be weaker than USING on this
+> table", not "remember to write a WITH CHECK".
+>
+> And the `COALESCE` result was predicted *in the comment being tested* — the
+> header claims it is correct-by-accident through three-valued logic and one
+> edit from inverting. The breaker confirmed the claim instead of refuting it,
+> which is the point of writing a breaker you expect to pass.
+
+> ⚠️ **WHAT S28 DID NOT DO, stated rather than glossed: the runtime
+> verification sweep.** Its brief scoped both halves and this is the half that
+> needs a signed-in session against staging, which nothing here automates. A
+> concrete four-item checklist went to Audrey in the chat rather than a general
+> ask; the observations had not returned before the work was committed. The
+> three items carry to S29 **unnarrowed** — no entry was quietly closed.
+
+> ⚠️ **ONE STATED LIMIT OF WHAT SHIPPED**, recorded here rather than in
+> `OUTSTANDING.md` because it is a scope choice and not breakage.
+> `canWriteTaskTemplate` needs the caller's seat on *that template's* project,
+> and the only per-project role the app holds is `myProjectRole` for the
+> project currently OPEN. So a project manager looking at a template pinned to
+> a **different** project sees it read-only, while the database would let them
+> edit it. It fails CLOSED, it is documented in the function, and the
+> alternative is a roster query per project from a Settings screen with no
+> project context.
 
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 

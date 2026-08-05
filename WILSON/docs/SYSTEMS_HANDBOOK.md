@@ -2127,12 +2127,12 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 53 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+**pgTAP** — 54 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
 Session 25 added 48–51, one per entity table; Session 26 added 52_folders;
-Session 27 added 53_money_segments**; the CI coverage guard globs
-`*_<table>.sql`, so a table cannot share a suite file with another),
-**808 assertions** — run in CI against a fresh local stack.
+Session 27 added 53_money_segments; Session 28 added 54_task_templates**; the
+CI coverage guard globs `*_<table>.sql`, so a table cannot share a suite file
+with another), **832 assertions** — run in CI against a fresh local stack.
 
 > 🚨 **53_money_segments is the first suite covering no table of its own** —
 > it pins `storage.objects` policies and the `rabbit_money_segment` predicate.
@@ -2154,10 +2154,20 @@ lockdown).
 > hours between S24's two commits, and had been stale
 > since S22 — this section is a **gate, not an oracle** (S21 corrected its
 > suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
-> assertion count again, S26 and S27 the suite and assertion counts once
+> assertion count again, S26, S27 and S28 the suite and assertion counts once
 > more). Both figures here are measured, 2026-08-04, by
-> `node scripts/tap-all.mjs` against wilson-dev: **53 suites, 808 planned,
-> 808 passed, `collected == planned` on every one.** **Check the code.**
+> `node scripts/tap-all.mjs` against wilson-dev: **54 suites, 832 planned,
+> 832 passed, `collected == planned` on every one.** **Check the code.**
+
+> 🚨 **A SUITE THAT HAS ONLY EVER PASSED IS A SUITE YOU HAVE NOT TESTED.**
+> S27 ran four deliberate breakers against 0042/0043; S28 ran six against 0044
+> and **two of them did not fire — both corrected a COMMENT rather than the
+> code.** Removing `WITH CHECK` from an UPDATE policy changes nothing, because
+> Postgres reuses `USING` as the new-row check; the real hazard is a `WITH
+> CHECK` that is merely *weaker* than `USING`, which is the shape most UPDATE
+> policies in this schema already have. Write the breakers you expect to pass
+> as well as the ones you expect to fail: the first kind is how a confident
+> sentence in a migration header gets checked.
 
 **Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
 definition of the rules that decide what a production is bid at: the
@@ -2168,14 +2178,26 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **34 files, 680 cases** (measured 2026-08-04; this line read "15
+**Vitest** — **35 files, 698 cases** (measured 2026-08-04; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
 attachments, edit-history formatting and revert, the relink matcher, the
 realtime merge layer, money arithmetic, the adapter column allowlist, entity
-naming, folder paths and folder parity, the project manifest, and — Session 27
-— the project rates mirror and the upload scope.
+naming, folder paths and folder parity, the project manifest, Session 27's
+project rates mirror and upload scope, and — Session 28 — `taskPayloadKeys`.
+
+> 🚨 **AN ALLOWLIST TEST PINS THE MECHANISM, NEVER THE CALL SITE**, and the
+> difference is a whole class of bug. `columnAllowlist.test.js` proves
+> `toColumns` drops `role_slug` and keeps `assigned_role_slug`. It says nothing
+> about which key a caller sends — so the template branch could send the wrong
+> one, have it dropped with a console warning, create tasks with **no role**,
+> and leave every allowlist test green. `taskPayloadKeys.test.js` is the
+> source-level guard for the other half (the shape `noHardcodedModels.test.js`
+> established), and it is narrow on purpose: it reads the argument object of
+> `addTask()` calls and nothing else, because `role_slug` is a legitimate key
+> inside the template jsonb AND a real column on `budget_lines`. A blanket scan
+> would be wrong in both directions.
 
 > 🚨 **What this suite CANNOT tell you.** Nothing in it MOUNTS a React
 > component; there is no `@testing-library` in this repo. S26 shipped an app
