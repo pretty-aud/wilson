@@ -1179,7 +1179,23 @@ the wrong signal. `Otter.jsx`'s own `callAnthropicAPI` never received it.
 > OTHER sites should have received the answer.** Fixing only the reported
 > instance was wrong all three times.
 
-> ⚠️ **THIS FIX IS INFERRED, NOT OBSERVED — stated rather than glossed.** The
+> ✅ **CONFIRMED AT RUNTIME AND AT THE DATABASE (2026-08-05, minutes later).**
+> Audrey: *"it worked."* Queried staging rather than trusting the screen, which
+> is this session's whole lesson: **`Blender 5.1 [personal]`, 9 subjects, 1
+> carrying generated content across 2 sections.** Before tonight `otter_courses`
+> held **0 rows on dev, staging and prod** — so that is the first O.T.T.E.R.
+> course ever to exist in the cloud on any environment, and the first proof
+> that the create → outline → generate → persist chain works through the app
+> rather than through a probe.
+>
+> The caveat below stands as written for the record, but the inference is now
+> corroborated by observation: the symptom is gone and the write landed.
+> ⚠️ What "it worked" does NOT do is isolate the mechanism the way a captured
+> `describeResponse` bracket would have — it is strong corroboration, not a
+> measurement of the cause.
+
+> ⚠️ **THIS FIX WAS INFERRED, NOT OBSERVED, WHEN IT SHIPPED — stated rather
+> than glossed.** The
 > thinking-block defect was reproduced from the real stream shape. This one is
 > traced through code and matches the symptom exactly, but running the live API
 > needs Audrey's password, which a session must not handle. **So the instrument
