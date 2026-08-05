@@ -132,6 +132,66 @@ export function canWriteTaskTemplate(ctx) {
 }
 
 /**
+ * Session 29 — the sentence shown to a user who is DENIED a project action.
+ *
+ * Returns null when the action is allowed (there is nothing to explain), and
+ * a short sentence naming the ACTUAL RULE when it is not.
+ *
+ * 🚨 It lives here, beside canOnProject, on purpose. Audrey's decision
+ * (2026-08-04) is that a denied control stays visible, greyed, and says why —
+ * "keep button gray and explain why". That makes the explanation part of the
+ * permission contract rather than UI copy: a reason that drifts from the rule
+ * is worse than no reason, because it teaches the user something false. The
+ * suite pairs the two 1:1 — a reason must be non-null exactly when
+ * canOnProject is false, for every combination in the EXPECTED table.
+ *
+ * The text names the seat that WOULD work, not "permission denied". The whole
+ * point of showing it is that the user learns what to ask for.
+ *
+ * Note it inherits canOnProject's fail-OPEN behaviour while permissions load
+ * (`ready === false` → allowed → null reason). That is load-bearing: a control
+ * must never be greyed merely because the session has not settled, or "loading"
+ * becomes indistinguishable from "denied" — the S23 bug in a new costume.
+ *
+ * @param {{ appRole, projectRole, isStaffed, ready }} ctx — as canOnProject
+ * @param {string} action
+ * @returns {string|null}
+ */
+export function projectActionDeniedReason(ctx, action) {
+  if (canOnProject(ctx, action)) return null
+
+  const { projectRole } = ctx || {}
+  const seated = projectRole != null
+
+  switch (action) {
+    // Denied only when staffed AND (reviewer | no seat).
+    case 'project.entity.write':
+      return seated
+        ? 'Reviewers can read and comment, but not change anything. Ask a project manager for a member or manager seat.'
+        : 'You have no seat on this project. Only its managers and members can add or change items — ask a project manager to add you.'
+
+    // Denied only when staffed AND no seat (any seat may comment).
+    case 'project.comment.write':
+      return 'You have no seat on this project, so you cannot comment. Ask a project manager to add you.'
+
+    // Denied for every seat except manager, and there is no unstaffed opening.
+    case 'project.roster.manage':
+      return 'Only a project manager can change who works on this project.'
+
+    // Denied only when staffed AND (member | no seat) — the one action where
+    // a reviewer outranks a member.
+    case 'project.settings.open':
+      return seated
+        ? 'The project control panel is open to project managers and reviewers. Your seat here is member.'
+        : 'You have no seat on this project. Only its managers and reviewers can open the control panel.'
+
+    default:
+      // Unknown action — canOnProject already warned in dev and returned false.
+      return 'You do not have permission to do that on this project.'
+  }
+}
+
+/**
  * Returns true if the caller may perform the given project-scoped action.
  * Returns false for unknown actions. Missing/null ctx fields are safe and
  * behave like an unseated app user on an unstaffed project.

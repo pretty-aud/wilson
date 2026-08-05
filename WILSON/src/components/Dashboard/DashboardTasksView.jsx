@@ -113,7 +113,7 @@ function RolePill({ role }) {
 
 export default function DashboardTasksView() {
   const mt = useMyTasks()
-  const { role: appRole } = usePermissions()
+  const { role: appRole, ready: permsReady } = usePermissions()
   const [viewMode, setViewMode] = useState('table') // table | kanban | gallery
   const [search, setSearch] = useState('')
   const [filters, setFilters] = useState([])
@@ -144,14 +144,22 @@ export default function DashboardTasksView() {
   // can_write_project via the client matrix — reviewers on staffed projects
   // (the primary dashboard persona) must not get live write affordances the
   // RLS will reject. DB stays the real gate.
+  //
+  // 🚨 Session 29 added `ready`, which was missing. Without it the flag reads
+  // "denied" for the whole window before the first getSession() resolves —
+  // appRole is null, so on a staffed project the seat check fails and every
+  // write affordance on the dashboard is absent at first paint. Found by
+  // writeGate.test.js, not by anyone using the screen: the people testing it
+  // all had permission, so the only visible symptom was a brief flicker.
   const canWriteTask = useMemo(() => (task) => {
     if (!task) return false
     return canOnProject({
       appRole,
       projectRole: mt.myRoleByProject[task.project_id] ?? null,
       isStaffed: !!mt.staffedByProject[task.project_id],
+      ready: permsReady,
     }, 'project.entity.write')
-  }, [appRole, mt.myRoleByProject, mt.staffedByProject])
+  }, [appRole, permsReady, mt.myRoleByProject, mt.staffedByProject])
 
   // Synthetic per-project ctx for TaskDetailPopup. The popup reads data
   // and calls updateTask/deleteTask — nothing else. No *_enabled flags and

@@ -37,7 +37,8 @@ import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canOnProject } from '../../../permissions/projectRoleMatrix'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
 import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
@@ -192,15 +193,17 @@ export default function ProjectAssetsView() {
   // hides write affordances for staffed-project reviewers.
   // See ProjectTasksView — the New asset button is behind this same flag, so
   // a session read still in flight would take it away too.
-  const canWrite = canOnProject(
-    {
-      appRole: role,
-      projectRole: ctx?.myProjectRole,
-      isStaffed: ctx?.projectIsStaffed,
-      ready: permsReady,
-    },
-    'project.entity.write'
-  )
+  //
+  // Session 29 — visible-and-greyed instead of hidden, matching the Timeline
+  // and the Tasks tab. See GatedAction.
+  const writeGateCtx = {
+    appRole: role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: permsReady,
+  }
+  const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -378,6 +381,7 @@ export default function ProjectAssetsView() {
   }
 
   return (
+    <WriteReasonProvider reason={writeReason}>
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
@@ -488,13 +492,13 @@ export default function ProjectAssetsView() {
             {processed.length}/{assets.length}
           </span>
 
-          {canWrite && (
+          <GatedAction allowed={canWrite}>
             <button type="button" onClick={handleAddAsset}
               className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
               style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
               <Plus className="w-3.5 h-3.5" /> New asset
             </button>
-          )}
+          </GatedAction>
         </div>
       </div>
 
@@ -645,6 +649,7 @@ export default function ProjectAssetsView() {
       )}
 
     </div>
+    </WriteReasonProvider>
   )
 }
 
@@ -843,7 +848,10 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
-            {canWrite && (
+            {/* See ProjectTasksView's equivalent: one wrapper with the parent
+                row's own gap, so the group dims and explains itself without
+                six separate tooltips. */}
+            <GatedAction allowed={canWrite} style={{ gap: 12, alignItems: 'center' }}>
               <>
                 <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
                 <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
@@ -856,7 +864,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
                 </button>
               </>
-            )}
+            </GatedAction>
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -918,6 +926,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   thumbSize={thumbSize}
                   thumbRevision={thumbRevision}
                   onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
+                  readOnly={!canWrite}
                   onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
                   onWarningClick={() => onWarningClick?.(a.id)}
                   onDetailClick={() => onDetailClick?.(a.id)}
@@ -943,6 +952,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
+            readOnly={!canWrite}
             onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
             onWarningClick={() => onWarningClick?.(a.id)}
             onDetailClick={() => onDetailClick?.(a.id)}
@@ -974,7 +984,11 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
 
 
 // ── Single asset row (flex-based, matching task rows) ──
-function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect }) {
+// Session 29 — `readOnly` closes the same hole found in TaskRow: every inline
+// cell here commits through `onUpdate` → ctx.updateAsset, and none of it was
+// gated. The New asset button being gated while the ROW was not is why this
+// file read as "already gated".
+function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect, readOnly = false }) {
   const [hovered, setHovered] = useState(false)
   const hasThumbnail = !!asset.thumbnail_image
   const effectiveH = hasThumbnail ? rowH : BASE_ROW_H
@@ -1010,7 +1024,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center gap-1 w-full min-w-0">
             <div className="flex-1 min-w-0">
-              <CellInlineText value={asset.name || ''} placeholder="Untitled" onCommit={v => onUpdate({ name: v })} />
+              <CellInlineText value={asset.name || ''} placeholder="Untitled" onCommit={v => onUpdate({ name: v })} readOnly={readOnly} />
             </div>
             <button type="button" onClick={onDetailClick}
               className="p-1 rounded hover:bg-stone-700 transition-colors flex-shrink-0"
@@ -1024,7 +1038,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         const sc = statusColor(asset.type === 'other' ? '' : asset.status)
         return (
           <select value={asset.type || 'other'} onChange={e => onUpdate({ type: e.target.value })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            disabled={readOnly}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: '#d6d3d1' }}>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
           </select>
@@ -1033,7 +1048,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
       case 'phase_id':
         return (
           <select value={asset.phase_id || ''} onChange={e => onUpdate({ phase_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            disabled={readOnly}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: asset.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1044,7 +1060,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center gap-1 w-full min-w-0">
             <select value={asset.status || 'not_started'} onChange={e => onUpdate({ status: e.target.value })}
-              className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors"
+              disabled={readOnly}
+              className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
               style={{ ...flatSelect, color: sc }}>
               {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -1064,7 +1081,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             type="date"
             value={asset.start_date || ''}
             onChange={e => onUpdate({ start_date: e.target.value || null })}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            readOnly={readOnly} disabled={readOnly}
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.start_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1074,7 +1092,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             type="date"
             value={asset.due_date || ''}
             onChange={e => onUpdate({ due_date: e.target.value || null })}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            readOnly={readOnly} disabled={readOnly}
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.due_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1209,6 +1228,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thum
           warning={ctx?.selectAssetStatusWarning?.(a)}
           thumbRevision={thumbRevision}
           onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
+          readOnly={!canWrite}
           onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
           onWarningClick={() => onWarningClick?.(a.id)}
           onDetailClick={() => onDetailClick?.(a.id)}
@@ -1219,7 +1239,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thum
   )
 }
 
-function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged }) {
+function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, readOnly = false }) {
   const [hovered, setHovered] = useState(false)
   const sc = statusColor(asset.status)
   const hasThumbnail = !!asset.thumbnail_image
@@ -1302,6 +1322,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           value={asset.name || ''}
           onCommit={(name) => onUpdate({ name })}
           placeholder="Untitled"
+          readOnly={readOnly}
         />
         <div className="flex items-center justify-between text-[10.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
@@ -2215,12 +2236,21 @@ function Td({ children }) {
 }
 
 // ── Inline editors ──
-function InlineText({ value, onCommit, placeholder }) {
+function InlineText({ value, onCommit, placeholder, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(value)
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+  // Session 29 — see CellInlineText. Gallery cards edit the asset name too.
+  if (readOnly) {
+    return (
+      <span className="block w-full px-1 py-0.5 text-xs font-mono truncate"
+        style={{ color: value ? '#e7e5e4' : '#57534e' }}>
+        {value || placeholder || '—'}
+      </span>
+    )
   }
   if (editing) {
     return (
@@ -2251,13 +2281,22 @@ function InlineText({ value, onCommit, placeholder }) {
 }
 
 // Cell-level inline text — used by the flex table rows (matches Tasks tab)
-function CellInlineText({ value, placeholder, onCommit }) {
+function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+  // Session 29 — plain text, no button, no hover. See the Tasks tab twin.
+  if (readOnly) {
+    return (
+      <span className="block text-[11.5px] font-mono text-left w-full truncate px-1.5 py-1"
+        style={{ color: value ? '#e7e5e4' : '#57534e' }}>
+        {value || placeholder || '—'}
+      </span>
+    )
   }
   if (editing) {
     return (

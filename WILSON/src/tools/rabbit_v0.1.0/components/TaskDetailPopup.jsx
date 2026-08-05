@@ -21,7 +21,8 @@ import { useRabbit } from '../state/RabbitProvider'
 import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canOnProject } from '../../../permissions/projectRoleMatrix'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
 
 // ── Constants ──
@@ -83,12 +84,25 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   }, [rosterMode, rosterMembers, ctx?.teamAssignments])
 
   // Entity writes (Session 6) — DB-side RLS is the real gate; this only
-  // hides the delete affordance for staffed-project reviewers.
-  const { role } = usePermissions()
-  const canWrite = canOnProject(
-    { appRole: role, projectRole: ctx?.myProjectRole, isStaffed: ctx?.projectIsStaffed },
-    'project.entity.write'
-  )
+  // governs the write affordances for staffed-project reviewers.
+  //
+  // 🚨 Session 29 fixed a real omission here: this call passed appRole,
+  // projectRole and isStaffed but NOT `ready`, and `ready` defaults to true
+  // inside canOnProject. So while the first getSession() was still in flight,
+  // `role` was null, a staffed project fell through to the seat check with no
+  // seat known, and the answer was FALSE — "still loading" silently rendering
+  // as "denied". That is the exact defect S23 fixed in ProjectTasksView and
+  // ProjectAssetsView (both of which do pass it); this file was missed, and it
+  // is why the flag is assembled in one place now.
+  const { role, ready: permsReady } = usePermissions()
+  const gateCtx = {
+    appRole: role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: permsReady,
+  }
+  const canWrite = canOnProject(gateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(gateCtx, 'project.entity.write')
 
   const rc = useRateCard()
   const roleEntries = useMemo(() => {
@@ -543,17 +557,20 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          {canWrite ? (
-            // Soft delete — no confirm in RABBIT; the shell-level undo toast
-            // covers it. A ctx.deleteTask returning false means the caller
-            // vetoed the delete (Dashboard's confirm) — keep the popup open.
+          {/* Session 29 — was `canWrite ? <button/> : <span/>`, i.e. the
+              control vanished with no explanation. Audrey: "keep button gray
+              and explain why." */}
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            {/* Soft delete — no confirm in RABBIT; the shell-level undo toast
+                covers it. A ctx.deleteTask returning false means the caller
+                vetoed the delete (Dashboard's confirm) — keep the popup open. */}
             <button type="button"
               onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
               style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
               <Trash2 className="w-3.5 h-3.5" /> Delete task
             </button>
-          ) : <span />}
+          </GatedAction>
           <button type="button" onClick={onClose}
             className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>

@@ -627,10 +627,17 @@ function ProjectMembersPanel({ ctx }) {
   const pickerRef = useRef(null)
 
   const projectMembers = ctx?.projectMembers || []
+  // 🚨 Session 29 added `ready`. `project.roster.manage` has no unstaffed
+  // opening and admits ONLY a project manager, so without it this panel drops
+  // to the read-only list for a real manager until their session resolves —
+  // and permanently if getSession() hangs. Same omission as
+  // DashboardTasksView and TaskDetailPopup; all three were found by
+  // writeGate.test.js rather than by anyone hitting them.
   const canManage = canOnProject({
     appRole:     perms.role,
     projectRole: ctx?.myProjectRole,
     isStaffed:   ctx?.projectIsStaffed,
+    ready:       perms.ready,
   }, 'project.roster.manage')
 
   // user_id → directory row (display_name / username / title / avatar)

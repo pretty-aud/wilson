@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   canOnProject, canSeeProjectMoney, canWriteTaskTemplate,
+  projectActionDeniedReason,
   PROJECT_ROLES, PROJECT_ACTIONS,
 } from './projectRoleMatrix'
 
@@ -102,6 +103,73 @@ describe('projectRoleMatrix contract', () => {
       })
     })
   }
+})
+
+// ── Session 29 — the denial sentence ─────────────────────────────────────────
+//
+// Audrey's decision (2026-08-04) is that a denied control stays visible, greyed,
+// and says why. That makes the explanation part of the permission contract, not
+// UI copy: a reason that drifts from the rule teaches the user something false,
+// which is worse than saying nothing.
+//
+// So the reason is pinned to the SAME table the matrix is pinned to, in both
+// directions — non-null exactly when the action is denied, for every one of the
+// 24 combinations. Adding an action to PROJECT_ACTIONS without giving it a
+// reason fails here.
+describe('projectActionDeniedReason() tracks canOnProject() exactly', () => {
+  for (const [appRole, projectRole, isStaffed, ...grants] of EXPECTED) {
+    ACTION_COLUMNS.forEach((action, i) => {
+      const allowed = grants[i]
+      it(`{ ${appRole}, seat=${projectRole}, staffed=${isStaffed} } '${action}' → ${allowed ? 'no reason' : 'a reason'}`, () => {
+        const reason = projectActionDeniedReason({ appRole, projectRole, isStaffed }, action)
+        if (allowed) {
+          expect(reason).toBeNull()
+        } else {
+          expect(typeof reason).toBe('string')
+          expect(reason.length).toBeGreaterThan(20)
+        }
+      })
+    })
+  }
+
+  it('inherits the fail-OPEN behaviour while permissions load — grey must never mean "loading"', () => {
+    // The whole point of canOnProject returning true when ready === false. If
+    // the reason were non-null here, a control would grey out during the
+    // session read and read as a denial — the S23 bug wearing the S29 fix.
+    for (const action of PROJECT_ACTIONS) {
+      const pending = { appRole: null, projectRole: null, isStaffed: true, ready: false }
+      expect(projectActionDeniedReason(pending, action), action).toBeNull()
+    }
+  })
+
+  it('names the rule rather than saying "permission denied"', () => {
+    // A reviewer must learn what seat WOULD work — that is why the control is
+    // shown at all instead of hidden.
+    const reviewer = { appRole: 'user', projectRole: 'reviewer', isStaffed: true }
+    const entity = projectActionDeniedReason(reviewer, 'project.entity.write')
+    expect(entity).toMatch(/member|manager/i)
+
+    // The two denial shapes for one action are distinguishable: a reviewer is
+    // told about their seat, someone with no seat is told they have none.
+    const unseated = { appRole: 'user', projectRole: null, isStaffed: true }
+    expect(projectActionDeniedReason(unseated, 'project.entity.write'))
+      .not.toBe(entity)
+    expect(projectActionDeniedReason(unseated, 'project.entity.write'))
+      .toMatch(/no seat/i)
+  })
+
+  it('a member is told the control panel rule, which is the inverse of the write rule', () => {
+    // project.settings.open is the ONLY action where a reviewer outranks a
+    // member, so its reason must not be copied from the entity-write one.
+    const member = { appRole: 'user', projectRole: 'member', isStaffed: true }
+    expect(projectActionDeniedReason(member, 'project.entity.write')).toBeNull()
+    expect(projectActionDeniedReason(member, 'project.settings.open')).toMatch(/reviewer/i)
+  })
+
+  it('returns a reason for an unknown action rather than throwing or returning null', () => {
+    expect(projectActionDeniedReason({ appRole: 'admin' }, 'not.a.real.action'))
+      .toEqual(expect.any(String))
+  })
 })
 
 describe('canOnProject() edge cases', () => {
