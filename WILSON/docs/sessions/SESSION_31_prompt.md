@@ -14,11 +14,18 @@
 > settings PER PERSON, everywhere — not per workspace.** She chose this over a
 > per-workspace pet and over a split model. **Do not re-open it.**
 
-> **STATE AFTER S30 (2026-08-05, `2d8b658` + `c3317d4`) — do not re-measure
-> it:** migrations **0000–0045** on all three envs, next free **0046**. pgTAP
-> **55 suites / 854 assertions**, next free suite **56**. Vitest **834 cases /
-> 38 files**. All four CI jobs green on `c3317d4`, Playwright included. CLI
-> linked to `wilson-dev`.
+> **STATE AFTER S30 — corrected 2026-08-05 at the very end of the session, and
+> the first version of this block was already stale when written.** Migrations
+> **0000–0045** on all three envs, next free **0046**. pgTAP **55 suites / 854
+> assertions**, next free suite **56**. Vitest **855 cases / 40 files** (this
+> block first said 834 / 38 — S30 kept going after it was written). HEAD is
+> **`93638a4`**; all four CI jobs green on **`e0d3b13`**, the last code commit,
+> Playwright included. CLI linked to `wilson-dev`.
+>
+> ⚠️ **S30 ran long past its own close-out** because Audrey tested the beta and
+> found three defects in a row. Its outcome section in
+> `MASTER_PLAN_S19_ONWARD.md` has **three postscripts**; read them, they are
+> where the session's real findings are.
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`.**
 > **First tool calls**, in order and before any code:
@@ -29,7 +36,10 @@
 
 ---
 
-## 🚨 THREE THINGS S30 LEARNED THE HARD WAY THAT APPLY DIRECTLY HERE
+## 🚨 SIX THINGS S30 LEARNED THE HARD WAY THAT APPLY DIRECTLY HERE
+
+> Items 4–6 were added after this brief was first written, because S30 did not
+> stop at its close-out — Audrey tested the beta and found three more defects.
 
 **1. A retention window inside a SELECT policy makes the rows undeletable.**
 0045 put `taken_at >= now() - INTERVAL '30 days'` in the SELECT policy so the
@@ -51,6 +61,28 @@ mirror image: a migration that adopts a blank instead of her existing pet.**
 `applyFix` did not check, so an HTTP 404 rendered as a green "Fix applied".
 Any new save path for the pet or settings must check, and must show the user
 when it fails.
+
+**4. 🚨 THE SCREEN MUST SAY *WHY*, AND THIS IS THE ONE THAT KEPT RECURRING.**
+Three separate instances in `Validator.jsx` alone: a green tick over a save
+that never happened; a silent `return` when the text had already changed; and a
+red dot in the audit queue whose reason went only to `console.error`. Each time
+the UI showed a STATE and withheld the thing that explained it. **A pet that
+fails to sync is invisible in exactly this way** — the old one is still on
+screen and looks right. Every failure path needs a sentence the user can read.
+
+**5. 🚨 DATABASE-PROVEN IS NOT APP-PROVEN.** S30 closed with 55 pgTAP suites,
+834 unit tests, a 9-step end-to-end database probe and four green CI jobs — and
+O.T.T.E.R. could not generate a single course. **All three defects were found
+by Audrey using it; none by anything in the repo.** Nothing here mounts React
+and nothing here runs the app. Plan for her to test, and give her the numbered
+checklist **in the first message**, not at close-out.
+
+**6. Check the ones that WRITE; accept her word on the ones that only READ.**
+She reported "all three work"; querying staging gave two confirmed and one that
+had never happened. A dropdown populating leaves no trace and never can — her
+eyes are the only instrument, and per S23 a user action that requires a
+precondition outranks any reasoning about it. A saved pet, by contrast, is a
+row you can go and look at. **Do both, and know which is which.**
 
 ---
 
@@ -156,6 +188,37 @@ design for **before** writing the table:
 → **Settle this before the migration.** A synced pet built on a 30-second
 whole-object overwrite would be worse than the per-device one it replaces.
 
+### ✅ READ THE PET CODE BEFORE DESIGNING FOR IT — three of the above already exist
+
+**MEASURED 2026-08-05, and this is the S24 lesson in advance: the budget UI
+turned out to be complete and the session was scoped as if it needed building.
+Same risk here.** All of this is in `App.jsx`:
+
+| the brief proposes | what the code already does |
+|---|---|
+| "prefer the one with the later timestamp" | **`lastUpdatedAt` is written on EVERY save** (`:472`) — the field exists |
+| "store `last_fed_at` and compute on read" | **offline decay is already computed from elapsed time on mount** (`:486-499`): hunger and happiness are recalculated from `lastUpdatedAt`, and the pet becomes a ghost if hunger hit 0 while away |
+| "a whole-object 30s auto-save" | confirmed — a decay tick at `:515-583` and a **separate save timer at `:591-593`**, both `30000`ms, the second writing the whole object |
+
+**So the pattern is not missing; the AUTHORITY is.** The read path is already
+elapsed-time based, which is most of the hard part.
+
+🚨 **TWO THINGS THE CODE DOES THAT WILL BREAK A NAIVE SYNC, neither previously
+written down:**
+
+1. **The mount effect SAVES immediately** — `savePet(pet)` at **`:506`**, right
+   after computing offline decay. So opening the app on the second computer
+   would push that computer's decayed state upward before the user touches
+   anything. The brief says a week-old device "must not push its stale numbers
+   up on reconnect"; **as written, it does exactly that, unconditionally.**
+2. 🚨 **`savePet` swallows every failure** — `:473` is literally
+   `catch { /* silent */ }`, and `:469` also drops the write entirely if a save
+   is already in flight (`if (!data || petSaving) return`). A pet that fails to
+   reach the cloud would look **identical to one that saved**, because the old
+   state is still on screen. **That is lesson 4 above, already live in the code
+   you are about to make network-dependent.** Fix it in the same session or the
+   first sync failure is invisible.
+
 ### 🚨 THE MIGRATION IS THE DANGEROUS PART
 
 Audrey **already has a pet on this machine**, with a name and a state she
@@ -188,17 +251,31 @@ mode is silent and it destroys something she likes.
 `SettingsPage.jsx` has **zero** occurrences of `signOut`, `logout` or
 `log out`.
 
-✅ **But this is WIRING, not building — measured 2026-08-05, and it changes the
-size of the job.** `App.jsx:373-381` already defines `window.wilsonSignOut`: it
-calls `supabase.auth.signOut()`, clears the session, sets `authed` false and
-re-shows the overlay. Its own comment at `:371-372` says *"Exposed on window
-for the next-session Settings panel to wire up; doesn't affect the UI yet."*
-So a previous session built the mechanism and deliberately left the control.
+✅ **But this is WIRING, not building — and the size of the job is "a button".**
+`App.jsx:375-381` defines `window.wilsonSignOut`: it calls
+`supabase.auth.signOut()`, clears the session, sets `authed` false and re-shows
+the overlay. Its comment just above says *"Exposed on window for the
+next-session Settings panel to wire up; doesn't affect the UI yet."*
 
-🚨 **That makes it the FOURTH instance of the built-with-no-caller shape** —
-the folder tree (S27), task templates (S28) and O.T.T.E.R.'s quiz history
-(S30) are the others. Check what exists before building; the answer here is
-"a button".
+> 🚨 **THIS BRIEF SAID `App.jsx:373-381` AND THAT IT HAD NO CALLER. BOTH WERE
+> WRONG — corrected 2026-08-05 by grepping instead of re-reading.**
+>
+> - The line is **`:375`**, not `:373`. It moved when S30 added an import to
+>   `App.jsx`. A line number in a brief decays the moment anyone edits above it.
+> - **`window.wilsonSignOut` HAS a caller: `MfaSection.jsx:281`**, a sign-out
+>   button on the MFA enrolment gate — the escape hatch for someone who will
+>   not set up two-factor. So this is **NOT** a fourth instance of the
+>   built-with-no-caller shape, and calling it one would have had S31 hunting a
+>   dead path that is alive.
+>
+> **The accurate statement:** the mechanism exists and is reachable from
+> exactly one screen, the MFA gate. What is missing is a control in
+> `SettingsPage.jsx` — which genuinely has **zero** occurrences of `signOut`,
+> `logout` or `log out` (re-verified 2026-08-05).
+>
+> This is the same correction the S30 brief needed about `quiz.get` — "zero
+> callers" was wrong there too; it had exactly one, and the one mattered.
+> **Before writing "nothing calls this", grep for it.**
 
 ⚠️ `supabaseClient.js:44` uses **different session storage keys per surface**
 (`sb-wilson-operator` vs `sb-wilson-app`), so a sign-out control must be
@@ -230,11 +307,21 @@ silently take the operator console with it, or the reverse.
   equal `planned`.
 - 🚨 **Prove a new suite by BREAKING it**, including breakers you expect to
   pass.
-- 🚨 **A FEATURE WITH NO CALLER HAS NO SYMPTOM — three instances so far**
-  (folder tree S27, task templates S28, quiz history S30). The check is a
-  census in the environment the user is in, plus watching it work. **This
-  session is especially exposed to it**, because a settings store that nothing
-  reads looks identical to one that works.
+- 🚨 **A FEATURE WITH NO CALLER HAS NO SYMPTOM — FOUR instances** (folder tree
+  S27, task templates S28, quiz history S30, and O.T.T.E.R.'s
+  `setOtterAdapterMode`, which is STILL dead: zero callers anywhere in the
+  repo, while two separate comments describe it as "the Settings override").
+  This list previously said three in one place and four in another; the logout
+  is **not** one of them (see above). The check is a census in the environment
+  the user is in, plus watching it work. **This session is especially exposed**,
+  because a settings store that nothing reads looks identical to one that works.
+  ⚠️ **`setOtterAdapterMode` is arguably S31's to fix** — it is the missing
+  Settings control for which backend O.T.T.E.R. uses, and this is the settings
+  session. Audrey has de-prioritised the content it affects, not the silence.
+- 🚨 **QUIZ HISTORY IS WIRED AND HAS STILL NEVER RECORDED A ROW** — 0 on dev,
+  staging and the local disk, confirmed 2026-08-05. Audrey confirmed she has
+  not finished a quiz, so this is *unexercised*, not broken. Do not read a zero
+  there as a defect, and do not read it as proof either.
 - 🚨 **Playwright is the only CI job that proves the app RENDERS.** Nothing in
   vitest mounts React.
 - **`docs/SYSTEMS_HANDBOOK.md` is a gate, not an oracle.**
