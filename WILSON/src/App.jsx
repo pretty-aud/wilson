@@ -438,7 +438,12 @@ export default function App() {
   //  PET STATE — lifted from O.T.T.E.R. to be app-wide
   // ═══════════════════════════════════════════════════════════════════
   const [petData, setPetData] = useState(null);
-  const [petSaving, setPetSaving] = useState(false);
+  // S30: refs, not state. `petSaving` was only ever the in-flight guard, and
+  // having it in savePet's dependency list changed savePet's identity on every
+  // save — which tore down and rebuilt the 30-second save interval each time.
+  const petSavingRef = useRef(false);
+  const petPendingRef = useRef(null);
+  const [petSaveError, setPetSaveError] = useState(null);
   const petTimerRef = useRef(null);
   const petSaveTimerRef = useRef(null);
 
@@ -465,14 +470,36 @@ export default function App() {
   const [hatchNameInput, setHatchNameInput] = useState('');
 
   // Save pet — local Express in Electron, localStorage on the web (localData).
+  //
+  // 🚨 S30: this was `catch { /* silent */ }` sitting on top of a savePetData
+  // that could not fail — it never checked res.ok on the Express POST, and
+  // writeLocal swallowed every localStorage exception. Three layers of silence
+  // over one lost pet, and the catch could not fire even in principle. All
+  // three are fixed; this is the one that has to SHOW it.
+  //
+  // The pet is the worst case for a silent save: the old state stays on screen
+  // and looks completely right, so nothing distinguishes "saved" from "lost
+  // until you next reload".
   const savePet = useCallback(async (data) => {
-    if (!data || petSaving) return;
-    setPetSaving(true);
+    if (!data) return;
+    // A save is already in flight: remember the NEWEST state and flush it when
+    // that one lands. The old guard was `if (petSaving) return`, which DROPPED
+    // the update — so a decay tick colliding with a slow write was discarded,
+    // silently, and the pet aged backwards on the next load.
+    if (petSavingRef.current) { petPendingRef.current = data; return; }
+    petSavingRef.current = true;
     try {
       await savePetData({ ...data, lastUpdatedAt: new Date().toISOString() });
-    } catch { /* silent */ }
-    setPetSaving(false);
-  }, [petSaving]);
+      setPetSaveError(null);
+    } catch (err) {
+      setPetSaveError(err?.message || 'Your pet could not be saved.');
+    } finally {
+      petSavingRef.current = false;
+      const pending = petPendingRef.current;
+      petPendingRef.current = null;
+      if (pending) savePet(pending);
+    }
+  }, []);
 
   // Load pet on mount + calculate offline decay
   useEffect(() => {
@@ -1462,6 +1489,7 @@ export default function App() {
             <PetCompanionWithAgent
               currentPage={currentPage}
               petData={petData}
+              petSaveError={petSaveError}
               companionOpen={companionOpen}
               onCompanionToggle={setCompanionOpen}
               chatMessages={chatMessages}

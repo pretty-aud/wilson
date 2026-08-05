@@ -23,6 +23,11 @@ export default function PetCompanion({
   // Session 12 (locked #21): AI rides the authenticated ai-proxy, so the
   // only unavailable state is "not signed in" — there is no API key anymore.
   aiUnavailable = false,
+  // S30: non-null when the last attempt to save the pet failed. Until this
+  // existed a failed save looked exactly like a successful one — the pet is
+  // still on screen, still correct-looking, and only a reload reveals that the
+  // state went nowhere. Cleared by the next save that works.
+  petSaveError = null,
   // Agent props
   agentEnabled = false,
   agentMode = false,
@@ -126,6 +131,12 @@ export default function PetCompanion({
             </div>
           </div>
           <div className={`flex-1 overflow-y-auto p-3 space-y-3 ${bgPanel}`}>
+            {petSaveError && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#450a0a' : '#fee2e2', borderColor: isDarkPage ? '#991b1b' : '#ef4444', color: isDarkPage ? '#fca5a5' : '#991b1b' }}>
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span><strong>{name} isn’t being saved.</strong> {petSaveError}</span>
+              </div>
+            )}
             {aiUnavailable && !isEgg && (
               <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#451a03' : '#fef3c7', borderColor: isDarkPage ? '#92400e' : '#f59e0b', color: isDarkPage ? '#fbbf24' : '#92400e' }}>
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />

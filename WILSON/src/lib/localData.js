@@ -14,8 +14,16 @@
 // are per-machine preference/companion files, not workspace content (the
 // S11 Sidebar-collapse precedent).
 //
-// Every function resolves rather than throws where the old call sites
-// swallowed errors — callers keep their existing error handling.
+// READERS resolve rather than throw, so a broken store degrades to defaults
+// instead of taking a screen down.
+//
+// 🚨 THE THREE SAVERS NOW THROW — CHANGED IN SESSION 30, and this line used to
+// say "every function resolves", which is what made the pet's failures
+// invisible. `savePetData`, `saveOtterSettings` and `saveAgentSkills` did not
+// check `res.ok` on their Express POST and `writeLocal` swallowed every
+// localStorage exception, so App.jsx's `catch { /* silent */ }` could never
+// fire even in principle. Three layers of silence over one lost pet.
+// Callers must now handle a rejection and SHOW it.
 //
 // KNOWN GAP (accepted for v1, MASTER_PLAN §6): these are full-object
 // last-writer-wins overwrites with no cross-tab sync. Two web tabs both
@@ -42,10 +50,28 @@ function readLocal(key, fallback) {
   }
 }
 
+/**
+ * Session 30: THROWS on failure instead of swallowing.
+ *
+ * It used to be `catch { /* storage disabled *\/ }`, which is not a rare edge:
+ * localStorage throws QuotaExceededError when full, and is unavailable outright
+ * in Safari private browsing and under some enterprise policies. Every one of
+ * those looked exactly like a successful save, and the pet's whole state lives
+ * here.
+ *
+ * The three savers below turn this into a message the user can read. Readers
+ * still tolerate a broken store — see readLocal, which keeps returning the
+ * fallback, because failing to READ a preference should not take the app down.
+ */
 function writeLocal(key, value) {
   try {
     localStorage.setItem(key, JSON.stringify(value))
-  } catch { /* storage disabled */ }
+  } catch (err) {
+    throw new Error(
+      err?.name === 'QuotaExceededError'
+        ? 'This browser\'s storage is full, so the change could not be saved.'
+        : 'This browser is blocking local storage, so the change could not be saved.')
+  }
 }
 
 // ── Pet ──────────────────────────────────────────────────────────────────────
@@ -75,7 +101,10 @@ export async function loadPet() {
   let pet = readLocal(PET_KEY, null)
   if (!pet) {
     pet = defaultPet()
-    writeLocal(PET_KEY, pet)
+    // Seeding the default egg is a cache write, not the user's data — a broken
+    // store must not stop the app producing a pet. The next real save reports
+    // the problem properly.
+    try { writeLocal(PET_KEY, pet) } catch { /* reported on first save */ }
   }
   return pet
 }
@@ -83,10 +112,19 @@ export async function loadPet() {
 /** POST /api/pet semantics: overwrite the stored pet. */
 export async function savePetData(pet) {
   if (hasLocalServer()) {
-    await fetch('/api/pet', {
+    // 🚨 S30: `fetch` RESOLVES for every status. This `await` used to stand
+    // alone, so a 404, a 500 or an Express server that had not started yet all
+    // returned normally and App.jsx's catch could never fire — three layers of
+    // silence over one lost pet. Same defect the Validator's "Accept Fix" had
+    // (see Validator.jsx applyFix), found the same way.
+    const res = await fetch('/api/pet', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(pet),
     })
+    if (!res.ok) {
+      const detail = await res.json().then(b => b?.error).catch(() => null)
+      throw new Error(detail || `The pet could not be saved (HTTP ${res.status}).`)
+    }
     return
   }
   writeLocal(PET_KEY, pet)
@@ -128,10 +166,15 @@ export async function loadOtterSettings() {
 /** POST /api/otter-settings semantics: full-object overwrite (callers merge). */
 export async function saveOtterSettings(settings) {
   if (hasLocalServer()) {
-    await fetch('/api/otter-settings', {
+    // S30: same unchecked `await` as savePetData had. See the note there.
+    const res = await fetch('/api/otter-settings', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     })
+    if (!res.ok) {
+      const detail = await res.json().then(b => b?.error).catch(() => null)
+      throw new Error(detail || `Settings could not be saved (HTTP ${res.status}).`)
+    }
     return
   }
   writeLocal(OTTER_SETTINGS_KEY, settings ?? {})
@@ -152,10 +195,15 @@ export async function loadAgentSkills() {
 /** POST /api/agent-skills semantics: full-object overwrite. */
 export async function saveAgentSkills(skills) {
   if (hasLocalServer()) {
-    await fetch('/api/agent-skills', {
+    // S30: same unchecked `await` as savePetData had. See the note there.
+    const res = await fetch('/api/agent-skills', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(skills ?? {}),
     })
+    if (!res.ok) {
+      const detail = await res.json().then(b => b?.error).catch(() => null)
+      throw new Error(detail || `Agent skills could not be saved (HTTP ${res.status}).`)
+    }
     return
   }
   writeLocal(AGENT_SKILLS_KEY, skills ?? {})

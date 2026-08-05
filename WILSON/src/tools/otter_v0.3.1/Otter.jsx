@@ -96,6 +96,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
 
   // ── Data state ──
   const [settings, setSettings] = useState(null);
+  // S30: the reason a settings write was refused, shown beside the control.
+  const [settingsError, setSettingsError] = useState(null);
 
   // ── Software/Language hierarchy ──
   const [softwareList, setSoftwareList] = useState([]);
@@ -771,10 +773,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   //  SAVE SETTINGS
   // ═══════════════════════════════════════════════════════════════
+  // S30: saveOtterSettings now REJECTS on a refused write (it used to swallow
+  // the status). Two of the three call sites here are `onChange`/`onClick`
+  // handlers that drop the promise, so without this catch a failed save would
+  // become an unhandled rejection instead of a message — trading one silence
+  // for a louder silence.
+  //
+  // State is applied only on success, deliberately: showing the new value over
+  // a write that did not land is the "green tick" defect this session spent
+  // the day removing.
   const saveSettings = useCallback(async (updates) => {
     const newSettings = { ...settings, ...updates };
-    await saveOtterSettings(newSettings);
-    setSettings(newSettings);
+    try {
+      await saveOtterSettings(newSettings);
+      setSettings(newSettings);
+      setSettingsError(null);
+    } catch (err) {
+      setSettingsError(err?.message || 'That setting could not be saved.');
+    }
   }, [settings]);
 
   const savePrompts = useCallback(async () => {
@@ -5341,6 +5357,16 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         {/* Storage Location */}
         <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
           <label className={`block text-sm font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
+          {/* S30: a refused settings write used to leave the field showing the
+              new value with nothing saved. Now it says so. */}
+          {settingsError && (
+            <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-sm border border-red-800/50 bg-red-950/30">
+              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
+              <span className="text-xs text-red-300 leading-relaxed">
+                <span className="font-bold">Not saved.</span> {settingsError}
+              </span>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
               disabled={toolsTabLocked}
