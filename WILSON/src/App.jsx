@@ -14,7 +14,8 @@ import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
 import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
-import { resolveUserPet, saveCloudPet, mirrorPetToCache } from './lib/userState'
+import { resolveUserPet, saveCloudPet, mirrorPetToCache,
+         resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
@@ -656,6 +657,8 @@ export default function App() {
     if (!perms.ready) return;
     const userId = perms.userId || null;
     petUserIdRef.current = userId;
+    // The settings writers live in other components and must know too.
+    setUserStateOwner(userId);
 
     // ── Signed out: TEAR DOWN. ───────────────────────────────────────────────
     // 🚨 Without this, S31's own Sign out button would be a REGRESSION.
@@ -678,6 +681,14 @@ export default function App() {
         setPetData(fresh);
         setPetSaveError(null);
         if (adopted) await mirrorPetToCache(fresh);
+
+        // The settings half. Filling the per-device cache from the account is
+        // what makes every EXISTING reader — Otter's prompt editor, the pet's
+        // companion prompt, AgentProvider's overrides — return this person's
+        // settings on this computer, without rewriting any of them.
+        const { settings } = await resolveUserSettings();
+        if (cancelled || !settings) return;
+        await mirrorSettingsToCache(settings);
       } catch (err) {
         // A failed cloud read must NOT blank the pet — the cached one is still
         // true, and this is the cache-plus-cloud rule modelSources established.

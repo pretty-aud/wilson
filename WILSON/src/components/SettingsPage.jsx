@@ -14,6 +14,7 @@ import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
 import { otterFetch } from '../tools/otter_v0.3.1/adapters'
 import { hasLocalServer, loadOtterSettings, saveOtterSettings, loadAgentSkills, saveAgentSkills } from '../lib/localData'
+import { pushSettingsToCloud } from '../lib/userState'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
 import MigrationPanel from '../cloud/migrate/MigrationPanel'
 import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
@@ -185,6 +186,9 @@ export default function SettingsPage({
     setAgentPromptOverrides(next)
     try {
       await saveAgentSkills(next)
+      // S31: the only writer of the agent prompt overrides, which follow the
+      // PERSON between computers. No-ops when signed out.
+      await pushSettingsToCloud()
       // Tell the live AgentProvider to re-read its overrides so the
       // next sendAgentMessage uses the new prompt.
       agentCtx?.refreshPromptOverrides?.()

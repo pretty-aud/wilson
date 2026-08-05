@@ -28,6 +28,7 @@ import { dirname, join } from 'node:path'
 const SRC = join(dirname(fileURLToPath(import.meta.url)), '..')
 const app = readFileSync(join(SRC, 'App.jsx'), 'utf8')
 const settingsPage = readFileSync(join(SRC, 'components/SettingsPage.jsx'), 'utf8')
+const otter = readFileSync(join(SRC, 'tools/otter_v0.3.1/Otter.jsx'), 'utf8')
 
 describe('the per-user pet is actually reached from App.jsx', () => {
   it('imports the cloud module', () => {
@@ -57,6 +58,35 @@ describe('the per-user pet is actually reached from App.jsx', () => {
     // hasLocalServer() cannot answer "which backend" — the standing rule.
     expect(app).toMatch(/if\s*\(petUserIdRef\.current\)\s*\{[\s\S]{0,400}saveCloudPet\(/)
     expect(app).not.toMatch(/hasLocalServer\(\)[\s\S]{0,200}saveCloudPet/)
+  })
+})
+
+describe('🚨 the SETTINGS half is reached too — it was DEAD on first pass', () => {
+  // This block exists because the settings functions were written, unit-tested
+  // and called by NOTHING, and that survived until a deliberate grep for
+  // callers. Sixth instance of the shape in this repo, in the session whose own
+  // brief warned about it five times, and the pet half was already guarded —
+  // which is exactly why a per-feature guard is not optional.
+
+  it('the account fills the per-device cache on sign-in', () => {
+    expect(app).toMatch(/await\s+resolveUserSettings\(\)/)
+    expect(app).toMatch(/await\s+mirrorSettingsToCache\(settings\)/)
+  })
+
+  it('the module is told who is signed in', () => {
+    // pushSettingsToCloud no-ops on a null owner, so without this the writers
+    // below would be silently inert — dead code wearing a call site.
+    expect(app).toMatch(/setUserStateOwner\(userId\)/)
+  })
+
+  it('Otter.jsx pushes prompts up — it is the only writer of `prompts`', () => {
+    expect(otter).toMatch(/import\s*\{\s*pushSettingsToCloud\s*\}\s*from\s*'\.\.\/\.\.\/lib\/userState'/)
+    expect(otter).toMatch(/await\s+saveOtterSettings\(newSettings\);[\s\S]{0,600}await\s+pushSettingsToCloud\(\)/)
+  })
+
+  it('SettingsPage pushes agent prompt overrides up — the only writer of those', () => {
+    expect(settingsPage).toMatch(/import\s*\{\s*pushSettingsToCloud\s*\}\s*from\s*'\.\.\/lib\/userState'/)
+    expect(settingsPage).toMatch(/await\s+saveAgentSkills\(next\)[\s\S]{0,400}await\s+pushSettingsToCloud\(\)/)
   })
 })
 

@@ -24,6 +24,7 @@ import {
 import { otterFetch, otterCloudActive } from './adapters';
 import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
+import { pushSettingsToCloud } from '../../lib/userState';
 import { modelFor } from '../../lib/activeModel';
 import Validator from './Validator';
 import { OTTER_HELP_SIDEBAR_ITEMS, OtterHelpContent } from '../../data/otterHelpContent';
@@ -786,6 +787,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     const newSettings = { ...settings, ...updates };
     try {
       await saveOtterSettings(newSettings);
+      // S31: this is the ONLY writer of `prompts`, which follow the PERSON
+      // between computers. The push is deliberately AFTER the local write and
+      // inside the same try, so a refused cloud write surfaces in the same
+      // banner rather than being a second silent failure mode.
+      // pushSettingsToCloud() no-ops when signed out.
+      await pushSettingsToCloud();
       setSettings(newSettings);
       setSettingsError(null);
     } catch (err) {

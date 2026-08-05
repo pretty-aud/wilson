@@ -28,15 +28,20 @@ vi.mock('../cloud/auth/supabaseClient', () => ({ supabase: { from: (...a) => fro
 const loadPet = vi.fn()
 const savePetData = vi.fn()
 const loadOtterSettings = vi.fn()
+const saveOtterSettings = vi.fn()
 const loadAgentSkills = vi.fn()
+const saveAgentSkills = vi.fn()
 vi.mock('./localData', () => ({
   loadPet: (...a) => loadPet(...a),
   savePetData: (...a) => savePetData(...a),
   loadOtterSettings: (...a) => loadOtterSettings(...a),
+  saveOtterSettings: (...a) => saveOtterSettings(...a),
   loadAgentSkills: (...a) => loadAgentSkills(...a),
+  saveAgentSkills: (...a) => saveAgentSkills(...a),
 }))
 
-const { isRealPet, resolveUserPet, saveCloudPet, fetchCloudPet, resolveUserSettings } =
+const { isRealPet, resolveUserPet, saveCloudPet, fetchCloudPet, resolveUserSettings,
+        setUserStateOwner, pushSettingsToCloud, mirrorSettingsToCache } =
   await import('./userState')
 
 /** Minimal PostgREST double: one canned answer for select, one for upsert. */
@@ -67,9 +72,13 @@ const REAL_GHOST = {
 
 beforeEach(() => {
   from.mockReset(); loadPet.mockReset(); savePetData.mockReset()
-  loadOtterSettings.mockReset(); loadAgentSkills.mockReset()
+  loadOtterSettings.mockReset(); saveOtterSettings.mockReset()
+  loadAgentSkills.mockReset(); saveAgentSkills.mockReset()
   loadOtterSettings.mockResolvedValue({})
+  saveOtterSettings.mockResolvedValue(undefined)
   loadAgentSkills.mockResolvedValue({})
+  saveAgentSkills.mockResolvedValue(undefined)
+  setUserStateOwner(null)
 })
 
 describe('isRealPet — the adoption discriminator', () => {
@@ -264,5 +273,63 @@ describe('resolveUserSettings', () => {
     const res = await resolveUserSettings()
     expect(res.adopted).toBe(false)
     expect(upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('pushSettingsToCloud — the writer that was dead on first pass', () => {
+  it('🚨 no-ops when signed out, so a local-only install can still edit prompts', async () => {
+    const { upsert } = stubTable({})
+    setUserStateOwner(null)
+    await pushSettingsToCloud()
+    expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('pushes prompts and agent overrides when signed in', async () => {
+    const { upsert } = stubTable({})
+    setUserStateOwner('user-1')
+    loadOtterSettings.mockResolvedValue({ prompts: { companion: 'be warm' },
+                                          rabbit: { adapterMode: 'local_server' } })
+    loadAgentSkills.mockResolvedValue({ otter: { systemPromptOverride: 'cite sources' } })
+
+    await pushSettingsToCloud()
+
+    const row = upsert.mock.calls[0][0]
+    expect(row.prompts).toEqual({ companion: 'be warm' })
+    expect(row.agent_prompt_overrides).toEqual({ otter: { systemPromptOverride: 'cite sources' } })
+    // Machine state must not ride along even on the push path.
+    expect(JSON.stringify(row)).not.toContain('local_server')
+  })
+
+  it('surfaces an RLS refusal rather than reporting success', async () => {
+    stubTable({ upsertRows: [] })
+    setUserStateOwner('user-1')
+    loadOtterSettings.mockResolvedValue({ prompts: { companion: 'x' } })
+    await expect(pushSettingsToCloud()).rejects.toThrow(/refused/i)
+  })
+})
+
+describe('mirrorSettingsToCache', () => {
+  it('🚨 MERGES rather than overwriting — saveOtterSettings is a whole-object write', async () => {
+    // Writing { prompts } alone would drop adapterMode and activeProjectId,
+    // the machine-specific keys that deliberately do NOT travel but MUST
+    // survive locally.
+    loadOtterSettings.mockResolvedValue({
+      rabbit: { adapterMode: 'local_server', activeProjectId: 'p1' },
+      prompts: { mc: 'keep me' },
+    })
+
+    await mirrorSettingsToCache({ prompts: { companion: 'from cloud' }, agentPromptOverrides: {} })
+
+    const written = saveOtterSettings.mock.calls[0][0]
+    expect(written.rabbit.adapterMode).toBe('local_server')
+    expect(written.rabbit.activeProjectId).toBe('p1')
+    expect(written.prompts.companion).toBe('from cloud')
+    expect(written.prompts.mc).toBe('keep me')
+  })
+
+  it('a broken cache never throws — the account copy is still authoritative', async () => {
+    loadOtterSettings.mockRejectedValue(new Error('storage blocked'))
+    await expect(mirrorSettingsToCache({ prompts: {}, agentPromptOverrides: {} }))
+      .resolves.toBeUndefined()
   })
 })

@@ -46,7 +46,17 @@
 
 import { supabase } from '../cloud/auth/supabaseClient'
 import { loadPet as loadLocalPet, savePetData as saveLocalPetData,
-         loadOtterSettings, loadAgentSkills } from './localData'
+         loadOtterSettings, saveOtterSettings,
+         loadAgentSkills, saveAgentSkills } from './localData'
+
+// Who is signed in, as far as this module is concerned. App.jsx's identity
+// effect owns it. It exists so the settings writers can no-op when signed out
+// WITHOUT calling supabase.auth.getSession() — that contends on auth-js's
+// global per-storageKey lock, which one hung call can pin for the whole app
+// (see docs/OUTSTANDING.md, "One hung getSession()").
+let currentUserId = null
+export function setUserStateOwner(userId) { currentUserId = userId || null }
+export function getUserStateOwner() { return currentUserId }
 
 const PET_TABLE = 'user_pets'
 const SETTINGS_TABLE = 'user_settings'
@@ -274,4 +284,62 @@ export async function resolveUserSettings() {
  */
 export async function mirrorPetToCache(pet) {
   try { await saveLocalPetData(pet) } catch { /* cache only */ }
+}
+
+/**
+ * Write the account's settings into the per-device cache, so that every
+ * EXISTING reader picks them up without being rewritten.
+ *
+ * This is the whole reason the settings half needs no changes in Otter.jsx's
+ * prompt editor or AgentProvider: they already read `loadOtterSettings()` and
+ * `loadAgentSkills()` on mount. Filling the cache from the account on sign-in
+ * makes those reads return the person's settings on any computer.
+ *
+ * ⚠️ saveOtterSettings is a WHOLE-OBJECT overwrite, so the current document has
+ * to be read and merged — writing `{ prompts }` alone would silently drop the
+ * machine-specific keys (adapterMode, activeProjectId) that deliberately do NOT
+ * travel and must survive locally.
+ */
+export async function mirrorSettingsToCache({ prompts, agentPromptOverrides }) {
+  try {
+    const current = await loadOtterSettings()
+    await saveOtterSettings({
+      ...(current && typeof current === 'object' ? current : {}),
+      prompts: { ...(current?.prompts ?? {}), ...(prompts ?? {}) },
+    })
+  } catch { /* cache only — the account copy is still authoritative */ }
+  try {
+    if (agentPromptOverrides && Object.keys(agentPromptOverrides).length > 0) {
+      await saveAgentSkills(agentPromptOverrides)
+    }
+  } catch { /* cache only */ }
+}
+
+/**
+ * Push the per-device settings up to the account after the user edits them.
+ *
+ * 🚨 THIS FUNCTION IS THE REASON THE SETTINGS HALF IS NOT DEAD CODE. It was
+ * written, tested and had ZERO CALLERS on first pass — the sixth instance in
+ * this repo of a complete feature nothing reaches, in the session whose own
+ * brief warned about it five times. Its callers are Otter.jsx's `saveSettings`
+ * (the only writer of `prompts`) and SettingsPage's `handlePromptOverrideChange`
+ * (the only writer of the agent overrides). `userStateWiring.test.js` fails if
+ * either call is removed.
+ *
+ * No-ops when signed out rather than throwing: editing a prompt on a local-only
+ * install is legitimate and must not raise.
+ */
+export async function pushSettingsToCloud() {
+  if (!currentUserId) return
+  let prompts = {}
+  let agentPromptOverrides = {}
+  try {
+    const s = await loadOtterSettings()
+    if (s?.prompts && typeof s.prompts === 'object') prompts = s.prompts
+  } catch { /* fall through with what we have */ }
+  try {
+    const a = await loadAgentSkills()
+    if (a && typeof a === 'object') agentPromptOverrides = a
+  } catch { /* fall through */ }
+  await saveCloudSettings({ prompts, agentPromptOverrides })
 }
