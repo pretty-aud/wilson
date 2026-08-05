@@ -2226,7 +2226,7 @@ function DetailPane({
                 fontFamily: 'monospace',
               }}
             >
-              No phases yet — click + Phase
+              {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
             </div>
           ) : rows.map((r) => {
             const depth = r.depth || 0
@@ -2554,10 +2554,16 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center"
+                className="absolute inset-0 flex items-center justify-center text-center px-6"
                 style={{ color: '#57534e', fontSize: 11, fontFamily: 'monospace', fontStyle: 'italic' }}
               >
-                Click + Phase or drag on the overview above to draw a task
+                {/* Session 29 — the empty state was instructions. Telling a
+                    read-only user to "drag on the overview to draw a task" and
+                    then not letting them is the same complaint that started
+                    this investigation, just phrased as help text. */}
+                {canWrite
+                  ? 'Click + Phase or drag on the overview above to draw a task'
+                  : (writeReason || 'Nothing scheduled on this project yet.')}
               </div>
             )}
 
