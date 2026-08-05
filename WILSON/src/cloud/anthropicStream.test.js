@@ -202,6 +202,67 @@ describe('createMessageAssembler + createSSEParser', () => {
   })
 })
 
+// ── Session 30: a THINKING block lands at content[0] ─────────────────────────
+//
+// 🚨 THE REPRODUCTION FOR "Failed to parse course outline JSON. Try again."
+//
+// Audrey hit that on her first beta course, 2026-08-05. These models think
+// even when nothing asks them to — S19 measured it directly (`thinking`
+// omitted -> thinking=1) — ai-proxy pipes the upstream stream through
+// untouched, and this reassembler places EVERY block at its own index
+// (anthropicStream.js:91), which is why it handles thinking_delta and
+// signature_delta at all.
+//
+// So content[0] is the thinking block and content[0].text is undefined. Three
+// O.T.T.E.R. call sites read exactly `data.content?.[0]?.text || ''` and got
+// an empty string, every single time.
+const THINKING_FIXTURE =
+  evt('message_start', {
+    message: {
+      id: 'msg_02', type: 'message', role: 'assistant', model: 'claude-sonnet-5',
+      content: [], stop_reason: null, stop_sequence: null,
+      usage: { input_tokens: 900, output_tokens: 1 },
+    },
+  }) +
+  evt('content_block_start', { index: 0, content_block: { type: 'thinking', thinking: '' } }) +
+  evt('content_block_delta', { index: 0, delta: { type: 'thinking_delta', thinking: 'The user wants Blender basics. ' } }) +
+  evt('content_block_delta', { index: 0, delta: { type: 'signature_delta', signature: 'abc123' } }) +
+  evt('content_block_stop', { index: 0 }) +
+  evt('content_block_start', { index: 1, content_block: { type: 'text', text: '' } }) +
+  evt('content_block_delta', { index: 1, delta: { type: 'text_delta', text: '{"software_name":"Blender 5.0",' } }) +
+  evt('content_block_delta', { index: 1, delta: { type: 'text_delta', text: '"subjects":[{"title":"Interface"}]}' } }) +
+  evt('content_block_stop', { index: 1 }) +
+  evt('message_delta', { delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 700 } }) +
+  evt('message_stop', {})
+
+describe('a thinking block occupies content[0]', () => {
+  const msg = assembleFixture(THINKING_FIXTURE)
+
+  it('keeps the thinking block, at index 0, with its text accumulated', () => {
+    expect(msg.content[0].type).toBe('thinking')
+    expect(msg.content[0].thinking).toBe('The user wants Blender basics. ')
+    expect(msg.content[0].signature).toBe('abc123')
+  })
+
+  it('🚨 content[0].text is undefined — the naive read yields an empty string', () => {
+    // This is the defect verbatim. `rawText` was '' , no /\{[\s\S]*\}/ matched,
+    // and the user saw "Failed to parse course outline JSON. Try again."
+    expect(msg.content[0].text).toBeUndefined()
+    expect(msg.content?.[0]?.text || '').toBe('')
+  })
+
+  it('the answer is in the FIRST text block, and finding it parses', () => {
+    const text = (msg.content || []).find(b => b.type === 'text')?.text ?? ''
+    expect(JSON.parse(text).software_name).toBe('Blender 5.0')
+  })
+
+  it('stop_reason is end_turn — nothing about this looks like a failure', () => {
+    // Why no error was surfaced: the request SUCCEEDED. The generation was
+    // complete and correct; only the extraction was wrong.
+    expect(msg.stop_reason).toBe('end_turn')
+  })
+})
+
 describe('assembleStreamedMessage', () => {
   it('drains a Response body and returns the assembled message', async () => {
     const bytes = new TextEncoder().encode(WEB_SEARCH_FIXTURE)

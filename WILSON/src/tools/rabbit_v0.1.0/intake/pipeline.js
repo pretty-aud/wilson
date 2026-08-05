@@ -25,6 +25,7 @@
 
 import scriptChunker from './chunkers/script'
 import { callAI } from '../../../cloud/aiProxy'
+import { textFromMessage } from '../../../cloud/anthropicStream'
 import { hasLocalServer } from '../../../lib/localData'
 // Note on the S19 plan: it preferred injecting a resolved model map into
 // `runIngestion` over importing the resolver here, on the grounds that a
@@ -299,7 +300,9 @@ async function haikuClassify(sampleText) {
     messages: [{ role: 'user', content: sampleText || '(empty)' }],
     tool: 'rabbit-intake',
   })
-  const raw = data?.content?.[0]?.text?.trim().toLowerCase() || ''
+  // S30: never index content[0] — a thinking block can sit there. See
+  // textFromMessage's header.
+  const raw = textFromMessage(data).trim().toLowerCase()
   const m = raw.match(/script|treatment|gdd|brief|pitch_bible|lookbook|deck|outline|notes/)
   return m ? m[0] : null
 }
@@ -388,7 +391,7 @@ async function analyzeChunk({ chunk, personas }) {
         messages: [{ role: 'user', content: userMessage }],
         tool: 'rabbit-intake',
       })
-      const text = data?.content?.[0]?.text || ''
+      const text = textFromMessage(data)
       const parsed = extractJson(text)
       if (parsed) return parsed
       lastError = 'Could not parse JSON envelope'

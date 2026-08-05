@@ -966,7 +966,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       setGenPhase('Parsing response...');
-      const rawText = data.content?.[0]?.text || '';
+      // 🚨 S30: was `data.content?.[0]?.text`. These models THINK even when
+      // nothing asks them to (S19 measured `thinking` omitted -> thinking=1),
+      // ai-proxy pipes the stream through untouched, and the reassembler puts
+      // every block at its own index — so content[0] is a THINKING block and
+      // .text is undefined. rawText became '', nothing matched, and every
+      // course generation died on "Failed to parse course outline JSON."
+      // Reproduced in anthropicStream.test.js.
+      const { text: rawText } = extractTextAndCitations(data);
       let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
       let parsed;
       try { parsed = JSON.parse(text); }
@@ -1869,7 +1876,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       updateGenSubject(tempSlug, { phase: 'Parsing response...' });
-      const rawText = data.content?.[0]?.text || '';
+      // Same defect as generateCourse — see the note there.
+      const { text: rawText } = extractTextAndCitations(data);
       let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
       let parsed;
       try { parsed = JSON.parse(text); }
@@ -2067,7 +2075,8 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           messages: [{ role: 'user', content: context }],
         });
 
-        const rawText = data.content?.[0]?.text || '';
+        // Same defect as generateCourse — a thinking block sits at content[0].
+        const rawText = extractTextAndCitations(data).text;
         let text = rawText.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '').trim();
         let parsed;
         try { parsed = JSON.parse(text); }

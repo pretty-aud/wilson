@@ -23,6 +23,38 @@
 // =============================================================================
 
 /**
+ * The assistant's actual words, from a reassembled message.
+ *
+ * 🚨 SESSION 30 — USE THIS INSTEAD OF `data.content[0].text`. Audrey hit
+ * "Failed to parse course outline JSON. Try again." on her first beta course,
+ * and the cause was that read: these models THINK even when nothing asks them
+ * to (S19 measured `thinking` omitted -> thinking=1), ai-proxy pipes the
+ * upstream stream through untouched, and the assembler above puts every block
+ * at its own index. So `content[0]` is a `thinking` block, `.text` is
+ * undefined, and the caller parses an empty string — while `stop_reason` is a
+ * perfectly healthy `end_turn`. Nothing looks wrong; the generation simply
+ * never arrives.
+ *
+ * Indexing by position was only ever right by luck. Text blocks can also be
+ * preceded by `server_tool_use` and `web_search_tool_result`, and a model may
+ * emit several text blocks around a tool call.
+ *
+ * Returns the LAST text block, which is the final answer when a server-side
+ * tool ran mid-turn. Covered by anthropicStream.test.js.
+ *
+ * @param {{content?: Array<{type?: string, text?: string}>}} message
+ * @returns {string} '' when there is no text block at all.
+ */
+export function textFromMessage(message) {
+  const blocks = Array.isArray(message?.content) ? message.content : []
+  let out = ''
+  for (const b of blocks) {
+    if (b?.type === 'text' && typeof b.text === 'string' && b.text.trim()) out = b.text
+  }
+  return out
+}
+
+/**
  * Incremental SSE line parser. Feed it decoded text chunks (any split
  * points); it invokes onEvent with each parsed `data:` JSON payload.
  * Anthropic sends one JSON object per data line; `event:` lines are

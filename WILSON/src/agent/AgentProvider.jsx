@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { callAI, isRetryableAIError } from '../cloud/aiProxy'
+import { textFromMessage } from '../cloud/anthropicStream'
 import { loadAgentSkills } from '../lib/localData'
 import { modelFor } from '../lib/activeModel'
 import { otterFetch } from '../tools/otter_v0.3.1/adapters'
@@ -387,7 +388,8 @@ export default function AgentProvider({ children }) {
         }
       }
 
-      const replyText = data.content?.[0]?.text || 'Sorry, I had trouble processing that.'
+      // S30: a thinking block can occupy content[0]; find the text block.
+      const replyText = textFromMessage(data) || 'Sorry, I had trouble processing that.'
       const parsed = parseAgentResponse(replyText)
 
       // Show the message part in chat

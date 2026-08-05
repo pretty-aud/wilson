@@ -10,6 +10,7 @@ import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
+import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
 import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
@@ -856,7 +857,8 @@ export default function App() {
           throw fetchErr;
         }
       }
-      const reply = data.content?.[0]?.text || 'Sorry, I had trouble thinking of a response!';
+      // S30: a thinking block can occupy content[0]; find the text block.
+      const reply = textFromMessage(data) || 'Sorry, I had trouble thinking of a response!';
       setChatMessages(prev => [...prev, { role: 'assistant', content: reply }]);
     } catch (e) {
       const msg = e.message || 'Unknown error';
