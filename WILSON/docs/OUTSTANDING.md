@@ -412,8 +412,10 @@ The escape hatch is referenced twice in comments and **does not exist**:
 `setOtterAdapterMode` has **zero callers anywhere in the repo**, so
 `modeOverride` is permanently `'auto'`. `adapters/index.js:26` calls it "the
 Settings override" and `Otter.jsx:238` says "the Settings mode override can pin
-local while a session exists". Neither is true. That is a fifth instance of the
-no-caller shape, found while looking for something else.
+local while a session exists". Neither is true. That is the **fourth** feature
+to ship complete with no caller — after the folder tree (S27), task templates
+(S28) and quiz history (S30) — and it was found while looking for something
+else.
 
 → **Audrey has de-prioritised the CONTENT** (2026-08-05): *"thats not
 important … we can start with otter being empty. i can generate new courses
