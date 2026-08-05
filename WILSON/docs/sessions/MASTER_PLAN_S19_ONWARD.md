@@ -1103,6 +1103,49 @@ four CI jobs green on `c3317d4`, Playwright included.
 > unreachable leaves all 17 assertions green, because nothing here mounts
 > React.
 
+### 🚨 S30 POSTSCRIPT (`a905471`) — the first real use broke immediately, and it proves the paragraph above
+
+Audrey tested O.T.T.E.R. within minutes of the close-out. **Every** course
+generation failed: *"Failed to parse course outline JSON. Try again."*
+
+**The generation had SUCCEEDED.** `stop_reason: 'end_turn'`, complete JSON in
+the response. WILSON read `data.content?.[0]?.text`, and `content[0]` is a
+**thinking block** — these models think when nothing asks them to (S19 measured
+`thinking` omitted → `thinking=1`), `ai-proxy` pipes the stream through
+untouched, and `anthropicStream.js` assigns every block to its own index, which
+is why it has `thinking_delta` and `signature_delta` handlers at all. So
+`rawText` was `''`, no `/\{[\s\S]*\}/` matched, and the error named the wrong
+thing entirely. Deterministic: 100% of calls.
+
+**EIGHT call sites across three tools** had the same read — O.T.T.E.R.'s course,
+agent-course and quiz generators, R.A.B.B.I.T.'s intake classifier and chunk
+analysis, the pet chat, the agent chat. Fixing only the reported one would have
+been a correct fix to an eighth of the problem. All eight now use
+`textFromMessage(data)`.
+
+> 🚨 **THREE THINGS WORTH KEEPING.**
+>
+> 1. **`Otter.jsx` already contained the correct extractor** and used it at
+>    three of its six sites. The knowledge was in the file; three call sites
+>    had not received it. Third time in this session a defect was a rule the
+>    codebase already knew and had not applied at the call site.
+> 2. **Position-indexing was only ever right by luck.** `server_tool_use` and
+>    `web_search_tool_result` also precede text, and a model emits several text
+>    blocks around a tool call.
+> 3. **This is the paragraph above, vindicated within the hour.**
+>    Database-proven is not app-proven. Migration 0045 was verified on three
+>    environments, 55 pgTAP suites and 834 unit tests were green, the e2e probe
+>    was 9/9 — and the tool could not generate a single course. **The one thing
+>    no artifact in this repo can do is run the app**, and that is exactly where
+>    the defect was. It would also have killed the quiz feature this session had
+>    just wired.
+>
+> Proven rather than reasoned: `anthropicStream.test.js` gains a thinking-first
+> SSE fixture asserting `content[0].text` is undefined while `stop_reason` is
+> `end_turn`; `textFromMessage.test.js` adds five behaviour cases plus a source
+> scan, proven by reverting `AgentProvider.jsx` and watching it name the line.
+> **845 vitest / 39 files.**
+
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 
 **MEASURED 2026-08-03.** `public.projects` has **22 columns**: id, workspace_id,

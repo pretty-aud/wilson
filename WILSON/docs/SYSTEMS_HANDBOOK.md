@@ -2253,7 +2253,7 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **38 files, 834 cases** (measured 2026-08-05; this line read "15
+**Vitest** — **39 files, 845 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
@@ -2262,7 +2262,19 @@ realtime merge layer, money arithmetic, the adapter column allowlist, entity
 naming, folder paths and folder parity, the project manifest, Session 27's
 project rates mirror and upload scope, Session 28's `taskPayloadKeys`,
 Session 29's `writeGate` plus the denial-reason half of the project matrix,
-and — Session 30 — `validatorSave` and `quizWiring`.
+and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
+
+> 🚨 **NEVER READ `data.content[0].text`. Use `textFromMessage(data)`**
+> (`src/cloud/anthropicStream.js`). These models think when nothing asks them
+> to (S19 measured `thinking` omitted → `thinking=1`), `ai-proxy` pipes the
+> stream through untouched, and the reassembler assigns every block to its own
+> index — so `content[0]` is a **thinking** block and `.text` is `undefined`.
+> Audrey's first beta course died on *"Failed to parse course outline JSON"*
+> while `stop_reason` was a healthy `end_turn` and the answer sat in
+> `content[1]`. It was **eight call sites across three tools**; a source scan
+> in `textFromMessage.test.js` now fails the build if one returns.
+> Position-indexing was only ever right by luck — `server_tool_use` and
+> `web_search_tool_result` blocks also precede text.
 
 > 🚨 **THE LAST TWO ARE CALLER GUARDS, AND THAT IS A DIFFERENT JOB FROM THE
 > REST OF THIS LIST.** `otterRoutes.test.js` asserted that the parser maps
