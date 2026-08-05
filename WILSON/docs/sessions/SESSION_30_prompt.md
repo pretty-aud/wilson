@@ -53,6 +53,13 @@ Not a persistence gap. The code already says so, `otterRoutes.js:162-165`:
 > button never persisted anything. Cloud mode treats it as the save it was
 > clearly meant to be."*
 
+⚠️ **THAT COMMENT'S OWN CITATION IS STALE — verified 2026-08-04.** The PUT is
+at **`Validator.jsx:444`**, not `:441`; line 441 is the `}` closing the
+`if (!applied)` guard above it. Three lines, and it is the fifth instance of
+this project's citation decay. The URL it posts to is
+`/api/software/${softwareSlug}/subjects/${subjectSlug}`. **Re-verify before
+citing it again, and fix the comment while you are there.**
+
 So this is the opposite way round from the usual complaint: **cloud is the one
 that works.** The fix is an Express route in `electron/main.cjs`, not a
 migration. 🚨 **Confirm which backend Audrey saw it fail on before touching

@@ -50,18 +50,62 @@ Readers to check before designing (grep, do not trust these):
 A **per-user** store in the database, and it is a real feature, not a patch:
 
 - A table keyed by user, with RLS that lets a person read and write **only
-  their own row** — no workspace scoping, per Audrey's decision. 🚨 That makes
-  it the first R.A.B.B.I.T.-adjacent table whose policy is **not** built on
-  `current_workspace_id()`, so do not copy an existing policy set wholesale;
-  the nearest shape is `user_model_overrides` (0031) — read that first.
-- Its own pgTAP suite (**next free number: check `supabase/tests/rls/`**), and
-  `.github/workflows/rls.yml` in **two** places: `RLS_TABLES` (fails loudly)
-  and the failure-replay list (fails **silently**).
+  their own row** — no workspace scoping, per Audrey's decision.
+
+  🚨 **THE SCHEMA WILL FIGHT YOU ON THIS, AND AN EARLIER DRAFT OF THIS BRIEF
+  GOT IT WRONG.** That draft named `user_model_overrides` (0031) as "the
+  nearest shape". **It is not** — MEASURED 2026-08-04, all four of its policies
+  are `user_id = auth.uid() AND workspace_id = public.current_workspace_id()
+  AND has_active_membership(workspace_id)`. Copying it builds precisely the
+  per-workspace pet Audrey rejected.
+
+  A census of wilson-dev, same day: **44 tables carry policies, 39 of them
+  scope by `current_workspace_id()`, and exactly ONE is purely per-user —
+  `auth_attempt_log`.** So this table would be the **second**, in a schema
+  where every instinct, every copy-paste and every reviewer will push toward
+  adding workspace scoping. **Write down in the migration header WHY it is
+  absent**, or a later session will "fix" it.
+- Its own pgTAP suite — **next free is `55_`, and the next free migration is
+  `0045`** (verified 2026-08-04; re-check, S29 and S30 sit in front of this and
+  either may have taken them). Plus `.github/workflows/rls.yml` in **two**
+  places: `RLS_TABLES` (fails loudly) and the failure-replay list (fails
+  **silently**).
 - Adapter methods, and a `COLUMN_ALLOWLIST` entry if it is written through
   R.A.B.B.I.T.'s adapter.
 - A decision on what "settings" covers. `localData.js` names three stores; the
   pet is one of them. **Ask which of the other two travel with the person** —
   agent skills probably do, O.T.T.E.R. settings may not.
+
+### 🚨 THE PET AUTO-SAVES EVERY 30 SECONDS, AND WRITES ARE LAST-WRITER-WINS
+
+**Found on the review pass, 2026-08-04, and it changes the design.**
+`localData.js:20-25` carries a KNOWN GAP note that was written for the
+single-device world and becomes the central problem in a synced one:
+
+> *"these are full-object last-writer-wins overwrites with no cross-tab sync.
+> Two web tabs both running the pet's 30s decay/auto-save timers will clobber
+> each other's writes — same class as the pre-existing Electron two-window
+> case. **The app is a one-window product**; a 'storage'-event merge is
+> deliberate future work, not an oversight."*
+
+That assumption is exactly what Audrey's request retires. Consequences to
+design for **before** writing the table:
+
+- **A decay timer on every open client means a write every 30 seconds, per
+  device, forever.** Two computers signed in at once will each overwrite the
+  other's whole pet object continuously, and the loser is whoever wrote second.
+  Hunger would visibly jitter between two values — the exact symptom she asked
+  to eliminate.
+- **A whole-object overwrite is the wrong write for a value that DECAYS.**
+  Hunger is a function of elapsed time, so it may be better stored as
+  `last_fed_at` and computed on read, rather than written repeatedly as a
+  number. That removes most of the conflict instead of resolving it.
+- **Decide what the timer does when the tab is in the background**, and whether
+  a device that has been closed for a week should push its stale numbers up on
+  reconnect. It must not.
+
+→ **Settle this before the migration.** A synced pet built on a 30-second
+whole-object overwrite would be worse than the per-device one it replaces.
 
 ### 🚨 THE MIGRATION IS THE DANGEROUS PART
 

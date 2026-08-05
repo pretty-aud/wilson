@@ -109,24 +109,42 @@ affordance would stay visible and do nothing — which is precisely the S23 "the
 button does nothing" defect that cost hours to diagnose. **The funnel and the
 affordances have to move together.**
 
-### The design question that has to be answered, not assumed
+### ✅ THE DESIGN QUESTION IS ANSWERED — do not re-ask it
 
-`OUTSTANDING.md` has carried this note since S23 and nobody has decided it:
+`OUTSTANDING.md` carried this note from S23 and nobody had decided it:
 
 > *the UX is wrong either way — a reviewer should be told why they cannot add,
 > not have the control silently disappear.*
 
-The other four views **hide** the control. So there are two defensible targets:
+**Audrey decided, 2026-08-04: "keep button gray and explain why."**
 
-1. **Match the existing views** — hide, consistent with Tasks/Board/Assets.
-   Smaller, and the thing to do if the design pass will revisit it anyway.
-2. **Hide, and add one honest line** where a create affordance would have been
-   ("You don't have permission to add tasks to this project"), then bring the
-   other four views up to match in S32.
+So the target is **NOT** what the other four views currently do. The control
+**stays visible, rendered disabled/grey, and says why** — on the Timeline and
+everywhere else.
 
-→ **Ask Audrey which, at the START.** Do not infer it from the other views —
-"be consistent" is an argument for the weaker option and she has already said
-the silent disappearance is wrong.
+🚨 **THAT MAKES THIS BIGGER THAN THE TIMELINE, AND THE SCOPE MUST BE FACED
+RATHER THAN DISCOVERED HALFWAY.** `ProjectTasksView`, `ProjectAssetsView` and
+the Board **hide** their create controls today — six surfaces off one
+`canWrite` flag. If only the Timeline greys out, the app contradicts itself
+screen by screen, which is worse than either rule applied consistently.
+
+→ **Build ONE shared treatment and apply it to every gated create affordance**,
+Timeline included. That is the coherent version of what she asked for, and it
+retires the S23 note instead of moving it. If the session runs out of room,
+finish the Timeline and say explicitly which surfaces still hide — do not leave
+it implied.
+
+**Implementation traps for a disabled control:**
+
+- A `disabled` button does **not** reliably fire mouse events, so a bare
+  `title=` tooltip may never appear. Wrap it, or use the same hover/tooltip
+  mechanism the codebase already uses elsewhere — check before inventing one.
+- Grey must not read as "loading". `canOnProject` deliberately returns **true**
+  while permissions resolve (see below), so a control should never be grey
+  merely because the session has not settled.
+- The reason text should name the actual rule ("only project managers and
+  members can add tasks"), not a generic "no permission" — the whole point of
+  her decision is that the user learns something.
 
 ### What the gate must be
 

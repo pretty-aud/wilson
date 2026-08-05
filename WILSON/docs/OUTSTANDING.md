@@ -573,8 +573,26 @@ find and correctly offers to create one.
 **only their own** row), a suite, adapter methods, and a one-time migration
 that adopts the existing local pet rather than overwriting it with a blank —
 otherwise the first cloud save wipes the pet she already has. **Do not treat
-this as a small fix.** ⚠️ Scope question for Audrey before any SQL: whether
-per-user settings are **per workspace** or global to the person.
+this as a small fix.**
+
+✅ **Scope settled (Audrey, 2026-08-04): ONE pet and ONE set of settings per
+PERSON, everywhere — not per workspace.**
+
+🚨 **Two findings from the S28 review pass that change the design, both
+MEASURED:**
+
+- **The schema will fight the per-user rule.** 44 tables carry policies on
+  wilson-dev; **39 scope by `current_workspace_id()` and exactly one
+  (`auth_attempt_log`) is purely per-user.** `user_model_overrides` looks like
+  the precedent and is **not** — all four of its policies are workspace-scoped,
+  so copying it builds the per-workspace pet she rejected.
+- **The pet auto-saves every 30 seconds and writes are whole-object
+  last-writer-wins** (`localData.js:20-25`, a KNOWN GAP note written when
+  *"the app is a one-window product"*). Synced, two signed-in computers would
+  overwrite each other continuously and hunger would jitter between two values
+  — the exact symptom this is meant to remove. Hunger decays with time, so
+  storing `last_fed_at` and computing on read probably removes the conflict
+  rather than resolving it. **Settle this before the migration.**
 
 ### There is no way to log out
 **MEASURED (2026-08-04).** `src/components/SettingsPage.jsx` contains **zero**
