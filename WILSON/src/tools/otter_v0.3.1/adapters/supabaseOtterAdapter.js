@@ -38,6 +38,9 @@ const SUBJECT_FULL_COLS =
 /** The 0022 CHECK constraint, mirrored so a typo fails here rather than at the DB. */
 const VISIBILITIES = new Set(['personal', 'shared', 'company_standard'])
 
+/** One quiz attempt on the wire (migration 0045). */
+const QUIZ_COLS = 'id, taken_at, score, total, courses, question_types'
+
 class OtterCloudError extends Error {
   constructor(message, status = 500) {
     super(message)
@@ -401,22 +404,60 @@ export const supabaseOtterAdapter = {
     return { ok: true }
   },
 
-  async 'quiz.get'({ slug }) {
-    const row = unwrap(
-      await supabase.from('otter_progress').select('quiz_attempts')
-        .eq('course_id', slug).maybeSingle())
-    return { attempts: row?.quiz_attempts ?? [] }
+  // ── quiz history (migration 0045) ─────────────────────────────────────────
+  //
+  // ONE personal history, not one per course. `quiz.get`/`quiz.put` used to
+  // live here reading otter_progress.quiz_attempts; both are gone with the
+  // column, because a quiz is built from whatever courses the user ticks and a
+  // multi-course attempt has no single course_id to be keyed by. See 0045's
+  // header — the old path was complete, tested, and had never been called.
+  //
+  // RLS supplies the 30-day window and the owner filter, so neither is
+  // repeated here. A redundant client-side filter is this project's recurring
+  // mistake: it closes a documented-looking gap and fixes nothing, while
+  // making a future policy change silently ineffective.
+  async 'quiz.list'() {
+    const rows = unwrap(
+      await supabase.from('otter_quiz_attempts').select(QUIZ_COLS)
+        .order('taken_at', { ascending: false })) ?? []
+    return { attempts: rows }
   },
 
-  async 'quiz.put'({ slug, body }) {
+  async 'quiz.add'({ body }) {
     const uid = await currentUserId()
     if (!uid) throw new OtterCloudError('not signed in', 401)
-    unwrap(await supabase.from('otter_progress').upsert({
-      course_id: slug,
-      user_id: uid,
-      quiz_attempts: body?.attempts ?? [],
-    }, { onConflict: 'course_id,user_id' }))
-    return { ok: true }
+
+    // Validated here as well as by the CHECK constraints, so the caller gets a
+    // sentence instead of a raw constraint name. Mirrors the Express handler.
+    const total = Number(body?.total)
+    const score = Number(body?.score)
+    if (!Number.isInteger(total) || total <= 0) {
+      throw new OtterCloudError('total must be a positive whole number', 400)
+    }
+    if (!Number.isInteger(score) || score < 0 || score > total) {
+      throw new OtterCloudError('score must be between 0 and total', 400)
+    }
+
+    // Housekeeping, deliberately not fatal: clearing the expired tail is not
+    // what the user asked for, and refusing to record their result because the
+    // sweep failed would trade a real write for a tidy one. It needs the RPC
+    // rather than a DELETE because otter_quiz_attempts_select hides expired
+    // rows from a DELETE's own WHERE clause (0045's header).
+    const { error: pruneError } = await supabase.rpc('otter_prune_quiz_attempts')
+    if (pruneError) console.warn('quiz history prune failed:', pruneError.message)
+
+    // workspace_id and user_id omitted: 0045 DEFAULTs them from the JWT, so a
+    // client cannot mis-stamp tenancy or file an attempt against someone else.
+    const row = unwrap(
+      await supabase.from('otter_quiz_attempts')
+        .insert({
+          score,
+          total,
+          courses: Array.isArray(body?.courses) ? body.courses : [],
+          question_types: Array.isArray(body?.question_types) ? body.question_types : [],
+        })
+        .select(QUIZ_COLS).single())
+    return { ok: true, attempt: row }
   },
 
   // ── trash (Session 11, migration 0024) ────────────────────────────────────
@@ -645,27 +686,42 @@ export const supabaseOtterAdapter = {
 
   // ── export ────────────────────────────────────────────────────────────────
 
+  // 🚨 QUIZ HISTORY MOVED OUT OF THE PER-COURSE LOOP (S30), and the old shape
+  // was not merely misplaced — it was a false claim. `quiz.get` was called
+  // here, once per course, and it read a column NOTHING HAS EVER WRITTEN. So
+  // every data export WILSON has produced carried an empty `quizHistory` on
+  // every course while presenting itself as complete. An export is a claim
+  // about completeness; that one was wrong for twenty sessions and the only
+  // caller of the whole quiz path was this line.
+  //
+  // It is now one top-level key, matching Local Server's /api/export-all and
+  // the fact that an attempt can span several courses.
   async 'export.all'() {
     const courses = await supabaseOtterAdapter['course.list']()
     const software = []
     for (const c of courses) {
       if (c.can_read_content === false) continue // metadata-only rows carry no content
-      const [meta, subjects, hotkeys, functions, nodes, progress, quizHistory] = await Promise.all([
+      const [meta, subjects, hotkeys, functions, nodes, progress] = await Promise.all([
         supabaseOtterAdapter['course.get']({ slug: c.slug }),
         supabaseOtterAdapter['subject.list']({ slug: c.slug }),
         supabaseOtterAdapter['doc.get']({ slug: c.slug, doc: 'hotkeys' }),
         supabaseOtterAdapter['doc.get']({ slug: c.slug, doc: 'functions' }),
         supabaseOtterAdapter['doc.get']({ slug: c.slug, doc: 'nodes' }),
         supabaseOtterAdapter['progress.get']({ slug: c.slug }),
-        supabaseOtterAdapter['quiz.get']({ slug: c.slug }),
       ])
       const full = []
       for (const s of subjects) {
         full.push(await supabaseOtterAdapter['subject.get']({ slug: c.slug, sub: s.slug }))
       }
-      software.push({ meta, hotkeys, functions, nodes, progress, quizHistory, subjects: full })
+      software.push({ meta, hotkeys, functions, nodes, progress, subjects: full })
     }
-    return { version: '2.0', exported_at: new Date().toISOString(), software }
+    const quizHistory = await supabaseOtterAdapter['quiz.list']()
+    return {
+      version: '2.0',
+      exported_at: new Date().toISOString(),
+      quiz_history: quizHistory.attempts ?? [],
+      software,
+    }
   },
 }
 

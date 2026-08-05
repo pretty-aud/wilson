@@ -89,11 +89,33 @@ describe('parseOtterRoute — per-course documents', () => {
 })
 
 describe('parseOtterRoute — per-user state', () => {
-  it('routes progress and quiz history separately from course documents', () => {
+  it('routes progress separately from course documents', () => {
     expect(p('/api/software/blender/progress', 'GET')).toEqual({ op: 'progress.get', slug: 'blender' })
     expect(p('/api/software/blender/progress', 'POST')).toEqual({ op: 'progress.put', slug: 'blender' })
-    expect(p('/api/software/blender/quiz-history', 'GET')).toEqual({ op: 'quiz.get', slug: 'blender' })
-    expect(p('/api/software/blender/quiz-history', 'POST')).toEqual({ op: 'quiz.put', slug: 'blender' })
+  })
+
+  // Session 30 (migration 0045). Quiz history is ONE personal history spanning
+  // courses, so it cannot live under /api/software/:slug at all — a quiz built
+  // from Blender AND Unity has no single course to be filed under.
+  it('routes quiz history under /api/otter, not per course', () => {
+    expect(p('/api/otter/quiz-history', 'GET')).toEqual({ op: 'quiz.list' })
+    expect(p('/api/otter/quiz-history', 'POST')).toEqual({ op: 'quiz.add' })
+  })
+
+  // 🚨 The one route under /api/otter that is NOT cloudOnly. Express serves it
+  // on Local Server too, so marking it cloudOnly would make otterFetch answer
+  // 501 in the desktop app — where all of Audrey's courses actually are.
+  it('quiz history is NOT cloudOnly — both backends serve it', () => {
+    expect(p('/api/otter/quiz-history', 'GET').cloudOnly).toBeUndefined()
+    expect(p('/api/otter/quiz-history', 'POST').cloudOnly).toBeUndefined()
+  })
+
+  // The retired per-course path must resolve to NOTHING, so a stale caller
+  // falls through and fails loudly rather than filing a multi-course score
+  // under one arbitrary course.
+  it('the old per-course quiz-history route is gone', () => {
+    expect(p('/api/software/blender/quiz-history', 'GET')).toBeNull()
+    expect(p('/api/software/blender/quiz-history', 'POST')).toBeNull()
   })
 })
 

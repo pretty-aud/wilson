@@ -53,6 +53,7 @@ DECLARE
   v_found     INT;
   v_content   TEXT;
   v_subject   UUID;
+  v_attempt   UUID;
 
   -- The Validator's two halves of one replacement (Validator.jsx:431-432:
   -- `lesson.content.replace(fix.original, fix.proposed)`).
@@ -171,16 +172,48 @@ BEGIN
     RAISE EXCEPTION 'FAILED at 6: after the fix the lesson still reads [%]', v_content;
   END IF;
   INSERT INTO probe_log VALUES (6, 'corrected text persisted', left(v_content, 45) || '...');
+
+  -- ── 7. quiz.add (adapter, migration 0045) — the write that had no caller ──
+  -- Same omission of workspace_id/user_id the adapter makes. A two-course
+  -- attempt, which is the case otter_progress could never have held.
+  INSERT INTO public.otter_quiz_attempts (score, total, courses, question_types)
+  VALUES (7, 10,
+          jsonb_build_array(
+            jsonb_build_object('id', v_course::text, 'name', 'E2E Probe Course'),
+            jsonb_build_object('id', 'other', 'name', 'A Second Course')),
+          '["mc"]'::jsonb)
+  RETURNING id INTO v_attempt;
+  INSERT INTO probe_log VALUES (7, 'quiz attempt recorded across two courses', v_attempt::text);
+
+  -- ── 8. quiz.list — it reads back, which is what the old path never did ───
+  SELECT count(*)::int INTO v_found
+    FROM public.otter_quiz_attempts WHERE id = v_attempt;
+
+  IF v_found <> 1 THEN
+    RAISE EXCEPTION 'FAILED at 8: the recorded attempt is not readable back';
+  END IF;
+  INSERT INTO probe_log VALUES (8, 'attempt reads back', '1 visible');
+
+  -- ── 9. the pruner leaves a fresh attempt alone ───────────────────────────
+  -- It must clear the expired tail without touching this month's history. The
+  -- refusal side (an expired row being unreachable by a plain DELETE) is
+  -- pgTAP 55's job; here the only question is that a live row survives.
+  SELECT public.otter_prune_quiz_attempts() INTO v_found;
+
+  IF EXISTS (SELECT 1 FROM public.otter_quiz_attempts WHERE id = v_attempt) IS NOT TRUE THEN
+    RAISE EXCEPTION 'FAILED at 9: the pruner deleted a fresh attempt';
+  END IF;
+  INSERT INTO probe_log VALUES (9, 'pruner spares this month''s history', 'pruned ' || v_found || ' expired');
 END
 $probe$;
 
 RESET ROLE;
 
--- The verdict. `steps` MUST be 6 — a DO block that aborted early leaves fewer
+-- The verdict. `steps` MUST be 9 — a DO block that aborted early leaves fewer
 -- rows, and one that never ran leaves none.
 SELECT
   (SELECT count(*)::int FROM probe_log)                                 AS steps,
-  (SELECT count(*)::int = 6 FROM probe_log)                             AS passed,
+  (SELECT count(*)::int = 9 FROM probe_log)                             AS passed,
   (SELECT string_agg(n || '. ' || step || ' (' || detail || ')', E'\n' ORDER BY n)
      FROM probe_log)                                                    AS trace;
 

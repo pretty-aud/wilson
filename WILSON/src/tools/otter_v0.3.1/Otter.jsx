@@ -124,6 +124,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   const [showExplanation, setShowExplanation] = useState(false);
   const [quizScore, setQuizScore] = useState(0);
   const [quizComplete, setQuizComplete] = useState(false);
+  // Session 30: the result of trying to RECORD the attempt, shown on the
+  // results screen. O.T.T.E.R.'s house defect is the swallowed error, and a
+  // score that silently fails to save is the exact complaint this replaces.
+  const [quizSaveState, setQuizSaveState] = useState(null); // null | 'saving' | 'saved' | {error}
 
   // ── Quiz selection state ──
   const [quizSelections, setQuizSelections] = useState({});
@@ -2033,6 +2037,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     setShowExplanation(false);
     setQuizScore(0);
     setQuizComplete(false);
+    setQuizSaveState(null);
     setCurrentChallenge(0);
     setHintsShown(0);
     setShowSolution(false);
@@ -2107,15 +2112,70 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
   }, [showExplanation, quizQuestions, currentQuestion]);
 
+  // ═══════════════════════════════════════════════════════════════
+  //  RECORDING AN ATTEMPT — the caller that never existed
+  // ═══════════════════════════════════════════════════════════════
+  //
+  // 🚨 Every hop of this path has been built since Session 10 — the column,
+  // both adapter ops, the route mapping, and a unit test that PASSES — and
+  // nothing has ever called the writer, on either backend. That is why quiz
+  // scores "were not saved": not a broken save, an absent one. See 0045.
+  //
+  // The attempt records which courses it drew on, because a quiz is built from
+  // whatever the user ticked (quizSelections) and may span several. Filing it
+  // under `activeSoftware` would attribute a Blender+Unity score to whichever
+  // course happened to be open, which is the wiring the old per-course route
+  // invited.
+  const recordQuizAttempt = useCallback(async (score, total) => {
+    const courses = Object.keys(quizSelections)
+      .filter(slug => {
+        const sel = quizSelections[slug];
+        return sel === 'all' || (sel instanceof Set && sel.size > 0);
+      })
+      .map(slug => ({ id: slug, name: quizSelectionData[slug]?.meta?.name || slug }));
+
+    setQuizSaveState('saving');
+    try {
+      const res = await otterFetch('/api/otter/quiz-history', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          score, total, courses,
+          question_types: Array.from(quizTypes),
+        }),
+      });
+      // otterFetch resolves for every status, so this check is the whole
+      // difference between recording a result and appearing to.
+      if (!res.ok) {
+        const detail = await res.json().then(b => b?.error).catch(() => null);
+        setQuizSaveState({ error: detail || `Your score could not be saved (HTTP ${res.status}).` });
+        return;
+      }
+      setQuizSaveState('saved');
+    } catch (err) {
+      setQuizSaveState({ error: err?.message || 'Your score could not be saved.' });
+    }
+  }, [quizSelections, quizSelectionData, quizTypes]);
+
   const nextQuestion = useCallback(() => {
     if (currentQuestion + 1 >= quizQuestions.length) {
       setQuizComplete(true);
+      // The single moment a quiz finishes, and the only write point.
+      //
+      // ⚠️ `quizScore` MUST stay in this callback's dependency list. The old
+      // deps were [currentQuestion, quizQuestions]; with the score added by
+      // handleAnswer, a stale closure here would under-report the last
+      // question — silently, and only when the last answer was right. It is
+      // correct as written because the Next/See Results button renders only
+      // once showExplanation is true, so a render always separates the answer
+      // from this call and the value is settled by the time it runs.
+      recordQuizAttempt(quizScore, quizQuestions.length);
     } else {
       setCurrentQuestion(c => c + 1);
       setSelectedAnswer(null);
       setShowExplanation(false);
     }
-  }, [currentQuestion, quizQuestions]);
+  }, [currentQuestion, quizQuestions, quizScore, recordQuizAttempt]);
 
   // ═══════════════════════════════════════════════════════════════
   //  QUIZ NAVIGATION GUARD
@@ -4527,7 +4587,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               </button>
             )}
             <div className="ml-auto pr-4">
-              <button onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); }}
+              <button onClick={() => { setQuizQuestions(null); setChallenges(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizStarted(false); setQuizError(null); setQuizSaveState(null); }}
                 className="text-stone-400 hover:text-stone-300 text-xs font-bold flex items-center gap-1">
                 <ArrowLeft className="w-3 h-3" /> Back to Selection
               </button>
@@ -4722,8 +4782,21 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     return (
       <div className="text-center py-8">
         <div className={`text-6xl font-bold mb-2 ${pct >= 70 ? 'text-green-400' : pct >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{pct}%</div>
-        <p className="text-stone-400 mb-6">{quizScore} out of {quizQuestions.length} correct</p>
-        <button onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); }}
+        <p className="text-stone-400 mb-2">{quizScore} out of {quizQuestions.length} correct</p>
+
+        {/* Session 30: say whether the result was KEPT. "Try Again" below
+            zeroes the score, so before this the only copy of a result was the
+            number on this screen and the most obvious next click destroyed
+            it. */}
+        <div className="mb-6 text-xs h-4">
+          {quizSaveState === 'saving' && <span className="text-stone-500">Saving your result…</span>}
+          {quizSaveState === 'saved' && <span className="text-stone-500">Saved to your quiz history (kept for 30 days).</span>}
+          {quizSaveState?.error && (
+            <span className="text-red-400">Not saved — {quizSaveState.error}</span>
+          )}
+        </div>
+
+        <button onClick={() => { setQuizQuestions(null); setQuizComplete(false); setQuizScore(0); setCurrentQuestion(0); setQuizSaveState(null); }}
           className="bg-orange-600 text-white px-6 py-2 rounded-sm border-2 border-orange-700 hover:bg-orange-700 font-bold transition-colors">
           Try Again
         </button>

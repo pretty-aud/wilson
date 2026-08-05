@@ -63,12 +63,29 @@ export function parseOtterRoute(pathname, method = 'GET') {
   // possible in local mode, where slug = slugify(name). A separate prefix
   // removes the question instead of relying on that.
   //
-  // Every one of these is cloudOnly: the Express server in electron/main.cjs
-  // has no such routes and never will (sharing, grants and change requests are
-  // meaningless without a workspace). otterFetch answers 501 in local mode
-  // rather than letting Express 404 into a call site that does not check res.ok.
+  // Almost every one of these is cloudOnly: sharing, editor grants, trash and
+  // change requests are meaningless without a workspace, and the Express
+  // server in electron/main.cjs has no such routes. otterFetch answers 501 in
+  // local mode rather than letting Express 404 into a call site that does not
+  // check res.ok.
+  //
+  // ⚠️ `quiz-history` (S30) is the ONE exception and lives here for a
+  // different reason: it is not course-scoped, so it cannot sit under
+  // /api/software/:slug at all. Express serves it on both backends, so it is
+  // deliberately NOT cloudOnly. This comment used to say "and never will";
+  // that is now false and the exception is stated rather than left to be
+  // discovered.
   if (parts[1] === 'otter') {
     const seg = parts.slice(2).map(decodeURIComponent)
+
+    // /api/otter/quiz-history — ONE personal history, spanning courses.
+    // Replaces /api/software/:slug/quiz-history, which was per-course and
+    // whose writer had no caller on either backend (see 0045's header).
+    if (seg.length === 1 && seg[0] === 'quiz-history') {
+      if (verb === 'GET')  return { op: 'quiz.list' }
+      if (verb === 'POST') return { op: 'quiz.add' }
+      return null
+    }
 
     // /api/otter/trash
     if (seg.length === 1 && seg[0] === 'trash' && verb === 'GET') {
@@ -202,12 +219,11 @@ export function parseOtterRoute(pathname, method = 'GET') {
     return null
   }
 
-  // /api/software/:slug/quiz-history — per-user, alongside progress.
-  if (tail === 'quiz-history' && seg.length === 2) {
-    if (verb === 'GET')  return { op: 'quiz.get', slug }
-    if (verb === 'POST') return { op: 'quiz.put', slug }
-    return null
-  }
+  // NOTE: /api/software/:slug/quiz-history is deliberately GONE (S30). Quiz
+  // history is no longer per-course — see /api/otter/quiz-history above. It
+  // returns null here, so a stale caller falls through to the real network and
+  // fails loudly rather than being answered by a route that files a
+  // multi-course score under one arbitrary course.
 
   return null
 }

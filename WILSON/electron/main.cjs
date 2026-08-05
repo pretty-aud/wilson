@@ -211,7 +211,10 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(path.join(swPath, '_functions.json'))) writeJSON(path.join(swPath, '_functions.json'), { categories: [] });
       if (!fs.existsSync(path.join(swPath, '_nodes.json'))) writeJSON(path.join(swPath, '_nodes.json'), { categories: [] });
       if (!fs.existsSync(path.join(swPath, '_progress.json'))) writeJSON(path.join(swPath, '_progress.json'), { completed_lessons: [], last_accessed: null });
-      if (!fs.existsSync(path.join(swPath, '_quiz-history.json'))) writeJSON(path.join(swPath, '_quiz-history.json'), { attempts: [] });
+      // No per-course _quiz-history.json any more (S30): quiz history is one
+      // personal file at the otter-data root, because a quiz can span courses.
+      // Existing per-course files are left alone — all empty, and deleting a
+      // user's files to tidy up a rename is never worth it.
       if (!fs.existsSync(path.join(swPath, '_references.json'))) writeJSON(path.join(swPath, '_references.json'), { urls: [] });
       res.json({ slug, ...meta });
     });
@@ -532,15 +535,73 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    // ── Quiz history endpoints ──
-    expressApp.get('/api/software/:slug/quiz-history', (req, res) => {
-      const data = readJSON(path.join(getSoftwareDir(), req.params.slug, '_quiz-history.json'), { attempts: [] });
-      res.json(data);
+    // ── Quiz history — ONE personal history, not one per course ──
+    //
+    // Session 30. The per-course routes that were here
+    // (/api/software/:slug/quiz-history, backed by <course>/_quiz-history.json)
+    // are gone, and they never lost anything: MEASURED 2026-08-05, all six of
+    // Audrey's course folders held `attempts: []` and always had. 0022's own
+    // comment said the same about the cloud column — "seeded and read but has
+    // no writer". Nothing ever called the writer on either backend.
+    //
+    // The shape had to change before it could get one. A quiz is built from
+    // whatever courses the user ticks (Otter.jsx quizSelections), so one
+    // attempt can cover several courses and has no single course to be filed
+    // under. Audrey, 2026-08-05: "lets have one personal quiz history but wipe
+    // it every month."
+    //
+    // Lives at the otter-data ROOT, beside `software/`, because it belongs to
+    // the person rather than to any course — and so deleting a course cannot
+    // take somebody's marks with it.
+    const quizHistoryPath = () => path.join(getDataDir(), '_quiz-history.json');
+    const QUIZ_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+    expressApp.get('/api/otter/quiz-history', (req, res) => {
+      const data = readJSON(quizHistoryPath(), { attempts: [] });
+      const cutoff = Date.now() - QUIZ_RETENTION_MS;
+      // Filtered on READ as well as pruned on write, matching the cloud policy:
+      // a history nobody adds to must still age out, or "wiped every month"
+      // would be true of active users only.
+      const attempts = (data.attempts || []).filter(a => {
+        const t = Date.parse(a?.taken_at ?? '');
+        return Number.isFinite(t) && t >= cutoff;
+      });
+      res.json({ attempts });
     });
 
-    expressApp.post('/api/software/:slug/quiz-history', (req, res) => {
-      writeJSON(path.join(getSoftwareDir(), req.params.slug, '_quiz-history.json'), req.body);
-      res.json({ ok: true });
+    expressApp.post('/api/otter/quiz-history', (req, res) => {
+      const { score, total, courses, question_types } = req.body || {};
+      // Mirrors the cloud CHECK constraints so the two backends refuse the
+      // same payloads. renderQuizResults divides by total, so a zero here is
+      // NaN on screen rather than a bad row.
+      if (!Number.isInteger(total) || total <= 0) {
+        return res.status(400).json({ error: 'total must be a positive whole number' });
+      }
+      if (!Number.isInteger(score) || score < 0 || score > total) {
+        return res.status(400).json({ error: 'score must be between 0 and total' });
+      }
+
+      const cutoff = Date.now() - QUIZ_RETENTION_MS;
+      const current = readJSON(quizHistoryPath(), { attempts: [] });
+      const kept = (current.attempts || []).filter(a => {
+        const t = Date.parse(a?.taken_at ?? '');
+        return Number.isFinite(t) && t >= cutoff;
+      });
+
+      // Local require, matching the existing style at the folder-slug helper —
+      // there is no top-level crypto import in this file.
+      const { randomUUID } = require('node:crypto');
+      const attempt = {
+        id: randomUUID(),
+        taken_at: new Date().toISOString(),
+        score,
+        total,
+        courses: Array.isArray(courses) ? courses : [],
+        question_types: Array.isArray(question_types) ? question_types : [],
+      };
+      kept.unshift(attempt);
+      writeJSON(quizHistoryPath(), { attempts: kept });
+      res.json({ ok: true, attempt });
     });
 
     // ── Reference URLs (per-software) ──
@@ -585,15 +646,27 @@ function startLocalServer(distPath) {
         const nodesRaw = readJSON(path.join(swDir, slug, '_nodes.json'), { systems: [] });
         const nodes = migrateNodesData(nodesRaw);
         const progress = readJSON(path.join(swDir, slug, '_progress.json'), {});
-        const quizHistory = readJSON(path.join(swDir, slug, '_quiz-history.json'), {});
         const subjDir = path.join(swDir, slug, 'subjects');
         let subjects = [];
         if (fs.existsSync(subjDir)) {
           subjects = fs.readdirSync(subjDir).filter(f => f.endsWith('.json')).map(f => readJSON(path.join(subjDir, f), {}));
         }
-        return { meta: { slug, ...meta }, hotkeys, functions, nodes, progress, quizHistory, subjects };
+        return { meta: { slug, ...meta }, hotkeys, functions, nodes, progress, subjects };
       });
-      res.json({ version: '2.0', exported_at: new Date().toISOString(), software });
+      // Session 30: quiz history moved from a per-course key to ONE top-level
+      // key, because a quiz can be built from several courses at once.
+      //
+      // 🚨 The old per-course `quizHistory` was ALWAYS EMPTY — nothing had ever
+      // written it — so every export this app has produced carried a complete-
+      // looking quiz history containing nothing. An export is a claim about
+      // completeness; it now reports what actually exists.
+      const quizHistory = readJSON(quizHistoryPath(), { attempts: [] });
+      res.json({
+        version: '2.0',
+        exported_at: new Date().toISOString(),
+        quiz_history: quizHistory.attempts || [],
+        software,
+      });
     });
 
     // ── Migration check (v1 → v2) ──
