@@ -357,7 +357,18 @@ function startLocalServer(distPath) {
       const filePath = path.join(subjDir, `${req.params.sub}.json`);
       const existing = readJSON(filePath);
       if (!existing) return res.status(404).json({ error: 'Not found' });
-      const body = { ...req.body };
+
+      // 🚨 This route OVERWRITES the whole subject file, so an empty body is a
+      // lesson-shredder: `{...undefined}` and Express's own no-body default
+      // both give `{}`, and writing that destroys every section in the course.
+      // A PUT that says nothing must say nothing, not erase.
+      const body = { ...(req.body || {}) };
+      if (!Array.isArray(body.sections)) {
+        return res.status(400).json({
+          error: 'a subject PUT must carry its sections array — refusing to overwrite with an empty document',
+        });
+      }
+
       delete body.slug; // the URL is authoritative; a stray slug must not fork the file
       if (body.subject_order == null) body.subject_order = existing.subject_order;
       writeJSON(filePath, body);
