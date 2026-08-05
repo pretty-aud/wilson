@@ -263,6 +263,38 @@ that actually broke in S23 have no vitest around them and no pgTAP insert
 probe. The allowlist test covers the mechanism; it does not cover those two
 tables' own payloads. That is the remaining half.
 
+### ~~Two of the four assignee dropdowns are hard-empty in cloud mode~~ — CLOSED (2026-08-05, observed)
+**Audrey watched the Timeline task editor's Assignee dropdown populate on the
+beta and confirmed it works.** Open since S22, MEASURED since S23, and carried
+unverified through S24–S29 because reaching it needs a signed-in session
+against staging that nothing in this repo automates. The code-level fix landed
+in S24 (`b07b6c9` — `listTeamMembers` on the Supabase adapter over
+`workspace_directory()`, plus `teamAssignments` in `loadProject`); this is the
+observation that finally settles it.
+
+**Deliberately precise about what was observed.** She confirmed the **Timeline**
+dropdown. `ProjectAssetsView`'s asset-detail rows share the same root cause and
+the same hook, so they are INFERRED-good rather than watched — stated here
+rather than quietly folded in. A dropdown is a READ and leaves no database
+trace, so unlike the Validator write below there is nothing to verify by query:
+her eyes are the only possible instrument, and per S23's lesson a user action
+that requires a precondition outranks reasoning about that precondition.
+
+→ **One thing from the old entry survives and is now its own item below**:
+`useRosterMembers` swallowing the RPC error.
+
+### `useRosterMembers` cannot tell a broken roster from an empty one
+**INFERRED (S23, unchanged).** Split out of the assignee-dropdown entry above
+when that closed, rather than deleted with it. `ProjectTasksView`'s dropdown is
+on the healthy `workspace_directory()` path and intersects correctly — but if
+the roster ever resolves to `[]`, the staffed branch filters an empty list and
+yields `[]` too, and the hook **drops the error** rather than passing it
+through. So an RPC failure and a genuinely empty workspace are indistinguishable
+at every call site. Not currently biting anything; it is what would make the
+next roster problem take a session instead of a minute.
+→ Surface the error. Not scheduled.
+
+<!-- historical, kept for the reasoning:
 ### Two of the four assignee dropdowns are hard-empty in cloud mode
 **MEASURED (S23).** Upgraded from the S22 entry, which reasoned from **dev**
 where `project_members` is empty. On **staging** — Audrey's actual environment

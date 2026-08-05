@@ -118,6 +118,24 @@ describe('the Validator saves what it says it saved', () => {
   })
 })
 
+describe('a failed validation says why, on the row that failed', () => {
+  // Audrey's first real audit: four lessons, three green ticks, one red dot,
+  // and nothing on the page explaining the red one. The message went to
+  // console.error only — the same shape as the green tick over a failed save,
+  // and the third "the screen withholds the reason" defect in this file.
+  it('the queue keeps the error message on the item', () => {
+    expect(VALIDATOR).toMatch(/status:\s*'failed',\s*error:/)
+  })
+
+  it('a stopped run says it was stopped rather than failing anonymously', () => {
+    expect(VALIDATOR).toContain('Stopped before this lesson finished.')
+  })
+
+  it('the queue renders the reason', () => {
+    expect(VALIDATOR).toMatch(/item\.status === 'failed' && item\.error/)
+  })
+})
+
 describe('Express serves every O.T.T.E.R. route the parser resolves locally', () => {
   // Hand-maintained on purpose, and narrow: only the non-cloudOnly routes that
   // Local Server is expected to answer. A generated list would have to encode

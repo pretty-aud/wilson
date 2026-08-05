@@ -371,9 +371,16 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
         ));
       } catch (err) {
         if (err.name === 'AbortError') return;
+        // S30: keep the REASON. A red dot with the message in the console is
+        // the same defect as the green tick over a failed save — the screen
+        // shows a state and withholds the only thing that explains it. Audrey
+        // hit this on her first real audit: three lessons validated, one went
+        // red, and nothing on the page said why.
         console.error('Validation error:', err);
         setValidationQueue(prev => prev.map(q =>
-          q.id === next.id ? { ...q, status: 'failed' } : q
+          q.id === next.id
+            ? { ...q, status: 'failed', error: err?.message || 'Validation failed.' }
+            : q
         ));
       }
     })();
@@ -389,7 +396,9 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
     setIsProcessing(false);
     processingRef.current = false;
     setValidationQueue(prev => prev.map(q =>
-      q.status === 'queued' || q.status === 'in-progress' ? { ...q, status: 'failed' } : q
+      q.status === 'queued' || q.status === 'in-progress'
+        ? { ...q, status: 'failed', error: 'Stopped before this lesson finished.' }
+        : q
     ));
   };
 
@@ -822,15 +831,24 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             {validationQueue.map(item => (
               <div
                 key={item.id}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-stone-700/50"
+                className="px-3 py-1.5 text-xs border-b border-stone-700/50"
               >
-                {item.status === 'queued' && <div className="w-3 h-3 rounded-full bg-stone-600 shrink-0" />}
-                {item.status === 'in-progress' && <Loader2 className="w-3 h-3 text-orange-400 animate-spin shrink-0" />}
-                {item.status === 'completed' && <Check className="w-3 h-3 text-green-400 shrink-0" />}
-                {item.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />}
-                <span className={`truncate ${item.status === 'in-progress' ? 'text-orange-300' : 'text-stone-400'}`}>
-                  {item.lessonTitle}
-                </span>
+                <div className="flex items-center gap-2">
+                  {item.status === 'queued' && <div className="w-3 h-3 rounded-full bg-stone-600 shrink-0" />}
+                  {item.status === 'in-progress' && <Loader2 className="w-3 h-3 text-orange-400 animate-spin shrink-0" />}
+                  {item.status === 'completed' && <Check className="w-3 h-3 text-green-400 shrink-0" />}
+                  {item.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />}
+                  <span className={`truncate ${item.status === 'in-progress' ? 'text-orange-300' : 'text-stone-400'}`}>
+                    {item.lessonTitle}
+                  </span>
+                </div>
+                {/* S30: the reason, on the row that failed. It used to go to
+                    the console only, so a red dot was the whole explanation. */}
+                {item.status === 'failed' && item.error && (
+                  <div className="text-red-300/80 leading-relaxed mt-0.5 ml-5">
+                    {item.error}
+                  </div>
+                )}
               </div>
             ))}
           </div>
