@@ -1146,6 +1146,52 @@ been a correct fix to an eighth of the problem. All eight now use
 > scan, proven by reverting `AgentProvider.jsx` and watching it name the line.
 > **845 vitest / 39 files.**
 
+### ✅ S30 POSTSCRIPT IV (`73828c7`) — the pet's saves, and the fix that would have fixed nothing
+
+Audrey read POSTSCRIPT-III's brief review, saw the note that `savePet` swallowed
+its errors, and asked for it directly. **The obvious fix — replace
+`catch { /* silent */ }` with a message — would have changed nothing**, because
+that catch sat on two functions that could not throw:
+
+1. `writeLocal` was `catch { /* storage disabled */ }`. localStorage throws
+   `QuotaExceededError` when full and is unavailable outright in Safari private
+   browsing and under some enterprise policies — none rare, all identical to
+   success.
+2. `savePetData` never checked `res.ok` on its Express POST, so a 404, a 500 or
+   a server that had not started yet all returned normally.
+3. Only then the visible catch.
+
+**The pet is the worst possible subject for a silent save:** the old state stays
+on screen and looks entirely right, so nothing distinguishes "saved" from "lost
+until you next reload".
+
+A second silent failure in the same function: the in-flight guard
+`if (!data || petSaving) return` **dropped** the update, so a 30-second decay
+tick colliding with a slow write was discarded and the pet aged backwards on the
+next load. It now queues the newest state. `petSaving` also moved from state to
+a ref — it was in `savePet`'s dependency list, so `savePet`'s identity changed
+on every save and rebuilt the 30-second interval each time.
+
+> 🚨 **THE RULE: before fixing a silent failure, walk DOWN the stack and find
+> which layer actually eats it.** The one you can see is usually the last of
+> several.
+>
+> ⚠️ **AND WHEN A HELPER STARTS THROWING WHERE IT ALWAYS RESOLVED, AUDIT EVERY
+> CALLER.** The three savers share `writeLocal`, so `saveOtterSettings` and
+> `saveAgentSkills` got the same treatment — leaving two of three silent is the
+> mistake this session made three times over. But that made them able to reject
+> where they never could: four callers already wrapped theirs, and
+> `Otter.jsx`'s `saveSettings` did **not**, with two `onChange`/`onClick` call
+> sites that drop the promise. **Trading one silence for an unhandled rejection
+> is not a fix.** It now catches, shows the reason beside the control, and
+> applies the new value only on success.
+>
+> `localData.test.js` (+9) drives the real module rather than scanning source —
+> quota, blocked storage, 404, a server message, a non-JSON error body, and the
+> control that reads still degrade to a default pet. Proven by reverting the
+> `res.ok` check and watching exactly the three status tests fail.
+> **864 vitest / 41 files.**
+
 ### ✅ S30 POSTSCRIPT III — the verification sweep, open since S24, is part-closed
 
 Audrey ran the three checks and reported *"all three work."* **Verified by
