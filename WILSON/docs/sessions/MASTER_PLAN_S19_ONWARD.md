@@ -391,7 +391,7 @@ below are superseded; only one of them actually moves.
 | **S27** | **Files everywhere** + the manifest surfaced in Resources — ✅ **DONE (`5384d4e`)** | manages the folders S26 creates | `SESSION_27_prompt.md` |
 | **S28** | **Task templates in cloud** — ✅ **DONE (`06bf564`)** | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
 | **S29** | **The Timeline permission gate** — ✅ **DONE (`7443fed`)** | the only task-creating surface with no gate; Audrey was hitting it | `SESSION_29_prompt.md` |
-| **S30** | **O.T.T.E.R. keeps its work** — validator findings, quiz scores | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
+| **S30** | **O.T.T.E.R. keeps its work** — ✅ **DONE (`2d8b658`, `c3317d4`)** | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
 | **S31** | **Per-user settings + the pet + logout** | her account must follow her between computers | `SESSION_31_prompt.md` |
 | **S32** | Design pass | unchanged, still last | `SESSION_32_prompt.md` |
 
@@ -1000,6 +1000,108 @@ included.
 > committed. The three items (both assignee dropdowns, cloud files end to end,
 > task templates in the UI carrying their roles) are unchanged in
 > `OUTSTANDING.md` — nothing was quietly narrowed or closed.
+
+### ✅ S30 OUTCOME (2026-08-05, `2d8b658` + `c3317d4`) — and the measurement that reshaped the session before any code
+
+**Migration 0045**, applied and verified **by query** on dev, staging and prod:
+`public.otter_quiz_attempts` (RLS enabled *and* forced, three policies, no
+`FOR ALL` arm, five CHECKs, **zero privileges held by `anon` or `PUBLIC`** —
+every grantee scanned, not assumed) plus `public.otter_prune_quiz_attempts()`,
+and it **drops** `otter_progress.quiz_attempts` behind a guard that refuses if
+any row ever carried data. **55 pgTAP suites / 854 assertions** (54 / 832),
+`planned == collected` on every one. **834 vitest** (803), 38 files (36). All
+four CI jobs green on `c3317d4`, Playwright included.
+
+> 🚨 **THE FIRST QUERY OF THE SESSION CHANGED WHAT THE SESSION WAS.**
+> `otter_courses` holds **0 rows on dev, staging AND prod** — including
+> trashed — and so do `otter_subjects` and `otter_progress`. All six of
+> Audrey's real courses (49 subjects, 138 lessons) are on Local Server in
+> `%APPDATA%\wilson\otter-data`.
+>
+> That identified the backend her report came from, and it made the brief's
+> framing wrong in both directions at once. **"Validator findings need
+> building"** would have built a cloud table for a tool with no cloud content;
+> **"apply fix works in CLOUD and 404s on Local Server"** named the one
+> backend she is not on. The instrument was checked before the absence was
+> believed (standing rule 2): the same connection reported 3 projects and 4
+> workspaces on dev, 1 and 1 on staging, as `postgres` with `rolbypassrls`.
+
+> ✅ **AUDREY ANSWERED THE THREE QUESTIONS THAT GATED THE WORK** (2026-08-05),
+> and two of the answers removed work rather than adding it:
+> - *"just make Accept actually save"* — **no audit-report storage.** The
+>   findings still live only for the session. Recorded here rather than in
+>   `OUTSTANDING.md` because it is a scope choice: the loss she was reporting
+>   was the accepted CORRECTION, and that is fixed.
+> - *"lets have one personal quiz history but wipe it every month. its not
+>   needed"* — build it, keep it small.
+> - *"we can start with otter being empty. i can generate new courses during
+>   beta testing"* — **no migration of the six local courses is owed.** She
+>   also stated the requirement plainly: *"i should be able to see all courses
+>   i have access to in the desktop app and the web app."*
+
+> 🚨 **THE REAL VALIDATOR DEFECT WAS A GREEN TICK OVER A WRITE THAT NEVER
+> HAPPENED, AND IT WAS LIVE ON BOTH BACKENDS.** Express had no PUT route for a
+> subject, so every accepted fix 404ed on Local Server — but `applyFix` also
+> never checked `res.ok`, and `otterFetch` resolves for every status (in cloud
+> it BUILDS the Response itself). So a 404 *and* an RLS refusal both rendered
+> "Fix #n applied". Fixing only the route would have left the silent-success
+> path intact for the cloud she is about to move to.
+>
+> The same trap was already written down thirty lines away, about a different
+> write: `supabaseOtterAdapter.js:253-255`. The knowledge existed and had not
+> travelled to the call site.
+
+> 🚨 **"WIRING, NOT BUILDING" WAS WRONG, AND THE FACT THAT SETTLES IT IS ONE
+> LINE.** `quizSelections` (`Otter.jsx:129`) is
+> `{ [courseSlug]: 'all' | Set<subjectSlug> }` and `getQuizContent`
+> concatenates content across every ticked course. `otter_progress` is keyed
+> `(course_id, user_id)` with `course_id NOT NULL`, so a Blender+Unity attempt
+> has nowhere to go and the "obvious" wiring files it under whichever course
+> happened to be open. **The brief said wiring; the shape had to change first.**
+
+> 🚨 **THE pgTAP SUITE CHANGED THE MIGRATION ON ITS FIRST RUN.** The 30-day
+> window was put in the SELECT policy so retention is a database guarantee
+> rather than a client promise. Probe pair came back `have: 2 want: 1`:
+> **PostgreSQL applies SELECT policies to a DELETE that reads rows in its
+> WHERE clause**, so the window hid expired rows from the statement meant to
+> remove them. Shipped, "wiped every month" would have meant "hidden every
+> month and kept forever" — worse than no window, because the rows pile up
+> where nobody can look. Hence `otter_prune_quiz_attempts()`: SECURITY
+> DEFINER, no arguments, hardcodes `auth.uid()`, REVOKEd from `PUBLIC` **and**
+> `anon`. Probe 15 pins the refusal the plain path gets.
+
+> 🚨 **A DEFECT WITH A COMPLIANCE FLAVOUR, CLOSED IN PASSING.** `export.all`
+> called `quiz.get` once per course. That was the **only caller on the entire
+> quiz path**, and it read a column nothing had ever written — so every data
+> export WILSON has produced carried an empty quiz history while presenting
+> itself as complete. Both backends now ship one honest top-level
+> `quiz_history`.
+
+> ⚠️ **FIFTH INSTANCE OF THE NO-CALLER SHAPE, AND A NEW ONE FOUND WHILE
+> LOOKING FOR SOMETHING ELSE.** `setOtterAdapterMode` has **zero callers**, so
+> the "Settings mode override" that `adapters/index.js:26` and
+> `Otter.jsx:238` both describe does not exist. Consequence, now in
+> `OUTSTANDING.md`: signing in on the desktop app moves O.T.T.E.R. to
+> Supabase, the library empties, and there is no control to go back.
+
+> ⚠️ **TWO STATED LIMITS OF WHAT SHIPPED**, here rather than in
+> `OUTSTANDING.md` because they are scope choices:
+> - **Validator audit reports are still not stored** — Audrey's call.
+> - **Quiz history is per (workspace, user), not per person.** That diverges
+>   from her S31 rule for the pet deliberately: an attempt is ABOUT courses,
+>   courses are workspace-scoped, and carrying a score into another company
+>   would list a course the reader cannot open. Stated in 0045's header so
+>   S31 does not read it as a precedent.
+
+> ⚠️ **NOTHING WAS WATCHED RUNNING IN THE APP.** Everything here is proven at
+> the database (9-step e2e probe, 9/9 on dev and staging) and at the source
+> (breakers on every new assertion), and the app builds and mounts. Whether
+> "Accept Fix" turns green on Audrey's screen, and whether a finished quiz
+> says "Saved to your quiz history", still needs one signed-in session — the
+> same gap that has kept three items open since S24. `validatorSave.test.js`
+> records the matching limit in its own header: rendering the failure banner
+> unreachable leaves all 17 assertions green, because nothing here mounts
+> React.
 
 ### 🚨 CROSS-SESSION: `projects` is missing columns S24, S25 AND S27 all need
 

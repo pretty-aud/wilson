@@ -14,12 +14,43 @@
 > settings PER PERSON, everywhere — not per workspace.** She chose this over a
 > per-workspace pet and over a split model. **Do not re-open it.**
 
+> **STATE AFTER S30 (2026-08-05, `2d8b658` + `c3317d4`) — do not re-measure
+> it:** migrations **0000–0045** on all three envs, next free **0046**. pgTAP
+> **55 suites / 854 assertions**, next free suite **56**. Vitest **834 cases /
+> 38 files**. All four CI jobs green on `c3317d4`, Playwright included. CLI
+> linked to `wilson-dev`.
+
 > Paste into a new Claude Code conversation. **Start from `WILSON/`.**
 > **First tool calls**, in order and before any code:
 > 1. `git status` on `feat/multi-user-v1`
 > 2. read **`docs/OUTSTANDING.md`**
 > 3. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md`
 > 4. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
+
+---
+
+## 🚨 THREE THINGS S30 LEARNED THE HARD WAY THAT APPLY DIRECTLY HERE
+
+**1. A retention window inside a SELECT policy makes the rows undeletable.**
+0045 put `taken_at >= now() - INTERVAL '30 days'` in the SELECT policy so the
+promise was a database guarantee. Its pgTAP suite failed on the first run:
+**PostgreSQL applies SELECT policies to an UPDATE or DELETE whenever the
+statement reads rows for its WHERE clause**, so the window hid the expired
+rows from the statement meant to prune them. If the pet or settings ever grow
+a retention or archive rule, that is the trap, and the answer was a tiny
+`SECURITY DEFINER` function taking no arguments.
+
+**2. Measure whether the feature has ever run, not whether it is built.**
+Quiz history had a column, two adapter ops, a route mapping and a **passing
+unit test** for twenty sessions, and nothing ever called the writer. That is
+the fourth such feature in four sessions. **The pet is the opposite case — it
+has a real writer and real data on Audrey's machine — so the risk here is the
+mirror image: a migration that adopts a blank instead of her existing pet.**
+
+**3. Check `res.ok`.** `otterFetch` and `fetch` resolve for every status.
+`applyFix` did not check, so an HTTP 404 rendered as a green "Fix applied".
+Any new save path for the pet or settings must check, and must show the user
+when it fails.
 
 ---
 
@@ -65,11 +96,21 @@ A **per-user** store in the database, and it is a real feature, not a patch:
   where every instinct, every copy-paste and every reviewer will push toward
   adding workspace scoping. **Write down in the migration header WHY it is
   absent**, or a later session will "fix" it.
-- Its own pgTAP suite — **next free is `55_`, and the next free migration is
-  `0045`** (verified 2026-08-04; re-check, S29 and S30 sit in front of this and
-  either may have taken them). Plus `.github/workflows/rls.yml` in **two**
-  places: `RLS_TABLES` (fails loudly) and the failure-replay list (fails
-  **silently**).
+- Its own pgTAP suite — **next free is `56_`, and the next free migration is
+  `0046`** (S30 took `0045` and `55_otter_quiz_attempts`; verified 2026-08-05,
+  and re-check anyway). Plus `.github/workflows/rls.yml` in **two** places:
+  `RLS_TABLES` (fails loudly) and the failure-replay list (fails **silently**
+  — S30 had to add suite 55 to it by hand).
+
+  🚨 **S30 CREATED A TABLE THAT LOOKS LIKE YOUR PRECEDENT AND IS NOT — the
+  third one.** `otter_quiz_attempts` (0045) is keyed `user_id = auth.uid()`
+  with no admin bypass, which is exactly the shape you want — **and it is
+  ALSO `workspace_id = current_workspace_id()`**, deliberately, because a quiz
+  attempt is about courses and courses are workspace-scoped. 0045's header
+  says so explicitly *so that you do not copy it*. The count is now: of 45
+  policied tables, `auth_attempt_log` remains the only purely per-user one.
+  `user_model_overrides` was trap one, `otter_progress` trap two, this is
+  trap three.
 - Adapter methods, and a `COLUMN_ALLOWLIST` entry if it is written through
   R.A.B.B.I.T.'s adapter.
 - A decision on what "settings" covers. `localData.js` names three stores; the

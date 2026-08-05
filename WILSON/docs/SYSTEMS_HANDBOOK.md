@@ -175,7 +175,8 @@ roughly 144 endpoints at runtime.
 | Family | Representative routes | Consumer |
 |---|---|---|
 | Pet | `GET/POST /api/pet`, `POST /api/pet/reset`, `POST /api/pet/new-egg` | Pet companion (§13.5) |
-| O.T.T.E.R. content | `GET/POST /api/software`, `…/:slug/subjects`, `…/hotkeys`, `…/functions`, `…/nodes`, `…/progress`, `…/quiz-history`, `…/references`, `…/corrections`, `GET /api/export-all` | O.T.T.E.R. local mode |
+| O.T.T.E.R. content | `GET/POST /api/software`, `…/:slug/subjects` (**incl. `PUT …/subjects/:sub`, S30**), `…/hotkeys`, `…/functions`, `…/nodes`, `…/progress`, `…/references`, `…/corrections`, `GET /api/export-all` | O.T.T.E.R. local mode |
+| O.T.T.E.R. quiz history | `GET/POST /api/otter/quiz-history` (**S30 — not per course, and the one `/api/otter/` route that is NOT cloud-only**) | O.T.T.E.R., both backends |
 | O.T.T.E.R. settings | `GET/POST /api/otter-settings`, `GET/POST /api/agent-skills` | Settings, agent |
 | Shared utilities | `POST /api/fetch-url`, `POST /api/fetch-raw`, `POST /api/extract-pdf` | O.T.T.E.R. references; RABBIT rate-card import; RABBIT intake |
 | R.A.B.B.I.T. projects | `GET/POST /api/rabbit/projects`, `GET/PATCH/DELETE /api/rabbit/projects/:id` | RABBIT local mode |
@@ -243,8 +244,8 @@ exists anywhere); product name `WILSON`.
 | Path | Contents |
 |---|---|
 | `{userData}/otter-data/` | O.T.T.E.R. root (`getDataDir()`, `main.cjs:36-40`) |
-| `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_quiz-history.json`, `_references.json`, `_corrections.json` |
-| `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json` | Single-object stores |
+| `{userData}/otter-data/software/{slug}/` | `_meta.json`, `subjects/{slug}.json`, `_hotkeys.json`, `_functions.json`, `_nodes.json`, `_progress.json`, `_references.json`, `_corrections.json`. **Legacy per-course `_quiz-history.json` files remain on existing installs and are no longer read or created (S30) — all six were empty, because nothing ever wrote one.** |
+| `{userData}/otter-data/pet.json`, `otter-settings.json`, `agent-skills.json`, **`_quiz-history.json`** | Single-object stores. Quiz history lives at the ROOT, beside `software/`, because a quiz spans courses and deleting a course must not take somebody's marks with it. |
 | `{userData}/rabbit-data/` | R.A.B.B.I.T. root (`getRabbitDataDir()`, `main.cjs:51-55`) |
 | `{userData}/rabbit-data/projects/{id}/project.json` | **One denormalised JSON bundle per project** — `project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, teamAssignments, projectTeam, managedFiles, budgetVersions, expenses, budgetLines, budgetActuals, scenes, shots, levels, experiences, fileEvents` |
 | `{userData}/rabbit-data/projects/{id}/files/` | Fallback blob storage when no user-visible project folder is configured |
@@ -477,7 +478,8 @@ project is one `UPDATE` and not a cascade.
 |---|---|---|
 | `platform_audit` | Has a `workspace_id` column but **no FK**, and snapshots slug + name as text | A `workspace.teardown` certificate must still name the company after the row is gone. A migration post-condition fails the deploy if an FK ever appears. |
 | `workspace_ai_keys`, `edge_rate_limits`, `storage_gc_queue` | **Zero policies at all** | Tenancy is enforced by the absence of any client grant. Service-role only. |
-| `notes`, `note_subjects`, `otter_progress` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on `otter_progress`, which has no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes or study progress. |
+| `notes`, `note_subjects`, `otter_progress`, `otter_quiz_attempts` | Tenancy **plus** `owner_id = auth.uid()` (`user_id = auth.uid()` on the two O.T.T.E.R. tables, which have no `owner_id` column), with **no admin bypass** | Private personal content. A workspace admin cannot read another member's notes, study progress or quiz marks. |
+| `otter_quiz_attempts` (again) | **No UPDATE policy at all**, and a 30-day window inside the SELECT policy | An attempt records something that happened, so immutability is enforced by the ABSENCE of a policy (RLS default-denies an unpoliced verb) rather than by a CHECK anyone could forget. 🚨 The window is why `otter_prune_quiz_attempts()` must be SECURITY DEFINER — see §15. |
 | `otter_courses` (personal tier) | No `current_app_role()` in the SELECT policy at all | Enforced by a post-condition that fails the migration if any SELECT policy on `otter_courses`/`otter_progress` ever mentions it. |
 | `auth_attempt_log` | Operator-read, no membership requirement | Written pre-authentication; no workspace session exists yet. |
 | `workspaces` | Keys on `id IN (SELECT workspace_id FROM workspace_members WHERE user_id = auth.uid() AND is_active)`, **not** on the JWT claim | It *is* the tenant row, and the Workspace Switcher needs to list every workspace you actively belong to — not only the current one. |
@@ -537,9 +539,21 @@ no admin bypass).
 RABBIT tables, one SELECT policy and no write policy at all; the DEFINER
 capture trigger is the only writer.
 
-**O.T.T.E.R.** (0022, extended 0024/0025/0026) — `otter_courses` (carries the
-five reference-document JSONB blobs), `otter_subjects`, `otter_progress`,
-`otter_course_editors`, `otter_change_requests`.
+**O.T.T.E.R.** (0022, extended 0024/0025/0026/**0045**) — `otter_courses`
+(carries the five reference-document JSONB blobs), `otter_subjects`,
+`otter_progress`, `otter_course_editors`, `otter_change_requests`, and
+**`otter_quiz_attempts`** (0045; one personal quiz history, 30-day retention,
+replacing the per-course `otter_progress.quiz_attempts` column that 0045
+drops).
+
+> ⚠️ **MEASURED 2026-08-05: every one of these tables is EMPTY on all three
+> environments** — `otter_courses` holds 0 rows on dev, staging and prod,
+> including trashed. O.T.T.E.R. has never created a course in cloud; the real
+> content is six courses on Local Server. `scripts/probes/otter-cloud-e2e.sql`
+> is the answer to "does the cloud path work at all": create course → library
+> RPC → save subject → read back → apply a validator fix → verify the
+> correction → record a quiz attempt → read it back → prune. **9/9 on dev and
+> staging.**
 
 **Files and storage** — `file_events` (0027, append-only lifecycle stream),
 `storage_gc_queue` (0027, service-role work list).
@@ -1741,10 +1755,18 @@ produces a grade, an accuracy percentage and findings marked
 call. **Results are session state and are not persisted anywhere.**
 
 **Quiz**: multiple-choice, code-identification and code-writing questions
-generated by Haiku 4.5 with no web search, scored client-side. The
-`otter_progress.quiz_attempts` column and the quiz-history routes exist
-server-side but the client never calls them, so a quiz score also does not
-survive the visit (§17).
+generated by Haiku 4.5 with no web search, scored client-side. **Session 30
+gave it a writer.** A finished quiz is recorded in `otter_quiz_attempts`
+(migration 0045) — one personal history per (workspace, user), kept 30 days —
+and the results screen says whether the save succeeded, because "Try Again"
+zeroes the score and used to destroy the only copy.
+
+> 🚨 **The old `otter_progress.quiz_attempts` column was PER-COURSE and is
+> dropped.** A quiz is assembled from every course the user ticks
+> (`quizSelections`), so an attempt has no single `course_id` — which is why
+> the pre-existing storage path could never have worked even once it was
+> called. Only `codeWrite` challenges go unrecorded: nothing marks them, and
+> `quizComplete` is only ever set from the multiple-choice path.
 
 ### 13.3 R.A.B.B.I.T.
 
@@ -2166,12 +2188,13 @@ else.
 
 ## 15. Testing and verification
 
-**pgTAP** — 54 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
+**pgTAP** — 55 suites under `supabase/tests/rls/` (Session 20 added 39–42, one
 per model control-plane table; **Session 24 added 43–47, one per money table;
 Session 25 added 48–51, one per entity table; Session 26 added 52_folders;
-Session 27 added 53_money_segments; Session 28 added 54_task_templates**; the
-CI coverage guard globs `*_<table>.sql`, so a table cannot share a suite file
-with another), **832 assertions** — run in CI against a fresh local stack.
+Session 27 added 53_money_segments; Session 28 added 54_task_templates;
+Session 30 added 55_otter_quiz_attempts**; the CI coverage guard globs
+`*_<table>.sql`, so a table cannot share a suite file with another),
+**854 assertions** — run in CI against a fresh local stack.
 
 > 🚨 **53_money_segments is the first suite covering no table of its own** —
 > it pins `storage.objects` policies and the `rabbit_money_segment` predicate.
@@ -2194,9 +2217,9 @@ lockdown).
 > since S22 — this section is a **gate, not an oracle** (S21 corrected its
 > suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
 > assertion count again, S26, S27 and S28 the suite and assertion counts once
-> more). Both figures here are measured, 2026-08-04, by
-> `node scripts/tap-all.mjs` against wilson-dev: **54 suites, 832 planned,
-> 832 passed, `collected == planned` on every one.** **Check the code.**
+> more, S30 both again). Both figures here are measured, 2026-08-05, by
+> `node scripts/tap-all.mjs` against wilson-dev: **55 suites, 854 planned,
+> 854 passed, `collected == planned` on every one.** **Check the code.**
 
 > 🚨 **A SUITE THAT HAS ONLY EVER PASSED IS A SUITE YOU HAVE NOT TESTED.**
 > S27 ran four deliberate breakers against 0042/0043; S28 ran six against 0044
@@ -2207,6 +2230,19 @@ lockdown).
 > policies in this schema already have. Write the breakers you expect to pass
 > as well as the ones you expect to fail: the first kind is how a confident
 > sentence in a migration header gets checked.
+>
+> 🚨 **S30 went one better: the suite failed on its FIRST run and the
+> MIGRATION was wrong, not the test.** 0045 put a 30-day retention window in
+> `otter_quiz_attempts_select` so the promise would be a database guarantee.
+> Probe pair came back `have: 2 want: 1`, because **PostgreSQL applies SELECT
+> policies to an UPDATE or DELETE whenever the statement reads rows for its
+> WHERE clause** — so the window hid expired rows from the very statement
+> meant to prune them, and "wiped every month" would have shipped meaning
+> "hidden every month and kept forever". `otter_prune_quiz_attempts()`
+> (SECURITY DEFINER, no arguments, hardcodes `auth.uid()`) exists solely
+> because of that, and probe 15 pins the refusal the ordinary path gets so
+> nobody deletes the function believing it redundant. **A window in a SELECT
+> policy is not free: check what else has to read those rows.**
 
 **Money arithmetic** — `src/components/Budget/budgetMath.js` is the single
 definition of the rules that decide what a production is bid at: the
@@ -2217,15 +2253,27 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **36 files, 803 cases** (measured 2026-08-05; this line read "15
+**Vitest** — **38 files, 834 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project
 attachments, edit-history formatting and revert, the relink matcher, the
 realtime merge layer, money arithmetic, the adapter column allowlist, entity
 naming, folder paths and folder parity, the project manifest, Session 27's
-project rates mirror and upload scope, Session 28's `taskPayloadKeys`, and —
-Session 29 — `writeGate` plus the denial-reason half of the project matrix.
+project rates mirror and upload scope, Session 28's `taskPayloadKeys`,
+Session 29's `writeGate` plus the denial-reason half of the project matrix,
+and — Session 30 — `validatorSave` and `quizWiring`.
+
+> 🚨 **THE LAST TWO ARE CALLER GUARDS, AND THAT IS A DIFFERENT JOB FROM THE
+> REST OF THIS LIST.** `otterRoutes.test.js` asserted that the parser maps
+> `/api/software/:slug/quiz-history` onto `quiz.put`. It was correct, it
+> passed for twenty sessions, and **nothing ever requested that URL** — the
+> whole quiz feature was plumbing with no tap. Four features have now shipped
+> in that state (the folder tree S27, task templates S28, quiz history S30,
+> and `setOtterAdapterMode`, which is still dead). A test that pins a
+> MECHANISM cannot tell you the mechanism is reached; `quizWiring.test.js`
+> asserts that `nextQuestion` actually calls the writer, and fails if the call
+> is removed while every other test stays green.
 
 > ⚠️ **WHAT `writeGate.test.js` CANNOT SEE, stated because a green suite here
 > reads like proof.** Nothing in this suite mounts React, so it can assert that
@@ -2625,9 +2673,19 @@ global Space shortcut firing from every page.
 
 **Product gaps that read as bugs**
 
-- Quiz scores and Validator findings are **never persisted** — the columns,
-  routes and adapter operations all exist server-side, but the client never
-  calls them.
+- ~~Quiz scores and Validator findings are never persisted~~ — **quiz scores
+  are FIXED (S30, migration 0045): the storage path had existed since Session
+  10 and simply had no caller.** Validator **audit reports** are still not
+  stored, and that is now a decision rather than a gap — Audrey, 2026-08-05:
+  *"just make Accept actually save."* The loss she was reporting was the
+  accepted CORRECTION, which used to 404 on Local Server and report success
+  anyway; that is fixed at both ends.
+- **Signing in on the desktop app empties the O.T.T.E.R. library** and there
+  is no control to switch back: `otterFetch` routes to Supabase whenever the
+  session carries a `workspace_id`, cloud holds zero courses, and
+  `setOtterAdapterMode` — described in two comments as "the Settings
+  override" — has **no callers**. Content de-prioritised by Audrey; the
+  silence is not. See `OUTSTANDING.md`.
 - Settings → Tools "Storage Location" is an editable field that has no effect;
   `getDataDir()` hardcodes the userData path.
 - R.A.B.B.I.T.'s agent integration is prompt-selection only — and in fact

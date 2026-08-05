@@ -370,9 +370,60 @@ The one candidate not yet excluded is whether the Storage API populates
 refused in every environment. One devtools Network capture of the
 `POST /storage/v1/object/user-avatars/...` settles it.
 
-### O.T.T.E.R. validator findings and quiz scores are not saved
-**MEASURED.** Known #2. Both generate correctly and neither result is
-persisted, so the work is lost on navigation.
+### ~~O.T.T.E.R. validator findings and quiz scores are not saved~~ — FIXED (S30, `2d8b658` + `c3317d4`)
+Deleted per the rule for this file. The one line really was three defects, and
+none of the three was what it said.
+
+**1. The Validator's "Accept Fix" never saved — and reported that it had.**
+Two faults stacked so neither was visible: `electron/main.cjs` had no PUT route
+for a subject (so on Local Server, where all six of Audrey's courses live,
+every accepted fix 404ed), and `applyFix` did not check `res.ok` (so the 404
+was reported as a green "Fix #n applied"). Either alone would have shown
+something. Both are fixed, and `validatorSave.test.js` pins each half —
+proven by removing them one at a time.
+
+**2. "Apply fix" parity.** The missing Express route was the whole of it;
+cloud has worked since Session 10.
+
+**3. Quiz scores — the path was built and had no caller.** Column, both
+adapter ops, route mapping, and a PASSING unit test, for twenty sessions.
+Migration 0045 replaces the per-course column with `otter_quiz_attempts`
+(one personal history, 30 days), because a quiz spans courses and the old
+shape could not hold one. `quizWiring.test.js` fails if the call is removed.
+
+**Audrey declined audit-report storage** (2026-08-05): *"just make Accept
+actually save."* Findings still live only for the session — that is a scope
+choice, not breakage, so it is recorded in `MASTER_PLAN_S19_ONWARD.md`.
+
+**The export defect went with it.** `export.all` called `quiz.get` once per
+course — the only caller on the entire quiz path — reading a column nothing
+had ever written, so every export WILSON produced carried an empty quiz
+history while presenting itself as complete. Both backends now ship one
+honest top-level `quiz_history`.
+
+### Signing in to the desktop app hides O.T.T.E.R.'s local courses, with no way back
+**MEASURED at code level (2026-08-05); NOT observed at runtime.**
+`otterFetch` routes to Supabase whenever the session carries a `workspace_id`
+(`adapters/index.js:47-59`), and cloud holds **0 courses on every
+environment** — so a signed-in desktop user sees an empty library while six
+courses (49 subjects, 138 lessons) sit in `%APPDATA%\wilson\otter-data`.
+
+The escape hatch is referenced twice in comments and **does not exist**:
+`setOtterAdapterMode` has **zero callers anywhere in the repo**, so
+`modeOverride` is permanently `'auto'`. `adapters/index.js:26` calls it "the
+Settings override" and `Otter.jsx:238` says "the Settings mode override can pin
+local while a session exists". Neither is true. That is a fifth instance of the
+no-caller shape, found while looking for something else.
+
+→ **Audrey has de-prioritised the CONTENT** (2026-08-05): *"thats not
+important … we can start with otter being empty. i can generate new courses
+during beta testing."* So no migration is owed. What is still owed is that the
+app says nothing when a library empties on sign-in, and offers no way to look
+at the old one. Small; not scheduled.
+
+<!-- removed: the original entry read —
+Known #2. Both generate correctly and neither result is persisted, so the work
+is lost on navigation.
 
 > 🚨 **THIS ENTRY WAS ONE LINE COVERING THREE DIFFERENT DEFECTS, and two of
 > them are not what it says. MEASURED 2026-08-04, by grepping for the writer
@@ -436,8 +487,20 @@ persisted, so the work is lost on navigation.
 > `.maybeSingle()` and no `user_id`, though the table is keyed
 > `(course_id, user_id)`. `otter_progress_select` (`0022:607-612`) carries
 > `AND user_id = auth.uid()`, so RLS returns at most one row.
+-->
 
-→ **Audrey scheduled this as its own session (2026-08-04): S30.**
+**Two things the S30 investigation corrected in the block above, kept because
+both were confidently written and both were wrong:**
+
+- It said the accept-fix problem was "a parity gap, cloud is the one that
+  works". Cloud's DATABASE works — the e2e probe is 9/9 on dev and staging —
+  but the CLIENT was broken on both backends, because an unchecked `res.ok`
+  turns an RLS refusal into a green tick just as readily as a 404 does.
+- It called the quiz half "WIRING, not building". Wiring alone would have
+  filed a multi-course score under one arbitrary course. The measurement that
+  changes it is `quizSelections`: a quiz is assembled from every course the
+  user ticks, so `otter_progress`'s `course_id NOT NULL` cannot hold an
+  attempt at all.
 
 ### The pet and per-user settings do not follow the user between computers
 **MEASURED (2026-08-04).** Audrey signed into the **same account** (`audrey`,
@@ -541,6 +604,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S30 (2026-08-05) | **one entry: signing in to the desktop app hides O.T.T.E.R.'s local courses**, with no way back — found while establishing which backend Audrey's report came from, not by looking for it. Nothing regressed. Two scope choices are recorded in `MASTER_PLAN_S19_ONWARD.md` rather than here, per this file's own rule: Audrey declined storage for validator audit REPORTS (*"just make Accept actually save"*), and the quiz history is deliberately per (workspace, user) rather than per person. | **O.T.T.E.R. validator findings and quiz scores** — the whole three-defect entry, by `2d8b658` (no SQL) and `c3317d4` (migration 0045, applied and verified **by query** on dev, staging and prod). The export defect recorded inside it went with it. The single most useful measurement of the session was taken before any code: **`otter_courses` holds 0 rows on dev, staging AND prod**, including trashed, while all six of Audrey's real courses are on Local Server — which identified the backend her report came from and made "build cloud storage for it" the wrong shape twice over. |
 | S29 (2026-08-05) | **nothing.** Nothing regressed, and every defect S29 found was also fixed in it — so per this file's own rule they are commit messages, not entries. Four are worth knowing about anyway, all in `7443fed`: `ready` was missing from **three** gates (`TaskDetailPopup`, `DashboardTasksView`, `TeamView`) which is the S23 bug surviving in three files that looked correctly gated; and **inline row editing was ungated** in both `ProjectTasksView` and `ProjectAssetsView` — every cell, dropdown, date and kanban drag committed through an unguarded funnel, which is why both files read as "already gated" when only their create buttons were. Two stated limits are recorded in `MASTER_PLAN_S19_ONWARD.md` rather than here, because they are scope choices and not breakage: hover-revealed row icons still hide rather than grey, and `ProjectSummaryView`'s control-panel button still hides. **The three verification items were NOT closed** — the checklist went to Audrey at the START of the session this time, and the observations had not come back before the work was committed. The assignee-dropdown entry below is therefore untouched. | **every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag** — the whole entry, historical block included. The reported half was explained in S28 (`tester` correctly has no seat); the real defect was the inverse and is fixed by `7443fed`: `TimelineView.jsx` now gates ~12 create affordances, both panes' bar drags, drag-to-draw, reparent, the dependency grip and rewire, and the editor's Save/Delete. The S23 UX note the entry carried is retired rather than moved — Audrey chose "keep button gray and explain why", and `GatedAction` applies that everywhere instead of hiding. |
 | S28 (2026-08-04) | **nothing.** Nothing regressed and nothing new was found broken. One stated limit of what shipped is recorded in `MASTER_PLAN_S19_ONWARD.md` rather than here, per this file's own rule: `canWriteTaskTemplate` is stricter than RLS for a project manager viewing a template pinned to a project they do not currently have open — deliberate, documented in the function, and fails CLOSED. The three verification items were **not** closed: Audrey was given a checklist and the observations had not come back by the time the work was committed, so the dropdown entry below stays exactly as it was rather than being quietly narrowed. | **task templates absent in cloud** (0044 + `06bf564`, applied and verified **by query** on dev, staging and prod, and proven end to end by a rolled-back probe on dev AND staging). The `role_slug` defect recorded inside that entry went with it — it was reachable only through the branch 0044 brought to life, and it is fixed at both sites with a source-level guard that fails if either is reverted. |
 | S27 (2026-08-04) | **nothing.** Nothing regressed and nothing new was found broken that is not already listed. The task-templates entry was annotated — its third deferral was Audrey's explicit decision this time, which is worth distinguishing from a session running out of room. ⚠️ The new file surfaces (FileManager in cloud, the Resources drop zone, the folder/manifest panel) are **built and not yet watched working** — that belongs in `MASTER_PLAN_S19_ONWARD.md` per this file's own rule, not here, and it is recorded there. | **project-scoped rates absent from the project folder** (0042 + `5384d4e`, applied and verified **by query** on dev, staging and prod). Two defects that were never on this list were also fixed and are recorded in the commit rather than here, because a thing found and fixed in one session is a commit message: the manifest could only ever be written ONCE per project (no UPDATE policy has ever existed on the rabbit-files bucket), and the folder tree had produced ZERO rows on any environment because its only caller was `createProject`. |
