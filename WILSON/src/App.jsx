@@ -14,6 +14,7 @@ import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
 import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
+import { resolveUserPet, saveCloudPet, mirrorPetToCache } from './lib/userState'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
@@ -174,6 +175,60 @@ function derivePetState(pet) {
   if (pet.hunger <= 40) return 'hungry';
   if (pet.happiness <= 30) return 'lonely';
   return 'content';
+}
+
+/**
+ * Bring a stored pet up to date from elapsed time. Pure — returns a new object.
+ *
+ * 🚨 THIS IS WHY DECAY IS NOT PERSISTED ON A TIMER (S31). hunger and happiness
+ * are a value AT AN ANCHOR (`lastUpdatedAt`), not raw state, so a pet that has
+ * not been touched for a week needs no writes at all — the anchor stays put and
+ * this recomputes the difference on the next read. Removing the 30-second
+ * whole-object auto-save is what stops two signed-in computers overwriting each
+ * other; this function is the half that makes that safe.
+ *
+ * ⚠️ The decay anchor is `lastUpdatedAt`, NOT `lastFedAt`. The plan documents
+ * said to anchor on last_fed_at; MEASURED 2026-08-05, `lastFedAt` is written by
+ * handleFeed and read by NOTHING anywhere in src/ or electron/.
+ *
+ * It was previously inline in the mount effect, and the live 30s tick applies a
+ * different, fuller algorithm (sleep-end, evolution, corpse→ghost). They still
+ * differ; this is the cold-start one, extracted so the local and cloud load
+ * paths cannot drift apart.
+ */
+/**
+ * The fields whose change MUST reach storage. Everything else is either
+ * recomputable from the anchor (hunger, happiness, state) or already saved by
+ * the handler that changed it (name, difficulty, petMode, feedback, counts).
+ *
+ * This is what replaced the 30-second whole-object auto-save: the four
+ * transitions a timer used to be needed for — falling asleep, waking, evolving,
+ * dying — persist when they happen and at no other time.
+ */
+function petMaterialSignature(pet) {
+  if (!pet) return null;
+  return [pet.form, pet.sleepingSince || '', pet.evolvedAt || '', pet.diedAt || ''].join('|');
+}
+
+function applyOfflineDecay(input) {
+  const pet = { ...input };
+  if (pet.lastUpdatedAt && pet.form !== 'egg' && pet.form !== 'corpse' && pet.form !== 'ghost') {
+    const elapsed = (Date.now() - new Date(pet.lastUpdatedAt).getTime()) / 60000;
+    if (elapsed > 0 && !pet.sleepingSince) {
+      const rates = DECAY_RATES[pet.difficulty] || DECAY_RATES.medium;
+      const babyMult = pet.form === 'baby' ? 2 : 1;
+      pet.hunger = Math.max(0, pet.hunger - elapsed * rates.hunger * babyMult);
+      pet.happiness = Math.max(0, pet.happiness - elapsed * rates.happiness * babyMult);
+    }
+    if (pet.hunger <= 0) {
+      pet.form = 'ghost';
+      pet.diedAt = pet.diedAt || new Date().toISOString();
+      pet.hunger = 0;
+    }
+  }
+  if (pet.form !== 'egg' && !pet.breed) pet.breed = 'otter';
+  pet.state = derivePetState(pet);
+  return pet;
 }
 
 export default function App() {
@@ -369,12 +424,31 @@ export default function App() {
     return () => { cancelled = true; unsub(); };
   }, [authed]);
 
-  // Sign out: clear the local session + reset auth state. Exposed on window
-  // for the next-session Settings panel to wire up; doesn't affect the UI yet.
+  // Sign out: clear the local session + reset auth state. Wired to the Settings
+  // panel in S31; MfaEnrollGate's "Sign out instead" was the only caller before.
+  //
+  // 🚨 S31: `{ scope: 'local' }` IS NOT COSMETIC. This call had no scope
+  // argument, which means a GLOBAL revoke of every refresh token the person
+  // holds. The operator console deliberately passes scope:'local' for the
+  // opposite reason (OperatorApp.jsx), and Audrey is both a platform operator
+  // and a workspace admin who runs two accounts in two browsers at once — so
+  // an unscoped sign-out here would silently drop her operator console at its
+  // next token refresh, minutes later, with nothing on screen connecting the
+  // two. Ending THIS surface's session is what the button promises.
+  //
+  // ⚠️ The same unscoped call still exists in ResetPasswordWizard; it is left
+  // alone here because changing what a password reset revokes is a security
+  // decision, not a tidy-up. Recorded in docs/OUTSTANDING.md.
   useEffect(() => {
     window.wilsonSignOut = async () => {
-      try { await supabase.auth.signOut(); } catch { /* swallow */ }
+      try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* swallow */ }
       await clearSession();
+      // 🚨 Belt and braces with the perms.userId teardown effect: this runs
+      // even if the permissions channel is slow to notice, so the next person
+      // at this computer cannot see the previous person's pet for a beat.
+      setPetData(null);
+      petUserIdRef.current = null;
+      petPersistedSigRef.current = null;
       setAuthed(false);
       setShowOverlay(true);
     };
@@ -444,8 +518,14 @@ export default function App() {
   const petSavingRef = useRef(false);
   const petPendingRef = useRef(null);
   const [petSaveError, setPetSaveError] = useState(null);
+  // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
+  // null when signed out, which is what routes a save to the per-device cache.
+  const petUserIdRef = useRef(null);
+  // S31: the last material signature actually written. Primed by both load
+  // paths so that LOADING a pet never counts as a change to persist.
+  const petPersistedSigRef = useRef(null);
   const petTimerRef = useRef(null);
-  const petSaveTimerRef = useRef(null);
+  // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
 
   // Companion state
   const [companionOpen, setCompanionOpen] = useState(false);
@@ -489,7 +569,24 @@ export default function App() {
     if (petSavingRef.current) { petPendingRef.current = data; return; }
     petSavingRef.current = true;
     try {
-      await savePetData({ ...data, lastUpdatedAt: new Date().toISOString() });
+      const next = { ...data, lastUpdatedAt: new Date().toISOString() };
+      // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
+      // Electron". `hasLocalServer()` (window.electronAPI) is true for the
+      // DESKTOP APP IN CLOUD MODE too, so branching on it would pin every
+      // signed-in desktop user to the per-device file forever — the standing
+      // rule, and the same predicate that empties the O.T.T.E.R. library.
+      //
+      // Read from a ref rather than a dependency so savePet keeps a stable
+      // identity: it sits in the decay/auto-save effects' dependency lists, and
+      // S30 moved petSaving to a ref for exactly this reason.
+      if (petUserIdRef.current) {
+        await saveCloudPet(next);
+        // The cache is a mirror, never the authority. It must not be able to
+        // report failure for a cloud write that succeeded.
+        await mirrorPetToCache(next);
+      } else {
+        await savePetData(next);
+      }
       setPetSaveError(null);
     } catch (err) {
       setPetSaveError(err?.message || 'Your pet could not be saved.');
@@ -501,40 +598,98 @@ export default function App() {
     }
   }, []);
 
-  // Load pet on mount + calculate offline decay
+  // Load the CACHED pet on mount so the companion renders instantly. The
+  // authoritative read is the sign-in effect below; this one is the cache.
+  //
+  // 🚨 S31 — TWO THINGS THIS DELIBERATELY NO LONGER DOES:
+  //
+  //   * It does not SAVE. It used to call savePet() unconditionally on every
+  //     launch, so merely opening WILSON was a full-object write. Against a
+  //     shared per-user row that made "open the app on the second computer" a
+  //     clobbering event even if the user touched nothing — the precise thing
+  //     Audrey asked to have fixed.
+  //   * It does not stamp `lastUpdatedAt = now`. That line destroyed the decay
+  //     anchor on every launch, which is also why `lastUpdatedAt` could never
+  //     be used to order two devices' pets. The anchor now survives until a
+  //     real interaction moves it, and applyOfflineDecay reads the difference.
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        let pet = await loadPet();
+        const stored = await loadPet();
         if (!mounted) return;
-
-        // Offline decay calculation
-        if (pet.lastUpdatedAt && pet.form !== 'egg' && pet.form !== 'corpse' && pet.form !== 'ghost') {
-          const elapsed = (Date.now() - new Date(pet.lastUpdatedAt).getTime()) / 60000;
-          if (elapsed > 0 && !pet.sleepingSince) {
-            const rates = DECAY_RATES[pet.difficulty] || DECAY_RATES.medium;
-            const babyMult = pet.form === 'baby' ? 2 : 1;
-            pet.hunger = Math.max(0, pet.hunger - elapsed * rates.hunger * babyMult);
-            pet.happiness = Math.max(0, pet.happiness - elapsed * rates.happiness * babyMult);
-          }
-          if (pet.hunger <= 0) {
-            pet.form = 'ghost';
-            pet.state = 'dead';
-            pet.diedAt = pet.diedAt || new Date().toISOString();
-            pet.hunger = 0;
-          }
-        }
-
-        if (pet.form !== 'egg' && !pet.breed) pet.breed = 'otter';
-        pet.state = derivePetState(pet);
-        pet.lastUpdatedAt = new Date().toISOString();
-        setPetData(pet);
-        savePet(pet);
-      } catch { /* silent — server may not be ready yet */ }
+        const fresh = applyOfflineDecay(stored);
+        // Prime, do not save. An offline death computed here is idempotent —
+        // the next load recomputes the same ghost from the same anchor — so
+        // persisting it would put the write back into app startup.
+        petPersistedSigRef.current = petMaterialSignature(fresh);
+        setPetData(fresh);
+      } catch (err) {
+        // 🚨 S31: loadPet is the one localData function S30 left with neither a
+        // res.ok check nor a reported catch, and this was `catch { /* silent */ }`.
+        // A failed load renders as "the pet is gone" — petData stays null and the
+        // whole companion is unmounted — rather than as an error, which is the
+        // same class of silence S30 spent a session removing from the savers.
+        if (mounted) setPetSaveError(err?.message || 'Your pet could not be loaded.');
+      }
     })();
     return () => { mounted = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── S31: the pet follows the PERSON ───────────────────────────────────────
+  //
+  // 🚨 KEYED ON perms.userId, NOT ON `authed`. Three measured reasons:
+  //
+  //   1. The mount effect above runs BEFORE authentication resolves — it is
+  //      declared later but wins the race, because checkSessionValid awaits an
+  //      IPC round trip and then setSession, while the cached read resolves on
+  //      the first microtask. A cloud read on the first pass has no session
+  //      installed and RLS returns nothing.
+  //   2. `authed` is a BOOLEAN. It does not change when the identity underneath
+  //      it does, so an account switch is invisible to it — which is why
+  //      WorkspaceSwitcher resorts to window.location.reload().
+  //   3. usePermissions already re-derives userId on SIGNED_IN, SIGNED_OUT and
+  //      TOKEN_REFRESHED by decoding the token, so keying on it needs no new
+  //      onAuthStateChange subscriber — and therefore cannot deadlock on the
+  //      auth-js navigator lock the way a naive async callback does.
+  useEffect(() => {
+    if (!perms.ready) return;
+    const userId = perms.userId || null;
+    petUserIdRef.current = userId;
+
+    // ── Signed out: TEAR DOWN. ───────────────────────────────────────────────
+    // 🚨 Without this, S31's own Sign out button would be a REGRESSION.
+    // clearSession() only clears the auth blob; nothing has ever cleared the
+    // pet. The previous person's pet stayed in React state, kept decaying, kept
+    // auto-saving, and reappeared for whoever signed in next — on the web AND
+    // on the desktop, where pet.json survives on disk. That leak has been
+    // nearly unreachable only because the sole sign-out control is buried in
+    // the MFA enrolment gate. Adding a reachable one without this teardown
+    // would turn a latent leak into a routine one.
+    if (!userId) { setPetData(null); return; }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const { pet, adopted } = await resolveUserPet();
+        if (cancelled || !pet) return;
+        const fresh = applyOfflineDecay(pet);
+        petPersistedSigRef.current = petMaterialSignature(fresh);
+        setPetData(fresh);
+        setPetSaveError(null);
+        if (adopted) await mirrorPetToCache(fresh);
+      } catch (err) {
+        // A failed cloud read must NOT blank the pet — the cached one is still
+        // true, and this is the cache-plus-cloud rule modelSources established.
+        // It must still SAY so, because "your pet stopped syncing" and "your pet
+        // is fine" look identical on screen.
+        if (!cancelled) {
+          setPetSaveError(err?.message || 'Your pet could not be synced from your account.');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [perms.ready, perms.userId]);
 
   // Decay timer — runs every 30 seconds
   useEffect(() => {
@@ -612,13 +767,53 @@ export default function App() {
     return () => clearInterval(petTimerRef.current);
   }, [petData?.form, petData?.petMode, petData?.difficulty]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-save pet every 30 seconds
+  // ── S31: THE 30-SECOND AUTO-SAVE IS GONE, AND THAT IS THE FIX ─────────────
+  //
+  // It used to be:
+  //     petSaveTimerRef.current = setInterval(() => {
+  //       setPetData(p => { if (p) savePet(p); return p; });
+  //     }, 30000);
+  //   }, [petData, savePet]);
+  //
+  // 🚨 It is deleted rather than debounced, because on a shared per-user row it
+  // is the clobber itself. localData.js's KNOWN GAP note called this out when
+  // the app was still "a one-window product": two clients each running this
+  // timer overwrite each other's whole pet object every half minute, and
+  // Audrey's hunger would visibly jitter between two values — the exact symptom
+  // she asked to have removed.
+  //
+  // ⚠️ And it was worst precisely where it looked safest. The decay reducer
+  // returns the IDENTICAL object reference for an egg, a corpse, a ghost, or
+  // petMode off, so `petData` never changes, so this effect was never torn down
+  // and fired cleanly every 30s over the other machine's live state. Audrey's
+  // own pet is a GHOST — one of those four. The egg race was the sharpest case:
+  // hatch on the laptop, and the desktop still holding an egg writes it back
+  // within 30 seconds, so the adult is gone and the next hatch rolls a
+  // different breed.
+  //
+  // Nothing is lost by deleting it. Decay does not NEED persisting: hunger and
+  // happiness are a value at `lastUpdatedAt`, and applyOfflineDecay recomputes
+  // the difference on the next read. Every user-visible interaction already
+  // saves synchronously (feed, pet, hatch, thumb, difficulty, petMode, reset),
+  // and the material transitions the timer used to catch — falling asleep,
+  // waking, evolving, dying — now persist at the point they happen, in the
+  // decay tick above.
+  //
+  // The invariant that makes this safe: hunger/happiness and lastUpdatedAt are
+  // only ever written TOGETHER, by savePet.
+  //
+  // What replaces it: persist only when a MATERIAL field changes. This effect
+  // depends on petData, so it re-runs on every decay tick, but it WRITES only
+  // when the signature moves — which is why deleting the timer does not lose
+  // sleep, waking, evolution or death. The ref is primed by both load paths, so
+  // loading a pet is never mistaken for changing one.
   useEffect(() => {
     if (!petData) return;
-    petSaveTimerRef.current = setInterval(() => {
-      setPetData(p => { if (p) savePet(p); return p; });
-    }, 30000);
-    return () => clearInterval(petSaveTimerRef.current);
+    const sig = petMaterialSignature(petData);
+    if (petPersistedSigRef.current === null) { petPersistedSigRef.current = sig; return; }
+    if (petPersistedSigRef.current === sig) return;
+    petPersistedSigRef.current = sig;
+    savePet(petData);
   }, [petData, savePet]);
 
   // Sleep Z cycle animation
@@ -953,15 +1148,25 @@ export default function App() {
     });
   }, [savePet]);
 
+  // 🚨 S31: this was `catch { /* silent */ }` — structurally the same shape as
+  // the Validator's "Accept Fix", a green tick over a write that may not have
+  // happened. Hatching a new egg is the one action taken by somebody whose pet
+  // has DIED, so failing at it silently is the worst possible moment to be
+  // quiet. newPetEgg writes to the per-device store; the new egg is then
+  // promoted to the account by savePet, so the pet a person starts after a
+  // death follows them like any other.
   const handleNewPet = useCallback(async () => {
     try {
       const pet = await newPetEgg();
-      if (!pet.error) {
-        setPetData(pet);
-        setChatMessages([]);
-      }
-    } catch { /* silent */ }
-  }, []);
+      if (pet?.error) throw new Error(pet.error);
+      setPetData(pet);
+      setChatMessages([]);
+      petPersistedSigRef.current = petMaterialSignature(pet);
+      await savePet(pet);
+    } catch (err) {
+      setPetSaveError(err?.message || 'A new egg could not be created.');
+    }
+  }, [savePet]);
 
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
   // fromHistory: true when the browser back/forward button initiated the

@@ -7,6 +7,7 @@ import TaskTemplateManager from './TaskTemplates/TaskTemplateManager'
 import AgentSkillsSection from './settings/AgentSkillsSection'
 import ProfileSection from './settings/ProfileSection'
 import PasswordSection from './settings/PasswordSection'
+import SessionSection from './settings/SessionSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
@@ -316,6 +317,10 @@ export default function SettingsPage({
               {/* Session 9: TOTP management (locked #9 — required for
                   admins, offered to everyone). */}
               <MfaSecuritySection />
+              {/* Session 31: Sign out. Belongs on the identity tab, next to the
+                  password and 2FA. Ships with the pet teardown in App.jsx —
+                  see the header of SessionSection for why they are one change. */}
+              <SessionSection />
             </>
           )}
 
