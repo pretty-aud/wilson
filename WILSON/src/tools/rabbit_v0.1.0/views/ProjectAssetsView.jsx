@@ -1013,9 +1013,11 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
   }, [asset.id, onUpdate, onThumbChanged])
 
   // Borderless select — transparent until hover/focus
+  // ⚠️ Inline `cursor` beats the `disabled:cursor-not-allowed` class on the
+  // selects below — see the twin in ProjectTasksView.
   const flatSelect = {
     backgroundColor: 'transparent', border: '1px solid transparent',
-    outline: 'none', cursor: 'pointer',
+    outline: 'none', cursor: readOnly ? 'not-allowed' : 'pointer',
   }
 
   function renderCell(col) {

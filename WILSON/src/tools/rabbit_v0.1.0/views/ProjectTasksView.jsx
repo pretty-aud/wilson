@@ -1490,9 +1490,13 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   }
 
   // Borderless select — transparent until hover/focus
+  // ⚠️ `cursor` is set INLINE here, so it beats the `disabled:cursor-not-allowed`
+  // class on the selects below — Tailwind's variant cannot win against a style
+  // attribute. It has to be conditional at the source or a read-only row keeps
+  // promising, cursor-first, that its dropdowns are live.
   const flatSelect = {
     backgroundColor: 'transparent', border: '1px solid transparent',
-    outline: 'none', cursor: 'pointer',
+    outline: 'none', cursor: canWrite ? 'pointer' : 'not-allowed',
   }
 
   function renderCell(col) {
