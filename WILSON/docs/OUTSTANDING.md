@@ -50,7 +50,61 @@ RLS.
 
 ## Broken features
 
-### Every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag
+### ~~Every R.A.B.B.I.T. create button can vanish behind one `canWrite` flag~~ — the reported case is EXPLAINED (S28, 2026-08-04)
+
+> 🚨 **READ THIS BLOCK BEFORE THE HISTORICAL ONE BELOW.** Audrey supplied the
+> runtime observation four sessions had been asking for, and it resolves the
+> live case. The old analysis is kept underneath because it documents how the
+> investigation went wrong twice, but **it is no longer the current state.**
+>
+> **What she reported (2026-08-04):** *"its not showing for tester who is not a
+> manager or reviewer. but they can still see it in the timeline view."* Plus a
+> screenshot of the New Task dialog returning
+> `[supabase] new row violates row-level security policy for table "tasks"`.
+>
+> **MEASURED against staging** — the environment the beta runs on — every seat
+> on the only live project, `Legend Road` (staffed, 3 roster rows):
+>
+> | user | workspace role | project seat | DB allows task insert |
+> |---|---|---|---|
+> | `audrey` | admin | manager | **YES** (two independent routes) |
+> | `audrey2` | user | reviewer | no |
+> | `derek` | manager | member | YES |
+> | `hello` | manager | *none* | YES (workspace bypass) |
+> | **`tester`** | **user** | ***none*** | **no** |
+>
+> **So the missing button is the gate WORKING CORRECTLY.** `tester` holds no
+> seat on a staffed project and is not a workspace admin or manager, so
+> `can_write_project` is false — at the database and in the client mirror. The
+> Tasks and Board views hide the control because the database would refuse it.
+> Nothing is broken there.
+>
+> 🚨 **THE ACTUAL DEFECT IS THE INVERSE ONE, AND IT IS NEW.** `TimelineView.jsx`
+> has **zero** occurrences of `canWrite`, `canOnProject` or `usePermissions` —
+> MEASURED, it is the ONLY task-creating surface in R.A.B.B.I.T. with no
+> permission gate at all (seven other files carry one). So the Timeline offers
+> task creation to a user the database will always refuse, and the refusal
+> reaches them as a raw Postgres policy string. That is exactly the screenshot.
+>
+> **This is a bigger job than it sounds** and is NOT a one-line addition: the
+> Timeline has at least a dozen create entry points — the toolbar button
+> (`:4677`), two drop zones (`:2173`, `:2531`), drag-to-draw on empty space,
+> and a stack of context-menu items (`:5826`–`:6440`) — all funnelling through
+> `openNewTask` (`:259`). Gating only the funnel would leave every affordance
+> visible and inert, which is precisely the S23 "the button does nothing" bug
+> in a new place. **The funnel AND the affordances have to move together.**
+>
+> **What is NOT explained, and must not be quietly folded in:** the ORIGINAL
+> sighting, of the button showing "export" and then vanishing. `audrey` has
+> **two** independent routes to true (workspace admin AND project manager), so
+> no evaluation of the gate can hide it for her — which means that sighting was
+> either a different account in the other browser, or not the gate at all. It
+> is no longer worth an investigation on its own; if it recurs, capture which
+> browser and which account **at that moment**.
+
+---
+
+### *(historical — how this was investigated, kept for the lessons)*
 **MEASURED gate, cause STILL NOT ESTABLISHED.** Audrey reported the New Task
 button first showing the label "export", then disappearing from the Tasks tab
 *and* Board view.
@@ -466,6 +520,67 @@ refused in every environment. One devtools Network capture of the
 ### O.T.T.E.R. validator findings and quiz scores are not saved
 **MEASURED.** Known #2. Both generate correctly and neither result is
 persisted, so the work is lost on navigation.
+
+> 🚨 **THIS ENTRY WAS ONE LINE COVERING THREE DIFFERENT DEFECTS, and two of
+> them are not what it says. MEASURED 2026-08-04, by grepping for the writer
+> and then asking whether anything calls it.** Written down before S30 starts,
+> because "add persistence for both" would have been three wrong guesses and
+> would probably have added a duplicate table.
+>
+> **1. Validator findings — genuinely nothing exists.** `auditResults` is React
+> state (`Validator.jsx:121`) and there is no store for it on any backend, no
+> adapter op, and no route. This half is real and needs building.
+>
+> **2. "Apply fix" — works in CLOUD, silently 404s on Local Server.** Not a
+> persistence gap, a parity gap, and the code already says so:
+> `otterRoutes.js:162-165` — *"Validator.jsx:441 issues a PUT here. No such
+> Express route exists, so against the local server it has always been a silent
+> 404 — the 'apply fix' button never persisted anything. Cloud mode treats it
+> as the save it was clearly meant to be."* So this is the opposite way round
+> from the usual complaint: cloud is the one that works.
+>
+> **3. Quiz scores — the ENTIRE path is built and NOTHING CALLS IT.**
+> `otter_progress.quiz_attempts` is a column; `quiz.get` / `quiz.put` exist
+> (`supabaseOtterAdapter.js:404-420`); `otterRoutes.js:200-203` maps
+> `/api/software/:slug/quiz-history` GET/POST onto them; and
+> `otterRoutes.test.js:92-93` asserts that mapping and **passes**. MEASURED:
+> `quiz-history` has **zero** occurrences anywhere else in `src/` — no fetch,
+> no caller, nothing. The quiz UI never writes.
+>
+> **That is the third instance of the same shape** — the folder tree (S27) and
+> task templates (S28) were both complete features with no caller — and the
+> first where a **passing unit test** covers the dead path, which is exactly
+> why green tests are not evidence that something runs. The fix here is
+> WIRING, not building, and the two halves must not be sized as one job.
+
+→ **Audrey scheduled this as its own session (2026-08-04): S30.**
+
+### The pet and per-user settings do not follow the user between computers
+**MEASURED (2026-08-04).** Audrey signed into the **same account** (`audrey`,
+admin) on a second computer and was asked to create a new pet — the name,
+state, hunger and content levels did not travel. Her requirement, verbatim in
+substance: *"each user should have their personal settings saved along with the
+pet details and status. if i log on one computer and i see a pet that is hungry
+on another computer i should see the same pet at the same state."*
+
+The cause is not a sync bug — there is nothing to sync. `src/lib/localData.js`
+is **per-device by construction**: Express-backed storage in Electron,
+`localStorage` on the web. The pet lives there (`PetCompanion.jsx`,
+`SettingsPage.jsx`, `App.jsx` all read it), so a second machine has no pet to
+find and correctly offers to create one.
+
+→ Needs a per-user store in the database, its own RLS (a user reads and writes
+**only their own** row), a suite, adapter methods, and a one-time migration
+that adopts the existing local pet rather than overwriting it with a blank —
+otherwise the first cloud save wipes the pet she already has. **Do not treat
+this as a small fix.** ⚠️ Scope question for Audrey before any SQL: whether
+per-user settings are **per workspace** or global to the person.
+
+### There is no way to log out
+**MEASURED (2026-08-04).** `src/components/SettingsPage.jsx` contains **zero**
+occurrences of `signOut`, `logout` or `log out`. There is no sign-out control
+in System Settings, and Audrey asked for one. Small on its own; grouped with
+the per-user settings work because both touch the same screen.
 
 ### D4 is enforced for stored settings, not for a hand-made request
 **MEASURED (S20).** Migration 0031 FKs both override tables to

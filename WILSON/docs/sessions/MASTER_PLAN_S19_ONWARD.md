@@ -390,7 +390,40 @@ below are superseded; only one of them actually moves.
 | **S26** | Backend-agnostic **folder tree** + the project manifest — ✅ **DONE (`071682b`)** | needed scenes to exist before it could give each one a folder | `SESSION_26_prompt.md` |
 | **S27** | **Files everywhere** + the manifest surfaced in Resources — ✅ **DONE (`5384d4e`)** | manages the folders S26 creates | `SESSION_27_prompt.md` |
 | **S28** | **Task templates in cloud** — ✅ **DONE (`06bf564`)** | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
-| **S29** | Design pass, **and the runtime verification sweep it inherits** | unchanged, still last | `SESSION_29_prompt.md` |
+| **S29** | **The Timeline permission gate** + the verification sweep | the only task-creating surface with no gate; Audrey is hitting it | `SESSION_29_prompt.md` |
+| **S30** | **O.T.T.E.R. keeps its work** — validator findings, quiz scores | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
+| **S31** | **Per-user settings + the pet + logout** | her account must follow her between computers | `SESSION_31_prompt.md` |
+| **S32** | Design pass | unchanged, still last | `SESSION_32_prompt.md` |
+
+> ⚠️ **THE SEQUENCE GAINED THREE SESSIONS (Audrey, 2026-08-04).** After S28's
+> close-out she reported three things and asked for them to be split:
+> *"parse them out into one session for timeline, one for otter, then
+> settings."* The design pass moves S29 → **S32**; its brief already existed
+> and was renamed, with a header explaining which of its contents are stale.
+>
+> **What each one is, and what was MEASURED before writing the brief** — none
+> of these three was sized from the symptom:
+>
+> - **S29 — the Timeline gate.** The four-session "New task button disappears"
+>   mystery is **resolved, and nothing was broken where everyone was looking**:
+>   `tester` holds no seat on a staffed project, so the button is correctly
+>   hidden. The real defect is the inverse — `TimelineView.jsx` has **zero**
+>   occurrences of `canWrite`/`canOnProject`/`usePermissions`, the only
+>   task-creating surface with no gate, so it offers a control the database
+>   then refuses with a raw policy string. **A dozen affordances funnel through
+>   one `openNewTask`; gating only the funnel would recreate the S23 "button
+>   does nothing" bug.**
+> - **S30 — O.T.T.E.R.** The one-line entry is **three defects and two are not
+>   what it says**: validator findings genuinely need building; "apply fix"
+>   works in CLOUD and 404s on Local Server; and **quiz scores have a complete
+>   storage path — column, adapter, routes, a PASSING unit test — that nothing
+>   ever calls.** Sizing it as "add persistence for two things" would have
+>   produced a duplicate table.
+> - **S31 — settings and the pet.** Not a sync bug: `localData.js` is
+>   per-device by construction and says so in its own header. ✅ **Scope
+>   settled — one pet and one set of settings per PERSON, everywhere**, not per
+>   workspace. 🚨 **The migration is the dangerous part**: Audrey has a pet she
+>   likes on this machine, and a naive cloud-read wipes it.
 
 > ⚠️ **THE SEQUENCE GAINED A SESSION (2026-08-04).** The design pass was S28
 > and is now S29. Task templates had been deferred three times — twice
@@ -399,13 +432,18 @@ below are superseded; only one of them actually moves.
 >
 > ⚠️ **S28 SHIPPED THE TEMPLATES AND DID NOT CLOSE THE VERIFICATION SWEEP.**
 > Its brief scoped both. The templates are done and proven end to end at the
-> database; the three runtime items still need a signed-in session against the
-> beta, which nothing in this repo automates. Audrey was given an explicit
-> four-item checklist in the chat this time rather than a general request — the
-> observations had not come back before the work was committed, so they carry
-> to S29 **unnarrowed**. This is the fourth session in a row where the blocker
-> is the same one thing, and it is not a code problem: it is five minutes of
-> someone looking at a browser.
+> database; the runtime items still need a signed-in session against the beta,
+> which nothing in this repo automates. They carry to S29.
+>
+> ✅ **BUT THE CHANGE OF APPROACH WORKED, AND IT IS THE LESSON.** For four
+> sessions Audrey had been asked, in general terms, to confirm things at
+> runtime. S28 gave her a **numbered checklist naming the screen, the click and
+> what a pass looks like** — and she came back within the hour with the
+> observation that resolved the `canWrite` investigation outright, plus two
+> defects nobody had found (the ungated Timeline, and the pet not following the
+> user). **Ask specifically, at the START of the session, and the answers
+> arrive.** A general "please verify this on the beta" produced nothing four
+> times running.
 
 **The `projects` drift is SPLIT, each half closed by the session that consumes
 it** (Audrey: *"splitting is fine"*) — rather than one orphan migration session,
