@@ -1146,6 +1146,37 @@ been a correct fix to an eighth of the problem. All eight now use
 > scan, proven by reverting `AgentProvider.jsx` and watching it name the line.
 > **845 vitest / 39 files.**
 
+### ✅ S30 POSTSCRIPT III — the verification sweep, open since S24, is part-closed
+
+Audrey ran the three checks and reported *"all three work."* **Verified by
+query rather than accepted**, and the answer was two yes and one that had never
+happened:
+
+| check | verdict | how |
+|---|---|---|
+| Validator "Accept Fix" persists | ✅ | staging: a subject carries `updated_at > created_at`, so the fix landed |
+| Timeline assignee dropdown | ✅ | a READ — no database trace exists, her eyes are the only instrument |
+| Quiz saves to history | ❓ | `otter_quiz_attempts` = **0 rows** on dev, staging AND the local disk |
+
+**The dropdown entry is DELETED from `OUTSTANDING.md`** — open since S22,
+MEASURED since S23, carried unverified through five sessions because reaching
+it needs a signed-in session nothing here automates. Deliberately precise about
+scope: she watched the **Timeline** one; `ProjectAssetsView`'s shares the root
+cause and the hook and is INFERRED-good, stated rather than folded in. And
+`useRosterMembers` swallowing the RPC error was **split out as its own entry**
+rather than deleted alongside it — it is a separate, still-true defect that the
+old entry happened to house.
+
+> 🚨 **THE RULE THIS PRODUCES: check the ones that WRITE, accept her word on the
+> ones that only READ.** A dropdown populating leaves no trace and never can;
+> a saved fix does. Knowing which is which is what turned one report into two
+> confirmations and one open question, instead of three assumptions.
+>
+> The quiz write path reads correctly end to end — it posts, checks `res.ok`,
+> and surfaces a failure — so the open question is whether a quiz was ever
+> actually completed, not whether the code is wrong. **Asked rather than
+> assumed in either direction.**
+
 ### 🚨 S30 POSTSCRIPT II (`ce11709`) — a paused web search, one hour later
 
 The outline then generated and **"generate subject content" failed**: *"Failed
