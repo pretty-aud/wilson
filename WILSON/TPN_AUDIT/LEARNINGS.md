@@ -141,3 +141,40 @@ artifact second.**
 6. Check `storage.buckets` for `user-avatars.public` — it should be `false`.
 7. Confirm `workspaces_write_operator` is no longer `FOR ALL`.
 8. Re-check that `x-api-key` appears nowhere under `src/` or `electron/`.
+
+## 2026-08-05 — scoped design review (network & remote storage)
+
+Not a re-audit. Five passes (Network, Content, Auth, Cloud, Third-Party) run
+against `docs/NETWORK_STORAGE_DESIGN.md` **before** implementation, at Audrey's
+explicit instruction. Result: `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`.
+
+- **The six-file output contract was deliberately NOT followed.** Writing
+  `SUMMARY.md` / `FINDINGS.md` for a scoped design review would have destroyed
+  the 92-finding baseline. Scoped reviews go in their own file and continue the
+  existing ID sequences. **Do this again next time** — the contract assumes a
+  full audit and does not describe the scoped case.
+- New IDs issued: `TPN-NET-012`, `TPN-NET-013`, `TPN-NET-014` (INFO/credit),
+  `TPN-AUTH-008`, `TPN-CONT-016`, `TPN-3P-010`, `TPN-CLOUD-007`. Merge into
+  `FINDINGS.md` at the next full re-audit. Highest IDs before this review were
+  NET-011, AUTH-007, CONT-015, 3P-009, CLOUD-006.
+- **The framework settled the architecture question outright.** TS-2's remote
+  access text — *"Bastion host model only. VPN with AES-256"* — means a bespoke
+  internet-facing gateway is not a harder-to-pass option, it is the arrangement
+  the control forbids. VPN is not a fallback here; it is the named control.
+  Quote TS-2 verbatim if this is ever reopened.
+- **`file_events` has no read side and this is now load-bearing.** The CHECK is
+  `('uploaded','moved','relinked','trashed','restored','purged')`
+  (`0027_file_lifecycle.sql:85-86`); the local download route
+  (`electron/main.cjs:2028-2039`) logs nothing. Already filed as TPN-CONT-008 /
+  TPN-LOG-002 — **do not mint a new ID for it.** What changed is the blast
+  radius: it is survivable while content sits on one laptop and is not once a
+  shared root exists.
+- Measured and worth keeping: the containment guard at
+  `electron/main.cjs:1330-1337` **holds against UNC escapes** — `path.resolve`
+  clamps at the share root, and `..`, foreign UNC roots, `//host/share` and
+  absolute drive paths all return `null`. It fails *closed* on a root that
+  resolves with a trailing separator (`\\srv\share`, `C:\`). Not a
+  vulnerability; the risk is in fixing it carelessly (TPN-NET-013).
+- `workspaces.storage_mode` / `storage_config` are admin-writable, unvalidated
+  and have **zero readers** anywhere outside migrations (TPN-CLOUD-007). Dead
+  columns that are also writable are worse than dead.

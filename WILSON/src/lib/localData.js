@@ -10,9 +10,31 @@
 // same behavior as before. In a browser there is no Express server — the old
 // code 404'd (or, on a static host, parsed index.html) and swallowed the
 // error, which is exactly how O.T.T.E.R. rendered an empty library on the
-// web. Per-browser localStorage is the right web home for all three: they
-// are per-machine preference/companion files, not workspace content (the
-// S11 Sidebar-collapse precedent).
+// web.
+//
+// 🚨 SESSION 31 OVERTURNED THIS FILE'S FOUNDING ASSUMPTION, and the sentence
+// that used to sit here is why it is worth saying loudly. It read: "Per-browser
+// localStorage is the right web home for all three: they are per-machine
+// preference/companion files, not workspace content." Audrey signed into the
+// same account on a second computer, was asked to create a new pet, and that
+// premise stopped being true.
+//
+// These stores are now a CACHE for the parts that follow the PERSON — the pet,
+// the seven edited prompts, and the agent prompt overrides. `src/lib/userState.js`
+// owns the authority (`public.user_pets` / `public.user_settings`, migration
+// 0046) and fills this cache from the account on sign-in.
+//
+// ⚠️ NOTHING IN THIS FILE MAY ROUTE TO THE CLOUD, and that is deliberate rather
+// than unfinished. `userState.resolveUserPet` reads the local pet THROUGH
+// `loadPet` to decide whether to adopt it. If `loadPet` ever learned to reach
+// Supabase, adoption would read the blank cloud row it is about to replace,
+// copy it onto itself, and report success — the exact trap
+// `src/cloud/migrate/runOtterMigration.js` documents in its own header.
+//
+// What genuinely stays per-machine, and must not be lifted into the account:
+// `rabbit.adapterMode`, `rabbit.activeProjectId` and `storageLocation`. A saved
+// disk path names a DIFFERENT folder on another computer, so carrying it points
+// at the wrong content rather than sharing content.
 //
 // READERS resolve rather than throw, so a broken store degrades to defaults
 // instead of taking a screen down.

@@ -537,6 +537,47 @@ both were confidently written and both were wrong:**
   user ticks, so `otter_progress`'s `course_id NOT NULL` cannot hold an
   attempt at all.
 
+### ~~The pet and per-user settings do not follow the user between computers~~ — FIXED (S31, `272fb83` + `29d36fc`)
+Deleted per the rule for this file. Migration 0046 creates `public.user_pets`
+and `public.user_settings`, applied and verified **by query** on dev, staging
+and prod: 8 policies, 0 `FOR ALL`, **0 workspace-scoped, 0 membership-gated, no
+`workspace_id` column**, nothing held by `anon` or `PUBLIC`. pgTAP 56 + 57 are
+48 assertions, proven by seven breakers including a control.
+
+**Four things worth carrying forward, three of which contradict the plan
+documents that scoped this:**
+
+- 🚨 **"Store `last_fed_at` and compute on read" described behaviour the code
+  does not have.** MEASURED: `lastFedAt` is written by `handleFeed` and **read
+  by nothing** in `src/` or `electron/`. The decay anchor has always been
+  `lastUpdatedAt`. Building to the note would have anchored decay on a field
+  with no meaning.
+- 🚨 **The census was wrong in both directions and still overstates the
+  precedent.** The real figures on wilson-dev are **45 policied tables, 40
+  workspace-scoped, 2 touching `auth.uid()` without a workspace** — and neither
+  of those 2 is a usable precedent. `auth_attempt_log` is **not per-user at
+  all** (it has a `workspace_id` column; it matches an `auth.uid()` text search
+  only because its operator check reads `platform_operators.user_id =
+  auth.uid()`), and `platform_operators_self` is **SELECT-only**. 0046 writes
+  the project's first per-user INSERT/UPDATE/DELETE policies.
+- 🚨 **The fix was DELETING the 30-second auto-save, not adding sync.** On a
+  shared row that timer *is* the clobber. It was worst where it looked safest:
+  the decay reducer returns the identical object reference for an egg, a corpse,
+  a ghost or `petMode` off, so `petData` never changed, the effect was never
+  torn down, and it fired cleanly over the other machine's state. **Audrey's own
+  pet is a ghost — one of those four.** Nothing was lost: hunger and happiness
+  are a value at an anchor, so decay needs no writes at all.
+- 🚨 **The adoption danger was the ORDER, not the blank default.** The app mints
+  and persists a pristine egg the first time it reads an empty store, on every
+  host it has run on — so a second computer that has merely been *opened* already
+  has a "pet", and uploading it would have destroyed Ollie. `isRealPet()` is the
+  discriminator; a pristine egg can never beat anything.
+
+⚠️ **`0046` is also the first table where an admin cannot read a member's row.**
+That is deliberate — a pet and someone's own edited prompts are not business
+records — and suite 56 pins it.
+
+<!-- historical, kept for the reasoning:
 ### The pet and per-user settings do not follow the user between computers
 **MEASURED (2026-08-04).** Audrey signed into the **same account** (`audrey`,
 admin) on a second computer and was asked to create a new pet — the name,
@@ -581,6 +622,60 @@ MEASURED:**
 occurrences of `signOut`, `logout` or `log out`. There is no sign-out control
 in System Settings, and Audrey asked for one. Small on its own; grouped with
 the per-user settings work because both touch the same screen.
+-->
+
+### ~~There is no way to log out~~ — FIXED (S31, `272fb83`)
+Deleted per the rule for this file. `SessionSection` is on the Profile tab
+beside the password and 2FA controls, and it gates itself the way
+`PasswordSection` does rather than offering a live button with no session
+behind it.
+
+🚨 **Two things that made this bigger than "add a button", both MEASURED:**
+
+- **Sign-out was an unscoped GLOBAL revoke.** `supabase.auth.signOut()` with no
+  `scope` argument revokes every refresh token the person holds. The operator
+  console deliberately passes `scope: 'local'` for the opposite reason, and
+  Audrey is both a platform operator and a workspace admin running two accounts
+  in two browsers — so a Settings sign-out would have dropped her operator
+  console at its next token refresh, minutes later, with nothing on screen
+  connecting the two. Now `scope: 'local'`.
+- 🚨 **Shipping the button alone would have been a REGRESSION.** `clearSession()`
+  has never cleared the pet: the previous person's stayed in React state, kept
+  decaying, kept auto-saving, and reappeared for whoever signed in next — on the
+  web, and on the desktop where `pet.json` survives on disk regardless. That
+  leak has been near-unreachable only because the sole sign-out control sat
+  inside the MFA enrolment gate. The button and the teardown are one change.
+
+⚠️ **The entry's own claim needed correcting.** It said there was no way to log
+out; the MECHANISM has existed since S30 as `window.wilsonSignOut` and already
+had exactly one caller — `MfaSection.jsx`'s "Sign out instead". So this added a
+second caller to a live path, **not** a fourth built-with-no-caller feature.
+Same correction `quiz.get` needed in S30: before writing "nothing calls this",
+grep for it.
+
+### `ResetPasswordWizard` still performs a global sign-out
+**MEASURED (S31, 2026-08-05).** `src/cloud/auth/ResetPasswordWizard.jsx` calls
+`supabase.auth.signOut()` with no `scope` argument, so completing a password
+reset revokes every refresh token the person holds — including the operator
+console's — with no copy saying so. Found while fixing the same defect in
+`App.jsx`'s `wilsonSignOut`.
+→ Deliberately **not** changed in S31: what a password reset should revoke is a
+security decision, not a tidy-up. Arguably a global revoke is *correct* there.
+Needs a decision, then one line either way. Not scheduled.
+
+### A failed pet LOAD has nowhere to show itself
+**MEASURED (S31).** `loadPet` was the one function in `localData.js` that S30
+left with neither a `res.ok` check nor a reported catch; S31 makes the failure
+representable (it sets `petSaveError`) but **not visible**, because when the
+load fails `petData` stays null and `App.jsx` renders no companion at all — so
+the component that would display the message is unmounted.
+
+The same gap applies to the existing save banner: `PetCompanion` renders it only
+**inside the chat popup**, so a save failure is invisible unless the user opens
+the companion chat and the pet has hatched. S30 made the failure representable;
+neither session has made it visible.
+→ Needs a surface that does not depend on the pet rendering. Small. Not
+scheduled.
 
 ### D4 is enforced for stored settings, not for a hand-made request
 **MEASURED (S20).** Migration 0031 FKs both override tables to
@@ -631,6 +726,51 @@ keeps blinking on the right while typing elsewhere. Likely the shared
 first.**
 → S25.
 
+### A drive root or share root as the storage root breaks every file operation
+**MEASURED (2026-08-05).** Executed the containment guard
+(`electron/main.cjs:1330-1337`) directly against root paths, not reasoned about.
+
+`path.resolve` appends a trailing separator to anything it treats as a **root**,
+and both `C:\` and a two-component UNC path are roots:
+
+```
+path.resolve('C:\')                      -> 'C:\'
+path.resolve('\\FILESERVER\Projects')    -> '\\fileserver\projects\'
+path.resolve('\\srv\share\Projects')     -> '\\srv\share\Projects'   (no trailing sep)
+```
+
+The guard then tests `a.startsWith(b + path.sep)`, which becomes a **doubled
+separator** no real path matches. Measured:
+
+```
+guard('C:\',                  'a.mov')  ->  null     ← every file rejected
+guard('\\srv\share',          'a.mov')  ->  null     ← every file rejected
+guard('\\srv\share\Projects', 'a.mov')  ->  '...\a.mov'   ← fine
+```
+
+Consequences once such a root is configured: **download** returns
+`400 invalid storage path` (`main.cjs:2035`) for every file; **delete** skips
+the `unlink` (`main.cjs:2066`) and orphans the body on disk while writing an
+(honest) `blob_removed: false` certificate; **relink** refuses folders that are
+genuinely inside the root, because `isUserAuthorizedRelinkDir`
+(`main.cjs:1354-1357`) uses the same comparison.
+
+**Nobody is hitting this today** — Audrey's root is
+`C:\Users\Audrey\Documents\My_Work`, three levels deep, so it resolves without a
+trailing separator. It is reachable right now through the Settings → Files &
+Storage "Change" button by picking a drive root, and it becomes the *normal*
+case the moment network paths are supported, because `\\server\share` is how
+people name a share.
+
+🚨 **The guard is a security boundary and it currently fails CLOSED.** The bug
+is a correctness bug; the risk is in the fix. A normalisation that trims
+separators from both sides, or a plain `startsWith` without the separator
+boundary, turns fail-closed into fail-open and re-opens the arbitrary-path
+`unlink` that S14 closed. Measured and worth keeping: the guard **holds** against
+UNC escapes — `..\..\..`, a foreign `\\attacker\share`, `//host/share` and an
+absolute `C:\Windows\win.ini` all return `null` against a UNC base.
+→ Fix + adversarial tests are **Phase 0** of `docs/NETWORK_STORAGE_DESIGN.md`.
+
 ---
 
 ## Session log
@@ -639,6 +779,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S31 (2026-08-05) | **three entries, none of them a regression.** (a) **`ResetPasswordWizard` still performs a global sign-out** — found while fixing the same defect in `App.jsx`, and deliberately left alone because what a password reset revokes is a security decision. (b) **A failed pet LOAD has nowhere to show itself** — S31 made it representable, neither session has made it visible, and the same is true of S30's save banner, which renders only inside the chat popup. (c) The parallel network-storage session added the drive-root entry above. 🚨 **The finding of the session is not in this file at all: the settings half of S31 shipped in `272fb83` with ZERO CALLERS and was caught by grepping for callers before writing these docs.** Sixth instance of the shape, in the session whose brief warned about it five times, with a call-site guard already written for the *pet* half and a green unit test sitting over the dead settings path. Fixed in `29d36fc`. **Writing a call-site guard for half a change is how the other half goes dead.** | **the pet and per-user settings do not follow the user between computers** (0046 + `272fb83` + `29d36fc`, applied and verified **by query** on dev, staging and prod) and **there is no way to log out** (`272fb83`). Both entries' own claims needed correcting first: the plan's "store `last_fed_at`" named a field nothing reads, the schema census was wrong in both directions, and "there is no way to log out" was true of the Settings screen but not of the app — `window.wilsonSignOut` already had one caller. |
 | S30, close-out (2026-08-05) | **nothing new broken.** Two things worth recording. **(a)** The pet's saves failed silently through THREE layers and are fixed (`73828c7`) — commit message, not an entry, per this file's rule. **(b) 🚨 THIS FILE WAS ITSELF BROKEN BY THIS SESSION AND IS NOW REPAIRED.** Closing the assignee-dropdown entry left an HTML comment opened at its historical block and never closed, so **everything from there to the next `-->` was commented out — 227 lines, hiding three LIVE entries**: the hung `getSession()`, the avatar, and *"signing in to the desktop app hides O.T.T.E.R.'s local courses"*, which this same session had added. Found by grepping the comment markers during the close-out rather than by reading the file, which is the only way it would have shown. **A `<!--` in a long markdown file is a silent delete.** Comments now pair 201→250, 297→330, 459→525. | nothing further. |
 | S30, postscript II (2026-08-05) | **nothing.** ✅ **CONFIRMED BY AUDREY AND THEN BY QUERY:** *"it worked"* — and staging now holds `Blender 5.1 [personal]`, 9 subjects, 1 with generated content over 2 sections. Before tonight `otter_courses` was **0 rows on all three environments**, so that is the first cloud course O.T.T.E.R. has ever produced. The entry below is kept because the fix SHIPPED inferred rather than observed, and the discipline that made that safe is worth keeping: the `pause_turn` fix (`ce11709`) was **INFERRED, not OBSERVED**. Audrey's outline generated and subject content then failed with *"Failed to parse subject JSON"*; the cause is traced through code and matches the symptom exactly (the outline carries no tools and works, `generateSubjectContent` carries `web_search_20250305` and fails), but running the live API needs her password, which a session must not handle. **So the instrument shipped with the fix:** every O.T.T.E.R. parse failure now appends `[stop_reason; blocks; chars of text]`. If it recurs, the message names the cause instead of costing another round trip. Not an entry here because nothing is known broken — if the diagnostic comes back saying otherwise, THAT is the entry. | nothing further. |
 | S30, postscript (2026-08-05) | **nothing.** Audrey tested O.T.T.E.R. immediately after the close-out and **every** course generation failed — *"Failed to parse course outline JSON."* Found, fixed and pushed in `a905471`, so per this file's own rule it is a commit message and not an entry. It is recorded in `MASTER_PLAN_S19_ONWARD.md` because of what it says about the SESSION: the generation had succeeded (`end_turn`, complete JSON) and the app read `content[0].text`, which is a **thinking block**. **Eight call sites across three tools.** Migration 0045 was verified on three environments, 55 pgTAP suites and 834 unit tests were green and the e2e probe was 9/9 — and the tool could not produce a single course. **Database-proven is not app-proven.** | nothing further. |

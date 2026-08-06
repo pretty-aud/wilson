@@ -319,7 +319,7 @@ anything that needs it is unavailable. The detection primitive is
 |---|---|
 | R.A.B.B.I.T. storage mode | Boot **forces** `supabase`, overriding any carried-over saved preference (`RabbitProvider.jsx:303-311`) |
 | O.T.T.E.R. content | Cloud adapter when signed in; a synthetic `401`/`501` with a stated reason when not — never a silent 404 (`otter_v0.3.1/adapters/index.js:99-117`) |
-| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`) |
+| Pet / O.T.T.E.R. settings / agent skills | `localStorage` keys `wilson.pet`, `wilson.otter-settings`, `wilson.agent-skills` (`src/lib/localData.js`) — but since **S31 (0046) these are a CACHE, not the authority**, for the pet and for the two things that follow the person (the seven edited prompts and the agent prompt overrides). `public.user_pets` / `public.user_settings` are keyed by user with no workspace, and `src/lib/userState.js` fills the cache from the account on sign-in. Machine-specific keys in the same documents (`rabbit.adapterMode`, `rabbit.activeProjectId`, `storageLocation`) deliberately stay per-device — a saved disk path names a *different* folder on another computer |
 | PDF extraction, Google-Sheet import, URL scraping | Unavailable; each caller gates on `hasLocalServer()` independently |
 | Storage providers | Only Supabase Storage works; the Settings card marks the others unavailable (`SettingsPage.jsx:578-581`) |
 | D.O.G. | Runs off the open project's cloud context; attachments are refused at the adapter (§13.1) |
@@ -2192,9 +2192,12 @@ else.
 per model control-plane table; **Session 24 added 43–47, one per money table;
 Session 25 added 48–51, one per entity table; Session 26 added 52_folders;
 Session 27 added 53_money_segments; Session 28 added 54_task_templates;
-Session 30 added 55_otter_quiz_attempts**; the CI coverage guard globs
-`*_<table>.sql`, so a table cannot share a suite file with another),
-**854 assertions** — run in CI against a fresh local stack.
+Session 30 added 55_otter_quiz_attempts; Session 31 added 56_user_pets and
+57_user_settings**; the CI coverage guard globs `*_<table>.sql`, so a table
+cannot share a suite file with another — and S31 notes the corollary, that the
+guard is satisfied by any file whose name ENDS with the table name, so a suite
+must be named for its table exactly), **902 assertions** — run in CI against a
+fresh local stack.
 
 > 🚨 **53_money_segments is the first suite covering no table of its own** —
 > it pins `storage.objects` policies and the `rabbit_money_segment` predicate.
@@ -2217,9 +2220,10 @@ lockdown).
 > since S22 — this section is a **gate, not an oracle** (S21 corrected its
 > suite counts, S22 its migration range and SECURITY DEFINER count, S24 its
 > assertion count again, S26, S27 and S28 the suite and assertion counts once
-> more, S30 both again). Both figures here are measured, 2026-08-05, by
-> `node scripts/tap-all.mjs` against wilson-dev: **55 suites, 854 planned,
-> 854 passed, `collected == planned` on every one.** **Check the code.**
+> more, S30 both again, S31 both again). Both figures here are measured,
+> 2026-08-05, by `node scripts/tap-all.mjs` against wilson-dev: **57 suites,
+> 902 planned, 902 passed, `collected == planned` on every one.**
+> **Check the code.**
 
 > 🚨 **A SUITE THAT HAS ONLY EVER PASSED IS A SUITE YOU HAVE NOT TESTED.**
 > S27 ran four deliberate breakers against 0042/0043; S28 ran six against 0044
@@ -2253,7 +2257,7 @@ by 24 vitest cases, which were proven by breaking the source three ways. Before
 Session 24 those rules were duplicated inline across four view files with no
 test at any layer.
 
-**Vitest** — **41 files, 864 cases** (measured 2026-08-05; this line read "15
+**Vitest** — **43 files, 909 cases** (measured 2026-08-05; this line read "15
 suites, 343 cases" for several sessions), all pure modules: the SSE
 reassembler, invite parsing, dashboard task model, note sync, CSV export, both
 permission matrices, O.T.T.E.R. route parsing and sharing rules, project

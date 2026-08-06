@@ -392,8 +392,106 @@ below are superseded; only one of them actually moves.
 | **S28** | **Task templates in cloud** — ✅ **DONE (`06bf564`)** | the oldest open item; deferred by S25, S26 and (deliberately) S27 | `SESSION_28_prompt.md` |
 | **S29** | **The Timeline permission gate** — ✅ **DONE (`7443fed`)** | the only task-creating surface with no gate; Audrey was hitting it | `SESSION_29_prompt.md` |
 | **S30** | **O.T.T.E.R. keeps its work** — ✅ **DONE (`2d8b658`, `c3317d4`)** | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
-| **S31** | **Per-user settings + the pet + logout** | her account must follow her between computers | `SESSION_31_prompt.md` |
+| **S31** | **Per-user settings + the pet + logout** — ✅ **DONE (`272fb83`, `29d36fc`)** | her account must follow her between computers | `SESSION_31_prompt.md` |
 | **S32** | Design pass | unchanged, still last | `SESSION_32_prompt.md` |
+| **S33** | **Network / remote storage access — Phases 0–2** | Audrey asked for it during S31 and asked for it to be its own session | `../NETWORK_STORAGE_DESIGN.md` |
+| **S34+** | The file **gateway** (design §4b, Phase 3) — non-TPN customers only | needs its own design review; do not fold into S33 | — |
+
+> ### S31 outcome — the pet follows the person (`272fb83`, `29d36fc`)
+>
+> Migration **0046** (`user_pets`, `user_settings`) applied and verified **by
+> query** on dev, staging and prod. pgTAP **56 + 57**, 48 assertions, proven by
+> **seven breakers including a control**. Full set **57 suites / 902
+> assertions**. Vitest **909 / 43 files**. All four CI jobs green on `272fb83`,
+> Playwright included.
+>
+> 🚨 **THE SESSION'S REAL FINDING IS NOT THE FEATURE. The settings half shipped
+> in `272fb83` with ZERO CALLERS** and was caught by grepping for callers while
+> writing the close-out, not by any test. That is the **sixth** instance of the
+> shape in this repo — after the folder tree (S27), task templates (S28), quiz
+> history (S30), `setOtterAdapterMode`, and `POST /api/pet/reset` — and the
+> circumstances are what make it worth recording:
+>
+> - This session's brief warned about it **in five separate places**.
+> - A call-site guard (`userStateWiring.test.js`) had already been written **for
+>   the pet half**, specifically because a test that pins a mechanism cannot
+>   tell you the mechanism is reached.
+> - `userState.test.js` covered the settings functions **in full and passed** —
+>   the quiz-history situation exactly: a green unit test over a dead path.
+>
+> **Writing a call-site guard for half a change is how the other half goes
+> dead.** Fixed in `29d36fc`, with five more breakers.
+>
+> **Three claims in the planning documents were wrong, and are corrected in the
+> migration header rather than only here:**
+>
+> - **"Store `last_fed_at` and compute on read."** `lastFedAt` is written by
+>   `handleFeed` and **read by nothing**. The decay anchor has always been
+>   `lastUpdatedAt`.
+> - **The schema census** — not "44 / 39 / one purely per-user", and not the
+>   corrected "45 / 40 / two" either in the sense that mattered:
+>   `auth_attempt_log` is **not per-user at all** (it has a `workspace_id`
+>   column and an operator-read policy) and `platform_operators_self` is
+>   **SELECT-only**. 0046 writes the project's **first** per-user
+>   INSERT/UPDATE/DELETE policies. There was nothing to copy.
+> - **0045's own header** says neither 0041 nor 0044 issues a `GRANT`. Both do.
+>
+> **The fix was a DELETION.** The 30-second whole-object auto-save is gone, and
+> that — not any sync mechanism — is what stops two computers clobbering each
+> other. It was worst where it looked safest: the decay reducer returns the
+> identical object reference for an egg, a corpse, a ghost or `petMode` off, so
+> `petData` never changed, the effect was never torn down, and it fired cleanly
+> over the other machine's live state. **Audrey's pet is a ghost — one of those
+> four.** Nothing was lost, because hunger and happiness are a value at an
+> anchor and decay needs no writes at all.
+>
+> ⚠️ **Sign-out and the pet had to ship together.** `clearSession()` has never
+> cleared the pet; the previous person's kept decaying, kept saving, and
+> reappeared for the next person to sign in. Shipping the button Audrey asked
+> for **without** the teardown would have turned a latent leak into a routine
+> one. Sign-out is now `scope: 'local'` — it was an unscoped global revoke that
+> would have dropped her operator console at its next token refresh.
+>
+> **Not carried between computers, all measured:** `adapterMode`,
+> `activeProjectId`, `storageLocation`, `defaultRootDir` (a local disk path
+> names a *different* folder on another machine), `departments` (workspace
+> data), and `companionName` (a duplicate of the pet's name with zero readers).
+>
+> ⏳ **NOT YET WATCHED WORKING.** Nothing in this repo signs in as Audrey. The
+> adoption path especially is proven by unit tests and reasoning, not by
+> observation — and it is the part that could destroy a pet she likes. Her
+> numbered checklist went into the chat at close-out.
+
+> **S33 is designed, scoped and TPN-reviewed** — `docs/NETWORK_STORAGE_DESIGN.md`
+> + `TPN_AUDIT/DESIGN_REVIEW_network_storage.md` (2026-08-05). **All four open
+> questions were answered by Audrey the same day (§1b); nothing is blocking.**
+> Phases 0–2 are roughly one session. Phase 3 (the gateway) is 3–5 and is split
+> out above deliberately.
+>
+> 🚨 **The two answers that changed the design.** (a) **Multi-GB media** — so
+> cloud mode is out as the general answer, and §3.6 found the harder reason:
+> the `files` plane base64s whole files through a JSON body after buffering in
+> renderer memory, so it caps at **~37 MB regardless of configuration**. Media
+> must ride the **managed-files** plane, which is the same plane this design
+> gives a network root. (b) **A VPN is not universally available**, so the
+> gateway is in scope — bounded to non-TPN customers, off by default, and the
+> admin toggle becomes the visible compliance boundary (§4b).
+>
+> The finding that reframes the request: **WILSON has no server to leave on.**
+> The Express instance binds `listen(0, '127.0.0.1')` (`electron/main.cjs:2800`)
+> — loopback, ephemeral port, created inside `createWindow()` and dead when the
+> app closes, on whichever laptop has WILSON open. "Toggle external access on
+> the server" is not a setting over an existing capability; the capability does
+> not exist. Recommended path (Phase 0 → UNC + workspace-scoped root → VPN,
+> documented) is roughly one session. A bespoke internet-facing gateway is
+> three to five, **and TS-2's remote-access control forbids it** — the framework
+> names bastion/VPN as the only acceptable pattern, so the cheap path is also
+> the compliant one.
+>
+> ⚠️ **Phase 0 is worth doing even if Audrey stops there** — it fixes a MEASURED
+> live defect (a drive root or share root as the storage root breaks every file
+> operation; see `OUTSTANDING.md`), and that defect blocks everything else in
+> the design.
 
 > ⚠️ **THE SEQUENCE GAINED THREE SESSIONS (Audrey, 2026-08-04).** After S28's
 > close-out she reported three things and asked for them to be split:
