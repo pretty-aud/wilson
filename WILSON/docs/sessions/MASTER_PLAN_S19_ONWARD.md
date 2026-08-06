@@ -382,6 +382,15 @@ below are superseded; only one of them actually moves.
 > conversations** — if a future session rolls into the next brief, say so
 > explicitly at the time, because not saying it is what made this confusing.
 
+> ℹ️ **S32 IS AN INTENTIONALLY RETIRED NUMBER — nothing is missing.** The design
+> pass held it, and on 2026-08-05 Audrey asked for it to run last with the
+> numbering fixed to match (*"move 32 to the last one. fix the numbering"*), so
+> `SESSION_32_prompt.md` was `git mv`d to **`SESSION_39_prompt.md`**. Rather
+> than renumber six freshly-written briefs to close the hole, the number was
+> left vacant: **the sequence runs S31 → S33**. Recorded here because a gap in a
+> numbered list otherwise reads as a lost session, which is exactly the
+> confusion the note above exists to prevent.
+
 | # | Session | Why here | Prompt |
 |---|---|---|---|
 | **S23** | R.A.B.B.I.T. creation unblock — ✅ **DONE (`2727328`)** | nothing could be created at all | `SESSION_23_prompt.md` |
@@ -393,9 +402,38 @@ below are superseded; only one of them actually moves.
 | **S29** | **The Timeline permission gate** — ✅ **DONE (`7443fed`)** | the only task-creating surface with no gate; Audrey was hitting it | `SESSION_29_prompt.md` |
 | **S30** | **O.T.T.E.R. keeps its work** — ✅ **DONE (`2d8b658`, `c3317d4`)** | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
 | **S31** | **Per-user settings + the pet + logout** — ✅ **DONE (`272fb83`, `29d36fc`)** | her account must follow her between computers | `SESSION_31_prompt.md` |
-| **S32** | Design pass | unchanged, still last | `SESSION_32_prompt.md` |
-| **S33** | **Network / remote storage access — Phases 0–2** | Audrey asked for it during S31 and asked for it to be its own session | `../NETWORK_STORAGE_DESIGN.md` |
-| **S34+** | The file **gateway** (design §4b, Phase 3) — non-TPN customers only | needs its own design review; do not fold into S33 | — |
+
+> ✅ **NUMBERS AND ORDER NOW AGREE** (Audrey, 2026-08-05: *"move 32 to the last
+> one. fix the numbering"*). The design pass was S32; it is now **S39**, and its
+> brief was renamed `SESSION_32_prompt.md` → **`SESSION_39_prompt.md`**
+> (`git mv`, so the history follows). It runs last on purpose: a visual design
+> pass before six sessions of new UI would be redone immediately.
+>
+> ⚠️ **`SESSION_29_prompt.md` and `SESSION_31_prompt.md` still refer to "S32"
+> when they mean this brief.** Both are closed sessions and are left as written
+> — a shipped brief is a record of what was believed at the time. **This table
+> is the authority.**
+
+| # | Session | Size | Blocked by | Prompt |
+|---|---|---|---|---|
+| **S33** | **Guard fix + the `downloaded` event** — fixes a MEASURED live defect and satisfies the TPN condition on the storage root | ~1 | — | `SESSION_33_prompt.md` |
+| **S34** | **The storage root** — `workspace_storage`, admin gate in the Admin Terminal, UNC classifier, reachability probe, two-step confirm | 1 | S33 | `SESSION_34_prompt.md` |
+| **S35** | **The manager half + setup guidance** — Control Panel gate, `folder_root` containment, VPN/NAS docs | ~1 | S34 | `SESSION_35_prompt.md` |
+| **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
+| **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **none** | `SESSION_37_prompt.md` |
+| **S38** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_38_prompt.md` |
+| **S39** | **Design pass** — last on purpose; must cover all the surface S33–S38 adds | ? | S38 | `SESSION_39_prompt.md` |
+| — | **Bring-your-own-cloud** (design §4a2) — evaluate **before** any gateway work | design ½ | none | not written |
+| — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
+
+> **Only S33 → S34 → S35 is a real chain.** S36, S37 and bring-your-own-cloud
+> depend on nothing and can be pulled forward if a customer needs them sooner.
+> They were grouped with the network work because they arose in the same
+> conversation, not because they share code.
+>
+> **All six briefs derive from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
+> authority** — each carries the measurements, but the design carries the
+> reasoning and Audrey's decisions verbatim.
 
 > ### S31 outcome — the pet follows the person (`272fb83`, `29d36fc`)
 >
@@ -462,42 +500,58 @@ below are superseded; only one of them actually moves.
 > observation — and it is the part that could destroy a pet she likes. Her
 > numbered checklist went into the chat at close-out.
 
-> **S33 is designed, scoped and TPN-reviewed** — `docs/NETWORK_STORAGE_DESIGN.md`
-> + `TPN_AUDIT/DESIGN_REVIEW_network_storage.md` (2026-08-05). **All four open
-> questions were answered by Audrey the same day (§1b); nothing is blocking.**
-> Phases 0–2 are roughly one session. Phase 3 (the gateway) is 3–5 and is split
-> out above deliberately.
+> **S33–S38 are designed, scoped, TPN-reviewed and briefed** —
+> `docs/NETWORK_STORAGE_DESIGN.md` + `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`
+> (2026-08-05). **Every open question was answered by Audrey the same day
+> (§1b); nothing is blocking.** The design was first sized as one session and
+> **that was wrong** — Audrey asked directly and it re-cut into the six above.
 >
-> 🚨 **The two answers that changed the design.** (a) **Multi-GB media** — so
-> cloud mode is out as the general answer, and §3.6 found the harder reason:
-> the `files` plane base64s whole files through a JSON body after buffering in
-> renderer memory, so it caps at **~37 MB regardless of configuration**. Media
-> must ride the **managed-files** plane, which is the same plane this design
-> gives a network root. (b) **A VPN is not universally available**, so the
-> gateway is in scope — bounded to non-TPN customers, off by default, and the
-> admin toggle becomes the visible compliance boundary (§4b).
+> The finding that reframes the whole request: **WILSON has no server to leave
+> on.** The Express instance binds `listen(0, '127.0.0.1')`
+> (`electron/main.cjs:2800`) — loopback, ephemeral port, created inside
+> `createWindow()`, dead when the app closes, on whichever laptop has WILSON
+> open. *"Toggle external access on the server"* is not a setting over an
+> existing capability; the capability does not exist. ⚠️ It also has **94 routes
+> and zero authentication** — the loopback bind is the entire access control.
 >
-> The finding that reframes the request: **WILSON has no server to leave on.**
-> The Express instance binds `listen(0, '127.0.0.1')` (`electron/main.cjs:2800`)
-> — loopback, ephemeral port, created inside `createWindow()` and dead when the
-> app closes, on whichever laptop has WILSON open. "Toggle external access on
-> the server" is not a setting over an existing capability; the capability does
-> not exist. Recommended path (Phase 0 → UNC + workspace-scoped root → VPN,
-> documented) is roughly one session. A bespoke internet-facing gateway is
-> three to five, **and TS-2's remote-access control forbids it** — the framework
-> names bastion/VPN as the only acceptable pattern, so the cheap path is also
-> the compliant one.
+> ⭐ **The answer is the customer's NAS (§4c).** A NAS *is* the always-on server,
+> it presents as the UNC share S34 supports, and prosumer boxes ship their own
+> VPN server and vendor relay as configuration rather than a project — so
+> *"won't set up a VPN"* stops implying *"can't have remote access"*. **This
+> makes the bespoke gateway probably unnecessary**, which matters because TS-2
+> names bastion/VPN as *the* remote-access control. **The cheapest route and the
+> compliant route turned out to be the same route.**
 >
-> ⚠️ **Phase 0 is worth doing even if Audrey stops there** — it fixes a MEASURED
+> 🚨 **Three upload paths, three different ceilings — never generalise one
+> adapter's limit to another.** Local-Server `files` caps at **~37 MB** and no
+> config fixes it (base64 through a JSON body, whole file buffered both ends);
+> **cloud `files` caps at 50 MB and IS raisable** (it hands the `File` straight
+> to Storage — different code entirely); `managedFiles` has **no ceiling**
+> (native stream). The design initially generalised the Local-Server measurement
+> to cloud and concluded "cloud is for the small stuff" — **Audrey caught it by
+> asking what a cloud-only customer is supposed to do.** S37 exists because of
+> that correction. **A storage mode that cannot hold the customer's files is not
+> a storage mode.**
+>
+> ⚠️ **S33 is worth doing even if everything else stops** — it fixes a MEASURED
 > live defect (a drive root or share root as the storage root breaks every file
-> operation; see `OUTSTANDING.md`), and that defect blocks everything else in
-> the design.
+> operation; see `OUTSTANDING.md`) and that defect blocks the rest.
+>
+> **Two more live defects were found while designing, both in the TPN review:**
+> `TPN-AUTH-009` — `StorageConnections.jsx` imports `usePermissions` and gates
+> on **nothing**, so any member can repoint the root (closed by S34); and
+> `TPN-NET-015` — `projects.folder_root` is written straight from the request
+> body with no containment check, on an unauthenticated local API (closed by
+> S35). **Both were surfaced by Audrey specifying a permission model, not by the
+> audit passes looking for them.**
 
 > ⚠️ **THE SEQUENCE GAINED THREE SESSIONS (Audrey, 2026-08-04).** After S28's
 > close-out she reported three things and asked for them to be split:
 > *"parse them out into one session for timeline, one for otter, then
-> settings."* The design pass moves S29 → **S32**; its brief already existed
-> and was renamed, with a header explaining which of its contents are stale.
+> settings."* The design pass moved S29 → S32 at the time; it has since moved
+> again and is now **S39** (`SESSION_39_prompt.md`) — see the table above,
+> which is the authority. Its brief already existed and was renamed twice, with
+> a header explaining which of its contents are stale.
 >
 > **What each one is, and what was MEASURED before writing the brief** — none
 > of these three was sized from the symptom:

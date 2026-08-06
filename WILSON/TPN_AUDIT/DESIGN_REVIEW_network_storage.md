@@ -36,12 +36,25 @@ Nothing in the design is approved to build. Six new findings, five escalations.
 | Severity | Count |
 |---|---|
 | CRITICAL | 0 |
-| HIGH | 3 |
-| MEDIUM | 3 |
+| HIGH | 6 |
+| MEDIUM | 4 |
 | INFO | 1 |
 
-Zero CRITICALs because **nothing is built yet**. Every HIGH below is conditional
-on a build decision, which is the point of reviewing before implementation.
+Zero CRITICALs because most of this is unbuilt — **but two HIGHs are live in the
+shipped product today**, not conditional on any build decision:
+
+- **TPN-AUTH-009** — the storage-root control has no permission gate at all.
+  Blast radius is currently small because the setting is per-machine; Phase 1
+  widens it to the whole tenant if the gate does not ship alongside.
+- **TPN-NET-015** — `projects.folder_root` is written straight from the request
+  body with no containment check, on an unauthenticated local API.
+
+Both were surfaced by Audrey specifying a permission model, not by the passes
+looking for them — a reminder that "who is allowed to set this" is a question
+worth asking of every configuration surface, not only the obvious ones.
+
+Every other HIGH is conditional on a build decision, which is the point of
+reviewing before implementation.
 
 ---
 
@@ -49,16 +62,50 @@ on a build decision, which is the point of reviewing before implementation.
 
 | Option | External surface added | TPN posture | Verdict |
 |---|---|---|---|
-| **A** — cloud mode as-is | none (already assessed) | 🟢 strongest available | ❌ Out as the general answer — cannot carry multi-GB media at any cap. Keeps everything else |
+| **A** — cloud mode | none (already assessed) | 🟢 strongest available | ⚠️ Needs a raised cap + resumable uploads to carry multi-GB. Fixable, and **required** — a cloud customer has no fallback |
 | **B** — UNC + workspace root, LAN only | **none** | 🟢 neutral-to-positive | ✅ **Recommended.** Prerequisite for C and D |
 | **C** — VPN | none in WILSON | 🟢 **this is the named control** | ✅ **Recommended** wherever the customer will run one |
-| **D** — WILSON File Gateway | new internet-facing content service | 🟡 bounded — see amended TPN-NET-012 | ⚠️ **In scope, non-TPN customers only, built last, off by default** |
+| **D** — WILSON File Gateway | new internet-facing content service | 🟡 bounded — see amended TPN-NET-012 | ⚠️ **Probably unnecessary — see design §4c.** Only for a customer who has refused NAS, VPN, own-cloud and Petal cloud |
+| **F** — customer's **NAS** ⭐ | none in WILSON | 🟢 **best available for the remote case** | ✅ **Recommended.** The NAS is the always-on server; its own VPN/relay handles remote. Phase 1 covers it entirely |
 | **E** — reverse tunnel / hosted relay | new content-bearing sub-processor | 🔴 worst available | ❌ **Rejected** |
 
-> **Amended 2026-08-05.** Audrey confirmed multi-GB media (killing A) and that a
-> VPN is not universally available (putting D in scope). D does not become a TPN
-> violation — her requirement scoped it to *"a company that does NOT need TPN
-> compliance"* from the first sentence. See the amendment under TPN-NET-012.
+> **Amended 2026-08-05.** Audrey confirmed multi-GB media and that a VPN is not
+> universally available (putting D in scope). D does not become a TPN violation
+> — her requirement scoped it to *"a company that does NOT need TPN compliance"*
+> from the first sentence. See the amendment under TPN-NET-012.
+>
+> ⭐ **Third amendment, same day — the NAS route (F), and it is the best outcome
+> for this review.** Audrey: *"as long as the end user company has their own NAS
+> drive it can be accessed 24/7."* A NAS presents as the same UNC share Phase 1
+> already supports, and prosumer NAS boxes ship a **built-in VPN server** and a
+> vendor relay as configuration rather than a project. So the customer who
+> *"won't set up a VPN"* can still reach content over a VPN their NAS provides —
+> which lands them back on the control TS-2 actually names. **The route with the
+> best TPN posture and the route requiring the least work are now the same
+> route**, and Option D loses most of its justification. The gateway should not
+> be built without a named customer who has refused all four alternatives.
+>
+> ⚠️ Two conditions on F: the root must be stored as a **UNC path**, not a mapped
+> drive letter (§3.3) — some vendor sync clients only surface a drive letter, so
+> confirm against a real box first — and a **vendor relay** (QuickConnect,
+> myQNAPcloud) puts the NAS vendor in the content path. That is the customer's
+> own sub-processor decision to disclose in their assessment, **not Petal's** —
+> materially unlike Option E, where the relay would be Petal's.
+>
+> ⚠️ **Second amendment, same day — a correction.** This review initially recorded
+> A as "cannot carry multi-GB at any cap". That was wrong: it generalised a
+> **Local Server** measurement to the **Supabase** adapter, which is different
+> code and hands the `File` straight to Storage
+> (`supabaseAdapter.js:970-975`). Cloud's ceiling is the bucket's
+> `file_size_limit`, which is raisable. Audrey found it by asking what a
+> cloud-only customer is supposed to do.
+>
+> **This has a security consequence, which is why it is recorded here and not
+> only in the design.** Raising the cap and adding resumable uploads changes the
+> content path: chunked uploads land partial objects, and a resumed or abandoned
+> upload leaves fragments the lifecycle vocabulary
+> (`uploaded/moved/relinked/trashed/restored/purged`) cannot describe. See
+> **TPN-CONT-017**.
 
 ---
 
@@ -187,6 +234,175 @@ effort: L
 blocks_tier: Gold
 recommendation_ref: RECO-AUTH-SESSION
 ```
+
+### TPN-AUTH-009 — The storage-root control has no permission gate; any member can repoint it
+
+```yaml
+id: TPN-AUTH-009
+severity: HIGH
+control: TS-1.7
+domain: authentication
+title: StorageConnections imports usePermissions but never gates on role — any user can set the content root
+location: src/components/settings/StorageConnections.jsx:46,104,106
+evidence: |
+  15: import { usePermissions } from '../../permissions'
+  46: const perms = usePermissions()
+  104: <Card icon={Cloud} title="Supabase (company cloud)" connected={!!perms.workspaceId}>
+  106:   {perms.workspaceId
+  // perms is read exactly twice, both for a display label. No role check
+  // anywhere; the "Choose folder" / "Change" buttons that write
+  // defaultRootDir are reachable by a `user`-role member.
+required: |
+  TS-1.7 requires RBAC/ABAC enforcement on privileged configuration. Deciding
+  where a workspace's content is stored is privileged configuration: it selects
+  the location of every asset the tenant owns.
+gap: |
+  The permission hook is imported, which makes the file read as gated on a
+  skim, and nothing is gated — the same shape as the ungated TimelineView
+  closed in S29. Impact is currently limited because the root is per-machine
+  (files-config.json), so a member repointing it affects only their own
+  computer. Phase 1 of the design makes the root workspace-wide, at which point
+  the identical ungated button lets any member repoint the entire company's
+  media — including onto a path the rest of the team cannot reach.
+  Audrey specified the fix before this review found the cause:
+  "do not let a base user have access to setup paths only managers."
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-AUTH-RBAC
+```
+
+**Notes.** Gate in RLS on `workspace_storage` (`current_app_role() IN
+('admin','manager')`, the pattern already used by 0012/0013), mirrored in the UI.
+**The gate must ship in the same phase as the shared root** — shipping the shared
+root first would widen this finding from per-machine to per-tenant. Handle
+`ready`, or a real manager sees the control disabled while their role resolves.
+
+### TPN-NET-015 — `projects.folder_root` is written from the request body and validated against nothing
+
+```yaml
+id: TPN-NET-015
+severity: HIGH
+control: AS-2.3
+domain: network
+title: A project's storage root is taken from the request body with no containment check
+location: electron/main.cjs:1431,1455
+evidence: |
+  // create
+  folder_root: req.body.folder_root || null,
+  // patch
+  bundle.project = { ...bundle.project, ...req.body, id: bundle.project.id };
+required: |
+  AS-2.3 requires applications to operate within their intended privilege and
+  path boundary. A per-project storage root selects where that project's
+  content is written and read; it must be constrained to the storage area the
+  workspace administrator configured.
+gap: |
+  Both routes accept an arbitrary absolute path. The project's content root can
+  therefore be pointed anywhere the WILSON process can reach — outside the
+  configured storage area, at another project's folder, or at an unrelated
+  system directory, whereupon ensureProjectFolders creates a tree there and
+  uploads write into it.
+  The codebase already knows this is dangerous one function away:
+  isUserAuthorizedRelinkDir (main.cjs:1345) exists precisely because "a
+  body-picked baseDir would let a drive-by request point a project's files at,
+  say, the user's Documents and read/unlink there" (S14). That reasoning applies
+  verbatim here, and this route never got the guard.
+  Reachable today by any caller of the local API, which is unauthenticated
+  (TPN-NET-001).
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-NET-SEG
+```
+
+**Notes.** Audrey's permission model depends on closing this. She specified
+*"admins can set server/drive. managers can set folders within set drive. this
+stops anyone from breaking it."* The "within" is not enforceable while
+`folder_root` accepts any absolute path — a manager, or anything that can reach
+the local API, could set a project root outside the admin's drive and the
+admin's choice would be advisory. **Containment-check `folder_root` against
+`workspace_storage.root_path` using the same resolver that guards individual
+files, one level up.** Fix alongside Phase 0's guard repair — they are the same
+bug class at two scopes.
+
+### TPN-CONT-017 — Resumable uploads will create partial objects the lifecycle vocabulary cannot describe
+
+```yaml
+id: TPN-CONT-017
+severity: MEDIUM
+control: AS-3.15
+domain: content
+title: Phase 2b's chunked/resumable uploads leave fragments outside the content lifecycle
+location: supabase/migrations/0027_file_lifecycle.sql:85-86 (structural)
+evidence: |
+  event TEXT NOT NULL CHECK (event IN
+    ('uploaded', 'moved', 'relinked', 'trashed', 'restored', 'purged')),
+required: |
+  AS-3.15 requires a formal content lifecycle with chain-of-custody covering
+  receipt/creation through certified disposal. Every object holding content
+  must be accounted for, including incomplete ones.
+gap: |
+  Raising the bucket cap for multi-GB media (design Phase 2b) requires
+  resumable/TUS uploads. A resumable upload that is abandoned, interrupted or
+  superseded leaves partial objects in the bucket. The vocabulary above has no
+  term for them: they were never 'uploaded', so nothing certifies their
+  disposal, and the storage_gc_queue is fed from files-row deletions that a
+  fragment never had. A multi-GB abandoned upload is both a content fragment
+  and a recurring bill.
+effort: M
+blocks_tier: Gold Star
+recommendation_ref: RECO-CONT-LIFECYCLE
+```
+
+**Notes.** Cheapest correct answer: give the bucket a TTL sweep for incomplete
+uploads and add an event term for the abandoned case, designed **with** Phase 2b
+rather than after it. This is the same lesson as the `downloaded` event below —
+lifecycle terms are almost never retrofitted once a feature ships working.
+
+### TPN-CLOUD-008 — A thumbnail bucket repeats TPN-CLOUD-004 if it is public or its policies are partially ported
+
+```yaml
+id: TPN-CLOUD-008
+severity: HIGH
+control: CS-1.13
+domain: cloud
+title: New rabbit-thumbnails bucket must be private and must port the invoice gate, or it leaks content frames
+location: docs/NETWORK_STORAGE_DESIGN.md §5d.1 (structural) + supabase/migrations/0027_file_lifecycle.sql:283-340
+evidence: |
+  -- The pattern to copy, and the one to not get wrong:
+  INSERT INTO storage.buckets (id, name, public, file_size_limit)
+  VALUES ('rabbit-files', 'rabbit-files', false, 52428800)
+  -- plus FOUR policies: three base + rabbit_files_invoices_select,
+  -- which the adapter documents as a pair where "changing either
+  -- without the other opens a hole" (supabaseAdapter.js:909-940).
+required: |
+  CS-1.13 requires multi-tenancy isolation at every layer and access controls on
+  all cloud-stored content. A thumbnail of pre-release footage IS content — a
+  recognisable frame of an unreleased title is precisely what the framework
+  protects.
+gap: |
+  Two failure modes, both easy and both plausible:
+  1. PUBLIC BUCKET. The instinct that thumbnails are small and harmless, so the
+     bucket can be public for load speed. That is TPN-CLOUD-004 verbatim — the
+     still-open CRITICAL where user-avatars is public with an unconditional
+     SELECT policy, enumerable with the public anon key. Repeating it for
+     content frames rather than avatars would be materially worse.
+  2. PARTIAL POLICY PORT. Copying the three base policies and forgetting
+     rabbit_files_invoices_select leaves invoice thumbnails readable by every
+     project member — the money gate defeated by its own derived image, in the
+     place nobody thinks to audit.
+  Neither is a defect in the design as written; both are what happens if the
+  bucket is created without reading 0027 first.
+effort: S
+blocks_tier: Gold
+recommendation_ref: RECO-CLOUD-PUBLIC
+```
+
+**Notes.** `public = false`, identical path layout to `rabbit-files` so all four
+policies port by changing `bucket_id` alone, `file_size_limit` at 256 KB, and
+pgTAP coverage mirroring `05_files` — including a probe that a non-manager
+cannot read an invoice **thumbnail**. The separate bucket is the right call
+(a bucket has one size limit, and media needs a large one), but a new bucket is
+a new tenancy boundary and inherits nothing automatically.
 
 ### TPN-CONT-016 — The design does not specify SMB signing or encryption for the share
 

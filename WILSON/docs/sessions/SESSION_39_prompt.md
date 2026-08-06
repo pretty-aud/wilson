@@ -1,16 +1,31 @@
-# SESSION 32 launch prompt — THE DESIGN PASS
+# SESSION 39 launch prompt — THE DESIGN PASS
 
-> ⚠️ **THIS WAS WRITTEN AS THE S29 BRIEF AND IS NOW S32.** Audrey split the
-> work into separate sessions on 2026-08-04 (*"parse them out into one session
-> for timeline, one for otter, then settings"*), so three sessions now sit in
-> front of the design pass: **S29** the Timeline permission gate, **S30**
-> O.T.T.E.R. persistence, **S31** per-user settings + the pet + logout.
-> Re-read `MASTER_PLAN_S19_ONWARD.md`'s sequence table before trusting
-> anything below — parts of it were written when this was the next session.
+> 🚨 **THIS BRIEF HAS BEEN RENUMBERED TWICE: written as S29 → became S32 →
+> now S39** (Audrey, 2026-08-05: *"move 32 to the last one. fix the
+> numbering"*). It is **the last session in the plan**, and it is last on
+> purpose: running a visual design pass before six sessions of new UI —
+> the storage panel, the Admin Terminal drive control, thumbnails, video
+> preview — would mean redoing it immediately.
 >
-> ⚠️ **The verification sweep moved to S29**, which is next and is about the
-> same permission machinery. Do not re-run it here without checking whether
-> S29 closed it.
+> **Everything below was written when this was the NEXT session.** Large parts
+> of it are stale. **Re-read `MASTER_PLAN_S19_ONWARD.md`'s sequence table and
+> re-measure the app before trusting any specific claim here** — treat this as
+> a list of intentions, not a description of the product.
+>
+> ✅ **Sessions that now sit in front of it, all with their own briefs:**
+> S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
+> logout) — **all three DONE** — then S33 → S34 → S35 → S36 → S37 → S38, the
+> network-storage and media run designed in `docs/NETWORK_STORAGE_DESIGN.md`.
+>
+> 🚨 **Six sessions of NEW SURFACE land before this one and are not described
+> below.** At minimum the design pass must cover: the storage-mode selector and
+> drive control (Admin Terminal), the project-folder control (Project Control
+> Panel), the two-step local-drive confirmation, the reachability status line,
+> thumbnails in every file view, the video preview surface, and the inline
+> desktop-app notices. **Read those six briefs before scoping this one.**
+>
+> ⚠️ **The verification sweep referenced below moved to S29 and is closed.**
+> Do not re-run it.
 >
 > ⚠️ **One item below is already ANSWERED.** This brief lists "a R.A.B.B.I.T.
 > settings tab for project currency, rate card and task templates" — task
