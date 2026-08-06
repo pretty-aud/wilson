@@ -7,6 +7,45 @@ from the source site into GitHub's secrets box.
 
 ---
 
+## 0b. Purge `messed up handbook.pdf` from public history — PARKED, not urgent
+
+**Audrey, 2026-08-05: *"lets just move on... i can deal with this pdf later."***
+Parked deliberately. **She has read it and confirmed it is trash**, so there is
+nothing to rotate and no disclosure to chase — this is cleanup, not security.
+
+**What happened.** `e3c3fc5` (30 Jul) swept a **12.8 MB** PDF into a commit via
+`git add -A` and pushed it to the **public** repo. `85b021b`, two minutes later,
+ran `git rm --cached` — which removes it from the working tree but **not from
+history**. It is still fetchable from GitHub.
+
+| | |
+|---|---|
+| Repo path | `WILSON/docs/messed up handbook.pdf` |
+| Blob | `782e271354932a9677d92c15188a6e6209fbf652` |
+| Size | 13,466,523 bytes |
+| Reachable from | **only `feat/multi-user-v1`** (local + origin). `main` is clean, no tags affected |
+| Local file | **deleted from disk 2026-08-05** |
+
+**The rewrite was rehearsed and verified in a throwaway clone** (not pushed):
+`git filter-repo --path "WILSON/docs/messed up handbook.pdf" --invert-paths`
+→ PDF gone from all commits, **repo 15 MB → 4.5 MB**, and **the file tree at
+HEAD byte-identical — all 479 files, same blob hashes.** Only two side effects,
+both consequences of the removal: the `chore: untrack …pdf` commit is pruned
+(it becomes empty), and one commit message's stale SHA reference is updated.
+
+**Risk assessment, measured:** only contributor in the rewritten range is
+`audrey`; no tags; `main` unaffected; no other branch contains it. **The real
+risks are that it force-pushes a public repo and triggers a Vercel redeploy of
+the live beta** (`feat/multi-user-v1` is the production branch).
+
+→ **When you want it done:** rerun the filter-repo command above on a fresh
+clone, then `git push --force-with-lease origin feat/multi-user-v1`, then reset
+the working repo to match. ⚠️ **Also add a `*.pdf` rule to `.gitignore`** —
+there is still none, so the identical accident can recur on the next
+`git add -A`.
+
+---
+
 ## 0. 🚨 ROTATE THE CI PROBE PASSWORD — do this before anything else
 
 **Found by the Session 15 TPN re-audit (TPN-SDLC-007) and verified against the
