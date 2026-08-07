@@ -1,293 +1,160 @@
-# SESSION 39 launch prompt — THE DESIGN PASS
+# SESSION 39 launch prompt — PETAL CLOUD AS A PAID, OPERATOR-MANAGED PRODUCT
 
-> 🚨 **THIS BRIEF HAS BEEN RENUMBERED TWICE: written as S29 → became S32 →
-> now S39** (Audrey, 2026-08-05: *"move 32 to the last one. fix the
-> numbering"*). It is **the last session in the plan**, and it is last on
-> purpose: running a visual design pass before six sessions of new UI —
-> the storage panel, the Admin Terminal drive control, thumbnails, video
-> preview — would mean redoing it immediately.
->
-> **Everything below was written when this was the NEXT session.** Large parts
-> of it are stale. **Re-read `MASTER_PLAN_S19_ONWARD.md`'s sequence table and
-> re-measure the app before trusting any specific claim here** — treat this as
-> a list of intentions, not a description of the product.
->
-> ✅ **Sessions that now sit in front of it, all with their own briefs:**
-> S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
-> logout), **S33 (guard fix + `downloaded` event, 2026-08-07)** — **all four
-> DONE** — then S34 → S35 → S36 → S37 → S38, the network-storage and media
-> run designed in `docs/NETWORK_STORAGE_DESIGN.md`.
->
-> 🚨 **Six sessions of NEW SURFACE land before this one and are not described
-> below.** At minimum the design pass must cover: the storage-mode selector and
-> drive control (Admin Terminal), the project-folder control (Project Control
-> Panel), the two-step local-drive confirmation, the reachability status line,
-> thumbnails in every file view, the video preview surface, and the inline
-> desktop-app notices. **Read those six briefs before scoping this one.**
->
-> ⚠️ **The verification sweep referenced below moved to S29 and is closed.**
-> Do not re-run it.
->
-> ⚠️ **One item below is already ANSWERED.** This brief lists "a R.A.B.B.I.T.
-> settings tab for project currency, rate card and task templates" — task
-> templates shipped in S28 **with a permission gate**, and the manager surface
-> is deliberately read-only for a member. Do not re-expose it ungated while
-> rearranging tabs.
+> **§4a3 of `docs/NETWORK_STORAGE_DESIGN.md`** — read it first; it carries
+> Audrey's requirement verbatim and the three decisions this brief builds on.
+> Created 2026-08-07, immediately after S34 shipped the storage-mode selector
+> (Audrey: *"lets make session 39 for making the operator terminal solution"*).
 
-> **STATE — re-measure; this block decays** (last refreshed after S33,
-> 2026-08-07, `ca4f252`): migrations **0000–0047** on dev, staging and prod
-> (next free **0048**); pgTAP **57 suites / 920 assertions** (next suite
-> **58**); vitest **940 / 44 files**. All CI checks green, Playwright
-> included. By the time this session runs, S34–S38 will have moved every one
-> of these numbers — the working tree is the authority.
->
-> ✅ **Task templates work in cloud.** `public.task_templates` (JSONB `tasks`,
-> optional project pin), five adapter methods, `assets.task_template_id`, and a
-> permission gate Audrey specified directly. **This was the oldest open item on
-> the list and it is closed.**
->
-> ✅ **The `role_slug` defect is fixed at both sites.** Applying a template
-> used to create tasks with **no role**, silently, because `toColumns` dropped
-> an unknown key with only a console warning. Every bid built from those tasks
-> priced at nothing.
->
-> 🚨 **`public.can_write_task_template(uuid)` is the ONE definition of who may
-> write a template**, mirrored on the client by `canWriteTaskTemplate()`.
-> Audrey, 2026-08-04: *workspace admins and managers globally; project managers
-> additionally for templates pinned to their own project.* Note this differs
-> from BOTH neighbours — money admits a project manager but not a workspace
-> manager; the control panel admits reviewers but not members. **There is still
-> no house default. Keep asking.**
+> 🚨 **THIS SESSION BLOCKS S37.** S37 raises the 50 MB bucket cap and adds
+> resumable multi-GB uploads. Doing that before this session exists would
+> turn an unmetered free tier into an unmetered *multi-gigabyte* free tier —
+> quota plane first, floodgates second. S37's brief carries the matching
+> warning. Session NUMBERS are not execution order; the blocked-by column of
+> the master plan's sequence table is.
 
-> Paste into a new Claude Code conversation. **Start from `WILSON/`, not
-> `Claude_Work/`.**
-> **Start ritual** (S34+ standard), in order and before any code:
-> 1. **Load the `wilson-app` skill** and skim its `versioning.md`.
-> 2. `git status` + `git log --oneline -3` on `feat/multi-user-v1`, and
->    `ls supabase/migrations | tail` + `ls supabase/tests/rls | tail` — the
->    working tree, not this brief, says which numbers are free.
-> 3. read **`docs/OUTSTANDING.md`** (faults) and **`docs/SYSTEMS_HANDBOOK.md`
->    §17** (limits by design — a gate, not an oracle)
-> 4. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md` — the sequence table is
->    the authority, and the S33+ outcome blocks are the recent history
-> 5. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
->    ⚠️ **The CLI actually reads `supabase/.temp/project-ref`**, a plain-text
->    file beside it. Both exist and have agreed so far. If they ever disagree
->    the CLI follows `project-ref` while the standing rule points at the JSON —
->    check both.
-> 6. **Re-verify every `file:line` citation in this brief by SYMBOL** — six
->    sessions land between its writing and its running.
+> **STATE — re-measure, do not trust this block.** As of S34 (2026-08-07):
+> migrations **0000–0048** on all three envs (verified by query), next free
+> **0049**. pgTAP **58 suites / 951 assertions**, next free suite **59**.
+> Vitest **972 / 46 files**. 🚨 **Read the working tree, never memory or a
+> doc — a design written mid-S31 cited "0046, next free" and was wrong
+> within the hour.**
+
+## Start ritual (before touching anything)
+
+1. **Load the `wilson-app` skill** and skim its `versioning.md`.
+2. **Re-measure the STATE block**: `git log --oneline -3`, `git status
+   --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
+   and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
+   say wilson-dev before anything writes).
+3. **Read `docs/OUTSTANDING.md`** (what is broken) and
+   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
+   oracle).
+4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a3** and the **S34 outcome
+   block** in `MASTER_PLAN_S19_ONWARD.md`.
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before
+   using it** — sessions between its writing and now have moved them.
 
 ---
 
-## 🚨 THE RULE THAT OVERRIDES EVERYTHING
+## Why this exists
 
-**Do not write code, ship a fix, or state a conclusion from an unproven
-theory. Measure first.** (`feedback_prove_before_acting.md`.)
+**Audrey, 2026-08-07, verbatim:**
 
-**S28's addition, and it is about the sentences you write, not the code.**
+> *"if the storage selection is petal cloud and it does store media on petal
+> cloud, please make sure to set it up management of that in the operator
+> terminal. so if the company selected the petal cloud option, the operator
+> terminal should have control to partition server space for that company and
+> approve access. so basically if users do want to use the petal offered
+> storage they need to be paying the monthly payments for access. it needs to
+> be controlled and managed by the operator terminal for when their are
+> multiple companies using the tool"*
 
-S27 established that a feature with no caller has no symptom. S28 applied that
-*before* the fact for the first time — it measured that task templates had
-never produced a row on **any** backend (the Local Server directory exists and
-is empty) and therefore treated "the table exists" as proving nothing.
+And the standing rule from the same conversation: *"all databases for tasks,
+etc all of it should be saved in supabase databases. its only media etc that
+is saved on the selected storage solution"* — already true by construction
+(the storage mode touches file BODIES only); this session must keep it true.
 
-What S28 added is smaller and sharper: **write the breakers you expect to
-PASS, not only the ones you expect to fail.** Six ran against 0044. Two did
-not fire, and both of those corrected a **comment** rather than the code:
+**The measured gap (S34):** every workspace defaults to `central` (no
+`workspace_storage` row = Petal cloud), uploads have gone to the shared
+`rabbit-files` bucket since S14 with a 50 MB per-file cap and **no metering,
+no quota, no approval, no payment linkage**. Harmless with one tenant; wrong
+the day company #2 signs in.
 
-- Removing `WITH CHECK` from an UPDATE policy changes nothing — Postgres
-  reuses `USING` as the new-row check. The migration's first draft asserted
-  the opposite, confidently, with a plausible mechanism.
-- Removing a `COALESCE` changed nothing either — which is exactly what that
-  function's own header claimed, so the breaker *confirmed* a stated claim
-  instead of refuting it.
+## The three decisions — settled by Audrey 2026-08-07, do not re-ask
 
-> **A comment in a migration is a claim about the database, and it decays
-> exactly like a plan document does.** The only difference is that nobody ever
-> re-reads it. A breaker you expect to pass is how you check one.
+| Question | Decision |
+|---|---|
+| What does "no plan" mean? | **A small free allowance (1 GB), then a plan is required.** Zero-allowance would make the first-day experience feel broken; a free tier is a funnel, not a cost. |
+| Hide "Petal cloud" from non-payers? | **Visible but inert** — selectable state shows "not yet active — contact Petal". Hiding it makes the product look like it lacks the feature. |
+| Billing automation in v1? | **Manual.** The operator flips a company active/suspended when payments start/stop. A payment-provider hook is its own later session. |
 
-**Label everything MEASURED / INFERRED / GUESSED.**
+## What this needs
 
----
+### 1. The plan table (migration 0049+, re-measure the number)
 
-## 🚨 CITE SYMBOLS, NOT LINE NUMBERS
+Operator-owned, following the **model control plane precedent (0031)** —
+platform-level tables the operator console curates, workspace-readable:
 
-S27 wrote `main.cjs:2088-2131` into the S28 brief from a doc that had been
-correct in S23; S27 had itself inserted ~70 lines into that file. **Grep for
-the symbol and read the number off the result. Re-verify any line number at
-the moment you write it into a document.**
+- `workspace_storage_plans`: workspace_id PK→workspaces, status
+  (`active`|`suspended`), `quota_bytes`, notes, audit columns. **Absence of a
+  row = the 1 GB free tier** — the default must work with zero rows, because
+  every existing workspace has zero rows.
+- **Writes ride the operator path** (mirror how the operator console writes
+  today — check whether Companies edits go through Edge Functions with
+  `adminGuard.ts` or operator RLS, and follow that). Every change writes
+  `platform_audit` (⚠️ 0028's closed CHECK on `platform_audit.action` — the
+  0028 → 0031 ordering trap; a new action value needs the CHECK extended).
+- Workspace members SELECT their own row (the Admin Terminal shows "your
+  plan"); **admins must NOT be able to write it** — this is the inverse of
+  0048's shape, and the suite needs the discriminating caller (a workspace
+  ADMIN who is not an operator) to prove it.
 
-Line numbers in THIS document that S28 verified at the moment of writing:
-`ProjectAssetsView.jsx:1427` and `:1730` (the two template-application task
-creates), `SettingsPage.jsx:739` (the Manage Task Templates button),
-`electron/main.cjs:2610-2656` (the local template routes).
+### 2. Enforcement at the upload — restrictive, not advisory
 
----
+- **Usage metering**: a per-workspace usage figure over `rabbit-files`
+  objects. Decide counter-table-with-trigger vs computed view by measuring
+  the object-key → workspace join first (keys are project-scoped; project →
+  workspace). ⚠️ A trigger on `storage.objects` is a dependency on a table
+  Supabase owns — check the house's existing 0027/0042 policies on it for
+  precedent before choosing.
+- **The gate is a RESTRICTIVE policy** on `rabbit-files` INSERT (quota not
+  exceeded AND status not suspended, with the rowless free tier passing).
+  🚨 **Not another permissive policy** — permissive policies OR together
+  (the 0038 inversion), a RESTRICTIVE one ANDs over the existing set. This
+  is the first restrictive policy in the schema; suite probes must prove it
+  composes with 0042's money-segment policies rather than replacing them.
+- 🚨 **NULL-safety**: the quota comparison runs over an aggregate that is
+  NULL for a workspace with no uploads. The S33/0047 lesson both ways —
+  decide the failure direction per clause and COALESCE deliberately.
+- Client-side checks (greyed upload, usage bar) are the courtesy; per S33's
+  measurement, a direct storage REST call bypasses the adapter, so **only
+  the policy is the enforcement**.
 
-## 🚨 THE VERIFICATION DEBT — FOUR SESSIONS OLD, AND IT IS NOT A CODE PROBLEM
+### 3. Operator console (src/admin — NOT the Admin Terminal)
 
-**S25, S26, S27 and now S28 have each been asked to close these and none
-could.** Nothing in this repo automates a signed-in session against staging.
-It is roughly five minutes of one person looking at one browser.
+The platform-operator console is a separate build target
+(`vite --mode admin`, `src/admin/`). CompaniesSection gains a storage panel
+per company: plan status toggle (approve / suspend), quota input, live usage
+readout, audit trail. It copies "the AdminTerminal section contract"
+(`src/admin/CompaniesSection.jsx` says so itself) — mountedRef/loadedRef/
+seqRef.
 
-S28 changed the approach: instead of a general request, Audrey was given a
-numbered checklist naming the screen, the click and what a pass looks like.
-The observations had not come back before the work was committed. **Ask again,
-with that same checklist, at the START of the session rather than the end.**
+### 4. Company side (Admin Terminal → Storage, from S34)
 
-1. **The two assignee dropdowns.** Cause removed at CODE level in S24; nobody
-   has watched them populate. Timeline → open a task → Assignee. Then Assets →
-   open an asset → its task rows. **Grep `teamAssignments`; do not trust any
-   line number for these.**
-2. **Files in cloud — all of S27 is unobserved.** Upload one file to an asset
-   on the beta; it should appear, download, and show up in Resources →
-   PROJECTS → that project. Change a project rate and confirm a
-   `FINANCE/RATES.json` object appears.
-3. **The `canWrite` gate.** Read `OUTSTANDING.md`'s entry IN FULL first.
-   Exactly one theory is refuted (on code); the other rests on testimony.
-   🚨 **Audrey runs two accounts in two browsers at the same time.** Never ask
-   "which account are you on" in general — pin it to the specific browser AND
-   the specific moment. An account assumption has derailed this investigation
-   twice, from opposite directions. **Do not write a fix.**
+- `central` selected + no plan → the visible-but-inert state with the free-
+  tier figure and "contact Petal to activate more".
+- `central` + active plan → usage vs quota, plainly.
+- The S34 wiring test (`src/lib/workspaceRootWiring.test.js`) pins the
+  section's call sites — extend it, don't fork it.
 
-**And now a fourth, because S28 shipped it unobserved:** create a task
-template in Settings → RABBIT → Manage Task Templates, then apply it to an
-asset and confirm the created tasks **carry their roles**. The database chain
-is proven (`scripts/probes/task-templates-e2e.sql`, 6/6 on dev and staging);
-the React path is not.
+### 5. Suite + proof
 
----
-
-## S29 — the design pass
-
-The last scheduled session. Audrey's original list, unchanged since S18:
-
-- **Welcome page phantom cursor.** REPORTED. A black cursor blinks
-  permanently, unattached to any input, and keeps blinking on the right while
-  you type elsewhere. Likely the shared `AuthCursor` in `AuthShell.jsx` —
-  **that is a GUESS. Confirm it in the DOM before touching anything.**
-- **Login and welcome lost the original aesthetic.** Audrey: *"the only
-  password entry with no username input was a lot cleaner."*
-- **A R.A.B.B.I.T. settings tab** for project currency, rate card and task
-  templates. ⚠️ Task templates now have a real permission gate — the manager
-  surface is read-only for a member and says so. Do not re-expose it ungated
-  while rearranging tabs.
-
-> ⚠️ **This is the first session in the sequence that is mostly VISUAL, and
-> the repo's verification tools are almost all textual.** vitest mounts no
-> React, and there is no `@testing-library`. Playwright is the only job that
-> renders anything. Plan to look at the running app rather than to reason
-> about the JSX — and see the trap below, which is specifically about design
-> work.
-
-🚨 **THE TRAP FOR A DESIGN SESSION**, from `feedback_preview_pane_hygiene.md`:
-reset the viewport after any `resize_window`, and never let scaffolding
-impersonate the design. Audrey reads artefacts in the preview pane as broken
-code, so a stray debug border costs more than it saves.
-
----
-
-## Carried, and NOT to be guessed at
-
-- **O.T.T.E.R. validator findings and quiz scores are not saved.** MEASURED,
-  known #2, untouched for many sessions. Both generate correctly and neither
-  persists, so the work is lost on navigation. **This is the largest genuinely
-  broken thing left on the list.**
-- **One hung `getSession()` pins the whole app's auth**, and `withTimeout`
-  races without aborting. Bounding N call sites fixes N UIs, **not the app**.
-  The real fix needs an app-level circuit-breaker or forced re-hydrate.
-  **Design it before writing it.**
-- **Avatar does not persist.** Four hypotheses falsified by measurement; the
-  success-masking is fixed so a failure is now loud. If it recurs, capture the
-  message. The one candidate not excluded is whether the Storage API populates
-  `request.jwt.claims` with `app_metadata` at all.
-
----
+New pgTAP suite (**59+**), registered in **BOTH** rls.yml lists (the
+allowlist fails loud, the replay list fails SILENT). Discriminating callers:
+operator writes ✓, workspace ADMIN write refused (the inverse-of-0048
+probe), member reads own row, cross-workspace reads nothing, upload-over-
+quota refused server-side with a presence control proving an under-quota
+upload lands. **Prove each arm by deleting it — a breaker per check, S33's
+rule.** Postgres-side counts bring their own WHERE (dev carries real rows).
 
 ## Standing traps
 
-- 🚨 **NEVER run `supabase config push`**, and never build a shell command by
-  interpolating content into it.
-- 🚨 **NEVER pipe a file through PowerShell to rewrite it.** PS 5.1 reads
-  BOM-less UTF-8 as ANSI and silently double-encodes — S28 did this to its own
-  probe script and turned every `─` into `â”€` in one command. Use the Write
-  tool for any file another program will parse.
-- **`git add -A` sweeps untracked files into a PUBLIC commit.** Stage explicit
-  paths. `docs/messed up handbook.pdf` must stay untracked.
-- **A migration's text does not tell you the database's state.** Query it.
-- **Check the GRANTEE, not just the grant** (S22).
-- **`supabase db query --file` returns only the LAST result set.** One query
-  per file.
-- ⚠️ **`supabase db query -o json` does NOT return `RAISE NOTICE` output.** A
-  `DO` block that logs its progress with NOTICE comes back as `"rows": []` —
-  indistinguishable from one that never ran. Have probes write to a temp table
-  and SELECT it (and `GRANT` on that table if the block drops to
-  `authenticated`, or the first insert 42501s).
-- **`sanitize()` is a denylist; `toColumns()` is the allowlist.** Any new table
-  written from the client needs a `COLUMN_ALLOWLIST` entry. 🚨 **Three failure
-  shapes, do not conflate them:** an un-allowlisted TABLE PGRST204s the whole
-  save (loud); a dropped KEY on an allowlisted table loses ONE FIELD and only
-  warns (quiet — this was S28's `role_slug`); and a key that is *legitimate*
-  inside a jsonb column is never seen by `toColumns` at all.
-- **Ordering rules for manual re-runs:** 0022 → 0025 AND 0026 · 0028 → 0031 ·
-  0002 → 0029 · 0011 → 0030 · 0009 → 0020 · 0011 → 0033 · **0027 → 0038 →
-  0039 → 0042** · 0040 → 0041 → **0043**. 0044 depends on 0004, 0008, 0013 and
-  0020 and nothing depends on it. **Replay forwards only.**
-- **`node scripts/tap-all.mjs` runs the WHOLE pgTAP set** in one command.
-  `collected` MUST equal `planned`.
-- **`scripts/tap-hosted.py` can run an UNAPPLIED migration together with its
-  suite** in one rolled-back transaction — pass the migration first, then the
-  suite. The shim has NO `has_index`, `col_type_is`, `col_default_is`,
-  `col_not_null`, `hasnt_column`, `results_eq` or `matches`; `throws_ok`
-  matches message text **exactly** (`got = $2`), not as a substring.
-- 🚨 **Prove a new suite by BREAKING it** — including breakers you expect to
-  pass. See the rule at the top.
-- **Permissive RLS policies OR together** — DROP + CREATE, never add a
-  narrower policy beside a broader one. And on UPDATE, **a `WITH CHECK` weaker
-  than its `USING` is the hole**; omitting `WITH CHECK` entirely is safe.
-- 🚨 **THREE GREEN CI JOBS CAN MEAN NOTHING. Playwright is the only one that
-  proves the app RENDERS.** Nothing in vitest mounts `RabbitProvider`, a TDZ
-  error bundles fine, and there is no eslint config. If Playwright fails, check
-  `document.getElementById('root').children.length` against the dev server.
-- **`docs/SYSTEMS_HANDBOOK.md` §17 is a gate, not an oracle.** S21, S22, S24,
-  S25, S26, S27 and S28 each corrected it. Check the code.
-
----
-
-## Still owed by Audrey — blocking the v1.0.0 tag
-
-1. **Rotate `smoke_admin`** — published in the PUBLIC repo, permanent in git
-   history. `OWED_AUDREY.md` §0, TPN-SDLC-007. The one open CRITICAL.
-2. **Rotate `wilson-staging`'s legacy `service_role` key** (S19 exposure).
-   `supabase projects api-keys` returns all keys as ONE JSON line — never
-   filter it, select the one field.
-3. **Complete `docs/RELEASE_TESTING.md`.**
-4. **v1.0.0 is prepared, NOT tagged, NOT merged.** Ask before tagging, and ask
-   **again** before merging to `main` (Vercel's production branch).
-
----
+Never `supabase config push`. `git add -A` sweeps untracked files into a
+PUBLIC repo. Never interpolate content into a shell command. A migration's
+text is not the database's state — query it, and read
+`supabase/.temp/linked-project.json` first. One query per `--file`. Count
+`<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
+BEFORE the git push; re-link to wilson-dev after.
 
 ## Close-out ritual
 
-1. Apply migrations to **dev**, verify **by query**, run `tap-all`.
-2. Feature commit(s).
-3. Apply to **staging**, then **prod** — dry-run each, verify each **by
-   query**. ⚠️ **Staging goes BEFORE the push**: `feat/multi-user-v1`
-   auto-deploys the STAGING-backed beta.
-4. Push → **CI green on all four jobs** (a skip is not green).
-5. Re-link the CLI to `wilson-dev`.
-6. Write the next brief → update `docs/MASTER_PLAN.md` and
-   `MASTER_PLAN_S19_ONWARD.md` → update `docs/SYSTEMS_HANDBOOK.md` if
-   behaviour changed → **update `docs/OUTSTANDING.md`** → update the Claude
-   auto-memory → docs commit + push.
-
-> **THEN, FINALLY, IN THE CHAT — both required, after everything is pushed:**
->
-> 1. **List the remaining sessions**, one line each, a few words only, marking
->    any that are done. If the order changed, say so.
-> 2. **A layman's breakdown of what this session accomplished**, in bullet
->    points, plain English. **No jargon, no table names, no migration numbers,
->    no file paths.** Write what CHANGED FOR AUDREY, not what was done to the
->    code. Say plainly what is fixed, what is only diagnosed, and what she
->    needs to do herself.
+1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
+2. Sequence table + an S39 outcome block in `MASTER_PLAN_S19_ONWARD.md`;
+   **unblock S37's brief** (its blocked-by note points here).
+3. Migration verified **by query on dev, staging AND prod**.
+4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI
+   green on the pushed head, Playwright included.
+5. Refresh the next session's brief STATE block; update the Claude
+   auto-memory in the same pass.
+6. Close out in the chat with the remaining-session list and a plain-English
+   breakdown. Never let a diagnosis read as a fix.

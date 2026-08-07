@@ -534,6 +534,57 @@ lifecycle and `downloaded` event work against a bucket Petal cannot see. Flagged
 now because it changes the argument for Option D and should be evaluated
 **before** committing 3–5 sessions to a gateway.
 
+## 4a3. Petal cloud is a PAID, OPERATOR-MANAGED product — Audrey, 2026-08-07
+
+Decided the day S34 shipped the storage-mode selector, when Audrey asked what
+"Petal cloud" actually does today and was told the truth: uploads have gone to
+the shared `rabbit-files` bucket since S14, 50 MB per file, **no metering, no
+quota, no approval, no payment linkage** — every workspace defaults to it.
+Verbatim:
+
+> *"if the storage selection is petal cloud and it does store media on petal
+> cloud, please make sure to set it up management of that in the operator
+> terminal. so if the company selected the petal cloud option, the operator
+> terminal should have control to partition server space for that company and
+> approve access. so basically if users do want to use the petal offered
+> storage they need to be paying the monthly payments for access. it needs to
+> be controlled and managed by the operator terminal for when their are
+> multiple companies using the tool"*
+
+And the standing rule restated in the same message: *"all databases for tasks,
+etc all of it should be saved in supabase databases. its only media etc that
+is saved on the selected storage solution"* — already true by construction
+(§4a2: only the file *bodies* move under this design), and every future
+storage change must keep it true.
+
+**Three decisions, settled 2026-08-07 (Audrey: "agree with all your
+answers"):**
+
+1. **No plan = a small free allowance (1 GB), then a plan is required.** A
+   zero-allowance refusal makes the first-day experience feel broken; a free
+   tier is a funnel, not a cost.
+2. **"Petal cloud" stays VISIBLE to non-paying companies, but inert** — the
+   selection shows "not yet active — contact Petal". Hiding it makes the
+   product look like it lacks the feature.
+3. **Billing is MANUAL in v1.** The operator flips a company active/suspended
+   as payments start and stop; payment-provider automation is its own later
+   session.
+
+**The shape (built by S39, not before):** an operator-owned
+`workspace_storage_plans` table following the model-control-plane precedent
+(0031) — status, quota, audit trail via `platform_audit`; enforcement as a
+**RESTRICTIVE** policy on `rabbit-files` INSERT (a permissive one would OR
+into the existing set — the 0038 inversion); usage metered per workspace and
+shown in both terminals. ⚠️ **"Partition" here means a metered quota, not a
+physical partition** — Supabase Storage has no per-tenant partitions; if hard
+isolation is ever wanted, bucket-per-company is the alternative, at the cost
+of multiplying the policy surface 0042 deliberately collapsed to one
+definition.
+
+🚨 **Ordering: this lands BEFORE S37 raises the 50 MB cap.** Raising the cap
+first would turn an unmetered free tier into an unmetered multi-gigabyte one.
+S37 is blocked on S39 in the master plan's sequence table.
+
 ## 4c. ⭐ The NAS answer — Audrey, 2026-08-05
 
 > *"so VPN works for TPN companies. some companies may not have it so we need

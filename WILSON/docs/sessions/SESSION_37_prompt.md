@@ -1,8 +1,12 @@
 # SESSION 37 launch prompt — MULTI-GB FILES IN CLOUD MODE
 
-> **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2).
-> 🚨 **DEPENDS ON NOTHING.** Independent of the network-storage chain and of
-> thumbnails. Run it whenever cloud customers are the nearer need.
+> **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2, §4a3).
+> 🚨 **BLOCKED BY S39** (changed 2026-08-07; this line used to say "depends on
+> nothing"). S39 builds the operator-managed storage plans and quota
+> enforcement — raising the 50 MB cap before the quota plane exists would
+> turn an unmetered free tier into an unmetered MULTI-GIGABYTE free tier.
+> Independent of the network-storage chain and of thumbnails otherwise; run
+> S39 then this whenever cloud customers are the nearer need.
 
 > **STATE — re-measure.** Confirm the next free migration number, suite count,
 > vitest counts and HEAD from the working tree.

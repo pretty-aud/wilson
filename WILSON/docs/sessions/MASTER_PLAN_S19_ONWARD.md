@@ -404,10 +404,19 @@ below are superseded; only one of them actually moves.
 | **S31** | **Per-user settings + the pet + logout** — ✅ **DONE (`272fb83`, `29d36fc`)** | her account must follow her between computers | `SESSION_31_prompt.md` |
 
 > ✅ **NUMBERS AND ORDER NOW AGREE** (Audrey, 2026-08-05: *"move 32 to the last
-> one. fix the numbering"*). The design pass was S32; it is now **S39**, and its
-> brief was renamed `SESSION_32_prompt.md` → **`SESSION_39_prompt.md`**
+> one. fix the numbering"*). The design pass was S32; it became **S39**, and its
+> brief was renamed `SESSION_32_prompt.md` → `SESSION_39_prompt.md`
 > (`git mv`, so the history follows). It runs last on purpose: a visual design
 > pass before six sessions of new UI would be redone immediately.
+>
+> **Moved again 2026-08-07** (Audrey: *"lets make session 39 for making the
+> operator terminal solution. move design pass to 40"*): the design pass is
+> now **S40** (`git mv` → `SESSION_40_prompt.md`), and **S39 is Petal-cloud
+> storage management** — operator-terminal plans, quotas and approval
+> (design §4a3), created the day S34 shipped the storage-mode selector and
+> the "Petal cloud" label turned out to name an unmetered free tier.
+> ⚠️ **S39 BLOCKS S37**: the quota plane must exist before the 50 MB cap is
+> raised. Session numbers are not execution order; the blocked-by column is.
 >
 > ⚠️ **`SESSION_29_prompt.md` and `SESSION_31_prompt.md` still refer to "S32"
 > when they mean this brief.** Both are closed sessions and are left as written
@@ -420,16 +429,18 @@ below are superseded; only one of them actually moves.
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** | **The manager half + setup guidance** — Control Panel gate, `folder_root` containment, VPN/NAS docs | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
-| **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **none** | `SESSION_37_prompt.md` |
+| **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S39** (quota plane before the cap raise) | `SESSION_37_prompt.md` |
 | **S38** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_38_prompt.md` |
-| **S39** | **Design pass** — last on purpose; must cover all the surface S33–S38 adds | ? | S38 | `SESSION_39_prompt.md` |
+| **S39** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_39_prompt.md` |
+| **S40** | **Design pass** — last on purpose; must cover all the surface S33–S39 adds | ? | S38 + S39 | `SESSION_40_prompt.md` |
 | — | **Bring-your-own-cloud** (design §4a2) — evaluate **before** any gateway work | design ½ | none | not written |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
-> **Only S33 → S34 → S35 is a real chain.** S36, S37 and bring-your-own-cloud
-> depend on nothing and can be pulled forward if a customer needs them sooner.
-> They were grouped with the network work because they arose in the same
-> conversation, not because they share code.
+> **The real chains: S33 → S34 → S35, and S39 → S37** (quota plane before the
+> cap raise — §4a3). S36, S39 and bring-your-own-cloud depend on nothing and
+> can be pulled forward if a customer needs them sooner. They were grouped
+> with the network work because they arose in the same conversation, not
+> because they share code.
 >
 > **All six briefs derive from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
 > authority** — each carries the measurements, but the design carries the
