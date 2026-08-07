@@ -411,12 +411,27 @@ below are superseded; only one of them actually moves.
 >
 > **Moved again 2026-08-07** (Audrey: *"lets make session 39 for making the
 > operator terminal solution. move design pass to 40"*): the design pass is
-> now **S40** (`git mv` → `SESSION_40_prompt.md`), and **S39 is Petal-cloud
-> storage management** — operator-terminal plans, quotas and approval
-> (design §4a3), created the day S34 shipped the storage-mode selector and
-> the "Petal cloud" label turned out to name an unmetered free tier.
-> ⚠️ **S39 BLOCKS S37**: the quota plane must exist before the 50 MB cap is
-> raised. Session numbers are not execution order; the blocked-by column is.
+> now **S40** (`git mv` → `SESSION_40_prompt.md`), and Petal-cloud storage
+> management was created — operator-terminal plans, quotas and approval
+> (design §4a3), the day S34 shipped the storage-mode selector and the
+> "Petal cloud" label turned out to name an unmetered free tier.
+>
+> ✅ **RENUMBERED AGAIN, LATER THE SAME DAY, AND THIS TIME THE NUMBERS MATCH
+> EXECUTION ORDER** (Audrey, 2026-08-07, after S35: *"make 39 be 37 instead.
+> move the numbering of the ones after"*). Petal-cloud storage management
+> was S39 and is now **S37**, because it BLOCKS the cap raise and running it
+> third was already the plan; the two sessions it displaced each moved up a
+> number. All three briefs were `git mv`'d so the history follows:
+>
+> | Was | Is now | Session |
+> |---|---|---|
+> | S39 | **S37** | Petal cloud storage management (the quota plane) |
+> | S37 | **S38** | Multi-GB files in cloud mode |
+> | S38 | **S39** | Video preview + video thumbnails |
+>
+> ⚠️ **S37 BLOCKS S38**: the quota plane must exist before the 50 MB cap is
+> raised. **Since this renumbering the table's order and the session numbers
+> agree** — but the blocked-by column stays the authority if they drift.
 >
 > ⚠️ **`SESSION_29_prompt.md` and `SESSION_31_prompt.md` still refer to "S32"
 > when they mean this brief.** Both are closed sessions and are left as written
@@ -429,18 +444,19 @@ below are superseded; only one of them actually moves.
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
-| **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S39** (quota plane before the cap raise) | `SESSION_37_prompt.md` |
-| **S38** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_38_prompt.md` |
-| **S39** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_39_prompt.md` |
-| **S40** | **Design pass** — last on purpose; must cover all the surface S33–S39 adds | ? | S38 + S39 | `SESSION_40_prompt.md` |
+| **S37** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_37_prompt.md` |
+| **S38** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S37** (quota plane before the cap raise) | `SESSION_38_prompt.md` |
+| **S39** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_39_prompt.md` |
+| **S40** | **Design pass** — last on purpose; must cover all the surface S33–S39 adds | ? | S39 + S37 | `SESSION_40_prompt.md` |
 | — | **Bring-your-own-cloud** (design §4a2) — evaluate **before** any gateway work | design ½ | none | not written |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
-> **The real chains: S33 → S34 → S35, and S39 → S37** (quota plane before the
-> cap raise — §4a3). S36, S39 and bring-your-own-cloud depend on nothing and
-> can be pulled forward if a customer needs them sooner. They were grouped
-> with the network work because they arose in the same conversation, not
-> because they share code.
+> **The real chains: S33 → S34 → S35 (done), S37 → S38** (quota plane before
+> the cap raise — §4a3) **and S36 → S39** (thumbnails before video frames).
+> S36, S37 and bring-your-own-cloud depend on nothing and can be pulled
+> forward if a customer needs them sooner. They were grouped with the network
+> work because they arose in the same conversation, not because they share
+> code.
 >
 > **All six briefs derive from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
 > authority** — each carries the measurements, but the design carries the
@@ -602,7 +618,7 @@ below are superseded; only one of them actually moves.
 > the workspace root feeds the same SYNCHRONOUS fs calls every root always
 > has, so a NAS that dies AFTER passing its configuration-time probe can
 > stall the main process for the SMB timeout on a file operation (async
-> resolution is S37/S38-scale work, not a patch); the web Admin Terminal
+> resolution is S38/S39-scale work, not a patch); the web Admin Terminal
 > cannot probe reachability or detect mapped drives and says so instead of
 > pretending; and "root unknown because the read failed" is not modelled as
 > a distinct state in main — last-known-good stands in for it.
@@ -654,7 +670,7 @@ below are superseded; only one of them actually moves.
 > inside try/catch (an audit hiccup must not 500 the download). The default
 > desktop managed-files flow has **no WILSON-mediated read to log** — the
 > "download" button is `openInExplorer` and content sits in user-visible
-> folders — so AS-2.9 coverage there arrives with S38's serving routes, noted
+> folders — so AS-2.9 coverage there arrives with S39's serving routes, noted
 > in that brief. Cloud logging is **advisory by construction** (a direct
 > storage REST call bypasses the adapter); server-side enforcement would need
 > its own design. `googleDriveAdapter.downloadFile` (legacy read-only) logs
@@ -737,7 +753,7 @@ below are superseded; only one of them actually moves.
 > observation — and it is the part that could destroy a pet she likes. Her
 > numbered checklist went into the chat at close-out.
 
-> **S33–S38 are designed, scoped, TPN-reviewed and briefed** —
+> **S33–S39 are designed, scoped, TPN-reviewed and briefed** —
 > `docs/NETWORK_STORAGE_DESIGN.md` + `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`
 > (2026-08-05). **Every open question was answered by Audrey the same day
 > (§1b); nothing is blocking.** The design was first sized as one session and
@@ -766,7 +782,7 @@ below are superseded; only one of them actually moves.
 > to Storage — different code entirely); `managedFiles` has **no ceiling**
 > (native stream). The design initially generalised the Local-Server measurement
 > to cloud and concluded "cloud is for the small stuff" — **Audrey caught it by
-> asking what a cloud-only customer is supposed to do.** S37 exists because of
+> asking what a cloud-only customer is supposed to do.** S38 exists because of
 > that correction. **A storage mode that cannot hold the customer's files is not
 > a storage mode.**
 >
@@ -786,7 +802,7 @@ below are superseded; only one of them actually moves.
 > close-out she reported three things and asked for them to be split:
 > *"parse them out into one session for timeline, one for otter, then
 > settings."* The design pass moved S29 → S32 at the time; it has since moved
-> again and is now **S39** (`SESSION_39_prompt.md`) — see the table above,
+> again and is now **S40** (`SESSION_40_prompt.md`) — see the table above,
 > which is the authority. Its brief already existed and was renamed twice, with
 > a header explaining which of its contents are stale.
 >

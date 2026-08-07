@@ -82,12 +82,12 @@ what makes one implementation serve both. Write the result's path into
 ### 2. A new bucket — because the size cap forces it
 
 🚨 **A bucket has exactly one `file_size_limit`.** `rabbit-files` must accept
-multi-GB media once S37 raises its cap. A thumbnail cap and a media cap cannot
+multi-GB media once S38 raises its cap. A thumbnail cap and a media cap cannot
 coexist in one bucket.
 
 | Bucket | `public` | `file_size_limit` | Holds |
 |---|---|---|---|
-| `rabbit-files` | false | raised by S37 | source media |
+| `rabbit-files` | false | raised by S38 | source media |
 | **`rabbit-thumbnails`** (new) | **false** | **256 KB** | derived previews |
 
 256 KB is generous — a 256px JPEG at q80 is 10–30 KB — while still refusing
@@ -136,8 +136,8 @@ that easy to get right, which is a second reason for the split.
 
 ### 4. Out of scope
 
-**Video thumbnails are S38**, together with video preview — they share the
-decoder and the codec limit, and managed-file video frames need S38's serve
+**Video thumbnails are S39**, together with video preview — they share the
+decoder and the codec limit, and managed-file video frames need S39's serve
 route to exist. Do not start them here.
 
 ---

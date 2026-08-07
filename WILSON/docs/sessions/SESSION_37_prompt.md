@@ -1,16 +1,26 @@
-# SESSION 37 launch prompt — MULTI-GB FILES IN CLOUD MODE
+# SESSION 37 launch prompt — PETAL CLOUD AS A PAID, OPERATOR-MANAGED PRODUCT
 
-> **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2, §4a3).
-> 🚨 **BLOCKED BY S39** (changed 2026-08-07; this line used to say "depends on
-> nothing"). S39 builds the operator-managed storage plans and quota
-> enforcement — raising the 50 MB cap before the quota plane exists would
-> turn an unmetered free tier into an unmetered MULTI-GIGABYTE free tier.
-> Independent of the network-storage chain and of thumbnails otherwise; run
-> S39 then this whenever cloud customers are the nearer need.
+> **§4a3 of `docs/NETWORK_STORAGE_DESIGN.md`** — read it first; it carries
+> Audrey's requirement verbatim and the three decisions this brief builds on.
+> Created 2026-08-07, immediately after S34 shipped the storage-mode selector
+> (Audrey: *"lets make session 39 for making the operator terminal solution"*
+> — this brief was **S39** then; Audrey renumbered it to **S37** on
+> 2026-08-07 so the numbers finally match execution order).
 
-> **STATE — re-measure.** Confirm the next free migration number, suite count,
-> vitest counts and HEAD from the working tree.
+> 🚨 **THIS SESSION BLOCKS S38.** S38 raises the 50 MB bucket cap and adds
+> resumable multi-GB uploads. Doing that before this session exists would
+> turn an unmetered free tier into an unmetered *multi-gigabyte* free tier —
+> quota plane first, floodgates second. S38's brief carries the matching
+> warning. **Since the 2026-08-07 renumbering the sequence table's order and
+> the session numbers agree** — but the blocked-by column is still the
+> authority if they ever drift again.
 
+> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
+> migrations **0000–0049** on all three envs (verified by query), next free
+> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
+> Vitest **1022 / 47 files**. 🚨 **Read the working tree, never memory or a
+> doc — a design written mid-S31 cited "0046, next free" and was wrong
+> within the hour.**
 
 ## Start ritual (before touching anything)
 
@@ -22,135 +32,132 @@
 3. **Read `docs/OUTSTANDING.md`** (what is broken) and
    **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
    oracle).
-4. **Read the design sections this brief names in its header.**
-5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
-   it** — sessions between its writing and now have moved them. The session
-   that edits a file is the one that breaks its own citations.
+4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a3** and the **S34 outcome
+   block** in `MASTER_PLAN_S19_ONWARD.md`.
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before
+   using it** — sessions between its writing and now have moved them.
 
 ---
 
 ## Why this exists
 
-**Audrey, 2026-08-05:** *"i need to be able to store media so 50MB is not
-acceptable. im going to have multiple GB files at times."* Then, decisively:
-*"what if the company selected a cloud storage solution? they cant save large
-files thats not acceptable."*
+**Audrey, 2026-08-07, verbatim:**
 
-**She is right, and the first draft of the design was wrong about this.** It
-measured the **Local Server** adapter and generalised the result to cloud. The
-two adapters are different code.
+> *"if the storage selection is petal cloud and it does store media on petal
+> cloud, please make sure to set it up management of that in the operator
+> terminal. so if the company selected the petal cloud option, the operator
+> terminal should have control to partition server space for that company and
+> approve access. so basically if users do want to use the petal offered
+> storage they need to be paying the monthly payments for access. it needs to
+> be controlled and managed by the operator terminal for when their are
+> multiple companies using the tool"*
 
-### The three upload paths, measured
+And the standing rule from the same conversation: *"all databases for tasks,
+etc all of it should be saved in supabase databases. its only media etc that
+is saved on the selected storage solution"* — already true by construction
+(the storage mode touches file BODIES only); this session must keep it true.
 
-| Path | Mechanism | Ceiling | Fixable? |
-|---|---|---|---|
-| Local-Server `files` | base64 → JSON body | **~37 MB** | ❌ rewrite |
-| **Cloud `files`** | `File` → Supabase Storage | **50 MB** (bucket setting) | ✅ **this session** |
-| `managedFiles` | native stream-to-stream | none | already fine |
+**The measured gap (S34):** every workspace defaults to `central` (no
+`workspace_storage` row = Petal cloud), uploads have gone to the shared
+`rabbit-files` bucket since S14 with a 50 MB per-file cap and **no metering,
+no quota, no approval, no payment linkage**. Harmless with one tenant; wrong
+the day company #2 signs in.
 
-**Local Server** (`localServerAdapter.js:176-190`) does
-`await file.arrayBuffer()` → base64 → `JSON.stringify` against
-`express.json({ limit: '50mb' })` (`main.cjs:144`). Base64 inflates 33%, and a
-multi-GB file exhausts renderer memory before the request is made.
-**Out of scope — it stays small-file-only.**
+## The three decisions — settled by Audrey 2026-08-07, do not re-ask
 
-**Cloud** (`supabaseAdapter.js:970-975`) passes the `File` object **straight to
-`client.storage.upload()`** — no base64, no JSON body, none of the above:
-
-```js
-const { error: upErr } = await client
-  .storage.from('rabbit-files')
-  .upload(storagePath, file, { cacheControl: '3600', upsert: false, ... });
-```
-
-Its only ceiling is `file_size_limit = 52428800` (`0027_file_lifecycle.sql:287`)
-— **one number in one migration.**
-
-🚨 **A cloud customer has no office server to fall back on. This is not
-optional.** *"A storage mode that cannot hold the customer's files is not a
-storage mode."*
-
----
+| Question | Decision |
+|---|---|
+| What does "no plan" mean? | **A small free allowance (1 GB), then a plan is required.** Zero-allowance would make the first-day experience feel broken; a free tier is a funnel, not a cost. |
+| Hide "Petal cloud" from non-payers? | **Visible but inert** — selectable state shows "not yet active — contact Petal". Hiding it makes the product look like it lacks the feature. |
+| Billing automation in v1? | **Manual.** The operator flips a company active/suspended when payments start/stop. A payment-provider hook is its own later session. |
 
 ## What this needs
 
-### 1. Raise the bucket cap
+### 1. The plan table (migration 0049+, re-measure the number)
 
-A migration re-asserting `file_size_limit`. The existing
-`ON CONFLICT (id) DO UPDATE` already re-applies bucket settings on re-run — the
-shape is there (`0027:287-291`).
+Operator-owned, following the **model control plane precedent (0031)** —
+platform-level tables the operator console curates, workspace-readable:
 
-⚠️ **Confirm the plan's actual maximum object size and the per-GB storage and
-egress rates BEFORE picking a number.** Both are plan-dependent. The design
-deliberately asserts no figure. The engineering ceiling and the ceiling Petal
-Studios is willing to pay for are different numbers, **and for multi-GB video the
-second one binds first.**
+- `workspace_storage_plans`: workspace_id PK→workspaces, status
+  (`active`|`suspended`), `quota_bytes`, notes, audit columns. **Absence of a
+  row = the 1 GB free tier** — the default must work with zero rows, because
+  every existing workspace has zero rows.
+- **Writes ride the operator path** (mirror how the operator console writes
+  today — check whether Companies edits go through Edge Functions with
+  `adminGuard.ts` or operator RLS, and follow that). Every change writes
+  `platform_audit` (⚠️ 0028's closed CHECK on `platform_audit.action` — the
+  0028 → 0031 ordering trap; a new action value needs the CHECK extended).
+- Workspace members SELECT their own row (the Admin Terminal shows "your
+  plan"); **admins must NOT be able to write it** — this is the inverse of
+  0048's shape, and the suite needs the discriminating caller (a workspace
+  ADMIN who is not an operator) to prove it.
 
-### 2. Resumable (TUS) uploads
+### 2. Enforcement at the upload — restrictive, not advisory
 
-Above the standard-upload threshold Supabase requires the resumable protocol.
-`@supabase/supabase-js` is on `^2.101.1`, which supports it, and **the repo uses
-it nowhere** — grep for `uploadToSignedUrl` / `createSignedUploadUrl` / `tus`
-returns zero hits.
+- **Usage metering**: a per-workspace usage figure over `rabbit-files`
+  objects. Decide counter-table-with-trigger vs computed view by measuring
+  the object-key → workspace join first (keys are project-scoped; project →
+  workspace). ⚠️ A trigger on `storage.objects` is a dependency on a table
+  Supabase owns — check the house's existing 0027/0042 policies on it for
+  precedent before choosing.
+- **The gate is a RESTRICTIVE policy** on `rabbit-files` INSERT (quota not
+  exceeded AND status not suspended, with the rowless free tier passing).
+  🚨 **Not another permissive policy** — permissive policies OR together
+  (the 0038 inversion), a RESTRICTIVE one ANDs over the existing set. This
+  is the first restrictive policy in the schema; suite probes must prove it
+  composes with 0042's money-segment policies rather than replacing them.
+- 🚨 **NULL-safety**: the quota comparison runs over an aggregate that is
+  NULL for a workspace with no uploads. The S33/0047 lesson both ways —
+  decide the failure direction per clause and COALESCE deliberately.
+- Client-side checks (greyed upload, usage bar) are the courtesy; per S33's
+  measurement, a direct storage REST call bypasses the adapter, so **only
+  the policy is the enforcement**.
 
-This is **new code, not a config flip**: chunking, resume after a dropped
-connection, and progress reporting the cloud path does not currently have.
+### 3. Operator console (src/admin — NOT the Admin Terminal)
 
-### 3. 🚨 Partial objects need a lifecycle term (`TPN-CONT-017`)
+The platform-operator console is a separate build target
+(`vite --mode admin`, `src/admin/`). CompaniesSection gains a storage panel
+per company: plan status toggle (approve / suspend), quota input, live usage
+readout, audit trail. It copies "the AdminTerminal section contract"
+(`src/admin/CompaniesSection.jsx` says so itself) — mountedRef/loadedRef/
+seqRef.
 
-A resumable upload that is abandoned, interrupted or superseded leaves **partial
-objects** in the bucket. The current vocabulary
-(`0027_file_lifecycle.sql:85-86`) cannot describe them:
+### 4. Company side (Admin Terminal → Storage, from S34)
 
-```sql
-event TEXT NOT NULL CHECK (event IN
-  ('uploaded','moved','relinked','trashed','restored','purged')),
-```
+- `central` selected + no plan → the visible-but-inert state with the free-
+  tier figure and "contact Petal to activate more".
+- `central` + active plan → usage vs quota, plainly.
+- The S34 wiring test (`src/lib/workspaceRootWiring.test.js`) pins the
+  section's call sites — extend it, don't fork it.
 
-They were never `uploaded`, so nothing certifies their disposal, and
-`storage_gc_queue` is fed from `files`-row deletions a fragment never had.
-**A multi-GB abandoned upload is both a content fragment and a recurring bill.**
+### 5. Suite + proof
 
-**Design it WITH this session, not after:** a TTL sweep for incomplete uploads
-plus an event term for the abandoned case. Lifecycle terms are never retrofitted
-once a feature ships working.
-
-### 4. The desktop-app notice (design §5f)
-
-If a file exceeds the (new) cap, the upload **fails** and that is the one case
-that gets a real dialog:
-
-> *"This file is too large to add from a browser. Add it from the WILSON desktop
-> app."*
-
-A very large file **under** the cap uploads but slowly — an inline note, not a
-blocker. **Agreed treatment (Audrey): inline note on the file row plus one
-summary line per batch; a dialog only for the hard failure.**
-
----
+New pgTAP suite (**59+**), registered in **BOTH** rls.yml lists (the
+allowlist fails loud, the replay list fails SILENT). Discriminating callers:
+operator writes ✓, workspace ADMIN write refused (the inverse-of-0048
+probe), member reads own row, cross-workspace reads nothing, upload-over-
+quota refused server-side with a presence control proving an under-quota
+upload lands. **Prove each arm by deleting it — a breaker per check, S33's
+rule.** Postgres-side counts bring their own WHERE (dev carries real rows).
 
 ## Standing traps
 
-Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
-repo. Never interpolate content into a shell command. Query the database rather
-than trusting migration text; read `supabase/.temp/linked-project.json` first.
-One query per `--file`. Count `<!--` / `-->` after editing long markdown.
-
-🚨 **`fetch` and `otterFetch` resolve for EVERY status.** An unchecked `await`
-turns a 404 or an RLS 403 into a success — this cost the O.T.T.E.R. Validator
-every fix Audrey ever accepted. A chunked upload has many more places to swallow
-a failure than a single request does. **Check every response.**
-
-⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+Never `supabase config push`. `git add -A` sweeps untracked files into a
+PUBLIC repo. Never interpolate content into a shell command. A migration's
+text is not the database's state — query it, and read
+`supabase/.temp/linked-project.json` first. One query per `--file`. Count
+`<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
+BEFORE the git push; re-link to wilson-dev after.
 
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
-3. Migration + bucket settings verified **by query on dev, staging AND prod**.
-4. `tap-all` clean + full vitest.
-5. **Prove it with a real large file**, not a unit test — upload one, interrupt
-   it, resume it, download it, delete it, and check the events.
-6. **Refresh the STATE block of the next session's brief** (`SESSION_38_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
-7. **Close out in the chat** with the remaining-session list and a plain-English
+2. Sequence table + an S37 outcome block in `MASTER_PLAN_S19_ONWARD.md`;
+   **unblock S38's brief** (its blocked-by note points here).
+3. Migration verified **by query on dev, staging AND prod**.
+4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI
+   green on the pushed head, Playwright included.
+5. Refresh the STATE block of the next session's brief
+   (`SESSION_38_prompt.md`); update the Claude auto-memory in the same pass.
+6. Close out in the chat with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

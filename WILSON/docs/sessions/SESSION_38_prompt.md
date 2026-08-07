@@ -1,14 +1,16 @@
-# SESSION 38 launch prompt — VIDEO PREVIEW AND VIDEO THUMBNAILS
+# SESSION 38 launch prompt — MULTI-GB FILES IN CLOUD MODE
 
-> **Unit 2d** of `docs/NETWORK_STORAGE_DESIGN.md` (§5d.1b, §5d.2, §5e-pre, §5e,
-> §5f). **DEPENDS ON S36** (thumbnails) — this reuses its bucket, its canvas
-> pipeline and its `thumbnail_url` writer.
->
-> ⚠️ **Sized 1–2 sessions.** ffmpeg packaging alone is fiddly. If it splits,
-> split at "browser-decodable formats work" → "ffmpeg for professional codecs".
+> **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2, §4a3).
+> 🚨 **BLOCKED BY S37** (the quota plane; this brief was S37 and that
+> blocker was S39 until Audrey renumbered both on 2026-08-07 so the numbers
+> match execution order). S37 builds the operator-managed storage plans and
+> quota enforcement — raising the 50 MB cap before the quota plane exists
+> would turn an unmetered free tier into an unmetered MULTI-GIGABYTE free
+> tier. Independent of the network-storage chain and of thumbnails
+> otherwise; run S37 then this whenever cloud customers are the nearer need.
 
-> **STATE — re-measure.** Confirm migration number, suite count, vitest counts
-> and HEAD from the working tree.
+> **STATE — re-measure.** Confirm the next free migration number, suite count,
+> vitest counts and HEAD from the working tree.
 
 
 ## Start ritual (before touching anything)
@@ -30,147 +32,101 @@
 
 ## Why this exists
 
-**Audrey, 2026-08-05:** *"can we add a way to preview videos on the app?"* and
-*"for videos i would want to be able to get a single still frame and make it the
-thumbnail automatically lets add that."* Then, after the licensing question:
-*"ok keep ffmpeg then, desktop generation is fine."*
+**Audrey, 2026-08-05:** *"i need to be able to store media so 50MB is not
+acceptable. im going to have multiple GB files at times."* Then, decisively:
+*"what if the company selected a cloud storage solution? they cant save large
+files thats not acceptable."*
+
+**She is right, and the first draft of the design was wrong about this.** It
+measured the **Local Server** adapter and generalised the result to cloud. The
+two adapters are different code.
+
+### The three upload paths, measured
+
+| Path | Mechanism | Ceiling | Fixable? |
+|---|---|---|---|
+| Local-Server `files` | base64 → JSON body | **~37 MB** | ❌ rewrite |
+| **Cloud `files`** | `File` → Supabase Storage | **50 MB** (bucket setting) | ✅ **this session** |
+| `managedFiles` | native stream-to-stream | none | already fine |
+
+**Local Server** (`localServerAdapter.js:176-190`) does
+`await file.arrayBuffer()` → base64 → `JSON.stringify` against
+`express.json({ limit: '50mb' })` (`main.cjs:144`). Base64 inflates 33%, and a
+multi-GB file exhausts renderer memory before the request is made.
+**Out of scope — it stays small-file-only.**
+
+**Cloud** (`supabaseAdapter.js:970-975`) passes the `File` object **straight to
+`client.storage.upload()`** — no base64, no JSON body, none of the above:
+
+```js
+const { error: upErr } = await client
+  .storage.from('rabbit-files')
+  .upload(storagePath, file, { cacheControl: '3600', upsert: false, ... });
+```
+
+Its only ceiling is `file_size_limit = 52428800` (`0027_file_lifecycle.sql:287`)
+— **one number in one migration.**
+
+🚨 **A cloud customer has no office server to fall back on. This is not
+optional.** *"A storage mode that cannot hold the customer's files is not a
+storage mode."*
 
 ---
 
-## Part 1 — a serve route that supports Range
+## What this needs
 
-**MEASURED: there is no serve route for managed files at all.** `main.cjs` has
-PATCH, DELETE and `/thumbnail` for managed files and **nothing that streams the
-bytes** — they are opened through the OS (`rabbit:open-in-explorer`).
+### 1. Raise the bucket cap
 
-🚨 **It must support HTTP Range requests.** Without ranges a `<video>` cannot
-seek and the browser pulls the entire file before playing — on a 5 GB master
-that is not a slow preview, it is a hang.
+A migration re-asserting `file_size_limit`. The existing
+`ON CONFLICT (id) DO UPDATE` already re-applies bucket settings on re-run — the
+shape is there (`0027:287-291`).
 
-- `res.sendFile` handles ranges automatically (the existing `files` download
-  route at `:2038` gets this free).
-- **A hand-rolled `createReadStream` does NOT**, unless the `Range` header is
-  implemented explicitly. **This is the single most likely thing to get wrong.**
+⚠️ **Confirm the plan's actual maximum object size and the per-GB storage and
+egress rates BEFORE picking a number.** Both are plan-dependent. The design
+deliberately asserts no figure. The engineering ceiling and the ceiling Petal
+Studios is willing to pay for are different numbers, **and for multi-GB video the
+second one binds first.**
 
-Everything served here goes through `resolveContainedFilePath` — the guard S33
-fixed (it lives in `electron/pathContainment.cjs` now). Do not add a second
-path-resolution route.
+### 2. Resumable (TUS) uploads
 
-🚨 **AS-2.9 rides in with this route (S33 hand-off).** S33 added the
-`downloaded` event to the files-plane download on both backends, and measured
-that the default desktop managed-files flow has **no WILSON-mediated read to
-log** — its "download" button is `openInExplorer`. The serving route this
-session builds is the first time WILSON mediates managed-file reads, so it
-must log the read the way the files download route does
-(`rabbitLogFileEvent`, event `'downloaded'`, try/catch + `touch: false` —
-copy that call site, including why a read must not stamp `updated_at`).
+Above the standard-upload threshold Supabase requires the resumable protocol.
+`@supabase/supabase-js` is on `^2.101.1`, which supports it, and **the repo uses
+it nowhere** — grep for `uploadToSignedUrl` / `createSignedUploadUrl` / `tus`
+returns zero hits.
 
-## Part 2 — auto still-frame thumbnails
+This is **new code, not a config flip**: chunking, resume after a dropped
+connection, and progress reporting the cloud path does not currently have.
 
-Same shape as S36's images, reusing its machinery:
+### 3. 🚨 Partial objects need a lifecycle term (`TPN-CONT-017`)
 
+A resumable upload that is abandoned, interrupted or superseded leaves **partial
+objects** in the bucket. The current vocabulary
+(`0027_file_lifecycle.sql:85-86`) cannot describe them:
+
+```sql
+event TEXT NOT NULL CHECK (event IN
+  ('uploaded','moved','relinked','trashed','restored','purged')),
 ```
-<video src={blobURL}> → seek → drawImage to canvas → toBlob('image/jpeg')
-```
 
-Same 256px output, same `rabbit-thumbnails` bucket, same upload-time timing,
-same zero egress.
+They were never `uploaded`, so nothing certifies their disposal, and
+`storage_gc_queue` is fed from `files`-row deletions a fragment never had.
+**A multi-GB abandoned upload is both a content fragment and a recurring bill.**
 
-**Which frame:** not frame 0 — video routinely opens on black, a fade-in or a
-slate, and a wall of black thumbnails is worse than icons. **Seek to ~10% of
-duration, clamped to 1–10 seconds.** If the seek or decode fails, fall back to
-the file icon rather than storing a black frame. Make the frame **replaceable by
-hand** — the automatic pick is right most of the time, not always.
+**Design it WITH this session, not after:** a TTL sweep for incomplete uploads
+plus an event term for the abandoned case. Lifecycle terms are never retrofitted
+once a feature ships working.
 
-⚠️ **Managed files have no `File` object.** They arrive via `rabbit:pick-files`
-→ `rabbit:copy-file`, a native path-to-path stream in the main process
-(`:3009`), so the renderer never holds the file. **Extract the frame AFTER the
-copy, through Part 1's route** — a hidden `<video>` pointed at the endpoint. One
-implementation covers both backends, and it costs nothing extra because that
-route is being built anyway.
+### 4. The desktop-app notice (design §5f)
 
-## Part 3 — ffmpeg, for the codecs a browser cannot decode
+If a file exceeds the (new) cap, the upload **fails** and that is the one case
+that gets a real dialog:
 
-Chromium plays H.264/AAC MP4, VP8/VP9 WebM and AV1. It **cannot** play ProRes,
-DNxHD/DNxHR or most professional MOV/MXF variants — a large share of what a
-studio holds. The same decoder answers both questions, so **a file that will not
-preview will not thumbnail either.**
+> *"This file is too large to add from a browser. Add it from the WILSON desktop
+> app."*
 
-### 🚨 ffmpeg does NOT force WILSON to be open source
-
-Audrey raised this and nearly dropped the dependency over it. **The concern does
-not apply at this scope:**
-
-- The **LGPL** build is explicitly intended for proprietary, closed-source
-  software. Invoked as a **separate executable** — as WILSON would — it creates
-  **no obligation to publish any of WILSON's code**.
-- The **GPL** build is the one with copyleft consequences, and you get it only by
-  deliberately including GPL components (`libx264`, `libx265`, `--enable-gpl`).
-  **You have to opt in.**
-- **Still-frame extraction from ProRes/DNxHD needs the LGPL build and nothing
-  more.** Both decoders are in it; JPEG encoding is in it; JPEG's patents
-  expired long ago.
-
-**Rules:**
-1. Ship an **LGPL build** — no `--enable-gpl`, no libx264/x265.
-2. Invoke it as a **separate process**, never linked in.
-3. If a preview *proxy* is ever transcoded, target **VP9/WebM** — `libvpx` is
-   BSD and VP9 is royalty-free, which removes both the GPL question and the
-   H.264 patent pool in one decision.
-
-⚠️ **Verify the licence of whichever build is packaged** — some npm ffmpeg
-distributions ship GPL builds. WILSON is sold to studios who ask about
-third-party licensing in their own assessments; worth a real check by whoever
-handles contracts.
-
-### Two implementation rules that will otherwise cost a session
-
-1. 🚨 **`-ss` BEFORE `-i`, not after.** Input seeking jumps to the timestamp;
-   output seeking decodes from frame zero. On a 5 GB ProRes file over a NAS
-   share that is the difference between a second and several minutes.
-2. 🚨 **`execFile`/`spawn` with an argument array — never a command string.**
-   Filenames from a NAS are outside WILSON's control and may contain shell
-   metacharacters. This is already a standing rule in this repo; **ffmpeg is
-   exactly the case it exists for.**
-
-### Packaging
-
-Native binary, **desktop only** — it cannot run in a browser, and ffmpeg.wasm is
-not viable for multi-GB ProRes. +50–80 MB per platform, as an **unpacked extra
-resource** in `forge.config.cjs` (`packagerConfig`), not inside the asar. It
-joins the dependency-scanning story (TS-4.0) — ffmpeg has a steady CVE stream.
-
-✅ **Desktop-only generation still satisfies Audrey's requirement.** Thumbnails
-are generated once, uploaded, and **every web user sees them**. Only *generation*
-for professional codecs is desktop-side — the person adding studio media is next
-to the NAS anyway.
-
-## Part 4 — the notice (§5f)
-
-**Agreed treatment (Audrey): inline note on the file row + one summary line per
-batch. NOT a popup.** Thirty clips must not mean thirty dialogs — that trains
-people to dismiss the one that matters.
-
-| Trigger | Reality | Treatment |
-|---|---|---|
-| exceeds the cloud cap | ❌ upload **fails** | **dialog** — *"Too large to add from a browser. Add it from the desktop app."* |
-| very large, under cap | ⚠️ slow | inline note |
-| ProRes / professional | ✅ uploads, **no thumbnail** | inline note — *"Preview images aren't available for this format in a browser. Add it from the desktop app to get one."* |
-
-🚨 **Only the first blocks. The other two must NOT prevent the upload** — the
-file is valid and the user may not have a desktop app to hand.
-
-**Detection:** extension heuristic (`.mov`, `.mxf`, `.r3d`, `.ari`, `.braw`,
-`.dnx`) for the pre-upload courtesy; and **accurate by construction** after the
-attempt — if the decode failed, the browser genuinely cannot read it.
-
-⚠️ **Cloud playback bills per view.** A signed Supabase URL in a `<video>` works
-and supports ranges, but every play and scrub is egress Petal pays for. Gate
-cloud video preview behind that cost decision; local and NAS playback cost
-nothing. **NAS over a WAN link buffers** — §4c's caveat at full force.
-
-**Recommended order:** local/NAS first (no egress, proves the Range
-implementation), cloud second.
+A very large file **under** the cap uploads but slowly — an inline note, not a
+blocker. **Agreed treatment (Audrey): inline note on the file row plus one
+summary line per batch; a dialog only for the hard failure.**
 
 ---
 
@@ -178,7 +134,13 @@ implementation), cloud second.
 
 Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
 repo. Never interpolate content into a shell command. Query the database rather
-than trusting migration text. Count `<!--` / `-->` after editing long markdown.
+than trusting migration text; read `supabase/.temp/linked-project.json` first.
+One query per `--file`. Count `<!--` / `-->` after editing long markdown.
+
+🚨 **`fetch` and `otterFetch` resolve for EVERY status.** An unchecked `await`
+turns a 404 or an RLS 403 into a success — this cost the O.T.T.E.R. Validator
+every fix Audrey ever accepted. A chunked upload has many more places to swallow
+a failure than a single request does. **Check every response.**
 
 ⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
 
@@ -186,9 +148,10 @@ than trusting migration text. Count `<!--` / `-->` after editing long markdown.
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
 2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
-3. `tap-all` clean + full vitest.
-4. **Prove it with a real file of each kind** — an H.264 MP4 and a ProRes MOV:
-   thumbnail generated, preview plays or declines gracefully, seeking works.
-5. **Refresh the STATE block of the next session's brief** (`SESSION_39_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
-6. **Close out in the chat** with the remaining-session list and a plain-English
+3. Migration + bucket settings verified **by query on dev, staging AND prod**.
+4. `tap-all` clean + full vitest.
+5. **Prove it with a real large file**, not a unit test — upload one, interrupt
+   it, resume it, download it, delete it, and check the events.
+6. **Refresh the STATE block of the next session's brief** (`SESSION_39_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
+7. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

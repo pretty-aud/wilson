@@ -570,7 +570,7 @@ answers"):**
    as payments start and stop; payment-provider automation is its own later
    session.
 
-**The shape (built by S39, not before):** an operator-owned
+**The shape (built by S37, not before):** an operator-owned
 `workspace_storage_plans` table following the model-control-plane precedent
 (0031) — status, quota, audit trail via `platform_audit`; enforcement as a
 **RESTRICTIVE** policy on `rabbit-files` INSERT (a permissive one would OR
@@ -581,9 +581,9 @@ isolation is ever wanted, bucket-per-company is the alternative, at the cost
 of multiplying the policy surface 0042 deliberately collapsed to one
 definition.
 
-🚨 **Ordering: this lands BEFORE S37 raises the 50 MB cap.** Raising the cap
+🚨 **Ordering: this lands BEFORE S38 raises the 50 MB cap.** Raising the cap
 first would turn an unmetered free tier into an unmetered multi-gigabyte one.
-S37 is blocked on S39 in the master plan's sequence table.
+S38 is blocked on S37 in the master plan's sequence table (both renumbered 2026-08-07 so the numbers match execution order).
 
 ## 4c. ⭐ The NAS answer — Audrey, 2026-08-05
 

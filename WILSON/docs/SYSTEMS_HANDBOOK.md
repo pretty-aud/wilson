@@ -2607,7 +2607,7 @@ of a session — this section is limits by design, that file is faults.
   detect mapped drives**; both are stated in the UI rather than papered over.
 - **The drive feeds the same synchronous fs calls every root always has**, so
   a NAS that dies after passing its configuration-time probe can stall the
-  main process for the SMB timeout. Async resolution is S37/S38-scale work.
+  main process for the SMB timeout. Async resolution is S38/S39-scale work.
 - **"Root unknown because the read failed" is not a modelled state** —
   last-known-good stands in for it (a transient Supabase blip must not
   retarget a machine onto its local default; the split-storage failure is

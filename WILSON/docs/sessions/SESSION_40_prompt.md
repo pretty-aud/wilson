@@ -7,7 +7,7 @@
 > session in the plan**, and it is last on purpose: running a visual design
 > pass before the sessions of new UI — the storage panel, the Admin Terminal
 > drive control, the operator storage-plan panel, thumbnails, video preview
-> — would mean redoing it immediately. Its surface now includes S39's
+> — would mean redoing it immediately. Its surface now includes S37's
 > operator-terminal storage management.
 >
 > **Everything below was written when this was the NEXT session.** Large parts
@@ -18,7 +18,7 @@
 > ✅ **Sessions that now sit in front of it, all with their own briefs:**
 > S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
 > logout), **S33 (guard fix + `downloaded` event, 2026-08-07)** — **all four
-> DONE** — then S34 → S35 → S36 → S37 → S38, the network-storage and media
+> DONE** — then S34 → S35 → S36 → S37 → S38 → S39, the network-storage and media
 > run designed in `docs/NETWORK_STORAGE_DESIGN.md`.
 >
 > 🚨 **Six sessions of NEW SURFACE land before this one and are not described
@@ -41,7 +41,7 @@
 > 2026-08-07, `ca4f252`): migrations **0000–0047** on dev, staging and prod
 > (next free **0048**); pgTAP **57 suites / 920 assertions** (next suite
 > **58**); vitest **940 / 44 files**. All CI checks green, Playwright
-> included. By the time this session runs, S34–S38 will have moved every one
+> included. By the time this session runs, S34–S39 will have moved every one
 > of these numbers — the working tree is the authority.
 >
 > ✅ **Task templates work in cloud.** `public.task_templates` (JSONB `tasks`,
