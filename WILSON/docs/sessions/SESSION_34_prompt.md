@@ -4,23 +4,70 @@
 > work. **Read §3, §4c, §5, §5a2 and §5b of that document first; it is the
 > authority and it carries measurements this brief only summarises.**
 
-> **BLOCKED ON S33.** The containment guard must be fixed before a share root
-> can be configured at all — `\\server\share` is exactly the shape that breaks
-> today.
+> ✅ **UNBLOCKED — S33 SHIPPED (2026-08-07, `ed85072` + `439f702` + `ca4f252`).**
+> The containment guard accepts drive/share roots and lives in
+> **`electron/pathContainment.cjs`** now (extracted so it is unit-testable;
+> `main.cjs` requires it). Migration **0047** added the `downloaded` event +
+> `log_file_downloaded`. Read the **S33 outcome block** in
+> `MASTER_PLAN_S19_ONWARD.md` before starting — three of its lessons land
+> directly on this session (see "What S33 hands this session" below).
 
-> **STATE — re-measure, do not trust this block.** After S31: migrations
-> **0000–0046** on all three envs, next free **0047** (S33 may take it). pgTAP
-> **57 suites**, next free **58**. Vitest **909 / 43**. HEAD `f704a17`.
+> **STATE — re-measure, do not trust this block.** After S33: migrations
+> **0000–0047** on all three envs (verified by query), next free **0048**.
+> pgTAP **57 suites / 920 assertions**, next free suite **58**. Vitest
+> **940 / 44**. HEAD `ca4f252`, all five CI checks green.
 > 🚨 **A design written mid-S31 said "0046, next free" and was wrong within the
 > hour. Read the working tree, never memory or a doc.**
 
+## Start ritual (before touching anything)
+
+1. **Load the `wilson-app` skill** and skim its `versioning.md`.
+2. **Re-measure the STATE block**: `git log --oneline -3`, `git status
+   --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
+   and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
+   say wilson-dev before anything writes).
+3. **Read `docs/OUTSTANDING.md`** (what is broken) and **`docs/SYSTEMS_HANDBOOK.md`
+   §17** (limits by design — a gate, not an oracle).
+4. **Read the design sections this brief names** (§3, §4c, §5, §5a2, §5b of
+   `docs/NETWORK_STORAGE_DESIGN.md`).
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
+   it** — sessions between its writing and now have moved them (S33 alone
+   shifted `main.cjs` by ~30 lines). The session that edits a file is the one
+   that breaks its own citations.
+
 ---
+
+## What S33 hands this session
+
+- **The guard is fixed and MOVED.** Containment semantics live in
+  `electron/pathContainment.cjs` (`resolveContainedFilePath` + `isPathInside`),
+  unit-tested in `src/tools/rabbit_v0.1.0/pathContainment.test.js` with the
+  escape cases pinned. **Add the database root to the `roots` array in
+  `isUserAuthorizedRelinkDir` — never re-derive a path comparison**; the
+  module is the one definition and a source-scan wiring test refuses local
+  redefinitions.
+- 🚨 **A policy predicate moved into procedural SQL flips its failure
+  direction** (S33 measured it: `can_access_project_money` returns NULL for a
+  claim-less non-manager — refusal in a policy, silent PASS in an `IF`).
+  S34 edits `fn_workspaces_client_guard` (trigger, procedural): use NULL-safe
+  operators (`IS DISTINCT FROM`) or `COALESCE`, and write a breaker with a
+  claim-less caller to prove the refusal actually fires.
+- 🚨 **Dev now carries REAL user data** (`user_pets` at least — the S31
+  feature getting used). A postgres-side probe in suite 58 must **bring its
+  own WHERE**; an unscoped `count(*)` decays the day the feature is used
+  (S33's `439f702` fixed exactly that in suites 56/57).
+- 🚨 **A refusal probe pins ONE check only if every other check waves its
+  caller through.** S34's admin-only policies need the discriminating caller
+  shapes: a non-admin WITH membership (pins the role arm), an admin claim
+  over a DEACTIVATED membership (pins the membership arm), and a
+  dual-workspace member signed into the other workspace (pins the claim arm).
+  Prove each by deleting the check and watching exactly one probe fail.
 
 ## Why this exists
 
 Two facts, both measured:
 
-1. `getFilesConfigPath()` (`electron/main.cjs:89`) stores `{ defaultRootDir }`
+1. `getFilesConfigPath()` (`electron/main.cjs:90`) stores `{ defaultRootDir }`
    at `{userData}/rabbit-data/files-config.json` — **per machine**. A second
    computer has never written that file and sees nothing.
 2. Audrey's saved value is a **local disk path**,
@@ -71,14 +118,17 @@ existed (`TPN-CLOUD-007`). **Guard both columns in this same migration** — one
   FQDN vs IP does not; a drive letter is per-machine. Moving the root into the
   database **spreads** that problem rather than fixing it. Show the
   `\\server\share\...` form and ask for it.
-- **Refuse a drive root or bare share root** (`C:\`, `\\srv\share`) — S33 fixes
-  the guard, but a root still hands WILSON an entire disk or share. Ask for a
+- **Refuse a drive root or bare share root** (`C:\`, `\\srv\share`) — S33
+  FIXED the guard (roots resolve correctly now), so this refusal is pure
+  product judgment, not a workaround: a root hands WILSON an entire disk or
+  share, and containment under `C:\` contains the whole drive. Ask for a
   subfolder.
 - **Reachability probe before saving:** exists, readable, writable, round-trip
   time. A share that is unreachable must fail **at configuration time** with a
   sentence a person can act on — not at the first download, six screens away.
-- `dialog.showOpenDialog` with `openDirectory` (`main.cjs:2983`) already accepts
-  and returns UNC paths on Windows. **The picker needs no work.**
+- `dialog.showOpenDialog` with `openDirectory` (`main.cjs:3008`, re-verify by
+  symbol) already accepts and returns UNC paths on Windows. **The picker needs
+  no work.**
 
 ### 3. The admin gate + two-step confirm (§5a2)
 
@@ -115,9 +165,11 @@ internal rabbit-data. **A per-machine fallback must remain** — Local Server mo
 has to work for a solo user before sign-in.
 
 ⚠️ **`isUserAuthorizedRelinkDir` must learn about the new root.** It currently
-trusts `readFilesConfig()?.defaultRootDir` (`:1352`). If the root moves to the
-database and that lookup does not move with it, relink starts refusing folders
-inside the configured root. Related: `userAuthorizedDirs` is an in-memory `Set`
+trusts `readFilesConfig()?.defaultRootDir` (`main.cjs:1353`; the comparison
+itself rides `isPathInside` from `pathContainment.cjs` since S33 — extend the
+`roots` array, do not touch the comparison). If the root moves to the database
+and that lookup does not move with it, relink starts refusing folders inside
+the configured root. Related: `userAuthorizedDirs` is an in-memory `Set`
 rebuilt every launch, so a database-sourced root is in nobody's authorized set
 on a fresh machine.
 
@@ -138,12 +190,20 @@ content into a shell command. A migration's text is not the database's state —
 query it, and read `supabase/.temp/linked-project.json` first. One query per
 `--file`. Count `<!--` / `-->` after editing long markdown.
 
+⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
+2. Sequence table in `MASTER_PLAN_S19_ONWARD.md` + an outcome block (S31/S33
+   shape: what shipped, what the breakers taught, what was left open and why).
 3. Migration verified **by query on dev, staging AND prod**.
 4. `tap-all` clean (planned == passed) + full vitest + the new suite registered
-   in CI.
-5. **Close out in the chat** with the remaining-session list and a plain-English
+   in CI (BOTH rls.yml lists — the allowlist fails loud, the replay list fails
+   SILENT), + CI green on the pushed head, Playwright included.
+5. **Refresh the STATE block of the next session's brief** with the numbers
+   you leave behind (migrations, suites/assertions, vitest, HEAD) — that block
+   decays the moment you commit, and the next session starts by trusting it
+   less but reading it first. Update the Claude auto-memory in the same pass.
+6. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

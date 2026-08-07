@@ -8,6 +8,22 @@
 > `public.workspace_storage`. Confirm the migration number, suite count and
 > HEAD from the working tree, not from this block.
 
+
+## Start ritual (before touching anything)
+
+1. **Load the `wilson-app` skill** and skim its `versioning.md`.
+2. **Re-measure the STATE block**: `git log --oneline -3`, `git status
+   --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
+   and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
+   say wilson-dev before anything writes).
+3. **Read `docs/OUTSTANDING.md`** (what is broken) and
+   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
+   oracle).
+4. **Read the design sections this brief names in its header.**
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
+   it** — sessions between its writing and now have moved them. The session
+   that edits a file is the one that breaks its own citations.
+
 ---
 
 ## Part 1 — managers set project folders, inside the admin's drive
@@ -119,11 +135,14 @@ than reading migration text; read `supabase/.temp/linked-project.json` first.
 One query per `--file`. Count `<!--` / `-->` after editing long markdown —
 `SYSTEMS_HANDBOOK.md` and `OUTSTANDING.md` are both long.
 
+⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
 2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
 3. Any migration verified **by query on dev, staging AND prod**.
 4. `tap-all` clean + full vitest.
-5. **Close out in the chat** with the remaining-session list and a plain-English
+5. **Refresh the STATE block of the next session's brief** (`SESSION_36_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
+6. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

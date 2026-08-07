@@ -14,8 +14,9 @@
 >
 > ✅ **Sessions that now sit in front of it, all with their own briefs:**
 > S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
-> logout) — **all three DONE** — then S33 → S34 → S35 → S36 → S37 → S38, the
-> network-storage and media run designed in `docs/NETWORK_STORAGE_DESIGN.md`.
+> logout), **S33 (guard fix + `downloaded` event, 2026-08-07)** — **all four
+> DONE** — then S34 → S35 → S36 → S37 → S38, the network-storage and media
+> run designed in `docs/NETWORK_STORAGE_DESIGN.md`.
 >
 > 🚨 **Six sessions of NEW SURFACE land before this one and are not described
 > below.** At minimum the design pass must cover: the storage-mode selector and
@@ -33,10 +34,12 @@
 > is deliberately read-only for a member. Do not re-expose it ungated while
 > rearranging tabs.
 
-> **STATE AFTER S28 (2026-08-04, `06bf564`), so you do not re-measure it:**
-> migrations run **0000–0044** on dev, staging and prod (next free number is
-> **0045**); pgTAP is **54 suites / 832 assertions**; vitest is **35 files /
-> 698 cases**. All four CI jobs green, Playwright included.
+> **STATE — re-measure; this block decays** (last refreshed after S33,
+> 2026-08-07, `ca4f252`): migrations **0000–0047** on dev, staging and prod
+> (next free **0048**); pgTAP **57 suites / 920 assertions** (next suite
+> **58**); vitest **940 / 44 files**. All CI checks green, Playwright
+> included. By the time this session runs, S34–S38 will have moved every one
+> of these numbers — the working tree is the authority.
 >
 > ✅ **Task templates work in cloud.** `public.task_templates` (JSONB `tasks`,
 > optional project pin), five adapter methods, `assets.task_template_id`, and a
@@ -58,17 +61,22 @@
 
 > Paste into a new Claude Code conversation. **Start from `WILSON/`, not
 > `Claude_Work/`.**
-> **First tool calls**, in order and before any code:
-> 1. `git status` on `feat/multi-user-v1`
-> 2. read **`docs/OUTSTANDING.md`**
-> 3. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md` — the sequence table is
->    the authority
-> 4. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
->    S28 left it on `wilson-dev` (`eqjzmnvkrakroyqxfsvw`).
+> **Start ritual** (S34+ standard), in order and before any code:
+> 1. **Load the `wilson-app` skill** and skim its `versioning.md`.
+> 2. `git status` + `git log --oneline -3` on `feat/multi-user-v1`, and
+>    `ls supabase/migrations | tail` + `ls supabase/tests/rls | tail` — the
+>    working tree, not this brief, says which numbers are free.
+> 3. read **`docs/OUTSTANDING.md`** (faults) and **`docs/SYSTEMS_HANDBOOK.md`
+>    §17** (limits by design — a gate, not an oracle)
+> 4. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md` — the sequence table is
+>    the authority, and the S33+ outcome blocks are the recent history
+> 5. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
 >    ⚠️ **The CLI actually reads `supabase/.temp/project-ref`**, a plain-text
->    file beside it. Both exist and currently agree. If they ever disagree the
->    CLI follows `project-ref` while the standing rule points at the JSON —
+>    file beside it. Both exist and have agreed so far. If they ever disagree
+>    the CLI follows `project-ref` while the standing rule points at the JSON —
 >    check both.
+> 6. **Re-verify every `file:line` citation in this brief by SYMBOL** — six
+>    sessions land between its writing and its running.
 
 ---
 

@@ -7,6 +7,22 @@
 > **STATE — re-measure.** Confirm the next free migration number, suite count,
 > vitest counts and HEAD from the working tree.
 
+
+## Start ritual (before touching anything)
+
+1. **Load the `wilson-app` skill** and skim its `versioning.md`.
+2. **Re-measure the STATE block**: `git log --oneline -3`, `git status
+   --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
+   and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
+   say wilson-dev before anything writes).
+3. **Read `docs/OUTSTANDING.md`** (what is broken) and
+   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
+   oracle).
+4. **Read the design sections this brief names in its header.**
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
+   it** — sessions between its writing and now have moved them. The session
+   that edits a file is the one that breaks its own citations.
+
 ---
 
 ## Why this exists
@@ -121,6 +137,8 @@ turns a 404 or an RLS 403 into a success — this cost the O.T.T.E.R. Validator
 every fix Audrey ever accepted. A chunked upload has many more places to swallow
 a failure than a single request does. **Check every response.**
 
+⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
@@ -129,5 +147,6 @@ a failure than a single request does. **Check every response.**
 4. `tap-all` clean + full vitest.
 5. **Prove it with a real large file**, not a unit test — upload one, interrupt
    it, resume it, download it, delete it, and check the events.
-6. **Close out in the chat** with the remaining-session list and a plain-English
+6. **Refresh the STATE block of the next session's brief** (`SESSION_38_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
+7. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.
