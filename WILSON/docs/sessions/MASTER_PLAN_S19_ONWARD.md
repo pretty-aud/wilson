@@ -447,18 +447,31 @@ below are superseded; only one of them actually moves.
 | **S37** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_37_prompt.md` |
 | **S38** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S37** (quota plane before the cap raise) | `SESSION_38_prompt.md` |
 | **S39** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_39_prompt.md` |
-| **S40** | **Design pass** — last on purpose; must cover all the surface S33–S39 adds | ? | S39 + S37 | `SESSION_40_prompt.md` |
-| — | **BYO storage providers** (design §4a2 + **§4a2b**) — the provider REGISTRY (`workspace_storage.provider` + JSONB config + one put/get/delete/exists interface), then providers land one at a time: **S3-compatible first** (one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO, no OAuth), then **Google Drive** (needs a Petal OAuth client, `drive.file` scope). 🚨 **Additive only — adding a provider must not narrow NAS/`network`, and money-gated files never leave Supabase.** Evaluate **before** any gateway work | registry ~1 + ~1 per provider | none (S37 first is tidier — it builds the mode plumbing) | not written |
+| **S40** | **The storage provider REGISTRY** (design §4a2b) — `workspace_storage.provider` + JSONB config, S34's path CHECKs made conditional on `provider='network'`, one put/get/delete/exists interface. **Builds no provider.** 🚨 Additive by contract: the NAS path must behave identically after it | 1 | S39 | `SESSION_40_prompt.md` |
+| **S41** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | **S40** | `SESSION_41_prompt.md` |
+| **S42** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | **S40** (S41 first by choice) | `SESSION_42_prompt.md` |
+| **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | S42 | `SESSION_43_prompt.md` |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
 > **The real chains: S33 → S34 → S35 (done), S37 → S38** (quota plane before
-> the cap raise — §4a3) **and S36 → S39** (thumbnails before video frames).
-> S36, S37 and bring-your-own-cloud depend on nothing and can be pulled
-> forward if a customer needs them sooner. They were grouped with the network
-> work because they arose in the same conversation, not because they share
-> code.
+> the cap raise — §4a3), **S36 → S39** (thumbnails before video frames), and
+> **S40 → S41/S42** (the registry before any provider — §4a2b). S36 and S37
+> depend on nothing and can be pulled forward if a customer needs them
+> sooner.
 >
-> **All six briefs derive from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
+> 🚨 **S40–S42 are the BYO storage FAMILY and the order inside it is
+> deliberate.** The registry ships first so a provider is four functions and
+> not a fork; S3 ships before Drive because it is cheaper (six providers, one
+> adapter, no OAuth, no outside approval) and proves the registry's shape
+> without a third party in the critical path. **Adding a provider must never
+> narrow an existing one** — Audrey, 2026-08-07: *"dont remove other
+> options"*.
+>
+> ⚠️ **The design pass moves whenever UI is added, and that is the rule
+> working.** It has been renumbered four times (S29 → S32 → S39 → S40 → S43)
+> and will move again if another UI session appears. It is LAST on purpose.
+>
+> **Every brief derives from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
