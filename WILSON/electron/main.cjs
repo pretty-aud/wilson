@@ -3,6 +3,7 @@ const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
@@ -61,6 +62,15 @@ function getRabbitDataDir() {
 // (Session 14; see isUserAuthorizedRelinkDir).
 const userAuthorizedDirs = new Set();
 
+// Session 34: the workspace storage root (workspace_storage.root_path when
+// mode = 'byos'). Main has no Supabase client, so the signed-in renderer
+// pushes it over rabbit:set-workspace-root after loading workspace storage
+// and clears it on sign-out. MEMORY-ONLY on purpose: a persisted copy would
+// outlive the session that justified it and would need tenancy checks main
+// cannot perform. Before the first push (or signed out), every resolver
+// falls through to the per-machine defaultRootDir exactly as before.
+let workspaceRootDir = null;
+
 function readJSON(filePath, fallback = null) {
   try { return JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { return fallback; }
 }
@@ -90,6 +100,18 @@ function fileSlugify(str) {
 function getFilesConfigPath() { return path.join(getRabbitDataDir(), 'files-config.json'); }
 function readFilesConfig() { return readJSON(getFilesConfigPath(), { defaultRootDir: null }); }
 function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
+
+// Session 34: the ONE definition of "which configured root does this machine
+// resolve under" — workspace root first, then the per-machine default
+// (resolution order: project folder_root → workspace root_path → machine
+// defaultRootDir → internal rabbit-data; the first hop lives at each call
+// site because it is per-project). The workspace root deliberately does NOT
+// fall back to the machine default when unreachable: a machine that silently
+// retargets its own disk splits the company's storage worse than a visible
+// failure does.
+function resolveConfiguredRootDir() {
+  return workspaceRootDir || readFilesConfig().defaultRootDir || null;
+}
 
 // Next version number for a file within an asset: finds max existing version
 // and returns max+1. Returns 1 if no prior versions exist.
@@ -973,10 +995,11 @@ function startLocalServer(distPath) {
     function resolveProjectFolder(bundle) {
       const root = bundle?.project?.folder_root;
       if (root && fs.existsSync(root)) return root;
-      const cfg = readFilesConfig();
-      if (!cfg.defaultRootDir) return null;
+      // Session 34: workspace root (byos) outranks the machine default.
+      const rootBase = resolveConfiguredRootDir();
+      if (!rootBase) return null;
       const slug = bundle?.project?.folder_slug || fileSlugify(bundle?.project?.title || 'Untitled-Project');
-      const resolved = path.join(cfg.defaultRootDir, slug);
+      const resolved = path.join(rootBase, slug);
       return fs.existsSync(resolved) ? resolved : null;
     }
 
@@ -1351,6 +1374,11 @@ function startLocalServer(distPath) {
       try { const r = resolveProjectFolder(bundle); if (r) roots.push(r); } catch {}
       try { roots.push(getRabbitDataDir()); } catch {}
       try { const d = readFilesConfig()?.defaultRootDir; if (d) roots.push(d); } catch {}
+      // Session 34: the workspace root is as user-authorized as the machine
+      // default — an admin chose it for the whole company. Without this,
+      // moving the root to the database makes relink refuse folders inside
+      // the configured root (the exact regression the design warned about).
+      if (workspaceRootDir) roots.push(workspaceRootDir);
       if (bundle.project?.files_dir) roots.push(bundle.project.files_dir);
       // isPathInside carries the same root-base rule as the containment
       // guard: a drive/share root must contain its own children (S33).
@@ -1434,8 +1462,8 @@ function startLocalServer(distPath) {
       };
       const bundle = emptyBundle(project);
       // Create the project folder on disk if a root is configured
-      const cfg = readFilesConfig();
-      const rootDir = project.folder_root || cfg.defaultRootDir;
+      // (Session 34: workspace root outranks the machine default).
+      const rootDir = project.folder_root || resolveConfiguredRootDir();
       if (rootDir && fs.existsSync(rootDir)) {
         const projFolder = path.join(rootDir, project.folder_slug);
         if (!fs.existsSync(projFolder)) fs.mkdirSync(projFolder, { recursive: true });
@@ -1459,7 +1487,7 @@ function startLocalServer(distPath) {
         if (newSlug !== oldSlug && oldSlug) {
           const root = bundle.project.folder_root
             ? path.dirname(bundle.project.folder_root)
-            : readFilesConfig().defaultRootDir;
+            : resolveConfiguredRootDir();
           if (root) {
             const oldPath = path.join(root, oldSlug);
             const newPath = path.join(root, newSlug);
@@ -1569,10 +1597,11 @@ function startLocalServer(distPath) {
     function resolveProjectFolderRoot(bundle) {
       const projectRoot = bundle.project?.folder_root;
       if (projectRoot && fs.existsSync(projectRoot)) return projectRoot;
-      const cfg = readFilesConfig();
-      if (!cfg.defaultRootDir) return null;
+      // Session 34: workspace root (byos) outranks the machine default.
+      const rootBase = resolveConfiguredRootDir();
+      if (!rootBase) return null;
       const slug = fileSlugify(bundle.project?.title || 'Untitled-Project');
-      return path.join(cfg.defaultRootDir, bundle.project?.folder_slug || slug);
+      return path.join(rootBase, bundle.project?.folder_slug || slug);
     }
     function ensureAssetFolder(bundle, assetName) {
       const root = resolveProjectFolderRoot(bundle);
@@ -2995,11 +3024,150 @@ ipcMain.handle('rabbit:archive-local-data', () => {
   }
 });
 
-ipcMain.handle('rabbit:read-files-config', () => readFilesConfig());
+// effectiveRootDir is COMPUTED, never stored: it is the root this machine
+// currently resolves under (workspace root when pushed, else the machine
+// default). FileManager's renderer-side path building must agree with the
+// main-process resolvers or the two halves of one feature point at
+// different folders (S34 review finding).
+ipcMain.handle('rabbit:read-files-config', () => ({
+  ...readFilesConfig(),
+  effectiveRootDir: resolveConfiguredRootDir(),
+}));
 ipcMain.handle('rabbit:write-files-config', (_event, cfg) => {
   if (!cfg || typeof cfg !== 'object') throw new Error('payload must be an object');
-  writeFilesConfig({ ...readFilesConfig(), ...cfg });
+  // Strip the computed key: a caller that spreads a read back into a write
+  // (StorageConnections does) must not persist it into files-config.json.
+  const { effectiveRootDir: _computed, ...rest } = cfg;
+  writeFilesConfig({ ...readFilesConfig(), ...rest });
   return { ok: true };
+});
+
+// ── Session 34: the workspace storage root ──────────────────────────
+// The renderer pushes workspace_storage.root_path (byos mode) here after
+// sign-in / workspace switch, and null on sign-out. See the workspaceRootDir
+// declaration for why this is memory-only. IPC, not Express, deliberately:
+// the Express server answers any local origin (cors()), and a drive-by page
+// must not be able to repoint the whole machine's resolution (the S14 rule
+// that made relink folders user-chosen applies to roots doubly).
+ipcMain.handle('rabbit:set-workspace-root', (_event, opts) => {
+  const raw = opts && typeof opts.rootPath === 'string' ? opts.rootPath.trim() : null;
+  const kind = opts && typeof opts.rootKind === 'string' ? opts.rootKind : null;
+  if (!raw) {
+    workspaceRootDir = null;
+    return { ok: true, rootPath: null };
+  }
+  // Only an absolute drive path or a UNC path can be a root. A relative or
+  // drive-relative value would be silently REBASED onto process.cwd() by
+  // path.resolve below, storing a root nobody chose (S34 review).
+  const isUnc = /^[\\/]{2}/.test(raw);
+  const isDrive = /^[A-Za-z]:[\\/]/.test(raw);
+  if (!isUnc && !isDrive) {
+    workspaceRootDir = null;
+    return { ok: false, error: 'the storage root must be an absolute \\\\server\\share or drive path' };
+  }
+  // Canonical form: resolved, no trailing separator. Bare roots are refused
+  // in depth, not only at the UI: 'C:' (a stripped 'C:\') is drive-relative
+  // and never valid, and a two-component \\server\share hands WILSON the
+  // whole share — the same refusals the save pipeline makes (S34 review:
+  // the first draft refused the drive root and let the share root through).
+  const stripped = path.resolve(raw).replace(/[\\/]+$/, '');
+  if (!stripped || /^[A-Za-z]:$/.test(stripped)) {
+    workspaceRootDir = null;
+    return { ok: false, error: 'a drive or share root cannot be the storage root' };
+  }
+  if (isUnc) {
+    const comps = stripped.replace(/^[\\/]+/, '').split(/[\\/]+/).filter(Boolean);
+    if (comps.length < 3) {
+      workspaceRootDir = null;
+      return { ok: false, error: 'a bare \\\\server\\share cannot be the storage root — use a subfolder' };
+    }
+  }
+  // A 'local'-kind root is §3.1 in a database row: the same string names a
+  // DIFFERENT folder on every machine. Apply it only where it actually
+  // exists — the solo machine that configured it — and fall back to the
+  // machine default everywhere else. existsSync is safe here: local kind
+  // means no SMB hang.
+  if (kind === 'local' && !fs.existsSync(stripped)) {
+    workspaceRootDir = null;
+    return { ok: true, rootPath: null, skipped: 'local-kind root is not present on this machine' };
+  }
+  workspaceRootDir = stripped;
+  return { ok: true, rootPath: stripped };
+});
+
+// Reachability probe, run at CONFIGURATION time (Admin Terminal → Storage)
+// so an unreachable share fails with a sentence a person can act on — not at
+// the first download, six screens away. Async fs throughout: a dead SMB path
+// can hang a synchronous stat for the OS timeout, and that would freeze the
+// main process. The race bounds the WAIT, not the operation (withTimeout
+// lesson) — fine here because this is one-shot and config-time.
+ipcMain.handle('rabbit:probe-storage-root', async (_event, opts) => {
+  const p = opts && typeof opts.path === 'string' ? opts.path.trim() : '';
+  if (!p) return { ok: false, error: 'no path given' };
+  const withDeadline = (promise, ms) => Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+  ]);
+
+  // A drive-letter path may be a NETWORK MAPPING (Z:), which names a
+  // different folder on every machine and must be refused (§3.3). Exit code
+  // of `net use X:` is the locale-independent signal: 0 = redirected drive.
+  let driveKind = 'unknown';
+  const letterMatch = /^([A-Za-z]):[\\/]/.exec(p);
+  if (process.platform === 'win32') {
+    if (/^[\\/]{2}/.test(p)) {
+      driveKind = 'unc';
+    } else if (letterMatch) {
+      driveKind = await new Promise((resolve) => {
+        execFile('net', ['use', `${letterMatch[1]}:`], { timeout: 4000 }, (err) => {
+          if (!err) return resolve('network');
+          // A numeric exit code means net.exe RAN and said "not a mapping".
+          // ENOENT / a killed timeout means we could not ask — that must
+          // classify as 'unknown', not 'local', or the mapped-drive refusal
+          // silently vanishes exactly when detection breaks (S34 review:
+          // the first draft failed open here).
+          resolve(typeof err.code === 'number' ? 'local' : 'unknown');
+        });
+      });
+    }
+  }
+
+  const started = Date.now();
+  const result = { ok: false, exists: false, readable: false, writable: false, driveKind, roundTripMs: null };
+  try {
+    const st = await withDeadline(fs.promises.stat(p), 5000);
+    result.exists = st.isDirectory();
+    if (!result.exists) { result.error = 'the path exists but is not a folder'; return result; }
+  } catch (err) {
+    result.error = err.message === 'timed out'
+      ? 'the path did not answer within 5 seconds'
+      : 'the path does not exist or is not reachable from this computer';
+    return result;
+  }
+  try {
+    await withDeadline(fs.promises.readdir(p), 5000);
+    result.readable = true;
+  } catch { /* readable stays false */ }
+  // The honest writability probe is a real write: access(W_OK) lies on
+  // network shares, where the share-level ACL wins over the NTFS answer.
+  const probeFile = path.join(p, `.wilson-probe-${Date.now()}-${process.pid}`);
+  try {
+    await withDeadline(fs.promises.writeFile(probeFile, 'wilson storage probe'), 5000);
+    result.writable = true;
+  } catch { /* writable stays false */ }
+  // Clean up REGARDLESS of the race outcome: a write that lost its deadline
+  // may still land after the timeout and would otherwise strand a probe file
+  // on the share (S34 review). Detached on purpose — cleanup must not block
+  // the probe's answer.
+  fs.promises.unlink(probeFile).catch(() => {});
+  result.roundTripMs = Date.now() - started;
+  result.ok = result.exists && result.readable && result.writable;
+  if (!result.ok && !result.error) {
+    result.error = !result.readable
+      ? 'the folder cannot be read from this computer'
+      : 'the folder cannot be written from this computer';
+  }
+  return result;
 });
 
 // Directory picker: opens OS file explorer dialog to select a folder.

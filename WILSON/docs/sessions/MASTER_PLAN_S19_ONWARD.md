@@ -417,7 +417,7 @@ below are superseded; only one of them actually moves.
 | # | Session | Size | Blocked by | Prompt |
 |---|---|---|---|---|
 | **S33** ✅ | **DONE (2026-08-07, `ed85072` + `439f702`)** — guard fix + the `downloaded` event; outcome block below | ~1 | — | `SESSION_33_prompt.md` |
-| **S34** | **The storage root** — `workspace_storage`, admin gate in the Admin Terminal, UNC classifier, reachability probe, two-step confirm | 1 | S33 | `SESSION_34_prompt.md` |
+| **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** | **The manager half + setup guidance** — Control Panel gate, `folder_root` containment, VPN/NAS docs | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
 | **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **none** | `SESSION_37_prompt.md` |
@@ -435,6 +435,74 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S34 outcome — the root lives with the workspace (2026-08-07)
+>
+> Migration **0048** (`workspace_storage` + the fn_workspaces_client_guard
+> storage arms) applied and verified **by query** on dev, staging and prod;
+> CLI re-linked to wilson-dev. pgTAP suite **58**: 31 assertions, proven by
+> **five breakers** — deleting the claim arm failed EXACTLY the
+> dual-workspace probe (perfect single-probe discrimination); deleting the
+> membership arm failed its two probes; deleting the role arm failed its
+> probe plus the expected cascade; stripping the guard arms was caught TWICE
+> (once by 0048's own post-condition, which aborts a 0020-style replay, and
+> once by probes 7/8/27/28 when the post-condition was also neutered); and
+> the overblock control (an admin rename passing through the guard) passed in
+> every run. Vitest **972 / 46 files**.
+>
+> **What shipped:** members read / admins write the workspace storage root
+> (mode `central`|`byos`, canonical UNC `root_path`, `root_kind`); the Admin
+> Terminal's seventh section (Storage) with the §5a2 refusal table — mapped
+> drives (Electron `net use` detection), bare share/drive roots, dot-segment
+> and device-namespace paths — the reachability probe at configuration time,
+> and the two-step local-folder confirm; the legacy
+> `workspaces.storage_mode`/`storage_config` live wire closed in the guard
+> (TPN-CLOUD-007); `resolveConfiguredRootDir()` as the ONE definition of the
+> machine's effective root (project `folder_root` → workspace root → machine
+> default → internal), consulted by all four main.cjs resolvers, by
+> `isUserAuthorizedRelinkDir`'s roots, and — via the computed
+> `effectiveRootDir` on the read-files-config IPC — by FileManager's three
+> renderer-side path builders; the S31-shaped teardown (sign-out pushes a
+> null root); and the TPN-AUTH-009 gates on BOTH machine-root surfaces
+> (StorageConnections **and** SettingsPage — the second was found by this
+> session's mapping pass, not by the brief).
+>
+> **The pre-deploy adversarial review earned its keep again: 20 confirmed
+> findings (3 high) against code that was already green on 31/31 pgTAP and
+> 972 vitest.** The three highs: the IPC handler accepted the bare
+> `\\server\share` the UI refuses (refusals now enforced in depth, not only
+> at the surface); the App push-effect turned a TRANSIENT Supabase read
+> failure into an active retarget onto the machine default — the
+> split-storage failure the design itself calls worse than a visible one
+> (now: a failed read pushes nothing; last-known-good wins; sign-out still
+> pushes null because that is a real state change); and FileManager's three
+> fallback path-builders still read `defaultRootDir` directly, so the
+> renderer and main would have resolved DIFFERENT roots the day a workspace
+> root existed. Also from review: a `root_kind='local'` row is §3.1 in a
+> database — main now applies a local-kind root only where the folder
+> actually exists; `net use` failure classifies 'unknown', never 'local'
+> (the refusal must not vanish exactly when detection breaks); and the
+> kind↔shape CHECK stops a row whose `root_kind` lies about its path.
+>
+> **Stated limits, deliberate and recorded here rather than hidden:** a
+> changed root reaches other machines at their next launch/sign-in — there
+> is no live re-broadcast, and the Storage section's success notice says so;
+> the workspace root feeds the same SYNCHRONOUS fs calls every root always
+> has, so a NAS that dies AFTER passing its configuration-time probe can
+> stall the main process for the SMB timeout on a file operation (async
+> resolution is S37/S38-scale work, not a patch); the web Admin Terminal
+> cannot probe reachability or detect mapped drives and says so instead of
+> pretending; and "root unknown because the read failed" is not modelled as
+> a distinct state in main — last-known-good stands in for it.
+>
+> ⏳ **NOT YET WATCHED WORKING.** Nothing in this repo signs in as Audrey,
+> and no NAS exists in this room. The section renders behind the admin gate,
+> every wire is pinned by `workspaceRootWiring.test.js`, and the refusal
+> table is unit-tested — but no human has watched a second computer resolve
+> a root set on a first one. Her numbered checklist is in the S34 close-out
+> chat message, and §4c's five-minute check (does her NAS's remote-access
+> mode preserve the UNC form?) is STILL OWED before this is promised to a
+> customer.
+>
 > ### S33 outcome — the guard takes a root, and reads leave a record (`ed85072`, `439f702`)
 >
 > Migration **0047** (`downloaded` in the `file_events` vocabulary +

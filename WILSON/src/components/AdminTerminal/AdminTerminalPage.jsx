@@ -20,7 +20,7 @@
 
 import { useState } from 'react'
 import {
-  Users, Building2, ScrollText, Activity, Lock, Terminal, GitPullRequestArrow, Cpu,
+  Users, Building2, ScrollText, Activity, Lock, Terminal, GitPullRequestArrow, Cpu, HardDrive,
 } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import { useWorkspaceMembers } from '../TeamMembers/useWorkspaceMembers'
@@ -30,6 +30,7 @@ import LogsSection from './LogsSection'
 import DiagnosticsSection from './DiagnosticsSection'
 import ChangeRequestsSection from './ChangeRequestsSection'
 import ModelsSection from './ModelsSection'
+import StorageSection from './StorageSection'
 
 // Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
 // Serial Position keeps the two most-used sections at the ends: Users first,
@@ -40,10 +41,17 @@ import ModelsSection from './ModelsSection'
 // the same reason Requests does: choosing which model the whole company
 // generates on is company administration, not a per-user preference. The
 // per-user one lives in SYSTEM SETTINGS and beats this.
+//
+// Session 34 adds the seventh — AT the 7±2 limit now; the next section must
+// argue for merging, not appending. Storage sits in the Company/Models block
+// for the same reason both of them do: where the whole company's media lives
+// is company administration (Audrey: "the admins can set the drive in the
+// admin terminal").
 const NAV = [
   { key: 'users', label: 'Users', icon: Users },
   { key: 'company', label: 'Company', icon: Building2 },
   { key: 'models', label: 'Models', icon: Cpu },
+  { key: 'storage', label: 'Storage', icon: HardDrive },
   { key: 'requests', label: 'Requests', icon: GitPullRequestArrow },
   { key: 'logs', label: 'Logs', icon: ScrollText },
   { key: 'diagnostics', label: 'Diagnostics', icon: Activity },
@@ -118,6 +126,9 @@ function AdminTerminalBody({ workspaceId }) {
           </div>
           <div className="h-full min-h-0" style={{ display: section === 'models' ? 'block' : 'none' }}>
             <ModelsSection isActive={section === 'models'} />
+          </div>
+          <div className="h-full min-h-0 overflow-y-auto wilson-light-scroll" style={{ display: section === 'storage' ? 'block' : 'none' }}>
+            <StorageSection isActive={section === 'storage'} workspaceId={workspaceId} />
           </div>
           <div className="h-full min-h-0" style={{ display: section === 'requests' ? 'block' : 'none' }}>
             <ChangeRequestsSection isActive={section === 'requests'} />

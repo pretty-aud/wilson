@@ -9,6 +9,7 @@ import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
+import { fetchWorkspaceStorage } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
@@ -701,6 +702,45 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [perms.ready, perms.userId]);
+
+  // ── S34: the workspace storage root reaches the main process ──────────────
+  // main.cjs has no Supabase client, so the byos root (workspace_storage,
+  // migration 0048) is pushed over IPC here — the ONE call site that makes a
+  // NAS root configured in the Admin Terminal actually resolve on this
+  // desktop. Keyed on workspaceId (a workspace switch re-derives the claim,
+  // same reasoning as the pet effect above). Signed out, the push is NULL —
+  // that is a real state change and the machine default is then correct. A
+  // FAILED read pushes nothing at all: a transient Supabase blip must not
+  // retarget a machine that already holds the workspace root onto its local
+  // default — the split-storage failure the design calls worse than a
+  // visible one — and a fresh launch that lands in the catch simply keeps
+  // its pre-sign-in behaviour (S34 review; last-known-good wins).
+  // A changed root reaches other machines on their next launch / sign-in;
+  // there is no live re-broadcast (stated limit, S34).
+  useEffect(() => {
+    const bridge = typeof window !== 'undefined' ? window.electronAPI?.rabbit : null;
+    if (!bridge?.setWorkspaceRoot) return;
+    if (!perms.ready) return;
+    let cancelled = false;
+    if (!perms.workspaceId) {
+      bridge.setWorkspaceRoot({ rootPath: null }).catch(() => {});
+      return;
+    }
+    (async () => {
+      try {
+        const row = await fetchWorkspaceStorage();
+        if (cancelled) return;
+        const isByos = row?.mode === 'byos';
+        await bridge.setWorkspaceRoot({
+          rootPath: isByos ? (row.root_path || null) : null,
+          rootKind: isByos ? (row.root_kind || null) : null,
+        });
+      } catch (err) {
+        console.warn('workspace storage root not refreshed:', err?.message || err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [perms.ready, perms.workspaceId]);
 
   // Decay timer — runs every 30 seconds
   useEffect(() => {

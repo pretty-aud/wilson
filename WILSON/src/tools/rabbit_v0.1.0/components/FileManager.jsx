@@ -224,10 +224,14 @@ export default function FileManager({
         if (folderRoot) {
           destDir = folderRoot.replace(/\\/g, '/') + '/' + parentType + '/' + parentSlug
         } else {
-          // Fallback: use the files config default root
+          // Fallback: the root this machine resolves under. effectiveRootDir
+          // (S34) folds in the workspace root when one is pushed — reading
+          // defaultRootDir alone here diverged from main's resolvers the day
+          // the root moved to the database.
           const cfg = await api.readFilesConfig()
-          if (cfg?.defaultRootDir) {
-            destDir = cfg.defaultRootDir.replace(/\\/g, '/') + '/' + projectSlug + '/' + parentType + '/' + parentSlug
+          const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir
+          if (rootBase) {
+            destDir = rootBase.replace(/\\/g, '/') + '/' + projectSlug + '/' + parentType + '/' + parentSlug
           }
         }
 
@@ -290,8 +294,9 @@ export default function FileManager({
       filePath = folderRoot + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
     } else {
       const cfg = await api.readFilesConfig()
-      if (cfg?.defaultRootDir) {
-        filePath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
+      const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
+      if (rootBase) {
+        filePath = rootBase + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug + '\\' + file.stored_name
       }
     }
     if (filePath) {
@@ -332,8 +337,9 @@ export default function FileManager({
       folderPath = folderRoot + '\\' + parentType + '\\' + pSlug
     } else {
       const cfg = await api.readFilesConfig()
-      if (cfg?.defaultRootDir) {
-        folderPath = cfg.defaultRootDir + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug
+      const rootBase = cfg?.effectiveRootDir || cfg?.defaultRootDir // S34: workspace root first
+      if (rootBase) {
+        folderPath = rootBase + '\\' + projectSlug + '\\' + parentType + '\\' + pSlug
       }
     }
     if (folderPath) {

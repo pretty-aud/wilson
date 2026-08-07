@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { FolderOpen, Cloud, HardDrive, Unplug } from 'lucide-react'
 import { usePermissions } from '../../permissions'
+import GatedAction from '../../permissions/GatedAction'
 
 const SUPABASE_HOST = (() => {
   try { return new URL(import.meta.env.VITE_SUPABASE_URL).host } catch { return null }
@@ -44,6 +45,16 @@ function Card({ icon: Icon, title, connected, children }) {
 
 export default function StorageConnections() {
   const perms = usePermissions()
+  // S34 (TPN-AUTH-009): this card writes defaultRootDir — the fallback the
+  // whole resolution chain lands on once the workspace root exists — and it
+  // gated on NOTHING (perms was read twice, both times for a display label).
+  // Same rule as SettingsPage's root controls: admins only while signed in
+  // to a workspace; a solo user with no workspace keeps full control. Fails
+  // CLOSED while loading, with the reason saying so.
+  const canEditMachineRoot = perms.ready && (!perms.workspaceId || perms.role === 'admin')
+  const machineRootReason = !perms.ready
+    ? 'Checking permissions…'
+    : 'Only a workspace admin can change this computer’s storage folder while signed in to a company workspace.'
   const bridge = typeof window !== 'undefined' ? window.electronAPI?.rabbit : null
   const [localPath, setLocalPath] = useState(null)
   const [driveConnected, setDriveConnected] = useState(false)
@@ -69,6 +80,7 @@ export default function StorageConnections() {
   useEffect(() => { refresh() }, [refresh])
 
   const pickLocalFolder = useCallback(async () => {
+    if (!canEditMachineRoot) return
     if (!bridge?.pickDirectory || busy) return
     setBusy(true)
     try {
@@ -80,7 +92,7 @@ export default function StorageConnections() {
       await refresh()
     } catch { /* dialog cancelled */ }
     if (mountedRef.current) setBusy(false)
-  }, [bridge, busy, refresh])
+  }, [bridge, busy, refresh, canEditMachineRoot])
 
   const disconnectDrive = useCallback(async () => {
     if (!bridge?.clearGdrive || busy) return
@@ -121,15 +133,17 @@ export default function StorageConnections() {
                 : 'Managed by the desktop app — unavailable in the browser.'}
             </span>
             {bridge?.pickDirectory && (
-              <button
-                type="button"
-                onClick={pickLocalFolder}
-                disabled={busy}
-                className="flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm"
-                style={{ backgroundColor: '#1c1917', color: '#f4a261', opacity: busy ? 0.6 : 1 }}
-              >
-                <FolderOpen className="w-3 h-3" /> Change folder
-              </button>
+              <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                <button
+                  type="button"
+                  onClick={pickLocalFolder}
+                  disabled={busy}
+                  className="flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm"
+                  style={{ backgroundColor: '#1c1917', color: '#f4a261', opacity: busy ? 0.6 : 1 }}
+                >
+                  <FolderOpen className="w-3 h-3" /> Change folder
+                </button>
+              </GatedAction>
             )}
           </div>
         </Card>

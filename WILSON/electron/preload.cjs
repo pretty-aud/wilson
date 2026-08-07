@@ -60,6 +60,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     archiveLocalData:     ()    => ipcRenderer.invoke('rabbit:archive-local-data'),
     readFilesConfig:      ()    => ipcRenderer.invoke('rabbit:read-files-config'),
     writeFilesConfig:     (cfg) => ipcRenderer.invoke('rabbit:write-files-config', cfg),
+    // Session 34: the workspace storage root. App.jsx pushes the byos root
+    // after loading workspace_storage (and null on sign-out); the Admin
+    // Terminal's Storage section probes a candidate before saving it.
+    setWorkspaceRoot:     (opts) => ipcRenderer.invoke('rabbit:set-workspace-root', opts),
+    probeStorageRoot:     (opts) => ipcRenderer.invoke('rabbit:probe-storage-root', opts),
     pickDirectory:        ()    => ipcRenderer.invoke('rabbit:pick-directory'),
     pickFiles:            ()    => ipcRenderer.invoke('rabbit:pick-files'),
     copyFile:             (opts) => ipcRenderer.invoke('rabbit:copy-file', opts),

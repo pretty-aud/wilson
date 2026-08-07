@@ -22,6 +22,8 @@ import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
 import UserModelsSection from './settings/UserModelsSection'
+import { usePermissions } from '../permissions'
+import GatedAction from '../permissions/GatedAction'
 
 
 export default function SettingsPage({
@@ -62,7 +64,22 @@ export default function SettingsPage({
     }).catch(() => setFilesRootLoaded(true))
   }, [])
 
+  // ── S34 (TPN-AUTH-009): who may repoint this machine's root ──────────────
+  // Signed into a workspace, the machine default is the fallback the whole
+  // resolution chain lands on (project folder_root → workspace root →
+  // THIS), so it follows Audrey's drive rule: admins only. With no workspace
+  // there is no team to break — a solo Local Server user keeps full control.
+  // Fails CLOSED while permissions load (the money-gate direction: a real
+  // admin sees the control a beat late rather than a member seeing it at
+  // all); the reason string tells the two states apart.
+  const perms = usePermissions()
+  const canEditMachineRoot = perms.ready && (!perms.workspaceId || perms.role === 'admin')
+  const machineRootReason = !perms.ready
+    ? 'Checking permissions…'
+    : 'Only a workspace admin can change this computer’s storage folder while signed in to a company workspace.'
+
   async function handlePickRootDir() {
+    if (!canEditMachineRoot) return
     const api = window.electronAPI?.rabbit
     if (!api?.pickDirectory) return
     const dir = await api.pickDirectory()
@@ -72,6 +89,7 @@ export default function SettingsPage({
   }
 
   async function handleClearRootDir() {
+    if (!canEditMachineRoot) return
     const api = window.electronAPI?.rabbit
     if (!api?.writeFilesConfig) return
     setFilesRootDir(null)
@@ -513,22 +531,26 @@ export default function SettingsPage({
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handlePickRootDir}
-                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                        >
-                          Change
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleClearRootDir}
-                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
-                          style={{ color: '#dc2626', border: '1px solid #dc2626' }}
-                        >
-                          Clear
-                        </button>
+                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                          <button
+                            type="button"
+                            onClick={handlePickRootDir}
+                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                          >
+                            Change
+                          </button>
+                        </GatedAction>
+                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                          <button
+                            type="button"
+                            onClick={handleClearRootDir}
+                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
+                            style={{ color: '#dc2626', border: '1px solid #dc2626' }}
+                          >
+                            Clear
+                          </button>
+                        </GatedAction>
                         <button
                           type="button"
                           onClick={() => {
@@ -546,14 +568,16 @@ export default function SettingsPage({
                       <p className="text-xs italic" style={{ color: '#78716c' }}>
                         No default location set. Project files will not be managed until a root directory is chosen.
                       </p>
-                      <button
-                        type="button"
-                        onClick={handlePickRootDir}
-                        className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                        style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                      >
-                        Select Root Directory
-                      </button>
+                      <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                        <button
+                          type="button"
+                          onClick={handlePickRootDir}
+                          className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                        >
+                          Select Root Directory
+                        </button>
+                      </GatedAction>
                     </div>
                   )}
                 </div>
