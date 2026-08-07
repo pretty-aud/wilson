@@ -416,7 +416,7 @@ below are superseded; only one of them actually moves.
 
 | # | Session | Size | Blocked by | Prompt |
 |---|---|---|---|---|
-| **S33** | **Guard fix + the `downloaded` event** — fixes a MEASURED live defect and satisfies the TPN condition on the storage root | ~1 | — | `SESSION_33_prompt.md` |
+| **S33** ✅ | **DONE (2026-08-07, `ed85072` + `439f702`)** — guard fix + the `downloaded` event; outcome block below | ~1 | — | `SESSION_33_prompt.md` |
 | **S34** | **The storage root** — `workspace_storage`, admin gate in the Admin Terminal, UNC classifier, reachability probe, two-step confirm | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** | **The manager half + setup guidance** — Control Panel gate, `folder_root` containment, VPN/NAS docs | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
@@ -435,6 +435,62 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S33 outcome — the guard takes a root, and reads leave a record (`ed85072`, `439f702`)
+>
+> Migration **0047** (`downloaded` in the `file_events` vocabulary +
+> `log_file_downloaded`) applied and verified **by query** on dev, staging and
+> prod. The guard lives in **`electron/pathContainment.cjs`** now — extracted
+> so it is unit-testable — with the escape cases pinned BEFORE the root cases.
+> pgTAP suite 33: plan **26 → 44**, proven by **six breakers** (three fired
+> where designed, one passing breaker verified the 0027-re-run claim, and two
+> found real holes — see below). Full set **57 suites / 920 assertions**,
+> tap-all clean. Vitest **940 / 44 files**.
+>
+> **The session ran an adversarial review before deploy (TPN-NET-013), and the
+> review earned its keep three times:**
+>
+> - **The RPC's first draft replicated `projects_select` and MISSED 0038's
+>   money arm** — a plain member could confirm invoice ids exist, mint invoice
+>   metadata (name, path, size) into `file_events`, and forge an audit record
+>   of a read the storage policies would refuse. Three independent verifiers
+>   confirmed it. Fixed; probes 28/29 pin it from both sides.
+> - **The fix then failed its own probe: `can_access_project_money` returns
+>   NULL, not false, for a claim-less non-manager.** In a policy that NULL
+>   fails CLOSED; in the RPC's `IF` it failed OPEN — `true AND NOT NULL` is
+>   NULL and the refusal never fired. The 0042 coalesce lesson, inverted:
+>   **moving a policy predicate into procedural SQL flips its failure
+>   direction.** The `COALESCE(..., false)` is load-bearing and commented so.
+> - **Two breakers PASSED that should have failed**, and each taught something:
+>   deleting the workspace-claim check left every probe green (the plain
+>   cross-workspace caller is refused by membership first — only a
+>   dual-workspace member signed into the wrong workspace discriminates, now
+>   probe 24), and deleting the membership check was invisible until probe 30's
+>   revoked-member-with-stale-JWT caller existed. **A refusal probe pins ONE
+>   check only if every other check waves its caller through.**
+>
+> **Scope facts measured, not assumed:** the local GET now logs without
+> stamping `project.updated_at` (a read must not reorder the project list) and
+> inside try/catch (an audit hiccup must not 500 the download). The default
+> desktop managed-files flow has **no WILSON-mediated read to log** — the
+> "download" button is `openInExplorer` and content sits in user-visible
+> folders — so AS-2.9 coverage there arrives with S38's serving routes, noted
+> in that brief. Cloud logging is **advisory by construction** (a direct
+> storage REST call bypasses the adapter); server-side enforcement would need
+> its own design. `googleDriveAdapter.downloadFile` (legacy read-only) logs
+> nothing, knowingly.
+>
+> **Also fixed in passing (`439f702`):** suites 56/57's final postgres-side
+> counts were unscoped `count(*)` over per-user tables — correct only while
+> the tables were empty, and dev now carries a real pet row. tap-all caught it
+> the first run after 0047 landed. **A postgres-side probe must bring its own
+> scope; RLS was doing the scoping everywhere else in those suites.**
+>
+> ⚠️ **One finding was real and deliberately NOT fixed here:**
+> `file_events_select` (0027) has no money arm, so invoice lifecycle metadata
+> is readable by every project reader — pre-existing, now in `OUTSTANDING.md`,
+> and entangled with purged certificates (a purged invoice's certificate has
+> no `is_financial` to classify by). It needs a design decision, not a patch.
+>
 > ### S31 outcome — the pet follows the person (`272fb83`, `29d36fc`)
 >
 > Migration **0046** (`user_pets`, `user_settings`) applied and verified **by

@@ -205,10 +205,16 @@ tracked posture (TPN-NET-001; `/api/fetch-url` and `/api/fetch-raw` also accept
 arbitrary URLs with no allow-list — TPN-NET-002). Two route families do defend
 themselves, and the pattern is worth copying:
 
-- `resolveContainedFilePath(baseDir, relPath)` (`main.cjs:920-927`) resolves and
+- `resolveContainedFilePath(baseDir, relPath)` (`electron/pathContainment.cjs`
+  since S33, required by `main.cjs`; unit-tested in
+  `src/tools/rabbit_v0.1.0/pathContainment.test.js`) resolves and
   case-folds, then refuses anything that is not `baseDir` itself or beneath it.
-  Every `files`-family disk path goes through it.
-- `isUserAuthorizedRelinkDir(...)` (`main.cjs:935-948`) accepts a folder only if
+  Every `files`-family disk path goes through it. S33 also fixed the root-base
+  refusal: a drive root or two-component UNC share as the base used to refuse
+  everything (doubled separator), which is why a share-shaped storage root
+  broke every file operation.
+- `isUserAuthorizedRelinkDir(...)` (`main.cjs`, comparison via
+  `isPathInside` from the same module) accepts a folder only if
   the user picked it through the OS dialog (`rabbit:pick-directory` records
   every pick into a `userAuthorizedDirs` set, `main.cjs:61, 2262-2273`) or it
   lies inside the project's own roots. A dialog pick *is* the authorization.

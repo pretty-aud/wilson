@@ -726,50 +726,28 @@ keeps blinking on the right while typing elsewhere. Likely the shared
 first.**
 → S25.
 
-### A drive root or share root as the storage root breaks every file operation
-**MEASURED (2026-08-05).** Executed the containment guard
-(`electron/main.cjs:1330-1337`) directly against root paths, not reasoned about.
+### `file_events` has no money arm — invoice lifecycle metadata is readable by every project reader
+**MEASURED (2026-08-07, S33 adversarial review; pre-existing since 0027).**
+`file_events_select` (`0027_file_lifecycle.sql:113-127`) admits any project
+reader — workspace match + active membership + `can_read_project_topic` — with
+**no `is_financial` arm**, and the capture trigger snapshots every event
+unfiltered. So a plain member who cannot see an invoice's `files` row (0038's
+`files_select` money arm hides it) can still read its **name, path and size**
+from the invoice's `uploaded`/`moved`/`trashed` events over PostgREST, plus
+any `downloaded` events money-privileged users generate. S33's RPC refuses to
+*mint* new events for such callers (the 0047 money gate), which contains the
+S33 surface — this entry is the pre-existing read side.
 
-`path.resolve` appends a trailing separator to anything it treats as a **root**,
-and both `C:\` and a two-component UNC path are roots:
-
-```
-path.resolve('C:\')                      -> 'C:\'
-path.resolve('\\FILESERVER\Projects')    -> '\\fileserver\projects\'
-path.resolve('\\srv\share\Projects')     -> '\\srv\share\Projects'   (no trailing sep)
-```
-
-The guard then tests `a.startsWith(b + path.sep)`, which becomes a **doubled
-separator** no real path matches. Measured:
-
-```
-guard('C:\',                  'a.mov')  ->  null     ← every file rejected
-guard('\\srv\share',          'a.mov')  ->  null     ← every file rejected
-guard('\\srv\share\Projects', 'a.mov')  ->  '...\a.mov'   ← fine
-```
-
-Consequences once such a root is configured: **download** returns
-`400 invalid storage path` (`main.cjs:2035`) for every file; **delete** skips
-the `unlink` (`main.cjs:2066`) and orphans the body on disk while writing an
-(honest) `blob_removed: false` certificate; **relink** refuses folders that are
-genuinely inside the root, because `isUserAuthorizedRelinkDir`
-(`main.cjs:1354-1357`) uses the same comparison.
-
-**Nobody is hitting this today** — Audrey's root is
-`C:\Users\Audrey\Documents\My_Work`, three levels deep, so it resolves without a
-trailing separator. It is reachable right now through the Settings → Files &
-Storage "Change" button by picking a drive root, and it becomes the *normal*
-case the moment network paths are supported, because `\\server\share` is how
-people name a share.
-
-🚨 **The guard is a security boundary and it currently fails CLOSED.** The bug
-is a correctness bug; the risk is in the fix. A normalisation that trims
-separators from both sides, or a plain `startsWith` without the separator
-boundary, turns fail-closed into fail-open and re-opens the arbitrary-path
-`unlink` that S14 closed. Measured and worth keeping: the guard **holds** against
-UNC escapes — `..\..\..`, a foreign `\\attacker\share`, `//host/share` and an
-absolute `C:\Windows\win.ini` all return `null` against a UNC base.
-→ Fix + adversarial tests are **Phase 0** of `docs/NETWORK_STORAGE_DESIGN.md`.
+**Why S33 did not patch it:** the fix is entangled with deletion certificates.
+A purged invoice's `file_events` row is the only surviving record and carries
+no `is_financial` (the `files` row is gone; the `details` snapshot doesn't
+include it), so a policy arm cannot classify certificates without either
+snapshotting `is_financial` into future events (leaves history unclassifiable)
+or accepting that certificates stay reader-visible (maybe correct — proof of
+deletion is arguably not a money fact). That is a design decision for Audrey /
+the TPN re-audit, not a patch.
+→ Candidate shape: snapshot `is_financial` into `file_events` at capture time
+(0047-style migration), add the arm for non-certificate events only.
 
 ---
 
@@ -779,6 +757,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S33 (2026-08-07) | **one entry: `file_events` has no money arm** — pre-existing since 0027, surfaced by the adversarial review S33 ran before deploying its own migration, and deliberately not patched because the fix is entangled with deletion certificates (see the entry). Three review findings against S33's OWN code were fixed before deploy and are commit content, not entries: the RPC's missing 0038 money gate, the NULL-not-false money-gate result that made the first fix silently fail OPEN in procedural SQL (the 0042 lesson inverted — `COALESCE` is load-bearing), and the local download route 500ing + reordering the project list when the audit write failed. Three stated limits are recorded in `MASTER_PLAN_S19_ONWARD.md`'s S33 outcome block rather than here: cloud download logging is advisory by construction, the managed-files desktop flow has no WILSON-mediated read to log until S38's serving route (noted in that brief), and `googleDriveAdapter` logs nothing. Also fixed in passing (`439f702`): suites 56/57's unscoped postgres-side counts, which failed the day dev carried a real pet row. | **the drive-root / share-root entry** (`ed85072` + migration 0047, applied and verified **by query** on dev, staging and prod; the escape cases the entry said were worth keeping are now vitest cases that must stay green, plus 18 new pgTAP assertions incl. two probes that exist because breakers proved the suite couldn't otherwise detect deleting the workspace-claim or membership checks). |
 | S31 (2026-08-05) | **three entries, none of them a regression.** (a) **`ResetPasswordWizard` still performs a global sign-out** — found while fixing the same defect in `App.jsx`, and deliberately left alone because what a password reset revokes is a security decision. (b) **A failed pet LOAD has nowhere to show itself** — S31 made it representable, neither session has made it visible, and the same is true of S30's save banner, which renders only inside the chat popup. (c) The parallel network-storage session added the drive-root entry above. 🚨 **The finding of the session is not in this file at all: the settings half of S31 shipped in `272fb83` with ZERO CALLERS and was caught by grepping for callers before writing these docs.** Sixth instance of the shape, in the session whose brief warned about it five times, with a call-site guard already written for the *pet* half and a green unit test sitting over the dead settings path. Fixed in `29d36fc`. **Writing a call-site guard for half a change is how the other half goes dead.** | **the pet and per-user settings do not follow the user between computers** (0046 + `272fb83` + `29d36fc`, applied and verified **by query** on dev, staging and prod) and **there is no way to log out** (`272fb83`). Both entries' own claims needed correcting first: the plan's "store `last_fed_at`" named a field nothing reads, the schema census was wrong in both directions, and "there is no way to log out" was true of the Settings screen but not of the app — `window.wilsonSignOut` already had one caller. |
 | S30, close-out (2026-08-05) | **nothing new broken.** Two things worth recording. **(a)** The pet's saves failed silently through THREE layers and are fixed (`73828c7`) — commit message, not an entry, per this file's rule. **(b) 🚨 THIS FILE WAS ITSELF BROKEN BY THIS SESSION AND IS NOW REPAIRED.** Closing the assignee-dropdown entry left an HTML comment opened at its historical block and never closed, so **everything from there to the next `-->` was commented out — 227 lines, hiding three LIVE entries**: the hung `getSession()`, the avatar, and *"signing in to the desktop app hides O.T.T.E.R.'s local courses"*, which this same session had added. Found by grepping the comment markers during the close-out rather than by reading the file, which is the only way it would have shown. **A `<!--` in a long markdown file is a silent delete.** Comments now pair 201→250, 297→330, 459→525. | nothing further. |
 | S30, postscript II (2026-08-05) | **nothing.** ✅ **CONFIRMED BY AUDREY AND THEN BY QUERY:** *"it worked"* — and staging now holds `Blender 5.1 [personal]`, 9 subjects, 1 with generated content over 2 sections. Before tonight `otter_courses` was **0 rows on all three environments**, so that is the first cloud course O.T.T.E.R. has ever produced. The entry below is kept because the fix SHIPPED inferred rather than observed, and the discipline that made that safe is worth keeping: the `pause_turn` fix (`ce11709`) was **INFERRED, not OBSERVED**. Audrey's outline generated and subject content then failed with *"Failed to parse subject JSON"*; the cause is traced through code and matches the symptom exactly (the outline carries no tools and works, `generateSubjectContent` carries `web_search_20250305` and fails), but running the live API needs her password, which a session must not handle. **So the instrument shipped with the fix:** every O.T.T.E.R. parse failure now appends `[stop_reason; blocks; chars of text]`. If it recurs, the message names the cause instead of costing another round trip. Not an entry here because nothing is known broken — if the diagnostic comes back saying otherwise, THAT is the entry. | nothing further. |

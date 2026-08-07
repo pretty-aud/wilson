@@ -37,7 +37,17 @@ that is not a slow preview, it is a hang.
   implemented explicitly. **This is the single most likely thing to get wrong.**
 
 Everything served here goes through `resolveContainedFilePath` — the guard S33
-fixed. Do not add a second path-resolution route.
+fixed (it lives in `electron/pathContainment.cjs` now). Do not add a second
+path-resolution route.
+
+🚨 **AS-2.9 rides in with this route (S33 hand-off).** S33 added the
+`downloaded` event to the files-plane download on both backends, and measured
+that the default desktop managed-files flow has **no WILSON-mediated read to
+log** — its "download" button is `openInExplorer`. The serving route this
+session builds is the first time WILSON mediates managed-file reads, so it
+must log the read the way the files download route does
+(`rabbitLogFileEvent`, event `'downloaded'`, try/catch + `touch: false` —
+copy that call site, including why a read must not stamp `updated_at`).
 
 ## Part 2 — auto still-frame thumbnails
 
