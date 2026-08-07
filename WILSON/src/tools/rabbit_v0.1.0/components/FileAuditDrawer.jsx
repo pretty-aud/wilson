@@ -2,8 +2,8 @@
 // FileAuditDrawer — Session 14, Block C (the Notion-style per-file audit).
 //
 // "Who touched this file, when": renders the file lifecycle stream —
-// uploaded / moved / relinked / trashed / restored / purged — from
-// adapter.listFileEvents(). In cloud mode that is the trigger-fed
+// uploaded / downloaded / moved / relinked / trashed / restored / purged —
+// from adapter.listFileEvents(). In cloud mode that is the trigger-fed
 // file_events table (migration 0027, readable by every project reader,
 // not just admins — unlike edit_history); in local_server mode it is the
 // bundle.fileEvents log the Express routes append to. This is
@@ -26,18 +26,21 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  X, RefreshCw, FileClock, Upload, MoveRight, Link2, Trash2, RotateCcw, Flame,
+  X, RefreshCw, FileClock, Upload, Download, MoveRight, Link2, Trash2, RotateCcw, Flame,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { formatHistoryTimestamp } from './editHistoryFormat'
 
 export const FILE_EVENT_META = {
-  uploaded: { label: 'Uploaded', color: '#4ade80', Icon: Upload },
-  moved:    { label: 'Moved',    color: '#fb923c', Icon: MoveRight },
-  relinked: { label: 'Relinked', color: '#fb923c', Icon: Link2 },
-  trashed:  { label: 'Trashed',  color: '#fca5a5', Icon: Trash2 },
-  restored: { label: 'Restored', color: '#4ade80', Icon: RotateCcw },
-  purged:   { label: 'Purged',   color: '#f87171', Icon: Flame },
+  uploaded:   { label: 'Uploaded',   color: '#4ade80', Icon: Upload },
+  // S33 (0047): a read, not a change — stone, outside the green/orange/red
+  // creation/change/destruction language on purpose.
+  downloaded: { label: 'Downloaded', color: '#a8a29e', Icon: Download },
+  moved:      { label: 'Moved',      color: '#fb923c', Icon: MoveRight },
+  relinked:   { label: 'Relinked',   color: '#fb923c', Icon: Link2 },
+  trashed:    { label: 'Trashed',    color: '#fca5a5', Icon: Trash2 },
+  restored:   { label: 'Restored',   color: '#4ade80', Icon: RotateCcw },
+  purged:     { label: 'Purged',     color: '#f87171', Icon: Flame },
 }
 
 export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }) {

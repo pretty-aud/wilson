@@ -4,7 +4,10 @@
 --
 -- Pins: the file_events capture trigger (uploaded on INSERT, moved on
 -- storage_path change, trashed/restored on the soft-delete transitions,
--- purged with a full snapshot on hard DELETE), actor stamping (auth.uid()
+-- purged with a full snapshot on hard DELETE), the S33 'downloaded' read
+-- event (0047: the log_file_downloaded DEFINER RPC — vocabulary, EXECUTE
+-- fencing, actor stamp, cross-workspace refusal, append-only intact),
+-- actor stamping (auth.uid()
 -- for client writes, NULL for the purge sweep), the SELECT policy (project
 -- readers + the workspace-admin arm that keeps deletion certificates
 -- readable after the project itself is purged), append-only enforcement
@@ -22,7 +25,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(26);
+SELECT plan(44);
 
 SELECT * FROM tests.rls_setup();
 
@@ -161,6 +164,238 @@ SELECT is(
   0, 'a ws_b member sees no ws_a file events'
 );
 
+-- ── The 'downloaded' read event (S33, migration 0047) ───────────────────────
+-- TPN-CONT-008 / TPN-LOG-002 / AS-2.9: reads are logged via the
+-- log_file_downloaded DEFINER RPC; the table itself stays append-only.
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- 14: the RPC exists.
+SELECT is(
+  to_regprocedure('public.log_file_downloaded(uuid)') IS NOT NULL,
+  true, 'log_file_downloaded exists'
+);
+
+-- 15-16: EXECUTE — authenticated yes; anon no (the grantee lesson, 0033:
+-- functions are born with a PUBLIC aclitem, so this pins the revoke).
+SELECT is(
+  has_function_privilege('authenticated', 'public.log_file_downloaded(uuid)', 'EXECUTE'),
+  true, 'authenticated can execute log_file_downloaded'
+);
+SELECT is(
+  has_function_privilege('anon', 'public.log_file_downloaded(uuid)', 'EXECUTE'),
+  false, 'anon cannot execute log_file_downloaded'
+);
+
+-- 17-18: exactly ONE event-vocabulary constraint, and it admits
+-- 'downloaded'. Two constraints is the failure shape where 0047's
+-- discovery-drop missed one and the survivor still refuses the new event.
+SELECT is(
+  (SELECT count(*)::int FROM pg_constraint
+    WHERE conrelid = 'public.file_events'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%uploaded%'),
+  1, 'exactly one event vocabulary constraint on file_events'
+);
+SELECT is(
+  (SELECT count(*)::int FROM pg_constraint
+    WHERE conrelid = 'public.file_events'::regclass AND contype = 'c'
+      AND pg_get_constraintdef(oid) LIKE '%downloaded%'),
+  1, 'the event vocabulary admits downloaded'
+);
+
+-- A fresh file for the read probes — 3301 is purged further down, and a
+-- purged file must refuse the logger rather than feed it.
+SELECT tests.login_as(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111'
+);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes)
+VALUES ('aaaa1111-0000-0000-0000-000000003302',
+        'aaaa1111-0000-0000-0000-000000000001',
+        'downloaded.png', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-downloaded.png',
+        4096);
+
+-- 19: a member logs a download of a readable file.
+SELECT is(
+  public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003302'),
+  true, 'a member logs a download of a readable file'
+);
+
+-- 20: the row landed — event, path-at-read-time snapshot in old_path.
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003302' AND event = 'downloaded'
+      AND old_path LIKE '%1-downloaded.png'),
+  1, 'the downloaded event carries the path snapshot'
+);
+
+-- 21: actor stamped from auth.uid().
+SELECT is(
+  (SELECT actor_user_id FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003302' AND event = 'downloaded'),
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'::uuid,
+  'the downloaded event carries the acting user'
+);
+
+-- 22: append-only holds for the new value too — the RPC is the ONLY way in.
+SELECT throws_ok(
+  $$ INSERT INTO public.file_events (workspace_id, project_id, file_id, event)
+     VALUES ('11111111-1111-1111-1111-111111111111',
+             'aaaa1111-0000-0000-0000-000000000001',
+             'aaaa1111-0000-0000-0000-000000003302', 'downloaded') $$,
+  'permission denied for table file_events',
+  'clients cannot INSERT downloaded events directly'
+);
+
+-- 23: a cross-workspace caller is refused — and cannot learn whether the
+-- file exists (one message for every refusal shape).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  '22222222-2222-2222-2222-222222222222'
+);
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003302') $$,
+  'log_file_downloaded: file not found or not readable',
+  'a ws_b member cannot log a download of a ws_a file'
+);
+
+-- 24: the workspace CLAIM is checked independently of membership. This
+-- caller shape exists because of a breaker (S33): with the workspace check
+-- deleted from the RPC, every other probe stays green — probe 23's caller
+-- is refused by the membership check alone. Only a member of BOTH
+-- workspaces signed into the other one can tell the two checks apart.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+INSERT INTO public.workspace_members
+  (workspace_id, user_id, app_role, username, display_name, is_active)
+VALUES
+  ('22222222-2222-2222-2222-222222222222',
+   'cccccccc-cccc-cccc-cccc-cccccccccccc', 'user', 'user_c_b', 'User C in B', true)
+ON CONFLICT (workspace_id, user_id) DO NOTHING;
+SELECT tests.login_as(
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '22222222-2222-2222-2222-222222222222'
+);
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003302') $$,
+  'log_file_downloaded: file not found or not readable',
+  'a dual-workspace member signed into the other workspace is refused'
+);
+
+-- 25: the refused calls wrote nothing — the stream holds exactly the
+-- uploaded + downloaded pair.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000003302'),
+  2, 'the refused cross-workspace call logged nothing'
+);
+
+-- 26: a TRASHED file still logs — the blob outlives the row's visibility,
+-- and a read of trashed content is exactly what an auditor wants recorded.
+-- (0047 implements this by omission — no file-level deleted_at check — so
+-- only this probe pins that it stays; adversarial review, S33.)
+SELECT public.soft_delete_row('files', 'aaaa1111-0000-0000-0000-000000003302');
+SELECT is(
+  public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003302'),
+  true, 'a trashed file still logs a download'
+);
+
+-- 27: a purged (or never-existing) file refuses — nothing to snapshot,
+-- nothing to read.
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('00000000-0000-0000-0000-000000000099') $$,
+  'log_file_downloaded: file not found or not readable',
+  'an unknown or purged file id refuses'
+);
+
+-- 28-29: the 0038 money arm. The fixture itself needs money access to
+-- CREATE (files_insert gates is_financial), so it is inserted under a
+-- hand-built admin JWT (login_as sets no app_role claim).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config(
+  'request.jwt.claims',
+  jsonb_build_object(
+    'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', '11111111-1111-1111-1111-111111111111',
+      'app_role', 'admin'
+    )
+  )::text, true
+);
+SELECT set_config('role', 'authenticated', true);
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
+VALUES ('aaaa1111-0000-0000-0000-000000003303',
+        'aaaa1111-0000-0000-0000-000000000001',
+        'invoice.pdf', 'supabase',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-invoice.pdf',
+        1024, true);
+
+-- 28: a money-privileged caller logs a financial file.
+SELECT is(
+  public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003303'),
+  true, 'a money-privileged caller logs a financial file download'
+);
+
+-- 29: a plain member is refused — files_select hides the row from them,
+-- so the logger must neither confirm the invoice exists nor mint its
+-- metadata into a stream every project reader can see (adversarial
+-- review, S33: the first draft replicated projects_select only, and this
+-- caller got true). The caller must be user_c: user_a is a workspace
+-- ADMIN in workspace_members, and the money gate rightly reads the live
+-- row — a plain-JWT login_as does not shed table-side privilege (this
+-- probe's first draft used user_a and measured exactly that).
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003303') $$,
+  'log_file_downloaded: file not found or not readable',
+  'a member without money access cannot log a financial file download'
+);
+
+-- 30: MEMBERSHIP is checked independently of the workspace claim. This
+-- caller shape exists because of a breaker (S33): deleting
+-- has_active_membership from the RPC left every probe green — all other
+-- refusal shapes are caught by the claim check first. Only a matching
+-- claim over a DEACTIVATED membership (the revoked member with a stale
+-- JWT) tells them apart.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+UPDATE public.workspace_members SET is_active = false
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+   AND user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+SELECT tests.login_as(
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '11111111-1111-1111-1111-111111111111'
+);
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003302') $$,
+  'log_file_downloaded: file not found or not readable',
+  'a deactivated membership is refused even with a matching claim'
+);
+-- Reactivate: the later "plain member loses the stream" probe must keep
+-- meaning what it says — an ACTIVE member refused by the project arm.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+UPDATE public.workspace_members SET is_active = true
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+   AND user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
 -- ── Purge → certificate + GC enqueue ────────────────────────────────────────
 
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -173,14 +408,14 @@ SELECT public.soft_delete_row('files', 'aaaa1111-0000-0000-0000-000000003301');
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
--- 14: the nightly sweep. Retention is NEGATIVE because now() is frozen for
+-- 31: the nightly sweep. Retention is NEGATIVE because now() is frozen for
 -- the whole test transaction — deleted_at = now() is never < now() - 0.
 SELECT ok(
   public.purge_soft_deleted(INTERVAL '-1 second') >= 1,
   'purge_soft_deleted removes the expired file row'
 );
 
--- 15: the deletion certificate exists, with the final path snapshot.
+-- 32: the deletion certificate exists, with the final path snapshot.
 SELECT is(
   (SELECT count(*)::int FROM public.file_events
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000003301' AND event = 'purged'
@@ -188,14 +423,14 @@ SELECT is(
   1, 'hard delete emits a purged certificate with the path snapshot'
 );
 
--- 16: the sweep is a system write — no actor.
+-- 33: the sweep is a system write — no actor.
 SELECT is(
   (SELECT actor_user_id FROM public.file_events
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000003301' AND event = 'purged'),
   NULL::uuid, 'purge certificate carries no actor (system write)'
 );
 
--- 17: the supabase blob was enqueued for GC.
+-- 34: the supabase blob was enqueued for GC.
 SELECT is(
   (SELECT count(*)::int FROM public.storage_gc_queue
     WHERE file_id = 'aaaa1111-0000-0000-0000-000000003301'
@@ -220,16 +455,27 @@ SELECT set_config(
 );
 SELECT set_config('role', 'authenticated', true);
 SELECT public.soft_delete_row('projects', 'aaaa1111-0000-0000-0000-000000000001');
+
+-- 35: a TRASHED project refuses the download logger — the live-project
+-- check, isolated: this caller is a workspace admin (passes the money
+-- gate on the financial fixture), so the refusal can only be the
+-- project's deleted_at.
+SELECT throws_ok(
+  $$ SELECT public.log_file_downloaded('aaaa1111-0000-0000-0000-000000003303') $$,
+  'log_file_downloaded: file not found or not readable',
+  'a trashed project refuses the download logger'
+);
+
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
--- 18: sweep the project too.
+-- 36: sweep the project too.
 SELECT ok(
   public.purge_soft_deleted(INTERVAL '-1 second') >= 1,
   'purge_soft_deleted removes the expired project row'
 );
 
--- 19: a plain member (no admin claim) loses the stream once the project is
+-- 37: a plain member (no admin claim) loses the stream once the project is
 -- gone — can_read_project_topic is false and the admin arm refuses 'user'.
 SELECT set_config(
   'request.jwt.claims',
@@ -249,7 +495,7 @@ SELECT is(
   0, 'a plain member cannot read events for a purged project'
 );
 
--- 20: a workspace admin still reads the deletion certificates.
+-- 38: a workspace admin still reads the deletion certificates.
 SELECT set_config('role', 'postgres', true);
 SELECT set_config(
   'request.jwt.claims',
@@ -274,13 +520,13 @@ SELECT is(
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
--- 21: bucket exists and is private.
+-- 39: bucket exists and is private.
 SELECT is(
   (SELECT public FROM storage.buckets WHERE id = 'rabbit-files'),
   false, 'rabbit-files bucket exists and is private'
 );
 
--- 22: the three policies exist.
+-- 40: the three policies exist.
 SELECT is(
   (SELECT count(*)::int FROM pg_policies
     WHERE schemaname = 'storage' AND tablename = 'objects'
@@ -288,7 +534,7 @@ SELECT is(
   3, 'the three rabbit-files storage policies exist'
 );
 
--- 23: a member CAN upload under their own project's path (the policy admits
+-- 41: a member CAN upload under their own project's path (the policy admits
 -- the legitimate case — otherwise every cloud upload would 403).
 SELECT tests.login_as(
   'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
@@ -304,7 +550,7 @@ WITH ins AS (
 SELECT is((SELECT count(*)::int FROM ins), 1,
   'a ws_b member can upload under their own project path');
 
--- 24: a cross-workspace project path fails CLOSED.
+-- 42: a cross-workspace project path fails CLOSED.
 SELECT throws_ok(
   $$ INSERT INTO storage.objects (bucket_id, name, owner_id)
      VALUES ('rabbit-files',
@@ -314,7 +560,7 @@ SELECT throws_ok(
   'a ws_b member cannot upload under a ws_a project path'
 );
 
--- 25: a garbage project segment fails CLOSED (fn_try_uuid → NULL → EXISTS
+-- 43: a garbage project segment fails CLOSED (fn_try_uuid → NULL → EXISTS
 -- false — can_write_project(NULL) alone would fail OPEN; this pins the guard).
 SELECT throws_ok(
   $$ INSERT INTO storage.objects (bucket_id, name, owner_id)
@@ -325,7 +571,7 @@ SELECT throws_ok(
   'a malformed project segment is refused'
 );
 
--- 26: the uploader-cleanup DELETE policy pins owner_id AND the review
+-- 44: the uploader-cleanup DELETE policy pins owner_id AND the review
 -- hardening: the freshness bound + write-side guards, so an ex-member or
 -- any past uploader can never destroy live blobs (adversarial review).
 -- Functional delete cannot be probed by SQL — storage.protect_delete()

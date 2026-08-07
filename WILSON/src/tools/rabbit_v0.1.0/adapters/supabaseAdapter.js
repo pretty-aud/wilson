@@ -1023,6 +1023,19 @@ export function supabaseAdapter() {
       const client = await requireClient();
       const { data, error } = await client.storage.from('rabbit-files').download(file.storage_path);
       if (error) throw new Error(`[supabase] download failed: ${error.message}`);
+      // S33 (0047, TPN-CONT-008 / TPN-LOG-002): every download leaves a
+      // file_events row, written by the log_file_downloaded SECURITY DEFINER
+      // RPC — the table itself stays append-only (no client INSERT).
+      // Best-effort by the 0027 idiom (an audit hiccup must not take the
+      // read down with it: the blob is already in hand), but never silent —
+      // and rpc() resolves for every status (the trap documented at
+      // supabaseOtterAdapter.js:253-255), so .error must be checked.
+      try {
+        const logged = await client.rpc('log_file_downloaded', { p_file_id: file.id });
+        if (logged.error) console.warn('[supabase] download not logged:', logged.error.message);
+      } catch (err) {
+        console.warn('[supabase] download not logged:', err?.message || err);
+      }
       return data; // Blob
     },
 

@@ -6,6 +6,7 @@ const path = require('path');
 const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
+const { resolveContainedFilePath, isPathInside } = require('./pathContainment.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -890,13 +891,19 @@ function startLocalServer(distPath) {
       }
       return bundle;
     }
-    function writeRabbitBundle(projectId, bundle) {
-      bundle.project.updated_at = new Date().toISOString();
+    function writeRabbitBundle(projectId, bundle, { touch = true } = {}) {
+      // touch:false is for persists that only append audit data (the S33
+      // 'downloaded' event): a READ must not stamp project.updated_at —
+      // the project list sorts by it, so every download would bump the
+      // project to the top — and the ${slug}_DATABASES mirrors carry no
+      // fileEvents, so rewriting all five per download is pure churn
+      // (adversarial review, S33).
+      if (touch) bundle.project.updated_at = new Date().toISOString();
       // Ensure projectTeam array exists (backward compat for old bundles)
       if (!bundle.projectTeam) bundle.projectTeam = [];
       writeJSON(rabbitBundlePath(projectId), bundle);
       // Mirror split databases to user-visible project folder
-      mirrorProjectDatabases(projectId, bundle);
+      if (touch) mirrorProjectDatabases(projectId, bundle);
     }
     function emptyBundle(project) {
       return {
@@ -1321,20 +1328,14 @@ function startLocalServer(distPath) {
     }
 
     // ── File lifecycle helpers (Session 14) ───────────────────
-    // Containment guard: joins relPath under baseDir and refuses anything
-    // that escapes it ('..', absolute paths). storage_path and every
-    // relink mapping go through this before any fs call — the PATCH route
-    // used to let a crafted storage_path unlink arbitrary disk paths.
-    // Comparison is case-folded: NTFS/APFS are case-insensitive, so
-    // 'c:\a' vs 'C:\A' must not defeat the guard.
-    function resolveContainedFilePath(baseDir, relPath) {
-      const base = path.resolve(baseDir);
-      const resolved = path.resolve(base, String(relPath || ''));
-      const a = resolved.toLowerCase();
-      const b = base.toLowerCase();
-      if (a !== b && !a.startsWith(b + path.sep)) return null;
-      return resolved;
-    }
+    // Containment guard: resolveContainedFilePath joins relPath under
+    // baseDir and refuses anything that escapes it ('..', absolute paths).
+    // storage_path and every relink mapping go through it before any fs
+    // call — the PATCH route used to let a crafted storage_path unlink
+    // arbitrary disk paths. Since S33 it lives in pathContainment.cjs
+    // (required at the top of this file) so the semantics — including the
+    // drive/share-root fix — are unit-tested; do not redefine it here.
+    //
     // Relink folders must be USER-CHOSEN, not body-supplied (adversarial
     // review, S14): the Express server answers any local origin (cors()),
     // so a body-picked baseDir would let a drive-by request point a
@@ -1351,15 +1352,14 @@ function startLocalServer(distPath) {
       try { roots.push(getRabbitDataDir()); } catch {}
       try { const d = readFilesConfig()?.defaultRootDir; if (d) roots.push(d); } catch {}
       if (bundle.project?.files_dir) roots.push(bundle.project.files_dir);
-      return roots.some(root => {
-        const base = path.resolve(String(root)).toLowerCase();
-        return resolved === base || resolved.startsWith(base + path.sep);
-      });
+      // isPathInside carries the same root-base rule as the containment
+      // guard: a drive/share root must contain its own children (S33).
+      return roots.some(root => isPathInside(root, resolved));
     }
     // Local twin of the cloud file_events stream (migration 0027): the
     // audit drawer reads the same event vocabulary from bundle.fileEvents.
     // NOTE: local files rows hard-delete (no local trash), so the local
-    // stream emits uploaded/moved/relinked/purged only.
+    // stream emits uploaded/downloaded/moved/relinked/purged only.
     function rabbitLogFileEvent(bundle, evt) {
       if (!bundle.fileEvents) bundle.fileEvents = [];
       bundle.fileEvents.push({
@@ -2034,6 +2034,29 @@ function startLocalServer(distPath) {
         resolveFileBaseDir(bundle, req.params.projectId, file), file.storage_path);
       if (!diskPath) return res.status(400).json({ error: 'invalid storage path' });
       if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
+      // S33 (TPN-CONT-008 / TPN-LOG-002, AS-2.9): a read leaves a record.
+      // The cloud twin is log_file_downloaded (0047). old_path is the path
+      // that was read, matching 'trashed'/'purged' ("the path at event
+      // time"). No actor fields: Local Server has no signed-in identity —
+      // the loopback bind is the access control. touch:false — a read must
+      // not stamp updated_at or rewrite the folder mirrors. The try/catch
+      // is the 0027 idiom's local twin: an audit hiccup (disk full, EPERM
+      // on the bundle) must not take the read down with it — and never
+      // silently: the warn is the instrument (adversarial review, S33).
+      try {
+        rabbitLogFileEvent(bundle, {
+          file_id:          file.id,
+          project_id:       req.params.projectId,
+          file_name:        file.name,
+          storage_provider: file.storage_provider,
+          event:            'downloaded',
+          old_path:         file.storage_path,
+          size_bytes:       file.size_bytes ?? null,
+        });
+        writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+      } catch (e) {
+        console.warn('download not logged:', e?.message || e);
+      }
       res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
       res.sendFile(diskPath);
     });
