@@ -1,28 +1,15 @@
-# SESSION 40 launch prompt — THE STORAGE PROVIDER REGISTRY
+# SESSION 40 launch prompt — VIDEO PREVIEW AND VIDEO THUMBNAILS
 
-> **§4a2 + §4a2b of `docs/NETWORK_STORAGE_DESIGN.md`** — read both first.
-> §4a2b carries Audrey's constraint verbatim and the five invariants every
-> provider inherits. This session builds **no new provider**. It builds the
-> shape the next two plug into.
-
-> 🚨 **THIS SESSION BLOCKS S41 AND S42.** S41 is S3-compatible, S42 is Google
-> Drive. Either one built before this exists becomes the fork §4a2b was
-> written to prevent — and the second one then forks the first.
+> **Unit 2d** of `docs/NETWORK_STORAGE_DESIGN.md` (§5d.1b, §5d.2, §5e-pre, §5e,
+> §5f). **DEPENDS ON S39** (thumbnails) — this reuses its bucket, its canvas
+> pipeline and its `thumbnail_url` writer.
 >
-> ⚠️ **It is ADDITIVE BY CONTRACT.** Audrey, 2026-08-07: *"nas, gdrive, AWS
-> s3 buckets, etc are all going to be options if we add the gdrive solution
-> dont remove other options."* Nothing S34 shipped may be narrowed. The NAS
-> path (`provider = 'network'`) must behave **identically** after this
-> session — same refusals, same probe, same containment. The suite proves
-> that, not the author's confidence.
+> ⚠️ **Sized 1–2 sessions.** ffmpeg packaging alone is fiddly. If it splits,
+> split at "browser-decodable formats work" → "ffmpeg for professional codecs".
 
-> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
-> migrations **0000–0049** on all three envs (verified by query), next free
-> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
-> Vitest **1022 / 47 files**. 🚨 **Read the working tree, never memory or a
-> doc — a design written mid-S31 cited "0046, next free" and was wrong
-> within the hour.** S37–S39 land before this one and will have moved every
-> number.
+> **STATE — re-measure.** Confirm migration number, suite count, vitest counts
+> and HEAD from the working tree.
+
 
 ## Start ritual (before touching anything)
 
@@ -32,166 +19,176 @@
    and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
    say wilson-dev before anything writes).
 3. **Read `docs/OUTSTANDING.md`** (what is broken) and
-   **`docs/SYSTEMS_HANDBOOK.md` §12.7 + §17** (the workspace drive, and
-   limits by design — a gate, not an oracle).
-4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a2b** and the **S34 and S35
-   outcome blocks** in `MASTER_PLAN_S19_ONWARD.md`.
-5. **Re-verify every `file:line` citation in this brief by SYMBOL before
-   using it** — sessions between its writing and now have moved them.
+   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
+   oracle).
+4. **Read the design sections this brief names in its header.**
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
+   it** — sessions between its writing and now have moved them. The session
+   that edits a file is the one that breaks its own citations.
 
 ---
 
 ## Why this exists
 
-**Audrey, 2026-08-07, verbatim:**
+**Audrey, 2026-08-05:** *"can we add a way to preview videos on the app?"* and
+*"for videos i would want to be able to get a single still frame and make it the
+thumbnail automatically lets add that."* Then, after the licensing question:
+*"ok keep ffmpeg then, desktop generation is fine."*
 
-> *"So remember its bring your own storage solution … nas, gdrive, AWS s3
-> buckets, etc are all going to be options if we add the gdrive solution dont
-> remove other options"*
+---
 
-Bring-your-own-storage is a **family**. A customer with an office server uses
-their NAS (S34, shipped). A customer with no server but a Google Workspace
-uses Drive. A customer with neither uses an S3 bucket. All three are the same
-product decision — *"my media, my storage, Petal's software"* — and they must
-share one implementation.
+## Part 1 — a serve route that supports Range
 
-**MEASURED 2026-08-07, and this is why the session exists now rather than
-inside the first provider:**
+**MEASURED: there is no serve route for managed files at all.** `main.cjs` has
+PATCH, DELETE and `/thumbnail` for managed files and **nothing that streams the
+bytes** — they are opened through the OS (`rabbit:open-in-explorer`).
 
-- ✅ **`public.files.storage_provider` is already a per-file enum**
-  (`0000_rabbit_base_schema.sql:67`) —
-  `('supabase','google_drive','local_server')` — beside
-  `files.storage_path TEXT NOT NULL`. **The per-file dimension is right and
-  already exists.** A new provider is a value, not a column.
-- 🚨 **`workspace_storage` (0048) encodes "byos means a filesystem path".**
-  `root_path` + `root_kind ∈ ('unc','local')`, plus
-  `workspace_storage_root_canon_chk` (no trailing separator, no whitespace)
-  and `workspace_storage_kind_shape_chk`
-  (`(root_kind='unc') = (left(root_path,2) = '\\')`).
-- 🚨 **The trap, and it is the whole reason for this brief:** widening
-  `root_kind` to `'gdrive'` would **PASS the shape CHECK vacuously** —
-  `false = false` — while **nothing validated the config at all**. A
-  provider that reads as configured and resolves nowhere. Then S3 forks
-  Drive, and the fourth provider forks both.
+🚨 **It must support HTTP Range requests.** Without ranges a `<video>` cannot
+seek and the browser pulls the entire file before playing — on a 5 GB master
+that is not a slow preview, it is a hang.
 
-## What this needs
+- `res.sendFile` handles ranges automatically (the existing `files` download
+  route at `:2038` gets this free).
+- **A hand-rolled `createReadStream` does NOT**, unless the `Range` header is
+  implemented explicitly. **This is the single most likely thing to get wrong.**
 
-### 1. Migration (0050+, re-measure) — the provider column
+Everything served here goes through `resolveContainedFilePath` — the guard S33
+fixed (it lives in `electron/pathContainment.cjs` now). Do not add a second
+path-resolution route.
 
-- **`workspace_storage.provider TEXT NOT NULL`**, CHECK over the known set
-  (`'petal'`, `'network'`, and the values S41/S42 will use). `mode`
-  (`central`|`byos`) stays as the **ownership/billing** axis; `provider` is
-  the **how**. Do not collapse them — S37 keys billing off `central`.
-- **Backfill deterministically, from the data**: existing `mode='byos'` rows
-  carry a real filesystem root, so they are `'network'`; `mode='central'`
-  rows are `'petal'`. ⚠️ **Query the live rows on all three envs first** —
-  the backfill must be written against what is actually there, not what the
-  table permits. (S24's lesson: the plan documents named the wrong columns.)
-- **`provider_config JSONB`** — ONE column, per-provider shape, validated per
-  provider. **Never three flat columns per provider**; that is the fork in
-  slow motion.
-- 🚨 **Make the S34 CHECKs CONDITIONAL, and make the converse explicit.**
-  Not just *"the path rules apply when provider = 'network'"* but also
-  *"`root_path` IS NULL when provider <> 'network'"*. Without the second
-  half, a Drive row can carry a stray path that every resolver will happily
-  read. **Both directions, and a breaker for each.**
-- The `storage_provider` ENUM will need new values for S41/S42. ⚠️
-  **`ALTER TYPE … ADD VALUE` cannot USE the new value in the same
-  transaction** (PG12+ permits the DDL in a transaction; the value is
-  unusable until commit). Measure whether the house prefers growing the enum
-  or the newer TEXT+CHECK shape (`workspace_storage.mode` is TEXT+CHECK) —
-  and if the enum stays, the value-add and anything that writes it are two
-  migrations, not one.
+🚨 **AS-2.9 rides in with this route (S33 hand-off).** S33 added the
+`downloaded` event to the files-plane download on both backends, and measured
+that the default desktop managed-files flow has **no WILSON-mediated read to
+log** — its "download" button is `openInExplorer`. The serving route this
+session builds is the first time WILSON mediates managed-file reads, so it
+must log the read the way the files download route does
+(`rabbitLogFileEvent`, event `'downloaded'`, try/catch + `touch: false` —
+copy that call site, including why a read must not stamp `updated_at`).
 
-### 2. The interface — four functions, not an adapter
+## Part 2 — auto still-frame thumbnails
 
-Create `src/tools/rabbit_v0.1.0/storage/` with **one provider contract**:
+Same shape as S39's images, reusing its machinery:
 
 ```
-put(key, blob, opts) → { key }      get(key) → blob
-del(key)                            exists(key) → boolean
+<video src={blobURL}> → seek → drawImage to canvas → toBlob('image/jpeg')
 ```
 
-Plus a `describe()` for the config-time reachability probe (S34's
-`rabbit:probe-storage-root` is the pattern: probe at CONFIGURATION time, with
-a sentence a person can act on, not at first download six screens away).
+Same 256px output, same `rabbit-thumbnails` bucket, same upload-time timing,
+same zero egress.
 
-🚨 **A provider is those functions and nothing else.**
-`googleDriveAdapter.js` is **57 `readOnly()` stubs against a 122-method
-backend interface** — it is a v0.1 relic modelled on single-user JSON
-bundles, predating workspaces, RLS, the folder tree and the manifest. **It is
-the shape to avoid, not to finish.** Leave it exactly as it is; S42 decides
-its fate.
+**Which frame:** not frame 0 — video routinely opens on black, a fade-in or a
+slate, and a wall of black thumbnails is worse than icons. **Seek to ~10% of
+duration, clamped to 1–10 seconds.** If the seek or decode fails, fall back to
+the file icon rather than storing a black frame. Make the frame **replaceable by
+hand** — the automatic pick is right most of the time, not always.
 
-### 3. The seam — one call site, not N
+⚠️ **Managed files have no `File` object.** They arrive via `rabbit:pick-files`
+→ `rabbit:copy-file`, a native path-to-path stream in the main process
+(`:3009`), so the renderer never holds the file. **Extract the frame AFTER the
+copy, through Part 1's route** — a hidden `<video>` pointed at the endpoint. One
+implementation covers both backends, and it costs nothing extra because that
+route is being built anyway.
 
-`supabaseAdapter.uploadFile` builds `storagePath` today
-(`projects/${projectId}/${entity}/${entityId}/${ts}-${safeName}`) and writes
-the `files` row. That is the seam: the row records `storage_provider` +
-`storage_path`, and the body goes to whichever provider the workspace
-selected. Download/delete resolve the provider **from the file row**, never
-from the workspace's current setting — 🚨 **a workspace that switches
-provider must not orphan what it already wrote.** Pin that with a test.
+## Part 3 — ffmpeg, for the codecs a browser cannot decode
 
-### 4. 🚨 The invariant that must survive every provider
+Chromium plays H.264/AAC MP4, VP8/VP9 WebM and AV1. It **cannot** play ProRes,
+DNxHD/DNxHR or most professional MOV/MXF variants — a large share of what a
+studio holds. The same decoder answers both questions, so **a file that will not
+preview will not thumbnail either.**
 
-**Money-gated files NEVER leave Supabase.** `INVOICES/` and `FINANCE/` are
-manager-only because the storage path's third segment says so and Postgres
-enforces it (`rabbit_money_segment`, 0042 — which took 0038→0039 to get
-right after shipping inverted). Drive has opaque IDs and its own sharing
-model; S3 has bucket policies. **Neither binds to a WILSON project role.**
+### 🚨 ffmpeg does NOT force WILSON to be open source
 
-The enforcement point already exists and is one line:
-`uploadFile` branches on `scope.financial` to choose the `INVOICES` segment.
-**A financial upload pins `storage_provider = 'supabase'` there, whatever
-the workspace selected** — and a test proves it, because this is the one
-rule whose failure is silent and expensive.
+Audrey raised this and nearly dropped the dependency over it. **The concern does
+not apply at this scope:**
 
-### 5. Suite + proof
+- The **LGPL** build is explicitly intended for proprietary, closed-source
+  software. Invoked as a **separate executable** — as WILSON would — it creates
+  **no obligation to publish any of WILSON's code**.
+- The **GPL** build is the one with copyleft consequences, and you get it only by
+  deliberately including GPL components (`libx264`, `libx265`, `--enable-gpl`).
+  **You have to opt in.**
+- **Still-frame extraction from ProRes/DNxHD needs the LGPL build and nothing
+  more.** Both decoders are in it; JPEG encoding is in it; JPEG's patents
+  expired long ago.
 
-New pgTAP suite (**60+**, re-measure), registered in **BOTH** rls.yml lists
-(the allowlist fails loud; the replay list fails **silent**). It must prove:
+**Rules:**
+1. Ship an **LGPL build** — no `--enable-gpl`, no libx264/x265.
+2. Invoke it as a **separate process**, never linked in.
+3. If a preview *proxy* is ever transcoded, target **VP9/WebM** — `libvpx` is
+   BSD and VP9 is royalty-free, which removes both the GPL question and the
+   H.264 patent pool in one decision.
 
-- **The NAS path is unchanged.** Re-run S34's shapes against
-  `provider='network'`: mapped drive refused, bare share refused, trailing
-  separator refused, canonical UNC accepted. **If any S34 refusal is looser
-  after this session, the session failed its own contract.**
-- A non-network provider row **cannot** carry `root_path` (the converse
-  arm).
-- 0049's `fn_project_folder_root_guard` still binds — it reads
-  `workspace_storage` for the byos root, so its anchor must keep working for
-  `provider='network'` and must not fire nonsensically for a bucket-backed
-  workspace. **Decide and test what a project folder means when the provider
-  is not a filesystem** (recommended: `folder_root` is meaningless and stays
-  NULL — refuse it, with the sentence saying why).
-- **A breaker per arm** (S33's rule), and a refusal probe pins one check only
-  if every other check waves its caller through. Postgres-side counts bring
-  their own WHERE — dev carries real rows.
+⚠️ **Verify the licence of whichever build is packaged** — some npm ffmpeg
+distributions ship GPL builds. WILSON is sold to studios who ask about
+third-party licensing in their own assessments; worth a real check by whoever
+handles contracts.
+
+### Two implementation rules that will otherwise cost a session
+
+1. 🚨 **`-ss` BEFORE `-i`, not after.** Input seeking jumps to the timestamp;
+   output seeking decodes from frame zero. On a 5 GB ProRes file over a NAS
+   share that is the difference between a second and several minutes.
+2. 🚨 **`execFile`/`spawn` with an argument array — never a command string.**
+   Filenames from a NAS are outside WILSON's control and may contain shell
+   metacharacters. This is already a standing rule in this repo; **ffmpeg is
+   exactly the case it exists for.**
+
+### Packaging
+
+Native binary, **desktop only** — it cannot run in a browser, and ffmpeg.wasm is
+not viable for multi-GB ProRes. +50–80 MB per platform, as an **unpacked extra
+resource** in `forge.config.cjs` (`packagerConfig`), not inside the asar. It
+joins the dependency-scanning story (TS-4.0) — ffmpeg has a steady CVE stream.
+
+✅ **Desktop-only generation still satisfies Audrey's requirement.** Thumbnails
+are generated once, uploaded, and **every web user sees them**. Only *generation*
+for professional codecs is desktop-side — the person adding studio media is next
+to the NAS anyway.
+
+## Part 4 — the notice (§5f)
+
+**Agreed treatment (Audrey): inline note on the file row + one summary line per
+batch. NOT a popup.** Thirty clips must not mean thirty dialogs — that trains
+people to dismiss the one that matters.
+
+| Trigger | Reality | Treatment |
+|---|---|---|
+| exceeds the cloud cap | ❌ upload **fails** | **dialog** — *"Too large to add from a browser. Add it from the desktop app."* |
+| very large, under cap | ⚠️ slow | inline note |
+| ProRes / professional | ✅ uploads, **no thumbnail** | inline note — *"Preview images aren't available for this format in a browser. Add it from the desktop app to get one."* |
+
+🚨 **Only the first blocks. The other two must NOT prevent the upload** — the
+file is valid and the user may not have a desktop app to hand.
+
+**Detection:** extension heuristic (`.mov`, `.mxf`, `.r3d`, `.ari`, `.braw`,
+`.dnx`) for the pre-upload courtesy; and **accurate by construction** after the
+attempt — if the decode failed, the browser genuinely cannot read it.
+
+⚠️ **Cloud playback bills per view.** A signed Supabase URL in a `<video>` works
+and supports ranges, but every play and scrub is egress Petal pays for. Gate
+cloud video preview behind that cost decision; local and NAS playback cost
+nothing. **NAS over a WAN link buffers** — §4c's caveat at full force.
+
+**Recommended order:** local/NAS first (no egress, proves the Range
+implementation), cloud second.
+
+---
 
 ## Standing traps
 
-Never `supabase config push`. `git add -A` sweeps untracked files into a
-PUBLIC repo. Never interpolate content into a shell command. A migration's
-text is not the database's state — query it, and read
-`supabase/.temp/linked-project.json` first. One query per `--file`. Count
-`<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
-BEFORE the git push; re-link to wilson-dev after.
+Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
+repo. Never interpolate content into a shell command. Query the database rather
+than trusting migration text. Count `<!--` / `-->` after editing long markdown.
 
-🚨 **Run the adversarial review before deploying.** Three sessions running it
-found real defects in already-green code (S33: 3; S34: 20, 3 high; S35: 8, 2
-high). S35's own target was bypassable through a column it had not thought
-about — **guard whatever OUTRANKS your field**, and this session is entirely
-about a field that outranks others.
+⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
 
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table + an S40 outcome block in `MASTER_PLAN_S19_ONWARD.md`;
-   **unblock S41 and S42** (both blocked-by notes point here).
-3. Migration verified **by query on dev, staging AND prod**.
-4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI green
-   on the pushed head, Playwright included.
-5. Refresh the STATE block of `SESSION_41_prompt.md`; update the Claude
-   auto-memory in the same pass.
-6. Close out in the chat with the remaining-session list and a plain-English
+2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
+3. `tap-all` clean + full vitest.
+4. **Prove it with a real file of each kind** — an H.264 MP4 and a ProRes MOV:
+   thumbnail generated, preview plays or declines gracefully, seeking works.
+5. **Refresh the STATE block of the next session's brief** (`SESSION_41_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
+6. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

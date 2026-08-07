@@ -1016,3 +1016,91 @@ you which half. Read the error string in the browser network tab:
 
 The operator-row check runs **before** both MFA checks, so a non-operator
 always gets `forbidden` regardless of their MFA state.
+
+---
+
+## 13. ⏳ Google OAuth verification for Drive storage (S38) — START EARLY
+
+**Why this is here and not in the session brief:** every other item in the
+S36–S43 plan is work WILSON can do on its own schedule. This one is **a review
+by Google, on Google's schedule**, and it can idle for weeks. If it is
+discovered at the start of S38 the session stalls. **File it whenever you
+like — it costs nothing to have it approved early and unused.**
+
+If Drive is dropped (S37's S3-compatible adapter covers AWS, Backblaze B2,
+Wasabi, Hetzner, Cloudflare R2 and MinIO with no OAuth at all), **skip this
+entire section.**
+
+### 🚨 The one decision that sets the cost
+
+| Scope | Tier | What it costs |
+|---|---|---|
+| `https://www.googleapis.com/auth/drive` | **RESTRICTED** | An independent security assessment (CASA), **repeated annually**, at real expense |
+| **`https://www.googleapis.com/auth/drive.file`** | **not restricted** | Consent-screen verification only — no assessment |
+
+**Request `drive.file` and nothing else.** It grants access to files the app
+itself created, which is exactly what WILSON needs, because WILSON creates
+every file it stores. ⚠️ **If anyone widens this to full `drive` later, the
+annual assessment starts applying** — it is a commercial decision, not a
+technical one.
+
+⚠️ **Google moves these goalposts.** Re-read their current scope policy when
+you file; the tiers above were measured 2026-08-07.
+
+### The checklist
+
+1. **Google Cloud Console → create a project** (or reuse a Petal one). Name it
+   for Petal Studios, not for a person.
+2. **Enable the Google Drive API** on that project.
+3. **OAuth consent screen → External**, publishing status **In production**
+   (Testing mode caps you at 100 users and expires refresh tokens in 7 days —
+   that would look exactly like the "my files vanished" bug the brief warns
+   about).
+4. **App information** — these are the fields that get rejected most often, so
+   get them right first time:
+   - App name + support email
+   - **App logo** (120×120 PNG). ⚠️ Uploading a logo is what *triggers* brand
+     verification. It is still worth doing — an unbranded consent screen looks
+     untrustworthy to a customer's IT department.
+   - **Application home page** — must be a live public page on a domain you own
+   - **Privacy policy URL** — must be live, public, and must actually mention
+     what you do with Drive data
+   - **Terms of service URL**
+5. **Authorised domains** — `petalstudios.co`. Every URL above must sit on it.
+6. **Scopes** — add **only** `drive.file`. The console will show it as
+   non-sensitive; if it shows anything as *restricted*, stop and re-check.
+7. **Credentials → OAuth client IDs**, two of them:
+   - **Web application** — for the beta. Authorised redirect URI on the beta
+     origin.
+   - **Desktop app** — for the Electron build. Uses a loopback redirect and
+     **PKCE**; a secret shipped in an installer is not a secret, and Google's
+     installed-app guidance says so.
+8. **Domain verification** — Search Console ownership of `petalstudios.co`,
+   under the same Google account.
+9. **Submit for verification.** Expect Google to ask *why* you need the scope;
+   the honest answer is short: *"The app stores and retrieves the customer's
+   own production media in a folder they choose. It only touches files it
+   created."*
+10. **Record the client IDs** in the repo's config the way other credentials
+    are handled. 🚨 **Never paste a client secret into a Claude conversation**
+    — same rule as every other key in this document.
+
+### What to expect
+
+- Brand/consent verification is typically **days to a few weeks**. It is not
+  the multi-month restricted-scope review, *because* you asked for
+  `drive.file`.
+- Rejections are usually about the privacy policy or an unreachable homepage,
+  not about the scope. Both are fixable and resubmittable.
+- **Until it is approved**, the consent screen shows an "unverified app"
+  warning. Fine for your own testing; not something to put in front of a
+  customer.
+
+### One product decision the brief flags, worth knowing now
+
+`drive.file` means **WILSON cannot see files a person drops into the Drive
+folder by hand** — it is a store WILSON writes and reads, not a folder WILSON
+browses. That is correct for media storage and it is what keeps the cost down,
+but the UI must never imply "sync my existing Drive folder". If that turns out
+to be what a customer actually wants, it is a different (and much more
+expensive) product.

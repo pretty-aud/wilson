@@ -403,63 +403,70 @@ below are superseded; only one of them actually moves.
 | **S30** | **O.T.T.E.R. keeps its work** — ✅ **DONE (`2d8b658`, `c3317d4`)** | the largest genuinely broken thing left | `SESSION_30_prompt.md` |
 | **S31** | **Per-user settings + the pet + logout** — ✅ **DONE (`272fb83`, `29d36fc`)** | her account must follow her between computers | `SESSION_31_prompt.md` |
 
-> ✅ **NUMBERS AND ORDER NOW AGREE** (Audrey, 2026-08-05: *"move 32 to the last
-> one. fix the numbering"*). The design pass was S32; it became **S39**, and its
-> brief was renamed `SESSION_32_prompt.md` → `SESSION_39_prompt.md`
-> (`git mv`, so the history follows). It runs last on purpose: a visual design
-> pass before six sessions of new UI would be redone immediately.
+> ## 📒 The renumbering ledger
 >
-> **Moved again 2026-08-07** (Audrey: *"lets make session 39 for making the
-> operator terminal solution. move design pass to 40"*): the design pass is
-> now **S40** (`git mv` → `SESSION_40_prompt.md`), and Petal-cloud storage
-> management was created — operator-terminal plans, quotas and approval
-> (design §4a3), the day S34 shipped the storage-mode selector and the
-> "Petal cloud" label turned out to name an unmetered free tier.
+> Sessions past S35 have been renumbered three times. **The sequence table
+> below is the authority; this ledger exists so an old reference can be
+> resolved rather than guessed at.** Every move was a `git mv`, so each
+> brief's history follows its content rather than its filename.
 >
-> ✅ **RENUMBERED AGAIN, LATER THE SAME DAY, AND THIS TIME THE NUMBERS MATCH
-> EXECUTION ORDER** (Audrey, 2026-08-07, after S35: *"make 39 be 37 instead.
-> move the numbering of the ones after"*). Petal-cloud storage management
-> was S39 and is now **S37**, because it BLOCKS the cap raise and running it
-> third was already the plan; the two sessions it displaced each moved up a
-> number. All three briefs were `git mv`'d so the history follows:
+> | Session | Originally | 2026-08-05 | 2026-08-07 (a) | 2026-08-07 (b) | **Now** |
+> |---|---|---|---|---|---|
+> | Design pass | S29 | S32 | S39 → S40 | S40 | **S43** |
+> | Petal cloud storage mgmt | — | — | created as S39 | S37 | **S41** |
+> | Multi-GB files in cloud | S37 | S37 | S37 | S38 | **S42** |
+> | Video preview + thumbs | S38 | S38 | S38 | S39 | **S40** |
+> | Thumbnails everywhere | S36 | S36 | S36 | S36 | **S39** |
+> | Storage provider registry | — | — | — | — | **S36** |
+> | S3-compatible storage | — | — | — | — | **S37** |
+> | Google Drive | — | — | — | — | **S38** |
 >
-> | Was | Is now | Session |
-> |---|---|---|
-> | S39 | **S37** | Petal cloud storage management (the quota plane) |
-> | S37 | **S38** | Multi-GB files in cloud mode |
-> | S38 | **S39** | Video preview + video thumbnails |
+> **Why each move happened, in Audrey's words:**
 >
-> ⚠️ **S37 BLOCKS S38**: the quota plane must exist before the 50 MB cap is
-> raised. **Since this renumbering the table's order and the session numbers
-> agree** — but the blocked-by column stays the authority if they drift.
+> - **2026-08-05** — *"move 32 to the last one. fix the numbering"*: the design
+>   pass goes last, because a visual pass run before the sessions of new UI
+>   would be redone immediately.
+> - **2026-08-07 (a)** — *"lets make session 39 for making the operator
+>   terminal solution. move design pass to 40"*: Petal-cloud storage
+>   management created the day S34 shipped the storage-mode selector and
+>   "Petal cloud" turned out to name an unmetered free tier.
+> - **2026-08-07 (b)** — *"make 39 be 37 instead. move the numbering of the
+>   ones after"*: the quota plane BLOCKS the cap raise, so it had to precede
+>   it numerically as well as actually.
+> - **2026-08-07 (c)** — after briefing the BYO storage family, Audrey chose
+>   to run it next. The registry, S3 and Drive take **S36–S38**; thumbnails,
+>   video and the Petal-cloud pair each shift back.
 >
-> ⚠️ **`SESSION_29_prompt.md` and `SESSION_31_prompt.md` still refer to "S32"
-> when they mean this brief.** Both are closed sessions and are left as written
-> — a shipped brief is a record of what was believed at the time. **This table
-> is the authority.**
+> 🚨 **The design pass moves every time, and that is the rule working, not
+> churn.** It is LAST on purpose. Add another UI session and it moves again.
+>
+> ⚠️ **Closed briefs are left as written** — `SESSION_29_prompt.md` and
+> `SESSION_31_prompt.md` still say "S32" for the design pass. A shipped brief
+> is a record of what was believed at the time. **This table is the
+> authority.**
 
 | # | Session | Size | Blocked by | Prompt |
 |---|---|---|---|---|
 | **S33** ✅ | **DONE (2026-08-07, `ed85072` + `439f702`)** — guard fix + the `downloaded` event; outcome block below | ~1 | — | `SESSION_33_prompt.md` |
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
-| **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
-| **S37** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_37_prompt.md` |
-| **S38** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S37** (quota plane before the cap raise) | `SESSION_38_prompt.md` |
-| **S39** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_39_prompt.md` |
-| **S40** | **The storage provider REGISTRY** (design §4a2b) — `workspace_storage.provider` + JSONB config, S34's path CHECKs made conditional on `provider='network'`, one put/get/delete/exists interface. **Builds no provider.** 🚨 Additive by contract: the NAS path must behave identically after it | 1 | S39 | `SESSION_40_prompt.md` |
-| **S41** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | **S40** | `SESSION_41_prompt.md` |
-| **S42** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | **S40** (S41 first by choice) | `SESSION_42_prompt.md` |
-| **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | S42 | `SESSION_43_prompt.md` |
+| **S36** | **The storage provider REGISTRY** (design §4a2b) — `workspace_storage.provider` + JSONB config, S34's path CHECKs made conditional on `provider='network'`, one put/get/delete/exists interface. **Builds no provider.** 🚨 Additive by contract: the NAS path must behave identically after it | 1 | **none** — S34 shipped its only prerequisite | `SESSION_36_prompt.md` |
+| **S37** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | **S36** | `SESSION_37_prompt.md` |
+| **S38** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | **S36** (S37 first by choice) | `SESSION_38_prompt.md` |
+| **S39** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_39_prompt.md` |
+| **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
+| **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
+| **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
+| **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
-> **The real chains: S33 → S34 → S35 (done), S37 → S38** (quota plane before
-> the cap raise — §4a3), **S36 → S39** (thumbnails before video frames), and
-> **S40 → S41/S42** (the registry before any provider — §4a2b). S36 and S37
-> depend on nothing and can be pulled forward if a customer needs them
-> sooner.
+> **The real chains: S33 → S34 → S35 (done), S36 → S37/S38** (the registry
+> before any provider — §4a2b), **S39 → S40** (thumbnails before video
+> frames), and **S41 → S42** (quota plane before the cap raise — §4a3).
+> **Three independent roots — S36, S39 and S41 — so the arcs can be
+> reordered wholesale; only the arrows inside them are real.**
 >
-> 🚨 **S40–S42 are the BYO storage FAMILY and the order inside it is
+> 🚨 **S36–S38 are the BYO storage FAMILY and the order inside it is
 > deliberate.** The registry ships first so a provider is four functions and
 > not a fork; S3 ships before Drive because it is cheaper (six providers, one
 > adapter, no OAuth, no outside approval) and proves the registry's shape
@@ -467,9 +474,12 @@ below are superseded; only one of them actually moves.
 > narrow an existing one** — Audrey, 2026-08-07: *"dont remove other
 > options"*.
 >
-> ⚠️ **The design pass moves whenever UI is added, and that is the rule
-> working.** It has been renumbered four times (S29 → S32 → S39 → S40 → S43)
-> and will move again if another UI session appears. It is LAST on purpose.
+> ⭐ **The family runs FIRST by Audrey's choice (2026-08-07)**, for two
+> reasons worth keeping: S33–S35 just built `workspace_storage`, its CHECKs
+> and its guards, so the registry's surgery on that table is lower-risk
+> while the ground is warm; and BYO storage quietly demotes S42 — if a
+> customer's dailies live on their own NAS or bucket, Petal cloud's 50 MB
+> cap stops being the thing that blocks them.
 >
 > **Every brief derives from `docs/NETWORK_STORAGE_DESIGN.md`, which is the
 > authority** — each carries the measurements, but the design carries the
@@ -631,7 +641,7 @@ below are superseded; only one of them actually moves.
 > the workspace root feeds the same SYNCHRONOUS fs calls every root always
 > has, so a NAS that dies AFTER passing its configuration-time probe can
 > stall the main process for the SMB timeout on a file operation (async
-> resolution is S38/S39-scale work, not a patch); the web Admin Terminal
+> resolution is S40/S42-scale work, not a patch); the web Admin Terminal
 > cannot probe reachability or detect mapped drives and says so instead of
 > pretending; and "root unknown because the read failed" is not modelled as
 > a distinct state in main — last-known-good stands in for it.
@@ -683,7 +693,7 @@ below are superseded; only one of them actually moves.
 > inside try/catch (an audit hiccup must not 500 the download). The default
 > desktop managed-files flow has **no WILSON-mediated read to log** — the
 > "download" button is `openInExplorer` and content sits in user-visible
-> folders — so AS-2.9 coverage there arrives with S39's serving routes, noted
+> folders — so AS-2.9 coverage there arrives with S40's serving routes, noted
 > in that brief. Cloud logging is **advisory by construction** (a direct
 > storage REST call bypasses the adapter); server-side enforcement would need
 > its own design. `googleDriveAdapter.downloadFile` (legacy read-only) logs
@@ -766,7 +776,7 @@ below are superseded; only one of them actually moves.
 > observation — and it is the part that could destroy a pet she likes. Her
 > numbered checklist went into the chat at close-out.
 
-> **S33–S39 are designed, scoped, TPN-reviewed and briefed** —
+> **S33–S42 are designed, scoped, TPN-reviewed and briefed** —
 > `docs/NETWORK_STORAGE_DESIGN.md` + `TPN_AUDIT/DESIGN_REVIEW_network_storage.md`
 > (2026-08-05). **Every open question was answered by Audrey the same day
 > (§1b); nothing is blocking.** The design was first sized as one session and
@@ -795,7 +805,7 @@ below are superseded; only one of them actually moves.
 > to Storage — different code entirely); `managedFiles` has **no ceiling**
 > (native stream). The design initially generalised the Local-Server measurement
 > to cloud and concluded "cloud is for the small stuff" — **Audrey caught it by
-> asking what a cloud-only customer is supposed to do.** S38 exists because of
+> asking what a cloud-only customer is supposed to do.** S42 exists because of
 > that correction. **A storage mode that cannot hold the customer's files is not
 > a storage mode.**
 >

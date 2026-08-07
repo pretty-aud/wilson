@@ -1,157 +1,179 @@
-# SESSION 38 launch prompt — MULTI-GB FILES IN CLOUD MODE
+# SESSION 38 launch prompt — GOOGLE DRIVE (THE THIRD BYO PROVIDER)
 
-> **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2, §4a3).
-> 🚨 **BLOCKED BY S37** (the quota plane; this brief was S37 and that
-> blocker was S39 until Audrey renumbered both on 2026-08-07 so the numbers
-> match execution order). S37 builds the operator-managed storage plans and
-> quota enforcement — raising the 50 MB cap before the quota plane exists
-> would turn an unmetered free tier into an unmetered MULTI-GIGABYTE free
-> tier. Independent of the network-storage chain and of thumbnails
-> otherwise; run S37 then this whenever cloud customers are the nearer need.
+> **§4a2 + §4a2b of `docs/NETWORK_STORAGE_DESIGN.md`.** The third member of
+> the BYO storage family, after `network` (NAS, S34) and `s3` (S37). For the
+> customer with no office server and no bucket, but a Google Workspace they
+> already pay for.
 
-> **STATE — re-measure.** Confirm the next free migration number, suite count,
-> vitest counts and HEAD from the working tree.
+> 🚨 **BLOCKED BY S36** (the provider registry) **and SEQUENCED AFTER S37.**
+> S37 is not a technical dependency — it is the cheaper provider, so it
+> proves the registry's shape without a third-party approval in the critical
+> path. If S37 found the interface wanting, fix it there, not here.
+>
+> ⚠️ **ADDITIVE ONLY.** NAS and S3 must behave identically afterwards
+> (Audrey, 2026-08-07: *"dont remove other options"*).
 
+> ⏳ **THIS SESSION HAS A CALENDAR DEPENDENCY NOTHING ELSE IN THE PLAN HAS.**
+> Google's OAuth consent-screen verification is a review by another company on
+> their schedule. **The submission checklist is `docs/OWED_AUDREY.md` §13** —
+> written 2026-08-07 so it can be filed early and idle. **Check it is done
+> before starting this session**; if it is not, file it and run another
+> session while it clears. Everything else here is ordinary work.
+
+> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
+> migrations **0000–0049**, next free **0050**. pgTAP **59 suites / 982
+> assertions**, next suite **60**. Vitest **1022 / 47 files**. 🚨 S36–S37 land
+> first and will have moved every number. **Read the working tree.**
 
 ## Start ritual (before touching anything)
 
 1. **Load the `wilson-app` skill** and skim its `versioning.md`.
-2. **Re-measure the STATE block**: `git log --oneline -3`, `git status
-   --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
-   and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
-   say wilson-dev before anything writes).
-3. **Read `docs/OUTSTANDING.md`** (what is broken) and
-   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
-   oracle).
-4. **Read the design sections this brief names in its header.**
-5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
-   it** — sessions between its writing and now have moved them. The session
-   that edits a file is the one that breaks its own citations.
+2. **Re-measure the STATE block** (`git log`, `git status --short`,
+   `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`, and
+   `supabase/.temp/linked-project.json` **and** `project-ref` — both must say
+   wilson-dev before anything writes).
+3. **Read `docs/OUTSTANDING.md`** and **`docs/SYSTEMS_HANDBOOK.md` §12.1 +
+   §12.7 + §17**.
+4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a2b**, and the **S36 and S37
+   outcome blocks** — the interface and the credential pattern are settled
+   there.
+5. **Re-verify every `file:line` citation in this brief by SYMBOL.**
 
 ---
 
 ## Why this exists
 
-**Audrey, 2026-08-05:** *"i need to be able to store media so 50MB is not
-acceptable. im going to have multiple GB files at times."* Then, decisively:
-*"what if the company selected a cloud storage solution? they cant save large
-files thats not acceptable."*
+Google Drive is the BYO option customers *ask for by name*, because they
+already have it. It is deliberately **third**: it is the most expensive of
+the three to build, and the only one whose timeline depends on somebody
+outside Petal.
 
-**She is right, and the first draft of the design was wrong about this.** It
-measured the **Local Server** adapter and generalised the result to cloud. The
-two adapters are different code.
+## 🚨 1. The scope decision — this is the whole cost of the session
 
-### The three upload paths, measured
+Google tiers Drive scopes, and the tier decides whether this is a normal
+session or a five-figure annual commitment:
 
-| Path | Mechanism | Ceiling | Fixable? |
-|---|---|---|---|
-| Local-Server `files` | base64 → JSON body | **~37 MB** | ❌ rewrite |
-| **Cloud `files`** | `File` → Supabase Storage | **50 MB** (bucket setting) | ✅ **this session** |
-| `managedFiles` | native stream-to-stream | none | already fine |
+| Scope | Tier | What it costs |
+|---|---|---|
+| `drive` (full) | **RESTRICTED** | Independent security assessment (CASA), **annually**, at real expense |
+| `drive.file` | **not restricted** | Consent-screen verification only |
 
-**Local Server** (`localServerAdapter.js:176-190`) does
-`await file.arrayBuffer()` → base64 → `JSON.stringify` against
-`express.json({ limit: '50mb' })` (`main.cjs:144`). Base64 inflates 33%, and a
-multi-GB file exhausts renderer memory before the request is made.
-**Out of scope — it stays small-file-only.**
+**`drive.file` grants access to files the app itself created** — which is
+exactly and only what WILSON needs, because WILSON creates every file it
+stores. **Design for `drive.file` and never widen it.**
 
-**Cloud** (`supabaseAdapter.js:970-975`) passes the `File` object **straight to
-`client.storage.upload()`** — no base64, no JSON body, none of the above:
+⚠️ **Confirm against Google's current policy before committing** — they move
+these goalposts, and the last measurement here was 2026-08-07.
 
-```js
-const { error: upErr } = await client
-  .storage.from('rabbit-files')
-  .upload(storagePath, file, { cacheControl: '3600', upsert: false, ... });
-```
+⚠️ **The trade-off `drive.file` brings, and it must be said to the customer,
+not discovered:** WILSON cannot see files a person drops into the Drive
+folder by hand. It is a *store WILSON writes and reads*, not a folder WILSON
+browses. For media storage that is correct; as a "sync my existing folder"
+feature it is not, and nobody should imply otherwise in the UI copy.
 
-Its only ceiling is `file_size_limit = 52428800` (`0027_file_lifecycle.sql:287`)
-— **one number in one migration.**
+**Petal ships ONE OAuth client.** Today the code expects the *customer* to
+supply `clientId` and `clientSecret` in a JSON file
+(`googleDriveAdapter.js` header) — no production company will create a Google
+Cloud project to use WILSON. That is a developer affordance, not a product.
 
-🚨 **A cloud customer has no office server to fall back on. This is not
-optional.** *"A storage mode that cannot hold the customer's files is not a
-storage mode."*
+## 2. What NOT to build
 
----
+🚨 **Do not finish `googleDriveAdapter.js`.** It is **57 `readOnly()` stubs
+against a ~122-method backend interface**, modelled on one Drive folder per
+project holding a `project.json` bundle, with the Drive folder ID as the
+project's primary key. **It predates workspaces, RLS, `public.files`, the
+folder tree (0041), the manifest and the money gate (0042).** Completing it
+means reimplementing WILSON's multi-user data layer against a store with no
+RLS — a rewrite that forks the security model.
 
-## What this needs
+This session implements **S36's four functions** (`put`/`get`/`del`/`exists`)
+and nothing else. Decide explicitly what happens to the legacy adapter —
+recommended: **leave it untouched and mark it legacy read-only in §12.1**,
+because it is reachable today and deleting it is its own change.
 
-### 1. Raise the bucket cap
+## 3. The OAuth flow
 
-A migration re-asserting `file_size_limit`. The existing
-`ON CONFLICT (id) DO UPDATE` already re-applies bucket settings on re-run — the
-shape is there (`0027:287-291`).
+- **Desktop**: loopback redirect + **PKCE** (a client secret in a shipped
+  binary is not a secret; Google's installed-app guidance says so).
+- **Web**: standard redirect on the beta origin.
+- **The refresh token is the credential** — store it exactly as S37 stores
+  the bucket secret and as `workspace_ai_keys` (0028) stores the Anthropic
+  key: **AES-256-GCM ciphertext, `base64(iv ‖ ciphertext ‖ tag)`, key in an
+  Edge Function secret, never in Postgres, service_role only, no client ever
+  reads it back.**
+- ⚠️ **Refresh tokens expire in ways bucket keys do not** — revocation,
+  password change, 6-month inactivity, or the app losing verification. **Model
+  "the connection died" as a first-class state** with a visible reconnect
+  path. A silent failure here presents as "my files vanished".
+- ⚠️ **Shared drives vs My Drive.** A company folder should live in a **shared
+  drive**, or the files belong to whichever employee connected it and leave
+  with them. Ask for a shared drive in the setup guidance and say why.
 
-⚠️ **Confirm the plan's actual maximum object size and the per-GB storage and
-egress rates BEFORE picking a number.** Both are plan-dependent. The design
-deliberately asserts no figure. The engineering ceiling and the ceiling Petal
-Studios is willing to pay for are different numbers, **and for multi-GB video the
-second one binds first.**
+## 4. Drive has no paths — and that is a real consequence
 
-### 2. Resumable (TUS) uploads
+`files.storage_path` holds a **Drive file ID**, not a path (§12.1 already
+says this for the legacy adapter). Two things follow:
 
-Above the standard-upload threshold Supabase requires the resumable protocol.
-`@supabase/supabase-js` is on `^2.101.1`, which supports it, and **the repo uses
-it nowhere** — grep for `uploadToSignedUrl` / `createSignedUploadUrl` / `tus`
-returns zero hits.
+- The **folder/manifest model does not map.** Drive's own folders exist, but
+  WILSON's tree is computed client-side in `folderPaths.js` and is
+  authoritative in Postgres. Keep Postgres authoritative; Drive is a bag of
+  bodies addressed by ID. **Do not try to mirror the tree into Drive** —
+  renames would become "move every object", the problem §17 already records
+  for slug-following folders.
+- 🚨 **The money gate cannot be expressed in Drive at all.** No path segment,
+  no RLS, and Drive's sharing model cannot say "managers of this project".
+  **Financial files pin `storage_provider = 'supabase'`** — S36's invariant,
+  enforced at `uploadFile`'s `scope.financial` branch. Non-negotiable, and
+  tested here again.
 
-This is **new code, not a config flip**: chunking, resume after a dropped
-connection, and progress reporting the cloud path does not currently have.
+## 5. TPN posture — say it once, clearly
 
-### 3. 🚨 Partial objects need a lifecycle term (`TPN-CONT-017`)
+Same shape as the NAS conversation (§12.7): **it is the customer's storage
+and their compliance call.** Consumer Drive will not pass for pre-release
+content; Google **Workspace** with enterprise controls can, but the studio
+approves it per-vendor. **Support it; never market it as TPN-compliant.**
+Mirror the gateway boundary Audrey already set — the label on the switch is
+the useful control.
 
-A resumable upload that is abandoned, interrupted or superseded leaves **partial
-objects** in the bucket. The current vocabulary
-(`0027_file_lifecycle.sql:85-86`) cannot describe them:
+## 6. Suite + proof
 
-```sql
-event TEXT NOT NULL CHECK (event IN
-  ('uploaded','moved','relinked','trashed','restored','purged')),
-```
-
-They were never `uploaded`, so nothing certifies their disposal, and
-`storage_gc_queue` is fed from `files`-row deletions a fragment never had.
-**A multi-GB abandoned upload is both a content fragment and a recurring bill.**
-
-**Design it WITH this session, not after:** a TTL sweep for incomplete uploads
-plus an event term for the abandoned case. Lifecycle terms are never retrofitted
-once a feature ships working.
-
-### 4. The desktop-app notice (design §5f)
-
-If a file exceeds the (new) cap, the upload **fails** and that is the one case
-that gets a real dialog:
-
-> *"This file is too large to add from a browser. Add it from the WILSON desktop
-> app."*
-
-A very large file **under** the cap uploads but slowly — an inline note, not a
-blocker. **Agreed treatment (Audrey): inline note on the file row plus one
-summary line per batch; a dialog only for the hard failure.**
-
----
+- Vitest over the pure parts (ID handling, the connection-state machine,
+  token-expiry classification) and a **wiring test** that the connect flow
+  and the four functions have real callers.
+- pgTAP for anything schema-side (the `storage_provider` value, the
+  provider-config CHECK), registered in **BOTH** rls.yml lists.
+- **The invariant probe**: a financial upload lands on Supabase with Drive
+  configured.
+- ⏳ **What tests cannot cover**: nobody in this repo can complete a Google
+  OAuth consent flow in CI. **Say so in the outcome block** and give Audrey a
+  numbered checklist — the S34/S35 pattern, and per those sessions'
+  experience, hand it over at the START.
 
 ## Standing traps
 
-Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
-repo. Never interpolate content into a shell command. Query the database rather
-than trusting migration text; read `supabase/.temp/linked-project.json` first.
-One query per `--file`. Count `<!--` / `-->` after editing long markdown.
+Never `supabase config push`. `git add -A` sweeps untracked files into a
+PUBLIC repo. Never interpolate content into a shell command. Query the
+database rather than trusting migration text; read
+`supabase/.temp/linked-project.json` first. One query per `--file`. Count
+`<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
+BEFORE the git push; re-link to wilson-dev after.
 
-🚨 **`fetch` and `otterFetch` resolve for EVERY status.** An unchecked `await`
-turns a 404 or an RLS 403 into a success — this cost the O.T.T.E.R. Validator
-every fix Audrey ever accepted. A chunked upload has many more places to swallow
-a failure than a single request does. **Check every response.**
+🚨 **Never print a token into a transcript** (the S19 `service_role` lesson).
 
-⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+🚨 **Run the adversarial review before deploying.** An OAuth flow plus a
+credential store is the highest-risk surface in the whole storage family.
 
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
-3. Migration + bucket settings verified **by query on dev, staging AND prod**.
-4. `tap-all` clean + full vitest.
-5. **Prove it with a real large file**, not a unit test — upload one, interrupt
-   it, resume it, download it, delete it, and check the events.
-6. **Refresh the STATE block of the next session's brief** (`SESSION_39_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
-7. **Close out in the chat** with the remaining-session list and a plain-English
+2. Sequence table + an S38 outcome block in `MASTER_PLAN_S19_ONWARD.md`.
+3. Any migration verified **by query on dev, staging AND prod**.
+4. `tap-all` clean + full vitest + any new suite in BOTH rls.yml lists + CI
+   green on the pushed head, Playwright included.
+5. **`SYSTEMS_HANDBOOK.md` §12.1 and §12.7** updated: Drive as a provider vs
+   the legacy read-only adapter, the shared-drive requirement, the
+   `drive.file` trade-off, and the TPN posture.
+6. Refresh the STATE block of `SESSION_39_prompt.md`; update the Claude
+   auto-memory in the same pass.
+7. Close out in the chat with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

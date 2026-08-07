@@ -1,26 +1,29 @@
-# SESSION 36 launch prompt — THUMBNAILS EVERYWHERE
+# SESSION 36 launch prompt — THE STORAGE PROVIDER REGISTRY
 
-> **Unit T** of `docs/NETWORK_STORAGE_DESIGN.md` (§5d.1, §4a2).
-> 🚨 **DEPENDS ON NOTHING.** It was grouped with the network work only because it
-> came up in the same conversation — it shares no code with the storage root and
-> can run whenever it suits.
+> **§4a2 + §4a2b of `docs/NETWORK_STORAGE_DESIGN.md`** — read both first.
+> §4a2b carries Audrey's constraint verbatim and the five invariants every
+> provider inherits. This session builds **no new provider**. It builds the
+> shape the next two plug into.
+
+> 🚨 **THIS SESSION BLOCKS S37 AND S38.** S37 is S3-compatible, S38 is Google
+> Drive. Either one built before this exists becomes the fork §4a2b was
+> written to prevent — and the second one then forks the first.
+>
+> ⚠️ **It is ADDITIVE BY CONTRACT.** Audrey, 2026-08-07: *"nas, gdrive, AWS
+> s3 buckets, etc are all going to be options if we add the gdrive solution
+> dont remove other options."* Nothing S34 shipped may be narrowed. The NAS
+> path (`provider = 'network'`) must behave **identically** after this
+> session — same refusals, same probe, same containment. The suite proves
+> that, not the author's confidence.
 
 > **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
 > migrations **0000–0049** on all three envs (verified by query), next free
 > **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
-> Vitest **1022 / 47 files**. CLI re-linked to wilson-dev.
-> 🚨 **Read the working tree, never memory or a doc** — a design written
-> mid-S31 cited "0046, next free" and was wrong within the hour.
->
-> **What S34/S35 left that touches thumbnails:** the workspace drive
-> (`workspace_storage`, 0048) and the bounded project folder
-> (`fn_project_folder_root_guard`, 0049) mean a desktop in byos mode
-> resolves media under a NAS root — a thumbnail read of a large original
-> across a WAN link is one full-file read (design §4a2), which is exactly
-> why the thumbnail BUCKET exists. `resolveConfiguredRootDir()` (main.cjs)
-> is still the ONE definition of the machine's effective root; do not
-> re-derive it in any thumbnail path.
-
+> Vitest **1022 / 47 files**. CLI re-linked to wilson-dev. 🚨 **Read the
+> working tree, never memory or a doc — a design written mid-S31 cited
+> "0046, next free" and was wrong within the hour.** ⭐ **This session runs
+> straight after S35, so these numbers should still be current — which makes
+> a mismatch a signal, not a formality.**
 
 ## Start ritual (before touching anything)
 
@@ -30,140 +33,166 @@
    and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
    say wilson-dev before anything writes).
 3. **Read `docs/OUTSTANDING.md`** (what is broken) and
-   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
-   oracle).
-4. **Read the design sections this brief names in its header.**
-5. **Re-verify every `file:line` citation in this brief by SYMBOL before using
-   it** — sessions between its writing and now have moved them. The session
-   that edits a file is the one that breaks its own citations.
+   **`docs/SYSTEMS_HANDBOOK.md` §12.7 + §17** (the workspace drive, and
+   limits by design — a gate, not an oracle).
+4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a2b** and the **S34 and S35
+   outcome blocks** in `MASTER_PLAN_S19_ONWARD.md`.
+5. **Re-verify every `file:line` citation in this brief by SYMBOL before
+   using it** — sessions between its writing and now have moved them.
 
 ---
 
 ## Why this exists
 
-**Audrey, 2026-08-05:** *"all thumbnails need to be accessible on web and
-desktop"* and *"lets store thumbnails within the supabase storage... and lets set
-a file size limit for thumbnails. thats a very common thing."*
+**Audrey, 2026-08-07, verbatim:**
 
-**MEASURED — today thumbnails are desktop-only and images-only:**
+> *"So remember its bring your own storage solution … nas, gdrive, AWS s3
+> buckets, etc are all going to be options if we add the gdrive solution dont
+> remove other options"*
 
-- Generation is `sharp` in the **Electron main process** — one HTTP route
-  (`main.cjs:2412`) and two IPC handlers (`:3093`, `:3111`). Local, cached to
-  `rabbit-data/thumbnails/`, free.
-- `FileThumbnail.jsx:49` points an `<img>` at
-  `/api/rabbit/projects/:id/managed-files/:id/thumbnail`, which **exists only on
-  the Express server inside the desktop app**. In a browser it 404s and falls
-  back to a file-type icon. **Web has no thumbnails at all.**
-- `THUMB_EXTENSIONS` (`main.cjs:117`) and `IMAGE_EXTS`
-  (`FileThumbnail.jsx:15`) are the same nine image extensions.
-- 🚨 **`files.thumbnail_url` has never been written.** Declared on three tables
-  in `0000_rabbit_base_schema.sql:164,232,246`, present in the Supabase read
-  allowlist (`supabaseAdapter.js:369`), **no writer anywhere**. This session
-  finally gives it one.
+Bring-your-own-storage is a **family**. A customer with an office server uses
+their NAS (S34, shipped). A customer with no server but a Google Workspace
+uses Drive. A customer with neither uses an S3 bucket. All three are the same
+product decision — *"my media, my storage, Petal's software"* — and they must
+share one implementation.
 
----
+**MEASURED 2026-08-07, and this is why the session exists now rather than
+inside the first provider:**
+
+- ✅ **`public.files.storage_provider` is already a per-file enum**
+  (`0000_rabbit_base_schema.sql:67`) —
+  `('supabase','google_drive','local_server')` — beside
+  `files.storage_path TEXT NOT NULL`. **The per-file dimension is right and
+  already exists.** A new provider is a value, not a column.
+- 🚨 **`workspace_storage` (0048) encodes "byos means a filesystem path".**
+  `root_path` + `root_kind ∈ ('unc','local')`, plus
+  `workspace_storage_root_canon_chk` (no trailing separator, no whitespace)
+  and `workspace_storage_kind_shape_chk`
+  (`(root_kind='unc') = (left(root_path,2) = '\\')`).
+- 🚨 **The trap, and it is the whole reason for this brief:** widening
+  `root_kind` to `'gdrive'` would **PASS the shape CHECK vacuously** —
+  `false = false` — while **nothing validated the config at all**. A
+  provider that reads as configured and resolves nowhere. Then S3 forks
+  Drive, and the fourth provider forks both.
 
 ## What this needs
 
-### 1. Generate at upload time, on the uploading machine
+### 1. Migration (0050+, re-measure) — the provider column
 
-The file is already in memory there, so this costs nothing — and it avoids the
-one expensive design: generating on demand means **downloading the source**,
-gigabytes of egress for a postage-stamp JPEG (§4a2).
+- **`workspace_storage.provider TEXT NOT NULL`**, CHECK over the known set
+  (`'petal'`, `'network'`, and the values S37/S38 will use). `mode`
+  (`central`|`byos`) stays as the **ownership/billing** axis; `provider` is
+  the **how**. Do not collapse them — S37 keys billing off `central`.
+- **Backfill deterministically, from the data**: existing `mode='byos'` rows
+  carry a real filesystem root, so they are `'network'`; `mode='central'`
+  rows are `'petal'`. ⚠️ **Query the live rows on all three envs first** —
+  the backfill must be written against what is actually there, not what the
+  table permits. (S24's lesson: the plan documents named the wrong columns.)
+- **`provider_config JSONB`** — ONE column, per-provider shape, validated per
+  provider. **Never three flat columns per provider**; that is the fork in
+  slow motion.
+- 🚨 **Make the S34 CHECKs CONDITIONAL, and make the converse explicit.**
+  Not just *"the path rules apply when provider = 'network'"* but also
+  *"`root_path` IS NULL when provider <> 'network'"*. Without the second
+  half, a Drive row can carry a stray path that every resolver will happily
+  read. **Both directions, and a breaker for each.**
+- The `storage_provider` ENUM will need new values for S37/S38. ⚠️
+  **`ALTER TYPE … ADD VALUE` cannot USE the new value in the same
+  transaction** (PG12+ permits the DDL in a transaction; the value is
+  unusable until commit). Measure whether the house prefers growing the enum
+  or the newer TEXT+CHECK shape (`workspace_storage.mode` is TEXT+CHECK) —
+  and if the enum stays, the value-add and anything that writes it are two
+  migrations, not one.
 
-```
-createImageBitmap(file) → draw to a 256px canvas → canvas.toBlob('image/jpeg', 0.8)
-```
+### 2. The interface — four functions, not an adapter
 
-No library. Runs identically in the browser and the Electron renderer — which is
-what makes one implementation serve both. Write the result's path into
-`files.thumbnail_url`.
-
-### 2. A new bucket — because the size cap forces it
-
-🚨 **A bucket has exactly one `file_size_limit`.** `rabbit-files` must accept
-multi-GB media once S38 raises its cap. A thumbnail cap and a media cap cannot
-coexist in one bucket.
-
-| Bucket | `public` | `file_size_limit` | Holds |
-|---|---|---|---|
-| `rabbit-files` | false | raised by S38 | source media |
-| **`rabbit-thumbnails`** (new) | **false** | **256 KB** | derived previews |
-
-256 KB is generous — a 256px JPEG at q80 is 10–30 KB — while still refusing
-anything obviously not a thumbnail. Enforced by Storage, not by client code.
-
-### 🚨🚨 Two ways to get this catastrophically wrong (`TPN-CLOUD-008`)
-
-**1. A public bucket.** The instinct is *"thumbnails are small and harmless, make
-it public so they load fast."* **That is `TPN-CLOUD-004` verbatim** — the
-still-open CRITICAL where `user-avatars` is public with an unconditional SELECT
-policy, enumerable with the public anon key. Repeating it for **frames of
-pre-release content** would be materially worse. `public = false`, no exceptions.
-
-**2. A partial policy port.** `rabbit-files` has **FOUR** policies
-(`0027_file_lifecycle.sql:283-340`): three base + `rabbit_files_invoices_select`.
-The adapter documents them as a pair where *"changing either without the other
-opens a hole"* (`supabaseAdapter.js:909-940`). Copy three and forget the fourth
-and **invoice thumbnails become visible to every project member** — the money
-gate defeated by its own derived image, in the place nobody audits.
-
-**Keep the path layout identical** so all four policies port by changing
-`bucket_id` alone:
+Create `src/tools/rabbit_v0.1.0/storage/` with **one provider contract**:
 
 ```
-rabbit-files/      projects/{id}/{entity}/{entityId}/{ts}-{name}.ext
-rabbit-thumbnails/ projects/{id}/{entity}/{entityId}/{ts}-{name}.ext.jpg
+put(key, blob, opts) → { key }      get(key) → blob
+del(key)                            exists(key) → boolean
 ```
 
-Storage RLS keys on path segments and the **third** segment is the money gate
-(`public.rabbit_money_segment`, migration 0042). Do **not** introduce a `thumbs/`
-folder level — it shifts every segment.
+Plus a `describe()` for the config-time reachability probe (S34's
+`rabbit:probe-storage-root` is the pattern: probe at CONFIGURATION time, with
+a sentence a person can act on, not at first download six screens away).
 
-**pgTAP must include a probe that a non-manager cannot read an invoice
-THUMBNAIL**, mirroring `05_files`.
+🚨 **A provider is those functions and nothing else.**
+`googleDriveAdapter.js` is **57 `readOnly()` stubs against a 122-method
+backend interface** — it is a v0.1 relic modelled on single-user JSON
+bundles, predating workspaces, RLS, the folder tree and the manifest. **It is
+the shape to avoid, not to finish.** Leave it exactly as it is; S38 decides
+its fate.
 
-### 3. Lifecycle
+### 3. The seam — one call site, not N
 
-⚠️ **A thumbnail is a derived object and must be purged with its source.**
-Otherwise this repeats `TPN-CONT-011` verbatim — derived content surviving the
-purge of the file it came from, orphaned and uncertificated. Same deletion path,
-same certificate, **not** a later sweep.
+`supabaseAdapter.uploadFile` builds `storagePath` today
+(`projects/${projectId}/${entity}/${entityId}/${ts}-${safeName}`) and writes
+the `files` row. That is the seam: the row records `storage_provider` +
+`storage_path`, and the body goes to whichever provider the workspace
+selected. Download/delete resolve the provider **from the file row**, never
+from the workspace's current setting — 🚨 **a workspace that switches
+provider must not orphan what it already wrote.** Pin that with a test.
 
-⚠️ Thumbnails may carry `cacheControl`; **source content may not** —
-`TPN-CONT-003` requires `no-store` on content responses. Separate buckets make
-that easy to get right, which is a second reason for the split.
+### 4. 🚨 The invariant that must survive every provider
 
-### 4. Out of scope
+**Money-gated files NEVER leave Supabase.** `INVOICES/` and `FINANCE/` are
+manager-only because the storage path's third segment says so and Postgres
+enforces it (`rabbit_money_segment`, 0042 — which took 0038→0039 to get
+right after shipping inverted). Drive has opaque IDs and its own sharing
+model; S3 has bucket policies. **Neither binds to a WILSON project role.**
 
-**Video thumbnails are S39**, together with video preview — they share the
-decoder and the codec limit, and managed-file video frames need S39's serve
-route to exist. Do not start them here.
+The enforcement point already exists and is one line:
+`uploadFile` branches on `scope.financial` to choose the `INVOICES` segment.
+**A financial upload pins `storage_provider = 'supabase'` there, whatever
+the workspace selected** — and a test proves it, because this is the one
+rule whose failure is silent and expensive.
 
----
+### 5. Suite + proof
+
+New pgTAP suite (**60+**, re-measure), registered in **BOTH** rls.yml lists
+(the allowlist fails loud; the replay list fails **silent**). It must prove:
+
+- **The NAS path is unchanged.** Re-run S34's shapes against
+  `provider='network'`: mapped drive refused, bare share refused, trailing
+  separator refused, canonical UNC accepted. **If any S34 refusal is looser
+  after this session, the session failed its own contract.**
+- A non-network provider row **cannot** carry `root_path` (the converse
+  arm).
+- 0049's `fn_project_folder_root_guard` still binds — it reads
+  `workspace_storage` for the byos root, so its anchor must keep working for
+  `provider='network'` and must not fire nonsensically for a bucket-backed
+  workspace. **Decide and test what a project folder means when the provider
+  is not a filesystem** (recommended: `folder_root` is meaningless and stays
+  NULL — refuse it, with the sentence saying why).
+- **A breaker per arm** (S33's rule), and a refusal probe pins one check only
+  if every other check waves its caller through. Postgres-side counts bring
+  their own WHERE — dev carries real rows.
 
 ## Standing traps
 
-Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
-repo. Never interpolate content into a shell command. Query the database rather
-than trusting migration text; read `supabase/.temp/linked-project.json` first.
-One query per `--file`. Register any new pgTAP suite in
-`.github/workflows/rls.yml` **by hand** — the list is not derived. Count
-`<!--` / `-->` after editing long markdown.
+Never `supabase config push`. `git add -A` sweeps untracked files into a
+PUBLIC repo. Never interpolate content into a shell command. A migration's
+text is not the database's state — query it, and read
+`supabase/.temp/linked-project.json` first. One query per `--file`. Count
+`<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
+BEFORE the git push; re-link to wilson-dev after.
 
-🚨 **Guard the CALL SITE.** Six features in this repo have shipped complete with
-no caller. A green unit test over the generation function proves nothing about
-whether upload reaches it — prove a real upload writes a real `thumbnail_url`.
-
-⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
+🚨 **Run the adversarial review before deploying.** Three sessions running it
+found real defects in already-green code (S33: 3; S34: 20, 3 high; S35: 8, 2
+high). S35's own target was bypassable through a column it had not thought
+about — **guard whatever OUTRANKS your field**, and this session is entirely
+about a field that outranks others.
 
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
-3. Migration + bucket verified **by query on dev, staging AND prod** — including
-   `public = false` and the size limit.
-4. `tap-all` clean + full vitest.
-5. **Refresh the STATE block of the next session's brief** (`SESSION_37_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
-6. **Close out in the chat** with the remaining-session list and a plain-English
+2. Sequence table + an S36 outcome block in `MASTER_PLAN_S19_ONWARD.md`;
+   **unblock S37 and S38** (both blocked-by notes point here).
+3. Migration verified **by query on dev, staging AND prod**.
+4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI green
+   on the pushed head, Playwright included.
+5. Refresh the STATE block of `SESSION_37_prompt.md`; update the Claude
+   auto-memory in the same pass.
+6. Close out in the chat with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

@@ -1,26 +1,30 @@
-# SESSION 37 launch prompt — PETAL CLOUD AS A PAID, OPERATOR-MANAGED PRODUCT
+# SESSION 37 launch prompt — S3-COMPATIBLE STORAGE (THE FIRST BYO PROVIDER)
 
-> **§4a3 of `docs/NETWORK_STORAGE_DESIGN.md`** — read it first; it carries
-> Audrey's requirement verbatim and the three decisions this brief builds on.
-> Created 2026-08-07, immediately after S34 shipped the storage-mode selector
-> (Audrey: *"lets make session 39 for making the operator terminal solution"*
-> — this brief was **S39** then; Audrey renumbered it to **S37** on
-> 2026-08-07 so the numbers finally match execution order).
+> **§4a2 + §4a2b of `docs/NETWORK_STORAGE_DESIGN.md`.** The second member of
+> the BYO storage family, after `network` (the NAS, S34). One adapter covers
+> **AWS S3, Backblaze B2, Wasabi, Hetzner, Cloudflare R2 and MinIO** — they
+> all speak the same API.
 
-> 🚨 **THIS SESSION BLOCKS S38.** S38 raises the 50 MB bucket cap and adds
-> resumable multi-GB uploads. Doing that before this session exists would
-> turn an unmetered free tier into an unmetered *multi-gigabyte* free tier —
-> quota plane first, floodgates second. S38's brief carries the matching
-> warning. **Since the 2026-08-07 renumbering the sequence table's order and
-> the session numbers agree** — but the blocked-by column is still the
-> authority if they ever drift again.
+> 🚨 **BLOCKED BY S36** (the provider registry). S36 builds
+> `workspace_storage.provider`, the JSONB config column, the conditional
+> CHECKs and the four-function interface. Building this first would hardcode
+> S3 beside `network` and force Drive to fork it — exactly what §4a2b was
+> written to prevent.
+>
+> ⭐ **THIS IS THE FIRST PROVIDER ON PURPOSE, AND IT INVERTS THE OBVIOUS
+> ORDER.** Google Drive is the one that gets asked for; S3 is the one that is
+> cheaper to build. **No OAuth consent screen, no Google app verification, no
+> restricted-scope assessment, no calendar dependency on a third party** —
+> just endpoint, region, bucket, prefix, key and secret. It also covers six
+> providers at once. Ship the cheap one first and learn the shape on it.
+>
+> ⚠️ **ADDITIVE ONLY.** The NAS path must behave identically afterwards.
 
 > **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
-> migrations **0000–0049** on all three envs (verified by query), next free
-> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
-> Vitest **1022 / 47 files**. 🚨 **Read the working tree, never memory or a
-> doc — a design written mid-S31 cited "0046, next free" and was wrong
-> within the hour.**
+> migrations **0000–0049**, next free **0050**. pgTAP **59 suites / 982
+> assertions**, next suite **60**. Vitest **1022 / 47 files**. 🚨 S36 lands
+> before this one and will have moved these numbers. **Read the working
+> tree.**
 
 ## Start ritual (before touching anything)
 
@@ -29,135 +33,151 @@
    --short`, `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`,
    and `supabase/.temp/linked-project.json` **and** `project-ref` (both must
    say wilson-dev before anything writes).
-3. **Read `docs/OUTSTANDING.md`** (what is broken) and
-   **`docs/SYSTEMS_HANDBOOK.md` §17** (limits by design — a gate, not an
-   oracle).
-4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a3** and the **S34 outcome
-   block** in `MASTER_PLAN_S19_ONWARD.md`.
-5. **Re-verify every `file:line` citation in this brief by SYMBOL before
-   using it** — sessions between its writing and now have moved them.
+3. **Read `docs/OUTSTANDING.md`** and **`docs/SYSTEMS_HANDBOOK.md` §12.7 +
+   §17**.
+4. **Read `NETWORK_STORAGE_DESIGN.md` §4a2 + §4a2b** and the **S36 outcome
+   block** — the interface this implements is defined there, not here.
+5. **Re-verify every `file:line` citation in this brief by SYMBOL.**
 
 ---
 
 ## Why this exists
 
-**Audrey, 2026-08-07, verbatim:**
+A customer with no office server and no appetite for a VPN still wants their
+own storage. §4a2 measured why that row is strictly better than the office
+server for them: **their bucket is already internet-reachable and already
+authenticated, by their own provider, at no cost to Petal.** It may remove
+the need for the file gateway entirely — which is why the design says to
+evaluate this *before* committing 3–5 sessions to one.
 
-> *"if the storage selection is petal cloud and it does store media on petal
-> cloud, please make sure to set it up management of that in the operator
-> terminal. so if the company selected the petal cloud option, the operator
-> terminal should have control to partition server space for that company and
-> approve access. so basically if users do want to use the petal offered
-> storage they need to be paying the monthly payments for access. it needs to
-> be controlled and managed by the operator terminal for when their are
-> multiple companies using the tool"*
-
-And the standing rule from the same conversation: *"all databases for tasks,
-etc all of it should be saved in supabase databases. its only media etc that
-is saved on the selected storage solution"* — already true by construction
-(the storage mode touches file BODIES only); this session must keep it true.
-
-**The measured gap (S34):** every workspace defaults to `central` (no
-`workspace_storage` row = Petal cloud), uploads have gone to the shared
-`rabbit-files` bucket since S14 with a 50 MB per-file cap and **no metering,
-no quota, no approval, no payment linkage**. Harmless with one tenant; wrong
-the day company #2 signs in.
-
-## The three decisions — settled by Audrey 2026-08-07, do not re-ask
-
-| Question | Decision |
-|---|---|
-| What does "no plan" mean? | **A small free allowance (1 GB), then a plan is required.** Zero-allowance would make the first-day experience feel broken; a free tier is a funnel, not a cost. |
-| Hide "Petal cloud" from non-payers? | **Visible but inert** — selectable state shows "not yet active — contact Petal". Hiding it makes the product look like it lacks the feature. |
-| Billing automation in v1? | **Manual.** The operator flips a company active/suspended when payments start/stop. A payment-provider hook is its own later session. |
+The handbook already carries the locked decision (§12.1): *"S3-compatible
+providers (AWS, Hetzner) come post-1.0 **through one adapter**."* This is
+that adapter.
 
 ## What this needs
 
-### 1. The plan table (migration 0049+, re-measure the number)
+### 1. The config shape (into S36's `provider_config` JSONB)
 
-Operator-owned, following the **model control plane precedent (0031)** —
-platform-level tables the operator console curates, workspace-readable:
+```
+{ endpoint, region, bucket, prefix, accessKeyId, secretRef, forcePathStyle }
+```
 
-- `workspace_storage_plans`: workspace_id PK→workspaces, status
-  (`active`|`suspended`), `quota_bytes`, notes, audit columns. **Absence of a
-  row = the 1 GB free tier** — the default must work with zero rows, because
-  every existing workspace has zero rows.
-- **Writes ride the operator path** (mirror how the operator console writes
-  today — check whether Companies edits go through Edge Functions with
-  `adminGuard.ts` or operator RLS, and follow that). Every change writes
-  `platform_audit` (⚠️ 0028's closed CHECK on `platform_audit.action` — the
-  0028 → 0031 ordering trap; a new action value needs the CHECK extended).
-- Workspace members SELECT their own row (the Admin Terminal shows "your
-  plan"); **admins must NOT be able to write it** — this is the inverse of
-  0048's shape, and the suite needs the discriminating caller (a workspace
-  ADMIN who is not an operator) to prove it.
+- **`endpoint` is what makes it six providers, not one.** AWS is the default;
+  B2/Wasabi/Hetzner/R2/MinIO are the same API at a different host.
+- **`forcePathStyle`** — MinIO and some self-hosted gateways need path-style
+  addressing rather than virtual-host style. Getting this wrong presents as a
+  DNS failure, which reads as "the bucket does not exist". Put it in the
+  config and say so in the error.
+- **`prefix`** is the tenant's chosen root inside the bucket, and it is the
+  analogue of S34's `root_path`. **Apply the same discipline**: no leading
+  slash, no trailing slash, canonical form enforced by a CHECK, because the
+  same drift that broke every file under a trailing-separator root (§3.2,
+  measured) applies verbatim to a key prefix.
 
-### 2. Enforcement at the upload — restrictive, not advisory
+### 2. 🚨 The secret must never reach the browser
 
-- **Usage metering**: a per-workspace usage figure over `rabbit-files`
-  objects. Decide counter-table-with-trigger vs computed view by measuring
-  the object-key → workspace join first (keys are project-scoped; project →
-  workspace). ⚠️ A trigger on `storage.objects` is a dependency on a table
-  Supabase owns — check the house's existing 0027/0042 policies on it for
-  precedent before choosing.
-- **The gate is a RESTRICTIVE policy** on `rabbit-files` INSERT (quota not
-  exceeded AND status not suspended, with the rowless free tier passing).
-  🚨 **Not another permissive policy** — permissive policies OR together
-  (the 0038 inversion), a RESTRICTIVE one ANDs over the existing set. This
-  is the first restrictive policy in the schema; suite probes must prove it
-  composes with 0042's money-segment policies rather than replacing them.
-- 🚨 **NULL-safety**: the quota comparison runs over an aggregate that is
-  NULL for a workspace with no uploads. The S33/0047 lesson both ways —
-  decide the failure direction per clause and COALESCE deliberately.
-- Client-side checks (greyed upload, usage bar) are the courtesy; per S33's
-  measurement, a direct storage REST call bypasses the adapter, so **only
-  the policy is the enforcement**.
+**This is the design decision of the session.** A bucket secret in the
+renderer is a bucket secret in devtools, in a heap snapshot, and in any
+extension the user has installed.
 
-### 3. Operator console (src/admin — NOT the Admin Terminal)
+**Use the 0028 precedent exactly.** `workspace_ai_keys` stores a per-company
+Anthropic key as **AES-256-GCM ciphertext** — `base64(iv ‖ ciphertext ‖
+tag)`, the key living in an **Edge Function secret** (`WILSON_AI_KEY_SECRET`)
+and **never in Postgres**, written by one Edge Function, read by another,
+both `service_role`, and *"no client reads a key back; the console sees
+`key_hint` only."* That is this session's model, with a storage-shaped twin
+of `_shared/aiKeyCrypto.ts`.
 
-The platform-operator console is a separate build target
-(`vite --mode admin`, `src/admin/`). CompaniesSection gains a storage panel
-per company: plan status toggle (approve / suspend), quota input, live usage
-readout, audit trail. It copies "the AdminTerminal section contract"
-(`src/admin/CompaniesSection.jsx` says so itself) — mountedRef/loadedRef/
-seqRef.
+**Then the transfer itself: presigned URLs.**
 
-### 4. Company side (Admin Terminal → Storage, from S34)
+- An Edge Function decrypts the secret server-side and mints a **short-lived
+  presigned PUT/GET** for one object key.
+- The client uploads/downloads **direct to the customer's bucket** — Petal
+  never proxies the bytes, so there is no egress cost and no size ceiling of
+  our making.
+- ⚠️ **The presign endpoint is an authorisation boundary, not a formality.**
+  It must check the caller may write that project *before* minting, or it
+  becomes a signing oracle for any authenticated user. Mirror S33's RPC
+  lesson: **a function that replicates a policy must replicate ALL of it**,
+  and `COALESCE(..., false)` when a policy predicate moves into procedural
+  code, because NULL fails CLOSED in a policy and OPEN in an `IF`.
 
-- `central` selected + no plan → the visible-but-inert state with the free-
-  tier figure and "contact Petal to activate more".
-- `central` + active plan → usage vs quota, plainly.
-- The S34 wiring test (`src/lib/workspaceRootWiring.test.js`) pins the
-  section's call sites — extend it, don't fork it.
+### 3. CORS is a setup requirement, not a bug report
 
-### 5. Suite + proof
+A browser PUT to a customer bucket needs a CORS rule on **their** bucket
+(`PUT`, `GET`, the app origins, `ETag` exposed). Without it the upload fails
+with an opaque network error and no server log — the single most likely
+support call this feature will generate.
 
-New pgTAP suite (**59+**), registered in **BOTH** rls.yml lists (the
-allowlist fails loud, the replay list fails SILENT). Discriminating callers:
-operator writes ✓, workspace ADMIN write refused (the inverse-of-0048
-probe), member reads own row, cross-workspace reads nothing, upload-over-
-quota refused server-side with a presence control proving an under-quota
-upload lands. **Prove each arm by deleting it — a breaker per check, S33's
-rule.** Postgres-side counts bring their own WHERE (dev carries real rows).
+- The config-time probe (S34's pattern: probe at CONFIGURATION time, with a
+  sentence a person can act on) must **actually attempt a small round trip**
+  and report CORS specifically when that is what failed.
+- The setup guidance goes in **`SYSTEMS_HANDBOOK.md` §12.7**, beside the NAS
+  and VPN material, with the exact JSON rule to paste.
+- Desktop uploads do not hit CORS. **Say that plainly** rather than letting a
+  customer conclude the desktop app is "the one that works".
+
+### 4. Lifecycle parity — the part that is easy to forget
+
+- **Purge deletes at the provider AND writes the certificate**
+  (`TPN-CONT-002`). A file whose body outlives its deletion record is the
+  failure this project has already documented twice.
+- **A thumbnail dies with its source** (S36's rule) wherever both live.
+- **`downloaded` logging is advisory here by construction** — a presigned GET
+  is served by the customer's provider and WILSON never sees it. That is
+  already the stated limit for cloud (S33); repeat it in the brief's outcome
+  block rather than discovering it in an audit.
+- 🚨 **Resolve a file's provider FROM THE FILE ROW**, never from the
+  workspace's current setting. A workspace that switches provider must not
+  orphan what it already wrote (S36 pins this; do not regress it).
+
+### 5. Money stays home
+
+**Financial files pin `storage_provider = 'supabase'` regardless of the
+workspace's provider** — S36's invariant, enforced at the `uploadFile`
+`scope.financial` branch. An S3 bucket policy cannot express "managers of
+this project only". Do not attempt it. **Test it here too**, because this is
+the first session where the temptation is real.
+
+### 6. Suite + proof
+
+New pgTAP suite, registered in **BOTH** rls.yml lists. Plus vitest over the
+pure parts (key building, prefix canonicalisation, endpoint/path-style
+resolution) and a **wiring test** that the presign Edge Function is actually
+called by the upload path — six features in this repo have shipped complete
+with no caller.
+
+Probes: presign refused for a non-member; refused for a project the caller
+cannot write; **a financial upload lands on Supabase even with S3
+configured** (the invariant); prefix canonical-form refusals; and a breaker
+per arm.
 
 ## Standing traps
 
 Never `supabase config push`. `git add -A` sweeps untracked files into a
-PUBLIC repo. Never interpolate content into a shell command. A migration's
-text is not the database's state — query it, and read
+PUBLIC repo. Never interpolate content into a shell command. Query the
+database rather than trusting migration text; read
 `supabase/.temp/linked-project.json` first. One query per `--file`. Count
 `<!--`/`-->` after editing long markdown. Deploy order: dev → staging → prod
 BEFORE the git push; re-link to wilson-dev after.
 
+🚨 **Never print a bucket secret into a transcript.** The `service_role`
+incident (S19) started as a filter that assumed line-per-key JSON. Select the
+one field; never dump the config object.
+
+🚨 **Run the adversarial review before deploying.** A credential path and a
+signing endpoint are exactly where the last three reviews found their highs.
+
 ## Close-out ritual
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
-2. Sequence table + an S37 outcome block in `MASTER_PLAN_S19_ONWARD.md`;
-   **unblock S38's brief** (its blocked-by note points here).
+2. Sequence table + an S37 outcome block in `MASTER_PLAN_S19_ONWARD.md`.
 3. Migration verified **by query on dev, staging AND prod**.
-4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI
-   green on the pushed head, Playwright included.
-5. Refresh the STATE block of the next session's brief
-   (`SESSION_38_prompt.md`); update the Claude auto-memory in the same pass.
-6. Close out in the chat with the remaining-session list and a plain-English
+4. `tap-all` clean + full vitest + new suite in BOTH rls.yml lists + CI green
+   on the pushed head, Playwright included.
+5. **`SYSTEMS_HANDBOOK.md` §12.7 gains the bucket setup guidance** (CORS rule,
+   the six providers, what desktop vs browser changes).
+6. Refresh the STATE block of `SESSION_38_prompt.md`; update the Claude
+   auto-memory in the same pass.
+7. Close out in the chat with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

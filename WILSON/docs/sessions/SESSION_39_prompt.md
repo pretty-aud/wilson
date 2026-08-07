@@ -1,14 +1,26 @@
-# SESSION 39 launch prompt — VIDEO PREVIEW AND VIDEO THUMBNAILS
+# SESSION 39 launch prompt — THUMBNAILS EVERYWHERE
 
-> **Unit 2d** of `docs/NETWORK_STORAGE_DESIGN.md` (§5d.1b, §5d.2, §5e-pre, §5e,
-> §5f). **DEPENDS ON S36** (thumbnails) — this reuses its bucket, its canvas
-> pipeline and its `thumbnail_url` writer.
+> **Unit T** of `docs/NETWORK_STORAGE_DESIGN.md` (§5d.1, §4a2).
+> 🚨 **DEPENDS ON NOTHING** — it shares no code with the storage root and can
+> run whenever it suits. It sits here because the BYO storage family (S36–S38)
+> was pulled forward; it was S36 until 2026-08-07. **It BLOCKS S40** (video
+> reuses this bucket, this canvas pipeline and this `thumbnail_url` writer).
+
+> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
+> migrations **0000–0049** on all three envs (verified by query), next free
+> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
+> Vitest **1022 / 47 files**. CLI re-linked to wilson-dev.
+> 🚨 **Read the working tree, never memory or a doc** — a design written
+> mid-S31 cited "0046, next free" and was wrong within the hour.
 >
-> ⚠️ **Sized 1–2 sessions.** ffmpeg packaging alone is fiddly. If it splits,
-> split at "browser-decodable formats work" → "ffmpeg for professional codecs".
-
-> **STATE — re-measure.** Confirm migration number, suite count, vitest counts
-> and HEAD from the working tree.
+> **What S34/S35 left that touches thumbnails:** the workspace drive
+> (`workspace_storage`, 0048) and the bounded project folder
+> (`fn_project_folder_root_guard`, 0049) mean a desktop in byos mode
+> resolves media under a NAS root — a thumbnail read of a large original
+> across a WAN link is one full-file read (design §4a2), which is exactly
+> why the thumbnail BUCKET exists. `resolveConfiguredRootDir()` (main.cjs)
+> is still the ONE definition of the machine's effective root; do not
+> re-derive it in any thumbnail path.
 
 
 ## Start ritual (before touching anything)
@@ -30,147 +42,104 @@
 
 ## Why this exists
 
-**Audrey, 2026-08-05:** *"can we add a way to preview videos on the app?"* and
-*"for videos i would want to be able to get a single still frame and make it the
-thumbnail automatically lets add that."* Then, after the licensing question:
-*"ok keep ffmpeg then, desktop generation is fine."*
+**Audrey, 2026-08-05:** *"all thumbnails need to be accessible on web and
+desktop"* and *"lets store thumbnails within the supabase storage... and lets set
+a file size limit for thumbnails. thats a very common thing."*
+
+**MEASURED — today thumbnails are desktop-only and images-only:**
+
+- Generation is `sharp` in the **Electron main process** — one HTTP route
+  (`main.cjs:2412`) and two IPC handlers (`:3093`, `:3111`). Local, cached to
+  `rabbit-data/thumbnails/`, free.
+- `FileThumbnail.jsx:49` points an `<img>` at
+  `/api/rabbit/projects/:id/managed-files/:id/thumbnail`, which **exists only on
+  the Express server inside the desktop app**. In a browser it 404s and falls
+  back to a file-type icon. **Web has no thumbnails at all.**
+- `THUMB_EXTENSIONS` (`main.cjs:117`) and `IMAGE_EXTS`
+  (`FileThumbnail.jsx:15`) are the same nine image extensions.
+- 🚨 **`files.thumbnail_url` has never been written.** Declared on three tables
+  in `0000_rabbit_base_schema.sql:164,232,246`, present in the Supabase read
+  allowlist (`supabaseAdapter.js:369`), **no writer anywhere**. This session
+  finally gives it one.
 
 ---
 
-## Part 1 — a serve route that supports Range
+## What this needs
 
-**MEASURED: there is no serve route for managed files at all.** `main.cjs` has
-PATCH, DELETE and `/thumbnail` for managed files and **nothing that streams the
-bytes** — they are opened through the OS (`rabbit:open-in-explorer`).
+### 1. Generate at upload time, on the uploading machine
 
-🚨 **It must support HTTP Range requests.** Without ranges a `<video>` cannot
-seek and the browser pulls the entire file before playing — on a 5 GB master
-that is not a slow preview, it is a hang.
-
-- `res.sendFile` handles ranges automatically (the existing `files` download
-  route at `:2038` gets this free).
-- **A hand-rolled `createReadStream` does NOT**, unless the `Range` header is
-  implemented explicitly. **This is the single most likely thing to get wrong.**
-
-Everything served here goes through `resolveContainedFilePath` — the guard S33
-fixed (it lives in `electron/pathContainment.cjs` now). Do not add a second
-path-resolution route.
-
-🚨 **AS-2.9 rides in with this route (S33 hand-off).** S33 added the
-`downloaded` event to the files-plane download on both backends, and measured
-that the default desktop managed-files flow has **no WILSON-mediated read to
-log** — its "download" button is `openInExplorer`. The serving route this
-session builds is the first time WILSON mediates managed-file reads, so it
-must log the read the way the files download route does
-(`rabbitLogFileEvent`, event `'downloaded'`, try/catch + `touch: false` —
-copy that call site, including why a read must not stamp `updated_at`).
-
-## Part 2 — auto still-frame thumbnails
-
-Same shape as S36's images, reusing its machinery:
+The file is already in memory there, so this costs nothing — and it avoids the
+one expensive design: generating on demand means **downloading the source**,
+gigabytes of egress for a postage-stamp JPEG (§4a2).
 
 ```
-<video src={blobURL}> → seek → drawImage to canvas → toBlob('image/jpeg')
+createImageBitmap(file) → draw to a 256px canvas → canvas.toBlob('image/jpeg', 0.8)
 ```
 
-Same 256px output, same `rabbit-thumbnails` bucket, same upload-time timing,
-same zero egress.
+No library. Runs identically in the browser and the Electron renderer — which is
+what makes one implementation serve both. Write the result's path into
+`files.thumbnail_url`.
 
-**Which frame:** not frame 0 — video routinely opens on black, a fade-in or a
-slate, and a wall of black thumbnails is worse than icons. **Seek to ~10% of
-duration, clamped to 1–10 seconds.** If the seek or decode fails, fall back to
-the file icon rather than storing a black frame. Make the frame **replaceable by
-hand** — the automatic pick is right most of the time, not always.
+### 2. A new bucket — because the size cap forces it
 
-⚠️ **Managed files have no `File` object.** They arrive via `rabbit:pick-files`
-→ `rabbit:copy-file`, a native path-to-path stream in the main process
-(`:3009`), so the renderer never holds the file. **Extract the frame AFTER the
-copy, through Part 1's route** — a hidden `<video>` pointed at the endpoint. One
-implementation covers both backends, and it costs nothing extra because that
-route is being built anyway.
+🚨 **A bucket has exactly one `file_size_limit`.** `rabbit-files` must accept
+multi-GB media once S42 raises its cap. A thumbnail cap and a media cap cannot
+coexist in one bucket.
 
-## Part 3 — ffmpeg, for the codecs a browser cannot decode
+| Bucket | `public` | `file_size_limit` | Holds |
+|---|---|---|---|
+| `rabbit-files` | false | raised by S42 | source media |
+| **`rabbit-thumbnails`** (new) | **false** | **256 KB** | derived previews |
 
-Chromium plays H.264/AAC MP4, VP8/VP9 WebM and AV1. It **cannot** play ProRes,
-DNxHD/DNxHR or most professional MOV/MXF variants — a large share of what a
-studio holds. The same decoder answers both questions, so **a file that will not
-preview will not thumbnail either.**
+256 KB is generous — a 256px JPEG at q80 is 10–30 KB — while still refusing
+anything obviously not a thumbnail. Enforced by Storage, not by client code.
 
-### 🚨 ffmpeg does NOT force WILSON to be open source
+### 🚨🚨 Two ways to get this catastrophically wrong (`TPN-CLOUD-008`)
 
-Audrey raised this and nearly dropped the dependency over it. **The concern does
-not apply at this scope:**
+**1. A public bucket.** The instinct is *"thumbnails are small and harmless, make
+it public so they load fast."* **That is `TPN-CLOUD-004` verbatim** — the
+still-open CRITICAL where `user-avatars` is public with an unconditional SELECT
+policy, enumerable with the public anon key. Repeating it for **frames of
+pre-release content** would be materially worse. `public = false`, no exceptions.
 
-- The **LGPL** build is explicitly intended for proprietary, closed-source
-  software. Invoked as a **separate executable** — as WILSON would — it creates
-  **no obligation to publish any of WILSON's code**.
-- The **GPL** build is the one with copyleft consequences, and you get it only by
-  deliberately including GPL components (`libx264`, `libx265`, `--enable-gpl`).
-  **You have to opt in.**
-- **Still-frame extraction from ProRes/DNxHD needs the LGPL build and nothing
-  more.** Both decoders are in it; JPEG encoding is in it; JPEG's patents
-  expired long ago.
+**2. A partial policy port.** `rabbit-files` has **FOUR** policies
+(`0027_file_lifecycle.sql:283-340`): three base + `rabbit_files_invoices_select`.
+The adapter documents them as a pair where *"changing either without the other
+opens a hole"* (`supabaseAdapter.js:909-940`). Copy three and forget the fourth
+and **invoice thumbnails become visible to every project member** — the money
+gate defeated by its own derived image, in the place nobody audits.
 
-**Rules:**
-1. Ship an **LGPL build** — no `--enable-gpl`, no libx264/x265.
-2. Invoke it as a **separate process**, never linked in.
-3. If a preview *proxy* is ever transcoded, target **VP9/WebM** — `libvpx` is
-   BSD and VP9 is royalty-free, which removes both the GPL question and the
-   H.264 patent pool in one decision.
+**Keep the path layout identical** so all four policies port by changing
+`bucket_id` alone:
 
-⚠️ **Verify the licence of whichever build is packaged** — some npm ffmpeg
-distributions ship GPL builds. WILSON is sold to studios who ask about
-third-party licensing in their own assessments; worth a real check by whoever
-handles contracts.
+```
+rabbit-files/      projects/{id}/{entity}/{entityId}/{ts}-{name}.ext
+rabbit-thumbnails/ projects/{id}/{entity}/{entityId}/{ts}-{name}.ext.jpg
+```
 
-### Two implementation rules that will otherwise cost a session
+Storage RLS keys on path segments and the **third** segment is the money gate
+(`public.rabbit_money_segment`, migration 0042). Do **not** introduce a `thumbs/`
+folder level — it shifts every segment.
 
-1. 🚨 **`-ss` BEFORE `-i`, not after.** Input seeking jumps to the timestamp;
-   output seeking decodes from frame zero. On a 5 GB ProRes file over a NAS
-   share that is the difference between a second and several minutes.
-2. 🚨 **`execFile`/`spawn` with an argument array — never a command string.**
-   Filenames from a NAS are outside WILSON's control and may contain shell
-   metacharacters. This is already a standing rule in this repo; **ffmpeg is
-   exactly the case it exists for.**
+**pgTAP must include a probe that a non-manager cannot read an invoice
+THUMBNAIL**, mirroring `05_files`.
 
-### Packaging
+### 3. Lifecycle
 
-Native binary, **desktop only** — it cannot run in a browser, and ffmpeg.wasm is
-not viable for multi-GB ProRes. +50–80 MB per platform, as an **unpacked extra
-resource** in `forge.config.cjs` (`packagerConfig`), not inside the asar. It
-joins the dependency-scanning story (TS-4.0) — ffmpeg has a steady CVE stream.
+⚠️ **A thumbnail is a derived object and must be purged with its source.**
+Otherwise this repeats `TPN-CONT-011` verbatim — derived content surviving the
+purge of the file it came from, orphaned and uncertificated. Same deletion path,
+same certificate, **not** a later sweep.
 
-✅ **Desktop-only generation still satisfies Audrey's requirement.** Thumbnails
-are generated once, uploaded, and **every web user sees them**. Only *generation*
-for professional codecs is desktop-side — the person adding studio media is next
-to the NAS anyway.
+⚠️ Thumbnails may carry `cacheControl`; **source content may not** —
+`TPN-CONT-003` requires `no-store` on content responses. Separate buckets make
+that easy to get right, which is a second reason for the split.
 
-## Part 4 — the notice (§5f)
+### 4. Out of scope
 
-**Agreed treatment (Audrey): inline note on the file row + one summary line per
-batch. NOT a popup.** Thirty clips must not mean thirty dialogs — that trains
-people to dismiss the one that matters.
-
-| Trigger | Reality | Treatment |
-|---|---|---|
-| exceeds the cloud cap | ❌ upload **fails** | **dialog** — *"Too large to add from a browser. Add it from the desktop app."* |
-| very large, under cap | ⚠️ slow | inline note |
-| ProRes / professional | ✅ uploads, **no thumbnail** | inline note — *"Preview images aren't available for this format in a browser. Add it from the desktop app to get one."* |
-
-🚨 **Only the first blocks. The other two must NOT prevent the upload** — the
-file is valid and the user may not have a desktop app to hand.
-
-**Detection:** extension heuristic (`.mov`, `.mxf`, `.r3d`, `.ari`, `.braw`,
-`.dnx`) for the pre-upload courtesy; and **accurate by construction** after the
-attempt — if the decode failed, the browser genuinely cannot read it.
-
-⚠️ **Cloud playback bills per view.** A signed Supabase URL in a `<video>` works
-and supports ranges, but every play and scrub is egress Petal pays for. Gate
-cloud video preview behind that cost decision; local and NAS playback cost
-nothing. **NAS over a WAN link buffers** — §4c's caveat at full force.
-
-**Recommended order:** local/NAS first (no egress, proves the Range
-implementation), cloud second.
+**Video thumbnails are S40**, together with video preview — they share the
+decoder and the codec limit, and managed-file video frames need S40's serve
+route to exist. Do not start them here.
 
 ---
 
@@ -178,7 +147,14 @@ implementation), cloud second.
 
 Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
 repo. Never interpolate content into a shell command. Query the database rather
-than trusting migration text. Count `<!--` / `-->` after editing long markdown.
+than trusting migration text; read `supabase/.temp/linked-project.json` first.
+One query per `--file`. Register any new pgTAP suite in
+`.github/workflows/rls.yml` **by hand** — the list is not derived. Count
+`<!--` / `-->` after editing long markdown.
+
+🚨 **Guard the CALL SITE.** Six features in this repo have shipped complete with
+no caller. A green unit test over the generation function proves nothing about
+whether upload reaches it — prove a real upload writes a real `thumbnail_url`.
 
 ⚠️ **Deploy order: dev → staging → prod BEFORE the git push** — `feat/multi-user-v1` auto-deploys the STAGING-backed beta, so a push before the staging migration means the beta runs new code against an old schema. **Re-link the CLI to `wilson-dev`** when the last env is verified.
 
@@ -186,9 +162,9 @@ than trusting migration text. Count `<!--` / `-->` after editing long markdown.
 
 1. `docs/OUTSTANDING.md` — delete what is fixed, cite the commit.
 2. Sequence table in `MASTER_PLAN_S19_ONWARD.md`.
-3. `tap-all` clean + full vitest.
-4. **Prove it with a real file of each kind** — an H.264 MP4 and a ProRes MOV:
-   thumbnail generated, preview plays or declines gracefully, seeking works.
+3. Migration + bucket verified **by query on dev, staging AND prod** — including
+   `public = false` and the size limit.
+4. `tap-all` clean + full vitest.
 5. **Refresh the STATE block of the next session's brief** (`SESSION_40_prompt.md`) with the numbers you leave behind — that block decays the moment you commit. Update the Claude auto-memory in the same pass.
 6. **Close out in the chat** with the remaining-session list and a plain-English
    breakdown. Never let a diagnosis read as a fix.

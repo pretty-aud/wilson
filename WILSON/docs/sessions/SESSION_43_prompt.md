@@ -1,14 +1,11 @@
 # SESSION 43 launch prompt — THE DESIGN PASS
 
-> 🚨 **THIS BRIEF HAS BEEN RENUMBERED FOUR TIMES: written as S29 → became
-> S32 → S39 → S40 → now S43** (Audrey, 2026-08-05: *"move 32 to the last
-> one. fix the numbering"*; 2026-08-07: *"lets make session 39 for making the
-> operator terminal solution. move design pass to 40"*; and again on
-> 2026-08-07 when the BYO-storage provider family was briefed as S40–S42).
-> **It moves because its rule never changes: the design pass is LAST.** It is
-> last on purpose — running a visual design pass before the sessions of new
-> UI would mean redoing it immediately. **If another UI session is ever
-> added, this one moves again.** That is the rule working, not churn.
+> 🚨 **THIS BRIEF KEEPS MOVING, AND THAT IS THE RULE WORKING.** Written as
+> S29, then S32 → S39 → S40 → **now S43**. **The design pass is LAST, always**
+> — running a visual pass before the sessions of new UI would mean redoing it
+> immediately. **Add another UI session and this one moves again.** The
+> renumbering ledger in `MASTER_PLAN_S19_ONWARD.md` is the record; its
+> sequence table is the authority.
 >
 > **Everything below was written when this was the NEXT session.** Large parts
 > of it are stale. **Re-read `MASTER_PLAN_S19_ONWARD.md`'s sequence table and
@@ -19,14 +16,14 @@
 > S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
 > logout), **S33 (guard fix + `downloaded` event)**, **S34 (workspace storage
 > root)**, **S35 (project folder guard + NAS/VPN guidance)** — **all six
-> DONE** — then S36 → S37 → S38 → S39, the media and Petal-cloud run, then
-> **S40 → S41 → S42**, the BYO storage provider family (registry, then
-> S3-compatible, then Google Drive). All designed in
-> `docs/NETWORK_STORAGE_DESIGN.md`.
+> DONE** — then **S36 → S37 → S38**, the BYO storage provider family
+> (registry, then S3-compatible, then Google Drive); **S39 → S40**,
+> thumbnails and video; and **S41 → S42**, Petal cloud's quota plane and the
+> multi-GB cap raise. All designed in `docs/NETWORK_STORAGE_DESIGN.md`.
 >
-> 🚨 **Its surface now also includes the provider picker and per-provider
-> config forms (S40–S42)** — an S3 bucket form and a Google Drive connect
-> flow are both new UI this pass must cover.
+> 🚨 **Its surface now also includes the storage PROVIDER PICKER and the
+> per-provider config forms (S36–S38)** — an S3 bucket form and a Google
+> Drive connect flow are both new UI this pass must cover.
 >
 > 🚨 **Six sessions of NEW SURFACE land before this one and are not described
 > below.** At minimum the design pass must cover: the storage-mode selector and
