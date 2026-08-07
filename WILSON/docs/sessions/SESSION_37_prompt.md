@@ -52,6 +52,36 @@
 > - 🚨 `workspace_storage_root_provider_path_chk` refuses a `root_path` under
 >   any provider but `'network'`. An S3 workspace stores its endpoint/bucket
 >   in `provider_config`, **never** in `root_path`.
+>
+> 🚨 **THREE TRAPS S36'S REVIEW FOUND AND LEFT FOR THIS SESSION. Read these
+> before writing the migration.**
+> 1. **`provider_config_chk` PERMITS a config, it does not REQUIRE one.**
+>    Widening `workspace_storage_provider_chk` to `'s3'` and stopping there
+>    leaves `provider='s3'` + `provider_config` NULL legal — "looks
+>    configured, resolves nowhere", the exact failure the registry exists to
+>    prevent, reproduced one provider later. **S37 must add its own
+>    required-direction arm**, e.g.
+>    `CHECK (provider <> 's3' OR provider_config ? 'bucket')`, plus a probe and
+>    a breaker for it.
+> 2. **Replacing `uploadFile`'s constant is not quite one line.**
+>    `fileProviderFor('network')` returns `'local_server'`, which the registry
+>    deliberately does NOT register — a browser cannot write to a NAS, and that
+>    path runs through `localServerAdapter`/Express instead. A cloud-mode
+>    workspace configured as `network` must be **refused with a sentence**, not
+>    routed. Decide that behaviour explicitly.
+> 3. **Deploy order is load-bearing.** `fetchWorkspaceStorage`'s select list is
+>    the de-facto read allowlist; adding a column to it makes the renderer
+>    hard-depend on the migration, and App.jsx's catch SWALLOWS a failed read
+>    (S34's "a failed read pushes nothing"), so every desktop would silently
+>    fall back to its local disk. **Migration to all three envs BEFORE the git
+>    push**, as S36 did.
+>
+> ⚠️ **`files.storage_provider` is a NAMED ENUM** (`public.storage_provider`,
+> 0000), unlike `workspace_storage.provider` which is TEXT+CHECK. If S3 bodies
+> need a new enum value, remember **`ALTER TYPE … ADD VALUE` cannot USE the new
+> value in the same transaction** — the value-add and anything that writes it
+> are two migrations, not one. Measure whether a new value is needed at all
+> before adding one: the enum's `google_drive` label already has zero writers.
 
 ## Start ritual (before touching anything)
 

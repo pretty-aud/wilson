@@ -577,9 +577,36 @@ below are superseded; only one of them actually moves.
 > path (i.e. every uploaded file) and diverge at depth three, where this CHECK
 > is the **stricter**. Deliberate, and now written down.
 >
+> ⚠️ **Three things the review raised that are NOT defects today but are traps
+> for the next session, recorded rather than dismissed:**
+> - 🚨 **`provider_config_chk` PERMITS a config; it does not REQUIRE one.** A
+>   future `provider='s3'` row with `provider_config` NULL would satisfy it —
+>   "looks configured, resolves nowhere", i.e. this migration's own hole one
+>   provider later. S36 cannot write the arm (it cannot know s3's required
+>   keys), but **every provider that needs config must add its own
+>   required-direction arm**. An earlier draft of 0050's comment implied S37
+>   need not touch that constraint; corrected, and carried into S37's brief.
+> - **The deploy order was load-bearing, not ceremony.** `fetchWorkspaceStorage`
+>   now selects `provider, provider_config`; against a database without 0050
+>   PostgREST errors, and App.jsx's catch (S34's "a failed read pushes
+>   nothing") swallows it — every desktop would silently fall back to its local
+>   disk. 0050 reached all three envs BEFORE the push, so no window existed.
+>   **A future schema-dependent select must ship in the same order.**
+> - **An already-installed client that predates this commit cannot select
+>   "Your server / NAS".** It patches `{mode:'byos'}` with no provider, which
+>   `mode_provider_chk` now refuses. Harmless in practice — the web bundle
+>   redeploys on push and **no desktop release carries S34's Storage section
+>   yet** (v1.0.0 is prepared, not tagged) — and the failure is a visible save
+>   error, not silent. Recorded because the mechanism is real. Deliberately not
+>   papered over with a trigger that repairs the row: 0049 set the precedent
+>   that a malformed write is refused, not repaired.
+>
 > **Stated limits.** `uploadFile` passes `WORKSPACE_PROVIDERS.PETAL` as a
 > **constant** — the cloud adapter IS Petal cloud, and S37 changes that one
-> argument, not a branch. `provider_config` has **no reader yet**; it exists so
+> argument, not a branch. ⚠️ Not *quite* one line: `fileProviderFor('network')`
+> returns `local_server`, which this registry deliberately does NOT register
+> (a browser cannot write to a NAS), so a cloud-mode workspace configured as
+> `network` must be refused with a sentence rather than routed. `provider_config` has **no reader yet**; it exists so
 > S37 cannot add flat per-provider columns, and its CHECK is the live
 > enforcement. The `rabbit:set-workspace-root` IPC payload still carries no
 > provider, which is correct while only `network` has a path. **No provider UI

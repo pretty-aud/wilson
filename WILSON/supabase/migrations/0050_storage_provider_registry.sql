@@ -123,8 +123,20 @@ ALTER TABLE public.workspace_storage
 -- exists today takes any config: 'network' carries its location in root_path,
 -- and 'petal' has nothing to configure. The CHECK below is written as the
 -- RULE rather than as "must be NULL", so S37 widening the provider CHECK to
--- 's3' automatically permits an s3 config object without editing this
--- constraint — that is what makes adding a provider additive.
+-- 's3' automatically PERMITS an s3 config object without editing this
+-- constraint.
+--
+-- 🚨 PERMITS IS NOT REQUIRES, AND THE DIFFERENCE IS THIS MIGRATION'S OWN HOLE
+-- ONE PROVIDER LATER. A row with provider='s3' and provider_config NULL would
+-- satisfy this constraint — "looks configured, resolves nowhere", which is
+-- exactly what §4a2b describes and what the converse arm above closes for the
+-- filesystem case. **Every provider that NEEDS config must add its own
+-- required-direction arm in its own migration**, e.g.
+--   CHECK (provider <> 's3' OR provider_config ? 'bucket')
+-- S36 cannot write that arm, because it cannot know a future provider's
+-- required keys — but it can refuse to imply the arm is unnecessary, which an
+-- earlier draft of this comment did. Raised by S36's adversarial review and
+-- carried into SESSION_37_prompt.md.
 ALTER TABLE public.workspace_storage
   ADD COLUMN IF NOT EXISTS provider_config JSONB;
 

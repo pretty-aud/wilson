@@ -58,6 +58,20 @@ export const FILE_PROVIDERS = Object.freeze({
 
 // Which store a NEW body goes to for a given workspace provider. S37 adds
 // 's3' here and to 0050's CHECK in the same session as the adapter.
+//
+// ⚠️ NETWORK MAPS TO A PROVIDER THIS REGISTRY DOES NOT REGISTER, ON PURPOSE.
+// 'network' means the body sits on the customer's own filesystem, which only
+// the Electron main process can reach — a browser cannot write to a NAS. That
+// path runs through localServerAdapter and Express, which do not use this
+// registry at all. So fileProviderFor('network') is a correct STATEMENT ABOUT
+// WHERE A BODY LIVES, while getStorageProvider('local_server') will throw:
+// there is no cloud-side implementation and there should not be one.
+//
+// 🚨 S37: this is why changing uploadFile's constant to the workspace's
+// configured provider is not quite a one-line change. It is one line for
+// 's3' (which WILL have a registered implementation), but a cloud-mode
+// workspace configured as 'network' has no cloud upload path and must be
+// refused with a sentence, not routed. Raised by S36's adversarial review.
 const NEW_BODY_GOES_TO = Object.freeze({
   [WORKSPACE_PROVIDERS.PETAL]:   FILE_PROVIDERS.SUPABASE,
   [WORKSPACE_PROVIDERS.NETWORK]: FILE_PROVIDERS.LOCAL_SERVER,
