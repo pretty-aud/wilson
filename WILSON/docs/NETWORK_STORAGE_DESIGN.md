@@ -534,6 +534,78 @@ lifecycle and `downloaded` event work against a bucket Petal cannot see. Flagged
 now because it changes the argument for Option D and should be evaluated
 **before** committing 3–5 sessions to a gateway.
 
+### 🚨 4a2b. BYO storage is a FAMILY, not a feature — Audrey, 2026-08-07
+
+Stated while scoping the Google Drive question, and it is a constraint on every
+storage session that follows:
+
+> *"So remember its bring your own storage solution … nas, gdrive, AWS s3
+> buckets, etc are all going to be options if we add the gdrive solution dont
+> remove other options"*
+
+**Adding a provider must be ADDITIVE. Nothing already supported may be
+narrowed, and no provider gets its own parallel implementation.** The failure
+this rules out is concrete and the schema is already leaning toward it.
+
+**MEASURED (2026-08-07) — the shape today half-fits, which is the dangerous
+kind of fit:**
+
+- `public.files.storage_provider` is already a per-file enum
+  (`0000_rabbit_base_schema.sql:67`) —
+  `('supabase','google_drive','local_server')`. **This is the right dimension
+  and it already exists**; a new provider is an `ALTER TYPE … ADD VALUE`.
+- But `workspace_storage` (0048) encodes **"byos means a filesystem path"**:
+  `root_path` + `root_kind ∈ ('unc','local')`, plus
+  `workspace_storage_root_canon_chk` (no trailing separator) and
+  `workspace_storage_kind_shape_chk` (`(root_kind='unc') = (left(root_path,2)
+  = '\\')`). A Drive folder ID, or an S3 `{endpoint, region, bucket, prefix}`,
+  is not a path and does not belong in `root_path`.
+
+🚨 **Widening `root_kind` to `'gdrive'` would PASS the shape CHECK vacuously**
+(`false = false`) while nothing validated the config — a provider that looks
+configured and resolves nowhere. That is how the second provider forks the
+first, and the third forks both.
+
+**The shape this must take instead — one registry, not N modes:**
+
+| Layer | Rule |
+|---|---|
+| `workspace_storage` | gains a **`provider`** column (`petal`, `network`, `gdrive`, `s3`, …). `root_path`/`root_kind` stay, and their CHECKs become **conditional on `provider = 'network'`** so S34's NAS rules are preserved exactly, not relaxed. |
+| provider config | **one JSONB `provider_config`**, validated per provider — never three new flat columns per provider. |
+| the adapter | **ONE storage-provider interface — put / get / delete / exists.** A provider is those four functions, never a fork of the 122-method backend adapter. `googleDriveAdapter`'s 57 `readOnly()` stubs are the shape to avoid, not to finish. |
+| `files.storage_provider` | the per-file record of who holds this body, so a workspace that switches provider does not orphan what it already wrote. |
+
+**Five invariants that hold for EVERY provider, so each new one cannot
+re-litigate the security model:**
+
+1. **The database always stays in Supabase.** Audrey's standing rule (§4a3):
+   *"its only media etc that is saved on the selected storage solution"*.
+2. 🚨 **Money-gated files NEVER leave Supabase**, whatever the media provider.
+   `INVOICES/`+`FINANCE/` are manager-only because the storage path's third
+   segment says so and Postgres enforces it (`rabbit_money_segment`, 0042).
+   Drive has opaque IDs and its own sharing model; S3 has bucket policies —
+   neither can bind to a WILSON project role. Moving invoices to either
+   re-opens the exact hole 0038 shipped and 0039 closed, in a store where RLS
+   cannot see it. **One rule, no second gate to get wrong.**
+3. **Purge is provider-aware.** Deleting a file deletes the body at its
+   provider AND writes the certificate (`TPN-CONT-002`); a derived thumbnail
+   dies with its source wherever both live.
+4. **`downloaded` logging is advisory outside Supabase** — already a stated
+   limit (S33) and it generalises: WILSON cannot observe a read the customer's
+   own provider serves directly.
+5. **Credentials encrypted at rest**, per-tenant, on the AES-256-GCM precedent.
+
+**Sequencing note, and it inverts the obvious order.** S3-compatible is
+probably the *cheaper first provider*, not Drive: one adapter covers AWS S3,
+Backblaze B2, Wasabi, Hetzner, Cloudflare R2 and MinIO, and it needs **no
+OAuth consent screen, no Google app verification and no scope tiering** —
+just endpoint, region, bucket, key and secret. Drive needs an OAuth client
+Petal ships and verifies (`drive.file` scope keeps that out of the restricted
+tier / CASA assessment — confirm against Google's current policy before
+committing). The handbook already carries the locked decision that
+S3-compatible providers arrive *through one adapter* (§12.1); this section is
+that decision generalised to the whole family.
+
 ## 4a3. Petal cloud is a PAID, OPERATOR-MANAGED product — Audrey, 2026-08-07
 
 Decided the day S34 shipped the storage-mode selector, when Audrey asked what

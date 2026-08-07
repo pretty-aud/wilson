@@ -448,7 +448,7 @@ below are superseded; only one of them actually moves.
 | **S38** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S37** (quota plane before the cap raise) | `SESSION_38_prompt.md` |
 | **S39** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_39_prompt.md` |
 | **S40** | **Design pass** — last on purpose; must cover all the surface S33–S39 adds | ? | S39 + S37 | `SESSION_40_prompt.md` |
-| — | **Bring-your-own-cloud** (design §4a2) — evaluate **before** any gateway work | design ½ | none | not written |
+| — | **BYO storage providers** (design §4a2 + **§4a2b**) — the provider REGISTRY (`workspace_storage.provider` + JSONB config + one put/get/delete/exists interface), then providers land one at a time: **S3-compatible first** (one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO, no OAuth), then **Google Drive** (needs a Petal OAuth client, `drive.file` scope). 🚨 **Additive only — adding a provider must not narrow NAS/`network`, and money-gated files never leave Supabase.** Evaluate **before** any gateway work | registry ~1 + ~1 per provider | none (S37 first is tidier — it builds the mode plumbing) | not written |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
 > **The real chains: S33 → S34 → S35 (done), S37 → S38** (quota plane before
