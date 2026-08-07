@@ -191,7 +191,13 @@ SELECT is((SELECT count(*)::int FROM public.user_settings),
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
-SELECT is((SELECT count(*)::int FROM public.user_settings),
+-- Scoped to user_d like the :161 probe above, not count(*): an unscoped
+-- postgres read counts REAL rows on a live env (suite 56's twin probe
+-- failed exactly that way in S33, have:2, the day dev carried an actual
+-- pet — this table's writer shipped in S31 and is one sign-in away from
+-- the same decay).
+SELECT is((SELECT count(*)::int FROM public.user_settings
+            WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
           1, 'the other member''s settings survived the unqualified DELETE');
 
 SELECT * FROM finish();

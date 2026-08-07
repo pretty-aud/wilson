@@ -247,11 +247,17 @@ SELECT is((SELECT count(*)::int FROM public.user_pets),
           0, 'and it is gone for them');
 
 -- ...but only theirs. Read as postgres, because the member can no longer see
--- the row that proves the other one survived.
+-- the row that proves the other one survived. Scoped to user_d, NOT
+-- count(*) over the table: this table now carries REAL rows on live envs
+-- (S33 measured have:2 on dev — someone's actual pet), and an unscoped
+-- count decays the day the feature gets used. Every other count probe in
+-- this suite is implicitly scoped by the self-only policy; a postgres read
+-- has no such scope and must bring its own.
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
-SELECT is((SELECT count(*)::int FROM public.user_pets),
+SELECT is((SELECT count(*)::int FROM public.user_pets
+            WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
           1, 'the other member''s pet survived the unqualified DELETE');
 
 SELECT * FROM finish();
