@@ -20,11 +20,38 @@
 >
 > ⚠️ **ADDITIVE ONLY.** The NAS path must behave identically afterwards.
 
-> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
-> migrations **0000–0049**, next free **0050**. pgTAP **59 suites / 982
-> assertions**, next suite **60**. Vitest **1022 / 47 files**. 🚨 S36 lands
-> before this one and will have moved these numbers. **Read the working
-> tree.**
+> **STATE — re-measure, do not trust this block.** After **S36**
+> (2026-08-07): migrations **0000–0050** on all three envs, next free
+> **0051**. pgTAP **60 suites / 1013 assertions**, next suite **61**. Vitest
+> **1048 / 48 files**. 🚨 **Read the working tree** — a design written mid-S31
+> cited "0046, next free" and was wrong within the hour.
+>
+> ⭐ **S36 SHIPPED THE REGISTRY THIS SESSION PLUGS INTO. Read its outcome
+> block in `MASTER_PLAN_S19_ONWARD.md` before this brief.** What is already
+> built, so S37 must NOT rebuild it:
+> - `workspace_storage.provider` (TEXT + CHECK) and `provider_config` (ONE
+>   JSONB). **S37 adds `'s3'` to `workspace_storage_provider_chk` in its OWN
+>   migration, alongside the adapter** — suite 60 currently asserts `'s3'` is
+>   REFUSED, so that probe MUST be inverted in the same commit that makes it
+>   resolvable. That inversion is the deliberate tripwire, not a test failure.
+> - The four-function contract (`put`/`get`/`del`/`exists` + `describe`) in
+>   `src/tools/rabbit_v0.1.0/storage/`. `registerStorageProvider()` refuses an
+>   implementation missing any of them. **A provider is those functions —
+>   never a fork of the 116-method backend adapter.**
+> - `fileProviderFor()` is the ONE mapping from a workspace provider to a
+>   `files.storage_provider` value, **and it pins financial files to
+>   `'supabase'` unconditionally.** Its vitest is table-driven over every
+>   provider value, so adding `'s3'` without thinking about money fails there.
+> - `files_money_provider_chk` (0050) enforces the same rule in the database
+>   on both axes. **Do not add a second money gate** — 0042's one-definition
+>   rule.
+> - `supabaseAdapter.uploadFile` passes `WORKSPACE_PROVIDERS.PETAL` as a
+>   CONSTANT today. **S37's job includes replacing that one argument with the
+>   workspace's configured provider** — it is the seam, and it is deliberately
+>   the only line that needs to change there.
+> - 🚨 `workspace_storage_root_provider_path_chk` refuses a `root_path` under
+>   any provider but `'network'`. An S3 workspace stores its endpoint/bucket
+>   in `provider_config`, **never** in `root_path`.
 
 ## Start ritual (before touching anything)
 

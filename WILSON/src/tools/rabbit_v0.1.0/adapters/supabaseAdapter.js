@@ -51,6 +51,18 @@ import {
   planProjectFolders, planEntityFolder, ENTITY_FK_COLUMN,
 } from '../folderPaths';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
+// Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
+// This adapter IS Petal cloud, so its workspace provider is 'petal' today; S37
+// and S38 add entries to the registry rather than branches here.
+import {
+  WORKSPACE_PROVIDERS,
+  FILE_PROVIDERS,
+  fileProviderFor,
+  registerStorageProvider,
+  getStorageProvider,
+  resolveFileProvider,
+} from '../storage';
+import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 
 // ───────────────────────────────────────────────────────────────
@@ -133,6 +145,16 @@ async function requireClient() {
   }
   return client;
 }
+
+// Session 36: register Supabase Storage as a provider under the four-function
+// contract, once, at module load. Registration is idempotent in practice
+// because this module is a singleton, and it is what gives the registry a LIVE
+// caller from the day it ships rather than the day S37 lands — the repo's
+// costliest pattern is a green test over a path nothing calls.
+registerStorageProvider(
+  FILE_PROVIDERS.SUPABASE,
+  createSupabaseStorageProvider(requireClient),
+);
 
 function sanitize(obj, drop = []) {
   if (!obj || typeof obj !== 'object') return obj;
@@ -975,17 +997,29 @@ export function supabaseAdapter() {
         } catch { /* the tree is a convenience here, not a precondition */ }
       }
 
-      const { error: upErr } = await client
-        .storage
-        .from('rabbit-files')
-        .upload(storagePath, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: file?.type || 'application/octet-stream',
+      // Session 36: which store holds this body. Decided ONCE, here, next to
+      // the branch that already chose the INVOICES segment — so the row and
+      // the path can never disagree about whether this file is money.
+      //
+      // 🚨 A FINANCIAL UPLOAD IS PINNED TO SUPABASE whatever the workspace
+      // selected (§4a2b invariant 2): only RLS enforces the money gate, and
+      // no Drive or S3 sharing model binds to a WILSON project role. Migration
+      // 0050's files_money_provider_chk refuses the same rows in the database,
+      // so a caller that bypasses this line is still refused.
+      //
+      // WORKSPACE_PROVIDERS.PETAL is a constant TODAY because this adapter IS
+      // Petal cloud. S37 changes this one argument to the workspace's
+      // configured provider; it does not add a branch.
+      const storageProvider = fileProviderFor(WORKSPACE_PROVIDERS.PETAL, {
+        financial: !!scope.financial,
+      });
+      try {
+        await getStorageProvider(storageProvider).put(storagePath, file, {
+          contentType: file?.type,
         });
-      if (upErr) {
-        lastError = upErr.message;
-        throw new Error(`[supabase] storage upload failed: ${upErr.message}`);
+      } catch (upErr) {
+        lastError = upErr?.message || String(upErr);
+        throw upErr;
       }
 
       const row = {
@@ -1003,7 +1037,7 @@ export function supabaseAdapter() {
         name:             file?.name || safeName,
         mime_type:        file?.type || null,
         size_bytes:       file?.size ?? null,
-        storage_provider: 'supabase',
+        storage_provider: storageProvider,
         storage_path:     storagePath,
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
@@ -1018,7 +1052,7 @@ export function supabaseAdapter() {
         // The blob landed but the row didn't — remove our own object so a
         // refused insert can't strand an orphan (rabbit_files_delete_own
         // policy, 0027). Best-effort: the GC orphan scan is the backstop.
-        try { await client.storage.from('rabbit-files').remove([storagePath]); } catch { /* GC catches it */ }
+        try { await getStorageProvider(storageProvider).del(storagePath); } catch { /* GC catches it */ }
       }
       return unwrap(ins);
     },
@@ -1030,8 +1064,15 @@ export function supabaseAdapter() {
 
     async downloadFile(file) {
       const client = await requireClient();
-      const { data, error } = await client.storage.from('rabbit-files').download(file.storage_path);
-      if (error) throw new Error(`[supabase] download failed: ${error.message}`);
+      // 🚨 Session 36: the body comes from the provider THE ROW NAMES, not
+      // from the workspace's current setting and not from which adapter is
+      // running. Before this, all three adapters fetched unconditionally from
+      // their own backend, so routing was decided per SESSION — which is
+      // correct only while every row says the same thing. The day a workspace
+      // switches provider, that assumption orphans everything already
+      // written. Today every row still says 'supabase', so this resolves to
+      // exactly the call it replaced.
+      const data = await resolveFileProvider(file).get(file.storage_path);
       // S33 (0047, TPN-CONT-008 / TPN-LOG-002): every download leaves a
       // file_events row, written by the log_file_downloaded SECURITY DEFINER
       // RPC — the table itself stays append-only (no client INSERT).

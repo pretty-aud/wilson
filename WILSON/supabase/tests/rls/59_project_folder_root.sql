@@ -75,8 +75,8 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 SELECT set_config('role','authenticated', true);
 
 SELECT lives_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', '\\nas\projects\wilson', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', '\\nas\projects\wilson', 'unc')$$,
   'fixture: workspace A has a byos drive');
 
 -- ── the seat: admin and manager pass ────────────────────────────────────────
@@ -300,8 +300,8 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 SELECT set_config('role','authenticated', true);
 
 SELECT lives_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('22222222-2222-2222-2222-222222222222', 'byos', '\\nas\projectsB\wilson', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('22222222-2222-2222-2222-222222222222', 'byos', 'network', '\\nas\projectsB\wilson', 'unc')$$,
   'fixture: workspace B configures its OWN byos drive (a different share)');
 
 SELECT throws_ok(

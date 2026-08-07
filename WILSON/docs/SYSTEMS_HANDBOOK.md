@@ -1390,6 +1390,69 @@ through one adapter. The database enum is
 `storage_provider ∈ ('supabase','google_drive','local_server')` — "local" and
 "local server" are one provider presented as a single card in Settings.
 
+**🚨 There are TWO provider vocabularies and they are different axes (S36,
+migration 0050). Do not merge them.**
+
+| | Column | Values | Says |
+|---|---|---|---|
+| Configuration | `workspace_storage.provider` | `petal`, `network` | what the workspace **chose** |
+| Fact | `files.storage_provider` | `supabase`, `google_drive`, `local_server` | where **this body** actually is |
+
+They cannot be one list, because a **financial file is `supabase` whatever the
+workspace chose** (§12.1a). The mapping between them is
+`fileProviderFor()` in `src/tools/rabbit_v0.1.0/storage/index.js`, and
+`storageRegistry.test.js` pins the configuration list against migration 0050's
+CHECK by reading the migration as text — the client vocabulary and the schema
+have one definition, checked mechanically rather than by comment.
+
+`workspace_storage.mode` is a **third, separate** axis: which storage is
+ACTIVE (`central` = Petal cloud, `byos` = the customer's own). Mode is what
+every consumer already gates on — `App.jsx` pushes a root only when mode is
+`byos`, and `fn_project_folder_root_guard` (0049) refuses a project folder
+unless mode is `byos`. That is why `provider` is bound to mode in one
+direction only (`mode <> 'byos' OR provider <> 'petal'`): a workspace on Petal
+cloud may still carry `provider = 'network'` and a `root_path`, which is
+0048's **retyping rule** — the NAS is remembered, and inert, until byos is
+re-selected.
+
+### 12.1a Adding a storage provider
+
+A provider is **four functions, never an adapter fork**:
+`put(key, body, opts)` / `get(key)` / `del(key)` / `exists(key)`, plus
+`describe()` for the configuration-time reachability probe. The registry is
+`src/tools/rabbit_v0.1.0/storage/`; `registerStorageProvider()` refuses an
+implementation missing any of them, specifically so the `googleDriveAdapter`
+shape — **57 `readOnly()` stubs across 68 methods**, a v0.1 relic predating
+workspaces, RLS, the folder tree and the manifest — cannot arrive by the back
+door. It is the shape to avoid, not to finish.
+
+Adding one (S37 = S3-compatible, S38 = Google Drive) means, in ONE session:
+1. a registry entry implementing the four functions;
+2. one value added to `workspace_storage_provider_chk` in that provider's own
+   migration — **never ahead of the adapter**, because a configurable provider
+   that resolves nowhere is precisely the failure the registry exists to
+   prevent (`0050`'s CHECK deliberately lists only `petal` and `network`, and
+   suite 60 asserts `gdrive`/`s3` are still REFUSED);
+3. one entry in `NEW_BODY_GOES_TO`, and a `files.storage_provider` enum value
+   if the body lands somewhere new.
+
+🚨 **Nothing already supported may be narrowed.** Audrey, 2026-08-07:
+*"nas, gdrive, AWS s3 buckets, etc are all going to be options … dont remove
+other options."* Suite 60 re-runs S34's NAS refusals under
+`provider = 'network'` for exactly this reason.
+
+🚨 **Money-gated files NEVER leave Supabase**, whatever the workspace chose.
+`INVOICES/` and `FINANCE/` are manager-only because the storage path's third
+segment says so and Postgres enforces it (`public.rabbit_money_segment`,
+0042). Drive has opaque ids and its own sharing model; S3 has bucket policies
+— neither binds to a WILSON project role, so moving invoices to either
+re-opens the hole 0038 shipped and 0039 closed, somewhere RLS cannot see it.
+Enforced in **two** places: `fileProviderFor()` pins the client at the same
+branch that picks the `INVOICES` segment (so the row and the path cannot
+disagree), and `files_money_provider_chk` (0050) refuses the same rows in the
+database on **both** axes — the `is_financial` flag and the reserved path
+segment — for any caller that bypasses the client.
+
 | Provider | `storage_path` means | Read | Write | Web |
 |---|---|---|---|---|
 | `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | Base64 JSON body → `writeFileSync` | ✗ |
@@ -2631,6 +2694,40 @@ of a session — this section is limits by design, that file is faults.
   service** — §12.7 is the setup guidance, TS-2 is the TPN control, and the
   UNC-form check against a real NAS is owed before this is promised to a
   customer.
+
+**The storage provider registry (S36, migration 0050)**
+
+- **S36 built the registry and NO provider.** `workspace_storage_provider_chk`
+  lists only `petal` and `network`; suite 60 asserts `gdrive` and `s3` are
+  still REFUSED. That is the session's promise, not an omission — see §12.1a.
+- 🚨 **Postgres reports a CHECK violation by the ALPHABETICALLY FIRST
+  constraint name, not the one declared first** (measured on dev, 2026-08-07),
+  and `throws_ok` matches `SQLERRM` exactly. A new constraint can therefore
+  steal an existing suite's expected message and the failure reads as
+  unrelated. `workspace_storage_root_provider_path_chk` is named for its sort
+  position; suites 58/59 also name `provider` in every fixture so each probe
+  violates exactly one constraint.
+- **The provider is not yet plumbed into the upload decision.**
+  `supabaseAdapter.uploadFile` passes `WORKSPACE_PROVIDERS.PETAL` as a
+  constant, because that adapter IS Petal cloud. S37 changes that one argument
+  to the workspace's configured provider; it does not add a branch.
+- **`rabbit:set-workspace-root`'s IPC payload is still `{rootPath, rootKind}`**
+  with no provider, and that is currently correct: the only provider that has
+  a filesystem root is `network`, and 0050 refuses a `root_path` under any
+  other one, so a pathless provider pushes null by construction.
+- **A project folder under a non-filesystem provider is refused, not
+  modelled.** `fn_project_folder_root_guard` (0049) already fails closed when
+  `root_path IS NULL`, which is both staging's live row today (an admin
+  mid-setup) and the shape every bucket-backed provider will carry. Suite 60
+  probe 31 pins it. No 0049 change was needed.
+- **`provider_config` has no reader yet.** It exists so S37 cannot add flat
+  per-provider columns, and its CHECK is written as the general rule (petal and
+  network take none; anything else must be a JSON object), so widening the
+  provider CHECK permits a config with no edit here.
+- **`updateFile` still allows `storage_provider` and `storage_path` through
+  `FILE_COLUMNS`** while the Express PATCH route strips both — an S14
+  hardening applied on one backend only. Since 0050 the money invariant is
+  safe regardless (a CHECK re-validates on UPDATE), but the asymmetry stands.
 
 **The folder tree and the manifest (S26)**
 

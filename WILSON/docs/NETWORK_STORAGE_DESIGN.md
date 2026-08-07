@@ -575,6 +575,44 @@ first, and the third forks both.
 | the adapter | **ONE storage-provider interface — put / get / delete / exists.** A provider is those four functions, never a fork of the 122-method backend adapter. `googleDriveAdapter`'s 57 `readOnly()` stubs are the shape to avoid, not to finish. |
 | `files.storage_provider` | the per-file record of who holds this body, so a workspace that switches provider does not orphan what it already wrote. |
 
+> **✅ BUILT BY S36 (2026-08-07, migration 0050). Four corrections to the table
+> above, all measured while building it — the shape is right, three of the
+> details were not.**
+>
+> 1. **The 0048 CHECKs did NOT need to become conditional, and making them
+>    conditional would have been strictly worse.** Every one of them already
+>    reads `root_path IS NULL OR …`, so each is already inert for a pathless
+>    provider and fully binding for a network one. Rewriting them could only
+>    weaken them. **All five are untouched by 0050** — a stronger proof that
+>    the NAS path is unchanged than any test. What was actually missing is the
+>    **converse**: `root_path IS NULL OR provider = 'network'`. Without it a
+>    bucket row could carry a stray filesystem root that
+>    `resolveConfiguredRootDir()` would read and act on.
+> 2. **"A provider is a value, not a column" holds, but the vocabulary is TWO
+>    lists, not one.** `workspace_storage.provider` (what the workspace CHOSE)
+>    and `files.storage_provider` (where THIS body is) cannot merge, because a
+>    financial file is `supabase` whatever the workspace chose. The mapping is
+>    `fileProviderFor()`, pinned to the migration by a test that reads the SQL.
+> 3. **The "122-method backend adapter" figure is wrong.** Measured:
+>    `supabaseAdapter` 116 methods, `localServerAdapter` 104,
+>    `googleDriveAdapter` 68 — union 133, and there is no single declared
+>    interface (only a 93-line JSDoc typedef, unenforced, already 23 short).
+>    **The 57 `readOnly()` stubs figure IS exact**, but it is 57 of Drive's own
+>    68, not of 122.
+> 4. 🚨 **`provider` must NOT be bound to `mode` by a biconditional.** 0048
+>    deliberately lets a root survive a switch back to `central` so re-enabling
+>    does not mean retyping; forcing `provider` back to `'petal'` on that
+>    switch loses the retained provider exactly as losing `root_path` would
+>    lose the retained path. The rule is one-directional — `mode 'byos'`
+>    requires a real provider — and **central + network + a path is a legal,
+>    inert, retained state.** S34's own pgTAP suite caught this.
+>
+> S36 shipped **no provider**, on purpose: `workspace_storage_provider_chk`
+> lists only `petal` and `network`, and suite 60 asserts `gdrive` and `s3` are
+> still refused. Each arrives with the adapter that can resolve it — a
+> configurable provider that resolves nowhere is the exact failure this
+> section was written to prevent.
+
 **Five invariants that hold for EVERY provider, so each new one cannot
 re-litigate the security model:**
 

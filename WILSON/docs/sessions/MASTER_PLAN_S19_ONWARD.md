@@ -450,9 +450,9 @@ below are superseded; only one of them actually moves.
 | **S33** ✅ | **DONE (2026-08-07, `ed85072` + `439f702`)** — guard fix + the `downloaded` event; outcome block below | ~1 | — | `SESSION_33_prompt.md` |
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
-| **S36** | **The storage provider REGISTRY** (design §4a2b) — `workspace_storage.provider` + JSONB config, S34's path CHECKs made conditional on `provider='network'`, one put/get/delete/exists interface. **Builds no provider.** 🚨 Additive by contract: the NAS path must behave identically after it | 1 | **none** — S34 shipped its only prerequisite | `SESSION_36_prompt.md` |
-| **S37** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | **S36** | `SESSION_37_prompt.md` |
-| **S38** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | **S36** (S37 first by choice) | `SESSION_38_prompt.md` |
+| **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
+| **S37** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | ✅ **UNBLOCKED** (S36 shipped the registry) | `SESSION_37_prompt.md` |
+| **S38** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | ✅ **UNBLOCKED** (S36 shipped the registry; S37 first by choice) | `SESSION_38_prompt.md` |
 | **S39** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_39_prompt.md` |
 | **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
 | **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
@@ -485,6 +485,110 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S36 outcome — the registry, and no provider (2026-08-07)
+>
+> Migration **0050** applied and verified **by query** on dev, staging and
+> prod; CLI re-linked to wilson-dev. pgTAP suite **60**: 32 assertions. Full
+> set **60 suites / 1014 assertions** clean; vitest **1048 / 48 files**.
+>
+> **What shipped.** `workspace_storage` gains `provider` (TEXT + CHECK — the
+> post-0000 house shape; named enums exist only in 0000) and one JSONB
+> `provider_config`, with four constraints: the vocabulary
+> (`petal`|`network`), the mode↔provider rule, the **converse arm** (no
+> `root_path` unless `provider='network'`), and per-provider config
+> validation written as the general rule so S37 inherits it. `public.files`
+> gains **`files_money_provider_chk`**. On the client,
+> `src/tools/rabbit_v0.1.0/storage/` holds the four-function contract
+> (`put`/`get`/`del`/`exists` + `describe`), `registerStorageProvider()`
+> refuses an incomplete implementation, `fileProviderFor()` is the one mapping
+> and the money pin, and `resolveFileProvider()` routes a read from **the file
+> row** rather than from whichever adapter happens to be running. Supabase is
+> registered and `uploadFile`/`downloadFile` go through it, so the registry
+> has a live caller on day one rather than on S37's.
+>
+> 🚨 **The brief was wrong in four places, all found by measuring rather than
+> by reading it.**
+> 1. **0048's five CHECKs did NOT need conditioning on `provider='network'`,
+>    and conditioning them would have been strictly worse.** A pathless row
+>    satisfies all five already, so they are inert for a bucket provider and
+>    binding for a NAS. Rewriting them could only weaken them. **They are
+>    untouched** — a stronger proof the NAS path is unchanged than any test.
+>    What was missing is the **converse**, which nothing had.
+> 2. **The backfill's stated reason was false.** The brief asserted existing
+>    `byos` rows carry a real filesystem root. Measured: the entire live corpus
+>    of `workspace_storage` is **ONE row** (staging, `byos`, `root_path`
+>    NULL — an admin mid-setup); `public.files` holds **zero rows on all three
+>    envs**. `byos → network` survives, but because `network` was the only byos
+>    provider that existed, not because of a path.
+> 3. **The vocabulary is TWO lists, not one.** `workspace_storage.provider`
+>    (chosen) and `files.storage_provider` (where this body is) cannot merge,
+>    because a financial file is `supabase` whatever was chosen.
+> 4. **"122-method backend adapter" is wrong** — 116 / 104 / 68, union 133,
+>    and no declared interface exists (a 93-property JSDoc typedef,
+>    unenforced). The **57 `readOnly()` stubs** figure IS exact.
+>
+> 🚨 **S34's own pgTAP suite caught a real defect in this session's first
+> draft.** `provider` was bound to `mode` by a **biconditional**, which reads
+> well and silently deletes 0048's retyping rule — *"a root, when present,
+> survives a switch back to 'central'"*. Forcing `provider` back to `'petal'`
+> on that switch loses the retained provider exactly as losing `root_path`
+> would lose the retained path. The rule is one-directional (`byos` requires a
+> real provider); **central + network + a path is legal, inert and retained**,
+> and both layers that could act on it already gate on `mode`.
+>
+> 🚨 **MEASURED, and it will cost a future session otherwise: Postgres reports
+> a CHECK violation by the ALPHABETICALLY FIRST constraint name, not the one
+> declared first** (probed on dev with `zz_declared_first_chk` /
+> `aa_declared_second_chk` over one predicate). `throws_ok` matches `SQLERRM`
+> exactly, so a carelessly-named constraint steals an existing suite's message
+> and the failure reads as unrelated. Hence
+> `workspace_storage_root_provider_path_chk` (the `root_` prefix sorts it past
+> `root_canon`/`root_pair`), and hence suites 58/59's fixtures now NAME
+> `provider` so each probe violates exactly one constraint. **Adding a column
+> also broke eight fixture INSERTs** across 58/59 until `provider` got a
+> default that pairs coherently with `mode`'s.
+>
+> **The pre-deploy adversarial review earned its keep for the fourth session
+> running: 40 findings raised, 35 refuted, 5 confirmed (1 medium, 4 low)
+> against code already green on 60/60 pgTAP and 1048 vitest.** The medium is
+> the one worth carrying: **the probe labelled "row axis" pinned nothing.** It
+> inserted `is_financial=true` at an `INVOICES` path, so the PATH arm refused
+> it anyway — delete `COALESCE(is_financial,false)` from the constraint and
+> suite 60 still reported 31/31. The five whole-constraint breakers could not
+> see it, because **a breaker that neuters a whole constraint is arm-blind by
+> construction.** Fixed by isolating the row axis over an ordinary path, and
+> **re-proven with ARM-level breakers**: dropping the row arm now fails
+> exactly one probe, dropping the path arm exactly three.
+> 🚨 **And that re-proof exposed a second trap: once a migration is APPLIED,
+> migration-modifying breakers are silent no-ops**, because every `ADD
+> CONSTRAINT` is wrapped in `EXCEPTION WHEN duplicate_object`. Both arm
+> breakers passed 32/32 until the breaker was made to `DROP CONSTRAINT` first.
+> **Run breakers before deploying, or drop explicitly.** The other four
+> confirmed findings were comment defects in this session's own work: a
+> `split_part` claim that was simply wrong (`projects/<id>/PROJECT.json`
+> yields `'PROJECT.json'`, not `''` — the probe passes because
+> `rabbit_money_segment('PROJECT.json')` is false), header probe ordinals off
+> by one, an overstated "every one of 0048's five CHECKs" line, and a line
+> citation this very diff invalidated.
+>
+> ⚠️ **Recorded rather than hidden:** the `split_part` extractor in
+> `files_money_provider_chk` is NOT the same as 0042's
+> `storage.foldername(name)[3]` — they agree for every four-field-or-longer
+> path (i.e. every uploaded file) and diverge at depth three, where this CHECK
+> is the **stricter**. Deliberate, and now written down.
+>
+> **Stated limits.** `uploadFile` passes `WORKSPACE_PROVIDERS.PETAL` as a
+> **constant** — the cloud adapter IS Petal cloud, and S37 changes that one
+> argument, not a branch. `provider_config` has **no reader yet**; it exists so
+> S37 cannot add flat per-provider columns, and its CHECK is the live
+> enforcement. The `rabbit:set-workspace-root` IPC payload still carries no
+> provider, which is correct while only `network` has a path. **No provider UI
+> was added** — `AdminTerminalPage` records that Storage was the seventh
+> section and the terminal is at the 7±2 limit, so S37's picker must extend
+> `StorageSection`, not append an eighth. And **nothing here has been watched
+> working by a human**: no NAS exists in this room and nothing in this repo
+> signs in as Audrey.
+>
 > ### S35 outcome — the folder half, bounded (2026-08-07)
 >
 > Migration **0049** (`fn_project_folder_root_guard` on `public.projects`)

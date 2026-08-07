@@ -25,6 +25,23 @@
 -- Postgres-side reads are ALWAYS scoped to the fixture workspaces — dev
 -- carries real rows (S33, 439f702), and an unscoped count decays the day the
 -- feature is used.
+--
+-- 🚨 SESSION 36: every fixture below that carries a root_path now NAMES
+-- provider = 'network' (0050). Two reasons, and the second is the one that
+-- would otherwise cost a session:
+--   * Truth. A fixture configuring a NAS should say it is a NAS. 0050's
+--     workspace_storage_mode_provider_chk binds mode to provider, so a byos
+--     row that lets provider default to 'petal' is an incoherent row.
+--   * MEASURED on dev, 2026-08-07: when a row violates several CHECKs at
+--     once, Postgres reports the one whose name sorts FIRST ALPHABETICALLY,
+--     not the one declared first — and throws_ok matches SQLERRM EXACTLY.
+--     Left defaulting, the byos+path fixtures would violate the new
+--     mode_provider_chk as well, and THAT name sorts ahead of
+--     root_canon_chk / root_pair_chk, so three probes below would have
+--     started reporting a constraint they are not about. Naming provider
+--     makes each probe violate exactly ONE constraint, which is what a
+--     single-constraint assertion should always have done.
+-- Nothing here is relaxed: every refusal, message and expectation is S34's.
 -- =============================================================================
 
 BEGIN;
@@ -106,23 +123,25 @@ SELECT ok(
 
 -- ── CHECK constraints (as postgres: RLS is not what these prove) ────────────
 
+-- provider 'network' so mode_provider_chk (0050) is SATISFIED and this row
+-- violates mode_chk alone — 'dropbox' is not a mode under any provider.
 SELECT throws_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'dropbox')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'dropbox', 'network')$$,
   'new row for relation "workspace_storage" violates check constraint "workspace_storage_mode_chk"',
   'mode outside central|byos is refused');
 
 SELECT throws_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'C:\Projects')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', 'C:\Projects')$$,
   'new row for relation "workspace_storage" violates check constraint "workspace_storage_root_pair_chk"',
   'a root path without its kind is refused — half a config resolves nowhere');
 
 -- §3.2: the pre-S33 guard refused every file under a root saved with a
 -- trailing separator. The canonical form is enforced where drift would start.
 SELECT throws_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', '\\nas\projects\wilson\', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', '\\nas\projects\wilson\', 'unc')$$,
   'new row for relation "workspace_storage" violates check constraint "workspace_storage_root_canon_chk"',
   'a trailing separator is refused — canonical UNC only (§3.2)');
 
@@ -139,8 +158,8 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 SELECT set_config('role','authenticated', true);
 
 SELECT throws_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', '\\nas\projects\wilson', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', '\\nas\projects\wilson', 'unc')$$,
   'new row violates row-level security policy for table "workspace_storage"',
   'an active member with a user claim cannot set the root (role arm)');
 
@@ -155,8 +174,8 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 SELECT set_config('role','authenticated', true);
 
 SELECT lives_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', '\\nas\projects\wilson', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', '\\nas\projects\wilson', 'unc')$$,
   'a workspace admin sets the storage root');
 
 -- Precisely worded: fn_audit_touch DEFAULTS created_by from the JWT when the
@@ -365,8 +384,8 @@ SELECT is(
 -- rule — reason from a lie. As postgres: RLS is not what this proves, and
 -- the A-row is deleted by probe 25 so there is no PK collision.
 SELECT throws_ok(
-  $$INSERT INTO public.workspace_storage (workspace_id, mode, root_path, root_kind)
-    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'C:\Projects', 'unc')$$,
+  $$INSERT INTO public.workspace_storage (workspace_id, mode, provider, root_path, root_kind)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 'network', 'C:\Projects', 'unc')$$,
   'new row for relation "workspace_storage" violates check constraint "workspace_storage_kind_shape_chk"',
   'a root_kind that contradicts the path''s shape is refused');
 

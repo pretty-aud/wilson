@@ -25,10 +25,20 @@ import { supabase } from './auth/supabaseClient'
 // configured. Throws on a real error — callers must not treat a broken read
 // as "unconfigured" (useRosterMembers' silent [] is the standing example of
 // why not).
+// 🚨 THIS SELECT LIST IS THE DE-FACTO READ ALLOWLIST, and it is the only one —
+// there is no WORKSPACE_STORAGE_COLUMNS constant, because this table is not
+// read through the RABBIT adapter. A column missing from this string is
+// invisible to every caller no matter what the database holds.
+//
+// It also has to stay in step with saveWorkspaceStorage below, which does a
+// bare .select() (= *). Session 36 measured the consequence: with `provider`
+// added to the table but not to this list, a LOADED row would have carried no
+// provider while a SAVED row carried one, so the same component's `row` object
+// changed shape halfway through a session depending on which path produced it.
 export async function fetchWorkspaceStorage() {
   const { data, error } = await supabase
     .from('workspace_storage')
-    .select('workspace_id, mode, root_path, root_kind, updated_at, updated_by')
+    .select('workspace_id, mode, provider, provider_config, root_path, root_kind, updated_at, updated_by')
     .maybeSingle()
   if (error) throw new Error(`workspace storage read failed: ${error.message}`)
   return data

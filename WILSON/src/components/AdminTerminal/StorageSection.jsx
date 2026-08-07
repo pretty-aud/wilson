@@ -40,6 +40,10 @@ import { useEffect, useRef, useState } from 'react'
 import { Cloud, Server, FolderOpen, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { fetchWorkspaceStorage, saveWorkspaceStorage } from '../../cloud/workspaceStorage'
 import { canonicalizeRoot, classifyRoot } from '../../lib/storageRoot'
+// Session 36: the provider axis (migration 0050). Imported rather than spelled
+// as a literal so this section and the registry cannot drift apart — the
+// vocabulary has exactly one definition on the client.
+import { WORKSPACE_PROVIDERS } from '../../tools/rabbit_v0.1.0/storage'
 
 const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
@@ -151,7 +155,18 @@ export default function StorageSection({ isActive, workspaceId }) {
   async function selectMode(nextKey) {
     if (nextKey === mode || saving || loadError) return
     resetRootFlow()
-    const next = await applyPatch({ mode: nextKey })
+    // Session 36: switching to "your server / NAS" must NAME the provider —
+    // 0050's workspace_storage_mode_provider_chk refuses byos with no real
+    // provider, so patching mode alone would fail the save. 'network' is the
+    // only byos provider today; S37 turns this into a picker.
+    //
+    // Switching back to Petal cloud deliberately leaves `provider` alone, so
+    // the choice is RETAINED exactly as root_path is (0048's retyping rule).
+    // The retained provider is inert: this component and App.jsx both push the
+    // root only when mode is 'byos'.
+    const next = await applyPatch(nextKey === 'byos'
+      ? { mode: 'byos', provider: WORKSPACE_PROVIDERS.NETWORK }
+      : { mode: 'central' })
     if (next) {
       setNotice(nextKey === 'byos'
         ? 'Storage mode saved. Set the storage root below.'
@@ -211,7 +226,12 @@ export default function StorageSection({ isActive, workspaceId }) {
       setConfirmStep(1)
       return
     }
-    const next = await applyPatch({ root_path: canonical, root_kind: 'unc' })
+    // provider rides with the path: setting a filesystem root IS choosing the
+    // network provider, and 0050's root_provider_path_chk refuses a root_path
+    // under any other one.
+    const next = await applyPatch({
+      provider: WORKSPACE_PROVIDERS.NETWORK, root_path: canonical, root_kind: 'unc',
+    })
     if (next) {
       setRootDraft(next.root_path || '')
       setNotice('Storage root saved. Each computer picks it up at its next launch or sign-in; this one resolves it now.')
@@ -223,7 +243,9 @@ export default function StorageSection({ isActive, workspaceId }) {
     setConfirmStep(0)
     setPendingLocal(null)
     if (!canonical) return
-    const next = await applyPatch({ root_path: canonical, root_kind: 'local' })
+    const next = await applyPatch({
+      provider: WORKSPACE_PROVIDERS.NETWORK, root_path: canonical, root_kind: 'local',
+    })
     if (next) {
       setRootDraft(next.root_path || '')
       setNotice('Folder saved for this computer.')
