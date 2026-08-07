@@ -4,9 +4,43 @@
 > **BLOCKED ON S34** — the workspace root must exist before anything can be
 > contained *within* it.
 
-> **STATE — re-measure.** After S34 the storage root lives in
-> `public.workspace_storage`. Confirm the migration number, suite count and
-> HEAD from the working tree, not from this block.
+> ✅ **UNBLOCKED — S34 SHIPPED (2026-08-07, `79b6220`).** The storage root
+> lives in `public.workspace_storage` (0048, all three envs, verified by
+> query). Read the **S34 outcome block** in `MASTER_PLAN_S19_ONWARD.md`
+> before starting.
+
+> **STATE — re-measure, do not trust this block.** After S34: migrations
+> **0000–0048** on all three envs (verified by query), next free **0049**.
+> pgTAP **58 suites / 951 assertions**, next free suite **59**. Vitest
+> **972 / 46 files**. HEAD `79b6220` (+ a docs postscript after it), CLI
+> linked to wilson-dev.
+> 🚨 **A design written mid-S31 said "0046, next free" and was wrong within
+> the hour. Read the working tree, never memory or a doc.**
+
+> **What S34 hands this session, beyond the brief below:**
+> - **The boundary check has its pieces waiting.** The workspace root
+>   reaches `electron/main.cjs` as `workspaceRootDir` (pushed over
+>   `rabbit:set-workspace-root`), and `isPathInside` from
+>   `electron/pathContainment.cjs` is the one comparison — containing
+>   `folder_root` inside the root is a call, not a design.
+> - **`resolveConfiguredRootDir()` (main.cjs) is the ONE definition of the
+>   machine's effective root**; a wiring test
+>   (`src/lib/workspaceRootWiring.test.js`) fails if a resolver re-derives
+>   it. Extend that test when the Control Panel gate lands.
+> - **`classifyRoot`/`canonicalizeRoot` (`src/lib/storageRoot.js`) already
+>   refuse mapped drives, bare roots, dot segments and device paths** — the
+>   Control Panel folder picker should ride the same module, not re-derive.
+> - ⚠️ **S34's review found the folder_root write path exactly as the
+>   design measured it**: `main.cjs` create/patch still take
+>   `req.body.folder_root` verbatim, and `ProjectSummaryView`'s two
+>   `pickDirectory` writers are unvalidated. That containment is THIS
+>   session's substance.
+> - ⚠️ **Two S34 stated limits touch S35's docs half:** a changed root
+>   reaches other machines only at next launch/sign-in, and the web
+>   terminal cannot probe reachability — both belong in the VPN/NAS setup
+>   guidance so a customer is told, not surprised. §4c's five-minute check
+>   (does Audrey's NAS's remote-access mode preserve the UNC form?) is
+>   still owed.
 
 
 ## Start ritual (before touching anything)
