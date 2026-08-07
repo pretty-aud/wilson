@@ -1404,12 +1404,16 @@ fallback under `rabbit-data/projects/{id}/files`.
 `folder_root` / `folder_slug` were database columns.** Two of the three now
 are. 0041 added **`folder_slug`** (the folder tree's anchor, so a project can
 be renamed without moving its folder) and **`folder_root`** (the absolute
-directory, written from Electron in EITHER backend — the desktop app in cloud
-mode reaches `ProjectSummaryView.jsx:401` and `:987` and the value was being
-dropped). **`files_dir` is still bundle-only, deliberately**: its only writer
-is the relink flow, and `relinkScan`/`relinkApply` are `local_server` ONLY, so
-a cloud column would be written by nothing. It arrives with relink, if relink
-ever comes to cloud.
+directory). **S35 made `folder_root` a governed write on both backends**: the
+two Change buttons (`pickAndSetProjectFolder`, ProjectSummaryView) are gated
+by `canSetProjectFolder`, the local routes and `rabbit:ensure-project-folder`
+refuse anything `folderRootRefusal` (main.cjs) rejects, the cloud write —
+silently stripped by the adapter allowlist until S35 — now lands and is
+guarded by `fn_project_folder_root_guard` (0049): workspace admin/manager
+only, strictly inside the workspace drive. **`files_dir` is still
+bundle-only, deliberately**: its only writer is the relink flow, and
+`relinkScan`/`relinkApply` are `local_server` ONLY, so a cloud column would
+be written by nothing. It arrives with relink, if relink ever comes to cloud.
 
 ### 12.2 Relink — find, preview, **apply**
 
@@ -1581,6 +1585,84 @@ project's settings, the database staying authoritative. Written debounced on
 every settings change; read only for portability, recovery and handoff. It
 **excludes per-member rate overrides** — those are manager-only while the
 manifest's path is readable by any project member. See §17.
+
+### 12.7 The workspace drive, the NAS, and remote access (S34/S35)
+
+This is the section to hand a customer who asks "how does my team reach the
+files, and what do we need to buy or set up?" The design and its measurements
+are `NETWORK_STORAGE_DESIGN.md`; this is the operational summary.
+
+**The drive is set once, by an admin, for the whole workspace.**
+`public.workspace_storage` (0048) holds one row per workspace: `mode`
+(`central` = Petal cloud, `byos` = the customer's own server/NAS) and a
+canonical `root_path`. Admins set it in **Admin Terminal → Storage**; every
+member's desktop reads it and resolves files under it. Mapped drive letters
+(`Z:`), bare drive/share roots, dot segments and device-namespace paths are
+refused at every layer — `Z:` names a different folder on every computer, and
+a bare root hands WILSON the entire disk. **Project folders live strictly
+inside the drive** (0049, S35): a workspace admin or manager points a
+project's folder from the **Project Control Panel**, and both the local API
+and the database refuse a folder outside the drive. Audrey's rule, verbatim:
+*"admins can set server/drive. managers can set folders within set drive.
+this stops anyone from breaking it."*
+
+Two propagation limits, by design (S34), that the setup conversation should
+state up front:
+
+- **A changed drive reaches other machines at their next launch or sign-in.**
+  There is no live re-broadcast; the Storage section's success notice says so.
+- **The web Admin Terminal cannot probe reachability or detect mapped
+  drives** — only the desktop app can ask the OS. The web UI says so instead
+  of pretending.
+
+**The NAS is the always-on server WILSON deliberately does not have.**
+WILSON's local server is loopback-only and dies with the app — there is
+nothing to expose (§3.5 of the design measured this). A NAS presents as an
+SMB share — `\\nas\projects` — which is exactly the path shape the drive
+supports. On the LAN, nothing extra is needed: point the drive at the share
+and every desktop in the office resolves the same folders.
+
+**Remote access belongs to the customer, not to WILSON.** Away from the
+office, the share is reached however the customer chooses — a corporate VPN,
+or the NAS's own built-in remote access (Synology, QNAP and TrueNAS all ship
+a VPN server or vendor relay as a tick-box feature, not a project). **WILSON
+cannot tell the difference and needs no configuration for it** — it still
+resolves the same `\\nas\projects` path.
+
+- **TPN customers:** MPA CSBP **TS-2** names *"Bastion host model only. VPN
+  with AES-256"* as **the** remote-access control. A VPN is not the fallback
+  here — it is the named control, so the cheapest route is also the compliant
+  one. Do not offer a TPN-track customer anything else.
+- ⚠️ **The share must keep its UNC form remotely.** A VPN preserves it; some
+  vendor sync clients surface the share only as a mapped drive letter, which
+  WILSON refuses by design. **Check the customer's chosen remote-access mode
+  preserves `\\server\share\...` before promising remote work** — five
+  minutes with the real box, much cheaper before rollout than in support.
+
+**Set the performance expectation in the same breath.** "Accessible 24/7" is
+true; "usable for multi-GB video over the internet" is a different claim. SMB
+is a chatty, LAN-designed protocol, and this is well-trodden post-production
+ground (it is why purpose-built transfer tools exist):
+
+- Works well remotely: browsing the tree, metadata, documents, small assets.
+- **The workflow that works: copy down → work locally → copy back.**
+- Works badly: scrubbing or editing multi-GB media *in place* across a WAN
+  link. It is not broken — it is slow in a way that feels broken. Say this
+  before the customer discovers it, or WILSON gets blamed for the physics of
+  the share. A dead share can also stall the desktop app for the SMB timeout
+  on a file operation (S34 stated limit — the fs calls are synchronous).
+
+**State the SMB requirement (TPN-CONT-016).** The share must run **SMB 3.x
+with signing and encryption enabled; refuse SMB1.** WILSON cannot enforce the
+server's configuration — this belongs in setup guidance because a
+default-configured share moves pre-release content unsigned and unencrypted
+across the office LAN.
+
+**Say the desktop/browser split once, properly (design §5f).** The browser
+build is for review, light edits and anywhere-access; professional formats
+and very large files want the desktop app, which talks to the drive
+directly. A customer sizing hardware should plan on the desktop app for
+every seat that touches media.
 
 ## 13. The three tools, the shell, and the agent
 
@@ -2517,6 +2599,38 @@ of a session — this section is limits by design, that file is faults.
   only thing that knows where it is.
 - **Cloud deletes are SOFT and the blob is deliberately left in place** (0014);
   blob GC remains a documented known gap.
+
+**The workspace drive (S34/S35)**
+
+- **A changed drive reaches other machines at next launch/sign-in** — no live
+  re-broadcast — and **the web Admin Terminal cannot probe reachability or
+  detect mapped drives**; both are stated in the UI rather than papered over.
+- **The drive feeds the same synchronous fs calls every root always has**, so
+  a NAS that dies after passing its configuration-time probe can stall the
+  main process for the SMB timeout. Async resolution is S37/S38-scale work.
+- **"Root unknown because the read failed" is not a modelled state** —
+  last-known-good stands in for it (a transient Supabase blip must not
+  retarget a machine onto its local default; the split-storage failure is
+  worse than a visible one).
+- **The 0049 folder guard reads the app-role claim only** — a project manager
+  holding app role `user` cannot set their project's folder. Deliberate (the
+  drive's layout is workspace storage, not project content); if beta shows
+  project managers need it, `fn_project_folder_root_guard` and
+  `canSetProjectFolder` change together.
+- **The folder controls are desktop-only and the client seat is cloud-only.**
+  Both Change buttons need the OS directory picker, so they render only in
+  the desktop app (§5f); and `canSetProjectFolder` is keyed on `workspaceId`
+  — a `local_server` / signed-out solo desktop has no roles, so the Express
+  containment check is the only gate there, by design.
+- 🚨 **`files_dir` OUTRANKS `folder_root`** in `resolveProjectFilesDir`, so it
+  carries the same boundary weight. The generic project routes may only
+  CLEAR it (the reset control) or pass it through unchanged; the guarded
+  relink-apply route is its one writer. A guard on `folder_root` alone is
+  bypassable — that was a confirmed HIGH in S35's own review.
+- **Remote access is the customer's VPN or NAS relay, never a WILSON
+  service** — §12.7 is the setup guidance, TS-2 is the TPN control, and the
+  UNC-form check against a real NAS is owed before this is promised to a
+  customer.
 
 **The folder tree and the manifest (S26)**
 

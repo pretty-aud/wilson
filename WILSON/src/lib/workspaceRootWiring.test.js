@@ -103,6 +103,61 @@ describe('call sites — every export the feature added has a caller', () => {
   })
 })
 
+describe('S35 — folder_root is contained and gated (TPN-NET-015)', () => {
+  const summaryView = read('../tools/rabbit_v0.1.0/views/ProjectSummaryView.jsx')
+  const roleMatrix = read('../permissions/projectRoleMatrix.js')
+  const supabaseAdapter = read('../tools/rabbit_v0.1.0/adapters/supabaseAdapter.js')
+
+  it('the seat exists and ProjectSummaryView actually consumes it (S31: exports need callers)', () => {
+    expect(roleMatrix).toContain('export function canSetProjectFolder')
+    expect(roleMatrix).toContain('export function projectFolderDeniedReason')
+    expect(summaryView).toContain('canSetProjectFolder(folderGateCtx)')
+    expect(summaryView).toContain('projectFolderDeniedReason(folderGateCtx)')
+    // The gate is keyed on workspaceId — cloud only. Without this a local /
+    // signed-out desktop greys a control that works and that nothing below
+    // refuses (S35 review, HIGH regression).
+    expect(summaryView).toMatch(/workspaceId:\s*perms\?\.workspaceId/)
+  })
+  it('both Change buttons are greyed-with-reason, desktop-gated, handlers refuse independently', () => {
+    const gated = summaryView.match(/GatedAction allowed=\{canSetFolder\}/g) || []
+    expect(gated.length).toBeGreaterThanOrEqual(2)
+    const refusals = summaryView.match(/if \(!canSetFolder\) return/g) || []
+    expect(refusals.length).toBeGreaterThanOrEqual(2)
+    // Both render only when the OS picker exists — on the web an enabled
+    // button that silently did nothing is the shape GatedAction's own header
+    // calls the worst outcome (S35 review).
+    const desktopGates = summaryView.match(/\{canPickFolder && \(/g) || []
+    expect(desktopGates.length).toBeGreaterThanOrEqual(2)
+  })
+  it('both buttons ride the ONE pick-and-set flow, and it surfaces refusals', () => {
+    expect(summaryView.match(/function pickAndSetProjectFolder\(/g)).toHaveLength(1)
+    const calls = summaryView.match(/await pickAndSetProjectFolder\(ctx, project\)/g) || []
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    const fn = summaryView.slice(
+      summaryView.indexOf('async function pickAndSetProjectFolder'),
+      summaryView.indexOf('export default function ProjectSummaryView'),
+    )
+    // 🚨 WRITE FIRST, mkdir second (S35 review): the authoritative refusal is
+    // the write — the 0049 guard can refuse on the seat or on "no byos drive"
+    // for reasons the local IPC preflight cannot see, and creating the folder
+    // first stranded an empty directory whenever the two rules diverged.
+    expect(fn.indexOf('updateProject')).toBeLessThan(fn.indexOf('ensureProjectFolder'))
+    // the depth check still carries main's refusal back…
+    expect(fn).toContain('ensured.ok === false')
+    // …and the write's own refusal is caught, not swallowed (S30 rule).
+    expect(fn).toContain('catch (err)')
+  })
+  it('the cloud adapter lets folder_root through — the write shipped WITH its 0049 guard', () => {
+    const cols = supabaseAdapter.slice(
+      supabaseAdapter.indexOf('const PROJECT_COLUMNS'),
+      supabaseAdapter.indexOf(']);', supabaseAdapter.indexOf('const PROJECT_COLUMNS')),
+    )
+    expect(cols).toContain("'folder_root'")
+    // folder_slug stays out: nothing in cloud mode writes it.
+    expect(cols).not.toContain("'folder_slug'")
+  })
+})
+
 describe('TPN-AUTH-009 — the machine-root writers are gated', () => {
   it('StorageConnections gates its Change folder control', () => {
     expect(storageConnections).toContain('canEditMachineRoot')

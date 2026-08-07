@@ -55,7 +55,50 @@ function makeContainment(pathImpl) {
     return a === b || a.startsWith(b + pathImpl.sep);
   }
 
-  return { resolveContainedFilePath, isPathInside };
+  // S35 (TPN-NET-015): shape-check a projects.folder_root candidate before
+  // main.cjs decides containment. The same refusals the workspace-root IPC
+  // handler makes inline (S34), as a testable function: an absolute UNC or
+  // drive path, never a device-namespace path, never a bare drive or share
+  // root. Returns { ok: true, resolved } with the canonical form (resolved,
+  // trailing separators stripped — '..' segments are RESOLVED here, and the
+  // caller's containment check is what they then have to survive), or
+  // { ok: false, error } with a sentence for the person.
+  //
+  // This module cannot import src/lib/storageRoot.js (ESM; src/ is not
+  // shipped with the packaged main process), so these refusals are a CJS
+  // sibling of classifyRoot's, not a re-derivation of its output — the
+  // wiring test pins that both routes and the IPC consult THIS function.
+  function checkFolderRootShape(candidate) {
+    const raw = typeof candidate === 'string' ? candidate.trim() : '';
+    if (!raw) {
+      return { ok: false, error: 'the project folder must be a folder path' };
+    }
+    // \\?\ and \\.\ bypass Win32 path normalisation entirely; nobody types
+    // one for a project folder (S34 review shape).
+    if (/^[\\/]{2}[?.]([\\/]|$)/.test(raw)) {
+      return { ok: false, error: 'device-namespace paths (\\\\?\\, \\\\.\\) cannot be a project folder' };
+    }
+    const isUnc = /^[\\/]{2}/.test(raw);
+    const isDrive = /^[A-Za-z]:[\\/]/.test(raw);
+    // A relative or drive-relative value would be silently REBASED onto
+    // process.cwd() by resolve below, storing a folder nobody chose.
+    if (!isUnc && !isDrive) {
+      return { ok: false, error: 'the project folder must be an absolute \\\\server\\share\\folder or drive path' };
+    }
+    const resolved = pathImpl.resolve(raw).replace(/[\\/]+$/, '');
+    if (!resolved || /^[A-Za-z]:$/.test(resolved)) {
+      return { ok: false, error: 'a drive root cannot be a project folder — pick a folder inside it' };
+    }
+    if (isUnc) {
+      const comps = resolved.replace(/^[\\/]+/, '').split(/[\\/]+/).filter(Boolean);
+      if (comps.length < 3) {
+        return { ok: false, error: 'a bare \\\\server\\share cannot be a project folder — pick a folder inside it' };
+      }
+    }
+    return { ok: true, resolved };
+  }
+
+  return { resolveContainedFilePath, isPathInside, checkFolderRootShape };
 }
 
 const platform = makeContainment(path);
@@ -64,4 +107,5 @@ module.exports = {
   makeContainment,
   resolveContainedFilePath: platform.resolveContainedFilePath,
   isPathInside: platform.isPathInside,
+  checkFolderRootShape: platform.checkFolderRootShape,
 };

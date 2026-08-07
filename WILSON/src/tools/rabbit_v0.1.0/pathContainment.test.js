@@ -194,3 +194,101 @@ describe('wiring — the cloud adapter logs downloads', () => {
     expect(DRAWER).toMatch(/downloaded:\s*\{ label: 'Downloaded'/)
   })
 })
+
+// ── Session 35: checkFolderRootShape — the folder_root candidate refusals ────
+// The CJS sibling of storageRoot.js's classifyRoot, consumed by main.cjs's
+// folderRootRefusal (TPN-NET-015). Shape only — containment is the caller's
+// isPathInside decision, tested above.
+
+describe('checkFolderRootShape — refusals', () => {
+  it('empty / non-string input is refused', () => {
+    expect(win.checkFolderRootShape('').ok).toBe(false)
+    expect(win.checkFolderRootShape('   ').ok).toBe(false)
+    expect(win.checkFolderRootShape(null).ok).toBe(false)
+    expect(win.checkFolderRootShape(42).ok).toBe(false)
+  })
+  it('a relative or drive-relative path is refused (resolve would rebase it)', () => {
+    expect(win.checkFolderRootShape('Projects\\Hero').ok).toBe(false)
+    expect(win.checkFolderRootShape('C:Projects').ok).toBe(false)
+    expect(win.checkFolderRootShape('..\\x').ok).toBe(false)
+  })
+  it('device-namespace paths are refused', () => {
+    expect(win.checkFolderRootShape('\\\\?\\C:\\x').ok).toBe(false)
+    expect(win.checkFolderRootShape('\\\\.\\PhysicalDrive0').ok).toBe(false)
+  })
+  it('a drive root is refused, with or without trailing separator', () => {
+    expect(win.checkFolderRootShape('C:\\').ok).toBe(false)
+  })
+  it('a bare \\\\server\\share is refused — the whole share is not a project folder', () => {
+    expect(win.checkFolderRootShape('\\\\nas\\projects').ok).toBe(false)
+    expect(win.checkFolderRootShape('\\\\nas\\projects\\').ok).toBe(false)
+  })
+})
+
+describe('checkFolderRootShape — acceptances, in canonical form', () => {
+  it('a deep UNC path resolves with trailing separators stripped', () => {
+    const r = win.checkFolderRootShape('\\\\nas\\projects\\Hero\\')
+    expect(r.ok).toBe(true)
+    expect(r.resolved).toBe('\\\\nas\\projects\\Hero')
+  })
+  it('a local absolute path resolves', () => {
+    const r = win.checkFolderRootShape('C:\\Work\\Hero')
+    expect(r.ok).toBe(true)
+    expect(r.resolved).toBe('C:\\Work\\Hero')
+  })
+  it('dot segments are RESOLVED, not kept — containment then judges the result', () => {
+    const r = win.checkFolderRootShape('\\\\nas\\projects\\Hero\\x\\..')
+    expect(r.ok).toBe(true)
+    expect(r.resolved).toBe(path.win32.resolve('\\\\nas\\projects\\Hero'))
+  })
+  it('a dot-segment escape down to the bare share is still refused after resolution', () => {
+    // resolves to \\nas\projects — two components — so the bare-share arm fires.
+    expect(win.checkFolderRootShape('\\\\nas\\projects\\Hero\\..').ok).toBe(false)
+  })
+})
+
+describe('wiring — folder_root is validated where it is written (S35)', () => {
+  const MAIN = read('../../../electron/main.cjs')
+
+  it('folderRootRefusal is defined exactly once and rides checkFolderRootShape', () => {
+    expect(MAIN.match(/function folderRootRefusal\(/g)).toHaveLength(1)
+    const body = MAIN.slice(MAIN.indexOf('function folderRootRefusal'), MAIN.indexOf('function folderRootRefusal') + 2200)
+    expect(body).toContain('checkFolderRootShape(')
+    expect(body).toContain('isPathInside(workspaceRootDir, resolved)')
+  })
+  it('the project CREATE route refuses before building anything', () => {
+    const idx = MAIN.indexOf("expressApp.post('/api/rabbit/projects'")
+    expect(idx).toBeGreaterThan(-1)
+    const body = MAIN.slice(idx, MAIN.indexOf('expressApp.patch', idx))
+    expect(body).toContain('folderRootRefusal(')
+    expect(body).toContain('status(400)')
+  })
+  it('the project PATCH route refuses a changed folder_root and passes an unchanged one', () => {
+    const idx = MAIN.indexOf("expressApp.patch('/api/rabbit/projects/:id'")
+    expect(idx).toBeGreaterThan(-1)
+    const body = MAIN.slice(idx, MAIN.indexOf('expressApp.delete', idx))
+    expect(body).toContain('folderRootRefusal(')
+    expect(body).toContain("String(next) !== String(cur)")
+  })
+  it('the ensure-project-folder IPC refuses in depth (S34 rule) before mkdir', () => {
+    const idx = MAIN.indexOf("ipcMain.handle('rabbit:ensure-project-folder'")
+    expect(idx).toBeGreaterThan(-1)
+    const body = MAIN.slice(idx, MAIN.indexOf('ipcMain.handle', idx + 10))
+    expect(body).toContain('folderRootRefusal(')
+    expect(body.indexOf('folderRootRefusal(')).toBeLessThan(body.indexOf('mkdirSync'))
+  })
+  it('files_dir cannot be set through the generic routes (S35 review, HIGH)', () => {
+    // resolveProjectFilesDir consults files_dir BEFORE folder_root, so an
+    // unguarded body value is the real bypass. CREATE forces it null; PATCH
+    // refuses a changed non-empty value (the relink-apply route is its only
+    // legitimate writer) and allows the reset-to-null.
+    const createIdx = MAIN.indexOf("expressApp.post('/api/rabbit/projects'")
+    const createBody = MAIN.slice(createIdx, MAIN.indexOf('expressApp.patch', createIdx))
+    expect(createBody).toMatch(/files_dir:\s*filesDirIn/)
+    expect(createBody).toMatch(/let filesDirIn = null/)
+    const patchIdx = MAIN.indexOf("expressApp.patch('/api/rabbit/projects/:id'")
+    const patchBody = MAIN.slice(patchIdx, MAIN.indexOf('expressApp.delete', patchIdx))
+    expect(patchBody).toContain("'files_dir' in req.body")
+    expect(patchBody).toContain('set by the relink flow, not directly')
+  })
+})

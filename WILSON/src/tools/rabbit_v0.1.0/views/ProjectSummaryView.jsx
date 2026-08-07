@@ -24,7 +24,8 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { usePermissions } from '../../../permissions/usePermissions'
-import { canSeeProjectMoney, canOnProject } from '../../../permissions/projectRoleMatrix'
+import { canSeeProjectMoney, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction from '../../../permissions/GatedAction'
 import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
@@ -33,6 +34,50 @@ import FileAuditDrawer from '../components/FileAuditDrawer'
 
 const PRIORITY_RANK = { crit: 4, critical: 4, high: 3, med: 2, medium: 2, low: 1 }
 const RISK_STATES = new Set(['blocked', 'on_hold'])
+
+// Session 35: the ONE pick-and-set flow behind both "Change" folder buttons
+// (the summary header's and the Control Panel's Files & Storage field —
+// they diverged only by accident before). Desktop-only: it needs the OS
+// directory picker, which is why both call sites render the button only when
+// the bridge is present (design §5f — folder management is a desktop feature).
+//
+// 🚨 WRITE FIRST, then create the directory (S35 review). The authoritative
+// refusal is the write itself — folderRootRefusal on the local Express route,
+// or fn_project_folder_root_guard (0049) in cloud, which can refuse on the
+// SEAT or on "no byos drive" for reasons the local IPC preflight cannot see.
+// Creating the folder before the write left a stray empty directory whenever
+// the local rule and the cloud rule diverged. So: write, and only on success
+// materialise the directory (ensureProjectFolder re-runs the containment in
+// depth and is idempotent). Returns { ok, cancelled?, error? }.
+async function pickAndSetProjectFolder(ctx, project) {
+  const api = window.electronAPI?.rabbit
+  if (!api?.pickDirectory) return { ok: true, cancelled: true }
+  const dir = await api.pickDirectory()
+  if (!dir) return { ok: true, cancelled: true }
+  const projectSlug = project?.folder_slug
+    || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-')
+    || 'Untitled'
+  // Strip any trailing separator on the picked dir before joining — a drive
+  // root ('E:\') would otherwise produce 'E:\\Slug', a doubled separator the
+  // 0049 canonical-form check refuses.
+  const folderRoot = String(dir).replace(/[\\/]+$/, '') + '\\' + projectSlug
+  try {
+    // Authoritative write. The local route re-canonicalises and stores; the
+    // cloud guard refuses on seat / containment / no-drive. A refusal rejects
+    // here and NOTHING is created on disk.
+    await ctx?.updateProject?.(project.id, { folder_root: folderRoot })
+    // The write landed → create the directory. Same refusal again (depth),
+    // idempotent, and its non-throwing { ok:false } is surfaced too.
+    const ensured = await api.ensureProjectFolder?.({ rootDir: dir, projectSlug })
+    if (ensured && ensured.ok === false) return { ok: false, error: ensured.error }
+    return { ok: true }
+  } catch (err) {
+    // The refusal sentence from the Express 400 (local) or the 0049 guard
+    // (cloud) arrives here — surfacing it is the point. A swallowed refusal
+    // is the S30 green-tick-over-a-write-that-never-happened shape.
+    return { ok: false, error: err?.message || String(err) }
+  }
+}
 
 export default function ProjectSummaryView() {
   const ctx = useRabbit()
@@ -93,6 +138,21 @@ export default function ProjectSummaryView() {
   useEffect(() => {
     if (!canOpenControlPanel && showSettings) setShowSettings(false)
   }, [canOpenControlPanel, showSettings])
+
+  // Session 35 — Audrey's folder half: "managers can set folders within set
+  // drive." In CLOUD mode, workspace admin/manager only (the 0049 seat); in
+  // local/solo mode (no workspaceId) the route contains and the seat does not
+  // apply. Greyed-with-reason, never hidden (S29 rule), and the handler
+  // refuses independently of the rendering. The Change button itself renders
+  // only on desktop (the OS picker is desktop-only, §5f).
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  // A refusal names the project whose pick was rejected — clear it on switch,
+  // or it renders under a different project's folder row (S35 review).
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
 
   const allProjects = useMemo(() => {
     return Object.values(projectsIndex).sort((a, b) => {
@@ -388,24 +448,29 @@ export default function ProjectSummaryView() {
                 Using default location
               </span>
             )}
-            <button
-              type="button"
-              onClick={async () => {
-                const api = window.electronAPI?.rabbit
-                if (!api?.pickDirectory) return
-                const dir = await api.pickDirectory()
-                if (!dir) return
-                const projectSlug = project.folder_slug || project.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-                const folderRoot = dir + '\\' + projectSlug
-                await api.ensureProjectFolder({ rootDir: dir, projectSlug })
-                ctx?.updateProject?.(project.id, { folder_root: folderRoot })
-              }}
-              className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              Change
-            </button>
+            {canPickFolder && (
+              <GatedAction allowed={canSetFolder} reason={folderReason}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!canSetFolder) return
+                    setFolderMsg(null)
+                    const res = await pickAndSetProjectFolder(ctx, project)
+                    if (!res.ok && res.error) setFolderMsg(res.error)
+                  }}
+                  className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  style={{ color: '#a8a29e', border: '1px solid #44403c' }}
+                >
+                  Change
+                </button>
+              </GatedAction>
+            )}
           </div>
+          {folderMsg && (
+            <p className="text-[10px] font-mono mt-1.5" style={{ color: '#f87171' }}>
+              {folderMsg}
+            </p>
+          )}
         </Card>
 
         {/* ── Project files ── */}
@@ -906,6 +971,16 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef(null)
 
+  // Session 35: same seat as the summary header's Change button — the two
+  // writers must not diverge (they are one column, one flow).
+  const perms = usePermissions()
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
+
   // ── Session 14: storage relink + per-file activity ──
   // Relink is local_server-only — the provider where folders actually move
   // (supabase bucket paths don't drift, so no false affordance there).
@@ -975,22 +1050,27 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
               Open
             </button>
           )}
-          <button type="button"
-            onClick={async () => {
-              const api = window.electronAPI?.rabbit
-              if (!api?.pickDirectory) return
-              const dir = await api.pickDirectory()
-              if (!dir) return
-              const slug = project?.folder_slug || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-              const folderRoot = dir + '\\' + slug
-              await api.ensureProjectFolder?.({ rootDir: dir, projectSlug: slug })
-              update?.('folder_root', folderRoot)
-            }}
-            className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
-            style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            Change
-          </button>
+          {canPickFolder && (
+            <GatedAction allowed={canSetFolder} reason={folderReason}>
+              <button type="button"
+                onClick={async () => {
+                  if (!canSetFolder) return
+                  setFolderMsg(null)
+                  const res = await pickAndSetProjectFolder(ctx, project)
+                  if (!res.ok && res.error) setFolderMsg(res.error)
+                }}
+                className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+                style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                Change
+              </button>
+            </GatedAction>
+          )}
         </div>
+        {folderMsg && (
+          <p className="text-[10px] font-mono mt-1.5" style={{ color: '#f87171' }}>
+            {folderMsg}
+          </p>
+        )}
       </SettingsField>
 
       {/* Session 14: a relink can move the files home off folder_root —

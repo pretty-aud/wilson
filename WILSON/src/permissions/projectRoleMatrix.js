@@ -132,6 +132,61 @@ export function canWriteTaskTemplate(ctx) {
 }
 
 /**
+ * Session 35 — WHO MAY SET A PROJECT'S STORAGE FOLDER (projects.folder_root).
+ *
+ * Audrey, 2026-08-05 (NETWORK_STORAGE_DESIGN.md §5a2): "admins can set
+ * server/drive. managers can set folders within set drive. this stops anyone
+ * from breaking it." The DRIVE half is S34's admin-only workspace_storage;
+ * this is the FOLDER half: current_app_role() IN ('admin','manager') — the
+ * 0012/0013 seat, enforced by fn_project_folder_root_guard (0049).
+ *
+ * Like canSeeProjectMoney, deliberately NOT a PROJECT_ACTIONS entry — the
+ * shape is different from canOnProject in three ways:
+ *
+ *  1. 🚨 **It applies ONLY in cloud mode**, keyed on `workspaceId` exactly as
+ *     S34's `canEditMachineRoot` gate is. The seat is a cloud/RLS concept: a
+ *     `local_server` or signed-out solo desktop has no roles (`appRole` null),
+ *     and the local Express route enforces containment WITHOUT any seat check.
+ *     Gating on the (null) role there would grey a control that works and that
+ *     nothing below refuses — the S35 review caught this as a HIGH regression.
+ *     No `workspaceId` → allowed; the route is the only gate in local mode.
+ *  2. **The project seat plays no part.** A project MANAGER with app role
+ *     'user' does NOT qualify — where the project's folder sits inside the
+ *     company drive is workspace storage layout, not project content, and the
+ *     0049 guard reads only the app-role claim. (Deliberate, per the S35
+ *     brief; if beta shows project managers need it, the guard and this
+ *     mirror change together.)
+ *  3. **There is no unstaffed opening.** An unstaffed project is exactly the
+ *     case where nobody with a seat exists to notice a bad folder.
+ *
+ * It DOES follow canOnProject's `ready === false → true` fail-open (unlike
+ * money): the control must not read as denied while the session resolves —
+ * the S23 rule — and failing open is safe because every enforcement layer
+ * below (the Express refusal, the 0049 guard) refuses on its own.
+ *
+ * @param {{ appRole: 'admin'|'manager'|'user'|null|undefined,
+ *           workspaceId: string|null|undefined,
+ *           ready: boolean|undefined }} ctx
+ * @returns {boolean}
+ */
+export function canSetProjectFolder(ctx) {
+  const { appRole, workspaceId, ready = true } = ctx || {}
+  if (ready === false) return true
+  if (!workspaceId) return true // local / solo — no roles; the route contains
+  return appRole === 'admin' || appRole === 'manager'
+}
+
+/**
+ * The sentence for a denied folder control — null when allowed, per the S29
+ * rule that the reason lives beside the rule it explains (a reason that
+ * drifts from the rule teaches the user something false).
+ */
+export function projectFolderDeniedReason(ctx) {
+  if (canSetProjectFolder(ctx)) return null
+  return 'Only a workspace admin or manager can choose where this project’s files live. The company drive itself is set by an admin in the Admin Terminal.'
+}
+
+/**
  * Session 29 — the sentence shown to a user who is DENIED a project action.
  *
  * Returns null when the action is allowed (there is nothing to explain), and

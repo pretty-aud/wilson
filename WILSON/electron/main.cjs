@@ -7,7 +7,7 @@ const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
-const { resolveContainedFilePath, isPathInside } = require('./pathContainment.cjs');
+const { resolveContainedFilePath, isPathInside, checkFolderRootShape } = require('./pathContainment.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -111,6 +111,49 @@ function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 // failure does.
 function resolveConfiguredRootDir() {
   return workspaceRootDir || readFilesConfig().defaultRootDir || null;
+}
+
+// Session 35 (TPN-NET-015): the ONE decision about whether a candidate
+// projects.folder_root may be stored. folder_root arrives in the request body
+// of an UNAUTHENTICATED local API that answers any local origin (cors()), and
+// everything under it is then treated as project content — built by
+// ensureProjectFolders, written by uploads, read and unlinked by relink. The
+// S14 rule ("a body-picked baseDir would let a drive-by request point a
+// project's files at the user's Documents") applies verbatim; this route
+// never got the guard until now.
+//
+// The rule, per Audrey (2026-08-05, NETWORK_STORAGE_DESIGN.md §5a2):
+//   * A workspace root is configured → the project folder must sit STRICTLY
+//     INSIDE it. Not the machine default, not a dialog pick outside it —
+//     "this stops anyone from breaking it" only holds if the admin's drive
+//     is the boundary for everybody.
+//   * No workspace root → the per-machine model stands: inside the machine
+//     defaultRootDir, or inside a folder the user actually picked through
+//     the OS dialog this session (userAuthorizedDirs — the S14 mechanism).
+//     A body-only path is never enough.
+// Returns { resolved } (canonical form) or { error } with a sentence.
+// Cloud mode has the same rule in fn_project_folder_root_guard (0049) —
+// each layer refuses on its own (S34: refusals are enforced in depth).
+function folderRootRefusal(candidate) {
+  const shape = checkFolderRootShape(candidate);
+  if (!shape.ok) return { error: shape.error };
+  const resolved = shape.resolved;
+  if (workspaceRootDir) {
+    const rootCanon = workspaceRootDir.toLowerCase();
+    if (resolved.toLowerCase() === rootCanon) {
+      return { error: 'the project folder cannot be the workspace storage drive itself — pick a folder inside it' };
+    }
+    if (!isPathInside(workspaceRootDir, resolved)) {
+      return { error: `the project folder must be inside the workspace storage drive (${workspaceRootDir})` };
+    }
+    return { resolved };
+  }
+  const dflt = readFilesConfig().defaultRootDir;
+  if (dflt && isPathInside(dflt, resolved)) return { resolved };
+  for (const dir of userAuthorizedDirs) {
+    if (isPathInside(dir, resolved)) return { resolved };
+  }
+  return { error: 'the project folder must be inside the configured storage folder, or picked through the app' };
 }
 
 // Next version number for a file within an asset: finds max existing version
@@ -1435,6 +1478,21 @@ function startLocalServer(distPath) {
 
     expressApp.post('/api/rabbit/projects', (req, res) => {
       const now = new Date().toISOString();
+      // Session 35 (TPN-NET-015): a body-supplied folder_root is validated
+      // BEFORE anything is built on disk. The auto-derived folder below
+      // (rootDir + slug) is contained by construction and is not re-checked.
+      let folderRootIn = null;
+      if (req.body.folder_root) {
+        const v = folderRootRefusal(req.body.folder_root);
+        if (v.error) return res.status(400).json({ error: v.error });
+        folderRootIn = v.resolved;
+      }
+      // 🚨 files_dir is the HIGHER-priority storage base — resolveProjectFilesDir
+      // consults it BEFORE folder_root — so guarding folder_root alone left the
+      // real bypass open (S35 adversarial review). A brand-new project has no
+      // legitimate files_dir: it is the relink BASE, set only by the guarded
+      // relink-apply route, never at create. Force it null.
+      let filesDirIn = null;
       // Spread req.body first so DOG-side fields (documents, visualAssets,
       // startDate, endDate, etc.) ride through, then enforce the canonical
       // identity / timestamp fields so they can't be overridden.
@@ -1456,7 +1514,8 @@ function startLocalServer(distPath) {
         documents:       Array.isArray(req.body.documents)    ? req.body.documents    : [],
         visualAssets:    Array.isArray(req.body.visualAssets) ? req.body.visualAssets : [],
         folder_slug:     req.body.folder_slug || fileSlugify(req.body.title || 'Untitled-Project'),
-        folder_root:     req.body.folder_root || null,
+        folder_root:     folderRootIn,
+        files_dir:       filesDirIn,
         created_at:      now,
         updated_at:      now,
       };
@@ -1478,6 +1537,39 @@ function startLocalServer(distPath) {
     expressApp.patch('/api/rabbit/projects/:id', (req, res) => {
       const bundle = readRabbitBundle(req.params.id);
       if (!bundle) return rabbitNotFound(res);
+      // Session 35 (TPN-NET-015): folder_root is the one field this spread
+      // must not accept verbatim. Clearing (null/'') is a reset to the
+      // configured chain and passes; an UNCHANGED value re-sent by a caller
+      // that echoes whole rows passes untouched (refusing it would brick
+      // every later patch of a project whose folder predates the rule); a
+      // NEW value is validated like the create route's.
+      if ('folder_root' in req.body) {
+        const next = req.body.folder_root;
+        const cur = bundle.project.folder_root || null;
+        if (!next) {
+          req.body.folder_root = null;
+        } else if (String(next) !== String(cur)) {
+          const v = folderRootRefusal(next);
+          if (v.error) return res.status(400).json({ error: v.error });
+          req.body.folder_root = v.resolved;
+        }
+      }
+      // 🚨 files_dir is the relink BASE and outranks folder_root in
+      // resolveProjectFilesDir — an unvalidated body value repoints every read
+      // and write regardless of the folder_root guard (S35 review, HIGH). The
+      // generic PATCH may only CLEAR it (the "Files folder" reset control); a
+      // non-empty value is set exclusively by the guarded relink-apply route.
+      // Unchanged echoes pass (adapters re-send whole rows); a changed
+      // non-empty value is refused.
+      if ('files_dir' in req.body) {
+        const next = req.body.files_dir;
+        const cur = bundle.project.files_dir || null;
+        if (!next) {
+          req.body.files_dir = null;
+        } else if (String(next) !== String(cur)) {
+          return res.status(400).json({ error: 'the files folder is set by the relink flow, not directly' });
+        }
+      }
       const oldTitle = bundle.project.title;
       const oldSlug = bundle.project.folder_slug;
       bundle.project = { ...bundle.project, ...req.body, id: bundle.project.id };
@@ -3311,9 +3403,17 @@ ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId 
 
 // Ensure a project folder exists on disk (called when creating projects or changing root)
 ipcMain.handle('rabbit:ensure-project-folder', (_event, { rootDir, projectSlug }) => {
-  const folderPath = path.join(rootDir, projectSlug);
-  if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
-  return { ok: true, folderPath };
+  // Session 35: the same refusal the project routes make, one layer up
+  // (S34: refusals are enforced in depth, not only at the surface). This is
+  // also the UI's preflight — ProjectSummaryView calls this BEFORE patching
+  // folder_root, so a folder outside the boundary is refused here and the
+  // stray directory is never created. Returns { ok: false, error } rather
+  // than throwing: the renderer shows the sentence.
+  const folderPath = path.join(String(rootDir || ''), String(projectSlug || ''));
+  const v = folderRootRefusal(folderPath);
+  if (v.error) return { ok: false, error: v.error };
+  if (!fs.existsSync(v.resolved)) fs.mkdirSync(v.resolved, { recursive: true });
+  return { ok: true, folderPath: v.resolved };
 });
 
 // ═══════════════════════════════════════════════════════════════════

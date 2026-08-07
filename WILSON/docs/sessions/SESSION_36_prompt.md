@@ -5,8 +5,21 @@
 > came up in the same conversation — it shares no code with the storage root and
 > can run whenever it suits.
 
-> **STATE — re-measure.** Confirm the next free migration number, next free
-> pgTAP suite, vitest counts and HEAD from the working tree.
+> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
+> migrations **0000–0049** on all three envs (verified by query), next free
+> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
+> Vitest **1022 / 47 files**. CLI re-linked to wilson-dev.
+> 🚨 **Read the working tree, never memory or a doc** — a design written
+> mid-S31 cited "0046, next free" and was wrong within the hour.
+>
+> **What S34/S35 left that touches thumbnails:** the workspace drive
+> (`workspace_storage`, 0048) and the bounded project folder
+> (`fn_project_folder_root_guard`, 0049) mean a desktop in byos mode
+> resolves media under a NAS root — a thumbnail read of a large original
+> across a WAN link is one full-file read (design §4a2), which is exactly
+> why the thumbnail BUCKET exists. `resolveConfiguredRootDir()` (main.cjs)
+> is still the ONE definition of the machine's effective root; do not
+> re-derive it in any thumbnail path.
 
 
 ## Start ritual (before touching anything)

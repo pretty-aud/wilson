@@ -240,6 +240,15 @@ const PROJECT_COLUMNS = new Set([
   'uses_realtime_engine', 'engine_type', 'engine_proprietary_name',
   'engine_version', 'engine_project_name', 'engine_repo_url',
   'project_type', 'project_tier',
+  // 0049 (S35) — the column has existed in cloud since the base schema, but
+  // the Control Panel's folder write was silently stripped here, so on a
+  // desktop running the Supabase backend "Change folder" did nothing. It
+  // joins the allowlist WITH its guard: fn_project_folder_root_guard now
+  // enforces the admin/manager seat and containment inside
+  // workspace_storage.root_path, so letting the write through is safe.
+  // folder_slug deliberately stays OUT — nothing in cloud mode writes it,
+  // and an allowlist entry without a writer is the dead-feature shape.
+  'folder_root',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);

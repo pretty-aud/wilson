@@ -427,7 +427,7 @@ below are superseded; only one of them actually moves.
 |---|---|---|---|---|
 | **S33** ✅ | **DONE (2026-08-07, `ed85072` + `439f702`)** — guard fix + the `downloaded` event; outcome block below | ~1 | — | `SESSION_33_prompt.md` |
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
-| **S35** | **The manager half + setup guidance** — Control Panel gate, `folder_root` containment, VPN/NAS docs | ~1 | S34 | `SESSION_35_prompt.md` |
+| **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_36_prompt.md` |
 | **S37** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S39** (quota plane before the cap raise) | `SESSION_37_prompt.md` |
 | **S38** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | S36 | `SESSION_38_prompt.md` |
@@ -446,6 +446,108 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S35 outcome — the folder half, bounded (2026-08-07)
+>
+> Migration **0049** (`fn_project_folder_root_guard` on `public.projects`)
+> applied and verified **by query** on dev, staging and prod; CLI re-linked
+> to wilson-dev. pgTAP suite **59**: 31 assertions, proven by **four
+> breakers, each failing exactly its own probes and nothing else** —
+> removing the COALESCE failed only the claim-less probe (the 0047
+> NULL-skips-the-IF shape, live: `can_write_project`'s unstaffed arm admits
+> a NULL-claim caller through RLS, so the guard's COALESCE is the only
+> thing refusing them); removing containment failed the three boundary
+> probes; removing the unchanged-skip failed the two overblock controls (a
+> member's ordinary edit and the adapter-echo shape); removing the anchor
+> check failed the three no-drive probes AND demonstrated the NULL
+> propagation it exists to stop (`left(x, len+1) <> NULL` is NULL, which an
+> IF skips — the anchor must precede containment). Full set **59 suites /
+> 982 assertions** clean; vitest **1022 / 47 files**.
+>
+> 🚨 **The pre-push adversarial review earned its keep for the third
+> session running: 8 confirmed findings (2 high) against code already green
+> on 27/27 pgTAP and 1013 vitest, all fixed before the commit.** The two
+> highs are the ones worth carrying:
+>
+> - **`files_dir` was the real bypass, and S35 had guarded the wrong
+>   column first.** `resolveProjectFilesDir` consults `project.files_dir`
+>   **before** `folder_root`, and `files_dir` rode the unfiltered
+>   `...req.body` spread on both routes — so an unauthenticated local
+>   caller could repoint every file read and write at any directory while
+>   the shiny new folder_root guard looked on. It also *promotes* that
+>   directory into `isUserAuthorizedRelinkDir`'s roots. Now: CREATE forces
+>   it null (a new project has no relink base), PATCH may only CLEAR it
+>   (the reset control) or echo it unchanged; a changed non-empty value is
+>   refused — the relink-apply route stays its one writer. **Guarding a
+>   field means guarding whatever OUTRANKS it in resolution.**
+> - **The client gate applied a cloud-only seat in every adapter mode.**
+>   `canSetProjectFolder` read `appRole` unconditionally, so a
+>   `local_server` or signed-out solo desktop (role null, ready true) had
+>   both Change buttons permanently greyed — a control that worked before
+>   S35 and that no local layer refuses. Now keyed on `workspaceId`,
+>   exactly as S34's `canEditMachineRoot` is: no workspace → the route
+>   contains, the seat does not apply.
+>
+> The other six, all fixed: the preflight created the directory BEFORE the
+> authoritative write, so a cloud refusal (seat, or "no byos drive" — which
+> the local IPC cannot see) stranded an empty folder — the flow now
+> **writes first and materialises second**; the web build showed both
+> buttons enabled and silently did nothing (they now render only where the
+> OS picker exists); the 0049 post-condition matched a bare `COALESCE`,
+> which the ANCHOR's own COALESCE satisfied — so removing the load-bearing
+> seat COALESCE passed the only check that runs against prod (now matches
+> `COALESCE(public.current_app_role()`, and re-proven by breaker on dev,
+> then run by hand on staging and prod); the cross-workspace anchor probe
+> ran against an EMPTY `workspace_storage` and so could not tell
+> "per-workspace anchor" from "no rows exist" (workspace B now configures
+> its **own** drive, and the refusal names B's path); the guard's INSERT
+> branch had zero coverage (two probes added); and `folderMsg` never reset
+> on project switch.
+>
+> **What shipped:** `folderRootRefusal()` in main.cjs — the ONE local
+> decision about a folder_root candidate (shape via the new
+> `checkFolderRootShape` in `pathContainment.cjs`, unit-tested;
+> containment via `isPathInside`) — enforced on the project CREATE route,
+> the PATCH route, **and** `rabbit:ensure-project-folder` (the S34
+> refusals-in-depth rule — the IPC refuses on its own, whoever calls it).
+> `files_dir`, which OUTRANKS folder_root in resolution, is forced null at
+> create and may only be cleared or echoed at patch. Rule: workspace root
+> pushed → strictly inside it, dialog picks
+> do not override; no workspace root → the S14 model stands (machine
+> default or dialog-picked). Cloud: the 0049 guard — seat
+> `current_app_role() IN ('admin','manager')` COALESCE'd, canonical-form
+> refusals matching 0048's discipline, containment strictly inside a
+> **byos** `workspace_storage.root_path`, per-workspace anchor. UI: both
+> Change buttons ride one `pickAndSetProjectFolder` flow (write first,
+> materialise second), rendered only where the OS picker exists and gated
+> by `canSetProjectFolder` — **cloud-only, keyed on `workspaceId`**, fail-open
+> on `ready` like `canOnProject` (unlike money — the enforcement below makes
+> that safe), greyed-with-reason via `GatedAction`, refusal sentences
+> surfaced instead of swallowed.
+> **`folder_root` joined the supabase adapter's `PROJECT_COLUMNS`** — the
+> cloud write had been silently stripped since 0040, so on a desktop
+> running the cloud backend "Change folder" did nothing; it ships WITH its
+> guard. `SYSTEMS_HANDBOOK.md` gained §12.7 (the workspace drive, the NAS,
+> remote access — the customer-facing setup guidance S34 owed) and a §17
+> limits block.
+>
+> **Seat scope, deliberate and visible:** the guard reads the app-role
+> claim only — a project manager holding app role `user` cannot set their
+> project's folder. Audrey's sentence names "managers" without qualifying;
+> the brief resolved it to the workspace seat (the 0012/0013 pattern). If
+> beta shows project managers need it, `fn_project_folder_root_guard` and
+> `canSetProjectFolder` change together — recorded in §17 too.
+>
+> **Stated limits:** the folder controls are **desktop-only** (they need the
+> OS directory picker — design §5f); clearing folder_root is seat-gated but
+> needs no drive (a reset, not a placement); the guard leaves existing rows
+> untouched
+> (folder_root was NULL on every row of all three envs — measured before
+> writing, and the unchanged-skip means legacy values would keep working
+> anyway); `ensureProjectFolder` on the web build remains a no-op (the
+> writers are desktop-only); the §4c five-minute check — does Audrey's
+> NAS's remote-access mode preserve the UNC form? — is **STILL OWED**
+> before remote work is promised to a customer.
+>
 > ### S34 outcome — the root lives with the workspace (2026-08-07)
 >
 > Migration **0048** (`workspace_storage` + the fn_workspaces_client_guard
