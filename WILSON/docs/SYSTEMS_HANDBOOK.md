@@ -1435,24 +1435,44 @@ re-selected.
 
 ### 12.1a Adding a storage provider
 
-A provider is **four functions, never an adapter fork**:
-`put(key, body, opts)` / `get(key)` / `del(key)` / `exists(key)`, plus
-`describe()` for the configuration-time reachability probe. The registry is
-`src/tools/rabbit_v0.1.0/storage/`; `registerStorageProvider()` refuses an
+A provider is **FIVE functions, never an adapter fork**:
+`put(key, body, opts)` / `get(key)` / `del(key)` / `exists(key)` / `describe()`
+— the last for the configuration-time reachability probe, and required at
+registration like the rest (`REQUIRED` in `storage/index.js`). ⚠️ **This
+paragraph said "four functions, plus describe()" until S37, and the shorthand
+propagated into the session briefs as a four-function contract.** The registry
+is `src/tools/rabbit_v0.1.0/storage/`; `registerStorageProvider()` refuses an
 implementation missing any of them, specifically so the `googleDriveAdapter`
-shape — **57 `readOnly()` stubs across 68 methods**, a v0.1 relic predating
-workspaces, RLS, the folder tree and the manifest — cannot arrive by the back
-door. It is the shape to avoid, not to finish.
+shape — **57 `readOnly('…')` stubs** (re-measured 2026-08-08; the figure is
+exact) across its own ~68 methods, a v0.1 relic predating workspaces, RLS, the
+folder tree and the manifest — cannot arrive by the back door. It is the shape
+to avoid, not to finish.
 
-Adding one (S37 = S3-compatible, S38 = Google Drive) means, in ONE session:
-1. a registry entry implementing the four functions;
-2. one value added to `workspace_storage_provider_chk` in that provider's own
-   migration — **never ahead of the adapter**, because a configurable provider
-   that resolves nowhere is precisely the failure the registry exists to
-   prevent (`0050`'s CHECK deliberately lists only `petal` and `network`, and
-   suite 60 asserts `gdrive`/`s3` are still REFUSED);
-3. one entry in `NEW_BODY_GOES_TO`, and a `files.storage_provider` enum value
-   if the body lands somewhere new.
+Adding one (S37 = S3-compatible ✅, S38 = Google Drive) means, in ONE session:
+1. a registry entry implementing all five functions;
+2. `'<provider>'` added to `workspace_storage_provider_chk` — **never ahead of
+   the adapter**, because a configurable provider that resolves nowhere is
+   precisely the failure the registry exists to prevent (0050 shipped
+   `petal`/`network` only, and suites 60/61 assert the not-yet-built values
+   are still REFUSED — inverting that probe in the same commit as the adapter
+   is the deliberate tripwire, not a test failure).
+   🚨 **Widen it by EXPLICIT `DROP CONSTRAINT IF EXISTS` + `ADD`, never a
+   wrapped re-ADD.** Every `ADD CONSTRAINT` here is wrapped in `EXCEPTION WHEN
+   duplicate_object`, so re-adding an existing name is a SILENT NO-OP: the
+   migration reports success and changes nothing. Measured S36, applied S37.
+   Add a post-condition that reads `pg_get_constraintdef` back and RAISEs if
+   the new value is absent — "applied cleanly and changed nothing" is
+   otherwise indistinguishable from success;
+3. that provider's OWN required-direction config arm if it needs config
+   (0050's `provider_config_chk` PERMITS a config, it does not REQUIRE one —
+   `provider='s3'` with a NULL config was legal until 0051 added the arm), named
+   so it sorts alphabetically AFTER every constraint whose message a suite
+   asserts;
+4. one entry in `NEW_BODY_GOES_TO`, and a `files.storage_provider` enum value
+   if the body lands somewhere new. 🚨 **`ALTER TYPE … ADD VALUE` cannot USE
+   the new value in the same transaction** — which also means the pre-apply
+   pgTAP shim cannot run a suite that inserts rows with it. Apply to dev
+   first, then run the suites, then run breakers as explicit `DROP`/replace.
 
 🚨 **Nothing already supported may be narrowed.** Audrey, 2026-08-07:
 *"nas, gdrive, AWS s3 buckets, etc are all going to be options … dont remove

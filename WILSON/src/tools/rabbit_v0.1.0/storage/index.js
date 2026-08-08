@@ -126,7 +126,11 @@ export function fileProviderFor(workspaceProvider, { financial = false } = {}) {
   const mapped = NEW_BODY_GOES_TO[workspaceProvider]
   if (!mapped) {
     throw new Error(
-      `unknown storage provider "${workspaceProvider}" — add it to WORKSPACE_PROVIDERS and to migration 0050's workspace_storage_provider_chk together`,
+      // The constraint is named, not numbered: 0050 CREATED
+      // workspace_storage_provider_chk, 0051 widened it to 's3', and the next
+      // provider widens it again. Pointing at a migration NUMBER sends the
+      // next session to the file that no longer defines the live rule.
+      `unknown storage provider "${workspaceProvider}" — add it to WORKSPACE_PROVIDERS and widen workspace_storage_provider_chk (DROP + ADD, never a wrapped re-ADD) in the same session`,
     )
   }
   return mapped

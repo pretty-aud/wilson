@@ -579,7 +579,7 @@ first, and the third forks both.
 |---|---|
 | `workspace_storage` | gains a **`provider`** column (`petal`, `network`, `gdrive`, `s3`, …). `root_path`/`root_kind` stay, and their CHECKs become **conditional on `provider = 'network'`** so S34's NAS rules are preserved exactly, not relaxed. |
 | provider config | **one JSONB `provider_config`**, validated per provider — never three new flat columns per provider. |
-| the adapter | **ONE storage-provider interface — put / get / delete / exists.** A provider is those four functions, never a fork of the 122-method backend adapter. `googleDriveAdapter`'s 57 `readOnly()` stubs are the shape to avoid, not to finish. |
+| the adapter | **ONE storage-provider interface — `put` / `get` / `del` / `exists` / `describe`.** A provider is those **five** functions, never a fork of the backend adapter. `googleDriveAdapter`'s 57 `readOnly('…')` stubs are the shape to avoid, not to finish. ⚠️ *As written this row said "put/get/delete/exists … those four functions … the 122-method backend adapter" — three errors: the method is `del`; `describe()` is required at registration too (S37 outcome, correction 2); and 122 is not a real figure (S36 outcome, correction 3 below — measured 116/104/68, union 133, with no declared interface at all). Corrected in place 2026-08-08 because this table is what later sessions skim.* |
 | `files.storage_provider` | the per-file record of who holds this body, so a workspace that switches provider does not orphan what it already wrote. |
 
 > **✅ BUILT BY S36 (2026-08-07, migration 0050). Four corrections to the table
