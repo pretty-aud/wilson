@@ -36,7 +36,9 @@
 //   3. collects every rabbit-files object path this tenant owns, from BOTH
 //      public.files and any pending storage_gc_queue rows, paging with
 //      .range() because PostgREST caps un-ranged reads at max_rows (1000)
-//      even for service_role (the S14 avatar-scan bug);
+//      even for service_role (the S14 avatar-scan bug), PLUS the reserved
+//      objects the product writes with no row of their own (S36 — see
+//      _shared/reservedObjects.ts and the note on collectBlobPaths);
 //   4. deletes those blobs and certificates the deletion into platform_audit
 //      — which carries no workspace FK, so unlike file_events it survives
 //      what happens next;
@@ -65,6 +67,7 @@ import {
 } from '../_shared/operatorGuard.ts'
 import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { generatePassword } from '../_shared/adminGuard.ts'
+import { reservedProjectObjectPaths } from '../_shared/reservedObjects.ts'
 
 const ACTIONS = new Set([
   'list',
@@ -105,17 +108,39 @@ async function loadWorkspace(
 /**
  * Every rabbit-files object path this workspace owns.
  *
- * Two sources, because either alone is incomplete: public.files is the live
- * set, and storage_gc_queue holds blobs whose files row is already gone but
- * whose disposal never ran. Both are paged — an un-ranged read silently
- * stops at max_rows and the sweep would then leave the tail behind, which
- * is precisely the class of bug that made S14's avatar scan delete the
- * wrong things.
+ * THREE sources, because any one alone is incomplete: public.files is the
+ * live set; storage_gc_queue holds blobs whose files row is already gone but
+ * whose disposal never ran; and the RESERVED objects belong to no row at all.
+ * The first two are paged — an un-ranged read silently stops at max_rows and
+ * the sweep would then leave the tail behind, which is precisely the class of
+ * bug that made S14's avatar scan delete the wrong things.
+ *
+ * 🚨 THE THIRD SOURCE IS S36, AND IT IS THE SAME BLIND SPOT AS THE storage-gc
+ * DEFECT WITH THE SIGN REVERSED.
+ *
+ * `PROJECT.json` and `FINANCE/RATES.json` are written straight to the bucket
+ * with no files row on purpose. A row-derived sweep cannot see them, so before
+ * this they survived their own tenant's teardown — permanently, since after
+ * the CASCADE nothing on the platform can attribute a project folder to a
+ * workspace ever again. That left the money-gated rates mirror, the per-member
+ * figures `can_access_project_money` exists to protect, sitting in the bucket
+ * after the company it belonged to had been certifiably destroyed.
+ *
+ * §17 recorded the general form of this ("teardown cannot see blobs no row
+ * points at") as a coverage gap and asserted "the row-derived sweep covers
+ * every blob the product itself created". That sentence was false the moment
+ * S26 shipped the manifest.
+ *
+ * The reserved paths are returned SEPARATELY rather than merged into `paths`
+ * so the certificate keeps meaning what it says: `blobs_found` stays the count
+ * of blobs a row actually pointed at, and the reserved objects — most of which
+ * will not exist for any given project — get their own line rather than
+ * inflating both `blobs_found` and `missing` by two per project.
  */
 async function collectBlobPaths(
   ctx: OperatorContext,
   workspaceId: string,
-): Promise<{ paths: string[]; rejected: string[] }> {
+): Promise<{ paths: string[]; rejected: string[]; reserved: string[] }> {
   const paths = new Set<string>()
   const rejected = new Set<string>()
 
@@ -183,7 +208,21 @@ async function collectBlobPaths(
     if (!data || data.length < PAGE) break
   }
 
-  return { paths: [...paths], rejected: [...rejected] }
+  // The row-less objects, built from the project ids this workspace provably
+  // owns — the same tenancy proof `owned()` applies to the row-derived paths,
+  // so these need no separate check and can never be cross-tenant.
+  //
+  // Deduped against `paths`: a files row CAN point at one of these keys
+  // (storage_path is client-writable), and deleting the same key in two
+  // batches would count it once as removed and once as missing.
+  const reserved = new Set<string>()
+  for (const projectId of projectIds) {
+    for (const p of reservedProjectObjectPaths(projectId)) {
+      if (!paths.has(p)) reserved.add(p)
+    }
+  }
+
+  return { paths: [...paths], rejected: [...rejected], reserved: [...reserved] }
 }
 
 Deno.serve(async (req: Request) => {
@@ -415,10 +454,12 @@ Deno.serve(async (req: Request) => {
     //    record of which blobs belonged to this tenant.
     let paths: string[]
     let rejected: string[]
+    let reserved: string[]
     try {
       const scan = await collectBlobPaths(ctx, workspaceId)
       paths = scan.paths
       rejected = scan.rejected
+      reserved = scan.reserved
     } catch (err) {
       return reply({ error: 'scan_failed', detail: String((err as Error).message ?? err) }, 500)
     }
@@ -485,6 +526,70 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // 2b. The RESERVED objects (S36), in their own pass with their own
+    //     counters, and AFTER the certificates above rather than before them.
+    //
+    //     The ordering is not cosmetic and was the first draft's mistake: this
+    //     block ends in an `await logPlatformEvent`, and inserting that ahead
+    //     of the loop above would have put a new way to throw in front of the
+    //     certificates for blobs that were ALREADY DELETED — the exact
+    //     property step 2's comment exists to guarantee ("written as we go, so
+    //     a failure partway still leaves a record of what was destroyed").
+    //
+    //     Counted apart from `removed`/`missing`/`failed` because the inputs
+    //     are different in kind. The row-derived paths are blobs a row said
+    //     exist; these are two CANDIDATES per project, most of which will not
+    //     exist for any given project, so folding them in would inflate
+    //     `blobs_missing` by roughly twice the project count and make the
+    //     certificate read as a much larger failed purge than it was.
+    //
+    //     `remove()` answers with the objects it actually deleted, so its
+    //     response is an exact census — which is why the keys are submitted
+    //     blind rather than list()-ed first. Two extra storage calls per
+    //     project would buy nothing and spend the Edge deadline.
+    //     The COUNT comes from the array length, exactly as the loop above
+    //     takes it — that reading is the one already proven against this API.
+    //     The PATHS come from each entry's `name`, which is a convenience for
+    //     the certificate and nothing depends on: if the shape ever changes,
+    //     the list goes empty or short and the count stays correct, rather
+    //     than the count being wrong in a compliance record.
+    let reservedRemoved = 0
+    const reservedRemovedPaths: string[] = []
+    const reservedFailed: string[] = []
+    for (let i = 0; i < reserved.length; i += REMOVE_BATCH) {
+      const batch = reserved.slice(i, i + REMOVE_BATCH)
+      const { data, error } = await ctx.admin.storage.from(BUCKET).remove(batch)
+      if (error) {
+        reservedFailed.push(...batch)
+      } else if (Array.isArray(data)) {
+        reservedRemoved += data.length
+        // Name the objects rather than only counting them: this function's
+        // premise is that a deletion is a recorded, attributable act, and
+        // "2 removed" does not say WHICH project lost its rates mirror.
+        reservedRemovedPaths.push(
+          ...data.map((o: { name?: string }) => o?.name).filter((n): n is string => typeof n === 'string'),
+        )
+      }
+    }
+    for (let i = 0; i < reservedRemovedPaths.length; i += CERT_BATCH) {
+      const batch = reservedRemovedPaths.slice(i, i + CERT_BATCH)
+      await logPlatformEvent(ctx, {
+        action: 'blob.purged',
+        workspaceId,
+        workspaceSlug: ws.slug,
+        workspaceName: ws.name,
+        code: 'WIL-7006',
+        severity: 'warning',
+        message: `Purged ${batch.length} product-written blob(s) during teardown of ${ws.slug}`,
+        context: {
+          bucket: BUCKET,
+          reserved: true,
+          paths: batch,
+          batch: Math.floor(i / CERT_BATCH) + 1,
+        },
+      })
+    }
+
     // 3. Now the row, and the CASCADE with it.
     const { error: delErr } = await ctx.admin
       .from('workspaces')
@@ -533,6 +638,12 @@ Deno.serve(async (req: Request) => {
         blobs_missing: missing,
         blobs_failed: failed.length,
         blobs_rejected: rejected.length,
+        // The row-less objects (S36). `candidates` is two per project by
+        // construction, so only `removed` says anything: it is the number of
+        // manifest/rates mirrors that actually existed and are now gone.
+        reserved_candidates: reserved.length,
+        reserved_removed: reservedRemoved,
+        reserved_failed: reservedFailed.length,
       },
     })
 
@@ -544,6 +655,8 @@ Deno.serve(async (req: Request) => {
       blobs_missing: missing,
       blobs_failed: failed.length,
       blobs_rejected: rejected.length,
+      reserved_removed: reservedRemoved,
+      reserved_failed: reservedFailed.length,
     })
   }
 

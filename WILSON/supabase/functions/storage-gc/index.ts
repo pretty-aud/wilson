@@ -23,9 +23,15 @@
 // SAFETY RULES, in order of importance:
 //   1. NEVER delete an object a live OR TRASHED files row references —
 //      trash must stay restorable for its full 30 days.
-//   2. Orphans must be older than 24h (an in-flight upload's row may not
+//   2. NEVER delete a RESERVED object — the two files R.A.B.B.I.T. writes
+//      straight to the bucket with no files row on purpose (PROJECT.json and
+//      FINANCE/RATES.json). Rule 1 cannot see them: "no row references this"
+//      is true of them by design, which is precisely what made them garbage
+//      to this function. S36, before the first run that would have proved it.
+//      One definition, in _shared/reservedObjects.ts.
+//   3. Orphans must be older than 24h (an in-flight upload's row may not
 //      have landed yet).
-//   3. Tenancy: only paths provably in the caller's workspace are touched.
+//   4. Tenancy: only paths provably in the caller's workspace are touched.
 //      A project folder whose projects row is GONE is only deletable when a
 //      file_events certificate ties that project_id to this workspace;
 //      otherwise it is counted and reported, never deleted (fail closed).
@@ -38,6 +44,7 @@
 import {
   corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent, type AdminContext,
 } from '../_shared/adminGuard.ts'
+import { isReservedProjectObject } from '../_shared/reservedObjects.ts'
 
 const RABBIT_BUCKET = 'rabbit-files'
 const AVATAR_BUCKET = 'user-avatars'
@@ -53,6 +60,11 @@ type Counts = {
   avatar_orphans_deleted: number
   skipped_recent: number
   skipped_foreign_or_unknown: number
+  // Product-written, row-less objects this run declined to delete. Reported
+  // rather than silent: this counter is the only evidence in a WIL-3003 line
+  // that the guard was reachable and fired, and a run over a workspace with
+  // projects that reads 0 here means the manifests are already gone.
+  skipped_reserved: number
   certify_failed: number
   truncated: boolean
 }
@@ -135,7 +147,7 @@ Deno.serve(async (req) => {
   const counts: Counts = {
     queue_deleted: 0, queue_missing: 0, queue_failed: 0,
     orphans_deleted: 0, avatar_orphans_deleted: 0,
-    skipped_recent: 0, skipped_foreign_or_unknown: 0,
+    skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0,
     certify_failed: 0, truncated: false,
   }
 
@@ -151,6 +163,27 @@ Deno.serve(async (req) => {
     if (qErr) throw new Error(`queue read: ${qErr.message}`)
 
     for (const row of pending ?? []) {
+      // Reserved guard, FIRST — refuse in depth rather than trusting the
+      // orphan scan to be the only way here.
+      //
+      // The queue is fed by trg_files_gc_enqueue on hard delete of a files
+      // row, and the reserved objects have no files row, so on the intended
+      // path this branch is unreachable. It is not the only path.
+      // `files.storage_path` is unconstrained, client-writable TEXT — the
+      // files_insert/files_update policies pin workspace_id and
+      // can_write_project and say NOTHING about the path (the same fact that
+      // forced teardown's cross-tenant check in S15). A member can therefore
+      // point a files row of their own at projects/<id>/FINANCE/RATES.json,
+      // delete it, and have the trigger enqueue the rates file for disposal.
+      // The restorability check below would then find no row referencing it —
+      // because they just deleted the only one — and this loop would remove it.
+      if (isReservedProjectObject(row.object_path)) {
+        counts.skipped_reserved++
+        await ctx.admin.from('storage_gc_queue')
+          .update({ status: 'skipped', processed_at: new Date().toISOString(), detail: 'reserved: written by the product with no files row, never garbage' })
+          .eq('id', row.id)
+        continue
+      }
       // Restorability guard: if ANY files row (live or trashed) still
       // references this path, skip — restore must keep working.
       const { data: stillRef } = await ctx.admin
@@ -205,6 +238,14 @@ Deno.serve(async (req) => {
       const referenced = await referencedPaths(ctx, objects.map(o => o.path))
       for (const obj of objects) {
         if (referenced.has(obj.path)) continue // referenced (live OR trashed)
+        // 🚨 THE ROW IS NOT THE ONLY THING THAT MAKES AN OBJECT WANTED.
+        // PROJECT.json and FINANCE/RATES.json are written straight to the
+        // bucket and deliberately have no files row, so every check above
+        // this line classifies them as garbage. Ordered BEFORE the age check
+        // so the counter reads "reserved" rather than "recent" — the two
+        // mean opposite things to whoever reads the WIL-3003 line, and a
+        // manifest younger than 24h was only ever surviving by accident.
+        if (isReservedProjectObject(obj.path)) { counts.skipped_reserved++; continue }
         if (!olderThanWindow(obj.created_at)) { counts.skipped_recent++; continue }
         const { error: rmErr } = await ctx.admin.storage.from(RABBIT_BUCKET).remove([obj.path])
         if (!rmErr) {

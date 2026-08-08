@@ -969,10 +969,19 @@ to understand why it cannot be simplified:
    that snapshot is what keeps the certificate meaningful after the row is gone.
 2. **Require the slug typed back** (`confirm_slug`), else `400
    confirmation_mismatch`.
-3. **Collect every `rabbit-files` path** from **both** `files` and
-   `storage_gc_queue`, paged with `.range()` in 1000-row chunks. Paging is not
-   optional: PostgREST caps un-ranged reads at `max_rows` (1000) **even for
-   `service_role`**.
+3. **Collect every `rabbit-files` path** from **three** sources: `files`,
+   `storage_gc_queue`, and the **reserved objects** (S36). The first two are
+   paged with `.range()` in 1000-row chunks — paging is not optional, since
+   PostgREST caps un-ranged reads at `max_rows` (1000) **even for
+   `service_role`**. The third is the same blind spot as the storage-gc defect
+   with the sign reversed: `PROJECT.json` and `FINANCE/RATES.json` have no row,
+   so a row-derived sweep could not see them and they **survived their own
+   tenant's teardown permanently** — the money-gated rates mirror still sitting
+   in the bucket after the company was certifiably destroyed, and unrecoverably
+   so, because after the CASCADE nothing can attribute a project folder to a
+   workspace. They are built from `reservedProjectObjectPaths()` over the
+   project ids the sweep already proved this workspace owns, so they inherit
+   its tenancy check, and deduped against the row-derived set.
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -983,12 +992,21 @@ to understand why it cannot be simplified:
    8000-character CHECK). `blobs_removed` counts what the bucket's `remove()`
    actually returned, not the batch size — a certificate must never claim a
    destruction that did not happen.
-6. **Delete the workspace row.** This fires the CASCADE.
-7. **Drop the queue rows — *after* the cascade, not before.** The `files`
+6. **Delete the reserved objects in their own pass**, *after* step 5's
+   certificates rather than before them — that block ends in an `await`, and
+   putting a new way to throw ahead of the certificates for blobs already
+   deleted would break the "written as we go" guarantee step 5 exists for.
+   Counted apart (`reserved_candidates` / `reserved_removed` /
+   `reserved_failed`): the inputs are two *candidates* per project, most of
+   which will not exist, so folding them into `blobs_missing` would make the
+   certificate read as a far larger failed purge than it was.
+7. **Delete the workspace row.** This fires the CASCADE.
+8. **Drop the queue rows — *after* the cascade, not before.** The `files`
    CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
    would leave those undrainable.
-8. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
-   critical) with found/removed/missing/failed/rejected counts.
+9. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
+   critical) with found/removed/missing/failed/rejected counts, plus the
+   reserved-object counts.
 
 The reason the collection must happen *first*: after the CASCADE there is no way
 to discover which blobs belonged to the tenant, and `storage-gc`'s orphan scan
@@ -1556,6 +1574,30 @@ Function (adminGuard, workspace-scoped) then does three jobs:
    reads (max_rows applies to service_role too — the unpaged version deleted
    *current* avatars past the cap), removing anything that is not a member's
    current `avatar_url` and older than 24 hours.
+
+🚨 **A row is not the only thing that makes an object wanted — the RESERVED
+rule (S36).** R.A.B.B.I.T. writes two objects straight to the bucket with **no
+`files` row, on purpose**: `projects/<id>/PROJECT.json` (S26) and
+`projects/<id>/FINANCE/RATES.json` (S27). Jobs 1 and 2 both decide by asking a
+row, so both classified them as garbage. **Measured 2026-08-07: the orphan scan
+would have deleted the manifest and the rates mirror of every project on its
+next run** — the rates file being the money-gated one, i.e. exactly the figures
+`can_access_project_money` exists to withhold. It had not bitten only because
+this function is admin-invoked rather than a cron and had not been clicked
+since manifests started being written.
+
+Both jobs now consult `isReservedProjectObject()` — **one definition, in
+`supabase/functions/_shared/reservedObjects.ts`**, because 0042's lesson is
+that a reserved path with a second definition is how these break silently. The
+predicate is anchored to the exact path shape and matches **case-insensitively,
+because `rabbit_money_segment()` does**: a GC recognising only one casing would
+delete an object RLS still treats as money-gated. The queue drain is guarded
+too rather than trusting the orphan scan to be the only route — `storage_path`
+is client-writable, so a member can point a row of their own at the rates file
+and hard-delete it to enqueue the real object for disposal. Preserved objects
+are counted in `skipped_reserved`, so a `WIL-3003` line shows the guard fired.
+Pinned by `src/tools/rabbit_v0.1.0/storageGcReserved.test.js` (29 assertions,
+including all three call sites and nine breakers).
 
 **It is admin-invoked, not a cron job**, for two reasons: TPN TS-1.5 wants dual
 authorization on destruction and a human clicking a stated confirm *is* the
@@ -2996,8 +3038,19 @@ documentation and starts being wrong answers.
   Deliberate; what is missing is the reporting.
 - **Teardown cannot see blobs no row points at**: an object in `rabbit-files`
   referenced by neither `files` nor `storage_gc_queue` survives its tenant's
-  teardown permanently. The row-derived sweep covers every blob the product
-  itself created.
+  teardown permanently. Since S36 the sweep also deletes the **reserved**
+  objects — `PROJECT.json` and `FINANCE/RATES.json`, built from the owned
+  project ids rather than discovered — so what remains uncovered is only a blob
+  no row points at *and* that the product does not write, i.e. a stranded
+  upload whose row never landed. Those are storage-gc's job.
+
+  🚨 **This entry used to end "the row-derived sweep covers every blob the
+  product itself created", and that sentence had been false since S26 shipped
+  the manifest.** It is worth keeping as an example: the limitation was
+  recorded accurately as a *coverage gap* and the same blind spot was, in
+  `storage-gc`, a *destruction risk* that would have deleted every project's
+  manifest and rates mirror (§12.4). **A gap in what a sweep can SEE is also a
+  gap in what a collector can KEEP — read every such note in both directions.**
 - **No single-instance lock** in Electron; two copies can run against one
   `userData` directory.
 - **Realtime probes are lenient in CI** by design — there is no realtime
