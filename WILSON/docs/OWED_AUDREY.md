@@ -742,13 +742,42 @@ supabase secrets set WILSON_AI_KEY_SECRET=<the-base64-value> --project-ref eqjzm
 > key, and the console still shows the old hint. If you ever rotate it, clear
 > and re-enter each company's key from the console afterwards.
 
-### C2. `WILSON_STORAGE_KEY_SECRET` — needed before S3 storage works (S37)
+### C2. `WILSON_STORAGE_KEY_SECRET` — ✅ DONE (2026-08-08)
 
-**BLOCKING for the S3-compatible storage feature, and only for it.** Nothing
-else changes if it is missing: WILSON keeps working exactly as it does
-today, and a company that tries to configure a bucket gets a clear
+> **✅ SET ON ALL THREE PROJECTS, 2026-08-08, and verified by
+> `supabase secrets list --project-ref <ref>` on each.** The digest is
+> **identical across dev, staging and prod**
+> (`439771de…c4cb37d2`), which is the property that matters: a bucket secret
+> encrypted on one environment must be decryptable on the others. Set via the
+> dashboard (Edge Functions → Secrets), so the value never entered a shell
+> history.
+>
+> ⚠️ **A matching digest proves the value is CONSISTENT, not that it DECODES.**
+> Nothing here can check the second without seeing the value, which nothing
+> here may do. The real proof is the first successful bucket-secret save in
+> **Admin Terminal → Storage** — a malformed key fails there with a named
+> error (`must decode to exactly 32 bytes`), not silently. **Still worth doing
+> once against a throwaway bucket.**
+>
+> ⚠️ **The trailing `=` is part of the value.** `openssl rand -base64 32`
+> emits 44 characters ending in `=` (base64 padding for 32 bytes); dropping it
+> fails the length check. Recorded because it is the obvious thing to tidy up
+> when pasting.
+>
+> **Kept below rather than deleted**, per §5's lesson: a claim about deployed
+> state needs a date and a command behind it, or it rots into folklore. This
+> one has both.
+
+**Was BLOCKING for the S3-compatible storage feature, and only for it.**
+Nothing else changed while it was missing: WILSON kept working exactly as it
+did, and a company that tried to configure a bucket got a clear
 `WILSON_STORAGE_KEY_SECRET is not configured on this environment` rather
 than a mystery.
+
+⚠️ **S38 (Google Drive) SHARES this secret** rather than introducing a second
+one — it is one credential domain, and a second Edge secret would be a second
+thing to set per environment and to orphan on rotation. So this entry now
+unblocks Drive's refresh-token storage too.
 
 Same shape and same rules as §C above — a company's bucket secret is stored
 as AES-256-GCM ciphertext, and the key that opens it lives in an Edge
