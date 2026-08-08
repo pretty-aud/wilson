@@ -2046,6 +2046,35 @@ per preview — and a certificate that under-reports is the failure S39's own
 review caught, one bucket over. Both counts are `NULL` on any failed query,
 never `0`.
 
+⚠️ **LATENT, RECORDED: 0054's post-conditions text-match `pg_get_functiondef()`,
+WHICH RETURNS THE FUNCTION'S OWN COMMENTS.** That is the 0038 trap in SQL, in
+the one tier that has no comment-stripper — a future comment containing
+`'thumbnail'` or `byo-s3` would satisfy a post-condition the code no longer
+does. **Measured on dev 2026-08-08 against a comment-stripped definition: all
+four still hold on code alone** (`OLD.storage_provider::text,` appears exactly
+once, and all three `LIKE`s match), so it is a hazard, not a live defect. The
+real proof is **suite 64**, which drives the enqueue end-to-end (insert →
+delete → read the queue) and was verified against two breakers; the text checks
+are belt-and-braces. **A future migration editing this function should strip
+comments before matching:** `regexp_replace(def, '--[^\n]*', '', 'g')`.
+
+🚨 **DEPLOY ORDER IS LOAD-BEARING: 0054 MUST LAND BEFORE THE EDGE FUNCTIONS.**
+`storage-gc` selects `kind` and `operator-workspaces` filters on it, so against
+a database without the column PostgREST answers `42703` and:
+- `storage-gc` **throws** — fail-closed (nothing is deleted), but Storage
+  Cleanup is dead for every workspace until the migration lands;
+- `operator-workspaces` is **worse in kind**: supabase-js resolves with
+  `{error}` rather than throwing, the guard leaves both `byoLeft` and
+  `byoThumbsLeft` `null`, and **teardown proceeds to the CASCADE and stamps
+  WIL-7005 with both counts null** — permanently unre-derivable, because after
+  the cascade nothing can attribute a project to a workspace again.
+
+The reverse order is unsafe in principle too (0054 applied, old `storage-gc`
+still deployed: its bucket-name discriminator reads an s3 thumbnail as a body
+and deletes it with a `deleted` stamp) — harmless only while no s3 workspace
+exists. **Migration first, then functions, on every environment. Same order on
+a rollback, reversed: functions back first.**
+
 **Rate limit.** `STORAGE_PRESIGN_RPM` default **120 → 240**: an s3 image upload
 now costs two presigns (body, then preview), so the old ceiling refused a
 100-image drag from roughly file 60 — and on the *second* call of each pair, so
@@ -2086,13 +2115,15 @@ already refuses.
 ⚠️ **A `network` workspace gets icons regardless**, and no design fixes that: a
 browser cannot read a NAS. So this rule is uniform while its *outcome* is not.
 
-The case against it: a customer who chose BYO storage specifically so
-pre-release frames do not sit on Petal's infrastructure now has a **legible
-256px frame of every image** doing exactly that, with no opt-out. **Raised by
-S39's adversarial review; left as built and flagged rather than decided
-unilaterally.** If it should change, the fix is to route the preview through
-the same storage registry the body already uses — the registry makes that a
-provider lookup, not a fork.
+📒 **HISTORICAL — S39-era, RESOLVED BY S44. Kept because it is the argument that
+won, not because it describes current state.** The case against what S39 built:
+a customer who chose BYO storage specifically so pre-release frames do not sit
+on Petal's infrastructure had a **legible 256px frame of every image** doing
+exactly that, with no opt-out. **Raised by S39's adversarial review; left as
+built and flagged rather than decided unilaterally.** Its own suggested fix —
+*"route the preview through the same storage registry the body already uses; the
+registry makes that a provider lookup, not a fork"* — **is precisely what S44
+implemented.** It was a provider lookup.
 
 #### Limits, stated
 
@@ -3124,20 +3155,35 @@ of a session — this section is limits by design, that file is faults.
   hardening applied on one backend only. Since 0050 the money invariant is
   safe regardless (a CHECK re-validates on UPDATE), but the asymmetry stands.
 
-**Thumbnails (S39, migration 0053)**
+**Thumbnails (S39 migration 0053; ROUTING REVERSED BY S44, migration 0054)**
 
 - **Cloud only, and images only.** The desktop's Local Server tier keeps its
   own `sharp` pipeline and its six Express routes; nothing there changed. TIFF
   has no cloud preview (browsers cannot decode it) and SVG is excluded
   deliberately. **Video has no thumbnail on any tier — that is S40.**
-- 🚨 **A BYO-storage workspace's previews live on Petal**, while its media does
-  not. Deliberate and argued in §12.7b, but it is a decision Audrey has not
-  explicitly confirmed for the BYO case — her instruction predates BYO media.
-- **No orphan sweep over `rabbit-thumbnails`.** The queue drain and teardown
-  both cover it; the orphan scan does not. A thumbnail stranded by a browser
+- ✅ **A thumbnail LIVES WHERE ITS SOURCE LIVES** (S44, 0054). This entry
+  previously read *"a BYO-storage workspace's previews live on Petal … a
+  decision Audrey has not explicitly confirmed"* — **she confirmed it, in the
+  opposite direction, on 2026-08-08, and S44 shipped it.** A preview now goes to
+  the provider its body went to, and is disposed of there. §12.7b carries it.
+- ⚠️ **BUT an `s3` workspace's previews are NOT DISPLAYED in the browser** —
+  written and disposed of correctly, shown as file-type icons. Deferred
+  deliberately: signing a key in the customer's bucket needs a batch presign
+  that does not exist, and no S3 workspace exists on any environment to verify
+  one against. In `OUTSTANDING.md`.
+- ⚠️ **A `network` workspace gets icons regardless** — a browser cannot read a
+  NAS. The rule is uniform; its outcome is not.
+- **No orphan sweep over ANY thumbnail location** — neither `rabbit-thumbnails`
+  nor a customer bucket (WILSON never enumerates one, §12.4). The queue drain
+  and teardown cover the Petal side only. A thumbnail stranded by a browser
   dying between its upload and a refused `files` insert is retained with no
-  certificate. The compensating delete now reports failures rather than
-  swallowing them, which is what makes that case visible at all.
+  certificate, on either provider. The compensating delete reports failures
+  rather than swallowing them, which is what makes that case visible at all.
+- ⚠️ **Teardown sweeps Petal-hosted previews only** (`.neq('storage_provider',
+  's3')`), and **counts** the customer-bucket ones on WIL-7005 as
+  `byo_thumbnails_left`. Their storage, their property — the same rule as the
+  body. Both `byo_*` counts read `NULL`, never `0`, when the count could not be
+  taken.
 - ⚠️ **`files.thumbnail_url` is client-writable** through `FILE_COLUMNS`, the
   same asymmetry recorded below for `storage_path`. The GC's restorability
   guard and its workspace scoping bound the blast radius, and the guard now

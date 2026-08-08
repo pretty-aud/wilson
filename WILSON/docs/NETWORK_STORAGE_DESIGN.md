@@ -1171,12 +1171,36 @@ deletion path and the same certificate, not a later sweep.
 >   `FINDINGS.md`** — it is a forward-looking design warning with no open/closed
 >   status, which is why grepping the audit for it comes up empty.
 >
-> ⚠️ **One decision left open rather than taken: a BYO-storage workspace's
-> previews live on Petal** while its media sits on the customer's NAS or bucket.
-> Audrey's instruction above (*"lets store thumbnails within the supabase
-> storage"*) predates BYO media storage, so it does not settle this case. The
-> arguments both ways are in §12.7b. Routing previews through the storage
-> registry would be a provider lookup, not a fork.
+> ✅ **DECIDED AND SHIPPED — S44, migration 0054. This paragraph used to say the
+> decision was open; it is not.** Audrey, 2026-08-08: *"the image should be kept
+> in the company storage. if the thumbnail lived in the petal cloud it would
+> break tpn inherently."*
+>
+> > **A thumbnail lives where its source lives, and dies with it.**
+>
+> Her earlier instruction above (*"lets store thumbnails within the supabase
+> storage"*) predates BYO media storage and does not survive it. **A still frame
+> IS the content**, so a legible 256px frame of pre-release footage on Petal's
+> infrastructure makes Petal a content-bearing party — exactly what a customer
+> choosing BYO storage is paying to avoid.
+>
+> `putThumbnailTo(fileProvider, …)` reuses the SAME provider variable the body
+> was written with; 0054's enqueue and the teardown sweep mirror it. It was a
+> provider lookup, not a fork, as this paragraph predicted. Full detail: handbook
+> **§12.7b**.
+>
+> 🚨 **S40 MUST NOT WRITE VIDEO STILLS TO `rabbit-thumbnails` UNCONDITIONALLY.**
+> A still frame is a thumbnail, so §5d.1b below inherits this rule: route it
+> through `putThumbnailTo` with the body's provider and tag its queue row
+> `kind='thumbnail'`. Writing it to Petal for an s3 workspace re-opens the exact
+> breach 0054 closed, one media type over.
+>
+> ⚠️ **Browser DISPLAY for s3 rows was deliberately deferred** (Audrey's call, the
+> same day): it needs a batch presign that does not exist, and no S3 workspace
+> exists on any environment to verify one against. Those grids show file-type
+> icons; `FileManager` filters on `storage_provider !== 's3'` so the gap is
+> stated rather than silently missed. **Generation is the one-way door, display
+> is not** — which is why the write half shipped anyway.
 
 ### 5d.1b Video thumbnails — a still frame, automatically
 
@@ -1316,9 +1340,15 @@ narrower question.
 part. §5e was also unclear here, so plainly:
 
 **The proposal was never that web users get nothing.** Thumbnails are generated
-once, uploaded to `rabbit-thumbnails`, and **every web user sees every
-thumbnail**. What is desktop-only is *generating* one for a codec no browser can
-decode.
+once and every web user sees every thumbnail **on a Petal-cloud workspace**.
+What is desktop-only is *generating* one for a codec no browser can decode.
+
+⚠️ **S44 NARROWED BOTH HALVES OF THAT SENTENCE, AND IT IS NO LONGER TRUE AS
+WRITTEN.** Since migration 0054 a preview is uploaded to **the provider its body
+went to**, not unconditionally to `rabbit-thumbnails` — and for an `s3`
+workspace it is deliberately **not displayed** in the browser, because signing a
+key in the customer's bucket needs a batch presign that does not exist yet. Read
+this paragraph as describing the Petal case only.
 
 So the actual question is narrow: **does a web-only user ever need to add a
 ProRes file and have its thumbnail appear automatically?**

@@ -84,6 +84,12 @@ const BUCKET = 'rabbit-files'
 // complete disposal, so a bucket it does not know about turns the certificate
 // into a false statement about a torn-down tenant's pre-release frames.
 // (TPN-CLOUD-005 is exactly this complaint about the single-bucket sweep.)
+//
+// ⚠️ S44: THIS IS THE PETAL-HOSTED PREVIEWS' BUCKET, NOT "THE THUMBNAIL BUCKET".
+// Since 0054 a preview lives at its body's provider, so an s3 workspace's
+// previews are in the CUSTOMER's bucket and are deliberately NOT swept — they
+// are counted as byo_thumbnails_left instead. The scan below excludes s3 and
+// only s3, mirroring 0054's thumbnail arm.
 const THUMBNAIL_BUCKET = 'rabbit-thumbnails'
 const PAGE = 1000          // PostgREST max_rows; read in exactly one page's worth
 const REMOVE_BATCH = 100   // objects per storage.remove() call
@@ -215,17 +221,17 @@ async function collectBlobPaths(
     if (!data || data.length < PAGE) break
   }
 
-  // S39: the derived previews, in their OWN bucket, from the same two row
-  // sources. Kept in a separate set because they are removed from a different
-  // bucket and counted on their own certificate line.
+  // The derived previews, in their OWN bucket, from the same two row sources.
+  // Kept in a separate set because they are removed from a different bucket and
+  // counted on their own certificate line.
   //
-  // 🚨 NO storage_provider FILTER HERE, and that is the whole subtlety. The
-  // files scan above is pinned to storage_provider='supabase' because a body
-  // at the customer's own bucket is their property (S37). A THUMBNAIL is not:
-  // it is always written to Petal's rabbit-thumbnails, even for an s3-backed
-  // workspace. Inheriting the provider filter would leave every BYO workspace's
-  // previews behind while the certificate said otherwise — the exact inversion
-  // of the rule it was copied from.
+  // ⚠️ THIS BLOCK USED TO SAY "NO storage_provider FILTER HERE" AND THAT A
+  // THUMBNAIL "is always written to Petal's rabbit-thumbnails, even for an
+  // s3-backed workspace". Both were true under S39 and BOTH ARE NOW FALSE — S44
+  // (0054) routes a preview to the provider its body went to. The filter the
+  // old comment forbade is now required, and it is twelve lines below. Rewritten
+  // rather than left standing: a comment that instructs the opposite of the code
+  // beneath it is how the next session confidently reverts a fix.
   const takeThumb = (p: unknown) => {
     if (owned(p)) thumbs.add(p as string)
     else if (typeof p === 'string' && p.length > 0) rejected.add(p)
