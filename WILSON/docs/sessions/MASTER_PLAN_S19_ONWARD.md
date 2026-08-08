@@ -628,6 +628,31 @@ below are superseded; only one of them actually moves.
 > Left as built and flagged rather than decided unilaterally; routing previews
 > through the storage registry would be a provider lookup, not a fork.
 >
+> > 🚨 **ANSWERED 2026-08-08, AND IT WENT AGAINST WHAT THIS SESSION BUILT.**
+> > Audrey: *"the image should be kept in the company storage. if the thumbnail
+> > lived in the petal cloud it would break tpn inherently."* **A thumbnail
+> > lives where its source lives, and dies with it.** A still frame IS the
+> > content, so the three counter-arguments above are operational conveniences
+> > losing to a compliance boundary. **S44 implements it and runs before S40.**
+> >
+> > ⭐ **S39's work is NOT wasted, and the shape of this correction is worth
+> > keeping.** Everything this session built stands — the bucket, the eight
+> > policies, the key layout that inherits the money gate, the generation
+> > pipeline, the batch signing, the disposal wiring, suite 63 — and remains
+> > exactly right for `petal` workspaces, which are the default and today the
+> > only configured state. **One thing was wrong: the destination is PINNED
+> > rather than ROUTED.** So S44 is an extension, not a rewrite.
+> >
+> > ⚠️ **But this session's own estimate of that fix was too low.** "A provider
+> > lookup, not a fork" is true of the WRITE path only. Measured 2026-08-08:
+> > three layers independently hardcode Petal — the write (`putThumbnail` takes
+> > the Supabase client and a module-constant bucket), the display
+> > (`signedThumbnailUrls` batch-signs Supabase URLs) and disposal (0053's
+> > enqueue hardcodes provider `'supabase'`) — and the display half is
+> > genuinely unsolved: there is no batch presign, and a presigned GET expires
+> > in 300s against Supabase's 3600s. **Flagging a decision honestly is not the
+> > same as sizing it; this one was flagged well and sized optimistically.**
+>
 > **Stated limits.** No orphan sweep over `rabbit-thumbnails` (queue drain and
 > teardown cover it; a browser dying between the thumbnail put and a refused
 > `files` insert strands one 10–30 KB JPEG uncertificated); Local Server's tier
