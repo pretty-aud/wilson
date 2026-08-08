@@ -67,7 +67,7 @@ import {
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
 import {
-  generateThumbnail, thumbnailKeyFor, putThumbnail, removeThumbnail,
+  generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
   signedThumbnailUrls,
 } from '../storage/thumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
@@ -1070,16 +1070,33 @@ export function supabaseAdapter() {
       // ALREADY LANDED at this point, so anything thrown from here would
       // strand it — a failed preview must cost a preview.
       //
-      // The thumbnail is written to rabbit-thumbnails whatever provider holds
-      // the body: it is 10–30 KB, and keeping it on Petal means a grid needs
-      // no presign round-trip per tile and behaves identically on every
-      // provider. Stated in 0053's header and §12.7b.
+      // 🚨 SESSION 44 — THE THUMBNAIL GOES WHERE THE BODY WENT. It is handed
+      // `storageProvider`, the SAME variable the body was just written with,
+      // four lines up. One decision, used twice: the derived preview cannot
+      // land at a different store than its source, because there is no second
+      // decision to disagree with.
+      //
+      // This REVERSES S39, deliberately (Audrey, 2026-08-08): "the image should
+      // be kept in the company storage. if the thumbnail lived in the petal
+      // cloud it would break tpn inherently". A still frame IS the content —
+      // a legible 256px frame of pre-release footage held on Petal's
+      // infrastructure makes Petal a content-bearing party, which is exactly
+      // what a customer choosing their own bucket is paying to avoid. S39's
+      // counter-arguments (10–30 KB, one code path, no presign per tile) are
+      // operational conveniences and they lose to a compliance boundary.
+      //
+      // ⚠️ NO MONEY BRANCH HERE, AND THAT IS THE RULE WORKING. `storageProvider`
+      // is already Supabase for a financial upload — fileProviderFor pins it
+      // before the workspace's choice is read — so an invoice's preview stays
+      // in rabbit-thumbnails by following its body, not by a special case. If
+      // this line ever needs a money test, the pin has been moved out of the
+      // one place that owns it.
       let thumbnailPath = null;
       try {
         const thumb = await generateThumbnail(file);
         if (thumb) {
           const key = thumbnailKeyFor(storagePath);
-          await putThumbnail(client, key, thumb);
+          await putThumbnailTo(storageProvider, key, thumb, { client });
           thumbnailPath = key;
         }
       } catch (thumbErr) {
@@ -1136,8 +1153,16 @@ export function supabaseAdapter() {
         // Never silent: this is the thumbnail's ONLY cleanup path, so a failure
         // here is the difference between "removed" and "a legible frame of the
         // content is in the bucket forever with nothing pointing at it".
+        //
+        // 🚨 S44: removed from THE STORE IT REACHED, via the same
+        // `storageProvider` the put used. Deleting from Petal's bucket a
+        // thumbnail that went to a customer's would succeed at removing
+        // nothing, and leave the frame in the customer's bucket unreferenced —
+        // a stranded object in someone else's storage, which is the one place
+        // WILSON can never sweep (§12.4: no orphan scan walks a customer
+        // bucket, by design).
         try {
-          await removeThumbnail(client, thumbnailPath);
+          await removeThumbnailFrom(storageProvider, thumbnailPath, { client });
         } catch (rmErr) {
           console.warn('[supabase] stranded thumbnail not removed:', rmErr?.message || rmErr);
         }
@@ -1188,6 +1213,16 @@ export function supabaseAdapter() {
     // for an invoice thumbnail gets no URL for that key and the UI falls back
     // to an icon. The caller never has to know which keys were money-gated,
     // which is what keeps the gate in one place.
+    //
+    // ⚠️ S44 — PETAL-HOSTED PREVIEWS ONLY, and FileManager filters to match.
+    // Since S44 a thumbnail lives at its body's provider, so an s3 workspace's
+    // previews are in the customer's bucket and cannot be signed from here.
+    // Displaying those needs a batch presign that does not exist yet, and no
+    // S3 workspace exists on any environment to verify one against — so it is
+    // its own session (Audrey, 2026-08-08). Those rows are excluded upstream
+    // rather than looked up and silently missed; their tiles show file-type
+    // icons. See storage/thumbnails.js `signedThumbnailUrls` for why the WRITE
+    // half shipped without the read half.
     async thumbnailUrls(paths, expiresIn = 3600) {
       const client = await requireClient();
       return signedThumbnailUrls(client, paths, expiresIn);

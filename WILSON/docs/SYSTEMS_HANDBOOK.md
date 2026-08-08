@@ -1948,16 +1948,16 @@ or server-side, means downloading the source first — gigabytes of egress at
 Petal's expense to produce a postage stamp, on exactly the multi-GB media this
 product exists for (design §4a2). That is the one expensive design.
 
-#### 🚨 DECIDED 2026-08-08: a thumbnail LIVES where its source lives
+#### 🚨 A thumbnail LIVES where its source lives (decided 2026-08-08, BUILT in S44 / migration 0054)
 
 **Audrey:** *"the image should be kept in the company storage. if the thumbnail
 lived in the petal cloud it would break tpn inherently."*
 
-**This settles the open question, and it decides against what S39 shipped.**
-A workspace on its own NAS or S3 bucket keeps its media there; **its
-thumbnails must go there too.** S39 writes them to Petal's
-`rabbit-thumbnails` regardless of provider, with no opt-out — see
-`OUTSTANDING.md`.
+**This decided against what S39 shipped, and S44 implemented it.**
+A workspace on its own S3 bucket keeps its media there, and **its thumbnails go
+there too** — written beside the source at `<body key>.jpg`, and enqueued for
+disposal at the same store. What shipped, and what deliberately did not, is in
+**"What S44 actually built"** below.
 
 **The reasoning is a content-security argument, not a cost one, and it is
 correct.** A still frame **is** the content. A legible 256px frame of
@@ -1975,24 +1975,116 @@ given **before BYO media storage existed** and does not survive it.
 
 > **A thumbnail lives where its source lives, and dies with it.**
 
-The second half was already true (`trg_files_gc_enqueue`, teardown, WIL-7005).
-The first half is now required and is not yet built.
+Both halves are now true.
 
 ⚠️ **Two consequences that are easy to get backwards:**
 - **Money-gated files are NOT an exception — they are the rule applied.**
   Invoices and rate documents never leave Supabase (§12.1a), so **their**
   thumbnails stay in `rabbit-thumbnails` too. "Thumbnails follow the media"
   must never be read as "move invoice previews to a customer bucket."
+  **There is no money branch in the thumbnail path, and there must not be one:**
+  `fileProviderFor` pins `financial` to Supabase before the workspace's choice
+  is read, so the preview inherits the pin by following its body.
 - **`rabbit-thumbnails` does not go away.** It remains correct for every
   `petal`-provider workspace, which is the default and today the only
   configured state.
 
-**Exposure when this was decided: none.** Measured 2026-08-08 on dev — zero
-`byos` workspaces, zero non-Supabase `files` rows, zero rows with
-`thumbnail_url` set; and `public.files` was measured empty on all three
-environments at S36. **No customer content has been placed on the wrong side
-of this boundary.** It is a design defect caught before it could leak, which
-is the cheapest moment to have caught it.
+**Exposure when this was decided and fixed: none.** Measured 2026-08-08 across
+**all three** environments: dev and prod all-zero; **staging has one `byos`
+workspace, but its provider is `network`, not `s3`**, with no `provider_config`,
+zero `files` rows and zero thumbnail objects. (⚠️ The S44 brief said "zero `byos`
+workspaces" — that was wrong for staging. The operative claim survived: a
+`network` workspace has no cloud upload path at all, so **no customer content
+was ever placed on the wrong side of this boundary and no data migration was
+required.**) A design defect caught before it could leak, which is the cheapest
+moment to have caught it.
+
+#### What S44 actually built (migration 0054)
+
+**Write — `storage/thumbnails.js` `putThumbnailTo(fileProvider, key, blob)`.**
+`supabaseAdapter.uploadFile` hands it the **same `storageProvider` variable it
+just used for the body**. One decision, used twice: there is no second decision
+for the preview to disagree with. Supabase keeps its own arm (rabbit-thumbnails,
+`upsert:true`) because the registered `supabase` provider writes to
+rabbit-**files** with `upsert:false`; every other provider goes through the
+registry's ordinary `put()`, which is why S38's Drive entry needs no thumbnail
+work of its own. An unregistered provider throws — fail-closed, costing a
+preview and never the file.
+
+**Disposal — `storage_gc_queue.kind` (`body` | `thumbnail`).** 🚨 **This column
+exists because the fix would otherwise have caused the bug it was written to
+prevent.** `storage-gc` picks its restorability column from the queue row; S39
+inferred "this is a thumbnail" from the **bucket**, which stops working the
+moment an s3 thumbnail is correctly enqueued under the same `byo-s3` marker as
+its body. The drain would then check `files.storage_path` for a key that only
+ever appears in `files.thumbnail_url`, get "nothing references this", **delete a
+still-restorable preview and stamp it `deleted` in the ledger.** `kind` makes
+the object say what it is; the bucket goes back to meaning only what it says.
+
+⚠️ **The thumbnail arm is NOT a copy of the body arm.** The body arm only runs
+for `('supabase','s3')`; the thumbnail arm runs for **any** row carrying a
+`thumbnail_url`, including `local_server` (0053 widened the trigger for exactly
+that case). Writing `OLD.storage_provider` into the provider column would
+enqueue a Petal-hosted preview as provider `local_server`, which
+`storage_gc_queue_provider_chk` refuses — and the trigger's `EXCEPTION` handler
+swallows that into a `WARNING`, so the purge "succeeds" and disposes of
+**nothing**. Suite 64 probe 9 drives that row; both breakers were run and failed
+for the predicted reason.
+
+**Teardown.** The Petal sweep now **excludes `s3`, and only `s3`**
+(`.neq('storage_provider', 's3')`), reversing S39's deliberate absence of any
+filter. 🚨 **It mirrors 0054's THUMBNAIL arm, not the body scan's pin, and the
+difference is a leak:** the body scan pins to `= 'supabase'` because only a
+Supabase *body* is in `rabbit-files`, but a `local_server` or `google_drive` row
+can carry a **Petal-hosted preview** (0053 widened the purge trigger for exactly
+that case). Copying the body scan's pin would leave those frames in
+`rabbit-thumbnails` while WIL-7005 certified the tenant destroyed. S44 made that
+mistake and caught it in its own review. WIL-7005 also gained
+**`byo_thumbnails_left`** beside `byo_bodies_left`. Since S44 one s3 row leaves
+**two** objects in the customer's bucket, so a row count under-reported by one
+per preview — and a certificate that under-reports is the failure S39's own
+review caught, one bucket over. Both counts are `NULL` on any failed query,
+never `0`.
+
+**Rate limit.** `STORAGE_PRESIGN_RPM` default **120 → 240**: an s3 image upload
+now costs two presigns (body, then preview), so the old ceiling refused a
+100-image drag from roughly file 60 — and on the *second* call of each pair, so
+the bodies had landed and the user saw a half-illustrated grid with an
+unrelated-sounding message.
+
+**Disposal limits, stated in BOTH directions** (the §17 rule):
+- **Swept on teardown:** Petal-hosted previews in `rabbit-thumbnails`.
+- **Deliberately NOT swept:** previews in a customer's own bucket — same rule as
+  the body, their storage and their property. **Counted** on the certificate
+  instead of reached into.
+- **Never orphan-scanned, on either side.** `storage-gc`'s orphan scan is
+  `rabbit-files`-only by design and WILSON never enumerates a customer bucket
+  (§12.4). So a preview whose `files`-row insert was refused has **only**
+  `uploadFile`'s compensating delete to save it — which is why
+  `removeThumbnailFrom` throws rather than resolving, and the caller logs.
+
+#### ⚠️ What S44 deliberately did NOT build: browser display
+
+An s3 workspace's previews are **written and disposed of correctly but are not
+displayed** — the grid shows file-type icons. `signedThumbnailUrls` can only
+sign objects in Petal's bucket, and `FileManager` filters to
+`storage_provider === 'supabase'` so this is a stated behaviour rather than a
+lookup that quietly finds nothing.
+
+**Why (Audrey's call, 2026-08-08):** display needs a batch presign that does not
+exist — `storage-presign` authorises **one key per call**, and its GET expiry is
+**300s** against the Supabase arm's **3600s**, so a grid left open six minutes
+goes dead. And **no S3 workspace exists on any environment to verify a new
+signing endpoint against**, so the first real customer would be the test.
+
+🚨 **Generation is the one-way door, not display — which is why the write half
+shipped anyway.** A preview that exists can be displayed later by a pure client
+change: no backfill, no egress. A preview that was never generated can only be
+made later by downloading the full source, the one expensive design this section
+already refuses.
+
+⚠️ **A `network` workspace gets icons regardless**, and no design fixes that: a
+browser cannot read a NAS. So this rule is uniform while its *outcome* is not.
 
 The case against it: a customer who chose BYO storage specifically so
 pre-release frames do not sit on Petal's infrastructure now has a **legible

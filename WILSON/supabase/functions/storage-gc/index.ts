@@ -50,13 +50,20 @@ import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
 
 const RABBIT_BUCKET = 'rabbit-files'
 const AVATAR_BUCKET = 'user-avatars'
-// S39. Derived previews live here and are disposed of on the SAME purge as
-// their source (TPN-CONT-011), enqueued by trg_files_gc_enqueue alongside the
-// body. The ORPHAN SCAN deliberately does not walk this bucket — see the
-// stated limit in §12.7b: a thumbnail whose files row never landed is cleaned
+// ── Derived previews (S39, re-based S44) ────────────────────────────────────
+// Disposed of on the SAME purge as their source (TPN-CONT-011), enqueued by
+// trg_files_gc_enqueue alongside the body. There is DELIBERATELY no thumbnail
+// bucket constant here any more: since S44 a thumbnail lives at its body's
+// provider, so a Petal one is in 'rabbit-thumbnails' and an s3 one is in the
+// customer's bucket under the 'byo-s3' marker. The queue row carries both its
+// bucket and its `kind` (0054), and the drain reads those — a constant would
+// only invite the bucket to be treated as the object's identity again, which
+// is the exact defect 0054 closed.
+//
+// The ORPHAN SCAN deliberately walks NEITHER thumbnail location — see the
+// stated limit in §12.7b. A thumbnail whose files row never landed is cleaned
 // up by uploadFile's compensating delete, the same way a stranded source
-// upload is.
-const THUMBNAIL_BUCKET = 'rabbit-thumbnails'
+// upload is; and WILSON never enumerates a customer bucket at all (§12.4).
 const ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000
 const LIST_PAGE = 100
 const MAX_OBJECTS = 5000 // per run; leftovers surface in the next run
@@ -222,7 +229,12 @@ Deno.serve(async (req) => {
     // ── 1. Drain the queue (rows enqueued by the purge trigger) ────────────
     const { data: pending, error: qErr } = await ctx.admin
       .from('storage_gc_queue')
-      .select('id, bucket_id, object_path, provider')
+      // 🚨 `kind` IS LOAD-BEARING AND MUST STAY IN THIS LIST (S44). It picks
+      // the restorability column below; omitted, every row reads undefined,
+      // every thumbnail is treated as a body, and the drain deletes restorable
+      // previews while certifying them disposed. A missing column here is a
+      // silent data-loss bug, not a missing field.
+      .select('id, bucket_id, object_path, provider, kind')
       .eq('status', 'pending')
       .eq('workspace_id', ctx.workspaceId)
       .order('id', { ascending: true })
@@ -254,14 +266,34 @@ Deno.serve(async (req) => {
       // Restorability guard: if ANY files row (live or trashed) still
       // references this path, skip — restore must keep working.
       //
-      // 🚨 THE COLUMN DEPENDS ON THE BUCKET (S39). A rabbit-thumbnails row's
-      // object_path is a `thumbnail_url`, not a `storage_path`, and those are
-      // different columns holding different keys. Asking the wrong one always
-      // returns "nothing references this" — which is not a refusal to delete
-      // but a licence to, so a trashed file's still-restorable preview would
-      // be destroyed while its source was correctly preserved. The bug would
-      // present as "my restored file lost its thumbnail", long after the run.
-      const refColumn = row.bucket_id === THUMBNAIL_BUCKET ? 'thumbnail_url' : 'storage_path'
+      // 🚨 THE COLUMN DEPENDS ON WHAT THE OBJECT IS (S39, re-based in S44). A
+      // thumbnail row's object_path is a `thumbnail_url`, not a `storage_path`,
+      // and those are different columns holding different keys. Asking the
+      // wrong one always returns "nothing references this" — which is not a
+      // refusal to delete but a licence to, so a trashed file's still-restorable
+      // preview would be destroyed while its source was correctly preserved.
+      // The bug would present as "my restored file lost its thumbnail", long
+      // after the run.
+      //
+      // 🚨 S44: THIS READS `kind`, NOT THE BUCKET, AND THAT CHANGE IS THE WHOLE
+      // POINT OF 0054's NEW COLUMN. S39 tested the bucket name directly
+      // because a thumbnail was always in Petal's thumbnail bucket. Since S44 a
+      // thumbnail lives at its body's provider, so an s3 workspace's preview
+      // sits in the customer's bucket under the SAME 'byo-s3' marker as its
+      // body — the bucket no longer identifies the object, and the old test
+      // would have silently classified every s3 thumbnail as a body, checked
+      // storage_path, found nothing, and deleted a restorable preview while
+      // stamping it 'deleted' in the ledger. Exactly the failure the paragraph
+      // above was written to prevent, re-entering through the fix.
+      //
+      // Rows written before 0054 default to 'body', and 0054 backfills the
+      // rabbit-thumbnails ones — so this is behaviour-identical on old rows.
+      // Cast for the same reason the `provider` read below carries one: this
+      // project ships no generated Database types, so a column added by a
+      // later migration is not on the inferred row shape.
+      const refColumn = (row as { kind?: string }).kind === 'thumbnail'
+        ? 'thumbnail_url'
+        : 'storage_path'
       const { data: stillRef, error: refErr } = await ctx.admin
         .from('files').select('id').eq(refColumn, row.object_path).limit(1)
       // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on

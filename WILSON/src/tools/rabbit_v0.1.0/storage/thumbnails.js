@@ -24,7 +24,35 @@
 // Express thumbnail routes and its own on-disk cache; those serve managed files
 // and entity images, which have no `files` row and no bucket. See §12.7b for
 // what that leaves uneven.
+//
+// ── 🚨 SESSION 44: A THUMBNAIL LIVES WHERE ITS SOURCE LIVES ─────────────────
+// Audrey, 2026-08-08, deciding against what S39 shipped:
+//   "the image should be kept in the company storage. if the thumbnail lived in
+//    the petal cloud it would break tpn inherently"
+//
+// S39 wrote EVERY thumbnail to rabbit-thumbnails, including for a workspace
+// whose media sits in its own bucket, and argued it from size (10–30 KB), one
+// code path, and no presign per tile. Those are operational conveniences and
+// they lose to a compliance boundary: A STILL FRAME IS THE CONTENT. A legible
+// 256px frame of pre-release footage on Petal's infrastructure makes Petal a
+// content-bearing party holding that studio's material — precisely what a
+// customer choosing BYO storage is paying to avoid.
+//
+// So the destination is no longer a constant. It is the provider THE BODY WENT
+// TO, and uploadFile hands it the same `storageProvider` variable it just used
+// for the body — ONE decision, used twice, structurally unable to disagree.
+//
+// ⚠️ MONEY-GATED FILES ARE THIS RULE APPLIED, NOT AN EXCEPTION. fileProviderFor
+// pins `financial` to Supabase BEFORE consulting the workspace's choice, so an
+// invoice's body stays in rabbit-files and its preview stays in
+// rabbit-thumbnails. Nothing here needs a money branch; getting one would mean
+// the pin had been moved out of the one place that owns it.
+//
+// ⚠️ AND rabbit-thumbnails DOES NOT GO AWAY. It stays correct for every `petal`
+// workspace — the default, and today the only configured state anywhere.
 // =============================================================================
+
+import { FILE_PROVIDERS, getStorageProvider } from './index.js'
 
 export const THUMBNAIL_BUCKET = 'rabbit-thumbnails'
 
@@ -171,18 +199,16 @@ function canvasToJpeg(canvas, quality) {
 }
 
 /**
- * Upload one thumbnail. Separate from the storage REGISTRY on purpose.
+ * Upload one thumbnail TO PETAL'S BUCKET. The Supabase arm of putThumbnailTo,
+ * and correct for every `petal` workspace — which is the default and today the
+ * only configured state anywhere.
  *
- * 🚨 The registry is keyed by `files.storage_provider` — it answers "where does
- * THIS BODY live", and a thumbnail is not a body: it has no `files` row of its
- * own and its provider is always Supabase, even for a workspace whose media
- * sits in its own S3 bucket (0053's header states that decision). Registering
- * a thumbnail entry there would put a second meaning into a vocabulary that
- * already carries exactly one.
- *
- * And the bucket is NOT a parameter, for the reason supabaseProvider.js:18-21
- * already gives: "a `bucket` argument here would be an invitation to point
- * project files at the wrong policy set."
+ * 🚨 THE BUCKET IS STILL NOT A PARAMETER, for the reason
+ * supabaseProvider.js:18-21 already gives: "a `bucket` argument here would be
+ * an invitation to point project files at the wrong policy set." S44 makes the
+ * PROVIDER a parameter of putThumbnailTo; it does not make the bucket one.
+ * Within Supabase there is exactly one right bucket for a derived preview, and
+ * that is this one.
  *
  * upsert:true, unlike the source. A source object is immutable — every upload
  * is a distinct user action and a silent overwrite destroys a version nobody
@@ -219,8 +245,83 @@ export async function removeThumbnail(client, key) {
   if (error) throw new Error(`[thumbnails] delete failed: ${error.message}`)
 }
 
+// ── 🚨 S44: the two dispatchers. THE thumbnail's home follows its body's ─────
+//
+// A provider is FIVE functions, never an adapter fork (§4a2b, storage/index.js
+// header). These are NOT a sixth verb and NOT a fork: they are a two-line
+// dispatch over the registry that already exists, and they are why S38's Drive
+// entry will need no thumbnail work of its own.
+//
+// Why Supabase cannot simply go through the registry like the others: the
+// registered `supabase` provider writes to rabbit-FILES with upsert:false
+// (supabaseProvider.js:24, :41-50). A thumbnail belongs in rabbit-THUMBNAILS
+// with upsert:true — a derived object at a key that is a pure function of its
+// source's key MUST be able to replace a stale render, which is what 0053's
+// UPDATE policies exist for. Two different buckets, two different upsert
+// semantics; the registry's put() is the wrong shape for exactly one provider.
+//
+// Every OTHER provider needs no special case at all. On S3 the thumbnail sits
+// beside its source at `<body key>.jpg` in the customer's own bucket, and a
+// presigned PUT at that key is precisely `put()`. checkRowShapedPath accepts it
+// (SEGMENT_RE admits '.', so appending '.jpg' shifts no segment) and the money
+// gate still reads the third segment — the property thumbnailKeyFor exists to
+// preserve.
+//
+// An unregistered provider ('local_server', 'google_drive') THROWS out of
+// getStorageProvider, and that is correct fail-closed behaviour rather than an
+// oversight: uploadFile refuses a `network` workspace before it ever reaches
+// here, and financial pins to Supabase, so the only values that can arrive are
+// 'supabase' and 's3'. If a third ever arrives, a thrown sentence costs a
+// preview — never the file — because the caller wraps this in a try.
+
+/** Where a NEW thumbnail goes: the provider its body just went to. */
+export async function putThumbnailTo(fileProvider, key, blob, {
+  client,
+  getProvider = getStorageProvider,
+} = {}) {
+  if (fileProvider === FILE_PROVIDERS.SUPABASE) return putThumbnail(client, key, blob)
+  return getProvider(fileProvider).put(key, blob, { contentType: 'image/jpeg' })
+}
+
 /**
- * Mint display URLs for a batch of thumbnail keys.
+ * The compensating delete, at whichever store the thumbnail actually reached.
+ *
+ * 🚨 THROWS ON REFUSAL for both arms, and the caller logs. With no `files` row
+ * there is no `thumbnail_url`, so the purge trigger never sees this object and
+ * no orphan scan walks either bucket for it — this remains its ONLY cleanup
+ * path, on every provider.
+ */
+export async function removeThumbnailFrom(fileProvider, key, {
+  client,
+  getProvider = getStorageProvider,
+} = {}) {
+  if (!key) return
+  if (fileProvider === FILE_PROVIDERS.SUPABASE) return removeThumbnail(client, key)
+  return getProvider(fileProvider).del(key)
+}
+
+/**
+ * Mint display URLs for a batch of thumbnail keys IN PETAL'S BUCKET.
+ *
+ * ⚠️ S44 — DELIBERATELY SUPABASE-ONLY, AND THE CALLER FILTERS TO MATCH.
+ * Audrey, 2026-08-08, scoping S44: generation and disposal move this session;
+ * BROWSER DISPLAY for a thumbnail in a customer's bucket does not. It needs a
+ * batch presign that does not exist (storage-presign authorises ONE key per
+ * call, at 300s against this function's 3600s), and — the deciding fact — there
+ * is no S3 workspace on any environment to verify it against, so the first real
+ * customer would be the test.
+ *
+ * Until that session: an s3 workspace's previews are WRITTEN to its own bucket
+ * and are never asked for here, so its grid shows file-type icons. FileManager
+ * filters to supabase rows so this is a stated behaviour rather than a lookup
+ * that quietly finds nothing.
+ *
+ * 🚨 GENERATION IS THE ONE-WAY DOOR, NOT DISPLAY — which is why the write half
+ * shipped anyway. A thumbnail that exists can be displayed later by a pure
+ * client change: no backfill, no egress. A thumbnail that was never generated
+ * can only be made later by DOWNLOADING THE FULL SOURCE — the one expensive
+ * design this module's header exists to refuse, and the reason `thumbnail_url`
+ * sat unwritten from 0000 until S39.
  *
  * 🚨 BATCHED ON PURPOSE. The bucket is PRIVATE (0053; a public one would be
  * TPN-CLOUD-004 repeated for pre-release frames), so every tile needs a signed

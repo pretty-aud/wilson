@@ -175,8 +175,11 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(fn).toContain(".provider === 's3'")
     expect(fn).toContain('presignS3Request')
     expect(fn).toContain('queue_s3_drained')
-    // The queue read must actually SELECT the column the branch reads.
-    expect(fn).toContain("select('id, bucket_id, object_path, provider')")
+    // The queue read must actually SELECT the columns the branches read.
+    // S44 added `kind`: it picks the restorability column, and omitted it every
+    // thumbnail reads as a body and the drain deletes restorable previews while
+    // certifying them disposed.
+    expect(fn).toContain("select('id, bucket_id, object_path, provider, kind')")
   })
 
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {
@@ -196,7 +199,12 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     // re-derive it, so "nothing of yours remains" must not rest on a failed
     // query (S37 review).
     expect(fn).toContain('let byoLeft: number | null = null')
-    expect(fn).toContain('!liveRes.error && !queuedRes.error')
+    // S44 widened this to FOUR counts: an s3 row now leaves a body AND a
+    // preview in the customer's bucket, so bodies and thumbnails are counted
+    // separately (byo_thumbnails_left). Any one failing must still yield NULL
+    // for both — a half-populated pair is the same lie in smaller print.
+    expect(fn).toContain('!liveRes.error && !liveThumbRes.error && !queuedRes.error && !queuedThumbRes.error')
+    expect(fn).toContain('let byoThumbsLeft: number | null = null')
   })
 
   it('the s3 GC drain treats 404 as a failure, never a certified disposal', () => {

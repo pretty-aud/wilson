@@ -86,8 +86,25 @@ Deno.serve(async (req: Request) => {
   if (!guard.ok) return guard.res
   const ctx = guard.ctx
 
+  // 🚨 S44 RAISED THIS FROM 120 TO 240, AND THE REASON IS ARITHMETIC, NOT
+  // COMFORT. Since S44 a thumbnail lives at its body's provider, so an s3
+  // workspace's IMAGE upload costs TWO presigns where it used to cost one: the
+  // body via s3Provider.put, then the derived preview via putThumbnailTo ->
+  // the same registry put. The old ceiling was sized when that was one call.
+  //
+  // Left at 120, a user dragging in 100 stills is refused from roughly file 60
+  // — and the refusals land on the SECOND call of each pair, so their bodies
+  // have already landed and what they actually see is a half-illustrated grid
+  // and "too many presign requests — wait a minute and retry", with nothing
+  // connecting that to thumbnails. 240 restores the same 120 FILES per minute
+  // this limit has always meant.
+  //
+  // ⚠️ Not a containment guarantee: isRateLimited fails OPEN on an RPC error by
+  // deliberate design (rateLimit.ts), and the fixed window admits up to ~2x
+  // across a boundary (0028). It is a budget. The real bound on a single
+  // request is that this function signs exactly ONE key.
   if (await isRateLimited(ctx.admin, 'storage-presign', ctx.callerId,
-      envInt('STORAGE_PRESIGN_RPM', 120), 60)) {
+      envInt('STORAGE_PRESIGN_RPM', 240), 60)) {
     return reply({ error: 'rate_limited', detail: 'too many presign requests — wait a minute and retry' }, 429)
   }
 

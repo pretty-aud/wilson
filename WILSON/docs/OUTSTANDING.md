@@ -749,49 +749,59 @@ the TPN re-audit, not a patch.
 → Candidate shape: snapshot `is_financial` into `file_events` at capture time
 (0047-style migration), add the arm for non-certificate events only.
 
-### 🚨 A BYO workspace's thumbnails are written to Petal storage — decided against, not yet fixed
+### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
-**DECIDED 2026-08-08 (Audrey):** *"the image should be kept in the company
-storage. if the thumbnail lived in the petal cloud it would break tpn
-inherently."*
+**The compliance half is FIXED (S44, migration 0054).** A thumbnail is now
+written to, and disposed of at, the provider its body went to; the entry that
+stood here — *"a BYO workspace's thumbnails are written to Petal storage"* — is
+closed. What remains is a **product** gap, not a compliance one.
 
-S39 writes every thumbnail to Petal's private `rabbit-thumbnails` bucket
-**regardless of the workspace's storage provider**, with no opt-out. For a
-workspace on its own NAS or S3 bucket that is now the wrong side of a
-compliance boundary: **a still frame IS the content**, so a legible 256px
-frame of pre-release footage on Petal's infrastructure makes Petal a
-content-bearing party holding that studio's material — exactly what the
-customer chose BYO storage to avoid.
+**What is missing:** a workspace on its own S3 bucket generates and stores
+previews correctly, but **the file grid shows file-type icons instead of
+them.** `signedThumbnailUrls` can only sign objects in Petal's bucket, and
+`FileManager` filters to `storage_provider === 'supabase'` so the gap is stated
+rather than silently missed.
 
-**The rule to implement:** *a thumbnail lives where its source lives, and dies
-with it.* The second half already holds (`trg_files_gc_enqueue`, teardown
-sweep, `WIL-7005`); the first half does not exist.
+**Why it was deferred (Audrey's call, 2026-08-08):** displaying them needs a
+BATCH presign that does not exist — `storage-presign` authorises **one key per
+call**, so a 50-file grid is 50 round trips against `STORAGE_PRESIGN_RPM`, and
+its GET expiry is **300s** against the Supabase arm's **3600s**, so a grid left
+open goes dead. And the deciding fact: **there is no S3 workspace on any
+environment to verify a new signing endpoint against** (dev and prod all-zero;
+staging's one `byos` workspace is provider `network` with zero `files` rows), so
+the first real customer would be the test.
 
-**EXPOSURE IS ZERO TODAY, and that is why this is an entry rather than an
-incident.** Measured 2026-08-08 on dev: zero `byos` workspaces, zero
-non-Supabase `files` rows, zero rows carrying `thumbnail_url`; `public.files`
-was measured empty on all three environments at S36. **No customer content has
-been placed on the wrong side of this boundary.** It becomes real the moment
-any workspace configures BYO storage and uploads an image.
+⚠️ **There is no desktop consolation prize.** `FileThumbnail`'s Express-route
+branch is gated on `file.extension`, and a cloud `files` row has no `extension`
+column — so an S3 workspace loses previews on web **and** desktop, totally, not
+partially.
 
-⚠️ **Two things a fix must not get backwards:**
-- **Money-gated files are the rule applied, not an exception.** Invoices and
-  rate documents never leave Supabase (§12.1a), so their thumbnails stay in
-  `rabbit-thumbnails`. "Thumbnails follow the media" must never become "move
-  invoice previews to a customer bucket."
-- **`rabbit-thumbnails` stays.** It is correct for every `petal`-provider
-  workspace — the default, and today the only configured state.
+🚨 **Generation was the one-way door, and it shipped.** A preview that exists
+can be displayed later by a pure client change: no backfill, no egress. A
+preview that was never generated can only be made later by **downloading the
+full source** — the one expensive design `storage/thumbnails.js` exists to
+refuse, and the reason `thumbnail_url` sat unwritten from 0000 until S39.
 
-→ Candidate shape: route the thumbnail write through the same provider
-decision the body already uses (`activeWorkspaceProvider` → the storage
-registry), so the derived object inherits the destination rather than being
-pinned. For `s3` that means a presigned PUT at `thumbnailKeyFor(storage_path)`;
-`checkRowShapedPath` already accepts that key because appending `.jpg` does not
-shift a path segment. 🚨 **Whoever does this owns the disposal half too** —
-there is no orphan sweep over any thumbnail location, and a thumbnail in a
-customer bucket is not reachable by `storage-gc`'s Supabase-only scan.
-**S40 must not extend the current behaviour to video stills** — its brief says
-so.
+→ Candidate shape when a test target exists: a GET-only batch signer
+(`storage-thumbnails`) that authorises **every** key, groups by
+`shape.projectId` and evaluates `can_presign_project_read` once per distinct
+project, bounds the batch explicitly, and returns `{urls, refused}` keyed by the
+input string. `FileThumbnail`'s per-URL error memory (`erroredSrc`) already
+repairs a tile when a fresh URL arrives, so no component change is needed.
+
+⚠️ **The same question lands again in S40 for video stills** — whatever is
+decided there should match this.
+
+---
+
+### A `network`-provider workspace can never have cloud previews at all
+
+Not a defect and not fixable — recorded so it is not re-filed as one. A browser
+cannot read a NAS, so a workspace whose media lives on the customer's own
+filesystem has no cloud thumbnail path in either direction. **"A thumbnail lives
+where its source lives" is therefore a uniform RULE whose OUTCOME is not
+uniform**, and the desktop's own `sharp` cache is what serves people sitting
+next to the media.
 
 ---
 

@@ -146,7 +146,7 @@ async function loadWorkspace(
 async function collectBlobPaths(
   ctx: OperatorContext,
   workspaceId: string,
-): Promise<{ paths: string[]; rejected: string[]; reserved: string[]; thumbs: string[]; byoLeft: number | null }> {
+): Promise<{ paths: string[]; rejected: string[]; reserved: string[]; thumbs: string[]; byoLeft: number | null; byoThumbsLeft: number | null }> {
   const paths = new Set<string>()
   const rejected = new Set<string>()
   const thumbs = new Set<string>()
@@ -231,11 +231,31 @@ async function collectBlobPaths(
     else if (typeof p === 'string' && p.length > 0) rejected.add(p)
   }
 
+  // 🚨 S44: EXCLUDE s3, AND ONLY s3. S39 deliberately did NOT filter by provider
+  // here, because every thumbnail was on Petal whatever held the body. Since S44
+  // a thumbnail lives at its body's provider (Audrey, 2026-08-08 — a still frame
+  // IS the content), so an s3 row's preview is in the CUSTOMER's bucket and
+  // sweeping unfiltered would hand rabbit-thumbnails keys that were never in it.
+  //
+  // 🚨 THIS MUST MIRROR 0054's THUMBNAIL ARM, NOT THE BODY SCAN'S PIN, AND THE
+  // DIFFERENCE IS A LEAK. The body scan pins to `= 'supabase'` because only a
+  // Supabase BODY is in rabbit-files. But the thumbnail mapping is wider:
+  //
+  //     s3             -> the customer's bucket   (left, and COUNTED below)
+  //     everything else -> rabbit-thumbnails       (ours to purge)
+  //
+  // — the exact CASE expression in fn_files_gc_enqueue. A `local_server` or
+  // `google_drive` row CAN carry a Petal-hosted preview; 0053 widened the purge
+  // trigger for precisely that case and 0054 keeps it. Copying the body scan's
+  // `= 'supabase'` would exclude those rows from this sweep, LEAVING A LEGIBLE
+  // FRAME IN rabbit-thumbnails while WIL-7005 certifies the tenant destroyed.
+  // Caught in S44's own review of its own change.
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await ctx.admin
       .from('files')
       .select('thumbnail_url')
       .eq('workspace_id', workspaceId)
+      .neq('storage_provider', 's3')
       .not('thumbnail_url', 'is', null)
       .order('thumbnail_url', { ascending: true })
       .range(from, from + PAGE - 1)
@@ -288,20 +308,45 @@ async function collectBlobPaths(
   // re-derive the true number, so the certificate would permanently assert
   // "nothing of yours remains" on the strength of a failed query. Both
   // corrections come from S37's adversarial review.
+  // 🚨 S44 ADDS A SECOND COUNT, BECAUSE ONE ROW NOW LEAVES TWO OBJECTS.
+  // Before S44 an s3 files row left exactly one object in the customer's
+  // bucket — its body — so counting rows counted objects. Since S44 its
+  // derived preview is beside it, so a row with a thumbnail_url leaves TWO,
+  // and a row count under-reports the tenant's remaining objects by one per
+  // preview. A certificate that under-reports is precisely the failure S39's
+  // review caught, one bucket over.
+  //
+  // Reported as its own number rather than folded into byo_bodies_left: a
+  // thumbnail is not a body, and the existing field's meaning must not shift
+  // under a reader comparing two certificates. The queue halves split on
+  // `kind` (0054) for the same reason — before that column every queued s3 row
+  // WAS a body, and it is only now that the two are distinguishable.
   let byoLeft: number | null = null
-  const [liveRes, queuedRes] = await Promise.all([
+  let byoThumbsLeft: number | null = null
+  const [liveRes, liveThumbRes, queuedRes, queuedThumbRes] = await Promise.all([
     ctx.admin.from('files').select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspaceId).eq('storage_provider', 's3'),
+    ctx.admin.from('files').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('storage_provider', 's3')
+      .not('thumbnail_url', 'is', null),
     ctx.admin.from('storage_gc_queue').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('provider', 's3'),
+      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'body'),
+    ctx.admin.from('storage_gc_queue').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'thumbnail'),
   ])
-  if (!liveRes.error && !queuedRes.error) {
+  // NULL on ANY failure rather than 0, and BOTH numbers together: after the
+  // CASCADE nothing can ever re-derive them, so a count that silently read 0
+  // on error would permanently assert "nothing of yours remains" on the
+  // strength of a failed query. (S37's review; extended to the new pair — a
+  // half-populated pair is the same lie in smaller print.)
+  if (!liveRes.error && !liveThumbRes.error && !queuedRes.error && !queuedThumbRes.error) {
     byoLeft = (liveRes.count ?? 0) + (queuedRes.count ?? 0)
+    byoThumbsLeft = (liveThumbRes.count ?? 0) + (queuedThumbRes.count ?? 0)
   }
 
   return {
     paths: [...paths], rejected: [...rejected], reserved: [...reserved],
-    thumbs: [...thumbs], byoLeft,
+    thumbs: [...thumbs], byoLeft, byoThumbsLeft,
   }
 }
 
@@ -537,6 +582,7 @@ Deno.serve(async (req: Request) => {
     let reserved: string[]
     let thumbs: string[]
     let byoLeft: number | null
+    let byoThumbsLeft: number | null
     try {
       const scan = await collectBlobPaths(ctx, workspaceId)
       paths = scan.paths
@@ -544,6 +590,7 @@ Deno.serve(async (req: Request) => {
       reserved = scan.reserved
       thumbs = scan.thumbs
       byoLeft = scan.byoLeft
+      byoThumbsLeft = scan.byoThumbsLeft
     } catch (err) {
       return reply({ error: 'scan_failed', detail: String((err as Error).message ?? err) }, 500)
     }
@@ -784,8 +831,14 @@ Deno.serve(async (req: Request) => {
         // The derived previews (S39), in rabbit-thumbnails. A SECOND BUCKET is
         // a second way this certificate can be wrong, so it is stated rather
         // than assumed covered by blobs_removed — which counts rabbit-files
-        // only. `found` includes previews of bodies at a customer's own bucket:
-        // the body stays theirs, the Petal-hosted preview does not.
+        // only.
+        //
+        // ⚠️ S44 NARROWED WHAT THESE THREE COVER. They used to include previews
+        // of bodies at a customer's own bucket, because every preview was on
+        // Petal. Since S44 a thumbnail lives at its body's provider, so these
+        // count PETAL-HOSTED previews only and the rest are in
+        // byo_thumbnails_left below. Read the two together, or a torn-down s3
+        // tenant looks like it had no previews at all.
         thumbnails_found: thumbs.length,
         thumbnails_removed: thumbsRemoved,
         thumbnails_failed: thumbsFailed.length,
@@ -795,6 +848,12 @@ Deno.serve(async (req: Request) => {
         // be taken, which is NOT zero: after the CASCADE nothing can re-derive
         // it, so an unknown must read as unknown forever.
         byo_bodies_left: byoLeft,
+        // 🚨 S44: their PREVIEWS, left for the same reason and counted for the
+        // same reason. Without this the certificate under-reports the objects
+        // remaining in the customer's bucket by one per preview — and a
+        // certificate that under-reports is the failure S39's own review
+        // caught. Same NULL-is-not-zero rule as the line above.
+        byo_thumbnails_left: byoThumbsLeft,
       },
     })
 
@@ -810,6 +869,12 @@ Deno.serve(async (req: Request) => {
       reserved_failed: reservedFailed.length,
       thumbnails_removed: thumbsRemoved,
       thumbnails_failed: thumbsFailed.length,
+      // S44: surfaced in the operator's immediate response too, not only on the
+      // certificate — "we destroyed everything of ours; this many objects
+      // remain in your bucket" is the sentence an operator needs while the
+      // teardown is still on screen.
+      byo_bodies_left: byoLeft,
+      byo_thumbnails_left: byoThumbsLeft,
     })
   }
 

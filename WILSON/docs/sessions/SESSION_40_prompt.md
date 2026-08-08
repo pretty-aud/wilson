@@ -7,10 +7,52 @@
 > ⚠️ **Sized 1–2 sessions.** ffmpeg packaging alone is fiddly. If it splits,
 > split at "browser-decodable formats work" → "ffmpeg for professional codecs".
 
-> **STATE — re-measure, do not trust this block.** After **S39**
-> (2026-08-08): migrations **0000–0053** on all three envs, next free
-> **0054**. pgTAP **63 suites / 1097 assertions**, next suite **64**. Vitest
-> **1210 / 54 files**. CLI re-linked to wilson-dev.
+> **STATE — re-measure, do not trust this block.** After **S44**
+> (2026-08-08): migrations **0000–0054** on all three envs, next free
+> **0055**. pgTAP **64 suites / 1110 assertions**, next suite **65**. Vitest
+> **1228 / 54 files**. CLI re-linked to wilson-dev.
+>
+> ## 🚨 S44 MOVED THE THUMBNAIL PATH UNDER YOU — READ THIS BEFORE §5f
+>
+> **A thumbnail lives where its source lives, and dies with it** (Audrey,
+> 2026-08-08). A video still is a thumbnail, so this is your path too.
+>
+> **What changed, concretely:**
+> - **Write with `putThumbnailTo(fileProvider, key, blob, { client })`, NOT
+>   `putThumbnail(client, …)`.** The old signature is now the Supabase-only arm
+>   and calling it directly re-pins previews to Petal — the exact defect S44
+>   existed to remove. Pass the **same `storageProvider` variable the body was
+>   written with**; never re-derive it.
+> - **`storage_gc_queue` has a `kind` column** (`body` | `thumbnail`, 0054).
+>   Anything you enqueue must tag it. `storage-gc` picks its restorability
+>   column from `kind`, and an untagged thumbnail is checked against
+>   `files.storage_path`, reads as unreferenced, and **gets deleted and
+>   certified disposed.**
+> - **The thumbnail enqueue arm is NOT `OLD.storage_provider`.** It maps
+>   `s3 → ('byo-s3','s3')` and **everything else** → `('rabbit-thumbnails','supabase')`.
+>   Mirroring the body arm enqueues a `local_server` preview as provider
+>   `local_server`, which the CHECK refuses and the trigger's `EXCEPTION`
+>   handler swallows — disposing of nothing at all.
+> - **Teardown excludes `s3` and only `s3`** (`.neq('storage_provider','s3')`),
+>   mirroring that same mapping. `WIL-7005` now carries `byo_thumbnails_left`
+>   beside `byo_bodies_left`.
+> - **`STORAGE_PRESIGN_RPM` default is now 240**, not 120 — an s3 image upload
+>   costs two presigns (body, then preview). A video still on an s3 workspace
+>   will cost a third; check the arithmetic before you add one.
+>
+> ⚠️ **BROWSER DISPLAY FOR s3 ROWS IS DELIBERATELY NOT BUILT.** `FileManager`
+> filters to `storage_provider === 'supabase'`, so an s3 workspace's previews are
+> written correctly and shown as file-type icons. Audrey scoped it out: it needs
+> a batch presign that does not exist, and **no S3 workspace exists on any
+> environment to verify one against.** **The same question is yours for video
+> stills — do not build a display path for them in isolation**, and if you want
+> one, it is the same deferred endpoint. See `OUTSTANDING.md` and handbook
+> §12.7b.
+>
+> ⭐ **Generation is the one-way door, display is not.** Generate the still even
+> if you cannot display it: a preview that exists becomes displayable later by a
+> pure client change, while one never generated can only be made by downloading
+> the whole video.
 > 🚨 **Read the working tree** — this block has been stale within the hour
 > before now.
 >
@@ -89,7 +131,9 @@
 > injectable seams are `createBitmap` (`createImageBitmap`) and `makeCanvas`,
 > and **`createImageBitmap` cannot express seek-and-decode on a
 > `HTMLVideoElement`**, so this is a new function, not an option object.
-> Reusable from S39: `scaleToFit`, the `THUMBNAIL_*` constants, `putThumbnail`,
+> Reusable from S39/S44: `scaleToFit`, the `THUMBNAIL_*` constants,
+> **`putThumbnailTo` / `removeThumbnailFrom`** (S44 — use these, not the
+> Supabase-only `putThumbnail` / `removeThumbnail` they now wrap),
 > `thumbnailKeyFor`, `signedThumbnailUrls`. **Not reusable: `generateThumbnail`,
 > `canThumbnail`.**
 >
@@ -131,8 +175,11 @@
 > with a sentence; `presignStorage` THROWS by contract (unlike `adminApi`'s
 > `{ok,status,data}` bindings — an unchecked await is the otterFetch trap in
 > its S37 form); and `storage-presign` is rate-limited at
-> `STORAGE_PRESIGN_RPM` (default 120/caller/minute), which a re-presigning
-> player plus a file grid could approach.
+> `STORAGE_PRESIGN_RPM` (**default 240/caller/minute since S44**, raised from
+> 120 because an s3 image upload now costs two presigns — body, then preview),
+> which a re-presigning player plus a file grid could still approach. **A video
+> still adds a third presign per video upload — redo the arithmetic, do not
+> assume the S44 headroom covers you.**
 >
 > ⚠️ **`NETWORK_STORAGE_DESIGN.md` §5d.1/§5e — which this brief's header sends
 > you to read — were ALSO written pre-S37 and were not audited.** Check them
@@ -181,11 +228,14 @@
 >   S40 will edit.** It regex-matches the executable text of
 >   `supabaseAdapter.js`, `RabbitProvider.jsx`, `FileManager.jsx`,
 >   `FileThumbnail.jsx`, `main.cjs`, `storage-gc`, `operator-workspaces` and
->   0053 — including EXACTLY-TWO-occurrence counts (`thumbnailUrl={thumbUrls.get(f.thumbnail_url)`,
+>   0053 **and 0054** — including EXACTLY-TWO-occurrence counts (`thumbnailUrl={thumbUrls.get(f.thumbnail_url)`,
 >   `downloadFile, thumbnailUrls,`). **These break on refactor, not on
 >   defect.** Budget for it; the close-out's "full vitest" does not warn you.
+>   **S44 broke seven of them and repointed each at the new executable form** —
+>   do the same, and never delete an assertion that has become inconvenient.
 > - ⚠️ **A hand-replaced frame MUST be written at `thumbnailKeyFor(storage_path)`
->   with `putThumbnail`'s `upsert:true`.** There is no orphan scan over this
+>   with `putThumbnailTo`'s `upsert:true` Supabase arm** (S3 presigned PUTs
+>   always overwrite). There is no orphan scan over this
 >   bucket, and `fn_files_gc_enqueue` only ever enqueues `files.thumbnail_url`
 >   — so a custom-suffixed key is invisible to disposal and **uncollectable
 >   forever**. Good news the brief omitted: 0053's `rabbit_thumbnails_update` /

@@ -148,9 +148,24 @@ export default function FileManager({
   // Keys RLS refuses simply do not come back, so an invoice's thumbnail
   // silently falls through to a file-type icon for anyone without the money
   // seat. That is the gate doing its job, not an error to surface.
+  // ⚠️ S44: ONLY PETAL-HOSTED PREVIEWS ARE ASKED FOR. Since S44 a thumbnail
+  // lives at its body's provider (Audrey, 2026-08-08 — a still frame IS the
+  // content, so it must not sit on Petal's infrastructure when its source does
+  // not). An s3 row's preview is in the CUSTOMER's bucket; signing it needs a
+  // batch presign that does not exist yet, and no S3 workspace exists on any
+  // environment to verify one against, so display is its own session.
+  //
+  // Filtering here rather than letting createSignedUrls miss them is the
+  // difference between a STATED behaviour and a lookup that quietly finds
+  // nothing: those tiles fall through to file-type icons, and this line is
+  // where the deferred work reconnects — carry the provider, and the arm that
+  // presigns s3 keys slots in beside the supabase one.
   const [thumbUrls, setThumbUrls] = useState(() => new Map())
   const thumbKeys = useMemo(
-    () => assetFiles.map(f => f.thumbnail_url).filter(Boolean),
+    () => assetFiles
+      .filter(f => (f.storage_provider ?? 'supabase') === 'supabase')
+      .map(f => f.thumbnail_url)
+      .filter(Boolean),
     [assetFiles],
   )
   // 🚨 DEPEND ON THE METHOD, NOT ON `ctx`. RabbitProvider builds its context

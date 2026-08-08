@@ -470,8 +470,8 @@ below are superseded; only one of them actually moves.
 | **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
 | **S37** ✅ | **DONE (2026-08-08)** — 0051 **and 0052** on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm (endpoint host-only), `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below. ✅ **`WILSON_STORAGE_KEY_SECRET` set on all three envs 2026-08-08, digests verified identical (`OWED_AUDREY.md` §C2)** — S38's Drive refresh token shares it | 1 | — | `SESSION_37_prompt.md` |
 | **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
-| **S44** ⬅️ **NEXT** | **A thumbnail lives where its source lives** — routes the thumbnail write through the same provider decision the body uses, so a BYO workspace's previews stop landing on Petal. Decided 2026-08-08 (*"if the thumbnail lived in the petal cloud it would break tpn inherently"*); handbook §12.7b, tracked in `OUTSTANDING.md`. **Runs BEFORE S40 despite the number** — S40 builds video stills on top of it. 🚨 The hard part is the DISPLAY path: no batch presign exists, and a presigned GET expires in 300s against Supabase's 3600s | 1 | **S39** | `SESSION_44_prompt.md` |
-| **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39**, and **S44** (do not build video stills on a thumbnail path that is about to move) | `SESSION_40_prompt.md` |
+| **S44** ✅ | **DONE (2026-08-08)** — **a thumbnail lives where its source lives.** 0054 on all three envs: `storage_gc_queue.kind`, the enqueue routed to the body's store, `putThumbnailTo`/`removeThumbnailFrom`, the teardown pin + `byo_thumbnails_left`, `STORAGE_PRESIGN_RPM` 120→240. pgTAP suite 64; outcome block below. ⚠️ **Browser DISPLAY for s3 rows was deliberately deferred by Audrey** — no batch presign exists and no S3 workspace exists anywhere to verify one against; generation shipped because it is the one-way door. Tracked in `OUTSTANDING.md` | 1 | **S39** | `SESSION_44_prompt.md` |
+| **S40** ⬅️ **NEXT** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg. 🚨 **Build stills on `putThumbnailTo(storageProvider, …)`, not on `putThumbnail`** — the destination now follows the body, and the same display gap applies to a video still as to an image | 1–2 | **S39**, **S44** ✅ | `SESSION_40_prompt.md` |
 | **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
 | **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
 | **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
@@ -484,9 +484,10 @@ below are superseded; only one of them actually moves.
 > any point after it** — it is now positioned last by choice, not by
 > dependency.
 >
-> ⭐ **REMAINING ORDER AFTER 2026-08-08: S44 → S40 → S41 → S42 → S43, then
-> S38.** Three arrows in that line are real — **S44 → S40** (video stills must
-> not be built on a thumbnail path that is about to move), **S41 → S42** (quota
+> ⭐ **REMAINING ORDER AFTER 2026-08-08: ~~S44~~ ✅ → S40 → S41 → S42 → S43,
+> then S38.** Three arrows in that line are real — **S44 → S40** (video stills
+> must not be built on a thumbnail path that is about to move — **discharged:
+> S44 shipped, and the path S40 must use is `putThumbnailTo`**), **S41 → S42** (quota
 > plane before the cap raise), and S43 wanting to be after the UI stops
 > changing. The rest is priority.
 >
@@ -516,6 +517,67 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S44 outcome — the fix that would have caused the bug it was written to prevent (2026-08-08)
+>
+> Migration **0054** applied and verified **by query** on dev, staging and prod;
+> `storage-gc`, `operator-workspaces` and `storage-presign` deployed to all
+> three; CLI re-linked to wilson-dev. pgTAP suite **64** (12 assertions); full
+> set **64 suites / 1110 assertions** clean. Vitest **1228 / 54 files**.
+>
+> 🚨 **THE FINDING WORTH CARRYING: THE OBVIOUS IMPLEMENTATION OF THIS SESSION'S
+> FIX SILENTLY DELETES CUSTOMER DATA.** `storage-gc` picks its restorability
+> column from the queue row, and S39 inferred *"this is a thumbnail"* from the
+> **bucket name**. That inference is sound only while every thumbnail is in
+> Petal's thumbnail bucket. The moment an s3 thumbnail is **correctly** enqueued
+> under the same `byo-s3` marker as its body — which is exactly what this
+> session was asked to do — the drain classifies it as a body, checks
+> `files.storage_path` for a key that only ever appears in `files.thumbnail_url`,
+> gets *"nothing references this"*, **deletes a still-restorable preview, and
+> stamps it `deleted` in the disposal ledger.** S39 wrote the warning paragraph
+> directly above that line; the fix walked straight into it. 0054 adds
+> `storage_gc_queue.kind` so the object states what it is instead of it being
+> inferred from where it lives.
+>
+> 🚨 **AND THE PLAUSIBLE MIRROR OF THE BODY ARM DISPOSES OF NOTHING AT ALL.**
+> Writing `OLD.storage_provider` into the thumbnail's provider column reads as
+> obviously right. But the thumbnail arm runs for **any** row carrying a
+> `thumbnail_url` — including `local_server`, which 0053 widened the trigger for
+> — and `storage_gc_queue_provider_chk` admits only `supabase`/`s3`. The
+> violation is caught by the trigger's own `EXCEPTION` handler and downgraded to
+> a `WARNING`, so **the purge succeeds and the thumbnail is never enqueued.**
+> Both failure modes were driven as **breakers** before deploy and each failed
+> the predicted probe (7 and 9); probe 9 returned `NULL`, confirming silence
+> rather than a wrong value.
+>
+> ⚠️ **THE BRIEF'S EXPOSURE BLOCK WAS WRONG, AND CHECKING IT WAS THE RIGHT CALL.**
+> It asserted "zero `byos` workspaces" and instructed a stop-and-re-scope if not.
+> Measured: **staging has one**, provider `network`, no `provider_config`, zero
+> `files` rows. The operative claim survived — a `network` workspace has no cloud
+> upload path at all, so no content was ever misplaced and no data migration was
+> needed — but the number in the brief was not the number in the database.
+> **Re-measure across all three envs, not one.**
+>
+> ⚠️ **One judge finding was itself wrong and was not acted on.** The review
+> claimed `thumbnails.test.js`'s teardown-scan assertion was already vacuous via
+> `indexOf` → `-1`. It is not — the string is present and the assertion was
+> live. It still had to be **inverted** (it asserted the opposite of the
+> 2026-08-08 decision), just not for the stated reason. **A confident finding
+> about a test's vacuity is still a claim to verify.**
+>
+> ✅ **Audrey scoped the display half out** rather than absorbing it: browser
+> previews for s3 rows need a batch presign that does not exist, and **no S3
+> workspace exists on any environment to verify one against**. Generation
+> shipped regardless because **generation is the one-way door** — a preview that
+> exists can be displayed later by a pure client change, while one never
+> generated can only be made by downloading the full source. Recorded in
+> `OUTSTANDING.md` and handbook §12.7b.
+>
+> ⚠️ **Part 1 created a rate-limit defect and it was fixed in the same session:**
+> an s3 image upload now costs **two** presigns (body, then preview), against a
+> `STORAGE_PRESIGN_RPM` of 120 sized for one — refusing a 100-image drag from
+> about file 60, on the *second* call of each pair, so bodies landed and the user
+> saw a half-illustrated grid. Default raised to **240**.
+>
 > ### S39 outcome — thumbnails everywhere, and a brief that was wrong about the policy set (2026-08-08)
 >
 > **S38 was not run.** Its gate — `OWED_AUDREY.md` §13, Google's OAuth

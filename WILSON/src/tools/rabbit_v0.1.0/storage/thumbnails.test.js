@@ -29,10 +29,17 @@ import {
   scaleToFit,
   generateThumbnail,
   removeThumbnail,
+  putThumbnailTo,
+  removeThumbnailFrom,
   THUMBNAIL_BUCKET,
   THUMBNAIL_MAX_EDGE,
   THUMBNAIL_MAX_BYTES,
 } from './thumbnails.js'
+import {
+  FILE_PROVIDERS,
+  WORKSPACE_PROVIDERS,
+  fileProviderFor,
+} from './index.js'
 
 const ROOT = join(process.cwd(), 'src', 'tools', 'rabbit_v0.1.0')
 
@@ -274,6 +281,179 @@ describe('the constants agree with migration 0053', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
+// 🚨 SESSION 44 — A THUMBNAIL LIVES WHERE ITS SOURCE LIVES
+//
+// Audrey, 2026-08-08: "the image should be kept in the company storage. if the
+// thumbnail lived in the petal cloud it would break tpn inherently."
+//
+// A still frame IS the content, so a legible 256px frame of pre-release footage
+// must not sit on Petal's infrastructure when its source does not. These are
+// the BEHAVIOURAL half — the source-text guards further down prove the call
+// site passes the body's own provider, and these prove what happens when it
+// does.
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('putThumbnailTo — the destination follows the body', () => {
+  // A Supabase double that records what bucket and options it was handed.
+  function supabaseDouble() {
+    const seen = { bucket: null, key: null, opts: null, removed: null }
+    const client = {
+      storage: {
+        from: (bucket) => {
+          seen.bucket = bucket
+          return {
+            upload: async (key, _blob, opts) => { seen.key = key; seen.opts = opts; return { error: null } },
+            remove: async (keys) => { seen.removed = keys; return { error: null } },
+          }
+        },
+      },
+    }
+    return { client, seen }
+  }
+
+  function providerDouble() {
+    const seen = { put: null, del: null }
+    const impl = {
+      put: async (key, body, opts) => { seen.put = { key, body, opts }; return { key } },
+      del: async (key) => { seen.del = key },
+    }
+    return { getProvider: () => impl, seen }
+  }
+
+  it('a supabase body puts its preview in rabbit-thumbnails, upsert:true', async () => {
+    // upsert:true unlike the source: a thumbnail's key is a pure function of
+    // its source's key, so regenerating must be able to replace a stale render.
+    const { client, seen } = supabaseDouble()
+    await putThumbnailTo(FILE_PROVIDERS.SUPABASE, 'projects/p/assets/a/1-x.png.jpg', {}, { client })
+    expect(seen.bucket).toBe(THUMBNAIL_BUCKET)
+    expect(seen.key).toBe('projects/p/assets/a/1-x.png.jpg')
+    expect(seen.opts).toMatchObject({ upsert: true, contentType: 'image/jpeg' })
+  })
+
+  it('🚨 an s3 body puts its preview in the CUSTOMER\'S bucket, beside the source', async () => {
+    // This is the compliance decision in one assertion. Before S44 this same
+    // call wrote to Petal's bucket.
+    const { getProvider, seen } = providerDouble()
+    const blob = { size: 1 }
+    await putThumbnailTo(FILE_PROVIDERS.S3, 'projects/p/assets/a/1-x.png.jpg', blob, { getProvider })
+    expect(seen.put.key).toBe('projects/p/assets/a/1-x.png.jpg')
+    expect(seen.put.body).toBe(blob)
+    expect(seen.put.opts).toEqual({ contentType: 'image/jpeg' })
+  })
+
+  it('goes through the REGISTRY for s3, never a fork of the adapter', async () => {
+    // §4a2b: a provider is five functions, never an adapter fork. S38's Drive
+    // entry must need no thumbnail work of its own — which is only true if this
+    // dispatches on the registry rather than branching per provider.
+    let asked = null
+    const impl = { put: async () => ({ key: 'k' }) }
+    await putThumbnailTo('s3', 'projects/p/a/1/x.png.jpg', {}, {
+      getProvider: (name) => { asked = name; return impl },
+    })
+    expect(asked).toBe('s3')
+  })
+
+  it('an unregistered provider FAILS CLOSED rather than guessing at Petal', async () => {
+    // 'local_server' and 'google_drive' have no cloud implementation. A guess
+    // of Supabase here would silently route a customer's frame to a store they
+    // moved away from — the exact failure this session exists to close.
+    await expect(
+      putThumbnailTo('local_server', 'projects/p/a/1/x.png.jpg', {}, {
+        getProvider: (n) => { throw new Error(`no storage provider registered for "${n}"`) },
+      }),
+    ).rejects.toThrow(/no storage provider registered/)
+  })
+
+  it('🚨 THE ROUTING INVARIANT: the preview\'s store is the body\'s store, per provider', async () => {
+    // The property the whole session rests on, stated over every workspace
+    // provider that has a cloud upload path. `network` is excluded because
+    // uploadFile refuses it before either decision is made.
+    for (const ws of [WORKSPACE_PROVIDERS.PETAL, WORKSPACE_PROVIDERS.S3]) {
+      const bodyProvider = fileProviderFor(ws, { financial: false })
+      let thumbProvider = null
+      const { client } = supabaseDouble()
+      await putThumbnailTo(bodyProvider, 'projects/p/a/1/x.png.jpg', {}, {
+        client,
+        getProvider: (n) => { thumbProvider = n; return { put: async () => ({}) } },
+      })
+      // Either it took the Supabase arm (because the body did) or it asked the
+      // registry for exactly the provider the body used.
+      expect(thumbProvider ?? FILE_PROVIDERS.SUPABASE).toBe(bodyProvider)
+    }
+  })
+
+  it('🚨 THE MONEY PIN: an invoice on an s3 workspace keeps its preview on Petal', async () => {
+    // Money-gated files are this rule APPLIED, not an exception. Only RLS
+    // enforces the money gate and no S3 sharing model binds to a WILSON project
+    // role, so an invoice's body never leaves Supabase — and its preview
+    // follows it there without any money branch in the thumbnail path.
+    const bodyProvider = fileProviderFor(WORKSPACE_PROVIDERS.S3, { financial: true })
+    expect(bodyProvider).toBe(FILE_PROVIDERS.SUPABASE)
+
+    const { client, seen } = supabaseDouble()
+    let askedRegistry = false
+    await putThumbnailTo(bodyProvider, 'projects/p/INVOICES/l1/9-inv.pdf.jpg', {}, {
+      client,
+      getProvider: () => { askedRegistry = true; return { put: async () => ({}) } },
+    })
+    expect(askedRegistry).toBe(false)
+    expect(seen.bucket).toBe(THUMBNAIL_BUCKET)
+    // And the money segment is still the THIRD one, so 0053's money policies
+    // gate this object exactly as they gate the invoice itself.
+    expect(seen.key.split('/')[2]).toBe('INVOICES')
+  })
+})
+
+describe('removeThumbnailFrom — the compensating delete finds the right store', () => {
+  it('deletes a Petal preview from rabbit-thumbnails', async () => {
+    let bucket = null; let removed = null
+    const client = {
+      storage: {
+        from: (b) => { bucket = b; return { remove: async (k) => { removed = k; return { error: null } } } },
+      },
+    }
+    await removeThumbnailFrom(FILE_PROVIDERS.SUPABASE, 'projects/p/a/1/x.png.jpg', { client })
+    expect(bucket).toBe(THUMBNAIL_BUCKET)
+    expect(removed).toEqual(['projects/p/a/1/x.png.jpg'])
+  })
+
+  it('🚨 deletes an s3 preview from the customer\'s bucket, not from Petal\'s', async () => {
+    // Deleting from Petal a thumbnail that went to a customer's bucket succeeds
+    // at removing nothing, and strands a legible frame where WILSON can never
+    // sweep it: no orphan scan walks a customer bucket, by design (§12.4).
+    let deleted = null
+    await removeThumbnailFrom(FILE_PROVIDERS.S3, 'projects/p/a/1/x.png.jpg', {
+      getProvider: () => ({ del: async (k) => { deleted = k } }),
+    })
+    expect(deleted).toBe('projects/p/a/1/x.png.jpg')
+  })
+
+  it('is a no-op for a null key on EITHER arm and touches no store', async () => {
+    let touched = false
+    const client = { storage: { from: () => { touched = true; return {} } } }
+    await removeThumbnailFrom(FILE_PROVIDERS.SUPABASE, null, { client })
+    await removeThumbnailFrom(FILE_PROVIDERS.S3, null, {
+      getProvider: () => { touched = true; return {} },
+    })
+    expect(touched).toBe(false)
+  })
+
+  it('THROWS on refusal from either arm — this is the only cleanup path there is', async () => {
+    // With no files row there is no thumbnail_url, so the purge trigger never
+    // sees the object and no orphan scan walks either bucket for it. An
+    // unchecked resolve turns an expired token into a silent success.
+    const client = {
+      storage: { from: () => ({ remove: async () => ({ error: { message: 'jwt expired' } }) }) },
+    }
+    await expect(removeThumbnailFrom(FILE_PROVIDERS.SUPABASE, 'k', { client }))
+      .rejects.toThrow(/delete failed: jwt expired/)
+    await expect(removeThumbnailFrom(FILE_PROVIDERS.S3, 'k', {
+      getProvider: () => ({ del: async () => { throw new Error('[s3] storage delete failed: HTTP 403') } }),
+    })).rejects.toThrow(/storage delete failed/)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════════════════════
 // WIRING — every new export has a real caller
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -285,9 +465,33 @@ describe('wiring: the upload path actually generates and stores a thumbnail', ()
     expect(adapter).toContain("from '../storage/thumbnails'")
   })
 
-  it('uploadFile CALLS generateThumbnail and putThumbnail', () => {
+  it('uploadFile CALLS generateThumbnail and putThumbnailTo', () => {
     expect(adapter).toMatch(/await generateThumbnail\(/)
-    expect(adapter).toMatch(/await putThumbnail\(/)
+    expect(adapter).toMatch(/await putThumbnailTo\(/)
+  })
+
+  it('🚨 S44: the thumbnail is written with the BODY\'S OWN provider variable', () => {
+    // The whole design in one assertion. `storageProvider` is computed once,
+    // four lines above, for the body — passing that same variable is what makes
+    // it impossible for the derived preview to land at a different store than
+    // its source. A re-derivation here (another activeWorkspaceProvider call,
+    // another fileProviderFor) would be two decisions that can disagree.
+    expect(adapter).toMatch(/putThumbnailTo\(storageProvider,\s*key,\s*thumb/)
+    // And the Petal constant it replaced must be gone from the executable code.
+    expect(adapter).not.toMatch(/putThumbnail\(client,/)
+  })
+
+  it('🚨 S44: the thumbnail write has NO money branch — the pin does that work', () => {
+    // fileProviderFor pins `financial` to Supabase BEFORE the workspace's
+    // choice is read, so an invoice's preview stays in rabbit-thumbnails by
+    // following its body. A money test at the thumbnail call site would mean
+    // the pin had been moved out of the one place that owns it.
+    const upload = adapter.slice(adapter.indexOf('async uploadFile'))
+    const gen = upload.indexOf('generateThumbnail')
+    const rowWrite = upload.indexOf('thumbnail_url:')
+    expect(gen).toBeGreaterThan(-1)
+    expect(rowWrite).toBeGreaterThan(gen)
+    expect(upload.slice(gen, rowWrite)).not.toMatch(/financial/)
   })
 
   it('🚨 the files row is written WITH thumbnail_url — the column gets its first writer', () => {
@@ -304,7 +508,12 @@ describe('wiring: the upload path actually generates and stores a thumbnail', ()
     // With no row there is no thumbnail_url, so the purge trigger will never
     // see this object and the queue drain cannot reach it. This is its ONLY
     // cleanup.
-    expect(adapter).toMatch(/removeThumbnail\(client,\s*thumbnailPath\)/)
+    // 🚨 S44: removed from THE STORE IT REACHED, via the same provider the put
+    // used. Deleting from Petal's bucket a thumbnail that went to a customer's
+    // succeeds at removing nothing and strands a legible frame in storage
+    // WILSON can never sweep (§12.4 — no orphan scan walks a customer bucket).
+    expect(adapter).toMatch(/removeThumbnailFrom\(storageProvider,\s*thumbnailPath/)
+    expect(adapter).not.toMatch(/removeThumbnail\(client,/)
   })
 
   it('thumbnail failure cannot refuse the upload — the put is inside a try', () => {
@@ -343,7 +552,21 @@ describe('wiring: the display path reaches the screen', () => {
   })
 
   it('only rows that HAVE a thumbnail are signed', () => {
-    expect(manager).toMatch(/assetFiles\.map\(f => f\.thumbnail_url\)\.filter\(Boolean\)/)
+    expect(manager).toMatch(/\.map\(f => f\.thumbnail_url\)\s*\n?\s*\.filter\(Boolean\)/)
+  })
+
+  it('🚨 S44: only PETAL-HOSTED previews are asked for — s3 rows are excluded', () => {
+    // Since S44 a thumbnail lives at its body's provider, so an s3 row's
+    // preview is in the CUSTOMER's bucket and signedThumbnailUrls cannot reach
+    // it. Filtering here rather than letting createSignedUrls miss them is the
+    // difference between a stated behaviour and a lookup that quietly finds
+    // nothing — and this is the exact line the deferred display session
+    // extends. Display was scoped out by Audrey on 2026-08-08: it needs a batch
+    // presign that does not exist, and no S3 workspace exists anywhere to
+    // verify one against.
+    expect(manager).toMatch(
+      /\.filter\(f => \(f\.storage_provider \?\? 'supabase'\) === 'supabase'\)/,
+    )
   })
 
   it('🚨 FileThumbnail no longer gates the cloud path on file.extension', () => {
@@ -434,10 +657,46 @@ describe('review fixes', () => {
     expect(ops).toMatch(/const THUMBNAIL_BUCKET = 'rabbit-thumbnails'/)
     expect(ops).toMatch(/storage\.from\(THUMBNAIL_BUCKET\)\.remove\(batch\)/)
     expect(ops).toMatch(/thumbnails_removed: thumbsRemoved/)
-    // The thumbnail scan must NOT inherit the body scan's provider filter: a
-    // BYO workspace's previews still live on Petal and are still ours to purge.
+
+    // 🚨 S44 INVERTED THIS ASSERTION, DELIBERATELY. It used to require that the
+    // thumbnail scan NOT inherit the body scan's provider filter, because every
+    // preview was on Petal whatever held the body. Since S44 a thumbnail lives
+    // at its body's provider, so the unfiltered scan would hand
+    // rabbit-thumbnails a batch of keys that were never in it — removes that
+    // succeed at removing nothing, and a teardown that reports disposing of
+    // previews it never touched.
+    //
+    // Inverted rather than deleted: the assertion is the record of a decision,
+    // and a deleted one leaves the next session free to "simplify" the filter
+    // back out.
+    //
+    // 🚨 AND IT IS `neq('s3')`, NOT `eq('supabase')`. The sweep must mirror
+    // 0054's THUMBNAIL arm (s3 -> customer bucket, everything else -> Petal),
+    // not the BODY scan's pin. A `local_server` or `google_drive` row can carry
+    // a Petal-hosted preview — 0053 widened the purge trigger for exactly that
+    // case — so `eq('supabase')` would leave those frames in rabbit-thumbnails
+    // while WIL-7005 certifies the tenant destroyed. That is the mistake this
+    // session made and caught in its own review.
     const scan = ops.slice(ops.indexOf("select('thumbnail_url')"))
-    expect(scan.slice(0, 200)).not.toMatch(/storage_provider/)
+    expect(scan.slice(0, 220)).toMatch(/\.neq\('storage_provider', 's3'\)/)
+    expect(scan.slice(0, 220)).not.toMatch(/\.eq\('storage_provider', 'supabase'\)/)
+  })
+
+  it('🚨 S44: teardown COUNTS the previews it deliberately leaves in a customer bucket', () => {
+    // WIL-7005 affirmatively states a complete disposal. Since S44 an s3 row
+    // leaves TWO objects in the customer's bucket — body and preview — so a
+    // row count under-reports by one per preview, and a certificate that
+    // under-reports is the failure S39's own review caught.
+    const ops = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'operator-workspaces', 'index.ts'), 'utf-8',
+    ))
+    expect(ops).toMatch(/byo_thumbnails_left: byoThumbsLeft/)
+    // Counted from BOTH sources, like byoLeft: a purged-but-undrained preview
+    // has no files row and is still in the bucket.
+    expect(ops).toMatch(/\.eq\('kind', 'thumbnail'\)/)
+    // NULL on failure rather than 0 — after the CASCADE nothing can re-derive
+    // it, so an unknown must read as unknown forever (S37's review).
+    expect(ops).toMatch(/!liveThumbRes\.error/)
   })
 })
 
@@ -448,17 +707,76 @@ describe('wiring: disposal and CI registration', () => {
     ))
     // Asking `storage_path` for a thumbnail row always answers "unreferenced",
     // which is a licence to delete a still-restorable preview.
-    expect(gc).toMatch(/row\.bucket_id === THUMBNAIL_BUCKET \? 'thumbnail_url' : 'storage_path'/)
+    //
+    // 🚨 S44: THE DISCRIMINATOR READS `kind`, NOT THE BUCKET. S39's version
+    // tested the bucket name, which was sound only while every thumbnail was in
+    // Petal's thumbnail bucket. Since S44 an s3 workspace's preview sits in the
+    // customer's bucket under the SAME 'byo-s3' marker as its body, so a bucket
+    // test would classify every s3 thumbnail as a body, check storage_path,
+    // find nothing, delete a restorable preview and stamp it 'deleted' in the
+    // ledger — the exact failure the paragraph above exists to prevent,
+    // re-entering through this session's own fix.
+    expect(gc).toMatch(
+      /\(row as \{ kind\?: string \}\)\.kind === 'thumbnail'/,
+    )
+    expect(gc).not.toMatch(/row\.bucket_id === THUMBNAIL_BUCKET/)
     expect(gc).toMatch(/\.eq\(refColumn, row\.object_path\)/)
   })
 
-  it('the purge trigger enqueues the thumbnail and keeps S37s s3 arm', () => {
-    const sql = executable(readFileSync(
-      join(process.cwd(), 'supabase', 'migrations', '0053_thumbnails_bucket.sql'), 'utf-8',
+  it('🚨 S44: the drain SELECTS kind — omitting it silently deletes previews', () => {
+    // `kind` picks the restorability column. Left out of the select, row.kind
+    // is undefined, every thumbnail reads as a body, and the drain deletes
+    // restorable previews while certifying them disposed. A missing column in
+    // this list is a data-loss bug, not a missing field.
+    const gc = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'storage-gc', 'index.ts'), 'utf-8',
     ))
-    expect(sql).toContain("'rabbit-thumbnails', OLD.thumbnail_url")
+    expect(gc).toMatch(/\.select\('id, bucket_id, object_path, provider, kind'\)/)
+  })
+
+  // 🚨 READ 0054, NOT 0053. 0053 wrote the first thumbnail arm and its text is
+  // still true OF THAT FILE, but it is no longer the live rule — asserting
+  // against it would be the "cite the file that no longer defines the live
+  // rule" trap this repo has already paid for once.
+  it('the purge trigger enqueues the thumbnail AT ITS BODY\'S STORE and keeps S37s s3 arm', () => {
+    const sql = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '0054_thumbnail_follows_its_source.sql'), 'utf-8',
+    ))
+    // The thumbnail arm can now name the customer bucket...
+    expect(sql).toMatch(/CASE WHEN OLD\.storage_provider::text = 's3' THEN 'byo-s3' ELSE 'rabbit-thumbnails' END/)
+    // ...and it tags what it is, so the drain never has to infer it.
+    expect(sql).toMatch(/'thumbnail'\s*\n?\s*\)/)
+    // S37's body arm survives the rewrite.
     expect(sql).toContain("'byo-s3'")
     expect(sql).toMatch(/OR OLD\.thumbnail_url IS NOT NULL/)
+  })
+
+  it('🚨 the thumbnail arm does NOT mirror the body arm\'s provider expression', () => {
+    // The plausible-looking mirror — write OLD.storage_provider into the
+    // provider column for the thumbnail too — enqueues a local_server row's
+    // Petal-hosted preview as provider 'local_server', which
+    // storage_gc_queue_provider_chk refuses outright (0051 admits only
+    // 'supabase' and 's3'). Every such purge would become a caught WARNING and
+    // dispose of nothing. 0053 widened the trigger for exactly that case, so
+    // it is reachable by construction, not hypothetical.
+    const sql = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '0054_thumbnail_follows_its_source.sql'), 'utf-8',
+    ))
+    const writes = sql.match(/OLD\.storage_provider::text,/g) || []
+    expect(writes.length).toBe(1) // the body arm, and only the body arm
+  })
+
+  it('🚨 the queue row carries `kind`, and 0054 backfills the pre-existing ones', () => {
+    const sql = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '0054_thumbnail_follows_its_source.sql'), 'utf-8',
+    ))
+    expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'body'/)
+    // Explicit DROP + ADD, never a wrapped ADD — S36 measured that a wrapped
+    // re-ADD against an existing constraint is a SILENT NO-OP.
+    expect(sql).toMatch(/DROP CONSTRAINT IF EXISTS storage_gc_queue_kind_chk/)
+    expect(sql).toMatch(/ADD CONSTRAINT storage_gc_queue_kind_chk/)
+    // Rows written before this migration must not be left mislabelled.
+    expect(sql).toMatch(/UPDATE public\.storage_gc_queue[\s\S]*?SET kind = 'thumbnail'/)
   })
 
   it('🚨 suite 63 is in the rls.yml replay list — nothing fails if it is not', () => {
@@ -470,5 +788,15 @@ describe('wiring: disposal and CI registration', () => {
       join(process.cwd(), '..', '.github', 'workflows', 'rls.yml'), 'utf-8',
     )
     expect(yml).toContain('supabase/tests/rls/63_thumbnails_bucket.sql')
+  })
+
+  it('🚨 suite 64 is in the rls.yml replay list too', () => {
+    // Suite 63 had this pin and 64 would not have inherited it. The RLS_TABLES
+    // coverage guard globs `*_<table>.sql` and cannot see a suite named for a
+    // concept, so the replay list is the ONLY thing that registers this one.
+    const yml = readFileSync(
+      join(process.cwd(), '..', '.github', 'workflows', 'rls.yml'), 'utf-8',
+    )
+    expect(yml).toContain('supabase/tests/rls/64_thumbnail_provider.sql')
   })
 })
