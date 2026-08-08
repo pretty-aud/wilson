@@ -329,10 +329,27 @@ async function collectBlobPaths(
     ctx.admin.from('files').select('id', { count: 'exact', head: true })
       .eq('workspace_id', workspaceId).eq('storage_provider', 's3')
       .not('thumbnail_url', 'is', null),
+    // 🚨 UNDRAINED ROWS ONLY. Queue rows are STAMPED, never deleted (0027's
+    // status enum), so an unfiltered count says "still in your bucket" about
+    // every object storage-gc has already destroyed — after one successful
+    // cleanup run the certificate over-reports permanently. The comment above
+    // says this half exists for a "purged-but-UNDRAINED body"; nothing was
+    // filtering for undrained. S37's omission, inherited by S44's new field and
+    // caught by S44's review.
+    //
+    // 'skipped' is excluded for a second, independent reason: it means "a files
+    // row still references this path", so the live half above already counts
+    // that object — including it would double-count it.
+    //
+    // Over-reporting is the same category of false statement as the
+    // under-reporting S39's review caught; the certificate has to be true in
+    // BOTH directions.
     ctx.admin.from('storage_gc_queue').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'body'),
+      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'body')
+      .in('status', ['pending', 'failed']),
     ctx.admin.from('storage_gc_queue').select('id', { count: 'exact', head: true })
-      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'thumbnail'),
+      .eq('workspace_id', workspaceId).eq('provider', 's3').eq('kind', 'thumbnail')
+      .in('status', ['pending', 'failed']),
   ])
   // NULL on ANY failure rather than 0, and BOTH numbers together: after the
   // CASCADE nothing can ever re-derive them, so a count that silently read 0

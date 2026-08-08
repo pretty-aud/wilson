@@ -160,10 +160,24 @@ export default function FileManager({
   // nothing: those tiles fall through to file-type icons, and this line is
   // where the deferred work reconnects — carry the provider, and the arm that
   // presigns s3 keys slots in beside the supabase one.
+  //
+  // 🚨 THE TEST IS `!== 's3'`, NOT `=== 'supabase'`, AND THE THREE COPIES OF
+  // THIS MAPPING MUST AGREE. Where a preview lives is:
+  //
+  //     s3             -> the customer's bucket   (not signable from here)
+  //     everything else -> rabbit-thumbnails       (signable)
+  //
+  // — the same expression as 0054's thumbnail arm and the teardown sweep's
+  // `.neq('storage_provider','s3')`. A `local_server` or `google_drive` row CAN
+  // carry a Petal-hosted preview (0053 widened the purge trigger for exactly
+  // that case), and `=== 'supabase'` would refuse to display a preview that is
+  // sitting right there and perfectly signable. S44 shipped that mistake in the
+  // teardown sweep, caught it, and its own review then found the same shape
+  // surviving here.
   const [thumbUrls, setThumbUrls] = useState(() => new Map())
   const thumbKeys = useMemo(
     () => assetFiles
-      .filter(f => (f.storage_provider ?? 'supabase') === 'supabase')
+      .filter(f => f.storage_provider !== 's3')
       .map(f => f.thumbnail_url)
       .filter(Boolean),
     [assetFiles],

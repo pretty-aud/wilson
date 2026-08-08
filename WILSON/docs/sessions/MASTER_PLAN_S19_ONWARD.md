@@ -572,6 +572,38 @@ below are superseded; only one of them actually moves.
 > generated can only be made by downloading the full source. Recorded in
 > `OUTSTANDING.md` and handbook §12.7b.
 >
+> 🚨 **THE PRE-DEPLOY ADVERSARIAL REVIEW FOUND SIX MORE, IN CODE THAT WAS GREEN
+> ON 1228 VITEST AND 64 pgTAP SUITES.** Seven sessions running. All six fixed
+> before the push:
+> 1. **HIGH — nothing pinned `putThumbnail`'s throw.** Every `rejects.toThrow`
+>    in the file was on the DELETE side. Drop `if (error) throw` and the whole
+>    suite stayed green while `uploadFile` proceeded to write `thumbnail_url`
+>    **for an object that was never stored** — a column that lies. Verified by
+>    breaker: the promise resolves instead of rejecting.
+> 2. **Two of the session's own new SQL assertions were decoration.**
+>    `/'thumbnail'\s*\n?\s*\)/` is satisfied by the CHECK constraint text, and
+>    `toContain("'byo-s3'")` is satisfied by the *thumbnail* arm — the entire
+>    body arm could be deleted and both passed. Repointed at each arm's VALUES
+>    tail.
+> 3. **The display filter diverged from the mapping this session had just
+>    corrected.** Teardown was fixed to `.neq('s3')`; `FileManager` was left on
+>    `=== 'supabase'`, **and a new test pinned the divergent string.** Now
+>    `!== 's3'`, with a probe asserting all THREE copies agree.
+> 4. **The certificate OVER-reports.** The queue counts had no `status` filter,
+>    so every already-disposed object read as still resident, and a `skipped`
+>    row was double-counted with the live half. Over-reporting is the same
+>    category of false statement as the under-reporting S39's review caught.
+> 5. **The `.jpg` key shape was asserted in prose and never tested** against the
+>    real presign gate — the brief said to verify it by test, and it had not
+>    been.
+> 6. **`STORAGE_PRESIGN_RPM` 240 had no pin** and could be silently reverted.
+>
+> ⚠️ **Three further findings were real but out of scope and are in
+> `OUTSTANDING.md`:** `user-avatars` survives teardown uncounted (gap #34 one
+> bucket over, S39-era); the sweep is row-derived so a stranded object is
+> neither removed nor counted; and S44's reversal is safe **only** because no s3
+> thumbnail predates it — which nothing had recorded.
+>
 > ⚠️ **Part 1 created a rate-limit defect and it was fixed in the same session:**
 > an s3 image upload now costs **two** presigns (body, then preview), against a
 > `STORAGE_PRESIGN_RPM` of 120 sized for one — refusing a 100-image drag from

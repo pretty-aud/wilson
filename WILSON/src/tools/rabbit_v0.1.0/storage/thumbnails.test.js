@@ -382,6 +382,32 @@ describe('putThumbnailTo — the destination follows the body', () => {
     }
   })
 
+  it('🚨 THROWS when Supabase Storage REFUSES the upload — supabase-js resolves on error', async () => {
+    // Found by S44's own adversarial review, and it is the direction the
+    // session ADDED and did not pin: every `rejects.toThrow` in this file was
+    // on the DELETE side. Drop `if (error) throw` from putThumbnail and the
+    // whole suite stays green while `uploadFile` proceeds to
+    // `thumbnailPath = key` and writes `thumbnail_url` FOR AN OBJECT THAT WAS
+    // NEVER STORED — a column that lies, and a tile that silently shows an
+    // icon. This throw is the only thing keeping thumbnail_url null on a
+    // failed upload.
+    const client = {
+      storage: { from: () => ({ upload: async () => ({ error: { message: 'bucket refused it' } }) }) },
+    }
+    await expect(putThumbnailTo(FILE_PROVIDERS.SUPABASE, 'projects/p/a/1/x.png.jpg', {}, { client }))
+      .rejects.toThrow(/upload failed: bucket refused it/)
+  })
+
+  it('🚨 PROPAGATES a refusal from the s3 arm too, so thumbnail_url stays null', async () => {
+    // Same reasoning one provider over. The registry's put() throws by
+    // contract (s3Provider), and putThumbnailTo must not swallow it — the
+    // caller's try/catch is what turns it into "no preview", and it can only
+    // do that if something is thrown.
+    await expect(putThumbnailTo(FILE_PROVIDERS.S3, 'projects/p/a/1/x.png.jpg', {}, {
+      getProvider: () => ({ put: async () => { throw new Error('[s3] storage upload failed: HTTP 403') } }),
+    })).rejects.toThrow(/storage upload failed/)
+  })
+
   it('🚨 THE MONEY PIN: an invoice on an s3 workspace keeps its preview on Petal', async () => {
     // Money-gated files are this rule APPLIED, not an exception. Only RLS
     // enforces the money gate and no S3 sharing model binds to a WILSON project
@@ -564,9 +590,30 @@ describe('wiring: the display path reaches the screen', () => {
     // extends. Display was scoped out by Audrey on 2026-08-08: it needs a batch
     // presign that does not exist, and no S3 workspace exists anywhere to
     // verify one against.
-    expect(manager).toMatch(
-      /\.filter\(f => \(f\.storage_provider \?\? 'supabase'\) === 'supabase'\)/,
-    )
+    //
+    // 🚨 `!== 's3'`, NOT `=== 'supabase'`. All THREE copies of "which previews
+    // are on Petal" must be the same expression — this filter, 0054's thumbnail
+    // arm, and the teardown sweep's `.neq('storage_provider','s3')`. A
+    // `local_server` row's preview IS on Petal and IS signable, so
+    // `=== 'supabase'` would hide a thumbnail that is sitting right there.
+    expect(manager).toMatch(/\.filter\(f => f\.storage_provider !== 's3'\)/)
+    expect(manager).not.toMatch(/storage_provider \?\? 'supabase'\) === 'supabase'/)
+  })
+
+  it('🚨 all THREE copies of the "which previews are on Petal" mapping agree', () => {
+    // The divergence this pins was found by S44's own review: the teardown
+    // sweep was corrected from `eq('supabase')` to `neq('s3')` and the display
+    // filter was left behind, with a test pinning the divergent string. Any
+    // future session that changes one must change all three.
+    const ops = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'operator-workspaces', 'index.ts'), 'utf-8',
+    ))
+    const sql = executable(readFileSync(
+      join(process.cwd(), 'supabase', 'migrations', '0054_thumbnail_follows_its_source.sql'), 'utf-8',
+    ))
+    expect(manager).toMatch(/storage_provider !== 's3'/)          // display
+    expect(ops).toMatch(/\.neq\('storage_provider', 's3'\)/)      // teardown sweep
+    expect(sql).toMatch(/= 's3' THEN 'byo-s3' ELSE 'rabbit-thumbnails' END/) // enqueue
   })
 
   it('🚨 FileThumbnail no longer gates the cloud path on file.extension', () => {
@@ -744,10 +791,26 @@ describe('wiring: disposal and CI registration', () => {
     ))
     // The thumbnail arm can now name the customer bucket...
     expect(sql).toMatch(/CASE WHEN OLD\.storage_provider::text = 's3' THEN 'byo-s3' ELSE 'rabbit-thumbnails' END/)
+
     // ...and it tags what it is, so the drain never has to infer it.
-    expect(sql).toMatch(/'thumbnail'\s*\n?\s*\)/)
+    //
+    // 🚨 PINNED TO THE VALUES TAIL, NOT TO THE BARE WORD. S44's first attempt
+    // was /'thumbnail'\s*\n?\s*\)/ — which the CHECK constraint text
+    // `CHECK (kind IN ('body', 'thumbnail'));` satisfies on its own. The entire
+    // thumbnail INSERT arm could be deleted and it still passed. Found by this
+    // session's own review; it is the 0038 trap in its positive form.
+    expect(sql).toMatch(
+      /OLD\.thumbnail_url, OLD\.workspace_id, OLD\.id, 'file-purged',[\s\S]{0,200}'thumbnail'/,
+    )
+
     // S37's body arm survives the rewrite.
-    expect(sql).toContain("'byo-s3'")
+    //
+    // 🚨 ALSO REPOINTED: `toContain("'byo-s3'")` is now satisfied by the
+    // THUMBNAIL arm's own CASE, so it could not tell you the body arm still
+    // exists. Pin the body arm's own VALUES tail instead.
+    expect(sql).toMatch(
+      /OLD\.storage_path, OLD\.workspace_id, OLD\.id, 'file-purged',[\s\S]{0,120}'body'/,
+    )
     expect(sql).toMatch(/OR OLD\.thumbnail_url IS NOT NULL/)
   })
 

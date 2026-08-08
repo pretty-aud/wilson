@@ -794,6 +794,75 @@ decided there should match this.
 
 ---
 
+### 🚨 `user-avatars` survives workspace teardown, uncounted and permanently undrainable
+
+There are **three** buckets (`rabbit-files`, `rabbit-thumbnails`, `user-avatars`)
+and teardown touches **two**. Avatar objects live at `user-avatars/{workspaceId}/
+{userId}/…`, and after teardown `workspaces` is gone and `workspace_members` has
+CASCADEd — so `storage-gc`'s avatar arm can **never run for that tenant again**.
+
+This is gap #34 one bucket over, and it is the exact argument
+`operator-workspaces` uses to justify its own existence: *"A SECOND BUCKET IS A
+SECOND WAY FOR THE CERTIFICATE TO LIE."* That reasoning was applied to bucket
+two (S39) and not to bucket three. **Avatars are photographs of identifiable
+people**, so `WIL-7005` reading *"Tore down workspace X"* with them still
+resident is a personal-data statement, not a disk-space one.
+
+Pre-existing (S39 era), **not introduced by S44** — found by S44's review, which
+re-audited this certificate.
+
+→ Fix is bounded: recursive `list('user-avatars', workspaceId)` → `remove()` →
+its own certificate line, mirroring the existing thumbnails block.
+
+---
+
+### The teardown sweep is row-derived, so a stranded object is neither removed nor counted
+
+`uploadFile` can leave an object with no `files` row: body put succeeds,
+thumbnail put succeeds, the row insert is refused, and **both** compensating
+deletes are best-effort. The orphan scan deliberately walks neither thumbnail
+location, so such an object is invisible to `files`, to the queue, and to the
+scan — and after the CASCADE, invisible forever, while `WIL-7005` affirms
+complete disposal.
+
+This is documented as a limit (§12.7b, §17) but **has no field on the
+certificate**, which is the specific failure this repo names: *a stated coverage
+limit that is only true in one direction.* `byo_bodies_left` /
+`byo_thumbnails_left` exist precisely so a deliberate omission is legible; the
+Petal-side omission has no equivalent.
+
+→ Minimum fix: a `thumbnails_note` field stating the sweep is row-derived, or a
+`list()` of `rabbit-thumbnails/projects/{id}` per owned project (the project ids
+are already enumerated).
+
+---
+
+### ⚠️ S44's reversal is safe ONLY because no s3 thumbnail predates it — record before that changes
+
+S39 wrote **every** thumbnail to `rabbit-thumbnails`, including for s3 bodies.
+S44 reversed the destination with **no key migration**, and nothing in the code
+can tell an old key from a new one. For an s3 `files` row created *before* 0054,
+all three layers are wrong at once:
+
+1. **Display** — excluded by the provider filter, so a preview that *is*
+   signable stops being shown.
+2. **Teardown** — excluded from the Petal sweep (left behind) **and** counted in
+   `byo_thumbnails_left` as if it were in the customer's bucket.
+3. **`storage-gc`** — the worst: 0054 enqueues it as `byo-s3`/`s3`, the drain
+   issues a signed DELETE against the customer bucket for a key that was never
+   there, **S3 answers 204 for a missing key**, and it is stamped `deleted` with
+   a disposal certificate — while the object sits untouched on Petal forever.
+
+**Exposure is zero and that is the entire safety argument:** measured 2026-08-08,
+dev and prod all-zero, staging's one `byos` workspace is `provider = 'network'`
+with 0 `files` rows. Nothing recorded that the reversal depends on the set being
+empty, so it is recorded here.
+
+🚨 **No s3 workspace may be created carrying pre-0054 thumbnails without a
+key-migration pass first** — this matters most on a backup restore.
+
+---
+
 ### A `network`-provider workspace can never have cloud previews at all
 
 Not a defect and not fixable — recorded so it is not re-filed as one. A browser

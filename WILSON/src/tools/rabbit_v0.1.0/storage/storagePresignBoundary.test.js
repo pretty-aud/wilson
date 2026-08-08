@@ -31,6 +31,34 @@ describe('checkRowShapedPath — the presign path gate', () => {
     expect(checkRowShapedPath(`projects/${PID}/PROJECT.json`).ok).toBe(true)
   })
 
+  // 🚨 S44: THE THUMBNAIL KEY SHAPE, PROVEN RATHER THAN ASSERTED IN PROSE.
+  // Since S44 an s3 workspace's preview is written beside its source at
+  // `<body key>.jpg` — a final segment with TWO dots — through this very gate.
+  // `storage/thumbnails.js` claims in a comment that SEGMENT_RE admits it; the
+  // S44 brief said to verify that by test, not by reading the sentence, and its
+  // own review found no such test existed. This is that test.
+  it('🚨 accepts a thumbnail key: the body key plus .jpg, two dots in the last segment', () => {
+    const body = `projects/${PID}/assets/a1/1754612345678-plate.png`
+    const thumb = `${body}.jpg`
+    expect(checkRowShapedPath(body)).toEqual({ ok: true, projectId: PID })
+    expect(checkRowShapedPath(thumb)).toEqual({ ok: true, projectId: PID })
+  })
+
+  it('🚨 a thumbnail key keeps its source\'s THIRD segment — the money gate reads it', () => {
+    // Appending '.jpg' must shift no segment: the money gate is
+    // (storage.foldername(name))[3] / split_part(path,'/',3). A `thumbs/` level
+    // or any rename would move the derived image out of the gate it inherits.
+    const body = `projects/${PID}/INVOICES/l1/9-invoice.pdf`
+    const thumb = `${body}.jpg`
+    expect(thumb.split('/').length).toBe(body.split('/').length)
+    expect(thumb.split('/')[2]).toBe(body.split('/')[2])
+    // And so an INVOICES thumbnail is refused by this gate for the same reason
+    // its source is: money never leaves Supabase, so there is no money presign
+    // to authorise on either.
+    expect(checkRowShapedPath(thumb).ok).toBe(false)
+    expect(checkRowShapedPath(thumb).detail).toMatch(/money-gated files never leave Supabase/)
+  })
+
   it.each([
     ['INVOICES', `projects/${PID}/INVOICES/x/1-invoice.pdf`],
     ['FINANCE', `projects/${PID}/FINANCE/RATES.json`],
@@ -182,6 +210,18 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     expect(fn).toContain("select('id, bucket_id, object_path, provider, kind')")
   })
 
+  it('🚨 S44: the presign rate limit is sized for TWO calls per uploaded image', () => {
+    // Since S44 an s3 image upload costs two presigns — the body via
+    // s3Provider.put, then the derived preview via putThumbnailTo — so the
+    // ceiling was raised 120 -> 240 to keep meaning "120 FILES per minute".
+    // Reverted to 120, a 100-image drag is refused from about file 60, on the
+    // SECOND call of each pair: the bodies have already landed, so the user
+    // sees a half-illustrated grid and a message about presign requests with
+    // nothing connecting it to thumbnails. Nothing else would fail.
+    const fn = read('supabase', 'functions', 'storage-presign', 'index.ts')
+    expect(fn).toContain("envInt('STORAGE_PRESIGN_RPM', 240)")
+  })
+
   it('0051 widens the enqueue trigger by TEXT comparison (the same-transaction enum rule)', () => {
     const sql = read('supabase', 'migrations', '0051_s3_storage_provider.sql')
     expect(sql).toContain("WHEN (OLD.storage_provider::text IN ('supabase', 's3'))")
@@ -199,6 +239,12 @@ describe('the wiring is real — every link in the presign chain has a caller', 
     // re-derive it, so "nothing of yours remains" must not rest on a failed
     // query (S37 review).
     expect(fn).toContain('let byoLeft: number | null = null')
+    // 🚨 UNDRAINED ROWS ONLY. Queue rows are stamped, never deleted, so an
+    // unfiltered count reports every already-destroyed object as still resident
+    // — and a 'skipped' row is double-counted with the live-files half. A
+    // certificate that OVER-reports is the same category of false statement as
+    // one that under-reports. (S44 review.)
+    expect(fn).toContain("in('status', ['pending', 'failed'])")
     // S44 widened this to FOUR counts: an s3 row now leaves a body AND a
     // preview in the customer's bucket, so bodies and thumbnails are counted
     // separately (byo_thumbnails_left). Any one failing must still yield NULL
