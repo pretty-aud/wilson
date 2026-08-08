@@ -66,6 +66,10 @@ import {
 } from '../storage';
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
+import {
+  generateThumbnail, thumbnailKeyFor, putThumbnail, removeThumbnail,
+  signedThumbnailUrls,
+} from '../storage/thumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
 import { presignStorage } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
@@ -1054,6 +1058,36 @@ export function supabaseAdapter() {
         throw upErr;
       }
 
+      // Session 39: the derived preview, generated HERE because the body is
+      // already in memory. Generating later — on demand, or server-side —
+      // means downloading the source first: gigabytes of egress for a postage
+      // stamp, on exactly the multi-GB media this product is for (§4a2).
+      //
+      // 🚨 BEST-EFFORT, DELIBERATELY, and it is the same rule the folder-row
+      // lookup above states: a missing convenience must not refuse an upload.
+      // generateThumbnail() returns null rather than throwing; the put is the
+      // only part that can raise, and it is caught here. The source body has
+      // ALREADY LANDED at this point, so anything thrown from here would
+      // strand it — a failed preview must cost a preview.
+      //
+      // The thumbnail is written to rabbit-thumbnails whatever provider holds
+      // the body: it is 10–30 KB, and keeping it on Petal means a grid needs
+      // no presign round-trip per tile and behaves identically on every
+      // provider. Stated in 0053's header and §12.7b.
+      let thumbnailPath = null;
+      try {
+        const thumb = await generateThumbnail(file);
+        if (thumb) {
+          const key = thumbnailKeyFor(storagePath);
+          await putThumbnail(client, key, thumb);
+          thumbnailPath = key;
+        }
+      } catch (thumbErr) {
+        // Never fatal. Logged rather than swallowed — S30's rule: walk DOWN
+        // the stack to the layer that eats the error, and this is that layer.
+        console.warn('[supabase] thumbnail not generated:', thumbErr?.message || thumbErr);
+      }
+
       const row = {
         project_id:       projectId,
         phase_id:         scope.phaseId || null,
@@ -1071,6 +1105,14 @@ export function supabaseAdapter() {
         size_bytes:       file?.size ?? null,
         storage_provider: storageProvider,
         storage_path:     storagePath,
+        // 🚨 THE FIRST WRITER THIS COLUMN HAS EVER HAD. Declared on three
+        // tables in 0000 (files:232, assets:164, asset_versions:246) and never
+        // written by anything until now — a dead field in the same family as
+        // storage_mode. It holds the object's PATH inside rabbit-thumbnails,
+        // not a URL: the bucket is private, so display URLs are signed at read
+        // time and expire. (0040's thumbnail_image says the same of itself:
+        // "A path or URL to the thumbnail, never image bytes.")
+        thumbnail_url:    thumbnailPath,
         kind:             scope.kind || 'source',
         is_core_definer:  !!scope.isCoreDefiner,
         // 0038. Must agree with the `invoices` path segment above: the row
@@ -1085,6 +1127,20 @@ export function supabaseAdapter() {
         // refused insert can't strand an orphan (rabbit_files_delete_own
         // policy, 0027). Best-effort: the GC orphan scan is the backstop.
         try { await getStorageProvider(storageProvider).del(storagePath); } catch { /* GC catches it */ }
+        // Session 39: and its thumbnail, by the same reasoning and for a
+        // stronger reason. With no files row there is no thumbnail_url, so
+        // trg_files_gc_enqueue will never see this object and the queue drain
+        // cannot reach it — the compensating delete is its ONLY cleanup.
+        // (The orphan scan is Supabase-side but walks rabbit-files/projects/*,
+        // not this bucket; see the stated limit in §12.7b.)
+        // Never silent: this is the thumbnail's ONLY cleanup path, so a failure
+        // here is the difference between "removed" and "a legible frame of the
+        // content is in the bucket forever with nothing pointing at it".
+        try {
+          await removeThumbnail(client, thumbnailPath);
+        } catch (rmErr) {
+          console.warn('[supabase] stranded thumbnail not removed:', rmErr?.message || rmErr);
+        }
       }
       return unwrap(ins);
     },
@@ -1119,6 +1175,22 @@ export function supabaseAdapter() {
         console.warn('[supabase] download not logged:', err?.message || err);
       }
       return data; // Blob
+    },
+
+    // Session 39: display URLs for a batch of thumbnails.
+    //
+    // 🚨 BATCHED, not per tile. rabbit-thumbnails is PRIVATE (0053), so every
+    // preview needs a signed URL and a file grid renders dozens at once —
+    // per-tile signing is the difference between a grid that paints and one
+    // that crawls.
+    //
+    // RLS is the authority on WHICH of them come back: a non-manager asking
+    // for an invoice thumbnail gets no URL for that key and the UI falls back
+    // to an icon. The caller never has to know which keys were money-gated,
+    // which is what keeps the gate in one place.
+    async thumbnailUrls(paths, expiresIn = 3600) {
+      const client = await requireClient();
+      return signedThumbnailUrls(client, paths, expiresIn);
     },
 
     async updateFile(id, patch) {

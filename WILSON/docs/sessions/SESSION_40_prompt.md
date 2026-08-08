@@ -7,8 +7,45 @@
 > ⚠️ **Sized 1–2 sessions.** ffmpeg packaging alone is fiddly. If it splits,
 > split at "browser-decodable formats work" → "ffmpeg for professional codecs".
 
-> **STATE — re-measure.** Confirm migration number, suite count, vitest counts
-> and HEAD from the working tree.
+> **STATE — re-measure, do not trust this block.** After **S39**
+> (2026-08-08): migrations **0000–0053** on all three envs, next free
+> **0054**. pgTAP **63 suites / 1097 assertions**, next suite **64**. Vitest
+> **1210 / 54 files**. CLI re-linked to wilson-dev.
+> 🚨 **Read the working tree** — this block has been stale within the hour
+> before now.
+>
+> ⏸️ **S38 (Google Drive) was DEFERRED, not done** — `OWED_AUDREY.md` §13 is
+> still with Google. The sequence table in `MASTER_PLAN_S19_ONWARD.md` is the
+> authority; S38's brief is untouched and correct.
+>
+> **What S39 left that this session builds directly on:**
+> - **The bucket is `rabbit-thumbnails`** (0053): private, **256 KB**, and
+>   `allowed_mime_types = ['image/jpeg']`. 🚨 **That mime allowlist is a real
+>   constraint on S40** — a video still must be encoded to JPEG, or the bucket
+>   refuses it. Widening the allowlist means widening it for every object.
+> - **The key is the SOURCE key plus `.jpg`** — `thumbnailKeyFor()` in
+>   `src/tools/rabbit_v0.1.0/storage/thumbnails.js` is the ONE definition. 🚨 The
+>   money gate is the THIRD path segment, so any rewrite that shifts a segment
+>   moves the derived image out of the gate it inherits. Suite 63 probe 13.
+> - **Eight policies, `rabbit_thumbnails_*`** — four base, four money. Do not
+>   add a ninth under the `rabbit_files` prefix: 0042's post-conditions, suite
+>   53 and 0053's own post-condition 7 all count that prefix and require 8.
+> - **Generation is client-side and best-effort** — `generateThumbnail()`
+>   returns `null` rather than throwing, because the source body has already
+>   landed when it runs. A video path must keep that contract.
+> - **`canThumbnail()` gates on MIME TYPE, not extension** — a cloud `files`
+>   row has no `extension` column at all. That absence is what made thumbnails
+>   invisible in cloud for so long.
+> - **Disposal already covers this bucket**: `fn_files_gc_enqueue` enqueues the
+>   thumbnail alongside the body, teardown sweeps it, and `WIL-7005` counts it.
+>   **There is still no ORPHAN SCAN over it** (§12.7b) — if S40 creates
+>   thumbnails on a path that is not `uploadFile`, it owns their cleanup.
+> - ⚠️ **The desktop tier is still separate and still `sharp`** — six Express
+>   routes, 256/q80 for managed files and **512/q85** for assets and entities.
+>   S39 matched 256/q80 and did not resolve the split.
+> - ⚠️ **Open decision S39 flagged and did not take:** a BYO-storage
+>   workspace's previews live on Petal while its media does not (§12.7b).
+>   Video stills make that a larger question, not a smaller one.
 
 
 ## Start ritual (before touching anything)

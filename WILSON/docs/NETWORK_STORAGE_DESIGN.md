@@ -1146,6 +1146,38 @@ Otherwise this repeats `TPN-CONT-011` verbatim — derived content surviving the
 purge of the file it came from, orphaned and uncertificated. Add it to the same
 deletion path and the same certificate, not a later sweep.
 
+> **✅ BUILT BY S39 (2026-08-08, migration 0053).** The bucket, the eight
+> policies, client-side generation, `files.thumbnail_url`'s first writer, and
+> disposal on the existing purge path. Operational detail in handbook **§12.7b**;
+> outcome and corrections in `MASTER_PLAN_S19_ONWARD.md`'s S39 block.
+>
+> 🚨 **THIS SECTION WAS WRONG ABOUT THE THING IT TOLD S39 TO COPY, and the
+> error is corrected in place because this table is what later sessions skim.**
+> The paragraph above said *"the four `rabbit-files` policies port to the new
+> bucket by changing `bucket_id`"* and named `rabbit_files_invoices_select`.
+> Measured 2026-08-08: **there are EIGHT** (four base + four
+> `rabbit_files_money_*`), they live in **0042**, and
+> `rabbit_files_invoices_select` **was dropped by 0042:212-214**. Porting four
+> yields a bucket with no UPDATE arm and **no money gate at all** — i.e. exactly
+> the `TPN-CLOUD-008` hole this section warns about, reached by following this
+> section. Handbook §4.7 carried the same error and is corrected too.
+>
+> **Two corrections to the surrounding claims**, both measured:
+> - `TPN-CLOUD-004` is severity **HIGH**, not CRITICAL. Three documents said
+>   CRITICAL (this file, `SESSION_39_prompt.md`, `DESIGN_REVIEW_network_storage.md`);
+>   the finding's technical content is accurate and still open — only the label
+>   was inflated, probably from `SUMMARY.md`'s "Top 5 Most Critical" *ranking*.
+> - `TPN-CLOUD-008` exists only in `DESIGN_REVIEW_network_storage.md`, **not in
+>   `FINDINGS.md`** — it is a forward-looking design warning with no open/closed
+>   status, which is why grepping the audit for it comes up empty.
+>
+> ⚠️ **One decision left open rather than taken: a BYO-storage workspace's
+> previews live on Petal** while its media sits on the customer's NAS or bucket.
+> Audrey's instruction above (*"lets store thumbnails within the supabase
+> storage"*) predates BYO media storage, so it does not settle this case. The
+> arguments both ways are in §12.7b. Routing previews through the storage
+> registry would be a provider lookup, not a fork.
+
 ### 5d.1b Video thumbnails — a still frame, automatically
 
 **Supersedes the earlier "no video thumbnails" scope** (Audrey, 2026-08-05):

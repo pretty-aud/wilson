@@ -452,8 +452,8 @@ below are superseded; only one of them actually moves.
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
 | **S37** ✅ | **DONE (2026-08-08)** — 0051 **and 0052** on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm (endpoint host-only), `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below. ✅ **`WILSON_STORAGE_KEY_SECRET` set on all three envs 2026-08-08, digests verified identical (`OWED_AUDREY.md` §C2)** — S38's Drive refresh token shares it | 1 | — | `SESSION_37_prompt.md` |
-| **S38** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | ✅ **UNBLOCKED** (S36 shipped the registry; S37 first by choice) | `SESSION_38_prompt.md` |
-| **S39** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_39_prompt.md` |
+| **S38** ⏸️ | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. ⏸️ **DEFERRED 2026-08-08, Audrey's call**: `OWED_AUDREY.md` §13 was not filed, so the session swapped to S39 exactly as the brief instructs ("file it and run another session while it clears"). **Nothing was built; the brief is untouched and correct.** | 1–2 | ⏳ **§13 with Google** (calendar, outside Petal) | `SESSION_38_prompt.md` |
+| **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
 | **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
 | **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
 | **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
@@ -485,6 +485,129 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S39 outcome — thumbnails everywhere, and a brief that was wrong about the policy set (2026-08-08)
+>
+> **S38 was not run.** Its gate — `OWED_AUDREY.md` §13, Google's OAuth
+> verification — was unfiled, and the brief's own instruction is to file it and
+> run another session while it clears. Audrey chose that. S38's brief is
+> untouched and still correct; S39 was one of the three independent roots and
+> needed nothing.
+>
+> Migration **0053** applied and verified **by query** on dev, staging and prod
+> (bucket private, 262144, `image/jpeg` only, 8 thumbnail policies, 4 carrying
+> `can_access_project_money`, `rabbit_files%` still 8, trigger widened, s3 arm
+> intact); CLI re-linked to wilson-dev. `storage-gc` and `operator-workspaces`
+> deployed to all three. pgTAP suite **63** (20 assertions); full set **63
+> suites / 1097 assertions** clean. Vitest **1210 / 54 files**.
+>
+> 🚨 **THE BRIEF AND DESIGN §5d.1 WERE BOTH WRONG ABOUT THE THING THE SESSION
+> EXISTED TO COPY, and following them would have shipped the hole they warn
+> about.** Both say *"`rabbit-files` has FOUR policies (`0027:283-340`): three
+> base + `rabbit_files_invoices_select`"* and say to port those. Measured:
+> **there are EIGHT**, they live in **0042** (0038 and 0039 rewrote them, 0042
+> rewrote them again), and **`rabbit_files_invoices_select` has not existed
+> since 0042:212-214 dropped it** in favour of four `rabbit_files_money_*`
+> policies. A literal port yields a bucket with no UPDATE arm, one policy named
+> after nothing, and **no money gate at all** — i.e. invoice thumbnails readable
+> by every project member, which is precisely `TPN-CLOUD-008`'s "partial policy
+> port" arriving through the instructions written to prevent it.
+> **`supabaseProvider.js:19` had it right the whole time** — *"the private
+> bucket whose eight RLS policies (0042) are the money gate."* Handbook §4.7 is
+> corrected, including its stale claim that there is no UPDATE policy.
+>
+> **What shipped.** The private `rabbit-thumbnails` bucket (256 KB,
+> `image/jpeg` only — both enforced by Storage, not client code), eight policies
+> transcribed from 0042 with `bucket_id` swapped and **nothing else**, and the
+> key held identical to its source's **plus `.jpg`** so the third path segment —
+> the money gate — is inherited rather than re-derived. Generation is
+> `createImageBitmap` → canvas → `toBlob` on the uploading machine, one
+> implementation for browser and Electron renderer, best-effort by contract
+> (`null`, never a throw: the body has already landed). `files.thumbnail_url`
+> gets **its first writer since 0000**. Display URLs are signed **in one batch
+> per list**. Disposal rides the existing purge: `fn_files_gc_enqueue` now
+> enqueues up to two objects and the trigger's WHEN clause is widened, with the
+> body INSERT guarded separately — a `local_server` row has no Supabase body but
+> **can** carry a Petal thumbnail, and certifying a body that never existed
+> would be a false entry in the ledger.
+>
+> 🚨 **Three measured corrections carried forward for S38**, all of which make
+> it cheaper than its brief says:
+> 1. **`google_drive` has been in the `storage_provider` enum since 0000:67** —
+>    0051's own comment says so. S38 writes **no** `ALTER TYPE`.
+> 2. **S38 therefore does NOT hit S37's flow wall.** The brief asserts twice
+>    that it "hits the identical wall"; that trap is specific to *adding an enum
+>    value* inside one transaction. S38 widens a TEXT CHECK, which is usable in
+>    its own transaction — suite 60 already INSERTs `google_drive` rows and
+>    passes pre-apply. The ordinary shim flow works.
+> 3. **Two probes invert, not one** (60:168 and 61:291), and the vocabularies
+>    differ: `workspace_storage.provider` is **`'gdrive'`** while
+>    `files.storage_provider` is **`'google_drive'`**.
+>
+> **The eight breakers**, each failing exactly its own probes: public bucket →
+> 1; money four dropped (the brief's shape) → 4,5,6,9,10; base SELECT ungated
+> → 4,**13**; thumbnail enqueue removed → 17,19; 0051's WHEN restored → **19
+> only** (the isolation proving 19 tests the clause, not the body); wrong policy
+> prefix → 7; UPDATE arms dropped → 4,5,6,11,15; s3 arm lost → 20.
+>
+> ⚠️ **Probe 15 had to be rewritten mid-session and the reason generalises.** As
+> a row count it **passed against a bucket with no policies at all** — the exact
+> state it exists to catch. RLS treats the arms differently: a **USING** failure
+> silently yields zero rows, a **WITH CHECK** failure **RAISES**. Breaker 7
+> confirms it, failing 15 with *"no exception raised"*.
+>
+> 🚨 **The pre-deploy adversarial review earned its keep for the SIXTH session
+> running: 20 findings, 8 verified, 4 confirmed and fixed before deploy.**
+> 1. **Workspace teardown knew one bucket.** `WIL-7005` affirmatively states a
+>    complete disposal, so every torn-down tenant's frames would have survived
+>    while the certificate said otherwise — and after the CASCADE nothing can
+>    attribute a project folder to a workspace ever again, so it was permanent.
+>    Now swept, certificated, and counted. **Its `files` scan deliberately omits
+>    the `storage_provider='supabase'` filter the body scan uses** — a BYO
+>    workspace's media is its own, but its Petal-hosted preview is not.
+> 2. **The signing effect depended on the whole `ctx`**, whose `useMemo` deps
+>    include `bundle` and `presentUsers` — so an unrelated presence ping
+>    re-signed every thumbnail, and because a fresh signed URL is a new `src`,
+>    every tile reloaded. Now depends on the stable `useCallback`.
+> 3. **`imgError` was a sticky boolean over an EXPIRING url.** A lazy tile
+>    scrolled into view past the 1-hour expiry failed once and was pinned to a
+>    generic icon for the component's life; a later valid URL could not repair
+>    it. Now remembers *which* src failed. ⚠️ The first fix attempt — `key` on
+>    the `<img>` — was wrong and caught immediately: the flag lives in the
+>    parent, and when set the `<img>` is never rendered at all.
+> 4. **`removeThumbnail` swallowed its Storage error** — supabase-js resolves
+>    for every status, so an expired token turned the thumbnail's ONLY cleanup
+>    path into a silent success. Now throws; the caller logs.
+> Also fixed: the GC's restorability read failed **open** (S37's "a failed read
+> pushes nothing"), so a statement timeout read as "nothing references this" —
+> a licence to delete, then stamped `deleted` in the ledger.
+>
+> ⚠️ **And the review's own tooling reproduced the comment trap a third time.**
+> The test file's comment-stripper ran block comments in a separate first pass;
+> a **line** comment in `supabaseAdapter.js` containing the path
+> `rabbit-files/projects/*` opened a block that closed at the next real `*/`,
+> deleting ~40 lines of real code including the call being asserted. The wiring
+> was fine; the assertion was blind. **One alternating pass, block alternative
+> first**, and the stripper is now pinned by its own tests.
+>
+> ⚠️ **ONE DECISION AUDREY SHOULD CONFIRM: a BYO workspace's previews live on
+> Petal.** Media goes to the customer's NAS or bucket; a legible 256px frame of
+> every image does not. Argued in §12.7b (negligible size, uniform behaviour, no
+> presign per tile) and grounded in her own §5d.1 instruction — but that
+> instruction predates BYO media storage, so it does not settle the BYO case.
+> Left as built and flagged rather than decided unilaterally; routing previews
+> through the storage registry would be a provider lookup, not a fork.
+>
+> **Stated limits.** No orphan sweep over `rabbit-thumbnails` (queue drain and
+> teardown cover it; a browser dying between the thumbnail put and a refused
+> `files` insert strands one 10–30 KB JPEG uncertificated); Local Server's tier
+> is untouched and still uses `sharp` and its six Express routes; TIFF has no
+> cloud preview and SVG is excluded deliberately; the 256/q80 vs 512/q85 split
+> between the desktop routes pre-dates this session and was matched, not
+> resolved; `files.thumbnail_url` is client-writable through `FILE_COLUMNS`, the
+> same asymmetry §17 already records for `storage_path`. **Nothing here has been
+> watched working against a real upload by a human** — the round trip needs a
+> signed-in cloud workspace and a real image.
+>
 > ### S37 outcome — S3-compatible storage, the first BYO provider (2026-08-08)
 >
 > Migrations **0051** and **0052** applied and verified **by query** on dev,

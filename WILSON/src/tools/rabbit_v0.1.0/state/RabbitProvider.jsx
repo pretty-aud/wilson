@@ -2223,6 +2223,22 @@ export function RabbitProvider({ children }) {
     return adapterRef.current.downloadFile(file);
   }, []);
 
+  // Session 39: signed display URLs for cloud thumbnails, keyed by object path.
+  //
+  // Returns an EMPTY MAP rather than throwing on a backend that has no such
+  // concept — Local Server serves its previews from the Express route and has
+  // no bucket to sign against. A missing preview must never take a file list
+  // down with it, so this is the one file method that cannot fail loudly.
+  const thumbnailUrls = useCallback(async (paths) => {
+    if (!adapterRef.current?.thumbnailUrls) return new Map();
+    try {
+      return await adapterRef.current.thumbnailUrls(paths);
+    } catch (err) {
+      console.warn('[rabbit] thumbnail URLs unavailable:', err?.message || err);
+      return new Map();
+    }
+  }, []);
+
   // ── Managed files (asset-folder-based, versioned) ──────
   const addManagedFile = useCallback(async (record) => {
     if (!adapterRef.current) throw new Error('no adapter');
@@ -2698,7 +2714,7 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
 
     // Session 27. WHICH file store this backend actually has.
@@ -2751,7 +2767,7 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

@@ -79,6 +79,12 @@ const ACTIONS = new Set([
 ])
 
 const BUCKET = 'rabbit-files'
+// S39. Derived previews. Teardown must sweep this bucket too, and the reason is
+// the certificate rather than the disk space: WIL-7005 affirmatively STATES a
+// complete disposal, so a bucket it does not know about turns the certificate
+// into a false statement about a torn-down tenant's pre-release frames.
+// (TPN-CLOUD-005 is exactly this complaint about the single-bucket sweep.)
+const THUMBNAIL_BUCKET = 'rabbit-thumbnails'
 const PAGE = 1000          // PostgREST max_rows; read in exactly one page's worth
 const REMOVE_BATCH = 100   // objects per storage.remove() call
 const CERT_BATCH = 40      // paths per certificate row (context CHECK is 8000 chars)
@@ -140,9 +146,10 @@ async function loadWorkspace(
 async function collectBlobPaths(
   ctx: OperatorContext,
   workspaceId: string,
-): Promise<{ paths: string[]; rejected: string[]; reserved: string[]; byoLeft: number | null }> {
+): Promise<{ paths: string[]; rejected: string[]; reserved: string[]; thumbs: string[]; byoLeft: number | null }> {
   const paths = new Set<string>()
   const rejected = new Set<string>()
+  const thumbs = new Set<string>()
 
   // Every project id this workspace owns. A blob is only ours to delete if it
   // sits under one of these.
@@ -208,6 +215,48 @@ async function collectBlobPaths(
     if (!data || data.length < PAGE) break
   }
 
+  // S39: the derived previews, in their OWN bucket, from the same two row
+  // sources. Kept in a separate set because they are removed from a different
+  // bucket and counted on their own certificate line.
+  //
+  // 🚨 NO storage_provider FILTER HERE, and that is the whole subtlety. The
+  // files scan above is pinned to storage_provider='supabase' because a body
+  // at the customer's own bucket is their property (S37). A THUMBNAIL is not:
+  // it is always written to Petal's rabbit-thumbnails, even for an s3-backed
+  // workspace. Inheriting the provider filter would leave every BYO workspace's
+  // previews behind while the certificate said otherwise — the exact inversion
+  // of the rule it was copied from.
+  const takeThumb = (p: unknown) => {
+    if (owned(p)) thumbs.add(p as string)
+    else if (typeof p === 'string' && p.length > 0) rejected.add(p)
+  }
+
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await ctx.admin
+      .from('files')
+      .select('thumbnail_url')
+      .eq('workspace_id', workspaceId)
+      .not('thumbnail_url', 'is', null)
+      .order('thumbnail_url', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`thumbnail scan failed: ${error.message}`)
+    for (const r of data ?? []) takeThumb(r.thumbnail_url)
+    if (!data || data.length < PAGE) break
+  }
+
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await ctx.admin
+      .from('storage_gc_queue')
+      .select('object_path')
+      .eq('workspace_id', workspaceId)
+      .eq('bucket_id', THUMBNAIL_BUCKET)
+      .order('id', { ascending: true })
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(`thumbnail queue scan failed: ${error.message}`)
+    for (const r of data ?? []) takeThumb(r.object_path)
+    if (!data || data.length < PAGE) break
+  }
+
   // The row-less objects, built from the project ids this workspace provably
   // owns — the same tenancy proof `owned()` applies to the row-derived paths,
   // so these need no separate check and can never be cross-tenant.
@@ -250,7 +299,10 @@ async function collectBlobPaths(
     byoLeft = (liveRes.count ?? 0) + (queuedRes.count ?? 0)
   }
 
-  return { paths: [...paths], rejected: [...rejected], reserved: [...reserved], byoLeft }
+  return {
+    paths: [...paths], rejected: [...rejected], reserved: [...reserved],
+    thumbs: [...thumbs], byoLeft,
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -483,12 +535,14 @@ Deno.serve(async (req: Request) => {
     let paths: string[]
     let rejected: string[]
     let reserved: string[]
+    let thumbs: string[]
     let byoLeft: number | null
     try {
       const scan = await collectBlobPaths(ctx, workspaceId)
       paths = scan.paths
       rejected = scan.rejected
       reserved = scan.reserved
+      thumbs = scan.thumbs
       byoLeft = scan.byoLeft
     } catch (err) {
       return reply({ error: 'scan_failed', detail: String((err as Error).message ?? err) }, 500)
@@ -620,6 +674,59 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // 2c. The DERIVED PREVIEWS (S39), in their own bucket and their own pass.
+    //
+    //     🚨 A SECOND BUCKET IS A SECOND WAY FOR THE CERTIFICATE TO LIE. WIL-7005
+    //     below affirmatively states a complete disposal; until this block
+    //     existed, every torn-down tenant's thumbnails stayed in
+    //     rabbit-thumbnails while the certificate said the tenant had been
+    //     destroyed. Frames of pre-release content are exactly the payload that
+    //     claim must be true about, and after the CASCADE nothing on the
+    //     platform can attribute a project folder to a workspace ever again —
+    //     so this is the last moment it is possible at all. Same reasoning as
+    //     the reserved-objects pass above, one bucket over.
+    //
+    //     Counted apart for the same reason as the reserved objects: these are
+    //     derived candidates, not blobs a row promised, and folding them into
+    //     `removed`/`missing` would make one file look like two.
+    //
+    //     Placed AFTER 2b's certificates, obeying the ordering rule 2b states:
+    //     a new way to throw must never sit in front of the certificates for
+    //     blobs that have already been deleted.
+    let thumbsRemoved = 0
+    const thumbsFailed: string[] = []
+    const thumbsRemovedPaths: string[] = []
+    for (let i = 0; i < thumbs.length; i += REMOVE_BATCH) {
+      const batch = thumbs.slice(i, i + REMOVE_BATCH)
+      const { data, error } = await ctx.admin.storage.from(THUMBNAIL_BUCKET).remove(batch)
+      if (error) {
+        thumbsFailed.push(...batch)
+      } else if (Array.isArray(data)) {
+        thumbsRemoved += data.length
+        thumbsRemovedPaths.push(
+          ...data.map((o: { name?: string }) => o?.name).filter((n): n is string => typeof n === 'string'),
+        )
+      }
+    }
+    for (let i = 0; i < thumbsRemovedPaths.length; i += CERT_BATCH) {
+      const batch = thumbsRemovedPaths.slice(i, i + CERT_BATCH)
+      await logPlatformEvent(ctx, {
+        action: 'blob.purged',
+        workspaceId,
+        workspaceSlug: ws.slug,
+        workspaceName: ws.name,
+        code: 'WIL-7006',
+        severity: 'warning',
+        message: `Purged ${batch.length} thumbnail(s) during teardown of ${ws.slug}`,
+        context: {
+          bucket: THUMBNAIL_BUCKET,
+          derived: true,
+          paths: batch,
+          batch: Math.floor(i / CERT_BATCH) + 1,
+        },
+      })
+    }
+
     // 3. Now the row, and the CASCADE with it.
     const { error: delErr } = await ctx.admin
       .from('workspaces')
@@ -674,6 +781,14 @@ Deno.serve(async (req: Request) => {
         reserved_candidates: reserved.length,
         reserved_removed: reservedRemoved,
         reserved_failed: reservedFailed.length,
+        // The derived previews (S39), in rabbit-thumbnails. A SECOND BUCKET is
+        // a second way this certificate can be wrong, so it is stated rather
+        // than assumed covered by blobs_removed — which counts rabbit-files
+        // only. `found` includes previews of bodies at a customer's own bucket:
+        // the body stays theirs, the Petal-hosted preview does not.
+        thumbnails_found: thumbs.length,
+        thumbnails_removed: thumbsRemoved,
+        thumbnails_failed: thumbsFailed.length,
         // Bodies at the customer's own bucket, DELIBERATELY left (S37): their
         // storage, their property — see collectBlobPaths. Zero for every
         // workspace that never configured S3. NULL means the count could not
@@ -693,6 +808,8 @@ Deno.serve(async (req: Request) => {
       blobs_rejected: rejected.length,
       reserved_removed: reservedRemoved,
       reserved_failed: reservedFailed.length,
+      thumbnails_removed: thumbsRemoved,
+      thumbnails_failed: thumbsFailed.length,
     })
   }
 

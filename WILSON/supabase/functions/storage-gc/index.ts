@@ -50,6 +50,13 @@ import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
 
 const RABBIT_BUCKET = 'rabbit-files'
 const AVATAR_BUCKET = 'user-avatars'
+// S39. Derived previews live here and are disposed of on the SAME purge as
+// their source (TPN-CONT-011), enqueued by trg_files_gc_enqueue alongside the
+// body. The ORPHAN SCAN deliberately does not walk this bucket — see the
+// stated limit in §12.7b: a thumbnail whose files row never landed is cleaned
+// up by uploadFile's compensating delete, the same way a stranded source
+// upload is.
+const THUMBNAIL_BUCKET = 'rabbit-thumbnails'
 const ORPHAN_MIN_AGE_MS = 24 * 60 * 60 * 1000
 const LIST_PAGE = 100
 const MAX_OBJECTS = 5000 // per run; leftovers surface in the next run
@@ -246,8 +253,33 @@ Deno.serve(async (req) => {
       }
       // Restorability guard: if ANY files row (live or trashed) still
       // references this path, skip — restore must keep working.
-      const { data: stillRef } = await ctx.admin
-        .from('files').select('id').eq('storage_path', row.object_path).limit(1)
+      //
+      // 🚨 THE COLUMN DEPENDS ON THE BUCKET (S39). A rabbit-thumbnails row's
+      // object_path is a `thumbnail_url`, not a `storage_path`, and those are
+      // different columns holding different keys. Asking the wrong one always
+      // returns "nothing references this" — which is not a refusal to delete
+      // but a licence to, so a trashed file's still-restorable preview would
+      // be destroyed while its source was correctly preserved. The bug would
+      // present as "my restored file lost its thumbnail", long after the run.
+      const refColumn = row.bucket_id === THUMBNAIL_BUCKET ? 'thumbnail_url' : 'storage_path'
+      const { data: stillRef, error: refErr } = await ctx.admin
+        .from('files').select('id').eq(refColumn, row.object_path).limit(1)
+      // 🚨 A FAILED READ PUSHES NOTHING (S37's rule). supabase-js RESOLVES on
+      // error with data:null, so an unchecked destructure turns a statement
+      // timeout or a pooler reset into "nothing references this path" — which
+      // is not a refusal to delete but a LICENCE to, and the row is then
+      // stamped 'deleted' in the disposal ledger. Safety rule 1 at the top of
+      // this file would be broken by a read that failed rather than by a row
+      // that was absent, and the loss surfaces weeks later as "my restored file
+      // is gone" with a certificate calling it garbage. Leave it pending: the
+      // next run retries, and nothing is destroyed on a guess.
+      if (refErr) {
+        counts.queue_failed++
+        await ctx.admin.from('storage_gc_queue')
+          .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `restorability check failed, nothing deleted: ${refErr.message}` })
+          .eq('id', row.id)
+        continue
+      }
       if (stillRef && stillRef.length > 0) {
         await ctx.admin.from('storage_gc_queue')
           .update({ status: 'skipped', processed_at: new Date().toISOString(), detail: 'a files row still references this path' })

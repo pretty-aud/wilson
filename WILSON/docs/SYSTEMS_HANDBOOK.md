@@ -767,6 +767,14 @@ those accounts and an admin must reset instead; the response carries an
 |---|---|---|---|---|
 | `user-avatars` | 0009 | **yes** (public read) | 2 MB, image mimes only | `{workspace_id}/{user_id}/{filename}` |
 | `rabbit-files` | 0027 | no (private) | 50 MB, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
+| `rabbit-thumbnails` | 0053 | no (private) | **256 KB, `image/jpeg` only** | the same key as its source **plus `.jpg`** |
+
+`rabbit-thumbnails` exists because **a bucket has exactly one
+`file_size_limit`** and `rabbit-files` must accept multi-GB media once S42
+raises its cap — a thumbnail cap and a media cap cannot coexist. Its key layout
+is deliberately IDENTICAL to its source's so the first three path segments
+match, which is what lets it carry the same eight policies with only
+`bucket_id` changed. See §12.7b.
 
 `user-avatars` INSERT requires the path's first folder to be the caller's
 workspace and the second to be their own uid; SELECT is unconditional within
@@ -777,8 +785,31 @@ enumerate avatar objects.)
 `rabbit-files` policies all require the path to start `projects/` and the second
 segment to resolve to a real project via `fn_try_uuid` — which fails **closed**
 on a garbage segment, where `can_write_project(NULL)` alone would fail open.
-INSERT additionally requires active membership and project write access. There
-is **no UPDATE policy** — objects are immutable, uploaded with `upsert: false`.
+INSERT additionally requires active membership and project write access.
+
+🚨 **There are EIGHT of them, and they live in 0042 — not three or four, and not
+in 0027.** Corrected 2026-08-08 (S39), because this paragraph and design §5d.1
+both described the pre-0042 set and S39's own brief inherited the error:
+
+- **Four base** (`rabbit_files_select` / `_insert` / `_update` / `_delete_own`),
+  each carrying `NOT rabbit_money_segment((storage.foldername(name))[3])`.
+- **Four money** (`rabbit_files_money_select` / `_insert` / `_update` /
+  `_delete`), the same predicate asserted rather than negated, plus
+  `can_access_project_money`.
+
+⚠️ **`rabbit_files_invoices_select` NO LONGER EXISTS.** 0038 created the
+`rabbit_files_invoices_*` trio, 0039 rewrote them for case, and **0042 dropped
+all three explicitly** and replaced them with the money four. Any document still
+naming an `invoices` policy is describing a database that has not existed since
+0042 — and porting that description to a new bucket ships it with no money gate
+at all. **`supabaseProvider.js:19` is the line that had it right all along:**
+*"the private bucket whose eight RLS policies (0042) are the money gate."*
+
+⚠️ **And there IS an UPDATE policy — two, in fact.** This paragraph previously
+said objects are immutable with no UPDATE arm; 0042 added `rabbit_files_update`
+and `rabbit_files_money_update`, both with a `WITH CHECK` arm, because the
+project manifest could otherwise only ever be written once (suite 53 probe 6).
+`upsert: false` on ordinary uploads is an adapter choice, not a policy absence.
 
 The single DELETE policy, `rabbit_files_delete_own`, is bounded to the
 uploader's own objects **created within the last hour**. It exists for exactly
@@ -1888,6 +1919,82 @@ only place CORS can be tested.
   bucket change at its next launch or sign-in; the saving admin's own
   session applies it immediately.
 
+### 12.7b Thumbnails — the derived preview (S39, migration 0053)
+
+**There is nothing for an admin to set up.** Unlike the NAS (§12.7) and the
+bucket (§12.7a), this needs no configuration, no credential and no CORS rule.
+It is recorded here because two of its properties are surprising, and one of
+them is a decision rather than a fact.
+
+**How it works.** When a file is uploaded in cloud mode, the *uploading
+machine* renders a 256px JPEG from the copy already in its memory
+(`createImageBitmap` → canvas → `toBlob`) and stores it in the private
+`rabbit-thumbnails` bucket under **its source's key plus `.jpg`**. The path is
+written to `files.thumbnail_url` — the first writer that column has had since
+it was declared in 0000. Display URLs are **signed in one batch per file list**,
+because the bucket is private and a grid renders dozens of tiles at once.
+
+**Why the key is identical to its source's.** Storage RLS keys on path
+segments and the **third** segment is the money gate
+(`public.rabbit_money_segment`, 0042). Holding the layout constant is what lets
+this bucket carry the same eight policies with only `bucket_id` changed — so an
+invoice's thumbnail is manager-only for exactly the same reason the invoice is.
+🚨 **A `thumbs/` folder level, or any rewrite of the name, shifts every segment
+and silently moves the derived image out of the gate it is supposed to
+inherit.** Suite 63 probe 13 is the tripwire.
+
+🚨 **Generation is at upload time and must stay there.** Generating on demand,
+or server-side, means downloading the source first — gigabytes of egress at
+Petal's expense to produce a postage stamp, on exactly the multi-GB media this
+product exists for (design §4a2). That is the one expensive design.
+
+#### ⚠️ The decision worth confirming: a BYO workspace's previews live on Petal
+
+A workspace on its own NAS or S3 bucket keeps its **media** there. Its
+**thumbnails** are still written to Petal's `rabbit-thumbnails`.
+
+The case for it: a preview is 10–30 KB, so the cost is negligible; it works
+identically on every provider; and a grid needs no presign round-trip per tile.
+Audrey's own instruction in design §5d.1 was *"lets store thumbnails within the
+supabase storage that stores database info"* — though that was said **before**
+BYO media storage existed, so it does not settle the BYO case.
+
+The case against it: a customer who chose BYO storage specifically so
+pre-release frames do not sit on Petal's infrastructure now has a **legible
+256px frame of every image** doing exactly that, with no opt-out. **Raised by
+S39's adversarial review; left as built and flagged rather than decided
+unilaterally.** If it should change, the fix is to route the preview through
+the same storage registry the body already uses — the registry makes that a
+provider lookup, not a fork.
+
+#### Limits, stated
+
+- **The desktop's Local Server tier is unchanged and still separate.** Its six
+  Express thumbnail routes and its on-disk `rabbit-data/thumbnails/` cache serve
+  managed files and entity images, which have no `files` row and no bucket.
+  Cloud mode is what gained previews on the web; Local Server keeps `sharp`.
+- ⚠️ **The two tiers disagree about size, and did before this session.** The
+  managed-file route renders 256px at q80; the asset and entity routes render
+  512px at q85. S39 matched the 256/q80 pair rather than inventing a third.
+- **TIFF gets no cloud preview.** `sharp` decodes it, browsers do not, so the
+  cloud type gate is deliberately narrower than the desktop extension list.
+  **SVG is excluded on purpose** — rasterising untrusted vector can pull
+  external references, and a vector file gains little from a raster preview.
+- **A thumbnail dies with its source**, on the same purge and the same
+  certificate (`trg_files_gc_enqueue` enqueues both — TPN-CONT-011). Workspace
+  teardown sweeps this bucket too, and WIL-7005 now carries
+  `thumbnails_found` / `_removed` / `_failed`.
+- 🚨 **There is no orphan sweep over this bucket.** `storage-gc`'s orphan scan
+  walks `rabbit-files` only. A thumbnail whose `files` row insert was refused is
+  cleaned up by `uploadFile`'s compensating delete, and if the browser dies
+  between the two, one 10–30 KB private JPEG is stranded with no certificate.
+  Accepted, and the reason the compensating delete now reports its failures
+  instead of swallowing them.
+- **Signed URLs expire after an hour.** A list open longer than that re-signs
+  when its contents change; a tile that loads against an expired URL recovers
+  as soon as a fresh one arrives (the component remembers *which* URL failed,
+  not merely that one did).
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
@@ -2889,6 +2996,27 @@ of a session — this section is limits by design, that file is faults.
   `FILE_COLUMNS`** while the Express PATCH route strips both — an S14
   hardening applied on one backend only. Since 0050 the money invariant is
   safe regardless (a CHECK re-validates on UPDATE), but the asymmetry stands.
+
+**Thumbnails (S39, migration 0053)**
+
+- **Cloud only, and images only.** The desktop's Local Server tier keeps its
+  own `sharp` pipeline and its six Express routes; nothing there changed. TIFF
+  has no cloud preview (browsers cannot decode it) and SVG is excluded
+  deliberately. **Video has no thumbnail on any tier — that is S40.**
+- 🚨 **A BYO-storage workspace's previews live on Petal**, while its media does
+  not. Deliberate and argued in §12.7b, but it is a decision Audrey has not
+  explicitly confirmed for the BYO case — her instruction predates BYO media.
+- **No orphan sweep over `rabbit-thumbnails`.** The queue drain and teardown
+  both cover it; the orphan scan does not. A thumbnail stranded by a browser
+  dying between its upload and a refused `files` insert is retained with no
+  certificate. The compensating delete now reports failures rather than
+  swallowing them, which is what makes that case visible at all.
+- ⚠️ **`files.thumbnail_url` is client-writable** through `FILE_COLUMNS`, the
+  same asymmetry recorded below for `storage_path`. The GC's restorability
+  guard and its workspace scoping bound the blast radius, and the guard now
+  fails **closed** on a read error, but the column is not validated.
+- **Signed display URLs expire after an hour**; a long-lived list re-signs only
+  when its contents change.
 
 **The folder tree and the manifest (S26)**
 

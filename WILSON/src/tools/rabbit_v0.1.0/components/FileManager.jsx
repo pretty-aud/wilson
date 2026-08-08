@@ -138,6 +138,45 @@ export default function FileManager({
     taskId:  taskId  || null,
   }), [sceneId, shotId, assetId, taskId])
 
+  // Session 39: signed display URLs for the cloud thumbnails on screen.
+  //
+  // 🚨 SIGNED IN ONE BATCH, keyed by object path, because rabbit-thumbnails is
+  // private (0053 — a public bucket would be TPN-CLOUD-004 repeated for
+  // pre-release frames). Only rows that HAVE a thumbnail_url are asked for, so
+  // a list of documents costs nothing.
+  //
+  // Keys RLS refuses simply do not come back, so an invoice's thumbnail
+  // silently falls through to a file-type icon for anyone without the money
+  // seat. That is the gate doing its job, not an error to surface.
+  const [thumbUrls, setThumbUrls] = useState(() => new Map())
+  const thumbKeys = useMemo(
+    () => assetFiles.map(f => f.thumbnail_url).filter(Boolean),
+    [assetFiles],
+  )
+  // 🚨 DEPEND ON THE METHOD, NOT ON `ctx`. RabbitProvider builds its context
+  // with a useMemo whose deps include `bundle`, `presentUsers` and
+  // `realtimeStatus`, so `ctx` gets a new identity on any state change at all —
+  // a collaborator's presence ping, an unrelated optimistic update. Depending
+  // on the whole object re-signs every visible thumbnail on each of those, and
+  // because a fresh signed URL is a new `src`, every tile RELOADS. The
+  // useCallback'd method is stable.
+  const signThumbnails = ctx?.thumbnailUrls
+  useEffect(() => {
+    if (!signThumbnails || thumbKeys.length === 0) {
+      setThumbUrls(new Map())
+      return
+    }
+    let cancelled = false
+    signThumbnails(thumbKeys).then(map => {
+      // The list can change while a signing round trip is in flight; a late
+      // response must not overwrite a newer one.
+      if (!cancelled) setThumbUrls(map)
+    })
+    return () => { cancelled = true }
+    // thumbKeys is memoised on assetFiles, so this re-signs when the list
+    // changes and not on every render.
+  }, [signThumbnails, thumbKeys])
+
   // Listen for copy progress IPC events
   useEffect(() => {
     const api = window.electronAPI?.rabbit
@@ -499,7 +538,12 @@ export default function FileManager({
             {assetFiles.map(f => (
               <tr key={f.id} style={{ borderBottom: '1px solid #1c1917', backgroundColor: '#292524' }}>
                 <Td>
-                  <FileThumbnail file={f} size="small" projectId={projectId} />
+                  <FileThumbnail
+                    file={f}
+                    size="small"
+                    projectId={projectId}
+                    thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
+                  />
                 </Td>
                 <Td>
                   <div className="flex flex-col">
@@ -602,7 +646,12 @@ export default function FileManager({
               style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
             >
               <div className="flex items-center justify-center" style={{ height: 100, backgroundColor: '#1c1917' }}>
-                <FileThumbnail file={f} size="large" projectId={projectId} />
+                <FileThumbnail
+                  file={f}
+                  size="large"
+                  projectId={projectId}
+                  thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
+                />
               </div>
               <div className="p-2 flex flex-col gap-0.5">
                 <span className="text-[10px] font-mono truncate" style={{ color: '#d6d3d1' }}>
