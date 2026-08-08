@@ -470,7 +470,8 @@ below are superseded; only one of them actually moves.
 | **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
 | **S37** ✅ | **DONE (2026-08-08)** — 0051 **and 0052** on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm (endpoint host-only), `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below. ✅ **`WILSON_STORAGE_KEY_SECRET` set on all three envs 2026-08-08, digests verified identical (`OWED_AUDREY.md` §C2)** — S38's Drive refresh token shares it | 1 | — | `SESSION_37_prompt.md` |
 | **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
-| **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
+| **S44** ⬅️ **NEXT** | **A thumbnail lives where its source lives** — routes the thumbnail write through the same provider decision the body uses, so a BYO workspace's previews stop landing on Petal. Decided 2026-08-08 (*"if the thumbnail lived in the petal cloud it would break tpn inherently"*); handbook §12.7b, tracked in `OUTSTANDING.md`. **Runs BEFORE S40 despite the number** — S40 builds video stills on top of it. 🚨 The hard part is the DISPLAY path: no batch presign exists, and a presigned GET expires in 300s against Supabase's 3600s | 1 | **S39** | `SESSION_44_prompt.md` |
+| **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39**, and **S44** (do not build video stills on a thumbnail path that is about to move) | `SESSION_40_prompt.md` |
 | **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
 | **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
 | **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
@@ -483,9 +484,16 @@ below are superseded; only one of them actually moves.
 > any point after it** — it is now positioned last by choice, not by
 > dependency.
 >
-> ⭐ **REMAINING ORDER AFTER 2026-08-08: S40 → S41 → S42 → S43, then S38.**
-> Only two arrows in that line are real (S41 → S42, and S43 wanting to be
-> after the UI stops changing); the rest is priority.
+> ⭐ **REMAINING ORDER AFTER 2026-08-08: S44 → S40 → S41 → S42 → S43, then
+> S38.** Three arrows in that line are real — **S44 → S40** (video stills must
+> not be built on a thumbnail path that is about to move), **S41 → S42** (quota
+> plane before the cap raise), and S43 wanting to be after the UI stops
+> changing. The rest is priority.
+>
+> 📒 **S44 is numerically last and positionally first, and that is the rule
+> working.** It took the next free number rather than renumbering S40–S43,
+> because a number is identity and identity is spread across migrations,
+> suites and comments. **Move rows, not numbers.**
 >
 > 🚨 **S36–S38 are the BYO storage FAMILY and the order inside it is
 > deliberate.** The registry ships first so a provider is five functions and

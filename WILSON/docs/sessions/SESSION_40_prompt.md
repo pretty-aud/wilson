@@ -478,11 +478,18 @@ keep off Petal's infrastructure.
   There is no orphan sweep over any thumbnail location, and `storage-gc`'s
   scan is Supabase-only.
 
-⚠️ **Scope call for the session to make explicitly:** fixing the image path
-too is arguably S40's business (it is the same routing decision, and doing one
-without the other leaves two rules), or it is a separate small session. **Say
-which, and why, in the outcome block** — do not fix video and leave images
-silently on the old behaviour.
+✅ **RESOLVED 2026-08-08 — this is NOT S40's work. `SESSION_44_prompt.md` does
+it, and RUNS FIRST.** A pre-session audit measured the real cost: three layers
+independently hardcode Petal (the write via `putThumbnail`'s Supabase client
+and fixed bucket, the display via `signedThumbnailUrls`' batch Supabase
+signing, and 0053's enqueue which hardcodes provider `'supabase'`), and the
+display path is genuinely unsolved — **there is no batch presign, and a
+presigned GET expires in 300s against Supabase's 3600s.** That is a migration
+plus three subsystem changes, comparable in size to S40's own work.
+
+**So: do not build video stills on the current thumbnail path — it is about to
+move.** Read S44's outcome block before starting Part 2, and follow whatever
+routing it leaves.
 
 ---
 
