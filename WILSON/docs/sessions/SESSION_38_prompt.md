@@ -68,7 +68,7 @@
 >   failure on BOTH surfaces before promising anything.
 > - `googleDriveAdapter.js` (57 readOnly() stubs) is still the shape to
 >   AVOID: gdrive is five functions in `storage/`, not that file finished.
-> - 🚨 **The presign boundary does NOT transfer to Drive unchanged, and §7
+> - 🚨 **The presign boundary does NOT transfer to Drive unchanged, and §4c
 >   below is new because of it.** S37's gate derives the project id FROM THE
 >   PATH (`projects/<uuid>/…`). A Drive `storage_path` is an opaque file ID
 >   that names no project, so the whole authorisation shape has to be
