@@ -21,10 +21,11 @@
 > session while it clears. Everything else here is ordinary work.
 
 > **STATE — re-measure, do not trust this block.** After **S37**
-> (2026-08-08): migrations **0000–0051** on all three envs, next free
-> **0052**. pgTAP **62 suites / 1074 assertions**, next suite **63**. Vitest
-> **1143 / 53 files**. 🚨 **Read the working tree** — this block has been
-> stale within the hour before.
+> (2026-08-08): migrations **0000–0052** on all three envs, next free
+> **0053**. pgTAP **62 suites / 1077 assertions**, next suite **63**. Vitest
+> **1159 / 53 files**. 🚨 **Read the working tree** — this block has been
+> stale within the hour before, and it was stale again inside S37 itself:
+> 0052 landed after the review, from the review.
 >
 > ⭐ **S37 SETTLED THE SHAPE THIS SESSION COPIES. Read its outcome block in
 > `MASTER_PLAN_S19_ONWARD.md` before this brief.** What gdrive inherits:
