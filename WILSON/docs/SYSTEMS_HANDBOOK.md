@@ -1948,16 +1948,51 @@ or server-side, means downloading the source first — gigabytes of egress at
 Petal's expense to produce a postage stamp, on exactly the multi-GB media this
 product exists for (design §4a2). That is the one expensive design.
 
-#### ⚠️ The decision worth confirming: a BYO workspace's previews live on Petal
+#### 🚨 DECIDED 2026-08-08: a thumbnail LIVES where its source lives
 
-A workspace on its own NAS or S3 bucket keeps its **media** there. Its
-**thumbnails** are still written to Petal's `rabbit-thumbnails`.
+**Audrey:** *"the image should be kept in the company storage. if the thumbnail
+lived in the petal cloud it would break tpn inherently."*
 
-The case for it: a preview is 10–30 KB, so the cost is negligible; it works
-identically on every provider; and a grid needs no presign round-trip per tile.
-Audrey's own instruction in design §5d.1 was *"lets store thumbnails within the
-supabase storage that stores database info"* — though that was said **before**
-BYO media storage existed, so it does not settle the BYO case.
+**This settles the open question, and it decides against what S39 shipped.**
+A workspace on its own NAS or S3 bucket keeps its media there; **its
+thumbnails must go there too.** S39 writes them to Petal's
+`rabbit-thumbnails` regardless of provider, with no opt-out — see
+`OUTSTANDING.md`.
+
+**The reasoning is a content-security argument, not a cost one, and it is
+correct.** A still frame **is** the content. A legible 256px frame of
+pre-release footage sitting on Petal's infrastructure makes Petal a
+content-bearing party holding that studio's material — which is precisely
+what a customer choosing BYO storage is paying to avoid, and what MPA/TPN
+controls are written about. The counter-arguments S39 recorded (a preview is
+10–30 KB; one code path for every provider; no presign round-trip per tile)
+are **operational conveniences, and they do not outweigh a compliance
+boundary.** Audrey's earlier instruction in design §5d.1 — *"lets store
+thumbnails within the supabase storage that stores database info"* — was
+given **before BYO media storage existed** and does not survive it.
+
+**The rule, stated so it cannot drift:**
+
+> **A thumbnail lives where its source lives, and dies with it.**
+
+The second half was already true (`trg_files_gc_enqueue`, teardown, WIL-7005).
+The first half is now required and is not yet built.
+
+⚠️ **Two consequences that are easy to get backwards:**
+- **Money-gated files are NOT an exception — they are the rule applied.**
+  Invoices and rate documents never leave Supabase (§12.1a), so **their**
+  thumbnails stay in `rabbit-thumbnails` too. "Thumbnails follow the media"
+  must never be read as "move invoice previews to a customer bucket."
+- **`rabbit-thumbnails` does not go away.** It remains correct for every
+  `petal`-provider workspace, which is the default and today the only
+  configured state.
+
+**Exposure when this was decided: none.** Measured 2026-08-08 on dev — zero
+`byos` workspaces, zero non-Supabase `files` rows, zero rows with
+`thumbnail_url` set; and `public.files` was measured empty on all three
+environments at S36. **No customer content has been placed on the wrong side
+of this boundary.** It is a design defect caught before it could leak, which
+is the cheapest moment to have caught it.
 
 The case against it: a customer who chose BYO storage specifically so
 pre-release frames do not sit on Petal's infrastructure now has a **legible

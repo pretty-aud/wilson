@@ -749,6 +749,50 @@ the TPN re-audit, not a patch.
 → Candidate shape: snapshot `is_financial` into `file_events` at capture time
 (0047-style migration), add the arm for non-certificate events only.
 
+### 🚨 A BYO workspace's thumbnails are written to Petal storage — decided against, not yet fixed
+
+**DECIDED 2026-08-08 (Audrey):** *"the image should be kept in the company
+storage. if the thumbnail lived in the petal cloud it would break tpn
+inherently."*
+
+S39 writes every thumbnail to Petal's private `rabbit-thumbnails` bucket
+**regardless of the workspace's storage provider**, with no opt-out. For a
+workspace on its own NAS or S3 bucket that is now the wrong side of a
+compliance boundary: **a still frame IS the content**, so a legible 256px
+frame of pre-release footage on Petal's infrastructure makes Petal a
+content-bearing party holding that studio's material — exactly what the
+customer chose BYO storage to avoid.
+
+**The rule to implement:** *a thumbnail lives where its source lives, and dies
+with it.* The second half already holds (`trg_files_gc_enqueue`, teardown
+sweep, `WIL-7005`); the first half does not exist.
+
+**EXPOSURE IS ZERO TODAY, and that is why this is an entry rather than an
+incident.** Measured 2026-08-08 on dev: zero `byos` workspaces, zero
+non-Supabase `files` rows, zero rows carrying `thumbnail_url`; `public.files`
+was measured empty on all three environments at S36. **No customer content has
+been placed on the wrong side of this boundary.** It becomes real the moment
+any workspace configures BYO storage and uploads an image.
+
+⚠️ **Two things a fix must not get backwards:**
+- **Money-gated files are the rule applied, not an exception.** Invoices and
+  rate documents never leave Supabase (§12.1a), so their thumbnails stay in
+  `rabbit-thumbnails`. "Thumbnails follow the media" must never become "move
+  invoice previews to a customer bucket."
+- **`rabbit-thumbnails` stays.** It is correct for every `petal`-provider
+  workspace — the default, and today the only configured state.
+
+→ Candidate shape: route the thumbnail write through the same provider
+decision the body already uses (`activeWorkspaceProvider` → the storage
+registry), so the derived object inherits the destination rather than being
+pinned. For `s3` that means a presigned PUT at `thumbnailKeyFor(storage_path)`;
+`checkRowShapedPath` already accepts that key because appending `.jpg` does not
+shift a path segment. 🚨 **Whoever does this owns the disposal half too** —
+there is no orphan sweep over any thumbnail location, and a thumbnail in a
+customer bucket is not reachable by `storage-gc`'s Supabase-only scan.
+**S40 must not extend the current behaviour to video stills** — its brief says
+so.
+
 ---
 
 ## Session log

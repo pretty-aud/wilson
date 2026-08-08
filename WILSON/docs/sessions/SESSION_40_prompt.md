@@ -452,12 +452,37 @@ outcome block** rather than writing a conformance line that is true for two
 backends and false for the third — that is the WIL-7005 failure S39's review
 caught, repeating.
 
-⚠️ **§12.7b's open decision gets sharper here, and it is Audrey's to take
-BEFORE this ships, not after.** A BYO workspace's previews live on Petal while
-its media does not. For images that is "a legible 256px frame of every image";
-**for video it is a legible frame of the actual production footage a studio
-chose BYO storage specifically to keep off Petal's infrastructure.** Ask
-before generating video stills for BYO workspaces.
+🚨 **§12.7b's open decision was TAKEN on 2026-08-08, and it goes against what
+S39 shipped.** Audrey: *"the image should be kept in the company storage. if
+the thumbnail lived in the petal cloud it would break tpn inherently."*
+
+> **A thumbnail lives where its source lives, and dies with it.**
+
+**So DO NOT extend the current behaviour to video stills.** S39 writes every
+thumbnail to Petal's `rabbit-thumbnails` regardless of provider; that is now a
+tracked defect (`OUTSTANDING.md`) with zero exposure only because no workspace
+has yet configured BYO storage. A video still makes it worse, not equal: it is
+a legible frame of the actual production footage a studio chose BYO storage to
+keep off Petal's infrastructure.
+
+**What this means for S40, concretely:**
+- A video still for a `petal` workspace → `rabbit-thumbnails`, as now.
+- A video still for an `s3` workspace → **the customer's bucket**, presigned
+  PUT at `thumbnailKeyFor(storage_path)` (appending `.jpg` shifts no path
+  segment, so `checkRowShapedPath` already accepts that key).
+- A video still for a `network` workspace → the desktop thumbnail cache, as
+  managed files already do.
+- **Money-gated files are the rule applied, not an exception** — invoices
+  never leave Supabase, so their previews stay in `rabbit-thumbnails`.
+- 🚨 **Whoever writes a thumbnail to a customer bucket owns its disposal.**
+  There is no orphan sweep over any thumbnail location, and `storage-gc`'s
+  scan is Supabase-only.
+
+⚠️ **Scope call for the session to make explicitly:** fixing the image path
+too is arguably S40's business (it is the same routing decision, and doing one
+without the other leaves two rules), or it is a separate small session. **Say
+which, and why, in the outcome block** — do not fix video and leave images
+silently on the old behaviour.
 
 ---
 
