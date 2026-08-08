@@ -140,7 +140,7 @@ async function loadWorkspace(
 async function collectBlobPaths(
   ctx: OperatorContext,
   workspaceId: string,
-): Promise<{ paths: string[]; rejected: string[]; reserved: string[] }> {
+): Promise<{ paths: string[]; rejected: string[]; reserved: string[]; byoLeft: number | null }> {
   const paths = new Set<string>()
   const rejected = new Set<string>()
 
@@ -222,7 +222,35 @@ async function collectBlobPaths(
     }
   }
 
-  return { paths: [...paths], rejected: [...rejected], reserved: [...reserved] }
+  // S37: bodies at the workspace's OWN bucket are DELIBERATELY not collected
+  // (the files scan is pinned to storage_provider='supabase' and the queue
+  // scan to the rabbit-files bucket). Teardown destroys what Petal holds; a
+  // customer's bucket is the customer's property, and Petal reaching into it
+  // on teardown — with credentials the customer gave it for file storage —
+  // is not Petal's call to make. Counted here so the certificate STATES the
+  // choice instead of silently under-reporting (the §17 lesson: a stated
+  // coverage limit must be readable in both directions).
+  //
+  // 🚨 BOTH sources, and NULL on failure rather than 0. Live `files` rows are
+  // only half of it: a purged-but-undrained body has no files row and still
+  // sits in the customer's bucket, so a files-only count understates exactly
+  // the objects a failed drain left behind. And a count that silently reads 0
+  // on error is worse than no count — after the CASCADE nothing can ever
+  // re-derive the true number, so the certificate would permanently assert
+  // "nothing of yours remains" on the strength of a failed query. Both
+  // corrections come from S37's adversarial review.
+  let byoLeft: number | null = null
+  const [liveRes, queuedRes] = await Promise.all([
+    ctx.admin.from('files').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('storage_provider', 's3'),
+    ctx.admin.from('storage_gc_queue').select('id', { count: 'exact', head: true })
+      .eq('workspace_id', workspaceId).eq('provider', 's3'),
+  ])
+  if (!liveRes.error && !queuedRes.error) {
+    byoLeft = (liveRes.count ?? 0) + (queuedRes.count ?? 0)
+  }
+
+  return { paths: [...paths], rejected: [...rejected], reserved: [...reserved], byoLeft }
 }
 
 Deno.serve(async (req: Request) => {
@@ -455,11 +483,13 @@ Deno.serve(async (req: Request) => {
     let paths: string[]
     let rejected: string[]
     let reserved: string[]
+    let byoLeft: number | null
     try {
       const scan = await collectBlobPaths(ctx, workspaceId)
       paths = scan.paths
       rejected = scan.rejected
       reserved = scan.reserved
+      byoLeft = scan.byoLeft
     } catch (err) {
       return reply({ error: 'scan_failed', detail: String((err as Error).message ?? err) }, 500)
     }
@@ -644,6 +674,12 @@ Deno.serve(async (req: Request) => {
         reserved_candidates: reserved.length,
         reserved_removed: reservedRemoved,
         reserved_failed: reservedFailed.length,
+        // Bodies at the customer's own bucket, DELIBERATELY left (S37): their
+        // storage, their property — see collectBlobPaths. Zero for every
+        // workspace that never configured S3. NULL means the count could not
+        // be taken, which is NOT zero: after the CASCADE nothing can re-derive
+        // it, so an unknown must read as unknown forever.
+        byo_bodies_left: byoLeft,
       },
     })
 

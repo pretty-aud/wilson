@@ -264,7 +264,8 @@ return jfetch(`${BASE}/projects/${projectId}/files`, {
 
 Three ceilings stack on that one function:
 
-- `express.json({ limit: '50mb' })` (`electron/main.cjs:144`) caps the body.
+- `express.json({ limit: '50mb' })` (`electron/main.cjs`, the app-level
+  middleware — cite by symbol, the line has drifted twice) caps the body.
 - base64 inflates by ~33%, so 50 MB of body is **~37 MB of file**.
 - `file.arrayBuffer()` loads the **entire file into renderer memory** first, and
   `downloadFile` does `res.blob()` coming back. A multi-GB file does not hit the
@@ -278,17 +279,23 @@ change.
 **Path 2 — Cloud `files`. Ceiling 50 MB, and it IS raisable.**
 
 ```js
-// src/tools/rabbit_v0.1.0/adapters/supabaseAdapter.js:970-975
-const { error: upErr } = await client
-  .storage.from('rabbit-files')
-  .upload(storagePath, file, { cacheControl: '3600', upsert: false, ... });
+// supabaseAdapter.uploadFile — since S36 the body rides the storage registry
+// (getStorageProvider(storageProvider).put(storagePath, file, ...)), whose
+// supabase provider makes the same direct .upload() call this section
+// originally quoted. Same bytes, same ceiling; one indirection.
+await getStorageProvider(storageProvider).put(storagePath, file, {
+  contentType: file?.type,
+});
 ```
 
 The `File` object goes **straight to Supabase Storage** — no base64, no JSON
 body, no `arrayBuffer()`. None of Path 1's problems apply here; the two adapters
 are genuinely different code. The only ceiling is the bucket's
 `file_size_limit = 52428800` (`0027_file_lifecycle.sql:287`), which is one
-number in one migration.
+number in one migration. (S37 note: an **s3-provider** workspace does not ride
+this path's ceiling at all — a presigned PUT is capped by the customer's own
+provider, 5 GB single-shot everywhere that matters. The three-ceilings rule
+stands: never generalise one path's limit to another.)
 
 Two things are needed to lift it, and both are bounded work:
 
@@ -311,8 +318,8 @@ is willing to pay for are different numbers, and for multi-GB video the second
 one binds first.
 
 **Path 3 — `managedFiles`. No ceiling.** `rabbit:copy-file`
-(`electron/main.cjs:3009-3030`) is a native `createReadStream` →
-`createWriteStream` pipe with progress events. It never touches HTTP, never
+(`electron/main.cjs` — cite by symbol, the line has drifted) is a native
+`createReadStream` → `createWriteStream` pipe with progress events. It never touches HTTP, never
 buffers the file, and is **`local_server`-only** by construction
 (`supportsManagedFiles`, `RabbitProvider.jsx:2715`).
 
@@ -643,6 +650,23 @@ tier / CASA assessment — confirm against Google's current policy before
 committing). The handbook already carries the locked decision that
 S3-compatible providers arrive *through one adapter* (§12.1); this section is
 that decision generalised to the whole family.
+
+> **✅ BUILT BY S37 (2026-08-08, migration 0051).** The first BYO provider,
+> exactly the family shape: 's3' is one registry entry
+> (`storage/s3Provider.js`, presign-then-fetch), one enum value, one widened
+> CHECK plus its own **required-direction config arm**
+> (`workspace_storage_s3_config_chk` — the arm 0050's header demanded), and
+> the secret on the 0028 precedent (`workspace_storage_secrets`,
+> AES-256-GCM, master key `WILSON_STORAGE_KEY_SECRET`). The presign boundary
+> (`storage-presign`) EVALUATES the project policy as the caller
+> (SECURITY INVOKER predicates over the caller's own JWT) rather than
+> replicating it. Invariants 1–5 all held without re-litigation; operational
+> detail in handbook §12.7a, outcome and corrections in
+> `MASTER_PLAN_S19_ONWARD.md`'s S37 block. **One measured correction to this
+> section's neighbourhood: CORS is NOT browser-only** — the desktop renderer
+> is Chromium with webSecurity on, so the bucket's CORS rule is a setup
+> requirement for every surface, and the config-time probe tests it from the
+> app itself.
 
 ## 4a3. Petal cloud is a PAID, OPERATOR-MANAGED product — Audrey, 2026-08-07
 

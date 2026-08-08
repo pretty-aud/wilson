@@ -45,6 +45,8 @@ import {
   corsHeaders, reply, requireWorkspaceAdmin, logAdminEvent, type AdminContext,
 } from '../_shared/adminGuard.ts'
 import { isReservedProjectObject } from '../_shared/reservedObjects.ts'
+import { decryptStorageSecret } from '../_shared/storageSecretCrypto.ts'
+import { presignS3Request, type S3Target } from '../_shared/s3Presign.ts'
 
 const RABBIT_BUCKET = 'rabbit-files'
 const AVATAR_BUCKET = 'user-avatars'
@@ -65,6 +67,11 @@ type Counts = {
   // that the guard was reachable and fired, and a run over a workspace with
   // projects that reads 0 here means the manifests are already gone.
   skipped_reserved: number
+  // Queue rows whose body lives at the workspace's OWN bucket (S37): drained
+  // by signed DELETE against provider_config, not storage.remove. Counted
+  // apart for the same reason as skipped_reserved — the counter is the
+  // evidence the branch exists and fired.
+  queue_s3_drained: number
   certify_failed: number
   truncated: boolean
 }
@@ -148,14 +155,67 @@ Deno.serve(async (req) => {
     queue_deleted: 0, queue_missing: 0, queue_failed: 0,
     orphans_deleted: 0, avatar_orphans_deleted: 0,
     skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0,
+    queue_s3_drained: 0,
     certify_failed: 0, truncated: false,
+  }
+
+  // Lazily-resolved, memoised S3 context for draining s3 queue rows (S37).
+  // Resolved AT DRAIN TIME from the workspace's current provider_config —
+  // the trigger cannot see the config, and a bucket renamed between purge
+  // and drain should be hit at its new name. One resolution per run.
+  type S3Drain =
+    | { ok: true; target: S3Target; accessKeyId: string; secret: string; prefix?: string }
+    | { ok: false; detail: string }
+  let s3DrainMemo: S3Drain | null = null
+  async function s3Drain(): Promise<S3Drain> {
+    if (s3DrainMemo) return s3DrainMemo
+    const fail = (detail: string): S3Drain => (s3DrainMemo = { ok: false, detail })
+    const { data: ws, error: wsErr } = await ctx.admin
+      .from('workspace_storage')
+      .select('provider, provider_config')
+      .eq('workspace_id', ctx.workspaceId)
+      .maybeSingle()
+    if (wsErr) return fail(`workspace storage read failed: ${wsErr.message}`)
+    if (ws?.provider !== 's3' || !ws.provider_config) {
+      return fail('this workspace no longer has S3-compatible storage configured — its queued bucket deletions cannot be drained')
+    }
+    const cfg = ws.provider_config as {
+      endpoint?: string; region: string; bucket: string; prefix?: string
+      accessKeyId: string; forcePathStyle?: boolean
+    }
+    const { data: sec, error: secErr } = await ctx.admin
+      .from('workspace_storage_secrets')
+      .select('secret_ciphertext')
+      .eq('workspace_id', ctx.workspaceId)
+      .maybeSingle()
+    if (secErr) return fail(`secret read failed: ${secErr.message}`)
+    if (!sec?.secret_ciphertext) {
+      return fail('no bucket secret is stored for this workspace — save it in Admin Terminal → Storage, then run cleanup again')
+    }
+    let secret: string
+    try {
+      secret = await decryptStorageSecret(sec.secret_ciphertext as string)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return fail(`the stored bucket secret cannot be decrypted (${message}) — re-enter it, then run cleanup again`)
+    }
+    return (s3DrainMemo = {
+      ok: true,
+      target: {
+        endpoint: cfg.endpoint, region: cfg.region, bucket: cfg.bucket,
+        forcePathStyle: cfg.forcePathStyle,
+      },
+      accessKeyId: cfg.accessKeyId,
+      secret,
+      prefix: cfg.prefix,
+    })
   }
 
   try {
     // ── 1. Drain the queue (rows enqueued by the purge trigger) ────────────
     const { data: pending, error: qErr } = await ctx.admin
       .from('storage_gc_queue')
-      .select('id, bucket_id, object_path')
+      .select('id, bucket_id, object_path, provider')
       .eq('status', 'pending')
       .eq('workspace_id', ctx.workspaceId)
       .order('id', { ascending: true })
@@ -192,6 +252,64 @@ Deno.serve(async (req) => {
         await ctx.admin.from('storage_gc_queue')
           .update({ status: 'skipped', processed_at: new Date().toISOString(), detail: 'a files row still references this path' })
           .eq('id', row.id)
+        continue
+      }
+      // S37: a body at the workspace's OWN bucket — signed DELETE via the
+      // current provider_config, never storage.remove (the marker bucket_id
+      // 'byo-s3' names no Supabase bucket on purpose). The prefix is applied
+      // here, from config, exactly as storage-presign applies it: queue rows
+      // carry the row-shaped path.
+      if ((row as { provider?: string }).provider === 's3') {
+        const s3 = await s3Drain()
+        if (!s3.ok) {
+          counts.queue_failed++
+          await ctx.admin.from('storage_gc_queue')
+            .update({ status: 'failed', processed_at: new Date().toISOString(), detail: s3.detail })
+            .eq('id', row.id)
+          continue
+        }
+        const key = s3.prefix ? `${s3.prefix}/${row.object_path}` : row.object_path
+        try {
+          const url = await presignS3Request({
+            target: s3.target, accessKeyId: s3.accessKeyId, secretAccessKey: s3.secret,
+            method: 'DELETE', key, expiresSeconds: 60, now: new Date(),
+          })
+          const res = await fetch(url, { method: 'DELETE' })
+          // S3 DELETE is idempotent-success: 204 whether or not the KEY
+          // existed, so a 2xx means "certifiably absent now" — weaker than
+          // the Supabase branch's deleted/missing split, and the detail says
+          // which semantics apply.
+          //
+          // 🚨 404 IS A FAILURE HERE, NOT A SUCCESS. A missing key returns
+          // 204; a 404 means the BUCKET did not resolve — a renamed bucket, a
+          // flipped addressing style, a wrong endpoint. Counting it as
+          // 'deleted' would stamp a TPN-CONT-002 disposal certificate on a
+          // body still sitting in the customer's bucket, and do it for the
+          // whole batch at once. Found by S37's adversarial review.
+          if (res.ok) {
+            counts.queue_deleted++
+            counts.queue_s3_drained++
+            await ctx.admin.from('storage_gc_queue')
+              .update({ status: 'deleted', processed_at: new Date().toISOString(), detail: 'blob removed at the workspace bucket (signed DELETE; S3 does not distinguish already-gone)' })
+              .eq('id', row.id)
+          } else if (res.status === 404) {
+            counts.queue_failed++
+            await ctx.admin.from('storage_gc_queue')
+              .update({ status: 'failed', processed_at: new Date().toISOString(), detail: 'the bucket itself did not resolve (404) — check the bucket name, endpoint and path-style setting in Admin Terminal → Storage. Nothing was deleted.' })
+              .eq('id', row.id)
+          } else {
+            counts.queue_failed++
+            await ctx.admin.from('storage_gc_queue')
+              .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `the bucket refused the delete (HTTP ${res.status})` })
+              .eq('id', row.id)
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          counts.queue_failed++
+          await ctx.admin.from('storage_gc_queue')
+            .update({ status: 'failed', processed_at: new Date().toISOString(), detail: `could not reach the bucket endpoint: ${message}` })
+            .eq('id', row.id)
+        }
         continue
       }
       const { data: removed, error: rmErr } = await ctx.admin.storage

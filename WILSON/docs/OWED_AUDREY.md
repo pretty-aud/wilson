@@ -742,6 +742,43 @@ supabase secrets set WILSON_AI_KEY_SECRET=<the-base64-value> --project-ref eqjzm
 > key, and the console still shows the old hint. If you ever rotate it, clear
 > and re-enter each company's key from the console afterwards.
 
+### C2. `WILSON_STORAGE_KEY_SECRET` — needed before S3 storage works (S37)
+
+**BLOCKING for the S3-compatible storage feature, and only for it.** Nothing
+else changes if it is missing: WILSON keeps working exactly as it does
+today, and a company that tries to configure a bucket gets a clear
+`WILSON_STORAGE_KEY_SECRET is not configured on this environment` rather
+than a mystery.
+
+Same shape and same rules as §C above — a company's bucket secret is stored
+as AES-256-GCM ciphertext, and the key that opens it lives in an Edge
+Function secret so the nightly B2 dump carries an archive it cannot read.
+
+🚨 **It is a SEPARATE secret from `WILSON_AI_KEY_SECRET`, deliberately.**
+Two credential domains that rotate independently: rotating the AI key must
+not cut every company off from its own media, and vice versa. Generate a
+second, different value — do not reuse the first.
+
+**Claude must never see or handle this value** — same rule as §1, §5 and §C.
+
+```bash
+openssl rand -base64 32
+```
+
+Then set it on each project (dev `eqjzmnvkrakroyqxfsvw`, staging
+`rzkirvkotslbovzbsdfh`, prod `rqyriuyldhovirbuievt`):
+
+```bash
+supabase secrets set WILSON_STORAGE_KEY_SECRET=<the-base64-value> --project-ref eqjzmnvkrakroyqxfsvw
+```
+
+> ⚠️ **Rotating this one orphans every stored bucket secret**, and the
+> consequence is heavier than §C's: `storage-presign` fails CLOSED (there is
+> no platform fallback for a customer's bucket — there must not be), so that
+> company's media becomes unreachable until an admin re-enters the secret in
+> **Admin Terminal → Storage**. If you rotate it, tell the affected
+> companies first.
+
 ### D. Browser eyeball checks — Session 15
 
 The agent never signs in, so these are yours. On the dev environment first.

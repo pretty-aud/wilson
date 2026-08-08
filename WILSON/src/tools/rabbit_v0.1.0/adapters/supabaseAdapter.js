@@ -52,17 +52,22 @@ import {
 } from '../folderPaths';
 import { serializeProjectManifest, MANIFEST_FILENAME } from '../projectManifest';
 // Session 36: the storage provider registry (NETWORK_STORAGE_DESIGN.md §4a2b).
-// This adapter IS Petal cloud, so its workspace provider is 'petal' today; S37
-// and S38 add entries to the registry rather than branches here.
+// Session 37: the workspace's CONFIGURED provider decides where a new body
+// goes (activeWorkspaceProvider over the cached workspace_storage row); 's3'
+// is an entry in the registry, not a branch here — exactly as promised.
 import {
   WORKSPACE_PROVIDERS,
   FILE_PROVIDERS,
   fileProviderFor,
+  activeWorkspaceProvider,
   registerStorageProvider,
   getStorageProvider,
   resolveFileProvider,
 } from '../storage';
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
+import { createS3StorageProvider } from '../storage/s3Provider';
+import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
+import { presignStorage } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
 
 // ───────────────────────────────────────────────────────────────
@@ -154,6 +159,15 @@ async function requireClient() {
 registerStorageProvider(
   FILE_PROVIDERS.SUPABASE,
   createSupabaseStorageProvider(requireClient),
+);
+
+// Session 37: the S3-compatible provider — presign-then-fetch, with the
+// authorisation boundary and the secret both server-side (storage-presign).
+// Registered here, beside supabase, so resolveFileProvider can serve an
+// 's3' row the moment one exists.
+registerStorageProvider(
+  FILE_PROVIDERS.S3,
+  createS3StorageProvider(presignStorage),
 );
 
 function sanitize(obj, drop = []) {
@@ -1005,12 +1019,30 @@ export function supabaseAdapter() {
       // selected (§4a2b invariant 2): only RLS enforces the money gate, and
       // no Drive or S3 sharing model binds to a WILSON project role. Migration
       // 0050's files_money_provider_chk refuses the same rows in the database,
-      // so a caller that bypasses this line is still refused.
+      // so a caller that bypasses this line is still refused. The pin lives
+      // INSIDE fileProviderFor, before the workspace's choice is consulted.
       //
-      // WORKSPACE_PROVIDERS.PETAL is a constant TODAY because this adapter IS
-      // Petal cloud. S37 changes this one argument to the workspace's
-      // configured provider; it does not add a branch.
-      const storageProvider = fileProviderFor(WORKSPACE_PROVIDERS.PETAL, {
+      // Session 37: the argument is the workspace's ACTIVE provider — S36's
+      // constant became one argument, as its comment promised. The read is
+      // cached (getWorkspaceStorageCached) and FAILS CLOSED: if the choice
+      // cannot be determined, the upload is refused with a sentence rather
+      // than guessed at — a guess of 'petal' would silently route media to a
+      // store the customer may have explicitly moved away from.
+      const storageChoice = await getWorkspaceStorageCached();
+      const activeProvider = activeWorkspaceProvider(storageChoice);
+      // The one workspace provider with no cloud-side implementation
+      // (S36's review): 'network' bodies live on the customer's own
+      // filesystem, which only the desktop's Local Server path can reach.
+      // Refused with a sentence, never routed — and financial files are
+      // exempt because their body never leaves Supabase anyway.
+      if (activeProvider === WORKSPACE_PROVIDERS.NETWORK && !scope.financial) {
+        throw new Error(
+          'this workspace stores media on its own server or NAS — add files from ' +
+          'the desktop app in Local Server mode; the cloud backend cannot write ' +
+          'to a network drive',
+        );
+      }
+      const storageProvider = fileProviderFor(activeProvider, {
         financial: !!scope.financial,
       });
       try {

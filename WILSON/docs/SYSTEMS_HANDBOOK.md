@@ -1474,7 +1474,8 @@ segment — for any caller that bypasses the client.
 | Provider | `storage_path` means | Read | Write | Web |
 |---|---|---|---|---|
 | `local_server` | A bare disk filename, **relative to whatever the project's files directory resolves to right now** — not portable on its own | Express download route → `sendFile` | Base64 JSON body → `writeFileSync` | ✗ |
-| `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ (the only one) |
+| `supabase` | The full object key inside the private `rabbit-files` bucket | `storage.download(path)` | `storage.upload(path, file, {upsert:false})` | ✓ |
+| `s3` (S37) | The **row-shaped** key (`projects/{id}/…`) — the workspace's bucket **prefix is deliberately NOT stored**: `files_money_provider_chk` reads the third segment, and a prefix edit must not orphan keys. The presign function prepends the prefix at resolution | presigned GET, direct to the customer's bucket | presigned PUT, direct (`storage-presign` is the authorisation boundary; the secret never reaches any client) | ✓ |
 | `google_drive` | **Not a path** — the Drive file's opaque id | `files/{id}?alt=media` | Every write throws `readOnly()` | ✗ |
 
 `local_server` resolution order: the project's `files_dir` override if set
@@ -1598,6 +1599,18 @@ and hard-delete it to enqueue the real object for disposal. Preserved objects
 are counted in `skipped_reserved`, so a `WIL-3003` line shows the guard fired.
 Pinned by `src/tools/rabbit_v0.1.0/storageGcReserved.test.js` (29 assertions,
 including all three call sites and nine breakers).
+
+**S3 queue rows drain by signed DELETE (S37).** 0051 widened the enqueue
+trigger — a purged `s3` row lands in the queue with `provider='s3'` and the
+marker bucket `byo-s3` — and the drain resolves the workspace's CURRENT
+`provider_config` + secret and issues a SigV4 DELETE against the customer's
+bucket (`queue_s3_drained` in the WIL-3003 counts is the evidence the branch
+fired). Two deliberate asymmetries: S3's DELETE is idempotent-success, so
+`deleted` there means "certifiably absent now" rather than distinguishing
+already-gone; and the **orphan scan stays Supabase-only** — WILSON does not
+enumerate customer buckets, so a stranded s3 upload whose row never landed
+is the uploader's compensation delete's job, then the customer's own
+lifecycle rules.
 
 **It is admin-invoked, not a cron job**, for two reasons: TPN TS-1.5 wants dual
 authorization on destruction and a human clicking a stated confirm *is* the
@@ -1768,6 +1781,92 @@ build is for review, light edits and anywhere-access; professional formats
 and very large files want the desktop app, which talks to the drive
 directly. A customer sizing hardware should plan on the desktop app for
 every seat that touches media.
+
+### 12.7a The bucket — S3-compatible storage (S37)
+
+The second BYO option, for the customer with no office server: their own
+bucket at **AWS S3, Backblaze B2, Wasabi, Hetzner, Cloudflare R2 or MinIO**
+— one adapter, because they all speak the same API. Configured by a
+workspace admin in **Admin Terminal → Storage → Your own storage →
+S3-compatible bucket**: endpoint (empty = AWS), region, bucket, optional
+prefix (the folder inside the bucket everything lives under), access key id,
+and the path-style checkbox for MinIO-shaped gateways. The **access key
+secret is saved separately and stored encrypted** (AES-256-GCM, the 0028
+`workspace_ai_keys` precedent; master key `WILSON_STORAGE_KEY_SECRET`, an
+Edge-Function secret, never in Postgres) — no client, admin included, ever
+reads it back; the console shows its last four characters. Transfers are
+**presigned and direct**: the `storage-presign` Edge Function authorises one
+request against one key and the bytes travel straight between the app and
+the bucket — Petal never proxies them, never pays their egress, and never
+holds them.
+
+**What to create at the provider** (five minutes, once):
+1. A bucket. Private; no public access.
+2. A key **scoped to that bucket** with GetObject / PutObject /
+   DeleteObject. Nothing wider — WILSON never lists, and the probe will
+   tell you if delete is missing.
+3. **The CORS rule below, pasted into the bucket's CORS settings.** Not
+   optional, and not browser-only: the desktop renderer is Chromium with
+   webSecurity on, so **both surfaces enforce CORS**. Without the rule,
+   uploads fail as a bare network error with no status and no server log —
+   the single most likely support call this feature generates. `Test
+   connection` distinguishes it: server ✓ + "the browser was blocked" =
+   this rule is missing.
+
+```json
+[
+  {
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["GET", "PUT", "DELETE", "HEAD"],
+    "AllowedHeaders": ["*"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+`AllowedOrigins: ["*"]` is correct here, not lax: the desktop app's origin
+carries a random localhost port, so an origin list cannot name it, and the
+presigned URL — not CORS — is what authorises access. (B2 and R2 take this
+JSON as-is; AWS S3 takes it in the console's CORS editor; MinIO uses
+`mc anonymous`/`mc admin` CORS equivalents — consult the gateway's docs.)
+
+**`Test connection` is a real round trip, in two halves.** The server half
+PUTs, GETs and DELETEs a probe object under `.wilson-probe/` and names the
+failing stage: 403 = credentials, 404 = bucket/region, unreachable = the
+endpoint or **the addressing style — a wrong path-style setting presents as
+a DNS failure**, which is why the checkbox exists and the sentence says to
+flip it. The client half repeats the trip from the app itself, which is the
+only place CORS can be tested.
+
+**The rules that don't move:**
+- 🚨 **Money never leaves Supabase.** Invoices and the rates mirror stay in
+  Petal's RLS-governed storage whatever the workspace chose — a bucket
+  policy cannot express "managers of this project only". Enforced three
+  deep: the client pin (`fileProviderFor`), the presign function (refuses
+  money-segment keys wholesale), and `files_money_provider_chk` (0050/0051).
+- **Each file remembers where its body lives** (`files.storage_provider`).
+  Switching provider — or back to Petal cloud — never orphans what was
+  already written: reads resolve from the row, and the retained config keeps
+  serving old bodies. Only NEW files follow the new choice.
+- **Purge parity (0051):** a purged s3 row is enqueued for certified
+  disposal like a Supabase one; Storage Cleanup drains it by signed DELETE
+  against the current config. **The orphan scan does not scan customer
+  buckets** — a stranded s3 upload whose row never landed is covered by the
+  uploader's own compensation delete, and beyond that is the customer's
+  lifecycle rules to keep.
+- **Teardown leaves customer buckets alone, deliberately.** Their bucket is
+  their property; the WIL-7005 certificate states `byo_bodies_left` rather
+  than silently under-reporting.
+- **`downloaded` logging is advisory here by construction** (the S33 limit,
+  generalised): a presigned GET is served by the customer's provider and
+  WILSON never sees it.
+- **Size:** WILSON imposes no ceiling of its own on this path. A single
+  presigned PUT is capped by the provider (5 GB everywhere that matters);
+  multipart for beyond that is future work, not a bug.
+- **Propagation matches the drive's rule:** another machine picks up a
+  bucket change at its next launch or sign-in; the saving admin's own
+  session applies it immediately.
 
 ## 13. The three tools, the shell, and the agent
 
@@ -3055,6 +3154,19 @@ documentation and starts being wrong answers.
   `userData` directory.
 - **Realtime probes are lenient in CI** by design — there is no realtime
   service in the CI stack; hosted coverage comes from live probes.
+- **WILSON never enumerates a customer's bucket (S37)** — read this one in
+  both directions, per the entry above. As a coverage gap: the orphan scan
+  does not run against S3-compatible storage, so a stranded s3 upload whose
+  row never landed (and whose compensation delete also failed) survives
+  until the customer's own lifecycle rules take it. As the deliberate
+  non-destruction: **teardown does not reach into customer buckets** —
+  their storage, their property — and says so in the certificate
+  (`byo_bodies_left`) rather than under-reporting. The queue DRAIN does
+  reach in (signed DELETE, §12.4), because those are the workspace's own
+  certified disposals.
+- **`downloaded` is advisory for every direct-served provider** (S33 stated
+  it for cloud; S37 generalises it): a presigned GET is answered by the
+  customer's provider and WILSON never observes the read.
 
 ---
 
@@ -3085,6 +3197,8 @@ event type are **server-reserved** so clients cannot forge audit lines.
 |---|---|---|
 | `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
 | `WIL-3003` / `WIL-3004` | Storage cleanup completed / failed | `app_events` |
+| `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
+| `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |

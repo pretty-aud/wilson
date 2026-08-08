@@ -41,7 +41,55 @@ export async function fetchWorkspaceStorage() {
     .select('workspace_id, mode, provider, provider_config, root_path, root_kind, updated_at, updated_by')
     .maybeSingle()
   if (error) throw new Error(`workspace storage read failed: ${error.message}`)
+  cachedRow = data
   return data
+}
+
+// ── Session 37: the cached storage choice, for the upload path ──────────────
+// supabaseAdapter.uploadFile needs to know which provider accepts new bodies
+// WITHOUT a PostgREST read per upload. One module-level slot, warmed by the
+// reads and writes that already happen (App.jsx's sign-in fetch, every
+// StorageSection save), lazily filled otherwise.
+//
+//   * undefined — never loaded this session. getWorkspaceStorageCached()
+//     fetches; a FAILED fetch leaves it undefined and THROWS, so the caller
+//     refuses its upload with a sentence rather than guessing where the
+//     workspace stores media (guessing 'petal' would silently route a
+//     customer's files to a store they may have moved away from).
+//   * null — loaded, and the workspace has never configured storage
+//     (= Petal cloud, today's behaviour exactly).
+//
+// Staleness matches the drive's own stated limit (S34): another admin's
+// change reaches this session at its next launch or sign-in, not live.
+let cachedRow
+
+export async function getWorkspaceStorageCached() {
+  if (cachedRow !== undefined) return cachedRow
+  return await fetchWorkspaceStorage()
+}
+
+// Sign-out must forget the choice with the session (App.jsx's teardown
+// branch) — the next account in this window may be a different workspace.
+export function clearWorkspaceStorageCache() {
+  cachedRow = undefined
+}
+
+// How many file bodies still live at a given provider (S37). Used by the
+// Storage section to say how much is at stake BEFORE an admin switches
+// provider — switching only changes where WILSON looks, so anything already
+// written stays where it is and stops opening.
+//
+// Returns null when the count cannot be taken, and the caller must render
+// that as unknown rather than as zero: "0 files affected" on the strength of
+// a failed query is exactly the reassurance that makes someone click through.
+// RLS scopes the count to the caller's own workspace.
+export async function countFilesAtProvider(provider) {
+  const { count, error } = await supabase
+    .from('files')
+    .select('id', { count: 'exact', head: true })
+    .eq('storage_provider', provider)
+  if (error) return null
+  return count ?? 0
 }
 
 // Create or patch the row. `exists` comes from the caller's loaded state:
@@ -63,6 +111,7 @@ export async function saveWorkspaceStorage({ workspaceId, exists, patch }) {
       .maybeSingle()
     if (!ins.error) {
       if (!ins.data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace?)')
+      cachedRow = ins.data
       return ins.data
     }
     // 23505: another admin created the row between this tab's load and this
@@ -80,5 +129,6 @@ export async function saveWorkspaceStorage({ workspaceId, exists, patch }) {
     .maybeSingle()
   if (error) throw new Error(`workspace storage save failed: ${error.message}`)
   if (!data) throw new Error('workspace storage save failed: the write was refused (are you still an admin of this workspace?)')
+  cachedRow = data
   return data
 }

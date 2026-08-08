@@ -451,7 +451,7 @@ below are superseded; only one of them actually moves.
 | **S34** ✅ | **DONE (2026-08-07)** — `workspace_storage` on all three envs, Admin Terminal Storage section, classifier + probe + two-step confirm, TPN-AUTH-009 closed; outcome block below | 1 | S33 | `SESSION_34_prompt.md` |
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
-| **S37** | **S3-compatible storage** — one adapter covers AWS/B2/Wasabi/Hetzner/R2/MinIO. Presigned URLs so the secret never reaches the browser; AES-256-GCM per 0028. ⭐ First provider on purpose: no OAuth, no third-party approval | 1 | ✅ **UNBLOCKED** (S36 shipped the registry) | `SESSION_37_prompt.md` |
+| **S37** ✅ | **DONE (2026-08-08)** — 0051 on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm, `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below | 1 | — | `SESSION_37_prompt.md` |
 | **S38** | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only** (staying out of the restricted/CASA tier), encrypted refresh token, shared-drive requirement. ⏳ **Verification has a calendar dependency — submit before the session** | 1–2 | ✅ **UNBLOCKED** (S36 shipped the registry; S37 first by choice) | `SESSION_38_prompt.md` |
 | **S39** | **Thumbnails everywhere** — new `rabbit-thumbnails` bucket, client generation, the first-ever `thumbnail_url` writer | 1 | **none** | `SESSION_39_prompt.md` |
 | **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
@@ -485,6 +485,166 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S37 outcome — S3-compatible storage, the first BYO provider (2026-08-08)
+>
+> Migrations **0051** and **0052** applied and verified **by query** on dev,
+> staging and prod; CLI re-linked to wilson-dev. pgTAP suites **61** (39
+> assertions) and **62** (24); suite 60's "s3 is refused" probe INVERTED in
+> the same commit — the same INSERT now fails the required-config arm
+> instead of the vocabulary, which was the tripwire working as designed.
+> Full set **62 suites / 1077 assertions** clean; vitest **1159 / 53
+> files**. Eight arm-level breakers, each failing exactly its own probes
+> (drop the s3 arm → 15+1; un-widen the vocabulary → 21; drop the money
+> constraint → 3; un-widen the trigger → 1; a vacuous write predicate → 5;
+> DEFINER predicates → exactly the 2 structural probes, proving why they
+> exist; a policy on the secrets table → 1; revert 0052's endpoint arm →
+> the 3 endpoint probes plus the documented PK cascade). Run POST-apply
+> with explicit DROPs — the pre-apply shim flow cannot serve suite 61 at
+> all, see below.
+>
+> **What shipped.** One provider = one registry entry
+> (`storage/s3Provider.js`, presign-then-fetch, all five contract
+> functions), one enum value, the widened `workspace_storage_provider_chk`
+> (**explicit DROP + re-ADD** — a wrapped ADD is a silent no-op against an
+> applied database, S36's own measurement), and
+> **`workspace_storage_s3_config_chk`**, the required-direction arm 0050
+> demanded: required keys, a key ALLOWLIST (a typo'd key refuses at write
+> time), https-only canonical endpoint, and the prefix under 0048's
+> root_canon discipline. `workspace_storage_secrets` is the 0028 shape
+> exactly (RLS forced, zero policies, ciphertext only, hint for the UI),
+> under its OWN master key (`WILSON_STORAGE_KEY_SECRET`) so the two
+> credential domains rotate independently. The presign boundary
+> (`storage-presign`, memberGuard) EVALUATES the files policies as the
+> caller — SECURITY INVOKER predicates (`can_presign_project_write/read`,
+> 0051) called over PostgREST with the caller's own JWT — instead of
+> replicating arms (S33's rule satisfied by construction), refuses
+> money-segment keys wholesale, applies the workspace prefix server-side,
+> and requires the ACTIVE choice for PUT while serving GET/DELETE from the
+> retained config (resolve-from-the-row, S36). `storage-secret`
+> (adminGuard) stores the secret and runs the two-half probe: a real server
+> PUT→GET→DELETE with the failing stage named, plus presigns the client
+> exercises itself — the only place CORS can be tested. uploadFile's
+> constant became `activeWorkspaceProvider(getWorkspaceStorageCached())` —
+> one argument, as S36's comment promised — failing CLOSED on an unreadable
+> choice, and refusing a cloud-mode 'network' workspace with a sentence.
+> GC parity: 0051 widens the enqueue trigger (BY TEXT COMPARISON — the new
+> enum value cannot be referenced in its own transaction), and storage-gc
+> drains s3 rows by signed DELETE against the CURRENT config
+> (`queue_s3_drained` is the evidence counter). The SigV4 presigner
+> (`_shared/s3Presign.ts`, runtime-agnostic) is pinned to **AWS's published
+> example signature** in vitest — reproducing a constant we did not produce
+> is what separates "signs consistently" from "signs correctly".
+>
+> 🚨 **The brief was wrong in three places, all measured.**
+> 1. **"Desktop uploads do not hit CORS" is FALSE.** The desktop renderer
+>    is Chromium with webSecurity on (no override in main.cjs) — CORS
+>    applies on every surface. The bucket CORS rule (handbook §12.7a) uses
+>    `AllowedOrigins: ["*"]` precisely because the desktop origin carries a
+>    random localhost port; the presigned URL, not CORS, is the authority.
+> 2. **The contract is FIVE functions, not four** — describe() is required
+>    at registration (S36 shipped it that way; the brief's own §4a2b table
+>    still said four).
+> 3. **`secretRef` is not stored.** The brief's config shape carried it; in
+>    practice the secrets table's PK (workspace_id) IS the reference — a
+>    named slot arrives if a workspace ever needs two secrets, and a dead
+>    config key today would be drift bait.
+>
+> 🚨 **Two flow discoveries worth carrying to S38:**
+> - **The pre-apply breaker/suite flow cannot test a migration that adds an
+>   enum value whose USERS are in the same suite.** tap-hosted's
+>   migration-before-suite shim is ONE transaction, and a new enum value
+>   cannot be used in the transaction that adds it — suite 61 INSERTs
+>   files rows with 's3'. Order becomes: apply to dev FIRST, then suites,
+>   then breakers via explicit DROP/replace in the rolled-back shim. S38's
+>   gdrive migration hits the identical wall.
+> - **supabaseAdapter.deleteFile never touches blobs** (soft delete only) —
+>   the brief's "purge deletes at the provider and writes the certificate"
+>   was already asynchronous for Supabase (0014 cron purge → queue →
+>   admin-run GC), so s3 parity belongs at the TRIGGER + DRAIN, not in
+>   deleteFile. Built there.
+>
+> 🚨 **The pre-deploy adversarial review earned its keep for the FIFTH
+> session running: 25 findings raised, 13 refuted, 12 confirmed (5 medium,
+> 7 low) against code already green on 62/62 pgTAP and 1143 vitest.** All
+> twelve fixed before the migration reached staging, so per OUTSTANDING's
+> rule they are commit content, not entries. The five worth carrying:
+>
+> 1. 🚨 **The two path gates disagreed about a filename the product itself
+>    writes.** `checkRowShapedPath` rejects only a segment that IS `.` or
+>    `..`; `presignS3Request` rejected `key.includes('..')` — a SUBSTRING
+>    test. `uploadFile`'s sanitiser preserves dots, so `render..v2.mov`
+>    passed the shape gate, passed authorisation, and then 500ed at the
+>    signer — permanently untransferable, on this provider only. Worse, an
+>    admin prefix of `wilson..media` passed the CHECK and the UI and broke
+>    EVERY presign in the workspace. Both sides are now segment-wise (a
+>    doubled dot inside a segment is an ordinary S3 key; only a standalone
+>    `..` segment normalises in a URL path). **Two gates over one value is a
+>    defect unless something pins them to the same rule** — now pinned on
+>    both sides, because fixing one leaves the same class.
+> 2. 🚨 **A warning that promised the opposite of what happens.** The S3→NAS
+>    switch card said bucket files "stay readable — each file remembers where
+>    its body lives". The ROW does; the CONNECTION does not. 0050's
+>    `provider_config_chk` forbids a `network` row from carrying a config, so
+>    the switch erases the only copy of the endpoint/bucket/prefix and every
+>    pre-switch body becomes unreachable until retyped exactly. Now says so,
+>    and names how many files are at stake (`countFilesAtProvider`). **Copy
+>    that reassures is worse than no copy when the reassurance is false.**
+> 3. **`byo_bodies_left` was single-source and error-blind** — it counted
+>    live `files` rows only (missing purged-but-undrained bodies, i.e.
+>    exactly what a failed drain leaves in the customer's bucket) and
+>    reported `0` when the count query errored. After the CASCADE nothing can
+>    re-derive it, so a failed query would have permanently certified
+>    "nothing of yours remains". Now both sources, and **NULL means unknown**.
+> 4. **The GC counted HTTP 404 as a successful disposal.** An absent S3 KEY
+>    returns 204; a 404 is the BUCKET failing to resolve. So one flipped
+>    path-style setting would have stamped TPN-CONT-002 certificates on a
+>    whole batch of bodies still sitting in the bucket. 404 is now a failure
+>    with a sentence naming the three fields to check.
+> 5. **The 8th no-caller feature, caught before it shipped.**
+>    `storageSecretClear`, the Edge `clear` branch and `WIL-3006` all existed
+>    with nothing calling any of them — a tenant bucket credential could be
+>    stored and never removed except by a service-role query. Now a Remove
+>    button, pinned by a wiring test. **Enumerate the new exports and grep
+>    each for callers; this is the ninth time.**
+>
+> Also fixed: the op allowlist used `op in METHOD`, so `constructor` and
+> `__proto__` passed a four-value gate and ran the whole authorisation path
+> (decrypting the bucket secret) before failing at the signer as a 500; an
+> endpoint carrying a path (`https://host/minio` — the reverse-proxied MinIO
+> shape) was accepted by the CHECK and then SILENTLY DROPPED by
+> `s3HostAndPath`, signing against a URI the gateway never sees, so **0052**
+> adds the host-only arm in all three layers; a failed secret-status read
+> latched "Not stored yet." over a stored secret for the whole visit; and
+> `clearWorkspaceStorageCache` was the one new call site with no wiring pin.
+>
+> ⚠️ **And the review's own fixes reproduced the 0038 trap twice.** Two new
+> negative assertions — `not.toContain('op in METHOD')` and
+> `not.toContain('EXCEPTION WHEN duplicate_object')` — failed against the
+> COMMENTS that explain why those forms are wrong. **A `not.toContain` over
+> a file that documents its own trap will match the documentation.** Both
+> now assert the executable form (the full guard expression; comment-stripped
+> SQL), which is the same correction S36's review forced on the money probe.
+>
+> **Stated limits.** The orphan scan never enumerates a customer bucket
+> (stranded-upload coverage there = the uploader's compensation delete);
+> teardown deliberately leaves customer buckets (their property — the
+> WIL-7005 certificate carries `byo_bodies_left` so the choice is stated);
+> `downloaded` is advisory for presigned GETs by construction; a single
+> presigned PUT is provider-capped (5 GB) with multipart deliberately out
+> of scope; the manifest and rates mirror stay on Supabase for s3
+> workspaces (metadata-adjacent, and FINANCE is money anyway); the storage
+> choice reaches other machines at next launch/sign-in (the drive's own
+> S34 rule — one module-level cache, cleared on sign-out); switching
+> NAS↔S3 clears the other's config by constraint (root_provider_path +
+> provider_config arms), with the UI warning before either save; and a
+> byos+network workspace's CLOUD uploads are now REFUSED with a sentence
+> where they previously landed silently on Petal — that is S36's specified
+> behaviour arriving, not a regression, but Audrey should see it once in
+> the beta before it surprises a customer. **Nothing here has been watched
+> working against a real bucket by a human** — no bucket credentials exist
+> in this room; the presigner is proven against AWS's vector and the
+> probe/round-trip is the first-run check.
+>
 > ### S36 outcome — the registry, and no provider (2026-08-07)
 >
 > Migration **0050** applied and verified **by query** on dev, staging and

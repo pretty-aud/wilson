@@ -9,7 +9,7 @@ import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
-import { fetchWorkspaceStorage } from './cloud/workspaceStorage'
+import { fetchWorkspaceStorage, clearWorkspaceStorageCache } from './cloud/workspaceStorage'
 import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
@@ -702,6 +702,17 @@ export default function App() {
     })();
     return () => { cancelled = true; };
   }, [perms.ready, perms.userId]);
+
+  // ── S37: the storage-choice cache dies with the session ───────────────────
+  // getWorkspaceStorageCached (the upload path's provider decision) holds one
+  // module-level row. A sign-out or workspace switch must forget it on EVERY
+  // build — including web, where the bridge effect below early-returns before
+  // its own fetch would have overwritten it. Cleared first (declaration
+  // order), so the fetch below re-warms it for the NEW session.
+  useEffect(() => {
+    if (!perms.ready) return;
+    clearWorkspaceStorageCache();
+  }, [perms.ready, perms.workspaceId]);
 
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,

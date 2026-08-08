@@ -16,6 +16,7 @@ import {
   WORKSPACE_PROVIDER_VALUES,
   FILE_PROVIDERS,
   fileProviderFor,
+  activeWorkspaceProvider,
   registerStorageProvider,
   getStorageProvider,
   hasStorageProvider,
@@ -27,6 +28,13 @@ import { createSupabaseStorageProvider } from './supabaseProvider'
 const REPO_ROOT = join(__dirname, '..', '..', '..', '..')
 const migration = readFileSync(
   join(REPO_ROOT, 'supabase', 'migrations', '0050_storage_provider_registry.sql'),
+  'utf8',
+)
+// S37 widens the provider vocabulary by DROP + re-ADD in its own migration,
+// so the EFFECTIVE constraint lives in 0051 — 0050's text deliberately keeps
+// its original two values (a wrapped re-ADD there no-ops on replay).
+const migration51 = readFileSync(
+  join(REPO_ROOT, 'supabase', 'migrations', '0051_s3_storage_provider.sql'),
   'utf8',
 )
 
@@ -78,24 +86,41 @@ describe('the money invariant (§4a2b invariant 2)', () => {
   })
 })
 
-describe('the provider vocabulary agrees with migration 0050', () => {
+describe('the provider vocabulary agrees with the migrations', () => {
   // The client list and the CHECK constraint are two spellings of one
-  // decision. This is the wiring test that stops them drifting — and it is
-  // also what will fail, deliberately and usefully, when S37 adds 's3' to one
-  // side and forgets the other.
-  it('lists exactly the providers the CHECK allows', () => {
-    const m = migration.match(/CHECK \(provider IN \(([^)]*)\)\)/)
-    expect(m, 'workspace_storage_provider_chk not found in 0050').toBeTruthy()
+  // decision. This is the wiring test that stops them drifting — it failed,
+  // deliberately and usefully, the moment S37 added 's3' to the client side,
+  // and it now parses the EFFECTIVE constraint from 0051.
+  it('lists exactly the providers the widened CHECK allows (0051)', () => {
+    const m = migration51.match(/CHECK \(provider IN \(([^)]*)\)\)/)
+    expect(m, 'workspace_storage_provider_chk not found in 0051').toBeTruthy()
     const sqlValues = m[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')).sort()
     expect(sqlValues).toEqual([...WORKSPACE_PROVIDER_VALUES].sort())
   })
 
+  it('widens by explicit DROP, never a wrapped re-ADD (the replay no-op trap)', () => {
+    // S36 measured it: every wrapped ADD CONSTRAINT is a silent no-op against
+    // a database that already carries the name, so a wrapped "widening" would
+    // apply cleanly everywhere and change nothing anywhere.
+    expect(migration51).toContain(
+      'DROP CONSTRAINT IF EXISTS workspace_storage_provider_chk',
+    )
+  })
+
+  it('0050 still shows its original two-value CHECK, untouched', () => {
+    const m = migration.match(/CHECK \(provider IN \(([^)]*)\)\)/)
+    expect(m).toBeTruthy()
+    const sqlValues = m[1].split(',').map(s => s.trim().replace(/^'|'$/g, '')).sort()
+    expect(sqlValues).toEqual(['network', 'petal'])
+  })
+
   it('ships no provider it cannot resolve', () => {
-    // S36's promise: gdrive and s3 arrive WITH their adapters (S38 / S37),
-    // never ahead of them. A value in the schema that no registry entry can
-    // serve is the "looks configured, resolves nowhere" failure §4a2b names.
+    // S36's promise: a provider value arrives WITH its adapter, never ahead
+    // of it. 's3' is in the vocabulary because S37 shipped its adapter in the
+    // same commit; gdrive stays out until S38 does the same.
     expect(WORKSPACE_PROVIDER_VALUES).not.toContain('gdrive')
-    expect(WORKSPACE_PROVIDER_VALUES).not.toContain('s3')
+    expect(WORKSPACE_PROVIDER_VALUES).toContain('s3')
+    expect(fileProviderFor(WORKSPACE_PROVIDERS.S3)).toBe(FILE_PROVIDERS.S3)
   })
 
   it('maps every workspace provider to a real file-provider value', () => {
@@ -106,6 +131,44 @@ describe('the provider vocabulary agrees with migration 0050', () => {
 
   it('refuses an unknown provider loudly rather than defaulting', () => {
     expect(() => fileProviderFor('dropbox')).toThrow(/unknown storage provider/)
+  })
+
+  it('0051 adds the s3 value to the files enum alongside the client entry', () => {
+    expect(migration51).toContain(
+      "ALTER TYPE public.storage_provider ADD VALUE IF NOT EXISTS 's3'",
+    )
+  })
+})
+
+describe('activeWorkspaceProvider — which provider accepts NEW bodies', () => {
+  it('an unconfigured workspace is Petal cloud (today\'s behaviour exactly)', () => {
+    expect(activeWorkspaceProvider(null)).toBe(WORKSPACE_PROVIDERS.PETAL)
+    expect(activeWorkspaceProvider(undefined)).toBe(WORKSPACE_PROVIDERS.PETAL)
+  })
+
+  it('central means Petal cloud NOW, whatever provider is retained', () => {
+    // The 0048/0050 retained states: remembered, inert. Forcing these back
+    // to 'petal' in the DB was S36's first-draft biconditional bug; treating
+    // them as ACTIVE here would be the same bug from the other side.
+    expect(activeWorkspaceProvider({ mode: 'central', provider: 'network', root_path: '\\\\nas\\p\\w' }))
+      .toBe(WORKSPACE_PROVIDERS.PETAL)
+    expect(activeWorkspaceProvider({ mode: 'central', provider: 's3', provider_config: { bucket: 'b' } }))
+      .toBe(WORKSPACE_PROVIDERS.PETAL)
+  })
+
+  it('byos returns the configured provider', () => {
+    expect(activeWorkspaceProvider({ mode: 'byos', provider: 'network' }))
+      .toBe(WORKSPACE_PROVIDERS.NETWORK)
+    expect(activeWorkspaceProvider({ mode: 'byos', provider: 's3' }))
+      .toBe(WORKSPACE_PROVIDERS.S3)
+  })
+
+  it('byos with no real provider fails CLOSED with a sentence, never "petal"', () => {
+    // Defaulting would silently route media to a store the customer moved
+    // away from — the exact failure §4a2b exists to prevent. The DB refuses
+    // this shape (mode_provider_chk); seeing it means a malformed row.
+    expect(() => activeWorkspaceProvider({ mode: 'byos' })).toThrow(/names no provider/)
+    expect(() => activeWorkspaceProvider({ mode: 'byos', provider: 'petal' })).toThrow(/names no provider/)
   })
 })
 
@@ -203,10 +266,32 @@ describe('the adapter actually calls the registry (no dead path)', () => {
     join(__dirname, '..', 'adapters', 'supabaseAdapter.js'), 'utf8',
   )
 
-  it('stamps storage_provider from fileProviderFor, not a literal', () => {
-    expect(adapter).toContain('fileProviderFor(WORKSPACE_PROVIDERS.PETAL')
+  it('stamps storage_provider from fileProviderFor over the ACTIVE provider', () => {
+    // S37: S36's constant became one argument, as its comment promised — the
+    // workspace's cached storage choice, resolved through the one definition
+    // of "active" (mode gates retained state).
+    expect(adapter).toContain('const storageChoice = await getWorkspaceStorageCached()')
+    expect(adapter).toContain('activeWorkspaceProvider(storageChoice)')
+    expect(adapter).toContain('fileProviderFor(activeProvider')
     expect(adapter).toContain('storage_provider: storageProvider')
     expect(adapter).not.toContain("storage_provider: 'supabase'")
+    // The constant must be GONE — a merge that resurrects it silently
+    // re-pins every workspace to Petal cloud.
+    expect(adapter).not.toContain('fileProviderFor(WORKSPACE_PROVIDERS.PETAL')
+  })
+
+  it('refuses a network workspace with a sentence, never routes it', () => {
+    // The one workspace provider with no cloud-side implementation (S36's
+    // review): 'network' maps to local_server, which the registry never
+    // registers. Without this refusal getStorageProvider throws its generic
+    // message, which names nothing the user can act on.
+    expect(adapter).toContain("activeProvider === WORKSPACE_PROVIDERS.NETWORK")
+    expect(adapter).toContain('Local Server mode')
+  })
+
+  it('registers the s3 provider beside supabase at module load', () => {
+    expect(adapter).toContain('createS3StorageProvider(presignStorage)')
+    expect(adapter).toContain('FILE_PROVIDERS.S3')
   })
 
   it('passes the money flag from the same scope that picks the INVOICES segment', () => {

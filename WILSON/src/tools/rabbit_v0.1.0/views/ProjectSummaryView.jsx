@@ -969,6 +969,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = fa
 
 function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
   const fileInputRef = useRef(null)
 
   // Session 35: same seat as the summary header's Change button — the two
@@ -1011,11 +1012,21 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
     const picked = Array.from(e.target.files || [])
     if (picked.length === 0) return
     setUploading(true)
+    setUploadError(null)
     try {
       for (const file of picked) {
         await ctx?.uploadFile?.(file, { type: 'project' })
       }
-    } catch (err) { console.error('Upload failed', err) }
+    } catch (err) {
+      // 🚨 A REFUSAL MUST BE READ, NOT LOGGED — see the same fix in
+      // BudgetView. Session 37's storage refusals (a workspace on its own
+      // server has no cloud upload route; an unreadable storage choice; a
+      // bucket the browser was blocked from reaching) each arrive here as a
+      // thrown sentence, and this catch used to end their journey in the
+      // devtools console where nobody was looking.
+      console.error('Upload failed', err)
+      setUploadError(err?.message || 'Upload failed.')
+    }
     finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -1117,6 +1128,12 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           </button>
         </div>
       </div>
+
+      {uploadError && (
+        <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>
+          {uploadError}
+        </p>
+      )}
 
       {/* Session 14: missing-files banner → the relink flow. Rendered above
           the table so a broken state is impossible to miss (Selective

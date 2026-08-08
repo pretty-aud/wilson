@@ -44,6 +44,7 @@
 export const WORKSPACE_PROVIDERS = Object.freeze({
   PETAL:   'petal',    // Petal-operated cloud (Supabase). mode 'central'.
   NETWORK: 'network',  // The customer's own filesystem root — NAS or server (S34).
+  S3:      's3',       // The customer's own S3-compatible bucket (S37).
 })
 
 export const WORKSPACE_PROVIDER_VALUES = Object.freeze(
@@ -54,6 +55,7 @@ export const FILE_PROVIDERS = Object.freeze({
   SUPABASE:     'supabase',
   GOOGLE_DRIVE: 'google_drive',
   LOCAL_SERVER: 'local_server',
+  S3:           's3',   // 0051 adds the enum value alongside this entry.
 })
 
 // Which store a NEW body goes to for a given workspace provider. S37 adds
@@ -67,15 +69,41 @@ export const FILE_PROVIDERS = Object.freeze({
 // WHERE A BODY LIVES, while getStorageProvider('local_server') will throw:
 // there is no cloud-side implementation and there should not be one.
 //
-// 🚨 S37: this is why changing uploadFile's constant to the workspace's
-// configured provider is not quite a one-line change. It is one line for
-// 's3' (which WILL have a registered implementation), but a cloud-mode
-// workspace configured as 'network' has no cloud upload path and must be
-// refused with a sentence, not routed. Raised by S36's adversarial review.
+// 🚨 S37 (done): uploadFile's constant became activeWorkspaceProvider(row) —
+// one argument, as promised, for 's3' (which HAS a registered
+// implementation). The exception S36's review raised stands: a cloud-mode
+// workspace configured as 'network' has no cloud upload path and is refused
+// with a sentence in uploadFile, before this map is consulted.
 const NEW_BODY_GOES_TO = Object.freeze({
   [WORKSPACE_PROVIDERS.PETAL]:   FILE_PROVIDERS.SUPABASE,
   [WORKSPACE_PROVIDERS.NETWORK]: FILE_PROVIDERS.LOCAL_SERVER,
+  [WORKSPACE_PROVIDERS.S3]:      FILE_PROVIDERS.S3,
 })
+
+// ── Which provider accepts NEW bodies right now ─────────────────────────────
+// The ONE definition of "active", mirroring the two layers that already gate
+// retained state on MODE (App.jsx pushes a root only when mode is 'byos';
+// 0049 refuses a project folder unless mode is 'byos'): a workspace on
+// 'central' is on Petal cloud NOW, whatever provider it has RETAINED —
+// central + network + a path, and central + s3 + a config, are the legal,
+// inert, remembered states 0048/0050 designed for. Reads never come through
+// here: a body is fetched from the provider THE ROW NAMES
+// (resolveFileProvider), which is exactly what keeps a switched workspace's
+// old bodies reachable.
+export function activeWorkspaceProvider(storageRow) {
+  if (!storageRow || storageRow.mode !== 'byos') return WORKSPACE_PROVIDERS.PETAL
+  const provider = storageRow.provider
+  // byos with no real provider cannot exist under 0050's mode_provider_chk;
+  // seeing it means a malformed or pre-0050 row. Fail CLOSED with a sentence
+  // — defaulting to Petal here would silently route a customer's media to a
+  // store they explicitly moved away from.
+  if (!provider || provider === WORKSPACE_PROVIDERS.PETAL) {
+    throw new Error(
+      'this workspace is set to its own storage but names no provider — reload, and check Admin Terminal → Storage',
+    )
+  }
+  return provider
+}
 
 // ── 🚨 The invariant that must survive every provider ───────────────────────
 // §4a2b invariant 2: money-gated files NEVER leave Supabase.

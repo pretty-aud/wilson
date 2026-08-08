@@ -101,6 +101,25 @@ describe('call sites — every export the feature added has a caller', () => {
     expect(adminTerminalPage).toMatch(/key:\s*'storage'/)
     expect(adminTerminalPage).toContain('<StorageSection')
   })
+
+  // 🚨 S37: the storage-choice cache decides which provider receives a new
+  // body, and it is ONE module-level slot. If a refactor drops this call, no
+  // suite anywhere goes red — and a user signing out of an s3 workspace into
+  // a Petal-cloud one keeps the first workspace's provider, routing the
+  // second tenant's media at the first tenant's bucket. Every other guard in
+  // this file exists for the same reason: a green test over a dead wire.
+  // Found by S37's adversarial review, which noted this call site was the
+  // only new one with no pin.
+  it('App.jsx clears the storage-choice cache when the workspace changes', () => {
+    expect(appJsx).toContain('clearWorkspaceStorageCache()')
+    // and it must be keyed on the workspace, not mounted once: the effect's
+    // dependency array is what makes a workspace SWITCH re-read.
+    const effect = appJsx.slice(
+      appJsx.indexOf('clearWorkspaceStorageCache()'),
+      appJsx.indexOf('clearWorkspaceStorageCache()') + 200,
+    )
+    expect(effect).toContain('perms.workspaceId')
+  })
 })
 
 describe('S35 — folder_root is contained and gated (TPN-NET-015)', () => {

@@ -152,5 +152,15 @@ verify_jwt = false
 [functions.operator-models]
 verify_jwt = false
 
+# Session 37: S3-compatible storage (the first BYO provider). storage-presign
+# is the member-tier signing boundary (memberGuard + in-function project
+# predicate); storage-secret is the admin-tier secret store + config-time
+# probe (adminGuard). Same gateway opt-out — verify_jwt only speaks HS256.
+[functions.storage-presign]
+verify_jwt = false
+
+[functions.storage-secret]
+verify_jwt = false
+
 [analytics]
 enabled = false

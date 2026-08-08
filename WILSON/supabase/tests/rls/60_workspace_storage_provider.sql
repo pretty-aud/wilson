@@ -169,11 +169,18 @@ SELECT throws_ok(
   'new row for relation "workspace_storage" violates check constraint "workspace_storage_provider_chk"',
   'gdrive is refused until S38 ships the adapter that can resolve it');
 
+-- 🚨 INVERTED BY S37, DELIBERATELY, IN THE SAME COMMIT AS THE ADAPTER — this
+-- probe was the session's tripwire, not a test failure. The same INSERT that
+-- used to fail the VOCABULARY now passes it and fails the REQUIRED-CONFIG
+-- arm instead (0051's workspace_storage_s3_config_chk): 's3' is a real
+-- provider now, and a config-less s3 row is "looks configured, resolves
+-- nowhere" — the exact state the registry exists to prevent. Suite 61
+-- carries the full config matrix.
 SELECT throws_ok(
   $$INSERT INTO public.workspace_storage (workspace_id, mode, provider)
     VALUES ('11111111-1111-1111-1111-111111111111', 'byos', 's3')$$,
-  'new row for relation "workspace_storage" violates check constraint "workspace_storage_provider_chk"',
-  's3 is refused until S37 ships the adapter that can resolve it');
+  'new row for relation "workspace_storage" violates check constraint "workspace_storage_s3_config_chk"',
+  's3 passed the vocabulary the day S37 shipped its adapter — and its required-direction arm now refuses a config-less row');
 
 SELECT pg_temp.ws_reset();
 

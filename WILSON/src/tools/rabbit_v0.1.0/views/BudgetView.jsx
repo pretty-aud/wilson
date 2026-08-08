@@ -2565,6 +2565,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [fileIds, setFileIds]             = useState(expense?.file_ids || [])
   const [uploadedFiles, setUploadedFiles] = useState([])
   const [uploading, setUploading]         = useState(false)
+  const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
   const fileInputRef = useRef(null)
 
@@ -2599,7 +2600,16 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       }
       setUploadedFiles(prev => [...prev, ...results])
       setFileIds(prev => [...prev, ...results.map(r => r.id)])
-    } catch (err) { console.error('Upload failed', err) }
+    } catch (err) {
+      // 🚨 A REFUSAL MUST BE READ, NOT LOGGED. Session 37 gave uploadFile
+      // three new guaranteed-throw paths (a workspace on its own server has
+      // no cloud upload route; an unreadable storage choice; a bucket the
+      // browser was blocked from reaching) — and this catch turned every one
+      // of them into a spinner that stops with no file and no explanation.
+      // console.error is invisible to the person the sentence was written for.
+      console.error('Upload failed', err)
+      setUploadError(err?.message || 'Upload failed.')
+    }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }
   function removeFile(id) {
@@ -2718,7 +2728,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
               {uploading ? 'Uploading...' : 'Upload files'}
             </button>
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+            {uploadError && (
+              <p className="text-[11px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
+            )}
+            <input ref={fileInputRef} type="file" multiple className="hidden"
+              onChange={e => { setUploadError(null); handleFileUpload(e) }} />
           </div>
         </div>
 

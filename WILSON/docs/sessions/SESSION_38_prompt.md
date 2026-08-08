@@ -20,10 +20,40 @@
 > before starting this session**; if it is not, file it and run another
 > session while it clears. Everything else here is ordinary work.
 
-> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
-> migrations **0000–0049**, next free **0050**. pgTAP **59 suites / 982
-> assertions**, next suite **60**. Vitest **1022 / 47 files**. 🚨 S36–S37 land
-> first and will have moved every number. **Read the working tree.**
+> **STATE — re-measure, do not trust this block.** After **S37**
+> (2026-08-08): migrations **0000–0051** on all three envs, next free
+> **0052**. pgTAP **62 suites / 1074 assertions**, next suite **63**. Vitest
+> **1143 / 53 files**. 🚨 **Read the working tree** — this block has been
+> stale within the hour before.
+>
+> ⭐ **S37 SETTLED THE SHAPE THIS SESSION COPIES. Read its outcome block in
+> `MASTER_PLAN_S19_ONWARD.md` before this brief.** What gdrive inherits:
+> - **The recipe is now exercised twice**: one registry entry + one enum
+>   value + widen `workspace_storage_provider_chk` (EXPLICIT DROP + re-ADD —
+>   a wrapped ADD is a silent replay no-op) + gdrive's OWN required-config
+>   arm, alphabetically AFTER every existing constraint name.
+> - **Suite 60's "gdrive is refused" probe MUST be inverted in the same
+>   commit** — S37's inversion of its s3 twin (same INSERT, new expected
+>   constraint) is the exact template, and suite 61 asserts gdrive is STILL
+>   refused, so that probe moves too.
+> - 🚨 **The pre-apply shim cannot test a migration whose enum value the
+>   suite USES** (one transaction; a new enum value is unusable in it).
+>   Apply to dev first, then suites, then breakers via explicit
+>   DROP/replace — S37's seven-breaker matrix is the template.
+> - **The credential pattern is built**: `workspace_storage_secrets` +
+>   `_shared/storageSecretCrypto.ts` hold ONE secret slot per workspace.
+>   Drive's refresh token either shares that slot (a workspace has one BYO
+>   provider at a time — measure whether that holds) or motivates the named
+>   slot S37 deliberately did not build (`secretRef` — see its correction 3).
+> - **storageRegistry.test.js + storagePresignBoundary.test.js pin the
+>   vocabulary and the wiring as text** — they will fail, deliberately, the
+>   moment gdrive is added to one side and not the other.
+> - 🚨 **CORS is not browser-only** (S37 measured the brief wrong): the
+>   desktop renderer enforces it too. Drive's upload path (resumable
+>   sessions to googleapis.com) must be checked for the same class of
+>   failure on BOTH surfaces before promising anything.
+> - `googleDriveAdapter.js` (57 readOnly() stubs) is still the shape to
+>   AVOID: gdrive is five functions in `storage/`, not that file finished.
 
 ## Start ritual (before touching anything)
 
