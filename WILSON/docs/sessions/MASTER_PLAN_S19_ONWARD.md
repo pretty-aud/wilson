@@ -436,6 +436,23 @@ below are superseded; only one of them actually moves.
 > - **2026-08-07 (c)** — after briefing the BYO storage family, Audrey chose
 >   to run it next. The registry, S3 and Drive take **S36–S38**; thumbnails,
 >   video and the Petal-cloud pair each shift back.
+> - **2026-08-08** — *"lets set google drive for a later date. lets forego it
+>   for the first build. lets move that session to last."* Drive leaves the
+>   first build entirely and sits after the design pass. Two things made this
+>   cheap: **S37 shipped S3-compatible storage**, which already covers AWS,
+>   Backblaze B2, Wasabi, Hetzner, Cloudflare R2 and MinIO through one
+>   adapter, so "bring your own cloud" is a solved problem without Google;
+>   and Drive is the only item in the plan whose timeline belongs to another
+>   company.
+>
+> 🚨 **S38 KEEPS ITS NUMBER. Its POSITION moved, not its identity.** This is
+> the fourth reordering, and a fourth *renumbering* would have been the
+> expensive kind: `s3`/`gdrive` vocabulary comments in migrations 0050–0052,
+> the refusal probes in pgTAP suites 60 and 61 (*"gdrive is refused until S38
+> ships the adapter"*), handbook §12.1a's add-a-provider recipe, S37's
+> outcome block and `storage/index.js` all name S38 by number — several of
+> them inside SQL that runs in CI. Position is a table row; identity is
+> spread across the codebase. **Move rows, not numbers.**
 >
 > 🚨 **The design pass moves every time, and that is the rule working, not
 > churn.** It is LAST on purpose. Add another UI session and it moves again.
@@ -452,27 +469,33 @@ below are superseded; only one of them actually moves.
 | **S35** ✅ | **DONE (2026-08-07)** — 0049 folder_root guard on all three envs, `folderRootRefusal` on both routes + the IPC, Control Panel gate, §12.7 NAS/VPN guidance; outcome block below | ~1 | S34 | `SESSION_35_prompt.md` |
 | **S36** ✅ | **DONE (2026-08-07)** — 0050 on all three envs: `workspace_storage.provider` + `provider_config` + four CHECKs, `files_money_provider_chk`, the four-function registry with Supabase routed through it, pgTAP suite 60. **Built no provider, by design.** S34's five path CHECKs are untouched; outcome block below | 1 | — | `SESSION_36_prompt.md` |
 | **S37** ✅ | **DONE (2026-08-08)** — 0051 **and 0052** on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm (endpoint host-only), `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below. ✅ **`WILSON_STORAGE_KEY_SECRET` set on all three envs 2026-08-08, digests verified identical (`OWED_AUDREY.md` §C2)** — S38's Drive refresh token shares it | 1 | — | `SESSION_37_prompt.md` |
-| **S38** ⏸️ | **Google Drive** — Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. ⏸️ **DEFERRED 2026-08-08, Audrey's call**: `OWED_AUDREY.md` §13 was not filed, so the session swapped to S39 exactly as the brief instructs ("file it and run another session while it clears"). **Nothing was built; the brief is untouched and correct.** | 1–2 | ⏳ **§13 with Google** (calendar, outside Petal) | `SESSION_38_prompt.md` |
 | **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
 | **S40** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg | 1–2 | **S39** | `SESSION_40_prompt.md` |
 | **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
 | **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
 | **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
+| **S38** ⏸️ | **Google Drive — MOVED TO LAST, OUT OF THE FIRST BUILD** (Audrey, 2026-08-08: *"lets set google drive for a later date. lets forego it for the first build. lets move that session to last."*). Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. **Nothing was built; the brief is untouched and correct**, and S37's corrections to it are already in. 🚨 **The NUMBER stays 38 deliberately — see the ledger.** | 1–2 | ⏳ **`OWED_AUDREY.md` §13 with Google** (calendar, outside Petal) — and note S37's research found this is **brand verification only, NOT mandatory app verification**, since `drive.file` is non-sensitive | `SESSION_38_prompt.md` |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
-> **The real chains: S33 → S34 → S35 (done), S36 → S37/S38** (the registry
-> before any provider — §4a2b), **S39 → S40** (thumbnails before video
-> frames), and **S41 → S42** (quota plane before the cap raise — §4a3).
-> **Three independent roots — S36, S39 and S41 — so the arcs can be
-> reordered wholesale; only the arrows inside them are real.**
+> **The real chains: S33 → S34 → S35 (done), S36 → S37 (done), S39 (done) →
+> S40** (thumbnails before video frames), and **S41 → S42** (quota plane
+> before the cap raise — §4a3). **S38 (Drive) hangs off S36 and can run at
+> any point after it** — it is now positioned last by choice, not by
+> dependency.
+>
+> ⭐ **REMAINING ORDER AFTER 2026-08-08: S40 → S41 → S42 → S43, then S38.**
+> Only two arrows in that line are real (S41 → S42, and S43 wanting to be
+> after the UI stops changing); the rest is priority.
 >
 > 🚨 **S36–S38 are the BYO storage FAMILY and the order inside it is
-> deliberate.** The registry ships first so a provider is four functions and
+> deliberate.** The registry ships first so a provider is five functions and
 > not a fork; S3 ships before Drive because it is cheaper (six providers, one
 > adapter, no OAuth, no outside approval) and proves the registry's shape
-> without a third party in the critical path. **Adding a provider must never
-> narrow an existing one** — Audrey, 2026-08-07: *"dont remove other
-> options"*.
+> without a third party in the critical path. **That bet paid: S37 added a
+> provider as one registry entry, one enum value and one widened CHECK, with
+> no fork and no branch in `uploadFile`** — which is precisely why Drive can
+> now wait without holding anything up. **Adding a provider must never narrow
+> an existing one** — Audrey, 2026-08-07: *"dont remove other options"*.
 >
 > ⭐ **The family runs FIRST by Audrey's choice (2026-08-07)**, for two
 > reasons worth keeping: S33–S35 just built `workspace_storage`, its CHECKs

@@ -1,5 +1,36 @@
 # SESSION 38 launch prompt — GOOGLE DRIVE (THE THIRD BYO PROVIDER)
 
+> ## ⏸️ NOT THE NEXT SESSION. MOVED TO LAST, 2026-08-08.
+>
+> Audrey: *"lets set google drive for a later date. lets forego it for the
+> first build. lets move that session to last."*
+>
+> **Drive is out of the first build.** The remaining order is
+> **S40 → S41 → S42 → S43, then this.** Nothing here is stale — the brief was
+> corrected against what S37 actually shipped and is accurate as written; it
+> simply is not next. Re-measure the STATE block when it is.
+>
+> **Why deferring costs nothing:** S37 shipped S3-compatible storage, which
+> covers AWS S3, Backblaze B2, Wasabi, Hetzner, Cloudflare R2 and MinIO
+> through one adapter. "Bring your own cloud" is already solved without
+> Google, and Drive is the only item in the plan whose timeline belongs to
+> another company.
+>
+> ⭐ **One thing S37's research changed, and it makes this session CHEAPER
+> than the §13 checklist implies:** `drive.file` is a **non-sensitive** scope,
+> and per Google's own help docs an app using only non-sensitive scopes
+> **does not have to complete app verification at all**. What remains is
+> *brand* verification — a lighter process, needed only to show WILSON's name
+> and logo on the consent screen rather than a bare domain. So the "review by
+> another company that can idle for weeks" is **optional polish, not a
+> blocker**. `OWED_AUDREY.md` §13 should be re-read with that in mind before
+> this session runs.
+>
+> 🚨 **This session keeps the number 38.** Its position moved, not its
+> identity — `s3`/`gdrive` comments in migrations 0050–0052, the refusal
+> probes in pgTAP suites 60 and 61, handbook §12.1a and `storage/index.js`
+> all name S38 by number, several inside SQL that runs in CI.
+
 > **§4a2 + §4a2b of `docs/NETWORK_STORAGE_DESIGN.md`.** The third member of
 > the BYO storage family, after `network` (NAS, S34) and `s3` (S37). For the
 > customer with no office server and no bucket, but a Google Workspace they
