@@ -719,6 +719,64 @@ definition.
 first would turn an unmetered free tier into an unmetered multi-gigabyte one.
 S42 is blocked on S41 in the master plan's sequence table.
 
+> **✅ BUILT BY S41 (2026-08-09, migration 0055).** All three decisions shipped
+> as decided: a 1 GiB free tier that is the ROWLESS DEFAULT (`absence of a row`
+> — every existing workspace has zero rows, so the free tier is the default path
+> rather than an edge case), Petal cloud visible-but-inert for a suspended
+> company, and manual operator flips. `workspace_storage_plans` follows the 0031
+> precedent exactly — one member-read policy, ZERO write policies, writes via
+> `requirePlatformOperator` + service_role in `operator-storage-plans`.
+> Enforcement is `petal_storage_quota_insert`, **the first `AS RESTRICTIVE`
+> policy in the schema** (verified by query: `pg_policies` held zero before it,
+> on dev, staging and prod). pgTAP suite 65, 38 assertions, eight breakers.
+>
+> **Five corrections and additions to this section, all measured while building
+> it — the shape was right, the details below were not settled here:**
+>
+> 1. 🚨 **THE BYTE SOURCE COULD NOT BE `files.size_bytes`, and staging proved it
+>    rather than the argument doing so.** Measured 2026-08-09: `rabbit-files` on
+>    staging holds ONE object (a 2,959-byte `PROJECT.json`) while `public.files`
+>    holds **ZERO ROWS** — the orphan case, live, on the environment the beta
+>    runs against. A files-derived meter reads 0 while real bytes sit in the
+>    bucket. It is also client-supplied (`file?.size ?? null`, and in
+>    `FILE_COLUMNS`). The meter reads `storage.objects.metadata->>'size'`, which
+>    storage-api authors; the shape was confirmed on staging before anything
+>    depended on it: `{eTag, size, mimetype, cacheControl, lastModified,
+>    contentLength, httpStatusCode}`, `size` a JSON number. **Nothing in the repo
+>    had ever read that column.**
+> 2. 🚨 **A quota that is not RESTRICTIVE does not merely fail to meter — it
+>    RE-OPENS THE INVOICE HOLE.** Measured by running that exact defect as a
+>    breaker. Dropped to permissive, the policy's own money EXEMPTION becomes a
+>    GRANT: it ORs into the permissive set and admits a write
+>    `rabbit_files_money_insert` was refusing. Suite 65's plain-member probe goes
+>    green-to-red. One keyword re-creates what 0038 shipped and 0039 closed.
+> 3. **The gate EXEMPTS money paths and the project manifest**, which this
+>    section did not anticipate. `FINANCE/RATES.json` is a mirror rewritten on
+>    every rates change, so blocking it turns a quota state into a silent
+>    settings-save failure in an unrelated subsystem; invoices are how a company
+>    pays Petal; and the manifest is WILSON's own bookkeeping. ⚠️ The manifest
+>    exemption tests the FILENAME as well as the depth — `[3] IS NULL` alone
+>    reads better and would let `projects/<id>/dailies.mov` through, 50 MB at a
+>    time, because `rabbit_files_insert` admits that key shape.
+> 4. **"Shown in both terminals" needed splitting.** The operator reads through
+>    `operator_storage_plan_summary()` (service_role) because an operator is not
+>    a member and holds no `workspace_id` claim — a direct PostgREST read of the
+>    plan table returns an EMPTY SET, so the panel would have reported "free
+>    tier" for every company on the platform while looking healthy.
+> 5. **No `notes` column, deliberately against the brief.** A table-level SELECT
+>    policy is column-blind and the company's own members read this row, so
+>    operator commentary goes to `platform_audit.context` instead.
+>
+> ⚠️ **Stated limits, recorded here rather than hidden:** the gate is on
+> `rabbit-files` INSERT only (thumbnails are derived and capped at 256 KB;
+> avatars are per-person and not metered, though they ARE Petal's bytes); the
+> predicate is `used < quota` and does not weigh the incoming file, so a
+> workspace may overshoot by one object — bounded today by the 50 MB per-object
+> cap and **worth revisiting in S42**; and a RESTRICTIVE denial reports a
+> DIFFERENT Postgres message than a permissive one (it names the policy), which
+> is measured at the SQL layer only — whether storage-api forwards it to a
+> browser is untested, so no client parses it.
+
 ## 4c. ⭐ The NAS answer — Audrey, 2026-08-05
 
 > *"so VPN works for TPN companies. some companies may not have it so we need

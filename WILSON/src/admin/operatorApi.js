@@ -50,6 +50,19 @@ const FRIENDLY = {
   model_not_approved: 'That model is not in the approved catalogue.',
   model_retired: 'That model is retired — restore it before making it a default.',
   read_failed: 'Could not read the model catalogue. Try again in a moment.',
+  // Session 41 — the Petal-cloud storage plane. Every server error code needs an
+  // entry here or callOperatorFn falls back to `Request failed (<status>)` and
+  // the operator sees a bare number.
+  no_plan:
+    'This company has no storage plan yet — set a quota first, then suspend or restore it.',
+  // ⚠️ ITS OWN CODE, not a reuse of `read_failed` above. S41 first returned
+  // `read_failed` from the storage plane, so a failed plan read told the
+  // operator "Could not read the model catalogue" — a sentence about a
+  // different control plane entirely. `read_failed` stays exactly as it is,
+  // because operator-models is still its only other caller and the text is
+  // correct there. (storage-presign and storage-secret set the same precedent
+  // with their own scoped codes.)
+  plan_read_failed: 'Could not read the storage plans. Try again in a moment.',
 }
 
 async function callOperatorFn(name, body) {
@@ -188,6 +201,66 @@ export function clearPlatformDefault(registryKey) {
   return callOperatorFn('operator-models', {
     action: 'clear_default',
     registry_key: registryKey,
+  })
+}
+
+// ── Session 41: the Petal-cloud storage plane ────────────────────────────────
+// Same reason these are Edge calls rather than PostgREST, and one more besides.
+// Migration 0055 gives workspace_storage_plans a member READ policy and NO write
+// policy, so there is no direct write path even for an operator — that is what
+// makes "the operator approves access" structural.
+//
+// 🚨 AND THE READ CANNOT BE DIRECT EITHER. An operator is not a member of any
+// workspace and carries no workspace_id claim, so workspace_storage_plans_select
+// matches nothing for them: a PostgREST read returns an EMPTY SET rather than an
+// error. A panel built that way would report "free tier" for every company on
+// the platform and look entirely healthy. The list action goes through
+// operator_storage_plan_summary() under service_role instead.
+
+/** One row per company: plan status, effective quota, and live usage. */
+export function listStoragePlans() {
+  return callOperatorFn('operator-storage-plans', { action: 'list' })
+}
+
+/**
+ * Create or repoint a company's Petal-cloud quota, in BYTES.
+ *
+ * Status is preserved on an existing row — raising a suspended company's quota
+ * must not silently un-suspend them, because the two decisions have different
+ * causes (capacity vs payment). `note` is operator commentary; it goes to
+ * platform_audit.context and NEVER onto the plan row, which the company's own
+ * members can read.
+ */
+export function setStoragePlan({ workspaceId, quotaBytes, note }) {
+  return callOperatorFn('operator-storage-plans', {
+    action: 'set',
+    workspace_id: workspaceId,
+    quota_bytes: quotaBytes,
+    note: note || '',
+  })
+}
+
+/**
+ * Drop back to the free tier by deleting the plan row.
+ *
+ * 🚨 NOT a way to cut a company off. Absence of a row IS the 1 GiB free
+ * allowance, so clearing a plan GRANTS storage to a company that had none —
+ * suspend is the action that stops uploads.
+ */
+export function clearStoragePlan(workspaceId, note) {
+  return callOperatorFn('operator-storage-plans', {
+    action: 'clear',
+    workspace_id: workspaceId,
+    note: note || '',
+  })
+}
+
+/** Manual billing flip (Audrey, 2026-08-07). Suspended refuses new uploads. */
+export function setStoragePlanSuspended(workspaceId, suspended, note) {
+  return callOperatorFn('operator-storage-plans', {
+    action: suspended ? 'suspend' : 'restore',
+    workspace_id: workspaceId,
+    note: note || '',
   })
 }
 

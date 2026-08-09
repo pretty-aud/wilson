@@ -40,7 +40,12 @@ const SEVERITY_DOT = {
 }
 
 // Actions that destroy or spend. Everything else is bookkeeping.
-const LOUD = new Set(['workspace.teardown', 'blob.purged', 'workspace.suspended'])
+// `storage_plan.suspended` joins them (S41) on the same footing as
+// `workspace.suspended`: neither destroys anything, but both are the answer to
+// a customer asking why their work stopped, and that is what needs finding fast.
+const LOUD = new Set([
+  'workspace.teardown', 'blob.purged', 'workspace.suspended', 'storage_plan.suspended',
+])
 
 const ACTIONS = [
   ['', 'All actions'],
@@ -52,6 +57,15 @@ const ACTIONS = [
   ['blob.purged', 'Blobs purged'],
   ['ai_key.set', 'AI key set'],
   ['ai_key.cleared', 'AI key cleared'],
+  // ⚠️ PRE-EXISTING GAP, found by platformAuditActions.test.js on its first run
+  // (S41) — not by anyone reading this file. 0028 has admitted these two since
+  // S15 and this list has never carried them. Inert so far only because nothing
+  // emits them: operator status is granted by SQL out of band and writes no
+  // audit row at all (TPN-LOG-007). The moment that changes, the rows would
+  // land and be unreachable from this dropdown — which is precisely the silent
+  // shape the comment below describes.
+  ['operator.granted', 'Operator granted'],
+  ['operator.revoked', 'Operator revoked'],
   // Session 20 — the model control plane. These must stay in step with the
   // CHECK on platform_audit.action (0028, extended by 0031) and with
   // PlatformAuditFields in _shared/operatorGuard.ts. A filter that omits an
@@ -61,6 +75,15 @@ const ACTIONS = [
   ['model.restored', 'Model restored'],
   ['model.default_set', 'Default set'],
   ['model.default_cleared', 'Default cleared'],
+  // Session 41 — the Petal-cloud storage plane (0055). Same rule, and this list
+  // is the one that gets forgotten: the SQL CHECK rejects an unknown action
+  // loudly and the TypeScript union rejects it at build time, but a missing
+  // entry HERE is silent by construction — the rows land in the table and only
+  // the filter cannot reach them.
+  ['storage_plan.set', 'Storage plan set'],
+  ['storage_plan.cleared', 'Storage plan cleared'],
+  ['storage_plan.suspended', 'Storage suspended'],
+  ['storage_plan.restored', 'Storage restored'],
 ]
 
 // PostgREST codes for "relation does not exist" — migration not deployed here

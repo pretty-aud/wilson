@@ -28,6 +28,10 @@ const adminTerminalPage = read('../components/AdminTerminal/AdminTerminalPage.js
 const storageConnections = read('../components/settings/StorageConnections.jsx')
 const settingsPage = read('../components/SettingsPage.jsx')
 const fileManager = read('../tools/rabbit_v0.1.0/components/FileManager.jsx')
+// Session 41 — the Petal-cloud quota plane's two UI surfaces and the upload
+// classifier they share.
+const companiesSection = read('../admin/CompaniesSection.jsx')
+const uploadNotices = read('../tools/rabbit_v0.1.0/storage/uploadNotices.js')
 
 describe('main.cjs — one definition of the configured root, consulted everywhere', () => {
   it('resolveConfiguredRootDir is defined exactly once', () => {
@@ -119,6 +123,94 @@ describe('call sites — every export the feature added has a caller', () => {
       appJsx.indexOf('clearWorkspaceStorageCache()') + 200,
     )
     expect(effect).toContain('perms.workspaceId')
+  })
+
+  // ── Session 41: the Petal-cloud quota plane ───────────────────────────────
+  // Same reason as every pin above: NINE features have shipped or nearly
+  // shipped in this repo with no caller. Each export 0055's UI layer added gets
+  // one here.
+
+  it('the Admin Terminal storage card reads live usage, and NOT through the cache', () => {
+    expect(storageSection).toContain('fetchStorageUsage(')
+    // 🚨 getWorkspaceStorageCached is ONE module-level slot with no TTL,
+    // invalidated only on sign-out or a workspace switch. Correct for a storage
+    // CHOICE, wrong for a figure that moves on every upload — a usage bar served
+    // from it would freeze at its first reading for the whole session and look
+    // entirely healthy doing it.
+    expect(storageSection).not.toContain('getWorkspaceStorageCached')
+  })
+
+  it('the operator console reads plans and calls all four write actions', () => {
+    expect(companiesSection).toContain('listStoragePlans(')
+    expect(companiesSection).toContain('setStoragePlan(')
+    expect(companiesSection).toContain('setStoragePlanSuspended(')
+    expect(companiesSection).toContain('clearStoragePlan(')
+  })
+
+  it('the cloud upload path passes the plan into classifyUpload', () => {
+    expect(fileManager).toContain('fetchStorageUsage(')
+    expect(fileManager).toMatch(/classifyUpload\([^)]*storagePlan/s)
+    // ...and classifyUpload actually reads it, rather than accepting a dead
+    // option. The block arms are the executable form; asserting the option NAME
+    // alone would pass against a destructured parameter nothing consults.
+    expect(uploadNotices).toContain("code: 'over_quota'")
+    expect(uploadNotices).toContain("code: 'storage_suspended'")
+  })
+
+  // 🚨 AN ORDERING PIN, AND THE ONLY TEST IN THIS FILE THAT IS ONE.
+  //
+  // S40's close-out recorded that its worst defect — an `await` inserted ahead
+  // of `Array.from(fileList)`, which turned EVERY cloud upload into a silent
+  // no-op because the picker's `value = ''` empties that FileList object in
+  // place — was invisible to wiring tests "because they grep source text and
+  // this is an ORDERING property". That is half true: a source-text scanner
+  // cannot see execution order, but it CAN see the order of two statements in
+  // one function, which is exactly what this defect was.
+  //
+  // S41 added a SECOND await on that path (fetchStorageUsage). This asserts both
+  // reads still sit after the snapshot. It fails the moment someone hoists
+  // either one to the top "because it decides the ceiling" — which is precisely
+  // the reasoning that produced the S40 bug.
+  //
+  // ⚠️ THE FIRST TWO DRAFTS OF THIS TEST DID NOT FIRE, both for the same
+  // reason, and both were caught by running the S40 defect against it as a
+  // deliberate breaker rather than by reading it.
+  //
+  // The function this scans carries a long comment that QUOTES the very
+  // expressions being located — it has to, because it is explaining the bug.
+  // So `indexOf('Array.from(fileList)')` found prose sitting ABOVE the real
+  // statement, and a hoisted await compared as "after" it; moving to the
+  // executable `const incoming = ...` fixed that operand and the OTHER one
+  // then failed the same way, because the same comment says "S40 introduced an
+  // `await getWorkspaceStorageCached()` ahead of it".
+  //
+  // This is the house's standing trap in a new costume — S37's review shipped
+  // two `not.toContain` assertions that matched the comment explaining why the
+  // form was wrong. Chasing it operand by operand is a losing game, because any
+  // future comment can quote any form. Strip the prose instead.
+  //
+  // 🚨 ONE ALTERNATING PASS, BLOCK ALTERNATIVE FIRST. S39 lost 40 lines of real
+  // code to a stripper that ran block comments in a SEPARATE earlier pass: a
+  // LINE comment containing `/*` then opened a block that ate everything to the
+  // next `*/`. Alternation in a single pass cannot do that, because whichever
+  // marker appears first wins and consumes its own form.
+  const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, '')
+
+  it('every await on the cloud upload path stays AFTER the synchronous FileList snapshot', () => {
+    const start = fileManager.indexOf('const handleAddCloudFiles')
+    expect(start).toBeGreaterThan(-1)
+    // Slice generously BEFORE stripping — the comments in this function are
+    // longer than the code, so 6000 raw chars is roughly 2000 of statements.
+    const body = stripComments(fileManager.slice(start, start + 6000))
+    const snapshot = body.indexOf('Array.from(fileList)')
+    expect(snapshot).toBeGreaterThan(-1)
+    for (const call of ['getWorkspaceStorageCached(', 'fetchStorageUsage(']) {
+      const at = body.indexOf(call)
+      // A -1 here fails loudly rather than silently comparing -1 > snapshot,
+      // so an over-eager stripper reports itself instead of passing vacuously.
+      expect(at).toBeGreaterThan(-1)
+      expect(at).toBeGreaterThan(snapshot)
+    }
   })
 })
 

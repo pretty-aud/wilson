@@ -152,6 +152,14 @@ verify_jwt = false
 [functions.operator-models]
 verify_jwt = false
 
+# Session 41: the Petal-cloud storage plane's write path. Same operatorGuard,
+# same gateway opt-out rationale — the Edge gateway's built-in verify_jwt only
+# supports HS256 and rejects this project's ES256-signed JWTs BEFORE the
+# function body runs, so without this block the function 401s regardless of what
+# requirePlatformOperator would have decided.
+[functions.operator-storage-plans]
+verify_jwt = false
+
 # Session 37: S3-compatible storage (the first BYO provider). storage-presign
 # is the member-tier signing boundary (memberGuard + in-function project
 # predicate); storage-secret is the admin-tier secret store + config-time

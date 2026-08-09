@@ -92,11 +92,79 @@ export function extensionOfName(name) {
 export function classifyUpload(file, {
   workspaceProvider = WORKSPACE_PROVIDERS.PETAL,
   desktopDecoder = null, // true | false | null (unknown — the web knows nothing)
+  storagePlan = null,    // Session 41: {usedBytes, quotaBytes, status} | null (unknown)
 } = {}) {
   const notes = []
   const size = Number(file?.size) || 0
   const ext = extensionOfName(file?.name)
   const cap = uploadCapFor(workspaceProvider)
+
+  // ── Session 41: the Petal-cloud plan ──────────────────────────────────────
+  // 🚨 THIS IS A COURTESY, NOT THE ENFORCEMENT. The gate is the RESTRICTIVE
+  // policy petal_storage_quota_insert (migration 0055); a direct storage REST
+  // call bypasses every line of this file. What this buys is a sentence instead
+  // of a raw RLS error, and only on the one path that consults it.
+  //
+  // 🚨 IT TAKES AN ALREADY-LOADED FIGURE AND MUST NEVER FETCH ONE. S40 shipped
+  // exactly that defect: inserting `await getWorkspaceStorageCached()` ahead of
+  // `Array.from(fileList)` in handleAddCloudFiles moved the read into a
+  // microtask, and the picker's onChange does `handler(e.target.files);
+  // e.target.value = ''` — which empties that same FileList object IN PLACE.
+  // Every cloud upload became a silent no-op with no rows, no error and no
+  // console output. A quota read placed "first, because it decides the ceiling"
+  // is the identical shape.
+  //
+  // 🚨 PETAL ONLY. An s3 or network workspace's bodies never touch Petal
+  // storage, so "you are out of space" would be a false refusal there — the
+  // same mistake one layer up from the blanket "too large, use the desktop app"
+  // this file's header was written to prevent.
+  if (workspaceProvider === WORKSPACE_PROVIDERS.PETAL && storagePlan) {
+    if (storagePlan.status === 'suspended') {
+      return {
+        blocked: true,
+        code: 'storage_suspended',
+        message:
+          'This company’s Petal cloud storage is not active, so new files cannot be added. ' +
+          'Contact Petal to activate it.',
+        notes,
+      }
+    }
+    // ⚠️ MIRRORS THE SERVER PREDICATE EXACTLY — `used < quota`, and deliberately
+    // NOT `used + size > quota`. The policy does not weigh the incoming file, so
+    // a workspace just under its ceiling IS allowed one more object (overshoot
+    // is bounded by the bucket's own 50 MB per-object cap). Blocking on
+    // used+size here would refuse uploads the server would have accepted, which
+    // is the failure this file's own header calls worse than the limitation.
+    const used = Number(storagePlan.usedBytes)
+    const quota = Number(storagePlan.quotaBytes)
+    if (Number.isFinite(used) && Number.isFinite(quota) && quota > 0 && used >= quota) {
+      // 🚨 DO NOT TELL THEM TO DELETE FILES. The obvious sentence — "remove some
+      // files, or contact Petal" — offers a remedy that CANNOT WORK, which is
+      // worse than offering none. A cloud delete is SOFT (0014): the `files` row
+      // is trashed and the object stays in the bucket, and storage-gc refuses to
+      // drain a trashed row for 30 days. The meter reads storage.objects, so
+      // deleting everything in the project changes the number by zero and the
+      // uploads stay refused. Someone following that advice would delete real
+      // work and still be stuck. Found by this session's own review.
+      return {
+        blocked: true,
+        code: 'over_quota',
+        message:
+          `This company has used all ${formatBytes(quota)} of its Petal cloud storage. ` +
+          'Contact Petal to raise the plan — deleting files does not free space ' +
+          'straight away, because deleted files stay recoverable for 30 days.',
+        notes,
+      }
+    }
+    // ⚠️ DELIBERATELY NO "you are nearly full" NOTE HERE. Quota is a WORKSPACE
+    // fact, not a file fact, so a per-row note would repeat identically on all
+    // thirty rows of a batch — the noise this file's header exists to prevent
+    // ("thirty clips must not mean thirty dialogs"). The two branches above earn
+    // their repetition by being the reason nothing uploaded. Approaching-full
+    // belongs on the Admin Terminal's storage card, where it is said once.
+  }
+  // A null storagePlan says the figure could not be read, and that must not
+  // block anything — the server is the authority and will refuse if it must.
 
   if (cap !== null && size > cap) {
     return {

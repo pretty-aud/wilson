@@ -472,8 +472,8 @@ below are superseded; only one of them actually moves.
 | **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
 | **S44** ✅ | **DONE (2026-08-08)** — **a thumbnail lives where its source lives.** 0054 on all three envs: `storage_gc_queue.kind`, the enqueue routed to the body's store, `putThumbnailTo`/`removeThumbnailFrom`, the teardown pin + `byo_thumbnails_left`, `STORAGE_PRESIGN_RPM` 120→240. pgTAP suite 64; outcome block below. ⚠️ **Browser DISPLAY for s3 rows was deliberately deferred by Audrey** — no batch presign exists and no S3 workspace exists anywhere to verify one against; generation shipped because it is the one-way door. Tracked in `OUTSTANDING.md` | 1 | **S39** | `SESSION_44_prompt.md` |
 | **S40** ✅ | **DONE (2026-08-09)** — **video preview + video still-frames, with NO migration.** The Range-capable `managed-files/:id/stream` route (the first WILSON-mediated managed-file read, so AS-2.9 lands here — throttled, because a `<video>` issues one request per seek); `generateVideoThumbnail` as a SEPARATE entry point (`canThumbnail` still refuses video, and two guard tests still pin that); the cloud upload branching to it; `VideoPreview`; `getUrl` as an **optional** registry function; ffmpeg out-of-process with electron-**builder** packaging, **proven by staging a binary through `npm run dist`**; §5f's provider-keyed notices. Migrations stay 0000–0054, pgTAP stays 64 suites. Outcome block below | 1 | **S39**, **S44** ✅ | `SESSION_40_prompt.md` |
-| **S41** ⬅️ **NEXT** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
-| **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
+| **S41** ✅ | **DONE (2026-08-09)** — **Petal cloud is a paid, operator-managed product.** 0055 **and** 0056 on all three envs: `workspace_storage_plans` (0031's shape — one member-read policy, ZERO write policies), `petal_storage_quota_insert` as the schema's **first `AS RESTRICTIVE` policy**, the meter reading `storage.objects.metadata->>'size'`, `operator-storage-plans`, the operator console's storage panel and the Admin Terminal's plan card. pgTAP suite 65 (40 assertions, **11 breakers**); outcome block below | 1 | — | `SESSION_41_prompt.md` |
+| **S42** ⬅️ **NEXT** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | ~~S41~~ ✅ **UNBLOCKED** — the quota plane exists, so raising the cap no longer creates an unmetered multi-GB free tier. ⚠️ Its brief carries five S41 facts that land on its surface | `SESSION_42_prompt.md` |
 | **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
 | **S38** ⏸️ | **Google Drive — MOVED TO LAST, OUT OF THE FIRST BUILD** (Audrey, 2026-08-08: *"lets set google drive for a later date. lets forego it for the first build. lets move that session to last."*). Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. **Nothing was built; the brief is untouched and correct**, and S37's corrections to it are already in. 🚨 **The NUMBER stays 38 deliberately — see the ledger.** | 1–2 | ⏳ **`OWED_AUDREY.md` §13 with Google** (calendar, outside Petal) — and note S37's research found this is **brand verification only, NOT mandatory app verification**, since `drive.file` is non-sensitive | `SESSION_38_prompt.md` |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
@@ -1238,6 +1238,100 @@ below are superseded; only one of them actually moves.
 > writers are desktop-only); the §4c five-minute check — does Audrey's
 > NAS's remote-access mode preserve the UNC form? — is **STILL OWED**
 > before remote work is promised to a customer.
+>
+> ### S41 outcome — Petal cloud is a product, not a default (2026-08-09)
+>
+> Migrations **0055** and **0056** applied and verified **by query** on dev,
+> staging and prod; CLI re-linked to wilson-dev. pgTAP suite **65**: 40
+> assertions, proven by **eleven breakers**, each run TWICE — once with the
+> post-conditions in place and once with them stripped, because a post-condition
+> that fires can hide a suite that would not have noticed and a replay against an
+> applied database skips post-conditions entirely. **B3, B5 and B7 were caught by
+> the SUITE ALONE; B1, B2, B4, B6, B10 by BOTH.** Vitest **1363 / 56 files**;
+> pgTAP **65 suites / 1150 assertions**.
+>
+> **What shipped:** `workspace_storage_plans` on the 0031 precedent (one
+> member-read policy, ZERO write policies — the absence IS the mechanism);
+> `petal_storage_quota_insert`, the schema's first `AS RESTRICTIVE` policy;
+> `workspace_petal_bytes` / `rabbit_petal_storage_ok` / `rabbit_quota_exempt_path`
+> / `workspace_storage_usage` / `operator_storage_plan_summary`; the
+> `operator-storage-plans` Edge Function with its own rate-limit bucket; the
+> operator console's Storage column and per-company plan panel; the Admin
+> Terminal's central-mode plan card; a quota arm in `classifyUpload` wired
+> through `handleAddCloudFiles`; and four `platform_audit` actions.
+>
+> 🚨 **THE FINDING OF THE SESSION IS THAT THE WRONG KEYWORD HERE DOES NOT MERELY
+> FAIL TO METER — IT RE-OPENS THE INVOICE HOLE.** Breaker B1 dropped
+> `AS RESTRICTIVE`, predicting the quota would stop binding. What actually
+> happened is worse: as a ninth PERMISSIVE arm the policy's own money EXEMPTION
+> ORs in and **GRANTS** a write `rabbit_files_money_insert` was refusing, so a
+> plain member could write into the money segment. Suite 65 probe 30 — written as
+> half of a composition pair, and predicted to be unaffected — went green to red.
+> The migration header's original argument ("a permissive policy would enforce
+> nothing") was too kind, and is corrected in place.
+>
+> **Three measurements that changed the design, none of which was reasoning:**
+> **(a)** `files.size_bytes` could not be the meter — staging holds ONE object in
+> `rabbit-files` (a 2,959-byte manifest) and **ZERO rows** in `public.files`, so a
+> files-derived total reads 0 while real bytes sit in the bucket; the meter reads
+> `storage.objects.metadata->>'size'`, whose shape was confirmed on staging before
+> anything depended on it, and which **nothing in this repo had ever read**.
+> **(b)** `postgres` has `BYPASSRLS`, so the DEFINER functions see all rows — and
+> `service_role` does too, so the restrictive policy does not touch `storage-gc`
+> or teardown. **(c)** All three environments carried the identical 15-value
+> action CHECK, which settled a question the docs contradicted three ways: **0031
+> IS applied to prod.**
+>
+> 🚨 **The pre-push adversarial review earned its keep for the EIGHTH session
+> running: 27 findings raised, 12 verified, 7 confirmed + 1 from the completeness
+> critic — against code already green on 1351 vitest, 65/65 pgTAP and 12 breakers.**
+> The critic's finding is the one worth remembering: **both new over-quota
+> messages told the user to delete files, and that remedy CANNOT WORK** — a cloud
+> delete is soft (0014), `storage-gc` holds a trashed row for 30 days, and the
+> meter reads `storage.objects`, so someone following the advice would delete real
+> work and watch the number not move. Confirmed and fixed: a cross-tenant RPC
+> (`workspace_petal_bytes` granted to `authenticated` — no caller ever needed it,
+> closed by 0056); a failed plan read rendered as "on the free allowance already"
+> beside its own "this is unknown" banner; `read_failed` telling a storage
+> operator the MODEL CATALOGUE could not be read; a batch that crosses the ceiling
+> getting the raw RLS string; and the quota arms having no behavioural coverage.
+> **Five findings were correctly REFUTED**, including the one that worried this
+> session most — a verifier read storage-api's source and showed `x-upsert: true`
+> still tests the INSERT permission, so the gate is not bypassable that way.
+>
+> ⚠️ **Two mistakes this session made in its own tests, both caught by breakers
+> rather than by reading, and both the same trap.** The new ordering pin — written
+> to catch S40's FileList defect — **did not fire**, because it anchored on the
+> bare phrase `Array.from(fileList)`, which appears in the COMMENT above the
+> statement (that comment quotes the expression while explaining the bug). Moving
+> to the executable form fixed one operand and the other failed identically, since
+> the same comment says "S40 introduced an `await getWorkspaceStorageCached()`".
+> **Chasing prose operand by operand is a losing game — strip the comments.** The
+> pin now does, in one alternating pass with the block alternative first.
+>
+> ⭐ **Two pre-existing defects were found by new guards rather than by looking.**
+> `platformAuditActions.test.js` — written because the action vocabulary lives in
+> three places kept in step only by comments, and S41 had just missed one of them
+> — found on its FIRST RUN that `operator.granted` / `operator.revoked` have been
+> in the CHECK since S15 and never in the console's filter. And suite 65's
+> thumbnail probe exists because the review noticed the EXCLUSION had a probe and
+> the INCLUSION did not: dropping `rabbit-thumbnails` from the meter left the
+> suite at 38/38 and every post-condition green.
+>
+> **Stated limits, deliberate and recorded rather than hidden:** the gate is
+> `rabbit-files` INSERT only (thumbnails are derived and 256 KB-capped; avatars
+> are metered by nothing and gated by nothing); the predicate is `used < quota`
+> and does not weigh the incoming object, so a workspace may overshoot by one file
+> — bounded today by the 50 MB cap and **S42's to revisit**; money paths and the
+> manifest are exempt from the gate while still being metered, so invoice traffic
+> can push a company over a ceiling it cannot then come back under; and
+> `operator_storage_plan_summary()` runs one unindexable two-bucket scan per
+> company on the console's default screen.
+>
+> ⏳ **NOT YET WATCHED WORKING.** Nothing in this repo signs in as an operator.
+> Every layer is green and every arm is breaker-proven, but no human has set a
+> quota in the console and watched an upload be refused. **Audrey's checklist is
+> in the S41 close-out chat message.**
 >
 > ### S34 outcome — the root lives with the workspace (2026-08-07)
 >

@@ -41,7 +41,7 @@ import { fileSlugify } from '../entityNaming'
 // refusal for exactly the customers already paying for their own storage.
 import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
 import { activeWorkspaceProvider } from '../storage'
-import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage'
+import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
 
@@ -340,18 +340,66 @@ export default function FileManager({
         provider = activeWorkspaceProvider(await getWorkspaceStorageCached())
       } catch { provider = null }
 
+      // Session 41: the Petal-cloud plan, so an over-quota or suspended company
+      // gets a sentence instead of a raw RLS error.
+      //
+      // ⚠️ BOTH OF THESE AWAITS ARE SAFE ONLY BECAUSE THEY ARE HERE — after
+      // `const incoming = Array.from(fileList)` above, which is the line whose
+      // POSITION is the whole feature. Read that comment before moving either.
+      //
+      // 🚨 A FAILED READ MUST NOT INVENT A REFUSAL, for the same reason as the
+      // provider read: fetchStorageUsage returns null rather than throwing, and
+      // classifyUpload treats null as "say nothing". The restrictive policy is
+      // the authority and will refuse if it must — refusing HERE on the strength
+      // of a query that did not answer would block uploads the server would
+      // have taken.
+      let storagePlan = null
+      try {
+        storagePlan = await fetchStorageUsage()
+      } catch { storagePlan = null }
+
       const refused = []
       const queued = []
       const notices = []
+      // 🚨 THE PLAN FIGURE IS READ ONCE; THE POLICY RE-EVALUATES ON EVERY INSERT.
+      // So a batch that CROSSES the ceiling is refused by the server for its
+      // tail, while a loop judging every file against the snapshot taken before
+      // the first upload blocks nothing — and the user gets exactly the raw RLS
+      // string this feature exists to replace. Project this batch's own bytes
+      // forward as we go.
+      //
+      // ⚠️ STILL NOT `used + size` FOR THE FILE BEING JUDGED. The server does
+      // not weigh the incoming object (`used < quota`), so counting it would
+      // refuse uploads the server would have taken. Only bytes this batch has
+      // already committed AHEAD of this file are added. The projection also
+      // ignores the derived thumbnail bytes that workspace_petal_bytes does
+      // meter, so it fires slightly LATE rather than early — deliberately, on
+      // the same rule.
+      let planCursor = storagePlan
       for (const file of incoming) {
         if (!provider) { queued.push(file); continue }
-        const verdict = classifyUpload(file, { workspaceProvider: provider, desktopDecoder })
+        const verdict = classifyUpload(file, {
+          workspaceProvider: provider, desktopDecoder, storagePlan: planCursor,
+        })
         // 🚨 ONLY `blocked` STOPS ANYTHING. The other notes ride along with a
         // file that uploads perfectly well — a warning that prevents a working
         // action is worse than the limitation it warns about.
-        if (verdict.blocked) { refused.push(verdict.message); continue }
+        if (verdict.blocked) {
+          // A quota refusal names no file, so without this a thirty-clip batch
+          // adds thirty identical sentences to the dialog — the noise
+          // uploadNotices' own header exists to prevent. A `too_large` message
+          // DOES name its file, so those still list individually.
+          if (!refused.includes(verdict.message)) refused.push(verdict.message)
+          continue
+        }
         notices.push(...verdict.notes.filter(n => n.code === 'slow'))
         queued.push(file)
+        if (planCursor) {
+          planCursor = {
+            ...planCursor,
+            usedBytes: planCursor.usedBytes + (Number(file?.size) || 0),
+          }
+        }
       }
       if (refused.length) setRefusedFiles(refused)
 

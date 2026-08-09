@@ -427,6 +427,72 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     expect(v.notes.map(n => n.code)).toContain('slow')
   })
 
+  // ── Session 41: the Petal-cloud plan arms ────────────────────────────────
+  // These EXECUTE the predicate. The wiring pin in workspaceRootWiring.test.js
+  // only greps for the string literals `over_quota` / `storage_suspended`,
+  // which survive an INVERTED comparison untouched — so without these five the
+  // arms had no behavioural coverage at all (found by this session's review).
+  const GIB = 1024 ** 3
+  const plan = (used, quota = GIB, status = 'active') =>
+    ({ usedBytes: used, quotaBytes: quota, status })
+
+  it('a suspended plan blocks, whatever the usage', () => {
+    const v = classifyUpload(big(2), {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(0, GIB, 'suspended'),
+    })
+    expect(v.blocked).toBe(true)
+    expect(v.code).toBe('storage_suspended')
+  })
+
+  // 🚨 THE BOUNDARY THE SOURCE COMMENT CLAIMS MIRRORS THE SERVER.
+  // rabbit_petal_storage_ok is `used < quota`, so AT the ceiling the next
+  // upload is already refused. Written as `used > quota` this case silently
+  // passes and the client waves through an upload the server will reject.
+  it('used === quota blocks — the server predicate is strict `<`', () => {
+    const v = classifyUpload(big(1), {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB),
+    })
+    expect(v.blocked).toBe(true)
+    expect(v.code).toBe('over_quota')
+  })
+
+  // 🚨 AND THE FALSE-REFUSAL THE SOURCE DELIBERATELY AVOIDS. The server does
+  // NOT weigh the incoming object, so a workspace just under its ceiling IS
+  // allowed one more. Written as `used + size > quota` this would block, and
+  // the client would refuse an upload the server would have taken — the exact
+  // failure uploadNotices' own header calls worse than the limitation.
+  it('just under the ceiling does NOT block, even for a file that will cross it', () => {
+    const v = classifyUpload(big(30), {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB - 1024),
+    })
+    expect(v.blocked).toBe(false)
+  })
+
+  it('🚨 an s3 workspace is never quota-blocked — its bodies never touch Petal', () => {
+    const v = classifyUpload(big(2), {
+      workspaceProvider: WORKSPACE_PROVIDERS.S3, storagePlan: plan(GIB, GIB, 'suspended'),
+    })
+    expect(v.blocked).toBe(false)
+  })
+
+  it('a null plan invents no refusal — a failed read must not block', () => {
+    const v = classifyUpload(big(2), {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: null,
+    })
+    expect(v.blocked).toBe(false)
+  })
+
+  it('the over-quota sentence does NOT tell anyone to delete files', () => {
+    // A cloud delete is soft and storage-gc holds a trashed row for 30 days, so
+    // "remove some files" is a remedy that cannot work. Asserting the EXECUTABLE
+    // message rather than a comment about it (the 0038 trap).
+    const v = classifyUpload(big(1), {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB),
+    })
+    expect(v.message).not.toMatch(/remove some files/i)
+    expect(v.message).toMatch(/30 days/)
+  })
+
   it('the slow band is scaled to the provider, not a fixed number', () => {
     // On petal 30 MB is worth mentioning; on s3, where the ceiling is 5 GB, it
     // is unremarkable and a note there would be noise.
@@ -878,7 +944,15 @@ describe('wiring: generation and playback reach the screen', () => {
   it('FileManager mounts the player and gates the size on the ACTIVE PROVIDER', () => {
     expect(manager).toMatch(/<VideoPreview/)
     expect(manager).toMatch(/activeWorkspaceProvider\(await getWorkspaceStorageCached\(\)\)/)
-    expect(manager).toMatch(/classifyUpload\(file, \{ workspaceProvider: provider/)
+    // ⚠️ WHITESPACE-TOLERANT SINCE S41, and the claim is unchanged. This was
+    // `/classifyUpload\(file, \{ workspaceProvider: provider/` — one line,
+    // exactly — and S41 wrapped the call across three lines when it added the
+    // storagePlan argument. The pin went red for a formatting change while the
+    // property it exists to protect (the provider is the VARIABLE, never a
+    // constant — the whole point of the S37 correction) was never in doubt.
+    // A pin that breaks on reformatting trains people to relax it; the bounded
+    // `{0,120}` keeps it from relaxing into "mentions the word somewhere".
+    expect(manager).toMatch(/classifyUpload\(file, \{[\s\S]{0,120}?workspaceProvider: provider\b/)
   })
 
   it('🚨 only `blocked` skips an upload — the other notes ride along', () => {

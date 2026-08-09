@@ -40,6 +40,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Cloud, Server, HardDrive, FolderOpen, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import {
   fetchWorkspaceStorage, saveWorkspaceStorage, countFilesAtProvider,
+  fetchStorageUsage, formatBytes,
 } from '../../cloud/workspaceStorage'
 // Session 37: the S3-compatible provider's admin surface — secret store and
 // the two-half probe (server round trip + this app's own CORS-checking half).
@@ -137,6 +138,17 @@ export default function StorageSection({ isActive, workspaceId }) {
   const [testResult, setTestResult] = useState(null)
   // Bodies still at the bucket, for the switch warning. null = not counted.
   const [s3FileCount, setS3FileCount] = useState(null)
+
+  // ── Session 41: the Petal-cloud plan card's state ─────────────────────────
+  // THREE states, never two, and they are held in a phase string rather than
+  // inferred from `usage === null` — because "not read yet" and "could not be
+  // read" are the same null and must not render the same way. A reading that
+  // fell back to zeros would paint an empty bar and tell a company sitting at
+  // its ceiling that it has all its room left; that is the house's named
+  // defect ("'0 files affected' on the strength of a failed query"), with
+  // money attached. Same rule as secretStatusError and s3FileCount above.
+  const [usage, setUsage] = useState(null)              // reading, or null
+  const [usagePhase, setUsagePhase] = useState('loading') // loading|error|ready
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -236,6 +248,67 @@ export default function StorageSection({ isActive, workspaceId }) {
     })
     return () => { cancelled = true }
   }, [isActive, mode, row?.provider])
+
+  // ── Session 41: how much of the Petal-cloud allowance is used ─────────────
+  // Its OWN sequence counter, not seqRef: the plan reading and the storage row
+  // are two independent fetches, and sharing one counter would let a Retry of
+  // the row silently discard an in-flight usage response (and the reverse).
+  // mountedRef IS shared, deliberately — there is exactly one mount to track,
+  // and a second flag tracking the same thing is a second thing to get wrong.
+  const usageSeqRef = useRef(0)
+
+  function loadUsage() {
+    const seq = ++usageSeqRef.current
+    setUsagePhase('loading')
+    // 🚨 fetchStorageUsage, and NEVER the cached workspace-storage reader that
+    // sits beside it in the same module. That cache is ONE module-level slot
+    // with no TTL, cleared only on sign-out or a workspace switch — correct
+    // for a storage CHOICE, wrong for a figure that moves on every upload.
+    // Through it the bar would freeze at its first reading for the whole
+    // session and look entirely healthy doing it.
+    //
+    // 🚨 The rule is PINNED by a source-text assertion in
+    // src/lib/workspaceRootWiring.test.js that greps this file for the cached
+    // getter's BARE NAME — so naming it here, even to forbid it, fails the
+    // suite. That is the house's own 0038 trap (a not.toContain matching the
+    // comment that explains why the form is wrong); the fix is to describe it,
+    // not to relax the assertion.
+    fetchStorageUsage()
+      .then(data => {
+        if (!mountedRef.current || seq !== usageSeqRef.current) return
+        // fetchStorageUsage RESOLVES null for a refused or broken read rather
+        // than throwing, so null is the error branch — not an empty workspace.
+        if (!data) { setUsage(null); setUsagePhase('error'); return }
+        setUsage(data)
+        setUsagePhase('ready')
+      })
+      .catch(() => {
+        if (!mountedRef.current || seq !== usageSeqRef.current) return
+        setUsage(null)
+        setUsagePhase('error')
+      })
+  }
+
+  // Gated on mode as well as isActive so a byos workspace does not pay for a
+  // reading nothing renders. `mode` is 'central' before the row settles, which
+  // is what we want: the card is on screen from the first paint, so it fetches
+  // from the first paint too.
+  useEffect(() => {
+    if (!isActive || mode !== 'central') return
+    loadUsage()
+  }, [isActive, mode]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A quota of zero cannot happen through 0055 (the CHECK is quota_bytes > 0
+  // and the free tier resolves server-side), so if one ever arrives it means
+  // the reading is wrong — treat it as unknown rather than dividing by it.
+  const quotaKnown = usagePhase === 'ready' && usage && usage.quotaBytes > 0
+  const usagePct = quotaKnown
+    ? Math.min(100, (usage.usedBytes / usage.quotaBytes) * 100)
+    : null
+  // `>=`, matching rabbit_petal_storage_ok's strict `<`: AT the ceiling the
+  // next upload is already refused, so the warning has to appear there too.
+  const atCeiling = quotaKnown && usage.usedBytes >= usage.quotaBytes
+  const suspended = usagePhase === 'ready' && usage?.status === 'suspended'
 
   async function applyPatch(patch) {
     if (saving) return null
@@ -566,6 +639,163 @@ export default function StorageSection({ isActive, workspaceId }) {
           })}
         </div>
       </div>
+
+      {/* ── Petal-cloud plan (central only, S41) ─────────────────────────
+          The company-facing half of the plan: what the allowance is, how much
+          of it is gone, and — when the plan is not active — what to do about
+          it. Audrey, 2026-08-07: Petal cloud is "visible but inert" for a
+          company that has not paid, so every word here is an INVITATION, never
+          an error. Nothing on this card writes; the operator's half lives in
+          the operator terminal.
+
+          🚨 SUPPRESSED UNDER loadError. `mode` falls back to 'central' when
+          the row could not be read (row === null), so without this arm a
+          company on its own NAS would be shown a Petal-cloud plan and a Petal
+          usage figure that says nothing about its storage. An unreadable row
+          means the mode is UNKNOWN, and the red banner above already says so. */}
+      {mode === 'central' && !loadError && (
+        <div className="p-4 rounded-sm mb-3" style={cardStyle}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#57534e' }}>
+            Petal cloud plan
+          </h3>
+
+          {usagePhase === 'loading' && (
+            <p className="text-[11px] leading-relaxed" style={{ color: '#78716c' }}>
+              Reading how much storage this company is using&hellip;
+            </p>
+          )}
+
+          {/* The failed read. It says the figure is UNKNOWN and draws no bar at
+              all — an empty bar here would be a confident false statement. It
+              is not styled as a refusal (red is this file's colour for "a save
+              was refused" / "writes are disabled"): nothing is broken and
+              nothing is blocked, the number just could not be taken. Same
+              treatment as the secret-status check above, for the same reason. */}
+          {usagePhase === 'error' && (
+            <div>
+              <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#9a3412' }}>
+                This company&rsquo;s storage usage could not be read just now,
+                so the figure is unknown. Nothing about the plan has changed —
+                try again in a moment.
+              </p>
+              <button type="button" onClick={loadUsage} className={darkBtnClass} style={darkBtnStyle}>
+                Retry
+              </button>
+            </div>
+          )}
+
+          {usagePhase === 'ready' && usage && (
+            <>
+              <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#57534e' }}>
+                <span className="font-mono" style={{ color: '#1c1917' }}>
+                  {formatBytes(usage.usedBytes)}
+                </span>
+                {' '}of{' '}
+                <span className="font-mono" style={{ color: '#1c1917' }}>
+                  {quotaKnown ? formatBytes(usage.quotaBytes) : '—'}
+                </span>
+                {' '}used
+                {/* Counts media AND the previews generated from it (0055 sums
+                    rabbit-files + rabbit-thumbnails), so saying "files" alone
+                    would leave an admin unable to reconcile the number with
+                    what the file manager shows. */}
+                <span style={{ color: '#78716c' }}> — files and their previews.</span>
+              </p>
+
+              {/* The bar renders ONLY on a known quota. quotaKnown is false for
+                  a zero or missing ceiling, and a bar drawn against one would
+                  be either a divide-by-zero or a 0% reassurance. */}
+              {quotaKnown && (
+                <div
+                  className="h-1.5 rounded-sm overflow-hidden mb-2"
+                  style={{ backgroundColor: 'rgba(120, 70, 30, 0.3)' }}
+                  role="progressbar"
+                  aria-valuenow={Math.round(usagePct)}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                >
+                  <div
+                    className="h-full"
+                    style={{
+                      width: `${usagePct}%`,
+                      // The file's own two tokens: the active accent normally,
+                      // and the warning brown once uploads are being refused.
+                      backgroundColor: (atCeiling || suspended) ? '#9a3412' : '#ea580c',
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* No plan row = the free tier (0055: ABSENCE of a row is the
+                  1 GiB allowance, which is why this reads off has_plan and not
+                  off a quota comparison). Deliberately plain text in the body
+                  colour, not a warning: a company on the free tier has done
+                  nothing wrong. */}
+              {!usage.hasPlan && !suspended && (
+                <p className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                  Free allowance — contact Petal to activate a larger plan.
+                </p>
+              )}
+              {usage.hasPlan && !suspended && (
+                <p className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                  Plan active — Petal manages this allowance. Contact Petal to
+                  change it.
+                </p>
+              )}
+
+              {/* Suspended: 0055's gate is `status = 'active' AND under quota`,
+                  so a suspended plan refuses new uploads whatever the bar says.
+                  Shown INSTEAD of the ceiling warning below, because they are
+                  one refusal with two causes and two boxes saying "uploads are
+                  refused" reads as two separate faults. */}
+              {suspended && (
+                <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
+                     style={{ backgroundColor: 'rgba(234, 88, 12, 0.10)', color: '#9a3412' }}>
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    This company&rsquo;s Petal storage is not active yet, so new
+                    files are not being accepted. Everything already stored still
+                    opens and downloads, and invoices, other finance files and
+                    the project manifest still save. Contact Petal to activate it.
+                  </span>
+                </div>
+              )}
+
+              {/* 🚨 WORDED TO BE TRUE, NOT TO BE ALARMING. 0055's restrictive
+                  policy is FOR INSERT on `rabbit-files` ONLY, and it exempts
+                  rabbit_quota_exempt_path — INVOICES/, FINANCE/ and
+                  projects/<id>/PROJECT.json. So reads, downloads and deletes
+                  are untouched, and the paperwork a company bills Petal with
+                  keeps saving. Promising a total lockout would send an admin
+                  hunting for a fault that is not there — and would be the
+                  reason they never send the invoice that pays for the bigger
+                  plan. */}
+              {atCeiling && !suspended && (
+                <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
+                     style={{ backgroundColor: 'rgba(234, 88, 12, 0.10)', color: '#9a3412' }}>
+                  <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  {/* 🚨 "until some are removed" WAS HERE AND WAS A NO-OP, found
+                      by this session's own review. A cloud delete is SOFT
+                      (0014): the files row is trashed, the OBJECT stays in the
+                      bucket, and storage-gc refuses to drain a trashed row for
+                      30 days. The meter reads storage.objects, so an admin who
+                      followed that advice would delete real work and watch the
+                      number not move. Offering a remedy that cannot work is
+                      worse than offering none. */}
+                  <span>
+                    This company has used all of its Petal storage, so new files
+                    are not being accepted until the plan is raised. Everything
+                    already stored still opens and downloads, and invoices, other
+                    finance files and the project manifest still save. Deleting
+                    files does not free space straight away — deleted files stay
+                    recoverable for 30 days.
+                  </span>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* ── Provider picker (byos only, S37) ─────────────────────────── */}
       {mode === 'byos' && (

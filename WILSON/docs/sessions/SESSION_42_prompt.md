@@ -1,16 +1,44 @@
 # SESSION 42 launch prompt — MULTI-GB FILES IN CLOUD MODE
 
 > **Unit 2b** of `docs/NETWORK_STORAGE_DESIGN.md` (§3.6 Path 2, §4a2, §4a3).
-> 🚨 **BLOCKED BY S41** (the quota plane). ⚠️ This brief has been renumbered
-> twice — the master plan's renumbering ledger is the record; its sequence
-> table is the authority. S41 builds the operator-managed storage plans and
-> quota enforcement — raising the 50 MB cap before the quota plane exists
-> would turn an unmetered free tier into an unmetered MULTI-GIGABYTE free
-> tier. Independent of the network-storage chain and of thumbnails
-> otherwise; run S41 then this whenever cloud customers are the nearer need.
+> ✅ **UNBLOCKED — S41 SHIPPED (2026-08-09).** The quota plane exists: migration
+> 0055 on all three envs, `petal_storage_quota_insert` (the schema's first
+> RESTRICTIVE policy) refusing over-quota and suspended uploads, and the
+> operator console owning plans. Raising the cap no longer turns an unmetered
+> free tier into an unmetered MULTI-GIGABYTE one. ⚠️ This brief has been
+> renumbered twice — the master plan's renumbering ledger is the record; its
+> sequence table is the authority.
 
-> **STATE — re-measure.** Confirm the next free migration number, suite count,
-> vitest counts and HEAD from the working tree.
+> **STATE — re-measure, do not trust this block.** After **S41** (2026-08-09):
+> migrations **0000–0055** on all three envs, next free **0056**. pgTAP **65
+> suites**, next free suite **66**. Vitest **1357 / 56 files**.
+> 🚨 **Read the working tree, never memory or a doc.**
+>
+> 🚨 **FIVE THINGS S41 LEAVES THAT LAND DIRECTLY ON S42's SURFACE:**
+>
+> 1. **The quota is enforced on INSERT into `storage.objects` only.** If
+>    resumable/multipart upload lands rows any other way — a different bucket,
+>    an UPDATE-shaped upsert, or a server-side copy — it is OUTSIDE the gate.
+>    **Check which SQL verb your upload path actually produces before assuming
+>    the quota still binds**, and extend `petal_storage_quota_insert` (or add
+>    its sibling) rather than discovering it in production.
+> 2. **`PETAL_MAX_UPLOAD_BYTES` in `storage/uploadNotices.js` MIRRORS the
+>    bucket's `file_size_limit` (0027).** Raising one without the other makes
+>    the client refuse what Storage would take, or promise what it will not.
+> 3. **The overshoot argument is currently bounded by that same 50 MB cap.**
+>    `rabbit_petal_storage_ok` tests `used < quota` and does NOT weigh the
+>    incoming file, so a workspace one byte under its ceiling may still add one
+>    object. That is deliberate and stated — but at 50 MB the overshoot is
+>    trivial and **at multi-GB it is not**. Decide explicitly whether S42 keeps
+>    that shape or starts weighing the body.
+> 4. **`classifyUpload` now takes a `storagePlan` and blocks on
+>    `used >= quota`, mirroring the server predicate exactly.** If S42 changes
+>    the server predicate, change this in the same commit — a client that
+>    refuses what the server allows is a false refusal.
+> 5. 🚨 **`handleAddCloudFiles` now carries TWO awaits, and both must stay after
+>    `const incoming = Array.from(fileList)`.** `workspaceRootWiring.test.js`
+>    pins that ordering now (it did not in S40, which is how that defect
+>    shipped) — but the pin only knows about those two calls by name.
 
 
 ## Start ritual (before touching anything)

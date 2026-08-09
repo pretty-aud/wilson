@@ -92,6 +92,56 @@ export async function countFilesAtProvider(provider) {
   return count ?? 0
 }
 
+// ── Session 41: the Petal-cloud plan and how much of it is used ─────────────
+// Returns { usedBytes, quotaBytes, status, hasPlan }, or null when the figure
+// cannot be taken — and the caller MUST render null as UNKNOWN, never as zero.
+// countFilesAtProvider above states the rule and it is worse here: a usage bar
+// reading 0% because the query failed is the same defect with money attached.
+//
+// 🚨 IT DOES NOT GO THROUGH getWorkspaceStorageCached, AND IT MUST NOT. That
+// cache is ONE module-level slot with no TTL, invalidated only on sign-out or a
+// workspace switch — deliberate for a storage CHOICE, wrong for a figure that
+// moves on every upload. A cached usage bar would freeze at its first reading
+// for the whole session.
+//
+// 🚨 IT IS AN RPC, NOT A SELECT ON workspace_storage_plans, for two reasons.
+// The plan table has no row at all for a company on the free tier, so a select
+// cannot distinguish "free tier" from "read refused" — both are zero rows
+// (0033 measured 17 of 25 tables denying exactly that silently). And usage
+// itself must be computed SECURITY DEFINER: under invoker rights the sum sees
+// only objects the caller's own policies admit, so a plain member would compute
+// a smaller total than a manager for the same workspace.
+export async function fetchStorageUsage() {
+  const { data, error } = await supabase.rpc('workspace_storage_usage')
+  if (error) return null
+  const row = Array.isArray(data) ? data[0] : data
+  if (!row) return null
+  return {
+    // Postgres bigint arrives as a string through PostgREST when it exceeds the
+    // safe-integer range. Number() is correct at these magnitudes (100 TiB is
+    // ~1.1e14, well inside 2^53) but the coercion has to be explicit or the
+    // percentage arithmetic below silently concatenates strings.
+    usedBytes: Number(row.used_bytes ?? 0),
+    quotaBytes: Number(row.quota_bytes ?? 0),
+    status: row.status ?? 'active',
+    hasPlan: !!row.has_plan,
+  }
+}
+
+// Bytes → a short human string. Lives here rather than in either component
+// because BOTH terminals render the same figures and two roundings of the same
+// number, side by side, read as a bug.
+export function formatBytes(n) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return '—'
+  const b = Number(n)
+  if (b < 1024) return `${b} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = b / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1 }
+  return `${v >= 10 || Number.isInteger(v) ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}
+
 // Create or patch the row. `exists` comes from the caller's loaded state:
 // updates PATCH only the named columns (two admins changing two different
 // settings must not clobber each other — the §5b rule the legacy JSONB blob

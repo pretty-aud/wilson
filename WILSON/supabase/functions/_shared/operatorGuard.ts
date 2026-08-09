@@ -158,6 +158,17 @@ export type PlatformAuditFields = {
     | 'model.restored'
     | 'model.default_set'
     | 'model.default_cleared'
+    // Session 41 — the Petal-cloud storage plane (migration 0055 widens the
+    // CHECK to admit these four). ⚠️ A union NARROWER than the constraint makes
+    // a legal action unloggable from TypeScript; a union WIDER than it makes the
+    // insert fail on the `error` channel, which logPlatformEvent only
+    // console.errors — so the operator's action still returns 200 and no
+    // certificate exists. These three lists (this union, the SQL CHECK, and
+    // AuditSection's ACTIONS filter) are kept in step only by comments.
+    | 'storage_plan.set'
+    | 'storage_plan.cleared'
+    | 'storage_plan.suspended'
+    | 'storage_plan.restored'
   message: string
   workspaceId?: string | null
   workspaceSlug?: string | null

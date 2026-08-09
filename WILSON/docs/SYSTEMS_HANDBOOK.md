@@ -857,6 +857,8 @@ only matter if someone **replays a migration by hand**:
 | `0011` | `0030` | 0011's blanket `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public` re-widens `custom_access_token_hook`, and its `ALTER DEFAULT PRIVILEGES … GRANT EXECUTE ON FUNCTIONS` re-arms the same trap for every function a later migration creates. |
 | `0011` | `0033` | **(S22)** 0011's `GRANT ALL ON ALL TABLES IN SCHEMA public TO anon` and its `ALTER DEFAULT PRIVILEGES … GRANT ALL ON TABLES` re-open the entire privilege spread 0033 closed — all 25 tables and the seven SECURITY DEFINER functions, plus the default that re-arms it for every table created afterwards. A bare re-run of 0011 silently undoes the whole sweep; every 0011 post-condition still passes, because 0011 has none about `anon`. |
 | `0028` | `0031` | 0028 defines `platform_audit.action` as a closed 10-value CHECK. 0031 extends it with the five `model.*` actions, so a bare re-run of 0028 makes every `operator-models` audit write fail with a check violation — and `logPlatformEvent` reports that on the error channel rather than throwing, so the write that triggered it still returns 200. |
+| `0028` **or** `0031` | `0055` | **(S41)** 0055 widens the same CHECK a second time, to 19 values, with the four `storage_plan.*` actions. **The rule now goes both ways**: a bare re-run of EITHER earlier file restores a list without them, and every `operator-storage-plans` audit write then fails the same silent way — 200 to the operator, no certificate written. 🚨 **0031's own post-condition does not notice**: it greps the constraint for `%model.approved%`, which a 0031 replay satisfies perfectly. Only 0055's post-condition checks for `storage_plan.set`. |
+| `0055` | `0056` | **(S41)** 0055 grants EXECUTE on `workspace_petal_bytes(uuid)` to `authenticated`; 0056 revokes it. That function takes an arbitrary workspace id and does **no** membership check by design, so a re-run of 0055 alone re-opens an RPC returning any company's storage total to any signed-in user. ⚠️ 0055 also creates `operator_storage_plan_summary()` with a column named `suspended` (the company's teardown state) sitting beside `status` (the plan's billing hold); 0056 renames it `company_deleted`. A 0055 replay restores the ambiguous name under a `DROP`-less `CREATE FUNCTION`, which fails loudly — that one is safe. |
 
 0027 and 0028 explicitly state that they overwrite nothing and carry no
 ordering rule.
@@ -3223,6 +3225,57 @@ of a session — this section is limits by design, that file is faults.
   service** — §12.7 is the setup guidance, TS-2 is the TPN control, and the
   UNC-form check against a real NAS is owed before this is promised to a
   customer.
+
+**Petal cloud is metered and gated (S41, migrations 0055 + 0056)**
+
+- 🚨 **`petal_storage_quota_insert` is the schema's FIRST `AS RESTRICTIVE`
+  policy**, and it had to be: `rabbit-files` INSERT already carries two
+  permissive arms, and permissive policies OR together. Measured as a breaker —
+  dropped to permissive it does not merely fail to meter, its own money
+  exemption becomes a GRANT and admits a write `rabbit_files_money_insert` was
+  refusing. **One keyword re-opens what 0038 shipped and 0039 closed.**
+- 🚨 **A RESTRICTIVE policy is evaluated for EVERY INSERT into
+  `storage.objects`, not just the bucket it is about.** Three buckets share that
+  table, so the predicate is written to PASS for everything it is not about
+  (`bucket_id <> 'rabbit-files' OR …`). Without that leading arm, a company
+  over its media quota stops being able to upload AVATARS.
+- 🚨 **NULL-safety INVERTS under a restrictive policy** — a NULL denies rather
+  than leaking. `SUM()` over zero rows is NULL, so a dropped `COALESCE` refuses
+  the first upload into every new workspace and looks exactly like the quota
+  working. Post-condition and suite probe 18 both pin it.
+- **The meter reads `storage.objects.metadata->>'size'`, not
+  `files.size_bytes`.** Measured on staging: `rabbit-files` held an object while
+  `public.files` held ZERO rows, so a files-derived total reads 0 while real
+  bytes sit in the bucket. `size_bytes` is also client-supplied and in
+  `FILE_COLUMNS`. **This is the first reader of that column in the repo.**
+- **`rabbit-files` + `rabbit-thumbnails` are metered; `user-avatars` is not.**
+  The gate is on `rabbit-files` INSERT only. Suite 65 pins BOTH directions —
+  dropping thumbnails from the bucket list is caught by probe 25, which exists
+  because the exclusion had a probe and the inclusion did not.
+- **Money paths and the project manifest are EXEMPT from the gate.**
+  `FINANCE/RATES.json` is a mirror rewritten on every rates change, invoices are
+  how a company pays Petal, and the manifest is WILSON's own bookkeeping.
+  ⚠️ The manifest exemption tests the FILENAME as well as the depth: `[3] IS
+  NULL` alone would let `projects/<id>/dailies.mov` through, 50 MB at a time.
+- ⚠️ **The predicate is `used < quota` and does NOT weigh the incoming object**,
+  so a workspace may overshoot by one file. Bounded today by the 50 MB
+  per-object cap — **S42 must revisit this when that cap rises.**
+- 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
+  `storage-gc` refuses a trashed row for 30 days, while the meter reads
+  `storage.objects`. Every over-quota message says so, because the obvious
+  advice ("remove some files") is a remedy that cannot work.
+- **`workspace_petal_bytes(uuid)` is service_role-only (0056).** It takes an
+  arbitrary workspace id and does no membership check — deliberately, since the
+  policy needs it unfiltered and SECURITY DEFINER is what stops the total
+  depending on who asks. Clients read `workspace_storage_usage()`, which
+  self-gates. ⚠️ **A RESTRICTIVE denial reports a different Postgres message
+  than a permissive one — it NAMES the policy.** Measured at the SQL layer only;
+  whether storage-api forwards it to a browser is untested, so nothing parses it.
+- ⚠️ **`operator_storage_plan_summary()` calls `workspace_petal_bytes` once per
+  company, and that aggregate is an unindexable scan over both buckets.** Fine
+  at today's tenant count; it is the operator console's default screen and is
+  re-fired after every write, so it is the first thing to watch as companies or
+  objects grow. Not addressed.
 
 **The storage provider registry (S36, migration 0050)**
 
