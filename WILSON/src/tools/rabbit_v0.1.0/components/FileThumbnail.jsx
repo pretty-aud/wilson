@@ -33,6 +33,13 @@ import {
   File, FileText, FileVideo2, FileAudio, FileCode2,
   FileSpreadsheet, FileImage, FileArchive,
 } from 'lucide-react'
+// Session 40: the ONE definition of "this row is a video", shared with the
+// upload notices and mirrored (unavoidably, CJS vs ESM) in electron/main.cjs.
+import { VIDEO_EXTENSIONS as VIDEO_THUMB_EXTS } from '../storage/videoThumbnails'
+// One definition of the desktop preview route. It was hand-built here and in
+// managedVideoThumbnail.js, which is how two copies of a URL start disagreeing
+// about a path only one of them gets updated for.
+import { managedThumbnailUrl } from '../storage/managedVideoThumbnail'
 
 const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.avif'])
 
@@ -80,10 +87,23 @@ export default function FileThumbnail({ file, size = 'small', projectId, thumbna
   // Cloud first: a signed URL is proof the caller may SEE this thumbnail. RLS
   // decides that — a non-manager asking for an invoice's thumbnail simply gets
   // no URL back, and falls through to the icon.
+  //
+  // 🚨 SESSION 40: VIDEO ROWS NOW ENTER THIS BRANCH TOO, and forgetting that is
+  // how the whole feature would have gone invisible. The Express route grew an
+  // ffmpeg arm and a renderer-supplied-frame arm, but this gate decided whether
+  // a request was ever MADE — the same shape as the original cloud bug above,
+  // where `IMAGE_EXTS.has(file.extension)` meant no request was issued and the
+  // onError fallback was dead code.
+  //
+  // The 404/415 path stays honest: a video with no cached frame (no ffmpeg
+  // installed, or a codec nothing could read) answers 415 and `erroredSrc`
+  // falls the tile back to the FileVideo2 icon — which is exactly the state
+  // before this session, not a broken image.
+  const desktopThumbable = IMAGE_EXTS.has(ext) || VIDEO_THUMB_EXTS.has(ext)
   const src = thumbnailUrl
     ? thumbnailUrl
-    : (IMAGE_EXTS.has(ext) && projectId && file.extension
-        ? `/api/rabbit/projects/${projectId}/managed-files/${file.id}/thumbnail`
+    : (desktopThumbable && projectId && file.extension
+        ? managedThumbnailUrl(projectId, file.id)
         : null)
 
   if (src && erroredSrc !== src) {

@@ -32,8 +32,18 @@ import {
   FolderOpen, Pencil, X, Check, Loader2,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import FileThumbnail from './FileThumbnail'
+import FileThumbnail, { extensionOf } from './FileThumbnail'
+import VideoPreview from './VideoPreview'
 import { fileSlugify } from '../entityNaming'
+// Session 40 (§5f). Provider-keyed, because 50 MB is `rabbit-files`'s own limit
+// and applies to PETAL workspaces only — an s3 workspace takes ~5 GB from the
+// same browser, so a blanket "too large, use the desktop app" is a false
+// refusal for exactly the customers already paying for their own storage.
+import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
+import { activeWorkspaceProvider } from '../storage'
+import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage'
+import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
+import { isVideoExtension } from '../storage/videoThumbnails'
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -82,6 +92,25 @@ export default function FileManager({
   const [uploadError, setUploadError] = useState(null)
   const cloudInputRef = useRef(null)
 
+  // ── Session 40 (§5f): the three situations, and only one of them stops ────
+  //
+  // `refusedFiles` drives a DIALOG, because an over-cap upload has no result to
+  // show and the user must do something different. `batchNotice` is the one
+  // summary line. The per-row note is derived at render from the row itself
+  // rather than held here — see the render sites — so it survives a reload
+  // instead of vanishing the moment the component remounts.
+  const [refusedFiles, setRefusedFiles] = useState(null) // string[] of messages
+  const [batchNotice, setBatchNotice] = useState(null)
+  // true | false | null. Whether THIS machine's desktop app has a
+  // professional-codec decoder. null on the web, which cannot ask — and there
+  // the "add it from the desktop app" pointer stands, because shipping that
+  // decoder is the plan. `false` is measured, and drops the pointer: sending
+  // someone to install an app that will fail the same way is worse than
+  // saying nothing.
+  const [desktopDecoder, setDesktopDecoder] = useState(null)
+  // Session 40 (§5d.2): which row's video is open in the player, if any.
+  const [previewFile, setPreviewFile] = useState(null)
+
   // ── Session 27: WHICH file store is behind this component ──────────────
   //
   // 🚨 This used to be `window.electronAPI?.rabbit`, and that was the bug.
@@ -101,6 +130,33 @@ export default function FileManager({
   // One component, two stores, because the alternative is two file managers
   // that drift.
   const managed = ctx?.supportsManagedFiles === true
+
+  // Session 40: does THIS machine have the professional-codec decoder?
+  //
+  // 🚨 DELIBERATELY NOT GATED ON `managed`, and gating it was a real defect
+  // (adversarial review). Every READER of `desktopDecoder` is a `!managed`
+  // path — `rowNotice` returns null for managed rows, and `classifyUpload`
+  // runs on the cloud upload — so probing only when `managed` measured it
+  // exactly where nothing reads it and left it permanently `null` everywhere
+  // it is used, making the `desktopDecoder === false` arm unreachable.
+  //
+  // The case that matters is precisely the ungated one: the DESKTOP app in
+  // CLOUD mode, which serves this route AND takes the cloud upload path. On
+  // the web there is no such route; the response is not JSON, `.json()`
+  // rejects, and `desktopDecoder` stays `null` — which is the honest answer
+  // for a surface that cannot ask.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/rabbit/video-support')
+      // 🚨 fetch RESOLVES for every status. An unchecked `.json()` here would
+      // read a 404's body as junk and leave `ffmpeg` undefined — which is
+      // falsy, so a missing ROUTE would report as a missing DECODER, and the
+      // notice would stop pointing at a desktop app that works fine.
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && d) setDesktopDecoder(d.ffmpeg === true) })
+      .catch(() => { /* unknown stays unknown, and unknown keeps the pointer */ })
+    return () => { cancelled = true }
+  }, [])
 
   // Filter to only files for this parent, exclude soft-deleted.
   //
@@ -130,6 +186,30 @@ export default function FileManager({
   // stored_name, cloud rows carry the original name. One accessor rather than
   // a conditional at every render site.
   const displayName = (f) => f.stored_name || f.name || 'file'
+
+  // Session 40 (§5f): the per-row note, DERIVED rather than remembered.
+  //
+  // 🚨 A PURE FUNCTION OF THE ROW, which is what makes it survive a reload. The
+  // obvious implementation — stash notices in state when the upload returns —
+  // shows the note once and then loses it the moment the popup remounts, so the
+  // video with no preview looks identical to every other file the next time
+  // anyone opens the asset.
+  //
+  // ⚠️ CLOUD ROWS ONLY. A managed record has no `thumbnail_url` column at all
+  // (its preview is an on-disk JPEG in the desktop cache, keyed by id), so
+  // asking this question of one would answer "no preview" for every video
+  // including the ones that have a perfectly good cached frame. The managed
+  // tier says it at add-time through the batch line instead.
+  const rowNotice = (f) => (managed ? null : noticeAfterUpload(f, { desktopDecoder }))
+
+  // Session 40 (§5d.2): a video row's thumbnail becomes the play button.
+  //
+  // Keyed on the EXTENSION, via extensionOf — which reads `extension` on a
+  // managed record and derives it from the name on a cloud row, where there is
+  // no extension column at all. That absence is the same one that made every
+  // cloud thumbnail invisible before S39, so it gets one accessor rather than
+  // a second guess here.
+  const isVideoRow = (f) => isVideoExtension(extensionOf(f))
 
   const uploadScope = useMemo(() => ({
     sceneId: sceneId || null,
@@ -223,15 +303,88 @@ export default function FileManager({
   // needed to pick a file and requiring it is what made this desktop-only.
   const handleAddCloudFiles = useCallback(async (fileList) => {
     if (!fileList?.length || !ctx?.uploadFile) return
+    // 🚨 SNAPSHOT THE FILES SYNCHRONOUSLY, BEFORE ANY await. THIS LINE'S
+    // POSITION IS THE WHOLE FEATURE. The picker's onChange does
+    // `handleAddCloudFiles(e.target.files); e.target.value = ''`, and MEASURED
+    // in Electron 33's own Chromium: `input.files` returns ONE FileList object
+    // that `value = ''` empties IN PLACE — {sameObject: true, afterLength: 0}.
+    // So the moment this function suspends on an await, the caller's reset runs
+    // first and the FileList this function is holding becomes empty.
+    //
+    // Before S40 the first statement inside the try was
+    // `for (const file of Array.from(fileList))`, which read the list
+    // synchronously. S40 introduced an `await getWorkspaceStorageCached()`
+    // ahead of it for the §5f provider read, which moved the read into a
+    // microtask — and turned EVERY cloud upload, on the beta and on
+    // desktop-in-cloud-mode, into a silent no-op: no rows, no error, no
+    // console output, just a spinner that stops. Found by the pre-push
+    // adversarial review; the wiring tests could not see it because they grep
+    // source text and this is an ordering property.
+    const incoming = Array.from(fileList)
     setCopying(true)
     setUploadError(null)
+    setBatchNotice(null)
+    setRefusedFiles(null)
     try {
-      for (const file of Array.from(fileList)) {
+      // §5f. Which provider this workspace is on decides the ceiling, so the
+      // read comes first.
+      //
+      // 🚨 A FAILED READ MUST NOT INVENT A REFUSAL. getWorkspaceStorageCached
+      // THROWS rather than guessing, and uploadFile makes the same call and
+      // will refuse with its own sentence — so the right behaviour here is to
+      // skip the size gate entirely and let the real attempt produce the real
+      // error. Defaulting to 'petal' would refuse a 200 MB file on an s3
+      // workspace that would have taken it happily.
+      let provider = null
+      try {
+        provider = activeWorkspaceProvider(await getWorkspaceStorageCached())
+      } catch { provider = null }
+
+      const refused = []
+      const queued = []
+      const notices = []
+      for (const file of incoming) {
+        if (!provider) { queued.push(file); continue }
+        const verdict = classifyUpload(file, { workspaceProvider: provider, desktopDecoder })
+        // 🚨 ONLY `blocked` STOPS ANYTHING. The other notes ride along with a
+        // file that uploads perfectly well — a warning that prevents a working
+        // action is worse than the limitation it warns about.
+        if (verdict.blocked) { refused.push(verdict.message); continue }
+        notices.push(...verdict.notes.filter(n => n.code === 'slow'))
+        queued.push(file)
+      }
+      if (refused.length) setRefusedFiles(refused)
+
+      // 🚨 ONE FILE'S FAILURE MUST NOT ABANDON THE REST. A single throw used to
+      // exit the whole loop, so a batch of thirty clips where the fourth was
+      // refused left twenty-six never attempted — with one error message and
+      // nothing saying which files landed. The user cannot tell what to retry.
+      const failed = []
+      for (const file of queued) {
+        try {
         // taskTitle renaming is a managed-store behaviour: those records carry
         // a separate file_name and a version label. A cloud row keeps the real
         // filename, which is also what gets downloaded.
-        await ctx.uploadFile(file, uploadScope)
+        const row = await ctx.uploadFile(file, uploadScope)
+        // 🚨 THE ACCURATE ANSWER, and it replaces the extension heuristic
+        // rather than joining it. The upload path already loaded this file
+        // into a <video> and seeked it; a video row that came back with no
+        // thumbnail_url means the browser genuinely could not decode it. That
+        // is the same decoder answering the same question, not a guess.
+        // `attempted: true` — WE JUST WATCHED THE DECODE. This is the one call
+        // site entitled to the accurate claim; the render-time rowNotice below
+        // deliberately omits it, because it cannot know whether a null
+        // thumbnail_url means "the browser refused this codec" or "this row
+        // predates S40, when video was refused outright".
+        const after = noticeAfterUpload(row, { desktopDecoder, attempted: true })
+        if (after) notices.push(after)
+        } catch (err) {
+          // Named per file, so "which ones failed" is answerable.
+          failed.push(`${file?.name || 'a file'}: ${err?.message || String(err)}`)
+        }
       }
+      if (failed.length) setUploadError(failed.join('\n'))
+      setBatchNotice(summarizeBatch(notices))
       onFileAdded?.()
     } catch (err) {
       // 🚨 LOUD. The old managed path swallowed everything into console.error,
@@ -242,7 +395,7 @@ export default function FileManager({
     } finally {
       setCopying(false)
     }
-  }, [ctx, uploadScope, onFileAdded])
+  }, [ctx, uploadScope, onFileAdded, desktopDecoder])
 
   // ── Add files: managed / Local Server ──
   const handleAddManagedFiles = useCallback(async () => {
@@ -253,6 +406,12 @@ export default function FileManager({
 
     setCopying(true)
     setCopyProgress(null)
+    setBatchNotice(null)
+
+    // Session 40: collected across the batch so thirty clips produce ONE line,
+    // not thirty. §5f: "a confirmation that appears every time is a
+    // confirmation nobody reads."
+    const videoNotices = []
 
     try {
       const projectSlug = project?.folder_slug || fileSlugify(project?.title || 'Untitled')
@@ -311,9 +470,45 @@ export default function FileManager({
             destDir: destDir.replace(/\//g, '\\'),
             destFileName: record.stored_name,
           })
+
+          // ── Session 40: the still frame, AFTER the copy ──────────────────
+          //
+          // 🚨 A MANAGED FILE HAS NO `File` OBJECT. It arrives through
+          // rabbit:pick-files → rabbit:copy-file, a path-to-path stream in the
+          // main process, so the renderer never holds the bytes — which is why
+          // this cannot reuse the cloud path's generate-from-memory step and
+          // has to run once the file exists on disk.
+          //
+          // ⚠️ AND THIS DOES NOT GENERALISE TO CLOUD. Reading a file back to
+          // make a thumbnail costs NOTHING here — it is a local disk read
+          // through the loopback server. The same shape against a cloud body
+          // means re-downloading the source: Petal egress on a `petal`
+          // workspace, a presign round trip plus customer egress on an `s3`
+          // one. That is the one expensive design §12.7b forbids, and it is why
+          // the cloud arm generates from the copy already in memory.
+          if (isVideoExtension(ext)) {
+            const made = await ensureManagedVideoThumbnail({
+              projectId,
+              fileId: record.id,
+              extension: ext,
+            })
+            if (made.ok) {
+              // 'renderer' means ffmpeg was not there to do it, so this machine
+              // has no professional-codec decoder. Recording it keeps the §5f
+              // notice from pointing at a desktop app that would fail the
+              // same way.
+              if (made.via === 'renderer') setDesktopDecoder(false)
+            } else if (made.reason === 'undecodable') {
+              videoNotices.push({
+                code: 'no_preview',
+                message: 'Preview images aren\'t available for this format.',
+              })
+            }
+          }
         }
       }
 
+      setBatchNotice(summarizeBatch(videoNotices))
       onFileAdded?.()
     } catch (err) {
       setUploadError(err?.message || String(err))
@@ -321,7 +516,7 @@ export default function FileManager({
       setCopying(false)
       setCopyProgress(null)
     }
-  }, [ctx, assetId, shotId, parentName, parentType, project, taskTitle, taskId, onFileAdded])
+  }, [ctx, assetId, shotId, parentName, parentType, project, projectId, taskTitle, taskId, onFileAdded])
 
   // ── Download: cloud (Session 27) ──
   // The managed path below opens an OS explorer window at the file's folder,
@@ -520,6 +715,55 @@ export default function FileManager({
         </div>
       )}
 
+      {/* ── Session 40 (§5f): ONE summary line per batch, never per file ────
+          "Someone dragging in thirty clips would face thirty dialogs and learn
+          to dismiss them without reading — which loses the one case that was a
+          genuine failure." Informational styling, deliberately not the red the
+          error banner above uses: nothing here failed. */}
+      {batchNotice && (
+        <div
+          className="mb-2 px-2 py-1 rounded-sm text-[10px] font-mono flex items-start justify-between gap-2"
+          style={{ color: '#fcd34d', backgroundColor: 'rgba(234,179,8,0.10)', border: '1px solid #78350f' }}
+        >
+          <span>{batchNotice}</span>
+          <button
+            type="button"
+            onClick={() => setBatchNotice(null)}
+            className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
+            style={{ color: '#a8a29e' }}
+            title="Dismiss"
+          >
+            <X className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Session 40 (§5f): the ONE case that is a real stop ──────────────
+          Over the cap, so the upload genuinely fails and there is no result to
+          show. A dialog is right here and wrong for the other two. One dialog
+          for the whole batch, listing every refusal — not one per file. */}
+      {refusedFiles?.length > 0 && (
+        <div
+          className="mb-2 px-2 py-1.5 rounded-sm text-[10px] font-mono"
+          style={{ color: '#fca5a5', backgroundColor: 'rgba(220,38,38,0.12)', border: '1px solid #7f1d1d' }}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex flex-col gap-1">
+              {refusedFiles.map((m, i) => <span key={i}>{m}</span>)}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefusedFiles(null)}
+              className="p-0.5 rounded-sm hover:bg-stone-700 shrink-0"
+              style={{ color: '#fca5a5' }}
+              title="Dismiss"
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Copy progress bar */}
       {copyProgress && (
         <div className="mb-2">
@@ -564,21 +808,57 @@ export default function FileManager({
             </tr>
           </thead>
           <tbody>
-            {assetFiles.map(f => (
+            {assetFiles.map(f => {
+              // 🚨 BOUND ONCE PER ROW, NOT DUPLICATED PER BRANCH. Writing the
+              // element out in both arms of the video test would give this file
+              // three FileThumbnail sites for two render surfaces — and the
+              // wiring suite counts them, deliberately, because "the grid card
+              // was forgotten" is exactly the shape S39 shipped. It must also
+              // NOT become a component defined in render: a fresh component
+              // TYPE every render remounts the subtree, throwing away
+              // FileThumbnail's erroredSrc memory and reloading every tile.
+              const tile = (
+                <FileThumbnail
+                  file={f}
+                  size="small"
+                  projectId={projectId}
+                  thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
+                />
+              )
+              return (
               <tr key={f.id} style={{ borderBottom: '1px solid #1c1917', backgroundColor: '#292524' }}>
                 <Td>
-                  <FileThumbnail
-                    file={f}
-                    size="small"
-                    projectId={projectId}
-                    thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
-                  />
+                  {/* §5d.2: on a video row the tile IS the play control. A
+                      separate button would need its own column on a table that
+                      is already tight, and the still frame is the obvious
+                      affordance — it is a frame OF the thing it plays. */}
+                  {isVideoRow(f) ? (
+                    <button
+                      type="button"
+                      onClick={() => setPreviewFile(f)}
+                      title={`Play ${displayName(f)}`}
+                      className="block"
+                    >
+                      {tile}
+                    </button>
+                  ) : tile}
                 </Td>
                 <Td>
                   <div className="flex flex-col">
                     <span className="text-[11px] font-mono truncate" style={{ color: '#d6d3d1', maxWidth: 180 }}>
                       {displayName(f)}
                     </span>
+                    {/* §5f: an inline note on the affected row. Does not block
+                        anything and never has — the file uploaded fine. */}
+                    {rowNotice(f) && (
+                      <span
+                        className="text-[9px] font-mono truncate"
+                        style={{ color: '#fcd34d', maxWidth: 180 }}
+                        title={rowNotice(f).message}
+                      >
+                        No preview for this format
+                      </span>
+                    )}
                     {/* Notes are a managed-record field. `files` has no notes
                         column, and inventing one for a field nobody has asked
                         for is how schema debt starts — so the editor is absent
@@ -660,7 +940,8 @@ export default function FileManager({
                   </div>
                 </Td>
               </tr>
-            ))}
+              )
+            })}
           </tbody>
         </table>
       )}
@@ -675,17 +956,38 @@ export default function FileManager({
               style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
             >
               <div className="flex items-center justify-center" style={{ height: 100, backgroundColor: '#1c1917' }}>
-                <FileThumbnail
-                  file={f}
-                  size="large"
-                  projectId={projectId}
-                  thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
-                />
+                {/* §5d.2, same rule as the table: on a video card the still
+                    frame is the play control. */}
+                <button
+                  type="button"
+                  onClick={isVideoRow(f) ? () => setPreviewFile(f) : undefined}
+                  disabled={!isVideoRow(f)}
+                  title={isVideoRow(f) ? `Play ${displayName(f)}` : undefined}
+                  className="block"
+                  style={{ cursor: isVideoRow(f) ? 'pointer' : 'default' }}
+                >
+                  <FileThumbnail
+                    file={f}
+                    size="large"
+                    projectId={projectId}
+                    thumbnailUrl={thumbUrls.get(f.thumbnail_url) || null}
+                  />
+                </button>
               </div>
               <div className="p-2 flex flex-col gap-0.5">
                 <span className="text-[10px] font-mono truncate" style={{ color: '#d6d3d1' }}>
                   {displayName(f)}
                 </span>
+                {/* §5f: the same inline note on the gallery card. */}
+                {rowNotice(f) && (
+                  <span
+                    className="text-[9px] font-mono truncate"
+                    style={{ color: '#fcd34d' }}
+                    title={rowNotice(f).message}
+                  >
+                    No preview for this format
+                  </span>
+                )}
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-mono px-1 rounded-sm" style={{ color: '#fb923c', backgroundColor: '#44403c' }}>
                     {f.version_label || (managed ? 'v001' : '--')}
@@ -723,6 +1025,28 @@ export default function FileManager({
             </div>
           ))}
         </div>
+      )}
+
+      {/* ── Session 40 (§5d.2): the player ──────────────────────────────────
+          Mounted only while a file is selected, so no <video> element and no
+          decoder pipeline exists until someone asks for one. `handleDownload`
+          is the external-open path because it is the ONE place that knows how
+          to turn a managed record into a real disk path. */}
+      {previewFile && (
+        <VideoPreview
+          // 🚨 KEYED ON THE FILE. Without this, opening a clip that fails, then
+          // opening a different one, reuses the same component instance — and
+          // `remints` is a useRef, so the second clip arrives with its re-mint
+          // budget already spent and gets no retry on an expired URL. A key is
+          // the fix rather than resetting the ref, because handleError calls
+          // load() and a reset inside load() would make the retry loop forever.
+          key={previewFile.id}
+          file={previewFile}
+          projectId={projectId}
+          managed={managed}
+          onClose={() => setPreviewFile(null)}
+          onOpenExternally={managed ? () => handleDownload(previewFile) : undefined}
+        />
       )}
     </div>
   )

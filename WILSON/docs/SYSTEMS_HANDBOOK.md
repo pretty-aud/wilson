@@ -2153,6 +2153,93 @@ implemented.** It was a provider lookup.
   as soon as a fresh one arrives (the component remembers *which* URL failed,
   not merely that one did).
 
+### 12.7c Video — preview and the still frame (S40, no migration)
+
+Audrey, 2026-08-05: *"can we add a way to preview videos on the app?"* and
+*"for videos i would want to be able to get a single still frame and make it the
+thumbnail automatically."*
+
+**Nothing here touched the schema.** A video still IS a thumbnail: same
+`rabbit-thumbnails` rules, same `thumbnailKeyFor`, same
+`putThumbnailTo(storageProvider, …)`, same 0054 disposal. Only the decoder is new.
+
+#### The three decoders, and which surface each serves
+
+| Decoder | Reaches | Covers | Costs |
+|---|---|---|---|
+| **Browser `<video>` + canvas** (`storage/videoThumbnails.js`) | cloud upload, and the desktop fallback | H.264/AAC MP4, VP8/VP9 WebM, AV1 | nothing — the file is already in memory, or on local disk |
+| **ffmpeg** (`electron/ffmpeg.cjs`) | desktop managed files only | + ProRes, DNxHD/DNxHR, MXF | one process, input-seeked |
+| **`sharp`** (unchanged) | desktop managed files | raster images | unchanged |
+
+🚨 **`canThumbnail()` STILL REFUSES VIDEO AND THAT IS CORRECT.** The video path
+is a separate entry point because `generateThumbnail`'s injectable seam is
+`createImageBitmap`, which cannot express seek-and-decode on an
+`HTMLVideoElement`. Two guard tests pin the refusal; widening it silently
+disables every video preview.
+
+#### The serve route
+
+`GET /api/rabbit/projects/:projectId/managed-files/:id/stream` — `res.sendFile`,
+so **HTTP Range is automatic** (express 5.2.1 → send 1.2.1). Without ranges a
+`<video>` cannot seek and the browser pulls the whole file first; on a 5 GB
+master that is a hang, not a slow preview. A hand-rolled `createReadStream` does
+**not** do this.
+
+It is the **first WILSON-mediated managed-file read**, so S33's AS-2.9
+obligation lands here — and the log is **throttled to one event per file per
+minute**, because a `<video>` issues a request per seek and `rabbitLogFileEvent`
+evicts the oldest non-`purged` entries at 2000. `?probe=1` suppresses the event
+entirely for the thumbnail decode, which is a machine fetch and not a read.
+
+🚨 **`Content-Type` is allowlisted and `nosniff` is set, on this route and on
+the sibling files download.** `mime_type` is client-writable and the renderer is
+served from `http://127.0.0.1:<port>` by this same Express app, so bytes
+returned as `text/html` would execute on WILSON's own origin.
+
+#### ffmpeg
+
+**LGPL build, invoked as a separate executable, never linked.** That combination
+creates no obligation to publish any of WILSON's code; the GPL build is the one
+with copyleft consequences and you only get it by opting in
+(`--enable-gpl`, libx264/x265). Still-frame extraction needs **decode only**,
+and both ProRes and DNxHD decoders are in the LGPL build.
+
+- 🚨 **`-ss` BEFORE `-i`.** Input seeking jumps to the timestamp; output seeking
+  decodes from frame zero. On a 5 GB file over a NAS that is seconds vs minutes.
+- 🚨 **`execFile` with an argument array**, never a command string — NAS
+  filenames are outside WILSON's control.
+- **Which frame:** ~10% of duration clamped to 1–10 s, never frame 0 (video
+  opens on black, a fade-in or a slate). The same three constants live in
+  `videoThumbnails.js`; a test asserts they agree.
+- **One deadline for the whole call** (45 s), not three independent per-process
+  timeouts. The renderer shares this server's origin and Chromium allows six
+  concurrent connections per origin, so long thumbnail requests stall the whole
+  UI, not just their own tiles.
+- **Writes to `<output>.part` and renames.** The GET route serves the cache file
+  whenever it EXISTS, and that check runs before the in-flight dedupe.
+
+**The binary is not in git** — the repo is public. `resources/ffmpeg/README.md`
+carries the install and which build to download. Packaged by
+**electron-builder** (`build.extraResources`), which is the packager that ships;
+`forge.config.cjs` does not.
+
+#### Limits, stated
+
+- **s3 playback and s3 still-display are deferred**, matching S44's decision for
+  images and for the same measured reasons: no batch presign, `storage-presign`'s
+  GET expiry is 300 s, and no S3 workspace exists on any environment to verify
+  either against. `getUrl` is therefore **optional** in the registry, not a sixth
+  `REQUIRED` function — promoting it would make `registerStorageProvider` refuse
+  s3.
+- **A `network` workspace has no cloud preview at all**, unchanged and not
+  fixable: a browser cannot read a NAS.
+- **Professional codecs get no preview until the ffmpeg binary is installed.**
+- **A managed video added before that binary arrives keeps its icon** — the
+  ffmpeg arm generates on demand, the renderer fallback runs only at add time,
+  and `import-folder` never runs the renderer path at all.
+- **`.ts` is deliberately NOT a video extension.** MPEG transport streams use
+  it and so does every TypeScript file; this tool sees far more of the latter.
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
@@ -3088,6 +3175,22 @@ of a session — this section is limits by design, that file is faults.
   only thing that knows where it is.
 - **Cloud deletes are SOFT and the blob is deliberately left in place** (0014);
   blob GC remains a documented known gap.
+
+**Video (S40) — §12.7c carries the detail**
+
+- 🚨 **The local Express server has NO authentication**, and since S40 it serves
+  **original media bytes** with Range support, not just manifests and 256px
+  derivatives. Loopback-bound, `cors()` with `Access-Control-Allow-Origin: *`,
+  ~94 routes. Tracked in `OUTSTANDING.md`; the fix is a per-launch bearer token
+  and it is its own session.
+- **s3 video playback and s3 still-display are deferred**, matching S44's
+  decision for images: no batch presign, a 300 s presigned-GET expiry against a
+  3600 s Supabase one, and no S3 workspace anywhere to verify either against.
+  **Generation ships regardless — it is the one-way door.**
+- **Professional codecs need an ffmpeg binary that is deliberately not in git**
+  (the repo is public). Browser-native formats work with no binary at all.
+- **`canThumbnail()` refuses video on purpose.** The video decoder is a separate
+  entry point; widening that gate silently disables every video preview.
 
 **The workspace drive (S34/S35)**
 

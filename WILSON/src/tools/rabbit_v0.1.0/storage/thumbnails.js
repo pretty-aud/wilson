@@ -177,7 +177,12 @@ export async function generateThumbnail(file, {
   }
 }
 
-function defaultCanvasFactory(width, height) {
+// 🚨 S40: EXPORTED so videoThumbnails.js can share it rather than keep a second
+// copy. The video path is a different DECODER (seek-and-decode on a
+// <video>, which createImageBitmap cannot express) but the same ENCODER — one
+// 256px JPEG, one quality, one surface-detection rule. Two copies of these two
+// functions is how the two tiers start disagreeing about what a thumbnail is.
+export function defaultCanvasFactory(width, height) {
   if (typeof OffscreenCanvas === 'function') return new OffscreenCanvas(width, height)
   if (typeof document === 'undefined') return null
   const c = document.createElement('canvas')
@@ -188,7 +193,7 @@ function defaultCanvasFactory(width, height) {
 
 // OffscreenCanvas exposes convertToBlob (a promise); HTMLCanvasElement exposes
 // toBlob (a callback). Both appear depending on surface and browser version.
-function canvasToJpeg(canvas, quality) {
+export function canvasToJpeg(canvas, quality) {
   if (typeof canvas.convertToBlob === 'function') {
     return canvas.convertToBlob({ type: 'image/jpeg', quality })
   }

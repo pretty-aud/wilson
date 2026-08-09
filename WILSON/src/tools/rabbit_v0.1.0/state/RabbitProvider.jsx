@@ -2223,6 +2223,24 @@ export function RabbitProvider({ children }) {
     return adapterRef.current.downloadFile(file);
   }, []);
 
+  // Session 40: a URL a <video> can STREAM from — which is not the same thing
+  // as downloadFile above, and cannot be built out of it.
+  //
+  // 🚨 downloadFile RETURNS A WHOLE BLOB. That is right for a download and
+  // useless for playback: a <video> needs a URL to issue Range requests
+  // against, and a multi-GB master cannot be held in memory as a Blob at all.
+  //
+  // Returns null when this backend or this provider cannot mint one — an s3 row
+  // today (deferred: its presigned GET expires in 300s and no S3 workspace
+  // exists anywhere to verify a longer-lived signer against), or Local Server,
+  // whose managed files are streamed by the Express route instead. The caller
+  // shows "preview unavailable" rather than an error, because that is a stated
+  // capability gap and not a fault. A signing FAILURE still throws.
+  const fileUrl = useCallback(async (file) => {
+    if (!adapterRef.current?.fileUrl) return null;
+    return adapterRef.current.fileUrl(file);
+  }, []);
+
   // Session 39: signed display URLs for cloud thumbnails, keyed by object path.
   //
   // Returns an EMPTY MAP rather than throwing on a backend that has no such
@@ -2714,7 +2732,7 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
 
     // Session 27. WHICH file store this backend actually has.
@@ -2767,7 +2785,7 @@ export function RabbitProvider({ children }) {
     addTaskLink, removeTaskLink,
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
-    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls,
+    uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,

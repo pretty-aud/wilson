@@ -789,8 +789,23 @@ project, bounds the batch explicitly, and returns `{urls, refused}` keyed by the
 input string. `FileThumbnail`'s per-URL error memory (`erroredSrc`) already
 repairs a tile when a fresh URL arrives, so no component change is needed.
 
-⚠️ **The same question lands again in S40 for video stills** — whatever is
-decided there should match this.
+✅ **S40 DECIDED THE SAME QUESTION THE SAME WAY (2026-08-09), so this entry now
+covers video too.** A video still is a thumbnail, and it is generated and stored
+at its body's provider exactly as an image is — and equally, it is not displayed
+for an s3 row, for the two reasons above, unchanged: there is no batch presign,
+and there is still no S3 workspace on any environment to verify one against.
+
+**S40 added a third, matching deferral for the same reason: s3 video PLAYBACK.**
+`storage/index.js`'s `REQUIRED` is deliberately still
+`['put','get','del','exists','describe']` and the new `getUrl` is **optional** —
+`supabaseProvider` implements it, `s3Provider` does not. Promoting it to
+`REQUIRED` would make `registerStorageProvider` refuse s3 outright. The specific
+obstacle is measured and separate from the display one: `storage-presign`'s GET
+expiry is **300 s**, so a clip longer than five minutes dies mid-playback with a
+403 the `<video>` element reports as a stall.
+
+→ The three deferred pieces are one session: a batch GET signer, a longer media
+GET expiry, and `getUrl` moving into `REQUIRED` once both providers can honour it.
 
 ---
 
@@ -874,12 +889,90 @@ next to the media.
 
 ---
 
+### 🚨 The loopback server has no authentication, and since S40 it serves ORIGINAL media
+
+**MEASURED (S40 adversarial review, 2026-08-09).** `expressApp.listen(0,
+'127.0.0.1')` with `expressApp.use(cors())` — no token, no origin allowlist, no
+session check, `Access-Control-Allow-Origin: *` on every one of ~94 routes. That
+is pre-existing and documented. What S40 changed is **what an unauthenticated
+caller can obtain**: the new `managed-files/:id/stream` route returns the
+original, full-resolution bytes of the customer's media, with Range support.
+Before it, the worst this server disclosed was manifests and 256px derivatives.
+
+Everything needed to address it is served by equally open routes:
+`GET /api/rabbit/projects` lists project ids and
+`GET .../managed-files` lists every file id. So any other process on the machine
+that can reach the port — a malicious postinstall in an unrelated repo, a
+browser extension with localhost access — can enumerate and stream pre-release
+footage while WILSON is open.
+
+**Three things S40 DID fix, so this entry is narrower than it looks:** the
+containment base is no longer client-controlled (see below), the response can no
+longer be served as `text/html` on WILSON's own origin (`safeMediaContentType` +
+`nosniff`), and a soft-deleted row is refused.
+
+→ The remaining fix is authentication on the local server — a per-launch bearer
+token minted in `startLocalServer` and handed to the renderer through preload,
+checked by middleware. That is its own session: **every** `fetch` in the RABBIT
+renderer and every adapter call would have to carry it. **Not scheduled.**
+⚠️ Note this is the same class as the pre-existing entry for `file_events`
+metadata — the difference is only what leaks.
+
+---
+
+### ⚠️ Professional codecs have no preview until an ffmpeg binary is installed
+
+**MEASURED (S40).** `resources/ffmpeg/` ships with a README and a `.gitignore`
+and **no binary** — deliberately: `pretty-aud/wilson` is public and `git add -A`
+sweeps untracked files into it, so an 80 MB third-party executable does not
+belong in the history. `hasFfmpeg()` is therefore `false` on every machine
+today, the managed-file thumbnail route answers `415 { code: 'ffmpeg_missing' }`
+for video, and ProRes/DNxHD/MXF rows keep a file-type icon.
+
+This is an **install step, not breakage** — H.264/AAC MP4, VP8/VP9 WebM and AV1
+all preview and thumbnail without it, on both tiers — but it is listed here
+because the feature Audrey asked for is not complete until the binary is
+dropped in, and nothing in the app says so.
+
+→ `resources/ffmpeg/README.md` carries the install and, more importantly, **which
+build to download**: an **LGPL** build, verified with `ffmpeg -version` (if the
+`configuration:` line contains `--enable-gpl`, `--enable-libx264` or
+`--enable-libx265` it is the wrong one). **Audrey's action**, and worth a real
+check by whoever handles contracts, because studios ask about third-party
+licensing in their own assessments.
+
+⚠️ **And nothing in code or CI verifies the licence of whatever gets installed.**
+The README is the only control. A CI check that runs `ffmpeg -version` and fails
+on `--enable-gpl` would close it; not written.
+
+---
+
+### A managed video added BEFORE ffmpeg is installed keeps its icon until it is re-added
+
+**MEASURED (S40).** Two decoders produce a managed-file preview and they have
+different reach. The **ffmpeg** arm lives on the thumbnail GET route, so it
+generates on demand — install the binary and existing videos get previews the
+next time their tile renders. The **renderer** arm
+(`ensureManagedVideoThumbnail`) has exactly one caller, `handleAddManagedFiles`,
+so it only ever runs for a file being added.
+
+So on a machine with no ffmpeg, a browser-decodable video that was already in a
+project — or one imported through `POST /managed-files/import-folder`, which
+never runs the renderer path at all — never acquires a preview, and there is no
+control that asks for one.
+
+→ Either give `import-folder` the same post-copy call, or add a "generate
+previews" action to the Files view. Small. **Not scheduled.**
+
+---
+
 ## Session log
 
 Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| S40 (2026-08-09) | **three entries, none of them a regression and one of them a narrowing.** (a) **the loopback server has no auth, and S40 raised what that discloses** from manifests and 256px derivatives to original media bytes — pre-existing shape, materially bigger stake, and the three parts S40 *could* fix in scope were fixed. (b) **professional codecs have no preview until an ffmpeg binary is installed** — an install step, recorded because the feature Audrey asked for is not complete without it and nothing in the app says so. (c) **a managed video added before ffmpeg is installed keeps its icon**, because the two decoders have different reach. No migration; migrations stay 0000–0054 and pgTAP stays 64 suites. 🚨 **The finding of the session is that S40's own headline change silently killed a feature that had nothing to do with video.** Inserting `await getWorkspaceStorageCached()` ahead of `Array.from(fileList)` in `handleAddCloudFiles` moved the read into a microtask — and the picker's `onChange` does `handler(e.target.files); e.target.value = ''`. **MEASURED in Electron 33's own Chromium: `input.files` returns ONE FileList object that `value=''` empties IN PLACE** (`{sameObject: true, afterLength: 0}`), so **every cloud upload on the beta and on desktop-in-cloud-mode became a silent no-op** — no rows, no error, no console output. Caught by the pre-deploy adversarial review; **no wiring test could have seen it, because they grep source text and this is an ORDERING property.** 🚨 **Second: the containment base was itself client-controlled.** `resolveProjectFolderRoot` joined `folder_slug` — written verbatim from `req.body` by the project POST and the PATCH spread — under the configured root, so `folder_slug: '../../../..'` turned `D:\WilsonRoot\Projects` into `D:\` and every `resolveContainedFilePath` below it faithfully contained against a directory the caller chose. Pre-existing since the folder tree; S40 is where it stopped being survivable, because the stream route returns original bytes of any type instead of a 256px JPEG of an image. **Verified by running the real expressions, fixed at the resolver AND both writers** — the resolver half is load-bearing, because a bundle already on disk may carry a poisoned slug. ⚠️ **And the review's value was not only in its findings: writing the test for one of them exposed a bug the review missed** — `resolveFfmpegPath`'s env override short-circuited on `existsSync` and so was the one path exempt from the "must be a file" rule it was written to enforce. **17 of 37 findings were confirmed and fixed** (5 high), against code already green on 1315 assertions and 16/16 breakers; the breaker set is now **33/33**. | **nothing was on this list for S40 to remove.** ⚠️ The S44 entry *"a BYO workspace's thumbnails have no browser preview"* was **annotated, not closed**: it asked that S40 decide the same question for video stills, and S40 decided it the same way — **generate, do not display** — so s3 playback and s3 still-display are deferred together, for the same two measured reasons (no batch presign; no S3 workspace on any environment to verify one against). ⚠️ Comment blocks re-counted at close-out: still pairing. |
 | S39 (2026-08-08) | **nothing.** Nothing regressed and nothing new is known broken. **S38 was not run** — its Google OAuth gate (`OWED_AUDREY.md` §13) was unfiled, so per that brief's own instruction the session swapped to S39, which was one of the three independent roots. The session's own work (thumbnails, migration 0053) is tracked in the design and `MASTER_PLAN`, and **the pre-deploy adversarial review's 4 confirmed findings (from 20 raised, 8 verified) were all fixed before the migration reached staging**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug but a DOCUMENT: this session's brief and design §5d.1 both said `rabbit-files` has "FOUR policies: three base + `rabbit_files_invoices_select`" and said to port those.** There are **eight**, they live in 0042, and that invoice policy has not existed since 0042 dropped it. A literal port ships a thumbnails bucket with **no money gate** — `TPN-CLOUD-008` arriving through the instructions written to prevent it. **The code knew:** `supabaseProvider.js:19` has said "eight RLS policies (0042)" since S36. Handbook §4.7 is corrected, including its stale "there is no UPDATE policy". ⚠️ **Also: a pgTAP probe written as a row count passed against a bucket with NO POLICIES AT ALL** — a USING failure yields zero rows silently, a WITH CHECK failure RAISES, so that probe must be `throws_ok`. ⚠️ **And the comment trap returned a third way**: a test's comment-stripper ran block comments in a separate first pass, so a LINE comment containing `rabbit-files/projects/*` opened a block that ate 40 lines of real code including the call being asserted. **One alternating pass, block alternative first.** Stated limits (no orphan sweep over `rabbit-thumbnails`, Local Server's tier untouched, no video thumbnails, `thumbnail_url` client-writable) are in §12.7b and §17. ⚠️ **One decision is flagged for Audrey rather than taken: a BYO-storage workspace's previews live on Petal while its media does not** — see the S39 outcome block. | **nothing was on this list for S39 to remove.** ⚠️ Comment blocks still pair 5→5 (checked at close-out). |
 | S37 (2026-08-08) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — S3-compatible storage, migrations 0051 + 0052 — is tracked in the design and `MASTER_PLAN`, and **the pre-deploy adversarial review's 12 confirmed findings (5 medium, 7 low, from 25 raised) were all fixed before the migration reached staging**, so per this file's rule they are commit content, not entries. 🚨 **The three worth remembering: two path gates disagreed about a filename the product itself writes** (`checkRowShapedPath` rejects only a segment that IS `..`; the signer rejected `includes('..')` — so `render..v2.mov` passed authorisation and then 500ed, permanently, on one provider only); **a warning promised the opposite of what happens** (the S3→NAS switch card said bucket files "stay readable" — the row remembers its provider but the CONNECTION is erased by 0050's config CHECK, so every pre-switch body becomes unreachable); and **the GC counted HTTP 404 as a successful disposal** (an absent S3 key returns 204 — a 404 is the BUCKET missing, so one flipped path-style setting would have stamped TPN-CONT-002 certificates on a whole batch of bodies still sitting in the customer's bucket). ⚠️ **The review's own fixes reproduced the 0038 trap twice**: two new `not.toContain` assertions matched the COMMENTS explaining why those forms are wrong. **A negative assertion over a file that documents its own trap will match the documentation** — assert the executable form. Stated limits (no orphan scan over customer buckets, teardown leaves them by design, advisory `downloaded`, 5 GB single-PUT ceiling) are in the S37 outcome block, where scope choices belong. | **the `storage-gc` manifest/rates deploy entry** — `supabase functions deploy storage-gc operator-workspaces storage-presign storage-secret` run against dev, staging AND prod (2026-08-08), so the destructive version is gone from every environment and Storage Cleanup is safe to click again. |
 | S36, storage-gc follow-up (2026-08-07) | **the entry below was rewritten, not added.** The orphan-scan defect is **fixed** — `_shared/reservedObjects.ts` is the one definition, consulted by the orphan scan AND the queue drain (`storage_path` is client-writable, so a member can enqueue the rates file by pointing a row at it and deleting it), and teardown now sweeps the same objects because it had the **converse** defect: the money-gated rates mirror survived its own tenant's certified destruction. What remains, and is all the entry now claims, is that **Edge Functions deploy by hand and this one has not been deployed** — so the beta still carries the destructive version. 🚨 **The lesson is about §17, not the GC:** the same blind spot was recorded there as a gap in what teardown could SEE, one sentence away from the sentence that would have said it also DESTROYS. **Read every stated coverage limit in both directions.** Also worth keeping: the breaker run was itself vacuous on its first pass — `--reporter=basic` does not exist in vitest 4, every run died at startup, and all nine breakers scored "RED (good)" for the wrong reason. **A suite that never RAN is not a breaker that fired**; the script now asserts the suite ran before believing a failure. | **nothing** — the entry was rewritten in place rather than removed, because the deploy has not happened. |

@@ -471,8 +471,8 @@ below are superseded; only one of them actually moves.
 | **S37** ✅ | **DONE (2026-08-08)** — 0051 **and 0052** on all three envs: 's3' in the enum + the widened provider CHECK + the required-direction config arm (endpoint host-only), `workspace_storage_secrets` (0028 twin), the presign boundary (`storage-presign`/`storage-secret`), the registry's s3 entry, uploadFile's constant → the workspace's ACTIVE provider, GC parity by signed DELETE. pgTAP suites 61+62; outcome block below. ✅ **`WILSON_STORAGE_KEY_SECRET` set on all three envs 2026-08-08, digests verified identical (`OWED_AUDREY.md` §C2)** — S38's Drive refresh token shares it | 1 | — | `SESSION_37_prompt.md` |
 | **S39** ✅ | **DONE (2026-08-08)** — 0053 on all three envs: the private `rabbit-thumbnails` bucket, **eight** policies, the derived object on the purge path; client-side generation; the first-ever `thumbnail_url` writer; teardown + GC parity. pgTAP suite 63; outcome block below | 1 | — | `SESSION_39_prompt.md` |
 | **S44** ✅ | **DONE (2026-08-08)** — **a thumbnail lives where its source lives.** 0054 on all three envs: `storage_gc_queue.kind`, the enqueue routed to the body's store, `putThumbnailTo`/`removeThumbnailFrom`, the teardown pin + `byo_thumbnails_left`, `STORAGE_PRESIGN_RPM` 120→240. pgTAP suite 64; outcome block below. ⚠️ **Browser DISPLAY for s3 rows was deliberately deferred by Audrey** — no batch presign exists and no S3 workspace exists anywhere to verify one against; generation shipped because it is the one-way door. Tracked in `OUTSTANDING.md` | 1 | **S39** | `SESSION_44_prompt.md` |
-| **S40** ⬅️ **NEXT** | **Video preview + video thumbnails** — Range-capable route, auto still-frame, LGPL ffmpeg. 🚨 **Build stills on `putThumbnailTo(storageProvider, …)`, not on `putThumbnail`** — the destination now follows the body, and the same display gap applies to a video still as to an image | 1–2 | **S39**, **S44** ✅ | `SESSION_40_prompt.md` |
-| **S41** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
+| **S40** ✅ | **DONE (2026-08-09)** — **video preview + video still-frames, with NO migration.** The Range-capable `managed-files/:id/stream` route (the first WILSON-mediated managed-file read, so AS-2.9 lands here — throttled, because a `<video>` issues one request per seek); `generateVideoThumbnail` as a SEPARATE entry point (`canThumbnail` still refuses video, and two guard tests still pin that); the cloud upload branching to it; `VideoPreview`; `getUrl` as an **optional** registry function; ffmpeg out-of-process with electron-**builder** packaging, **proven by staging a binary through `npm run dist`**; §5f's provider-keyed notices. Migrations stay 0000–0054, pgTAP stays 64 suites. Outcome block below | 1 | **S39**, **S44** ✅ | `SESSION_40_prompt.md` |
+| **S41** ⬅️ **NEXT** | **Petal cloud storage management** — operator-terminal plans, quotas, approval; 1 GB free tier; manual billing flips (design §4a3) | 1 | **none** | `SESSION_41_prompt.md` |
 | **S42** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | **S41** (quota plane before the cap raise) | `SESSION_42_prompt.md` |
 | **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
 | **S38** ⏸️ | **Google Drive — MOVED TO LAST, OUT OF THE FIRST BUILD** (Audrey, 2026-08-08: *"lets set google drive for a later date. lets forego it for the first build. lets move that session to last."*). Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. **Nothing was built; the brief is untouched and correct**, and S37's corrections to it are already in. 🚨 **The NUMBER stays 38 deliberately — see the ledger.** | 1–2 | ⏳ **`OWED_AUDREY.md` §13 with Google** (calendar, outside Petal) — and note S37's research found this is **brand verification only, NOT mandatory app verification**, since `drive.file` is non-sensitive | `SESSION_38_prompt.md` |
@@ -484,8 +484,8 @@ below are superseded; only one of them actually moves.
 > any point after it** — it is now positioned last by choice, not by
 > dependency.
 >
-> ⭐ **REMAINING ORDER AFTER 2026-08-08: ~~S44~~ ✅ → S40 → S41 → S42 → S43,
-> then S38.** Three arrows in that line are real — **S44 → S40** (video stills
+> ⭐ **REMAINING ORDER AFTER 2026-08-09: ~~S44~~ ✅ → ~~S40~~ ✅ → S41 → S42 →
+> S43, then S38.** Three arrows in that line are real — **S44 → S40** (video stills
 > must not be built on a thumbnail path that is about to move — **discharged:
 > S44 shipped, and the path S40 must use is `putThumbnailTo`**), **S41 → S42** (quota
 > plane before the cap raise), and S43 wanting to be after the UI stops
@@ -517,6 +517,94 @@ below are superseded; only one of them actually moves.
 > authority** — each carries the measurements, but the design carries the
 > reasoning and Audrey's decisions verbatim.
 
+> ### S40 outcome — the session whose own headline change killed an unrelated feature (2026-08-09)
+>
+> **Shipped, and there is no migration.** 0000–0054 and 64 pgTAP suites are
+> untouched; everything here is application code. Vitest **1347 / 55 files**
+> (from 1234), and the deliberate breaker set is **33/33**.
+>
+> - **Part 1 — the serve route.** `GET .../managed-files/:id/stream`, `res.sendFile`
+>   so Range is automatic (express 5.2.1 → send 1.2.1, `acceptRanges` default
+>   true). It is the **first WILSON-mediated managed-file READ**, which is why
+>   S33's AS-2.9 obligation lands here and not earlier — and it is **throttled to
+>   one `downloaded` event per file per minute**, because a `<video>` issues a
+>   request per seek and `rabbitLogFileEvent` evicts the oldest non-`purged`
+>   entries at 2000: unthrottled, one scrub through a long clip would have
+>   **deleted a project's real upload history to record noise about itself.**
+> - **Part 2 — the still frame.** A separate entry point, not a widened
+>   `canThumbnail`: that function's refusal of video is pinned by two
+>   deliberately-worded tests and they are right, because `createImageBitmap`
+>   cannot express seek-and-decode on a `<video>`. Same encoder, same 256px, same
+>   `thumbnailKeyFor`, same **one** `putThumbnailTo(storageProvider, …)` call —
+>   S44's "one decision, used twice" survives a second generator, and a test
+>   asserts there is still exactly one put site.
+> - **Part 3 — ffmpeg.** Out-of-process, `-ss` before `-i`, argument array,
+>   LGPL. Packaged through **electron-builder** (`build.extraResources`), not
+>   forge. **Proven by staging a dummy binary and running `npm run dist`**: it
+>   appeared at `release/win-unpacked/resources/ffmpeg/`, the README was
+>   filtered out, and `resolveFfmpegPath()` resolved it there.
+> - **Part 4 — the notices.** Keyed on the **active provider**, so a 200 MB file
+>   is refused on `petal` (0027's 50 MB `rabbit-files` limit) and accepted on
+>   `s3` — a blanket cap would have been a false refusal aimed at exactly the
+>   customers already paying for their own storage.
+>
+> 🚨 **THE FINDING OF THE SESSION IS THAT THE HEADLINE CHANGE KILLED A FEATURE
+> THAT HAD NOTHING TO DO WITH VIDEO.** Part 4 needs the workspace's provider, so
+> `handleAddCloudFiles` gained `await getWorkspaceStorageCached()` — placed, in
+> the obvious spot, *before* `Array.from(fileList)`. The picker's `onChange` is
+> `handler(e.target.files); e.target.value = ''`. **Measured in Electron 33's own
+> Chromium: `input.files` returns ONE FileList object and `value = ''` empties it
+> IN PLACE** — `{sameObject: true, afterLength: 0}`. So the reset won the race
+> and **every cloud upload became a silent no-op** on the beta and on
+> desktop-in-cloud-mode: no rows, no error, no console output, a spinner that
+> stops. **No wiring test could have caught it** — they grep source text, and
+> this is an ordering property between two statements. The fix is one line moved;
+> the test that now pins it compares the INDEX of the snapshot against the index
+> of the first `await`.
+>
+> 🚨 **Second: the containment base was itself client-controlled.**
+> `resolveProjectFolderRoot` joined `folder_slug` — written verbatim from
+> `req.body` by the project POST and the PATCH spread — under the configured
+> root, so `folder_slug: '../../../..'` turned `D:\WilsonRoot\Projects` into
+> `D:\`, and every `resolveContainedFilePath` beneath it then contained
+> faithfully against a directory the caller had chosen. `extension` did the rest.
+> **Verified by running the real expressions.** Pre-existing since the folder
+> tree; S40 is where it stopped being survivable, because a stream route returns
+> original bytes of any type where the thumbnail route returned a 256px JPEG of
+> an image. Fixed at the **resolver** as well as both writers — the resolver half
+> is the load-bearing one, because a bundle already on disk may carry a poisoned
+> slug.
+>
+> ⚠️ **And a third thing worth keeping, about reviews rather than code: writing
+> the TEST for one finding exposed a bug the review had missed.** Finding [10]
+> said `resolveFfmpegPath` accepts anything that merely exists; fixing it and
+> then writing a machine-independent test for it revealed that the
+> `WILSON_FFMPEG_PATH` override **short-circuited on `existsSync` before the new
+> check** — so the one path a person types by hand was the one path exempt from
+> the rule. **A fix is not finished until its test is written.**
+>
+> **17 of 37 findings confirmed and fixed (5 high)**, against code already green
+> on 1315 assertions and 16/16 breakers — the eighth session running where an
+> adversarial pass found real defects in green code. Two of the five high
+> findings (the `ctx` dependency that restarted playback on any collaborator
+> presence ping, and the `useRef` re-mint budget carrying between files) were
+> caught by re-reading before the review returned, and the review confirmed both
+> independently.
+>
+> **Deferred, and deliberately matching S44:** s3 video **playback** and s3
+> still-**display**. Generation ships for every provider because it is the
+> one-way door; display and playback need a batch presign that does not exist and
+> a longer media GET expiry than `storage-presign`'s 300 s, and **there is still
+> no S3 workspace on any environment to verify either against**. `getUrl` is
+> therefore an **optional** registry function, not a sixth `REQUIRED` one —
+> promoting it would make `registerStorageProvider` refuse s3 outright.
+>
+> **Stated limits** are in `OUTSTANDING.md`: the loopback server has no auth and
+> now serves original media; professional codecs have no preview until an LGPL
+> ffmpeg binary is installed (deliberately not in git — the repo is public); and
+> a managed video added before that binary arrives keeps its icon, because the
+> renderer fallback is add-time only while the ffmpeg arm generates on demand.
+>
 > ### S44 outcome — the fix that would have caused the bug it was written to prevent (2026-08-08)
 >
 > Migration **0054** applied and verified **by query** on dev, staging and prod;

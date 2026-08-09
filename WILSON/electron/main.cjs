@@ -8,6 +8,10 @@ const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape } = require('./pathContainment.cjs');
+// Session 40: the still-frame decoder for codecs a browser cannot read. Its
+// binary is optional and its absence is a first-class state, never a crash —
+// see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
+const ffmpeg = require('./ffmpeg.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
@@ -182,6 +186,119 @@ function getThumbCacheDir() {
 // Check if a file extension is an image we can thumbnail
 const THUMB_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.tiff', '.tif', '.bmp', '.avif']);
 function isThumbableExt(ext) { return THUMB_EXTENSIONS.has((ext || '').toLowerCase()); }
+
+// ── Session 40: video ────────────────────────────────────────────────────────
+//
+// Deliberately WIDER than the set Chromium can decode. This list answers "is
+// this row a video at all" — which is the question the stream route, the
+// thumbnail route's ffmpeg arm and the renderer's fallback all ask. Whether the
+// bytes are decodable is answered by the decoder that actually tries, never by
+// an extension: a .mov holds ProRes *or* H.264 and nothing about the name says
+// which (§5f, "how to detect each one honestly").
+//
+// The professional half — .mxf, .r3d, .ari, .braw, .dnx — is here because those
+// are precisely the files ffmpeg exists to serve. They are also §5f's pre-upload
+// heuristic list, and the renderer carries the same set; videoThumbnails.js is
+// the ONE definition on that side and thumbnails.test.js asserts the two agree.
+const VIDEO_EXTENSIONS = new Set([
+  // ⚠️ '.ts' IS DELIBERATELY ABSENT — MPEG transport stream vs TypeScript
+  // source, and this tool sees far more of the latter. See the renderer copy
+  // in storage/videoThumbnails.js, which the test pins this against.
+  '.mp4', '.m4v', '.mov', '.webm', '.mkv', '.avi', '.wmv', '.flv', '.mpg',
+  '.mpeg', '.m2v', '.mts', '.m2ts',
+  '.mxf', '.r3d', '.ari', '.arri', '.braw', '.dnx', '.dnxhd', '.dnxhr',
+]);
+function isVideoExt(ext) { return VIDEO_EXTENSIONS.has((ext || '').toLowerCase()); }
+
+// 🚨 Session 40: never echo a client-supplied Content-Type from a route this
+// app's own renderer shares an origin with. `mime_type` is written verbatim
+// from req.body, and text/html served from 127.0.0.1:<port> executes as script
+// on WILSON's origin. Only obvious media passes; everything else becomes an
+// opaque download, which a <video> ignores and a browser cannot run.
+const SAFE_MEDIA_TYPE_RE = /^(video|audio|image)\/[a-z0-9][a-z0-9.+-]*$/;
+function safeMediaContentType(mime) {
+  const m = String(mime || '').trim().toLowerCase();
+  // image/svg+xml is scriptable in its own right, so it is excluded even though
+  // it matches the media shape.
+  if (m === 'image/svg+xml') return 'application/octet-stream';
+  return SAFE_MEDIA_TYPE_RE.test(m) ? m : 'application/octet-stream';
+}
+
+// 🚨 Session 40: the managed-file id is CLIENT-CHOSEN on create
+// (`id: req.body.id || uuidv4()`), and the thumbnail cache is ONE flat
+// directory shared with the asset/scene/shot/level/experience caches, which use
+// the un-namespaced keys `asset-<id>.jpg`, `scene-<id>.jpg` and so on. So a
+// caller could create a managed row with id `asset-<a real asset uuid>` and
+// then POST arbitrary JPEG bytes to it, permanently replacing that asset's
+// thumbnail — those routes serve the cached file before ever consulting the
+// source. resolveContainedFilePath stops traversal but not COLLISION: both
+// namespaces are the same folder. Requiring a bare UUID closes it without
+// touching the existing cache layout. Found by the pre-push adversarial review.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// The file extension becomes part of stored_name, which is joined under the
+// project root — so `/../../..` in it walks out of the project folder. Every
+// legitimate extension is a dot and a few alphanumerics.
+function safeExtension(ext) {
+  const e = String(ext || '').trim().toLowerCase();
+  if (!e) return '';
+  return /^\.[a-z0-9]{1,12}$/.test(e) ? e : '';
+}
+
+// ── Session 40: one ffmpeg run per thumbnail, and never a half-written one ───
+//
+// 🚨 THE PARTIAL FILE IS THE DEFECT THAT WOULD HAVE SHIPPED. Every caller of
+// the GET route serves `thumbPath` straight back when it EXISTS — so a run that
+// fails after creating the output leaves a zero-byte or truncated JPEG that is
+// then served, cached and never regenerated. The unlink is what makes a failed
+// decode retry next time instead of pinning a broken tile forever.
+//
+// 🚨 AND ONE RUN AT A TIME PER OUTPUT. A grid renders the same tile from more
+// than one place, React re-renders, and a user can scroll back — all of which
+// issue concurrent GETs for the same key. Two ffmpeg processes writing one path
+// with `-y` means one truncates the file the other is serving. Decoding a frame
+// out of a 5 GB ProRes file is also the most expensive thing this server does,
+// so sharing the in-flight promise is worth it on cost alone.
+// 🚨 AND A FAILURE IS REMEMBERED FOR A WHILE (adversarial review). Nothing
+// recorded that a file is undecodable, so a folder of .r3d or .braw respawned
+// probe + extract for EVERY visible tile on EVERY mount of the Files view —
+// toggling table/gallery, scrolling back, reopening the popup. Each of those
+// costs up to the full deadline. The TTL is short enough that installing
+// ffmpeg, or fixing a NAS that was offline, is picked up without a restart.
+const VIDEO_THUMB_FAIL_TTL_MS = 5 * 60_000;
+const videoThumbFailedAt = new Map();
+
+const videoThumbInFlight = new Map();
+function generateVideoThumbOnce(srcPath, thumbPath) {
+  const failedAt = videoThumbFailedAt.get(thumbPath);
+  if (failedAt !== undefined && Date.now() - failedAt < VIDEO_THUMB_FAIL_TTL_MS) {
+    return Promise.resolve({ ok: false, reason: 'no_frame_cached' });
+  }
+  const existing = videoThumbInFlight.get(thumbPath);
+  if (existing) return existing;
+  const run = (async () => {
+    const out = await ffmpeg.extractFrame({ input: srcPath, output: thumbPath, maxEdge: 256 });
+    if (!out.ok) {
+      // extractFrame now writes to `<output>.part` and renames, so `thumbPath`
+      // should never exist after a failure — this is the belt to that braces,
+      // and cheap. `ffmpeg_missing` is NOT cached: it is a machine state the
+      // user can change by dropping a binary in, not a property of this file.
+      try { if (fs.existsSync(thumbPath)) fs.unlinkSync(thumbPath); } catch { /* next run overwrites */ }
+      if (out.reason !== 'ffmpeg_missing') {
+        if (videoThumbFailedAt.size > 500) {
+          const cutoff = Date.now() - VIDEO_THUMB_FAIL_TTL_MS;
+          for (const [k, t] of videoThumbFailedAt) if (t < cutoff) videoThumbFailedAt.delete(k);
+        }
+        videoThumbFailedAt.set(thumbPath, Date.now());
+      }
+    } else {
+      videoThumbFailedAt.delete(thumbPath);
+    }
+    return out;
+  })().finally(() => videoThumbInFlight.delete(thumbPath));
+  videoThumbInFlight.set(thumbPath, run);
+  return run;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 //  DEFAULT PET DATA
@@ -1450,6 +1567,35 @@ function startLocalServer(distPath) {
       }
     }
 
+    // ── Session 40: the managed-file read throttle ───────────────────────────
+    //
+    // ONE 'downloaded' event per file per minute, for the streaming route only.
+    // A <video> issues a fresh Range request on every seek and every buffer
+    // refill, so an unthrottled log would write dozens of rows for a single
+    // viewing — and because rabbitLogFileEvent evicts the oldest non-'purged'
+    // entries at 2000, that churn would DELETE real history (uploads, relinks)
+    // to make room for noise about one clip. The audit control asks whether a
+    // read happened, not how many TCP requests it took.
+    //
+    // In-memory on purpose: it is a de-duplication window, not a record. A
+    // restart re-arms it, which errs toward logging.
+    const MANAGED_READ_LOG_WINDOW_MS = 60_000;
+    const managedReadLoggedAt = new Map();
+    function shouldLogManagedRead(fileId) {
+      const now = Date.now();
+      const prev = managedReadLoggedAt.get(fileId);
+      if (prev !== undefined && now - prev < MANAGED_READ_LOG_WINDOW_MS) return false;
+      // Bounded so a long session browsing many files cannot grow this without
+      // limit. Anything outside the window is already going to log again.
+      if (managedReadLoggedAt.size > 500) {
+        for (const [k, t] of managedReadLoggedAt) {
+          if (now - t >= MANAGED_READ_LOG_WINDOW_MS) managedReadLoggedAt.delete(k);
+        }
+      }
+      managedReadLoggedAt.set(fileId, now);
+      return true;
+    }
+
     // ── Projects ────────────────────────────────────────────
     expressApp.get('/api/rabbit/projects', (req, res) => {
       const projectsDir = getRabbitProjectsDir();
@@ -1513,7 +1659,12 @@ function startLocalServer(distPath) {
         created_by:      req.body.created_by || null,
         documents:       Array.isArray(req.body.documents)    ? req.body.documents    : [],
         visualAssets:    Array.isArray(req.body.visualAssets) ? req.body.visualAssets : [],
-        folder_slug:     req.body.folder_slug || fileSlugify(req.body.title || 'Untitled-Project'),
+        // 🚨 S40: SLUGIFIED, not taken verbatim. This value becomes a path
+        // segment AND the containment base every managed-file read resolves
+        // against (resolveProjectFolderRoot), so `../../../..` here reparents
+        // the whole project. Idempotent for a legitimate slug — the renderer
+        // produces the same form — so nothing that works today changes.
+        folder_slug:     fileSlugify(String(req.body.folder_slug || req.body.title || 'Untitled-Project')),
         folder_root:     folderRootIn,
         files_dir:       filesDirIn,
         created_at:      now,
@@ -1568,6 +1719,19 @@ function startLocalServer(distPath) {
           req.body.files_dir = null;
         } else if (String(next) !== String(cur)) {
           return res.status(400).json({ error: 'the files folder is set by the relink flow, not directly' });
+        }
+      }
+      // 🚨 S40: folder_slug is a PATH SEGMENT and the containment base every
+      // managed-file read resolves against, and it rode the bare spread below.
+      // Guarded with the S35 idiom this route already uses for folder_root: an
+      // UNCHANGED value passes untouched (adapters re-send whole rows, and
+      // rewriting an existing slug would move the project's folder out from
+      // under its own files), a CHANGED value is slugified.
+      if ('folder_slug' in req.body) {
+        const next = req.body.folder_slug;
+        const cur = bundle.project.folder_slug || null;
+        if (String(next ?? '') !== String(cur ?? '')) {
+          req.body.folder_slug = fileSlugify(String(next || bundle.project.title || 'Untitled-Project'));
         }
       }
       const oldTitle = bundle.project.title;
@@ -1693,7 +1857,61 @@ function startLocalServer(distPath) {
       const rootBase = resolveConfiguredRootDir();
       if (!rootBase) return null;
       const slug = fileSlugify(bundle.project?.title || 'Untitled-Project');
-      return path.join(rootBase, bundle.project?.folder_slug || slug);
+      // 🚨 SESSION 40 (adversarial review, HIGH — CONFIRMED BY MEASUREMENT).
+      // THE CONTAINMENT BASE WAS ITSELF CLIENT-CONTROLLED, which makes every
+      // resolveContainedFilePath below it faithfully contain against a
+      // directory the caller chose. `folder_slug` reaches a bundle verbatim
+      // from req.body (the project POST's `req.body.folder_slug || ...`, and
+      // the PATCH's spread), so `folder_slug: '../../../..'` turns a root of
+      // D:\WilsonRoot\Projects into D:\ — measured, exactly that.
+      //
+      // Slugifying HERE and not only at the writers is the load-bearing half:
+      // a bundle already on disk may carry a poisoned slug, and fileSlugify
+      // strips every character that is not alphanumeric or a space, so a
+      // traversal cannot survive it. Idempotent for every legitimate slug
+      // (the renderer produces the same form via entityNaming.fileSlugify),
+      // so no existing project's folder moves.
+      //
+      // Pre-existing since the folder tree; S40 is where it stopped being
+      // survivable, because the stream route returns ORIGINAL BYTES of ANY
+      // type with Range support rather than a 256px JPEG of an image.
+      const stored = bundle.project?.folder_slug;
+      const safe = stored ? fileSlugify(String(stored)) : '';
+      return path.join(rootBase, safe || slug);
+    }
+    // ── Session 40: the ONE place a managed file's body is located on disk ────
+    //
+    // Copied from the hard-DELETE's idiom (:2517), which has always used the
+    // record's OWN folder_path. The thumbnail route did not — it recomputed
+    // `ASSETS/{assetSlug}` — and that is a pre-existing defect, not a style
+    // difference: managed files also live under SCENES/ and SHOTS/ (the POST
+    // route derives all three), so a scene-attached or shot-attached image has
+    // always 410'd at the thumbnail route while sitting perfectly well on disk.
+    // The video arm below would have inherited exactly that bug.
+    //
+    // 🚨 THE LEGACY FALLBACK IS NOT TIDINESS. folder_path is written by the
+    // POST route and rewritten by the asset-rename route (:1735-1762), so it is
+    // authoritative for every record those wrote — but a record predating it,
+    // or one whose rename ran while no root resolved, may not carry it. Falling
+    // back to the old computation means this change can only ADD resolutions,
+    // never move one: an existing thumbnail that resolves today still resolves.
+    //
+    // Containment is not optional here. folder_path and stored_name reach this
+    // function from disk records a client could once have written (S14/S17,
+    // #45 family), so the join is guarded rather than trusted — and an empty
+    // stored_name resolves to the project root itself, which
+    // resolveContainedFilePath treats as contained.
+    function resolveManagedFileDiskPath(bundle, mf) {
+      if (!mf?.stored_name) return null;
+      const root = resolveProjectFolderRoot(bundle);
+      if (!root) return null;
+      const segs = String(mf.folder_path || '').split('/').filter(Boolean);
+      if (segs.length) {
+        return resolveContainedFilePath(root, path.join(...segs, mf.stored_name));
+      }
+      const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
+      const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
+      return resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name));
     }
     function ensureAssetFolder(bundle, assetName) {
       const root = resolveProjectFolderRoot(bundle);
@@ -2178,7 +2396,15 @@ function startLocalServer(distPath) {
       } catch (e) {
         console.warn('download not logged:', e?.message || e);
       }
-      res.setHeader('Content-Type', file.mime_type || 'application/octet-stream');
+      // 🚨 S40: the same guard the new stream route carries, applied here
+      // because it is the identical shape one route over — `mime_type` is
+      // client-writable and this app's own renderer is served from
+      // 127.0.0.1:<port>, so text/html returned here would execute on WILSON's
+      // origin. Found while reviewing the stream route; leaving a known,
+      // identical hole in the neighbour is the S35 lesson ("guarding a field
+      // means guarding whatever outranks it") pointed the other way.
+      res.setHeader('Content-Type', safeMediaContentType(file.mime_type));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
       res.sendFile(diskPath);
     });
 
@@ -2443,7 +2669,13 @@ function startLocalServer(distPath) {
       const projectSlug = bundle.project?.folder_slug || fileSlugify(bundle.project?.title || 'Untitled');
       const version = getNextVersion(bundle.managedFiles, req.body.file_name, req.body.asset_id, req.body.shot_id, req.body.scene_id);
       const vLabel = formatVersion(version);
-      const ext = req.body.extension || '';
+      // 🚨 SANITISED. This lands in stored_name, which is joined under the
+      // project root, so `/../../../Users/…/secret.docx` walks straight out of
+      // the project folder — and since S40 the stream route returns the
+      // ORIGINAL BYTES of whatever it resolves to, with Range support and a
+      // wildcard CORS header. Measured working before this line existed. The
+      // other half of the same traversal is folder_slug (resolveProjectFolderRoot).
+      const ext = safeExtension(req.body.extension);
       const fileNameSlug = fileSlugify(req.body.file_name || 'File');
       const storedName = `${projectSlug}_${fileNameSlug}_${vLabel}${ext}`;
 
@@ -2552,13 +2784,122 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
+    // ── Session 40: stream a managed file's bytes, with Range support ────────
+    //
+    // NETWORK_STORAGE_DESIGN.md §5d.2. Until now there was NO serve route for
+    // managed files at all — six routes manage the manifest and none of them
+    // sends the body; they are opened through the OS (rabbit:open-in-explorer).
+    // So this is the first time WILSON mediates a managed-file READ, which is
+    // why the AS-2.9 audit obligation lands here and not before.
+    //
+    // 🚨 RANGE SUPPORT IS THE WHOLE REASON THIS IS res.sendFile. Without ranges
+    // a <video> cannot seek and the browser pulls the entire file before
+    // playing — on a 5 GB master that is not a slow preview, it is a hang.
+    // express ^5.2.1 -> send 1.2.1, whose acceptRanges defaults true, so
+    // `Accept-Ranges: bytes` and 206 responses are automatic. A hand-rolled
+    // createReadStream does NOT do this unless Range is implemented explicitly,
+    // and that is the single most likely thing to get wrong here. Content-Type
+    // is set FIRST and survives: send only fills it in when unset.
+    //
+    // 🚨 THE COMPLETION CALLBACK IS NOT OPTIONAL ON THIS ROUTE, unlike the
+    // files download beside it. A <video> aborts range requests constantly —
+    // every seek cancels the one in flight — so ECONNABORTED is the NORMAL
+    // case here, not a fault. Without the callback those surface as unhandled
+    // stream errors.
+    expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/stream', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      // 🚨 !deleted_at, MATCHING THE LIST ROUTE. FileManager's delete is the
+      // SOFT path (deleted_at stamped, body left on disk), so without this a
+      // file the user deleted — and which has vanished from every list —
+      // carried on streaming in full to anything that could reach the loopback
+      // port, and kept minting 'downloaded' audit events for a record that says
+      // it is gone. Found by the pre-push adversarial review.
+      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id && !f.deleted_at);
+      if (!mf) return rabbitNotFound(res, 'managed-file');
+      const diskPath = resolveManagedFileDiskPath(bundle, mf);
+      if (!diskPath) return res.status(400).json({ error: 'invalid storage path' });
+      if (!fs.existsSync(diskPath)) return res.status(410).json({ error: 'file body missing on disk' });
+
+      // AS-2.9 (TPN-CONT-008 / TPN-LOG-002), carried over from the files
+      // download route at :2149 — same event, same old_path semantics ("the
+      // path at event time"), same touch:false because a READ must not stamp
+      // updated_at or rewrite the folder mirrors, same try/catch because an
+      // audit hiccup must not take the read down with it, and never silent.
+      //
+      // 🚨 THROTTLED, AND THE FILES ROUTE DELIBERATELY IS NOT. A download is
+      // one request; a video playback is DOZENS — one per seek and per buffer
+      // refill. Logging each would not just be noisy: rabbitLogFileEvent caps
+      // fileEvents at 2000 and evicts the oldest NON-purged entries, so one
+      // scrub through a long clip would silently push a project's real upload
+      // and relink history out of the bundle. One event per file per minute
+      // records the FACT of the read, which is what the control asks for.
+      //
+      // 🚨 AND A THUMBNAIL PROBE IS NOT A READ. ensureManagedVideoThumbnail's
+      // renderer fallback points a hidden <video> at this route purely to
+      // decode one frame, which is a MACHINE fetch, not a person opening a
+      // file. Without `?probe=1` an import of thirty clips wrote thirty
+      // 'downloaded' events timestamped at import — asserting in the audit
+      // drawer that someone had watched footage nobody had opened, and (because
+      // rabbitLogFileEvent evicts the oldest non-'purged' entries at 2000)
+      // pushing out the project's real history to do it. That is the exact
+      // churn the throttle above exists to prevent, reintroduced by a caller.
+      // Found by the pre-push adversarial review.
+      const isThumbnailProbe = req.query.probe === '1';
+      if (!isThumbnailProbe && shouldLogManagedRead(mf.id)) {
+        try {
+          rabbitLogFileEvent(bundle, {
+            file_id:          mf.id,
+            project_id:       req.params.projectId,
+            file_name:        mf.file_name || mf.stored_name,
+            storage_provider: mf.storage_provider || 'local_managed',
+            event:            'downloaded',
+            old_path:         `${mf.folder_path || ''}${mf.stored_name}`,
+            size_bytes:       mf.size_bytes ?? null,
+          });
+          writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+        } catch (e) {
+          console.warn('managed read not logged:', e?.message || e);
+        }
+      }
+
+      // 🚨 THE Content-Type IS ALLOWLISTED AND SNIFFING IS OFF, and this is a
+      // same-origin execution defence rather than tidiness. `mime_type` reaches
+      // the record verbatim from req.body (the managed-files POST writes it and
+      // the PATCH does not strip it), and the renderer itself is served from
+      // http://127.0.0.1:<port> by THIS Express app — so bytes returned as
+      // text/html from this route would run as script on WILSON's own origin,
+      // with access to that origin's localStorage (the Supabase session) and to
+      // all 94 unauthenticated routes. Echoing a client-settable type was the
+      // whole of it. Found by the pre-push adversarial review.
+      //
+      // An allowlist rather than a denylist: anything that is not obviously
+      // media is served as an opaque download, which a <video> ignores and a
+      // browser cannot execute.
+      res.setHeader('Content-Type', safeMediaContentType(mf.mime_type));
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.sendFile(diskPath, (err) => {
+        if (!err) return;
+        // A cancelled range request is the normal shape of video playback.
+        if (res.headersSent || res.writableEnded) return;
+        res.status(500).json({ error: 'stream failed' });
+      });
+    });
+
     // Thumbnail endpoint — generates + caches a 256px-wide JPEG via sharp
     expressApp.get('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', async (req, res) => {
       const bundle = readRabbitBundle(req.params.projectId);
       if (!bundle) return rabbitNotFound(res);
       const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
       if (!mf) return rabbitNotFound(res, 'managed-file');
-      if (!isThumbableExt(mf.extension)) return res.status(415).json({ error: 'not an image' });
+      // Session 40: video joins raster here. The two arms are NOT the same
+      // decoder — sharp cannot open a ProRes MOV — so the branch is explicit
+      // rather than a widened extension set feeding one pipeline.
+      const isImage = isThumbableExt(mf.extension);
+      const isVideo = isVideoExt(mf.extension);
+      if (!isImage && !isVideo) {
+        return res.status(415).json({ error: 'not an image or video', code: 'unsupported_type' });
+      }
       // Session 17 containment (#45). Three of the segments below are
       // client-writable: mf.id (chosen on create), mf.stored_name, and
       // asset.folder_slug (the asset POST/PATCH spread req.body). Each is
@@ -2574,13 +2915,39 @@ function startLocalServer(distPath) {
       // Generate from source file
       const root = resolveProjectFolderRoot(bundle);
       if (!root) return res.status(404).json({ error: 'no file root configured' });
-      const asset = (bundle.assets || []).find(a => a.id === mf.asset_id);
-      const assetSlug = asset?.folder_slug || fileSlugify(asset?.name || 'Untitled-Asset');
-      const srcPath = mf.stored_name
-        ? resolveContainedFilePath(root, path.join('ASSETS', assetSlug, mf.stored_name))
-        : null;
+      // Session 40: one resolver, shared with the stream route and modelled on
+      // the hard-DELETE's idiom. It reads the record's OWN folder_path, so a
+      // managed file under SCENES/ or SHOTS/ finally resolves — this route used
+      // to recompute `ASSETS/{assetSlug}` unconditionally and 410'd on both.
+      const srcPath = resolveManagedFileDiskPath(bundle, mf);
       if (!srcPath) return res.status(400).json({ error: 'invalid source path' });
       if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source file missing' });
+
+      if (isVideo) {
+        // 🚨 THE BINARY'S ABSENCE IS A NAMED STATE, NOT A 500. It is today's
+        // state on every machine, and the renderer uses this code to decide
+        // whether to fall back to decoding the format itself through the
+        // stream route. A generic error would make "no decoder installed"
+        // indistinguishable from "this file is corrupt".
+        if (!ffmpeg.hasFfmpeg()) {
+          return res.status(415).json({
+            error: 'no video decoder installed on this machine',
+            code:  'ffmpeg_missing',
+          });
+        }
+        try {
+          const out = await generateVideoThumbOnce(srcPath, thumbPath);
+          if (!out.ok) {
+            return res.status(422).json({ error: 'could not decode a frame', code: out.reason });
+          }
+          res.setHeader('Content-Type', 'image/jpeg');
+          return res.sendFile(thumbPath);
+        } catch (err) {
+          console.error('video thumbnail failed:', err?.message || err);
+          return res.status(500).json({ error: 'thumbnail generation failed' });
+        }
+      }
+
       try {
         await sharp(srcPath).resize(256).jpeg({ quality: 80 }).toFile(thumbPath);
         res.setHeader('Content-Type', 'image/jpeg');
@@ -2589,6 +2956,73 @@ function startLocalServer(distPath) {
         console.error('thumbnail generation failed:', err.message);
         res.status(500).json({ error: 'thumbnail generation failed' });
       }
+    });
+
+    // ── Session 40: accept a frame the RENDERER decoded ──────────────────────
+    //
+    // The fallback that makes browser-native video work with no ffmpeg
+    // installed: the renderer points a hidden <video> at the stream route
+    // above, grabs a frame to a canvas, and POSTs the JPEG here. Chromium
+    // handles H.264/AAC MP4, VP8/VP9 WebM and AV1 — which is most of what is
+    // not professional footage — so this is not a degraded path, it is the
+    // same decoder the cloud upload path uses, pointed at a local file.
+    //
+    // ffmpeg still owns ProRes/DNxHD/MXF, and it is preferred when present
+    // because input seeking on local disk beats streaming over HTTP.
+    //
+    // 🚨 THIS WRITES TO DISK FROM AN UNAUTHENTICATED LOOPBACK SERVER, so it is
+    // narrowed in four ways rather than trusted: the row must exist and be a
+    // video, the destination is contained under the cache dir by mf.id (which
+    // is client-chosen on create — #45 family), the body is capped, and the
+    // bytes must actually START WITH A JPEG MAGIC NUMBER. Without that last
+    // check this is a "write arbitrary content to a path ending .jpg"
+    // primitive, and the GET above would then serve it back with an image
+    // Content-Type.
+    expressApp.post('/api/rabbit/projects/:projectId/managed-files/:id/thumbnail', (req, res) => {
+      const bundle = readRabbitBundle(req.params.projectId);
+      if (!bundle) return rabbitNotFound(res);
+      const mf = (bundle.managedFiles || []).find(f => f.id === req.params.id);
+      if (!mf) return rabbitNotFound(res, 'managed-file');
+      if (!isVideoExt(mf.extension)) {
+        return res.status(415).json({ error: 'not a video', code: 'unsupported_type' });
+      }
+      // 🚨 THE ID MUST BE A BARE UUID — see UUID_RE for why. The thumbnail
+      // cache is one flat namespace shared with `asset-<id>.jpg` and
+      // `<entity>-<id>.jpg`, and this route is the only one that writes
+      // ARBITRARY bytes into it.
+      if (!UUID_RE.test(String(mf.id))) {
+        return res.status(400).json({ error: 'unsupported file id' });
+      }
+      const { base64 } = req.body || {};
+      if (!base64) return res.status(400).json({ error: 'base64 required' });
+
+      let buf;
+      try { buf = Buffer.from(base64, 'base64'); } catch { buf = null; }
+      if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
+      // Mirrors THUMBNAIL_MAX_BYTES / migration 0053's bucket cap, so the two
+      // tiers agree about how big a preview may be.
+      if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
+      if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) {
+        return res.status(415).json({ error: 'not a JPEG' });
+      }
+
+      const thumbPath = resolveContainedFilePath(getThumbCacheDir(), `${mf.id}.jpg`);
+      if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
+      try {
+        fs.writeFileSync(thumbPath, buf);
+      } catch (err) {
+        console.error('thumbnail write failed:', err?.message || err);
+        return res.status(500).json({ error: 'thumbnail write failed' });
+      }
+      res.json({ ok: true });
+    });
+
+    // Does this machine have the professional-codec decoder? The renderer asks
+    // once, to decide whether a ProRes row is worth attempting at all and to
+    // word the §5f notice honestly ("add it from the desktop app" is a lie if
+    // the desktop app has no decoder either).
+    expressApp.get('/api/rabbit/video-support', (req, res) => {
+      res.json({ ffmpeg: ffmpeg.hasFfmpeg() });
     });
 
     // ── Asset thumbnail endpoint ──

@@ -40,3 +40,12 @@ dist-vercel/
 # dist-vercel/wilsonadmin is already covered above; this is the standalone
 # `npm run build:admin` target.
 dist-web-admin/
+
+# Session 40: electron-builder's output (`npm run dist` / `dist:publish`).
+# 🚨 THIS WAS MISSING AND THE REPO IS PUBLIC. `directories.output` has been
+# "release" since v1.0.0 was prepared, but nobody had run `npm run dist` in a
+# working tree before, so the directory never existed to be noticed — and it
+# holds the whole packaged Electron runtime (~500 MB of DLLs, .pak and .bin)
+# plus the signed installer. `git add -A` would have swept all of it into a
+# public repository. `*.exe` above covers only the installer itself.
+release/

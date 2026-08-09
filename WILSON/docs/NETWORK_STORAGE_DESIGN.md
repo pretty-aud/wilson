@@ -1202,6 +1202,54 @@ deletion path and the same certificate, not a later sweep.
 > stated rather than silently missed. **Generation is the one-way door, display
 > is not** — which is why the write half shipped anyway.
 
+> ## ✅ §5d.1b, §5d.2, §5e and §5f are BUILT (S40, 2026-08-09) — four corrections
+>
+> Read these before the sections below; each contradicts something written there,
+> and each was measured.
+>
+> 1. 🚨 **"One implementation covers both backends" (§5d.1b, option 2) is
+>    WRONG for cloud, and right only for the desktop.** Reading a file back
+>    through the serve route to make a thumbnail costs nothing when the file is
+>    on local disk. The same shape against a cloud body means **re-downloading
+>    the source** — Petal egress on `petal`, a presign round trip plus customer
+>    egress on `s3` — which is the one expensive design §12.7b exists to refuse.
+>    Built as two paths: the cloud arm generates from the copy already in memory;
+>    the desktop arm reads back, because it has no `File` object and the read is
+>    free.
+> 2. ⚠️ **The tainted-canvas risk does NOT apply to the desktop.**
+>    `mainWindow.loadURL('http://127.0.0.1:' + port)` — the renderer is served BY
+>    the same Express app that serves the stream route, so they are **same-origin**
+>    and a canvas drawn from it was never going to be tainted. It is a real risk
+>    on a presigned s3 URL, which is cross-origin by construction;
+>    `crossOrigin="anonymous"` is set for that future rather than for today.
+> 3. 🚨 **`canThumbnail()` could not be widened**, and §5d.1b's "same shape as
+>    images, reusing 5d.1's machinery" reads as though it could.
+>    `generateThumbnail`'s injectable seam is `createImageBitmap`, which cannot
+>    express seek-and-decode on a `<video>`. What is reused is the ENCODER, the
+>    key derivation and the destination; the decoder is a separate entry point.
+> 4. ⚠️ **§5d.2's Limit 2 — "cloud playback bills per view" — is only half true,
+>    and the half that matters inverted.** Egress is the CUSTOMER's on an `s3`
+>    workspace (§12.7a: the bytes never touch Petal) and nobody's on `network`.
+>    On `petal` it is Petal's, but `rabbit-files` is capped at 50 MB (0027), so
+>    per-view cost there is bounded at 50 MB per file. That is why petal playback
+>    shipped without waiting for the §4a2 cost decision — and why s3 playback did
+>    NOT ship, for an entirely different reason: `storage-presign`'s GET expiry is
+>    **300 s**, so a clip over five minutes dies mid-playback, and there is no S3
+>    workspace anywhere to verify a longer-lived signer against.
+>
+> ⚠️ **§5e's "unpacked extra resource in `forge.config.cjs` (`packagerConfig`)"
+> is the WRONG FILE.** electron-forge does not produce the installer users
+> receive. The shipped build is electron-**builder** (`npm run dist`, the `build`
+> key in `package.json`), and its knob is `build.extraResources`. The two
+> packagers also have opposite asar defaults. Verified by staging a binary and
+> running `npm run dist`.
+>
+> Everything else in §5d.1b, §5d.2, §5e-pre, §5e and §5f shipped as written,
+> including §5f's agreed treatment (inline note per row + one summary line per
+> batch; a dialog only for the hard failure) — with the one amendment that the
+> cap is **provider-keyed**, since 50 MB is `rabbit-files`'s limit and applies to
+> `petal` only.
+
 ### 5d.1b Video thumbnails — a still frame, automatically
 
 **Supersedes the earlier "no video thumbnails" scope** (Audrey, 2026-08-05):

@@ -15,12 +15,25 @@
 > warning. **The sequence table's order and the session numbers agree** — but
 > the blocked-by column is the authority if they ever drift again.
 
-> **STATE — re-measure, do not trust this block.** After S35 (2026-08-07):
-> migrations **0000–0049** on all three envs (verified by query), next free
-> **0050**. pgTAP **59 suites / 982 assertions**, next free suite **60**.
-> Vitest **1022 / 47 files**. 🚨 **Read the working tree, never memory or a
-> doc — a design written mid-S31 cited "0046, next free" and was wrong
-> within the hour.**
+> **STATE — re-measure, do not trust this block.** After **S40**
+> (2026-08-09): migrations **0000–0054** on all three envs, next free
+> **0055**. pgTAP **64 suites**, next free suite **65**. Vitest **1347 / 55
+> files**. 🚨 **Read the working tree, never memory or a doc — a design written
+> mid-S31 cited "0046, next free" and was wrong within the hour, and this very
+> block was stale by six vitest assertions when S40 measured it.**
+>
+> **S40 added NO migration and NO pgTAP suite** — it was all application code —
+> so the SQL numbers are unchanged since S44. The vitest count moved a lot
+> (1234 → 1347).
+>
+> ⚠️ **Two things S40 leaves that touch S41's surface:**
+> - **`STORAGE_PRESIGN_RPM` is 240** (S44 raised it from 120). S40 added no new
+>   presign per upload, but a future s3 video-still display would.
+> - **The deferred s3 trio is one session, not three**: a batch GET signer, a
+>   longer media GET expiry than `storage-presign`'s **300 s**, and moving
+>   `getUrl` from optional into the registry's `REQUIRED` list once both
+>   providers can honour it. It is **not** S41's work, but S41's quota plane is
+>   the first thing that will want to know how much a customer's bucket holds.
 
 ## Start ritual (before touching anything)
 

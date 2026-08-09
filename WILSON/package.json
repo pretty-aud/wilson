@@ -11,6 +11,7 @@
   "author": "Petal Studios",
   "type": "module",
   "main": "electron/main.cjs",
+  "_comment:build": "Session 40, and it lives at the ROOT rather than inside `build` ON PURPOSE: electron-builder validates the `build` object against a JSON schema and REJECTS unknown properties, so a `_comment:` key in there fails `npm run dist` outright. 🚨 `build` IS THE PACKAGER THAT SHIPS. electron-BUILDER (npm run dist) produces the nsis installer users receive; electron-FORGE (npm run package/make, forge.config.cjs) does not ship, and its packagerConfig.extraResource does NOTHING for the shipped build — the two also have OPPOSITE asar defaults. extraResources copies OUTSIDE the asar by construction, which is what an executable needs: a binary inside an archive cannot be exec'd. Verify with `npm run dist` and look in release/win-unpacked/resources/ffmpeg/, never with `npm run package`. resources/ffmpeg/ is committed (README + .gitignore) so the glob always resolves; the binary itself is gitignored because the repo is PUBLIC.",
   "scripts": {
     "dev": "vite",
     "test": "vitest run",
@@ -87,6 +88,17 @@
       "electron/**/*",
       "public/extensions/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*",
+          "!README.md",
+          "!.gitignore"
+        ]
+      }
     ],
     "win": {
       "target": [

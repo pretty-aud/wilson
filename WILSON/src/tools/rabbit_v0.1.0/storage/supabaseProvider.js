@@ -76,6 +76,36 @@ export function createSupabaseStorageProvider(requireClient) {
       return (data || []).some(o => o.name === leaf)
     },
 
+    // ── Session 40: a URL a <video> can stream from ─────────────────────────
+    //
+    // 🚨 OPTIONAL BY DESIGN — NOT a sixth entry in REQUIRED. `get()` returns a
+    // whole Blob, which is the right shape for a download and the wrong one for
+    // playback: a <video> needs a URL it can issue Range requests against, and
+    // a 5 GB master cannot be a Blob at all. But adding `getUrl` to
+    // storage/index.js's REQUIRED list would make registerStorageProvider
+    // REFUSE every provider that lacks it — and s3's implementation is exactly
+    // the deferred work (its presigned GET expires in 300s, against this
+    // function's 3600s, and there is no S3 workspace on any environment to
+    // verify a longer-lived one against). So callers ask with `?.` and a
+    // provider that cannot mint one simply has no playback, which is the
+    // fail-closed direction.
+    //
+    // When s3 can do it, this becomes REQUIRED and both implement it. That is a
+    // one-line change here and a session's work there; putting it in REQUIRED
+    // now would break registration for the provider that cannot yet comply.
+    //
+    // ⚠️ 3600s is Supabase's signing horizon, not a promise about playback. A
+    // clip longer than the remaining validity stops mid-stream with a 403 the
+    // element reports as a stall; the player re-mints on error rather than
+    // holding a sticky failure flag over an expiring URL (S39's own review
+    // finding, one bucket over).
+    async getUrl(key, expiresIn = 3600) {
+      const b = await bucket()
+      const { data, error } = await b.createSignedUrl(key, expiresIn)
+      if (error) throw new Error(`[supabase] storage url failed: ${error.message}`)
+      return data?.signedUrl || null
+    },
+
     // The configuration-time probe (S34's rabbit:probe-storage-root pattern
     // generalised). Petal cloud needs no reachability check — it is the same
     // host the app is already authenticated against, so a failure here would

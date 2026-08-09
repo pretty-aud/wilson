@@ -70,6 +70,12 @@ import {
   generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
   signedThumbnailUrls,
 } from '../storage/thumbnails';
+// Session 40: the video decoder is a SEPARATE entry point, not an option on
+// generateThumbnail — canThumbnail() refuses video deliberately and two guard
+// tests pin that refusal. See storage/videoThumbnails.js for why.
+import {
+  looksLikeVideoFile, generateVideoThumbnailFromFile,
+} from '../storage/videoThumbnails';
 import { getWorkspaceStorageCached } from '../../../cloud/workspaceStorage';
 import { presignStorage } from '../../../cloud/storageApi';
 import { serializeProjectRates, projectRatesPath } from '../projectRates';
@@ -1091,9 +1097,29 @@ export function supabaseAdapter() {
       // in rabbit-thumbnails by following its body, not by a special case. If
       // this line ever needs a money test, the pin has been moved out of the
       // one place that owns it.
+      //
+      // 🚨 SESSION 40 — VIDEO TAKES A DIFFERENT DECODER TO THE SAME
+      // DESTINATION. The branch is on the SOURCE (which decoder can read these
+      // bytes), never on the destination: both arms produce a 256px JPEG and
+      // both hand it to the one `putThumbnailTo(storageProvider, …)` below, so
+      // S44's "one decision, used twice" survives a second generator. A second
+      // put site is how a video still would start ignoring the provider its
+      // body went to — the exact defect 0054 exists to prevent.
+      //
+      // A `<video>` cannot decode ProRes/DNxHD/MXF, so those yield null here and
+      // the row keeps a file-type icon. On the desktop, ffmpeg covers them
+      // separately (electron/ffmpeg.cjs); a browser-only user gets §5f's inline
+      // notice instead of a silent absence.
       let thumbnailPath = null;
       try {
-        const thumb = await generateThumbnail(file);
+        // 🚨 looksLikeVideoFile, NOT canThumbnailVideo(file.type). File.type is
+        // the EMPTY STRING for .mov/.mkv/.avi/.wmv on any machine whose OS MIME
+        // registry lacks them, so a type-only gate sent an H.264 .mov to
+        // generateThumbnail, whose own gate also refused it — no decoder ran at
+        // all and the preview was lost through the one-way door.
+        const thumb = looksLikeVideoFile(file)
+          ? await generateVideoThumbnailFromFile(file)
+          : await generateThumbnail(file);
         if (thumb) {
           const key = thumbnailKeyFor(storagePath);
           await putThumbnailTo(storageProvider, key, thumb, { client });
@@ -1200,6 +1226,30 @@ export function supabaseAdapter() {
         console.warn('[supabase] download not logged:', err?.message || err);
       }
       return data; // Blob
+    },
+
+    // Session 40: a streamable URL for the video player (§5d.2).
+    //
+    // 🚨 THE PROVIDER THE ROW NAMES, exactly as downloadFile does — never the
+    // workspace's current setting. A workspace that switched provider must
+    // still be able to play what it wrote before the switch.
+    //
+    // Returns null when that provider has no `getUrl`. That is a STATED
+    // capability gap, not a fault: `getUrl` is deliberately absent from the
+    // registry's REQUIRED list (storage/index.js) because s3 cannot implement
+    // it usefully yet — a presigned GET expires in 300s (storage-presign
+    // EXPIRES), so a clip longer than five minutes would die mid-playback, and
+    // there is no S3 workspace on any environment to verify a longer-lived
+    // signer against. Same reasoning, and the same deferral, as S44's
+    // thumbnail display.
+    //
+    // A signing ERROR still throws — an RLS refusal must not read as "this
+    // format has no preview".
+    async fileUrl(file, expiresIn = 3600) {
+      await requireClient();
+      const provider = resolveFileProvider(file);
+      if (typeof provider.getUrl !== 'function') return null;
+      return await provider.getUrl(file.storage_path, expiresIn);
     },
 
     // Session 39: display URLs for a batch of thumbnails.
