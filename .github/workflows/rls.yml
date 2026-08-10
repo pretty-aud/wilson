@@ -357,6 +357,13 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.DEV_SUPABASE_ANON_KEY }}
           WILSON_E2E_USERNAME: ${{ secrets.DEV_PROBE_USERNAME }}
           WILSON_E2E_PASSWORD: ${{ secrets.DEV_PROBE_PASSWORD }}
+          # Session 43: sign-in is company-first, so the probe account's
+          # workspace slug is now part of the flow. Unset renders as the empty
+          # string and tests/e2e/authFlow.ts falls back to `smoke`, which is
+          # smoke_admin's workspace on wilson-dev (measured 2026-08-10). Set
+          # this secret only if DEV_PROBE_USERNAME is pointed at an account in
+          # a different workspace.
+          WILSON_E2E_WORKSPACE_SLUG: ${{ secrets.DEV_PROBE_WORKSPACE_SLUG }}
           PLAYWRIGHT_SKIP_EMAIL: '1'
         run: npx playwright test
 

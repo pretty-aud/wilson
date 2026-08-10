@@ -25,67 +25,15 @@
 // See playwright.config.ts for local + CI wiring.
 // =============================================================================
 
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect } from '@playwright/test'
+// Session 43: sign-in lives in authFlow.ts so this spec and web-path.spec.ts
+// cannot drift apart again. USERNAME / PASSWORD / WORKSPACE come from there.
+import { USERNAME, PASSWORD, signIn, gotoForgotPassword } from './authFlow'
 
-// Creds seeded by supabase/tests/rls helpers + the Session 2 smoke fixture.
-// Supplied by env — WILSON_E2E_PASSWORD locally, DEV_PROBE_PASSWORD in CI.
-//
-// Session 15 (TPN-SDLC-007): the password USED to have a hardcoded fallback
-// here. This repo is PUBLIC, and the account it belongs to is a live, active
-// workspace admin on the hosted wilson-dev project — so the literal in this
-// file was a published credential, not a fixture. There is deliberately no
-// fallback now: an unset password fails loudly at startup rather than
-// silently reintroducing the literal.
-const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
-// Session 43: sign-in is now company-first, so the helper needs the fixture's
-// workspace slug. Read off wilson-dev 2026-08-10 (Smoke Workspace / `smoke`)
-// and defaulted like USERNAME — a slug is an identifier, not a credential, so
-// unlike PASSWORD it is safe in a public repo.
-const WORKSPACE = process.env.WILSON_E2E_WORKSPACE_SLUG ?? 'smoke'
-const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
-if (!PASSWORD) {
-  throw new Error(
-    'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '
-    + 'the credential is never committed. Set it from your password manager (or, in CI, '
-    + 'from the DEV_PROBE_PASSWORD secret) before running.',
-  )
-}
 const MAILPIT  = process.env.MAILPIT_URL         ?? 'http://localhost:54324'
 const SKIP_EMAIL = process.env.PLAYWRIGHT_SKIP_EMAIL === '1'
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-async function signIn(page: Page, username: string, password: string) {
-  await page.goto('/')
-  // AuthShell takes ~2s to settle the intro animation; wait for the LOGIN
-  // heading before typing.
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
-  // Session 43 §A1 — step 1 of 2. The company step deliberately makes NO
-  // network call (it shape-checks and advances), so there is nothing to wait
-  // on beyond the step cross-fade; waiting for the Username field covers it.
-  await page.getByLabel('Company').fill(WORKSPACE)
-  await page.getByRole('button', { name: /^continue$/i }).click()
-  await expect(page.getByLabel('Username')).toBeVisible({ timeout: 8_000 })
-  await page.getByLabel('Username').fill(username)
-  await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  // Session 9: unenrolled admins get the MFA enrollment gate right after
-  // reveal — its overlay eats every click below it. The probe admin stays
-  // unenrolled (a TOTP secret in CI is S11 work), so defer per sign-in.
-  const defer = page.getByRole('button', { name: /set up later/i })
-  await defer.click({ timeout: 12_000 }).catch(() => { /* not an admin, or already enrolled */ })
-}
-
-// Session 43 §A1: "Forgot password?" moved to step 2, beside the password
-// field it is about (Law of Proximity), so reaching it means clearing the
-// company step first.
-async function gotoForgotPassword(page: Page) {
-  await page.goto('/')
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
-  await page.getByLabel('Company').fill(WORKSPACE)
-  await page.getByRole('button', { name: /^continue$/i }).click()
-  await page.getByRole('button', { name: /forgot password/i }).click({ timeout: 8_000 })
-}
-
 async function latestMailFor(email: string) {
   // Mailpit search API: GET /api/v1/search?query=to:<email>
   const r = await fetch(`${MAILPIT}/api/v1/search?query=to%3A${encodeURIComponent(email)}&limit=1`)

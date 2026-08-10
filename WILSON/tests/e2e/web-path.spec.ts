@@ -16,36 +16,15 @@
 // Uses the same seeded creds as auth.spec.ts (WILSON_E2E_* env in CI).
 // =============================================================================
 
-import { test, expect, type Page } from '@playwright/test'
-
-// See the note in auth.spec.ts (TPN-SDLC-007): no hardcoded password fallback.
-// This repo is public and the account is a live workspace admin on a hosted
-// project, so the literal that used to sit here was a published credential.
-const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
-const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
-if (!PASSWORD) {
-  throw new Error(
-    'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '
-    + 'the credential is never committed. Set it from your password manager (or, in CI, '
-    + 'from the DEV_PROBE_PASSWORD secret) before running.',
-  )
-}
-
-// Sign in from wherever the page currently is (deep links must NOT be
-// navigated away from — that is the thing under test).
-async function signInHere(page: Page, username: string, password: string) {
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 15_000 })
-  await page.getByLabel('Username').fill(username)
-  await page.getByLabel('Password').fill(password)
-  await page.getByRole('button', { name: /sign in/i }).click()
-  // Unenrolled admins get the S9 MFA enrollment gate; defer it.
-  const defer = page.getByRole('button', { name: /set up later/i })
-  await defer.click({ timeout: 12_000 }).catch(() => { /* not an admin, or enrolled */ })
-}
+import { test, expect } from '@playwright/test'
+// Session 43: the sign-in flow lives in authFlow.ts. This file used to carry
+// its own copy, which is exactly why the two-step split broke it — see the
+// header of that module.
+import { signInHere } from './authFlow'
 
 test('deep link /wilson/otter serves the shell and sign-in lands there', async ({ page }) => {
   await page.goto('/wilson/otter')
-  await signInHere(page, USERNAME, PASSWORD)
+  await signInHere(page)
 
   // The top bar renders the page title for every non-home page. O.T.T.E.R.
   // must be the CURRENT page — a home landing would prove deep links reset.
@@ -55,7 +34,7 @@ test('deep link /wilson/otter serves the shell and sign-in lands there', async (
 
 test('in-app navigation pushes /wilson/<page> URLs and back returns', async ({ page }) => {
   await page.goto('/wilson')
-  await signInHere(page, USERNAME, PASSWORD)
+  await signInHere(page)
   await expect(page.getByText(/^HOME$/i)).toBeVisible({ timeout: 15_000 })
 
   // Home menu tiles carry a sprite img — same selector trick as auth.spec.

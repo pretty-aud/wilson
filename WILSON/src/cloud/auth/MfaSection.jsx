@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldCheck, ShieldOff, Copy, Check } from 'lucide-react'
 import { supabase } from './supabaseClient'
-import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
+import AuthShell, { AUTH_TEXT_STYLE, AUTH_INK, AUTH_ERROR_INK, AUTH_LINK_STYLE } from './AuthShell'
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
@@ -38,8 +38,11 @@ function qrSrc(qr) {
 }
 
 // ── Shared enroll panel ──────────────────────────────────────────────────
-// dark=true renders on the auth-overlay (white on orange); dark=false uses
-// the settings-light tokens.
+// dark=true renders on the auth-overlay, dark=false in Settings > Profile.
+// 🚨 `dark` is a MISNOMER and it cost this component its legibility: the auth
+// overlay's content area is AuthShell's LIGHT orange well (#f4a261), so
+// "dark" never meant a dark background. It only selects which translucent
+// well the inputs sit in. Foreground is AUTH_INK on both.
 export function MfaEnrollPanel({ dark = false, onEnrolled }) {
   const [phase, setPhase] = useState('loading') // loading | show | verifying | error
   const [factor, setFactor] = useState(null)    // { id, qr, secret }
@@ -134,8 +137,19 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
     } catch { /* clipboard unavailable — secret stays visible */ }
   }, [factor])
 
-  const fg = dark ? '#ffffff' : '#1c1917'
-  const sub = dark ? 'rgba(255,255,255,0.75)' : '#57534e'
+  // Session 43: `dark` does NOT mean a dark background. It means "rendered on
+  // the auth overlay", and that overlay's content area is the LIGHT orange
+  // well (#f4a261) — AuthShell paints it between the bars. The old values
+  // here were #ffffff and rgba(255,255,255,0.75), i.e. 2.06:1 and worse, on
+  // the screen every admin is shown at every sign-in until they enrol.
+  //
+  // Both branches now land on the same ink because both surfaces are light.
+  // The distinction `dark` still draws is BACKGROUND (see the wells below),
+  // not foreground. Audrey's rule: on orange, white or black, never grey —
+  // so `sub` is no longer a lighter colour, it is the same ink at a smaller
+  // size and lighter weight.
+  const fg = AUTH_INK
+  const sub = dark ? AUTH_INK : '#57534e'
 
   if (phase === 'loading') {
     return <div className="text-xs font-mono" style={{ color: sub }}>Preparing enrollment…</div>
@@ -194,20 +208,24 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         style={{
           letterSpacing: '0.35em',
           width: 160,
-          backgroundColor: dark ? 'rgba(255,255,255,0.14)' : 'rgba(120,70,30,0.55)',
-          color: dark ? '#fff' : '#fde8d0',
-          border: 'none',
+          backgroundColor: dark ? 'rgba(255,255,255,0.35)' : 'rgba(120,70,30,0.55)',
+          color: dark ? AUTH_INK : '#fde8d0',
+          border: dark ? `1px solid ${AUTH_INK}` : 'none',
         }}
       />
-      {error && <div className="text-[11px] font-mono" style={{ color: dark ? '#ffd7c2' : '#dc2626' }}>{error}</div>}
+      {/* #ffd7c2 measured 1.5:1 on the well — unreadable, and an error you
+          cannot read is worse than none. AUTH_ERROR_INK is 4.86:1 there. */}
+      {error && <div className="text-[11px] font-mono" style={{ color: dark ? AUTH_ERROR_INK : '#dc2626' }}>{error}</div>}
       <button
         type="submit"
         disabled={phase === 'verifying' || phase === 'enrolled'}
         className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm"
         style={{
+          // #ea580c on #fff was 3.56:1 — fails AA for a 12px label. The white
+          // fill also needs a boundary: it is only 2.06:1 against the well.
           backgroundColor: dark ? '#fff' : '#ea580c',
-          color: dark ? '#ea580c' : '#fff7ed',
-          border: dark ? 'none' : '1px solid #c2410c',
+          color: dark ? AUTH_INK : '#fff7ed',
+          border: dark ? `2px solid ${AUTH_INK}` : '1px solid #c2410c',
           opacity: phase === 'verifying' || phase === 'enrolled' ? 0.6 : 1,
           cursor: phase === 'verifying' || phase === 'enrolled' ? 'default' : 'pointer',
         }}
@@ -259,31 +277,29 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
           <div style={{ ...AUTH_TEXT_STYLE, fontSize: '13px', letterSpacing: '0.18em' }}>
             SECURE YOUR ADMIN ACCOUNT
           </div>
-          <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', fontWeight: 400, opacity: 0.75, maxWidth: 320, textAlign: 'center', letterSpacing: '0.06em', lineHeight: 1.6 }}>
+          {/* Was opacity 0.75 — an alpha on the ink is a grey by another name.
+              Smaller and lighter carries the same de-emphasis at full ink. */}
+          <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', fontWeight: 400, maxWidth: 320, textAlign: 'center', letterSpacing: '0.06em', lineHeight: 1.6 }}>
             WORKSPACE ADMINS SIGN IN WITH AN AUTHENTICATOR CODE. SET IT UP ONCE —
             YOU&apos;LL BE ASKED FOR A CODE AT EVERY SIGN-IN.
           </div>
           <MfaEnrollPanel dark onEnrolled={startReveal} />
+          {/* Both links were color:'#fff' at opacity 0.6 — 2.06:1 before the
+              alpha, and they sit beside black headings, so after the Session
+              43 ink fix they would have been the only white text left on the
+              screen. AUTH_LINK_STYLE is the shared token. */}
           <div style={{ display: 'flex', gap: '18px' }}>
             <button
               type="button"
               onClick={() => onDefer?.()}
-              style={{
-                background: 'transparent', border: 'none', color: '#fff',
-                fontFamily: AUTH_TEXT_STYLE.fontFamily, fontSize: '11px',
-                textDecoration: 'underline', cursor: 'pointer', opacity: 0.6,
-              }}
+              style={{ ...AUTH_LINK_STYLE, fontSize: '11px' }}
             >
               Set up later
             </button>
             <button
               type="button"
               onClick={() => window.wilsonSignOut?.()}
-              style={{
-                background: 'transparent', border: 'none', color: '#fff',
-                fontFamily: AUTH_TEXT_STYLE.fontFamily, fontSize: '11px',
-                textDecoration: 'underline', cursor: 'pointer', opacity: 0.6,
-              }}
+              style={{ ...AUTH_LINK_STYLE, fontSize: '11px' }}
             >
               Sign out instead
             </button>
