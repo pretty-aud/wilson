@@ -1,346 +1,532 @@
 # SESSION 43 launch prompt — THE DESIGN PASS
 
-> 🚨 **THIS BRIEF KEEPS MOVING, AND THAT IS THE RULE WORKING.** Written as
-> S29, then S32 → S39 → S40 → **now S43**. **The design pass is LAST, always**
-> — running a visual pass before the sessions of new UI would mean redoing it
-> immediately. **Add another UI session and this one moves again.** The
-> renumbering ledger in `MASTER_PLAN_S19_ONWARD.md` is the record; its
-> sequence table is the authority.
+> **The last session before S38.** Everything S33–S42 added has been built for
+> correctness and never looked at as a whole. This session looks at it.
 >
-> **Everything below was written when this was the NEXT session.** Large parts
-> of it are stale. **Re-read `MASTER_PLAN_S19_ONWARD.md`'s sequence table and
-> re-measure the app before trusting any specific claim here** — treat this as
-> a list of intentions, not a description of the product.
->
-> ✅ **Sessions that now sit in front of it, all with their own briefs:**
-> S29 (Timeline gate), S30 (O.T.T.E.R.), S31 (per-user settings + pet +
-> logout), **S33 (guard fix + `downloaded` event)**, **S34 (workspace storage
-> root)**, **S35 (project folder guard + NAS/VPN guidance)** — **all six
-> DONE** — then **S36 → S37 → S38**, the BYO storage provider family
-> (registry, then S3-compatible, then Google Drive); **S39 → S40**,
-> thumbnails and video; and **S41 → S42**, Petal cloud's quota plane and the
-> multi-GB cap raise. All designed in `docs/NETWORK_STORAGE_DESIGN.md`.
->
-> 🚨 **Its surface now also includes the storage PROVIDER PICKER and the
-> per-provider config forms (S36–S38)** — an S3 bucket form and a Google
-> Drive connect flow are both new UI this pass must cover.
->
-> 🚨 **Six sessions of NEW SURFACE land before this one and are not described
-> below.** At minimum the design pass must cover: the storage-mode selector and
-> drive control (Admin Terminal), the project-folder control (Project Control
-> Panel), the two-step local-drive confirmation, the reachability status line,
-> thumbnails in every file view, the video preview surface, and the inline
-> desktop-app notices. **Read those six briefs before scoping this one.**
->
-> ⚠️ **The verification sweep referenced below moved to S29 and is closed.**
-> Do not re-run it.
->
-> ⚠️ **One item below is already ANSWERED.** This brief lists "a R.A.B.B.I.T.
-> settings tab for project currency, rate card and task templates" — task
-> templates shipped in S28 **with a permission gate**, and the manager surface
-> is deliberately read-only for a member. Do not re-expose it ungated while
-> rearranging tabs.
+> 🚨 **THIS IS A DESIGN POLISH. IT CHANGES NO SCHEMA, NO DATA, NO BEHAVIOUR.**
+> Audrey, 2026-08-10, verbatim: *"DO NOT CHANGE THE ACTUAL SCHEMAS AND CONTENT.
+> THIS SHOULD JUST BE A DESIGN POLISH. THE TABLES, THE INPUT SECTIONS ARE GOOD.
+> THEY JUST NEED TO LOOK BETTER REMEMBER TO NOT CHANGE THE FUNCTIONALITY."*
+> The single exception is stated in A5, and it is a removal she asked for.
 
 > **STATE — re-measure; this block decays** (last refreshed after **S42**,
-> 2026-08-10): migrations **0000–0058** (next free **0059**); pgTAP **66 suites
-> / 1180 assertions** (next suite **67**); vitest **1408 / 58 files**.
+> 2026-08-10): migrations **0000–0058** on dev, staging AND prod (next free
+> **0059**); pgTAP **66 suites / 1180 assertions** (next suite **67**); vitest
+> **1409 / 58 files**. CI green on `abb7aae`.
 > 🚨 **Read the working tree, never this block and never memory.**
 >
-> ⚠️ **0057 and 0058 are applied to DEV ONLY at the time of writing** — staging
-> and prod were still on 0056. Check `supabase migration list` per environment
-> before assuming anything about the schema you are looking at.
->
-> 🚨 **FOUR S42 FACTS THAT LAND ON A DESIGN SESSION'S SURFACE:**
->
-> 1. **The Petal cap is 50 GiB and the free tier is 5 GiB.** Any copy, tooltip
->    or empty state quoting "50 MB" or "1 GB" is now wrong. The numbers live in
->    SQL only — `storage_free_tier_bytes()` and the bucket row — and the client
->    reads the resolved figure back from `workspace_storage_usage()`.
-> 2. **There is now a real upload progress bar on the cloud path**, feeding the
->    same `copyProgress` surface the Local Server path uses. It only appears
->    above 50 MiB, because only the resumable transport reports. A design pass
->    that unifies those two surfaces should keep that asymmetry visible rather
->    than faking a bar for small uploads.
-> 3. **Downloads no longer buffer into a Blob** — they hand off to the browser's
->    download manager via a signed URL. There is no in-app progress for a
->    download and no cancel; the browser owns it.
-> 4. ⚠️ **`StorageSection`'s used/quota card was written for a 1 GiB tier.** Its
->    "files and their previews" caption and its bar are both worth re-reading at
->    a 5 GiB tier with 50 GiB objects — nothing warns before the ceiling, and
->    under the weighing predicate the bar is no longer a predictor of whether
->    the next upload will be accepted.
->
-> ✅ **Task templates work in cloud.** `public.task_templates` (JSONB `tasks`,
-> optional project pin), five adapter methods, `assets.task_template_id`, and a
-> permission gate Audrey specified directly. **This was the oldest open item on
-> the list and it is closed.**
->
-> ✅ **The `role_slug` defect is fixed at both sites.** Applying a template
-> used to create tasks with **no role**, silently, because `toColumns` dropped
-> an unknown key with only a console warning. Every bid built from those tasks
-> priced at nothing.
->
-> 🚨 **`public.can_write_task_template(uuid)` is the ONE definition of who may
-> write a template**, mirrored on the client by `canWriteTaskTemplate()`.
-> Audrey, 2026-08-04: *workspace admins and managers globally; project managers
-> additionally for templates pinned to their own project.* Note this differs
-> from BOTH neighbours — money admits a project manager but not a workspace
-> manager; the control panel admits reviewers but not members. **There is still
-> no house default. Keep asking.**
-
-> Paste into a new Claude Code conversation. **Start from `WILSON/`, not
-> `Claude_Work/`.**
-> **Start ritual** (S34+ standard), in order and before any code:
-> 1. **Load the `wilson-app` skill** and skim its `versioning.md`.
-> 2. `git status` + `git log --oneline -3` on `feat/multi-user-v1`, and
->    `ls supabase/migrations | tail` + `ls supabase/tests/rls | tail` — the
->    working tree, not this brief, says which numbers are free.
-> 3. read **`docs/OUTSTANDING.md`** (faults) and **`docs/SYSTEMS_HANDBOOK.md`
->    §17** (limits by design — a gate, not an oracle)
-> 4. read `docs/sessions/MASTER_PLAN_S19_ONWARD.md` — the sequence table is
->    the authority, and the S33+ outcome blocks are the recent history
-> 5. `cat supabase/.temp/linked-project.json` — **read it, do not recall it.**
->    ⚠️ **The CLI actually reads `supabase/.temp/project-ref`**, a plain-text
->    file beside it. Both exist and have agreed so far. If they ever disagree
->    the CLI follows `project-ref` while the standing rule points at the JSON —
->    check both.
-> 6. **Re-verify every `file:line` citation in this brief by SYMBOL** — six
->    sessions land between its writing and its running.
+> ⚠️ **S43 should need NO migration and NO new pgTAP suite.** If you find
+> yourself writing SQL, stop and re-read the rule above — you have almost
+> certainly found a behaviour change wearing a design costume.
 
 ---
 
-## 🚨 THE RULE THAT OVERRIDES EVERYTHING
+## Start ritual
 
-**Do not write code, ship a fix, or state a conclusion from an unproven
-theory. Measure first.** (`feedback_prove_before_acting.md`.)
-
-**S28's addition, and it is about the sentences you write, not the code.**
-
-S27 established that a feature with no caller has no symptom. S28 applied that
-*before* the fact for the first time — it measured that task templates had
-never produced a row on **any** backend (the Local Server directory exists and
-is empty) and therefore treated "the table exists" as proving nothing.
-
-What S28 added is smaller and sharper: **write the breakers you expect to
-PASS, not only the ones you expect to fail.** Six ran against 0044. Two did
-not fire, and both of those corrected a **comment** rather than the code:
-
-- Removing `WITH CHECK` from an UPDATE policy changes nothing — Postgres
-  reuses `USING` as the new-row check. The migration's first draft asserted
-  the opposite, confidently, with a plausible mechanism.
-- Removing a `COALESCE` changed nothing either — which is exactly what that
-  function's own header claimed, so the breaker *confirmed* a stated claim
-  instead of refuting it.
-
-> **A comment in a migration is a claim about the database, and it decays
-> exactly like a plan document does.** The only difference is that nobody ever
-> re-reads it. A breaker you expect to pass is how you check one.
-
-**Label everything MEASURED / INFERRED / GUESSED.**
+1. **Load the `wilson-app` skill** and read `visual-language.md`. It is the
+   authority on tokens; this brief is the authority on what is currently wrong.
+2. **Load the `design-direction` skill and the `laws-of-ux` skill.** Audrey
+   asked for both by name. `design-direction` will tell you to consult
+   `laws-of-ux` on every interface task — do it, and tie each law to a **named
+   element and a decision**, not to a paragraph of intent.
+3. **Re-measure**: `git log --oneline -3`, `git status --short`,
+   `supabase/.temp/linked-project.json` (must say wilson-dev).
+4. **Read `docs/OUTSTANDING.md`** — two entries below are yours to close.
+5. **Re-verify every `file:line` in this brief by SYMBOL.** S42 moved several.
 
 ---
 
-## 🚨 CITE SYMBOLS, NOT LINE NUMBERS
+## Why this exists
 
-S27 wrote `main.cjs:2088-2131` into the S28 brief from a doc that had been
-correct in S23; S27 had itself inserted ~70 lines into that file. **Grep for
-the symbol and read the number off the result. Re-verify any line number at
-the moment you write it into a document.**
+Audrey, 2026-08-10, on the login screen:
 
-Line numbers in THIS document that S28 verified at the moment of writing:
-`ProjectAssetsView.jsx:1427` and `:1730` (the two template-application task
-creates), `SettingsPage.jsx:739` (the Manage Task Templates button),
-`electron/main.cjs:2610-2656` (the local template routes).
+> *"when you added the username input it messed up the layout. it used to just
+> be the single line for the password and it was a reference to the log in for
+> the incredibles."*
 
----
+And on everything else:
 
-## 🚨 THE VERIFICATION DEBT — FOUR SESSIONS OLD, AND IT IS NOT A CODE PROBLEM
+> *"in team members there is a white box and white header for the box that
+> doesnt fit the visual language. there is also a lot of light gray in all of
+> these pages which make it very hard to read against the orange."*
 
-**S25, S26, S27 and now S28 have each been asked to close these and none
-could.** Nothing in this repo automates a signed-in session against staging.
-It is roughly five minutes of one person looking at one browser.
-
-S28 changed the approach: instead of a general request, Audrey was given a
-numbered checklist naming the screen, the click and what a pass looks like.
-The observations had not come back before the work was committed. **Ask again,
-with that same checklist, at the START of the session rather than the end.**
-
-1. **The two assignee dropdowns.** Cause removed at CODE level in S24; nobody
-   has watched them populate. Timeline → open a task → Assignee. Then Assets →
-   open an asset → its task rows. **Grep `teamAssignments`; do not trust any
-   line number for these.**
-2. **Files in cloud — all of S27 is unobserved.** Upload one file to an asset
-   on the beta; it should appear, download, and show up in Resources →
-   PROJECTS → that project. Change a project rate and confirm a
-   `FINANCE/RATES.json` object appears.
-3. **The `canWrite` gate.** Read `OUTSTANDING.md`'s entry IN FULL first.
-   Exactly one theory is refuted (on code); the other rests on testimony.
-   🚨 **Audrey runs two accounts in two browsers at the same time.** Never ask
-   "which account are you on" in general — pin it to the specific browser AND
-   the specific moment. An account assumption has derailed this investigation
-   twice, from opposite directions. **Do not write a fix.**
-
-**And now a fourth, because S28 shipped it unobserved:** create a task
-template in Settings → RABBIT → Manage Task Templates, then apply it to an
-asset and confirm the created tasks **carry their roles**. The database chain
-is proven (`scripts/probes/task-templates-e2e.sql`, 6/6 on dev and staging);
-the React path is not.
+**The through-line is one sentence: the app has a visual language and the newer
+screens stopped speaking it.** Auth grew a second input and lost its shape.
+Admin, Settings and Resources were built as functional surfaces and inherited a
+neutral grey that does not survive contact with `#f4a261`.
 
 ---
 
-## S29 — the design pass
+## 🚨 THE COLOUR RULE — read this before writing a single style
 
-The last scheduled session. Audrey's original list, unchanged since S18:
+Audrey, verbatim, in capitals:
 
-- **Welcome page phantom cursor.** REPORTED. A black cursor blinks
-  permanently, unattached to any input, and keeps blinking on the right while
-  you type elsewhere. Likely the shared `AuthCursor` in `AuthShell.jsx` —
-  **that is a GUESS. Confirm it in the DOM before touching anything.**
-- **Login and welcome lost the original aesthetic.** Audrey: *"the only
-  password entry with no username input was a lot cleaner."*
-- **A R.A.B.B.I.T. settings tab** for project currency, rate card and task
-  templates. ⚠️ Task templates now have a real permission gate — the manager
-  surface is read-only for a member and says so. Do not re-expose it ungated
-  while rearranging tabs.
+> *"DO NOT USE GRAY TEXT AGAINST ORANGE AS IT IS HARD TO SEE ONLY WHITE OR
+> BLACK."*
 
-> ⚠️ **This is the first session in the sequence that is mostly VISUAL, and
-> the repo's verification tools are almost all textual.** vitest mounts no
-> React, and there is no `@testing-library`. Playwright is the only job that
-> renders anything. Plan to look at the running app rather than to reason
-> about the JSX — and see the trap below, which is specifically about design
-> work.
+> *"keep the orange make the light text black instead."*
 
-🚨 **THE TRAP FOR A DESIGN SESSION**, from `feedback_preview_pane_hygiene.md`:
-reset the viewport after any `resize_window`, and never let scaffolding
-impersonate the design. Audrey reads artefacts in the preview pane as broken
-code, so a stray debug border costs more than it saves.
+**On orange, text is white or black. There is no third option and no "just this
+one muted caption".** Grey-on-orange is the single defect that appears on every
+screen in this brief, and it is why "hard to read" is the complaint rather than
+"ugly".
+
+**MEASURED 2026-08-10** — occurrences of the stone/grey ramp (`#a8a29e`,
+`#78716c`, `#d6d3d1`, `#e7e5e4`, `#57534e`, `text-stone-400/500`) in the files
+this session touches:
+
+| File | Hits | | File | Hits |
+|---|---|---|---|---|
+| `UsersSection.jsx` | 34 | | `LogsSection.jsx` | 21 |
+| `TeamMembersPage.jsx` | 31 | | `SettingsPage.jsx` | 17 |
+| `StorageSection.jsx` | 28 | | `ChangeRequestsSection.jsx` | 13 |
+| `CompanySection.jsx` | 11 | | `CreateUserDialog.jsx` | 9 |
+| `ModelsSection.jsx` | 8 | | `DiagnosticsSection.jsx` | 6 |
+| `AdminTerminalPage.jsx` | 5 | | the rest | 8 |
+
+**~191 occurrences.** Not all of them sit on orange — a grey on dark stone
+(`#1c1917`) is fine and must stay. **Fix the ones on orange; leave the ones on
+dark.** A blanket find-and-replace is the wrong instrument and will wreck the
+dark surfaces, which are currently correct.
+
+⚠️ **Contrast, stated as numbers so it is checkable rather than felt.**
+`#f4a261` against `#a8a29e` is roughly **1.4:1** — below every threshold there
+is. Black on `#f4a261` is about **9.6:1**; white on `#ea580c` is about
+**3.9:1**, which passes for large/bold text and is what `AUTH_TEXT_STYLE`
+already uses at 20.5px/600. **So: black on light orange, white on dark orange,
+and never grey on either.**
 
 ---
 
-## Carried, and NOT to be guessed at
+# PHASE A — LOGIN AND ONBOARDING
 
-- **O.T.T.E.R. validator findings and quiz scores are not saved.** MEASURED,
-  known #2, untouched for many sessions. Both generate correctly and neither
-  persists, so the work is lost on navigation. **This is the largest genuinely
-  broken thing left on the list.**
-- **One hung `getSession()` pins the whole app's auth**, and `withTimeout`
-  races without aborting. Bounding N call sites fixes N UIs, **not the app**.
-  The real fix needs an app-level circuit-breaker or forced re-hydrate.
-  **Design it before writing it.**
-- **Avatar does not persist.** Four hypotheses falsified by measurement; the
-  success-masking is fixed so a failure is now loud. If it recurs, capture the
-  message. The one candidate not excluded is whether the Storage API populates
-  `request.jwt.claims` with `app_metadata` at all.
+**Do this first, deploy it, and stop.** Audrey wants to look at it on the beta
+before Phase B starts (see the checkpoint).
+
+## What exists now, measured
+
+- **`src/cloud/auth/AuthShell.jsx`** owns the whole animation: the two `#ea580c`
+  panels, the `#f4a261` content background, the logo card, and the phase machine
+  `logo-in → logo-hold → logo-out → idle → split → revealing → done`. It also
+  exports `AUTH_TEXT_STYLE` and `AuthCursor`.
+- Panels sit at `50vh` in `idle`, open to `SPLIT_BAR_HEIGHT = '28vh'`, and
+  compress to `REVEAL_BAR_HEIGHT = '268px'` — which **deliberately matches
+  `PAGE_BARS.home` in `App.jsx`** so Home's bars take over invisibly.
+- **`LoginScreen.jsx`** has stages `'auth' | 'mfa' | 'workspace'`. Stage `auth`
+  renders USERNAME and PASSWORD **in one form** — that is the layout complaint.
+- 🚨 **`resolveLogin()` ALREADY ACCEPTS AN OPTIONAL `workspace_slug`** and
+  forwards it to the `resolve-login` Edge Function. **The company-first flow in
+  A1 therefore needs no new endpoint, no schema change and no migration.**
+  Confirm the function honours it before designing around it.
+- Password masking is a plain `type="password"` (`LoginScreen.jsx:401`), so the
+  browser draws its own dots.
+- `AuthCursor` (`AuthShell.jsx:304`) is used at **`NewCompanyWizard.jsx:389,
+  464, 480`** and **`NewUserWelcome.jsx:285`**. Those are the blinking lines.
+
+## A1 — Company first, then person
+
+Audrey:
+
+> *"first the user should enter the company name. when the user enters the
+> company name, it allows the user to log into the company app. after the user
+> enters the company and the system confirms the company exists, then the user
+> should see the name and password entry."*
+
+**Two steps, one line visible at a time.** That restores the single-line shape
+the screen had before, and it is also the correct information architecture: the
+company scopes the person, so asking for it first matches the mental model
+rather than the database.
+
+| Step | Shows | On submit |
+|---|---|---|
+| 1. COMPANY | one input | confirm the company exists; advance |
+| 2. SIGN IN | username + password | existing auth path, unchanged |
+
+**Laws that bite here, with the decision each one forces:**
+
+- **Hick's Law** — one decision per screen. Step 1 has exactly one input and one
+  action; the workspace chooser (stage `workspace`) becomes unreachable for the
+  common single-company case, because the company is already known.
+- **Chunking** — the company is a different *kind* of fact from the credential.
+  Splitting them is what lets each step be one line.
+- **Goal-Gradient** — step 2 must show the confirmed company name as a small
+  header above the inputs. It is progress made visible, and it is also the only
+  way the user can tell they are signing into the right place.
+- **Doherty Threshold** — the existence check must give feedback under 400ms or
+  show a state. It is a network call; treat it as one.
+
+🚨 **DO NOT WEAKEN THE ENUMERATION DEFENCE.** `LoginScreen.jsx`'s header
+documents it: the same generic error for every failure, and a fake-email sign-in
+attempt so timing looks identical for unknown usernames. A company step that
+answers "no such company" instantly and distinctly hands an attacker a customer
+list. **Decide deliberately** — a constant-time reply with the same generic
+copy, or accept that company slugs are not secret and say so in the code. Either
+is defensible; drifting into the second by accident is not.
+
+⚠️ **Back must work.** From step 2, the user has to be able to correct the
+company without a page reload. Keep the entered company in state.
+
+## A2 — The animation must match the app
+
+Audrey:
+
+> *"lets make sure the transition animation of the orange blocks closing and
+> opening to show the light orange works correctly and smoothly like it does
+> with the page transitions in the app."*
+
+**The reference is `App.jsx`'s `EASE` and `PAGE_BARS` — not a new curve.**
+`AuthShell` already ends on `268px` to match `PAGE_BARS.home`; the step-to-step
+motion inside the shell should feel like the same system.
+
+- Step 1 → step 2 is a **content** change, not a page change. The bars should
+  move (a small, deliberate re-open as the content grows from one input to two),
+  not jump.
+- **160–240ms** with `cubic-bezier(0.2, 0, 0, 1)` for the content swap;
+  the existing `REVEAL_EASE` and `900ms` height transition stay for the
+  shell's own open/close. Do not animate a bar height and a content opacity on
+  different curves at the same time — that is what reads as "not smooth".
+- ⚠️ `SPLIT_BAR_HEIGHT` is `28vh` and its comment justifies that number by the
+  content it has to clear ("LOGIN + 2 labels + 2 inputs + button + link").
+  **A1 changes that content, so re-derive the number and update the comment.**
+  Leaving a stale justification is how the next session trusts a figure that no
+  longer holds.
+- `prefers-reduced-motion: reduce` must deliver the end state instantly. Check
+  whether the shell honours it today; if not, that is a small, correct addition.
+
+## A3 — Asterisks, not dots
+
+Audrey:
+
+> *"instead of the white dots use the astericks/star that the original app used
+> for the password type. so instead of dots/circles it should be **** but how
+> you had it before."*
+
+`type="password"` renders `●` because the browser decides. To get `*`:
+
+- `-webkit-text-security: square` is **not** it (that is a square), and
+  `disc` is the dot you already have. There is no CSS value for an asterisk.
+- **The honest options are:** (a) a masked-value technique — keep the real value
+  in state, render `'*'.repeat(value.length)` in a `type="text"` field, or
+  (b) a font/`::first-line` trick, which is fragile.
+
+🚨 **(a) HAS A PASSWORD-MANAGER COST AND YOU MUST NOT DISCOVER IT LATE.** A
+`type="text"` field is not recognised as a password by browsers or managers:
+autofill, "save password", and the reveal toggle all change behaviour, and some
+managers will refuse to fill it. **Establish what breaks BEFORE building it**,
+and if it breaks saved logins, say so to Audrey rather than shipping a prettier
+field that stops her password manager working. The look is worth a lot; it is
+not worth silently breaking sign-in for the beta testers.
+
+⚠️ Whatever you choose, `autocomplete`, `name`, and the on-screen keyboard type
+must still say "password", and the value must never reach the DOM as plain text.
+
+## A4 — Keep the bars
+
+> *"remember to keep the orange bars for header and footer to keep with the
+> visual language of the app."*
+
+Non-negotiable and already true — **the risk is that a layout rewrite quietly
+drops them.** They are `AuthShell`'s job, and `AuthShell` should stay the only
+thing that draws them. If a screen needs different spacing, change
+`SPLIT_BAR_HEIGHT`; do not add a second set of bars in a child.
+
+## A5 — Remove the "new company" button
+
+Audrey:
+
+> *"lets remove the new company button. right now, any one can login and create
+> their own company. it needs to be invite only for now. so i should create
+> their company for them and share with the company the login information for
+> team members. this is only for onboarding a new company."*
+
+**This is the one behaviour change in the session, and it is a removal.**
+
+- `LoginScreen` takes an `onCreateCompany` prop. Remove the affordance.
+- 🚨 **DO NOT DELETE `NewCompanyWizard.jsx`.** Audrey still creates companies —
+  the flow must stay reachable *for her*, just not from a public sign-in screen.
+  **Decide where it lives and confirm with her**: the platform-operator console
+  (`src/admin/`) is the natural home, since that is already operator-gated and
+  is where storage plans and companies are managed.
+- ⚠️ **Check for a route as well as a button.** If the wizard is reachable by
+  URL, removing the button hides it without closing it — and a self-serve
+  company creation path that is merely unlinked is not "invite only". Grep for
+  every entry point before calling this done.
+- ⚠️ **`NewCompanyWizard` is one of the four `AuthCursor` call sites (A6).** If
+  it moves behind the operator console it still needs the same treatment.
+
+## A6 — The blinking lines on onboarding
+
+Audrey:
+
+> *"this is where we had the lines blinking on each text line. it had the
+> blinking lines to right of the text box and it made no sense. you were trying
+> to show the place where the user could type but it didnt come out correctly."*
+
+`AuthCursor` renders a blinking `_` and is placed **next to** inputs at
+`NewCompanyWizard.jsx:389, 464, 480` and `NewUserWelcome.jsx:285`.
+
+**The idea was right and the execution inverted it.** A terminal cursor belongs
+*inside* the field at the insertion point, or nowhere. Beside a real input it
+competes with the input's own caret, so the screen shows two cursors and neither
+means anything.
+
+**Do:** remove the decorative cursor from beside real inputs, and let the native
+caret do the job. Keep the terminal feel with the **field treatment** — a
+baseline rule, monospace value, the uppercase label — not with a second blinking
+glyph.
+
+✅ **THIS ALSO CLOSES AN OPEN `OUTSTANDING.md` ENTRY.** *"Welcome page has a
+phantom cursor — REPORTED. A black cursor blinks permanently, unattached to any
+input... Likely the shared `AuthCursor` from `AuthShell.jsx` — that is a guess,
+confirm in the DOM first."* The guess is now well supported by the call-site
+measurement, **but the entry's own instruction stands: confirm in the DOM before
+claiming it fixed.**
+
+## A7 — Login and onboarding must look like one system
+
+> *"make sure for the login and the onboarding look alike. it needs to be the
+> same visual language."*
+
+**Law of Similarity, applied concretely:** the same label style, the same field
+height, the same rule weight, the same button, the same error position, on
+`LoginScreen`, `NewUserWelcome` and `NewCompanyWizard`. If a value is used
+twice, it belongs in `AuthShell` beside `AUTH_TEXT_STYLE` — which is already the
+established home for shared auth typography.
+
+**Law of Proximity:** label sits tight to its field; field groups sit far apart.
+The gap between a label and its input should be visibly smaller than the gap
+between two fields. This is the cheapest fix on these screens and the one that
+will do the most for "the layout looks wrong".
+
+## A8 — The nav panel hover is dead, and the cause is measured
+
+Audrey, 2026-08-10, with a screenshot of the hamburger nav open:
+
+> *"the hover over animation of turning the text grayish when hovering over the
+> options is not working. when i hover over home, dog, otter, rabbit, etc i
+> should see the text gray out when i hover over them just like it works when i
+> see the selections when resources is pressed and i see the options in the
+> resources section. so it should work the same."*
+
+🚨 **THIS IS NOT IN `Home.jsx`.** The screenshot is the **hamburger nav
+overlay**, which lives in **`App.jsx`** — `getNavStripItems()` (`:1355`),
+`getResourcesNavItems()` (`:1381`), rendered at **`:1621`** (resources
+sub-column) and **`:1640`** (main strip). `Home.jsx`'s two-column menu is a
+DIFFERENT surface with icons and a background pill. Confirm which one you are
+editing before you touch anything — the two look nothing alike and only one of
+them is the complaint.
+
+**THE CAUSE, MEASURED.** Both columns carry the same Tailwind class
+`transition-opacity hover:opacity-70`. The difference is one line:
+
+| Column | Inline `style` | Hover works? |
+|---|---|---|
+| Resources sub-column (`:1625-1626`) | no `opacity` | ✅ yes |
+| Main strip (`:1658-1665`) | `opacity: dimmed ? 0.35 : 1` | ❌ **no** |
+
+**An inline style beats a class selector.** `hover:opacity-70` is a class, so on
+the main strip it is overridden on every render and the element is pinned at
+`opacity: 1`. The resources column has no inline opacity, so its hover survives.
+That asymmetry is precisely what Audrey is describing, and it is not a missing
+animation — it is a specificity collision.
+
+**The fix must keep BOTH states**, because `dimmed` is doing real work: it fades
+the main strip to `0.35` while the resources column is open (visible in the
+screenshot — `RESOURCES` stays white, everything else recedes). So hover and
+dimmed have to resolve in ONE place.
+
+Track hover in state and compute a single opacity, rather than letting a class
+and an inline style argue:
+
+- dimmed → `0.35`
+- hovered → `0.7` (matches the resources column exactly, per Audrey's "it should
+  work the same")
+- otherwise → `1`
+
+...and drop `hover:opacity-70` from the main strip once the inline value owns
+it, so there is no second source of truth. **Law of Similarity:** the two
+columns are the same control and must respond identically.
+
+⚠️ **Do not "fix" this by removing the inline opacity alone.** That restores
+hover and silently kills the dimmed state, which is the thing that tells the
+user which column is live.
+
+⚠️ **`hover:` is mouse-only.** Add the matching `focus-visible` state in the
+same change — this nav is keyboard-reachable and currently gives a keyboard user
+nothing.
+
+✅ **THE DIMMED/HOVER GREY HERE IS NOT THE BANNED GREY.** It is white at reduced
+opacity on dark orange, as a deliberate interactive state on large bold type.
+The colour rule at the top of this brief governs *content* text — labels,
+captions, table cells — on orange surfaces. **Do not delete this nav's greys
+while enforcing that rule.**
+
+---
+
+## 🚩 CHECKPOINT — deploy and stop
+
+Audrey:
+
+> *"AFTER YOU ARE DONE WITH THE LOGIN PAGES. set it up on the
+> beta.petalstudios.co/wilson deploy so i can test it out. After i can confirm
+> that these pages look good."*
+
+**Commit Phase A, push to `feat/multi-user-v1`, confirm the Vercel deploy, and
+tell her it is ready. Do not start Phase B until she has looked.**
+
+**What she is checking:** the two-step login, the asterisks, the animation, the
+onboarding screens matching it, the removed company button, and **A8's nav hover
+— which is on every page, so it is the easiest of the lot to confirm.**
+
+⚠️ **The beta is STAGING-backed and auto-deploys on push.** A broken login on
+that branch locks her out of her own beta, so this is the one screen where
+"green tests" is not enough — **click through it yourself in the preview**
+before saying it is ready.
+
+⚠️ **Two CI traps that S42 hit in consecutive pushes** (both in the traps
+section below): the local npm writes lockfiles CI rejects, and anything reading
+`import.meta.env.VITE_*` is empty on the runner.
+
+---
+
+# PHASE B — ADMIN TERMINAL, SYSTEM SETTINGS, RESOURCES
+
+**Only after Audrey confirms Phase A.**
+
+> *"i want to work in the admin terminal, the system settings, and the resources
+> pages. right now i need all of these to have the same visual language as
+> well."*
+
+## Surfaces
+
+| Surface | Files |
+|---|---|
+| Admin Terminal | `src/components/AdminTerminal/` — 13 files, `AdminTerminalPage.jsx` + 12 sections |
+| System Settings | `src/components/SettingsPage.jsx` — five tabs |
+| Resources | `src/components/Projects/`, `RateCard/`, `TeamMembers/` |
+
+## B1 — The white box in Team Members
+
+> *"in team members there is a white box and white header for the box that
+> doesnt fit the visual language."*
+
+**Law of Common Region, and the trap inside it.** A bounded area does read as a
+group — but a white card on this palette is the laziest way to get one and the
+only one that breaks the language. **Replace the card, keep the region:** a
+hairline rule, a shared grid column, consistent gutters, or a small shift of the
+existing surface colour all group just as well and cost no new ink.
+
+The table itself is correct and must not change — columns, sort, inline edit,
+the pronoun and employment-type controls all stay exactly as they are.
+
+## B2 — The grey
+
+Work the table at the top of this brief. **Per file, decide for each occurrence
+whether it sits on orange or on dark stone**, and only change the first group.
+
+**Von Restorff:** once everything is legible, the emphasis that used to come
+from "darker grey vs lighter grey" is gone. Re-establish hierarchy with **weight
+and size**, not with a third colour. If a fourth ink is being reached for, the
+hierarchy is broken somewhere else.
+
+## B3 — One system across three surfaces
+
+**Miller's Law** on the Admin Terminal: it has twelve sections. Nobody holds
+twelve. Group them — and if that argues for changing the *navigation*, propose
+it to Audrey rather than doing it, because navigation is behaviour.
+
+**Law of Similarity across surfaces:** a table in Team Members, a table in
+Users, and a table in Logs should be the same table. Same header treatment, same
+row height, same zebra (or no zebra), same empty state. Today they are three
+tables that happen to be near each other.
+
+---
+
+## Design direction
+
+**Inks: 3** (`#ea580c` dark orange, `#f4a261` light orange, `#1c1917` stone) plus
+white and black as text. **Families: 1** system sans, with a mono reserved for
+values that benefit from it (IDs, byte counts, keys) — which the terminal
+aesthetic already implies and which `AUTH_TEXT_STYLE` half-establishes.
+
+**Density is correct.** These are working screens for an operator. Do not pad
+them into a marketing page; tighten the gutters, set the type well, and let the
+tables be dense. Whitespace here is structural, not decorative.
+
+**Banned, unless Audrey asks:** gradients, drop shadows, blur panels, rounded
+"friendly" corners as a mood, decorative icons, a fourth ink.
+
+**Motion:** 100–160ms for state changes, 160–240ms for interactive response,
+and the existing `App.jsx` curve for anything page-level. Nothing new invented.
+
+---
+
+## 🚨 What must NOT change
+
+Stated once, and it governs every line above:
+
+- **No migration. No schema change. No new pgTAP suite.**
+- **No table columns added, removed or renamed.** No sort order, no filter
+  semantics, no pagination behaviour.
+- **No input field added or removed** — except the A1 split, which reorders
+  existing fields across two steps, and the A5 removal Audrey asked for.
+- **No permission gate touched.** `canWrite*`, `canSeeProjectMoney`,
+  `is_platform_operator` and every `ready` check stay exactly as they are.
+  🚨 A greyed control that becomes legible must not become *enabled*.
+- **No copy rewritten** beyond what a layout change forces. The over-quota
+  messages in particular are load-bearing — S41 and S42 both fixed sentences
+  that offered remedies which could not work. Do not "tidy" them.
+
+---
+
+## Verification
+
+1. **`npm test`** — 58 files / 1409 tests, and **run it with
+   `.env.development`, `.env.local` and `.env.staging` hidden**, which is what
+   CI does.
+2. **`node scripts/tap-all.mjs`** — 66 suites / 1180. Should be untouched; if a
+   pgTAP assertion moves, you have changed behaviour.
+   ⚠️ Suite 35 fails against staging for pre-existing reasons — see
+   `OUTSTANDING.md`. It is not yours unless you choose to fix it.
+3. **Look at every screen you touched, in the running app**, at 1400×900 and at
+   the 1024×700 minimum. vitest mounts no React and Playwright only covers auth,
+   so **your eyes are the instrument** — and reset the viewport afterwards.
+4. **Contrast-check every text colour you changed** against the surface it
+   actually sits on, not the one you assumed.
 
 ---
 
 ## Standing traps
 
-- 🚨 **NEVER run `supabase config push`**, and never build a shell command by
-  interpolating content into it.
-- 🚨 **NEVER pipe a file through PowerShell to rewrite it.** PS 5.1 reads
-  BOM-less UTF-8 as ANSI and silently double-encodes — S28 did this to its own
-  probe script and turned every `─` into `â”€` in one command. Use the Write
-  tool for any file another program will parse.
-- **`git add -A` sweeps untracked files into a PUBLIC commit.** Stage explicit
-  paths. `docs/messed up handbook.pdf` must stay untracked.
-- **A migration's text does not tell you the database's state.** Query it.
-- **Check the GRANTEE, not just the grant** (S22).
-- **`supabase db query --file` returns only the LAST result set.** One query
-  per file.
-- ⚠️ **`supabase db query -o json` does NOT return `RAISE NOTICE` output.** A
-  `DO` block that logs its progress with NOTICE comes back as `"rows": []` —
-  indistinguishable from one that never ran. Have probes write to a temp table
-  and SELECT it (and `GRANT` on that table if the block drops to
-  `authenticated`, or the first insert 42501s).
-- **`sanitize()` is a denylist; `toColumns()` is the allowlist.** Any new table
-  written from the client needs a `COLUMN_ALLOWLIST` entry. 🚨 **Three failure
-  shapes, do not conflate them:** an un-allowlisted TABLE PGRST204s the whole
-  save (loud); a dropped KEY on an allowlisted table loses ONE FIELD and only
-  warns (quiet — this was S28's `role_slug`); and a key that is *legitimate*
-  inside a jsonb column is never seen by `toColumns` at all.
-- **Ordering rules for manual re-runs:** 0022 → 0025 AND 0026 · 0028 → 0031 →
-  **0055** · 0002 → 0029 · 0011 → 0030 · 0009 → 0020 · 0011 → 0033 · **0027 →
-  0038 → 0039 → 0042** · 0040 → 0041 → **0043** · **0027 → 0057** · **0057 →
-  0058**. 0044 depends on 0004, 0008, 0013 and 0020 and nothing depends on it.
-  **Replay forwards only.**
-  🚨 **0027 → 0057 is the dangerous new one.** 0027 sets the `rabbit-files`
-  bucket with `INSERT ... ON CONFLICT DO UPDATE SET file_size_limit` and the
-  value 52428800, so replaying it silently RESETS the cap from 50 GiB to 50 MB —
-  green migration, no error, and multi-GB cloud storage quietly stops working.
-- 🚨 **TWO WAYS CI FAILS WHILE EVERY LOCAL CHECK IS GREEN. S42 hit BOTH, in
-  consecutive pushes, and neither was visible to any command run locally.**
-  - **The local npm is a major version ahead of the runner's.** This machine has
-    npm 11 (Node 24); CI uses npm 10 (Node 20). npm 11 omits an *optional*
-    transitive dependency from the lockfile that npm 10 considers mandatory, so
-    `npm install` here can produce a lockfile that fails `npm ci` there with
-    `EUSAGE ... Missing: <pkg> from lock file`. `npm ci` locally PASSES — twice,
-    including a genuine clean install — because it is the same npm that wrote
-    it. **After any dependency change, verify with `npx --yes npm@10 ci`.**
-  - **Vitest runs in mode `test`, and this repo has no `.env`, `.env.test` or
-    `.env.test.local`.** Anything reading `import.meta.env.VITE_*` gets its
-    value from a developer's gitignored `.env.local` and gets NOTHING on the
-    runner. **A module-level `const X = import.meta.env.Y` cannot be stubbed
-    after import** — read env at call time, and stub it in the test rather than
-    inheriting it. To reproduce CI: hide `.env.development`, `.env.local` and
-    `.env.staging`, then run the suite.
-- **`node scripts/tap-all.mjs` runs the WHOLE pgTAP set** in one command.
-  `collected` MUST equal `planned`. ⚠️ It runs against the LINKED project, so
-  running it against **staging** rather than dev is what surfaced suite 35's
-  unscoped counts (see `OUTSTANDING.md`) — dev is the environment least likely
-  to show a decay-with-use defect, because nothing has used it.
-- **`scripts/tap-hosted.py` can run an UNAPPLIED migration together with its
-  suite** in one rolled-back transaction — pass the migration first, then the
-  suite. The shim has NO `has_index`, `col_type_is`, `col_default_is`,
-  `col_not_null`, `hasnt_column`, `results_eq` or `matches`; `throws_ok`
-  matches message text **exactly** (`got = $2`), not as a substring.
-- 🚨 **Prove a new suite by BREAKING it** — including breakers you expect to
-  pass. See the rule at the top.
-- **Permissive RLS policies OR together** — DROP + CREATE, never add a
-  narrower policy beside a broader one. And on UPDATE, **a `WITH CHECK` weaker
-  than its `USING` is the hole**; omitting `WITH CHECK` entirely is safe.
-- 🚨 **THREE GREEN CI JOBS CAN MEAN NOTHING. Playwright is the only one that
-  proves the app RENDERS.** Nothing in vitest mounts `RabbitProvider`, a TDZ
-  error bundles fine, and there is no eslint config. If Playwright fails, check
-  `document.getElementById('root').children.length` against the dev server.
-- **`docs/SYSTEMS_HANDBOOK.md` §17 is a gate, not an oracle.** S21, S22, S24,
-  S25, S26, S27 and S28 each corrected it. Check the code.
+🚨 **TWO WAYS CI FAILS WHILE EVERY LOCAL CHECK IS GREEN. S42 hit both.**
+- The local npm (11/Node 24) is a major version ahead of CI's (10/Node 20) and
+  omits an optional transitive dependency CI requires. After any dependency
+  change: **`npx --yes npm@10 ci`**.
+- Vitest runs in mode `test`; this repo has no `.env`, `.env.test` or
+  `.env.test.local`, so `import.meta.env.VITE_*` is a developer's gitignored
+  `.env.local` and is **empty on the runner**. Never read env into a
+  module-level `const` — it cannot be stubbed after import.
 
----
+⚠️ **`preview_pane_hygiene`**: reset the viewport after `resize_window`, and
+never let scaffolding impersonate the design. Audrey reads pane artefacts as
+broken code.
 
-## Still owed by Audrey — blocking the v1.0.0 tag
-
-1. **Rotate `smoke_admin`** — published in the PUBLIC repo, permanent in git
-   history. `OWED_AUDREY.md` §0, TPN-SDLC-007. The one open CRITICAL.
-2. **Rotate `wilson-staging`'s legacy `service_role` key** (S19 exposure).
-   `supabase projects api-keys` returns all keys as ONE JSON line — never
-   filter it, select the one field.
-3. **Complete `docs/RELEASE_TESTING.md`.**
-4. **v1.0.0 is prepared, NOT tagged, NOT merged.** Ask before tagging, and ask
-   **again** before merging to `main` (Vercel's production branch).
+Never `supabase config push`. `git add -A` sweeps untracked files into a PUBLIC
+repo. Never interpolate content into a shell command. Count `<!--` / `-->` after
+editing long markdown.
 
 ---
 
 ## Close-out ritual
 
-1. Apply migrations to **dev**, verify **by query**, run `tap-all`.
-2. Feature commit(s).
-3. Apply to **staging**, then **prod** — dry-run each, verify each **by
-   query**. ⚠️ **Staging goes BEFORE the push**: `feat/multi-user-v1`
-   auto-deploys the STAGING-backed beta.
-4. Push → **CI green on all four jobs** (a skip is not green).
-5. Re-link the CLI to `wilson-dev`.
-6. Write the next brief → update `docs/MASTER_PLAN.md` and
-   `MASTER_PLAN_S19_ONWARD.md` → update `docs/SYSTEMS_HANDBOOK.md` if
-   behaviour changed → **update `docs/OUTSTANDING.md`** → update the Claude
-   auto-memory → docs commit + push.
-
-> **THEN, FINALLY, IN THE CHAT — both required, after everything is pushed:**
->
-> 1. **List the remaining sessions**, one line each, a few words only, marking
->    any that are done. If the order changed, say so.
-> 2. **A layman's breakdown of what this session accomplished**, in bullet
->    points, plain English. **No jargon, no table names, no migration numbers,
->    no file paths.** Write what CHANGED FOR AUDREY, not what was done to the
->    code. Say plainly what is fixed, what is only diagnosed, and what she
->    needs to do herself.
+1. `docs/OUTSTANDING.md` — the phantom-cursor entry should close (A6). Add
+   nothing that is merely cosmetic-and-unfinished; that belongs in the master
+   plan.
+2. Sequence table in `MASTER_PLAN_S19_ONWARD.md` — S43 done, **S38 next and
+   last**.
+3. `docs/SYSTEMS_HANDBOOK.md` — if any shared token or component is introduced,
+   it belongs in the visual-language section, not only in the component.
+4. **Refresh the STATE block of `SESSION_38_prompt.md`** with the numbers you
+   leave behind, and update the Claude auto-memory in the same pass.
+5. **Close out in the chat** with the remaining-session list and a plain-English
+   breakdown. Never let a diagnosis read as a fix.
