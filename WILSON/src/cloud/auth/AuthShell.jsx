@@ -424,33 +424,59 @@ export const AUTH_INPUT_STYLE = {
 // Primary action. The one white surface on the screen — now that the type is
 // black, the white fill is genuinely the standout element (Von Restorff)
 // rather than one white thing among many.
-// The white FILL only measures 2.06:1 against the well, so on its own the
-// button's edge is barely there — WCAG 1.4.11 wants 3:1 for a component
-// boundary. A hard 2px rule fixes it at 8.49:1 and is WILSON's house answer
-// anyway: "surfaces stack via solid borders, not elevation" (visual-language
-// §Borders). Padding is trimmed by the border width so the box is unchanged.
+// Primary action. Audrey, 2026-08-10: "do not have white buttons" and then
+// "make the button something more minimal and clean."
+//
+// The white fill was the wrong shape twice over — 2.06:1 against the well, so
+// it needed a 2px rule just to have an edge: two treatments doing one job. A
+// solid dark fill fixed that but overcorrected, dropping a heavy block onto a
+// screen whose entire language is hairlines.
+//
+// So: no fill, and the SAME 1px rule the input fields use. One rule weight
+// across the whole screen, nothing filled, nothing shadowed. The button reads
+// as a button because of its box and its letter-spacing, not because it is
+// louder than everything around it.
+//
+// Hierarchy still works because it is the only bounded thing on the screen —
+// Von Restorff by enclosure rather than by weight (Law of Common Region doing
+// the job a fill was doing badly).
 export const AUTH_BUTTON_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: '12px',
   fontWeight: 700,
   letterSpacing: '0.18em',
-  background: '#fff',
+  background: 'transparent',
   color: AUTH_INK,
-  border: `2px solid ${AUTH_INK}`,
-  padding: '8px 32px',
-  borderRadius: '2px',
+  border: `1px solid ${AUTH_INK}`,
+  padding: '11px 38px',
+  borderRadius: 0,
   cursor: 'pointer',
 }
 
+// Secondary action (CHOOSE FILE). The same treatment one step down the scale —
+// a size, not a second style. Adding a distinct look here would put a third
+// button treatment on a screen that needs one.
+export const AUTH_BUTTON_QUIET_STYLE = {
+  ...AUTH_BUTTON_STYLE,
+  fontSize: '10px',
+  padding: '7px 16px',
+}
+
+// Tertiary. Small caps on the same scale as the hints, so the row under the
+// button reads as one quiet line rather than two web links. The underline
+// stays — it is the affordance, and Jakob's Law governs mechanism even when
+// the expression is this spare — but sits off the baseline so it reads as a
+// rule rather than a strikethrough of the descenders.
 export const AUTH_LINK_STYLE = {
+  ...AUTH_TEXT_STYLE,
+  fontSize: '10px',
+  fontWeight: 600,
+  letterSpacing: '0.16em',
   background: 'transparent',
   border: 'none',
   color: AUTH_INK,
-  fontFamily: AUTH_TEXT_STYLE.fontFamily,
-  fontSize: '12px',
-  fontWeight: 500,
-  letterSpacing: '0.04em',
   textDecoration: 'underline',
+  textUnderlineOffset: '3px',
   cursor: 'pointer',
   padding: 0,
 }
@@ -459,7 +485,7 @@ export const AUTH_HINT_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: '10px',
   fontWeight: 600,
-  letterSpacing: '0.14em',
+  letterSpacing: '0.16em',
 }
 
 export const AUTH_ERROR_STYLE = {
@@ -518,10 +544,18 @@ export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
   // Shared metrics. Both layers must resolve to the SAME font, size, spacing,
   // alignment, line-height and padding or the asterisks and the caret drift
   // apart. They are declared once and spread into both.
+  //
+  // fontWeight 700 is set on BOTH layers, not just the visible one. The
+  // asterisks are meant to read bold (Audrey, 2026-08-10), but bolding only
+  // the overlay would risk the two layers resolving to different advance
+  // widths if the monospace face's bold cut is not metric-compatible — and
+  // that difference is exactly what drifts the caret away from the last
+  // asterisk. The input's text is transparent, so weighting it costs nothing
+  // visually and buys identical metrics by construction.
   const metrics = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace',
     fontSize: '17px',
-    fontWeight: 400,
+    fontWeight: 700,
     letterSpacing: '0.18em',
     textAlign: 'center',
     lineHeight: '1.2',

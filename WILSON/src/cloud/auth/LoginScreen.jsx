@@ -517,14 +517,20 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
 
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+            {/* One row, not a stack. Two underlined links sitting on top of
+                each other read as clutter under a single primary action;
+                side by side with a divider they read as one quiet line. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <button type="button" onClick={handleChangeCompany} style={AUTH_LINK_STYLE}>
                 Change company
               </button>
               {onForgotPassword && (
-                <button type="button" onClick={onForgotPassword} style={AUTH_LINK_STYLE}>
-                  Forgot password?
-                </button>
+                <>
+                  <span aria-hidden="true" style={{ ...AUTH_HINT_STYLE, opacity: 0.5 }}>·</span>
+                  <button type="button" onClick={onForgotPassword} style={AUTH_LINK_STYLE}>
+                    Forgot password?
+                  </button>
+                </>
               )}
             </div>
           </form>

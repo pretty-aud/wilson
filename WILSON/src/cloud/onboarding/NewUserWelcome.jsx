@@ -37,6 +37,7 @@ import AuthShell, {
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_QUIET_STYLE,
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_INK,
@@ -247,11 +248,7 @@ export default function NewUserWelcome({ onComplete, membership }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              style={{
-                ...AUTH_HINT_STYLE, fontSize: '11px',
-                background: 'transparent', border: `1px solid ${AUTH_INK}`,
-                padding: '4px 10px', cursor: 'pointer',
-              }}
+              style={AUTH_BUTTON_QUIET_STYLE}
             >
               {avatarFile ? 'CHANGE' : 'CHOOSE FILE'}
             </button>

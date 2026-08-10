@@ -17,7 +17,10 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { AUTH_INK, AUTH_ERROR_INK, AUTH_TEXT_STYLE, AUTH_BUTTON_STYLE } from './AuthShell'
+import {
+  AUTH_INK, AUTH_ERROR_INK, AUTH_TEXT_STYLE,
+  AUTH_BUTTON_STYLE, AUTH_BUTTON_QUIET_STYLE,
+} from './AuthShell'
 
 // The two surfaces auth content can sit on. AuthShell owns both.
 const WELL = '#f4a261'   // light orange — the content area between the bars
@@ -58,12 +61,30 @@ describe('the auth ink survives the surface it actually sits on', () => {
     expect(contrast('#ef4444', WELL)).toBeLessThan(3)
   })
 
-  it('the primary button reads on its own fill AND has a boundary', () => {
-    // Two different jobs. The label must be legible against the button; the
-    // button must be findable against the page. A white fill alone gives
-    // 2.06:1 of edge, which is why AUTH_BUTTON_STYLE carries a 2px rule.
-    expect(contrast(AUTH_BUTTON_STYLE.color, '#ffffff')).toBeGreaterThanOrEqual(4.5)
+  it('the primary button is unfilled, so its label and its edge both sit on the well', () => {
+    // Audrey: "do not have white buttons." With no fill, the button's label
+    // AND its rule are read against the well itself — so both are governed by
+    // the same ratio as body text, and the boundary requirement (1.4.11, 3:1)
+    // is satisfied by the same ink.
+    expect(AUTH_BUTTON_STYLE.background).toBe('transparent')
+    expect(AUTH_BUTTON_STYLE.color).toBe(AUTH_INK)
     expect(AUTH_BUTTON_STYLE.border).toContain(AUTH_INK)
+    expect(contrast(AUTH_BUTTON_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('no auth button is a white block', () => {
+    // The literal instruction, in executable form, for both button tokens.
+    for (const style of [AUTH_BUTTON_STYLE, AUTH_BUTTON_QUIET_STYLE]) {
+      expect(['#fff', '#ffffff', 'white']).not.toContain(String(style.background).toLowerCase())
+    }
+  })
+
+  it('the secondary button is the primary at a smaller size, not a new style', () => {
+    // A third button treatment on a screen that needs one is how the system
+    // starts drifting again.
+    expect(AUTH_BUTTON_QUIET_STYLE.background).toBe(AUTH_BUTTON_STYLE.background)
+    expect(AUTH_BUTTON_QUIET_STYLE.border).toBe(AUTH_BUTTON_STYLE.border)
+    expect(AUTH_BUTTON_QUIET_STYLE.color).toBe(AUTH_BUTTON_STYLE.color)
   })
 
   it('AUTH_INK also clears AA on the dark orange bars', () => {

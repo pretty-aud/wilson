@@ -208,9 +208,15 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         style={{
           letterSpacing: '0.35em',
           width: 160,
-          backgroundColor: dark ? 'rgba(255,255,255,0.35)' : 'rgba(120,70,30,0.55)',
+          // On the auth overlay this now matches AUTH_INPUT_STYLE — transparent
+          // with a single baseline rule — rather than a pale well of its own.
+          // One field treatment across every auth surface.
+          backgroundColor: dark ? 'transparent' : 'rgba(120,70,30,0.55)',
           color: dark ? AUTH_INK : '#fde8d0',
-          border: dark ? `1px solid ${AUTH_INK}` : 'none',
+          border: 'none',
+          borderBottom: dark ? `1px solid ${AUTH_INK}` : 'none',
+          borderRadius: dark ? 0 : undefined,
+          caretColor: dark ? AUTH_INK : undefined,
         }}
       />
       {/* #ffd7c2 measured 1.5:1 on the well — unreadable, and an error you
@@ -221,11 +227,13 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         disabled={phase === 'verifying' || phase === 'enrolled'}
         className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm"
         style={{
-          // #ea580c on #fff was 3.56:1 — fails AA for a 12px label. The white
-          // fill also needs a boundary: it is only 2.06:1 against the well.
-          backgroundColor: dark ? '#fff' : '#ea580c',
+          // No white buttons (Audrey, 2026-08-10). On the auth overlay this is
+          // AUTH_BUTTON_STYLE's treatment exactly — unfilled, one 1px rule —
+          // so the gate's primary action matches the login screen's.
+          backgroundColor: dark ? 'transparent' : '#ea580c',
           color: dark ? AUTH_INK : '#fff7ed',
-          border: dark ? `2px solid ${AUTH_INK}` : '1px solid #c2410c',
+          border: dark ? `1px solid ${AUTH_INK}` : '1px solid #c2410c',
+          borderRadius: dark ? 0 : undefined,
           opacity: phase === 'verifying' || phase === 'enrolled' ? 0.6 : 1,
           cursor: phase === 'verifying' || phase === 'enrolled' ? 'default' : 'pointer',
         }}
