@@ -61,30 +61,39 @@ describe('the auth ink survives the surface it actually sits on', () => {
     expect(contrast('#ef4444', WELL)).toBeLessThan(3)
   })
 
-  it('the primary button is unfilled, so its label and its edge both sit on the well', () => {
-    // Audrey: "do not have white buttons." With no fill, the button's label
-    // AND its rule are read against the well itself — so both are governed by
-    // the same ratio as body text, and the boundary requirement (1.4.11, 3:1)
-    // is satisfied by the same ink.
-    expect(AUTH_BUTTON_STYLE.background).toBe('transparent')
-    expect(AUTH_BUTTON_STYLE.color).toBe(AUTH_INK)
-    expect(AUTH_BUTTON_STYLE.border).toContain(AUTH_INK)
-    expect(contrast(AUTH_BUTTON_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
+  it('the primary button is dark orange with no outline, and its LABEL clears AA', () => {
+    // Audrey, 2026-08-10: "make the buttons for sign in and authenticate be a
+    // dark orange. remove the outline to the button."
+    //
+    // The label is the part with a threshold to meet. #1c1917 on #ea580c is
+    // 5.90:1; white would be 3.56:1, which only passes for LARGE text and this
+    // label is 12px. Asserting the ratio rather than the hex means a future
+    // change to either the fill or the ink has to stay legible.
+    expect(AUTH_BUTTON_STYLE.background).toBe(BARS)
+    expect(AUTH_BUTTON_STYLE.border).toBe('none')
+    expect(contrast(AUTH_BUTTON_STYLE.color, AUTH_BUTTON_STYLE.background))
+      .toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('white on the button fill would NOT clear AA at this size — the control', () => {
+    // Without this, the assertion above proves nothing about whether the
+    // threshold discriminates on this background.
+    expect(contrast('#ffffff', BARS)).toBeLessThan(4.5)
   })
 
   it('no auth button is a white block', () => {
-    // The literal instruction, in executable form, for both button tokens.
+    // The earlier instruction, still in executable form, for both tokens.
     for (const style of [AUTH_BUTTON_STYLE, AUTH_BUTTON_QUIET_STYLE]) {
       expect(['#fff', '#ffffff', 'white']).not.toContain(String(style.background).toLowerCase())
     }
   })
 
-  it('the secondary button is the primary at a smaller size, not a new style', () => {
-    // A third button treatment on a screen that needs one is how the system
-    // starts drifting again.
-    expect(AUTH_BUTTON_QUIET_STYLE.background).toBe(AUTH_BUTTON_STYLE.background)
-    expect(AUTH_BUTTON_QUIET_STYLE.border).toBe(AUTH_BUTTON_STYLE.border)
-    expect(AUTH_BUTTON_QUIET_STYLE.color).toBe(AUTH_BUTTON_STYLE.color)
+  it('the secondary button is distinguishable from the primary', () => {
+    // Now that the primary is filled, the secondary carries the outline. If
+    // they ever converge, one of them is not doing its job.
+    expect(AUTH_BUTTON_QUIET_STYLE.background).not.toBe(AUTH_BUTTON_STYLE.background)
+    expect(AUTH_BUTTON_QUIET_STYLE.color).toBe(AUTH_INK)
+    expect(contrast(AUTH_BUTTON_QUIET_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
   })
 
   it('AUTH_INK also clears AA on the dark orange bars', () => {

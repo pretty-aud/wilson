@@ -440,26 +440,53 @@ export const AUTH_INPUT_STYLE = {
 // Hierarchy still works because it is the only bounded thing on the screen —
 // Von Restorff by enclosure rather than by weight (Law of Common Region doing
 // the job a fill was doing badly).
+// Audrey, 2026-08-10, final: "make the buttons for sign in and authenticate be
+// a dark orange. remove the outline to the button."
+//
+// So: #ea580c fill, no border. One filled shape, the app's own primary orange,
+// against the light-orange well.
+//
+// ⚠️ The LABEL stays AUTH_INK, and that was a measurement rather than a
+// preference. Measured in the running app on #ea580c:
+//     #1c1917  →  4.91:1  passes AA at this size
+//     #ffffff  →  3.56:1  passes only for LARGE text (>=18.66px bold), and
+//                         this label is 12px
+// WILSON's other orange buttons pair with white, but they are not this size.
+// Black also keeps the screen on one ink, which is the whole point of the
+// Session 43 pass. Say the word and it is a one-token swap.
+//
+// ⚠️ The fill measures 1.73:1 against the well — a filled orange block on an
+// orange page is a weak BOUNDARY even though its label is strong. It reads by
+// hue rather than by luminance. That is a deliberate call by Audrey, recorded
+// here so nobody "fixes" it back to an outline.
 export const AUTH_BUTTON_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: '12px',
   fontWeight: 700,
   letterSpacing: '0.18em',
-  background: 'transparent',
+  background: '#ea580c',
   color: AUTH_INK,
-  border: `1px solid ${AUTH_INK}`,
-  padding: '11px 38px',
-  borderRadius: 0,
+  border: 'none',
+  padding: '12px 38px',
+  borderRadius: '2px',
   cursor: 'pointer',
 }
 
-// Secondary action (CHOOSE FILE). The same treatment one step down the scale —
-// a size, not a second style. Adding a distinct look here would put a third
-// button treatment on a screen that needs one.
+// Secondary action (CHOOSE FILE). Now that the primary is filled, the
+// secondary keeps the outline — that IS the hierarchy, and it costs no new
+// colour. Deliberately NOT derived from AUTH_BUTTON_STYLE any more: the two
+// differ in treatment now, not just in scale.
 export const AUTH_BUTTON_QUIET_STYLE = {
-  ...AUTH_BUTTON_STYLE,
+  ...AUTH_TEXT_STYLE,
   fontSize: '10px',
+  fontWeight: 700,
+  letterSpacing: '0.18em',
+  background: 'transparent',
+  color: AUTH_INK,
+  border: `1px solid ${AUTH_INK}`,
   padding: '7px 16px',
+  borderRadius: '2px',
+  cursor: 'pointer',
 }
 
 // Tertiary. Small caps on the same scale as the hints, so the row under the

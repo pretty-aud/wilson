@@ -157,6 +157,21 @@ async function checkSessionValid() {
 
 const EASE = 'cubic-bezier(0.4,0,0.2,1)';
 
+// The page-transition rhythm: fade out → compress → hold the title → expand →
+// fade in. 2100ms end to end.
+//
+// ONE definition, because Session 43 added a second consumer: the post-sign-in
+// WELCOME transition replays this exact chain (Audrey, 2026-08-10 — "have it
+// work like the transition animation from page to page"). Two copies of these
+// numbers is how "it works like the app" quietly stops being true.
+const TRANSITION = {
+  fadeOut:  250,
+  compress: 600,
+  hold:     400,
+  expand:   600,
+  fadeIn:   250,
+};
+
 // ═══════════════════════════════════════════════════════════════════
 //  PET CONSTANTS
 // ═══════════════════════════════════════════════════════════════════
@@ -463,6 +478,9 @@ export default function App() {
       petPersistedSigRef.current = null;
       setAuthed(false);
       setShowOverlay(true);
+      // Arm the welcome again — signing back in during the same session is a
+      // new arrival, and a once-per-page-load ref would silently skip it.
+      welcomePlayedRef.current = false;
     };
     return () => { delete window.wilsonSignOut; };
   }, []);
@@ -470,6 +488,20 @@ export default function App() {
   const handleAnimationComplete = () => {
     setShowOverlay(false);
   };
+
+  // Session 43: the welcome transition is QUEUED at sign-in and played once
+  // the post-login gates have cleared. Playing it immediately would run it
+  // underneath NewUserWelcome or MfaEnrollGate — both are full-screen
+  // AuthShell overlays — so the one person who would never see it is the
+  // brand-new user it is meant to greet.
+  //
+  // ⚠️ pendingOnboarding resolves from an async query keyed on `authed`, so on
+  // a first login it can still be null at this point and flip a moment later.
+  // The welcome may then start under the overlay that follows. Cosmetic, and
+  // only on the very first sign-in of a new account; noted rather than fixed
+  // with a spurious settle delay.
+  const [welcomeQueued, setWelcomeQueued] = useState(false);
+  const welcomePlayedRef = useRef(false);
 
   // Close confirmation dialog (Electron only)
   const [showCloseDialog, setShowCloseDialog] = useState(false);
@@ -1288,12 +1320,62 @@ export default function App() {
               transitionRef.current = false;
               // Show pet sprite after transition completes
               setPetVisible(true);
-            }, 250);
-          }, 600);
-        }, 400);
-      }, 600);
-    }, 250);
+            }, TRANSITION.fadeIn);
+          }, TRANSITION.expand);
+        }, TRANSITION.hold);
+      }, TRANSITION.compress);
+    }, TRANSITION.fadeOut);
   }, [currentPage]);
+
+  // ── Post-sign-in welcome (Session 43) ─────────────────────────────────
+  // Audrey, 2026-08-10: "when the login is done, after the auth code, lets add
+  // a welcome animation. have it work like the transition animation from page
+  // to page. but instead of naming the upcoming page say 'Welcome'."
+  //
+  // Same chain, same durations, same overlay as navigateTo. Two differences,
+  // both deliberate:
+  //
+  //  - No page swap. The user is already arriving at Home; this transition
+  //    announces an arrival rather than covering one.
+  //  - It starts at 'compressing', not 'fading-out'. There is nothing to fade
+  //    out — AuthShell has been covering the app and its reveal has only just
+  //    handed over, so fading content the user has never seen would read as a
+  //    flicker before the bars move. AuthShell's reveal settles the bars at
+  //    268px (PAGE_BARS.home) and this picks them straight up from there, so
+  //    the two animations read as one continuous movement: the bars close,
+  //    say WELCOME, and open onto Home.
+  const playWelcome = useCallback(() => {
+    if (transitionRef.current) return;
+    transitionRef.current = true;
+    setTransitionTitle('Welcome');
+    setPetVisible(false);
+    setCompanionOpen(false);
+    setTransitionState('compressing');
+    setTimeout(() => {
+      setTransitionState('title-hold');
+      setTimeout(() => {
+        setTransitionState('expanding');
+        setTimeout(() => {
+          setTransitionState('fading-in');
+          setTimeout(() => {
+            setTransitionState('idle');
+            setTransitionTitle('');
+            transitionRef.current = false;
+            setPetVisible(true);
+          }, TRANSITION.fadeIn);
+        }, TRANSITION.expand);
+      }, TRANSITION.hold);
+    }, TRANSITION.compress);
+  }, []);
+
+  useEffect(() => {
+    if (!welcomeQueued || !authed) return;
+    if (showOverlay || pendingOnboarding || pendingMfaEnroll) return;
+    if (welcomePlayedRef.current) return;
+    welcomePlayedRef.current = true;
+    setWelcomeQueued(false);
+    playWelcome();
+  }, [welcomeQueued, authed, showOverlay, pendingOnboarding, pendingMfaEnroll, playWelcome]);
 
   // Back/forward buttons re-enter through navigateTo (with the animation).
   // The ref keeps the listener stable across navigateTo's re-creation.
@@ -1751,7 +1833,12 @@ export default function App() {
                 pointerEvents: 'none',
               }}>
                 <span style={{
-                  color: '#fff',
+                  // Session 43: was '#fff'. This overlay's own background is
+                  // #f4a261, so the title has been white-on-light-orange at
+                  // 2.06:1 on EVERY page transition in the app — the same
+                  // defect the auth surfaces had, hiding in the one component
+                  // that flashes past too quickly to read. #1c1917 is 8.49:1.
+                  color: '#1c1917',
                   fontWeight: 'bold',
                   fontSize: '16.8px',
                   letterSpacing: '0.3em',
@@ -1849,6 +1936,7 @@ export default function App() {
           onAuthenticated={() => {
             handleAuth();
             handleAnimationComplete();
+            setWelcomeQueued(true);
           }}
         />
       )}
