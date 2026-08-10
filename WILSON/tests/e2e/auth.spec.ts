@@ -37,6 +37,11 @@ import { test, expect, type Page } from '@playwright/test'
 // fallback now: an unset password fails loudly at startup rather than
 // silently reintroducing the literal.
 const USERNAME = process.env.WILSON_E2E_USERNAME ?? 'smoke_admin'
+// Session 43: sign-in is now company-first, so the helper needs the fixture's
+// workspace slug. Read off wilson-dev 2026-08-10 (Smoke Workspace / `smoke`)
+// and defaulted like USERNAME — a slug is an identifier, not a credential, so
+// unlike PASSWORD it is safe in a public repo.
+const WORKSPACE = process.env.WILSON_E2E_WORKSPACE_SLUG ?? 'smoke'
 const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
 if (!PASSWORD) {
   throw new Error(
@@ -54,6 +59,12 @@ async function signIn(page: Page, username: string, password: string) {
   // AuthShell takes ~2s to settle the intro animation; wait for the LOGIN
   // heading before typing.
   await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
+  // Session 43 §A1 — step 1 of 2. The company step deliberately makes NO
+  // network call (it shape-checks and advances), so there is nothing to wait
+  // on beyond the step cross-fade; waiting for the Username field covers it.
+  await page.getByLabel('Company').fill(WORKSPACE)
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await expect(page.getByLabel('Username')).toBeVisible({ timeout: 8_000 })
   await page.getByLabel('Username').fill(username)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: /sign in/i }).click()
@@ -62,6 +73,17 @@ async function signIn(page: Page, username: string, password: string) {
   // unenrolled (a TOTP secret in CI is S11 work), so defer per sign-in.
   const defer = page.getByRole('button', { name: /set up later/i })
   await defer.click({ timeout: 12_000 }).catch(() => { /* not an admin, or already enrolled */ })
+}
+
+// Session 43 §A1: "Forgot password?" moved to step 2, beside the password
+// field it is about (Law of Proximity), so reaching it means clearing the
+// company step first.
+async function gotoForgotPassword(page: Page) {
+  await page.goto('/')
+  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
+  await page.getByLabel('Company').fill(WORKSPACE)
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await page.getByRole('button', { name: /forgot password/i }).click({ timeout: 8_000 })
 }
 
 async function latestMailFor(email: string) {
@@ -154,9 +176,7 @@ test('admin invite flow ends in the invitee setting their password', async ({ pa
 test('forgot-password delivers a working reset link', async ({ page }) => {
   test.skip(SKIP_EMAIL, 'mailpit not reachable; PLAYWRIGHT_SKIP_EMAIL=1')
 
-  await page.goto('/')
-  await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 12_000 })
-  await page.getByRole('button', { name: /forgot password/i }).click()
+  await gotoForgotPassword(page)
   await expect(page.getByText(/^RESET PASSWORD$/i)).toBeVisible({ timeout: 8_000 })
 
   await page.getByLabel('Username').fill(USERNAME)
@@ -187,8 +207,7 @@ test('forgot-password delivers a working reset link', async ({ page }) => {
 
   // Restore the original password via a second reset round-trip (so
   // subsequent test runs and the issue-session smoke probe keep working).
-  await page.goto('/')
-  await page.getByRole('button', { name: /forgot password/i }).click()
+  await gotoForgotPassword(page)
   await page.getByLabel('Username').fill(USERNAME)
   await page.getByRole('button', { name: /send reset link/i }).click()
   await page.waitForTimeout(500)

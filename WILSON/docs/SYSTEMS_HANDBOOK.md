@@ -685,9 +685,8 @@ limiter. All run with `verify_jwt = false` (§4.2).
 
 | Function | Caller | Guard | Job |
 |---|---|---|---|
-| `resolve-login` | `LoginScreen`, `ForgotPasswordWizard` | none (public, pre-auth) | Username → email, constant-time, uniform shape |
+| `resolve-login` | `LoginScreen` (with `workspace_slug` since S43), `ForgotPasswordWizard` (without) | none (public, pre-auth) | Username (+ slug) → email, constant-time, uniform shape |
 | `issue-session` | `LoginScreen`, `WorkspaceSwitcher` | inline `getUser` | Seat `app_metadata.workspace_id` for the next refresh |
-| `provision-workspace` | `NewCompanyWizard` | none (public, pre-auth) | Create company + first admin atomically, plus up to 19 initial invites |
 | `invite-member` | `InviteMemberDialog`, `MultiInviteDialog` | `requireWorkspaceAdmin` (since S17) | Invite by email, create the membership row with `onboarded_at` null |
 | `admin-create-user` | Admin Terminal → `adminApi.js` | `requireWorkspaceAdmin` | Create a member with a show-once password; optional synthesized email |
 | `admin-reset-password` | Admin Terminal | `requireWorkspaceAdmin` | Rotate a member's password, show-once |
@@ -746,9 +745,10 @@ redeploys. Two properties are stated rather than discovered:
 
 Current users: `ai-proxy` (`AI_PROXY_RPM`, default 60, keyed on workspace),
 `operator-ai-keys` and `operator-workspaces` (`OPERATOR_WRITE_RPM` 20 /
-`OPERATOR_READ_RPM` 120, keyed on caller). `resolve-login` and
-`provision-workspace` still use their original per-isolate in-memory buckets;
-the remaining functions have no limiter (§17).
+`OPERATOR_READ_RPM` 120, keyed on caller). `resolve-login` still uses its
+original per-isolate in-memory bucket; the remaining functions have no limiter
+(§17). (`provision-workspace` was the other per-isolate one and was deleted in
+S43 — see §Onboarding.)
 
 **Show-once credentials.** WILSON stores no password anywhere. GoTrue accepts a
 plaintext password only to *set* it, so the create/reset response is the one
@@ -1354,7 +1354,7 @@ Squarespace. Templates are uploaded to all three Supabase projects.
 
 | Mail | Trigger | Lands on |
 |---|---|---|
-| Invite | `invite-member`, or `provision-workspace`'s initial-team `invites[]` | `{SITE_URL}/#/recovery` → `ResetPasswordWizard`, which sets the password, signs the user out, and returns them to a real login |
+| Invite | `invite-member` | `{SITE_URL}/#/recovery` → `ResetPasswordWizard`, which sets the password, signs the user out, and returns them to a real login |
 | Recovery | `ForgotPasswordWizard` → `resetPasswordForEmail` | Same wizard |
 | Email change | Supabase Auth | Standard |
 
@@ -2714,11 +2714,25 @@ keyboard shortcut, because it only ever fires from an explicit admin click and
 handling it while hidden is the entire point. All other cross-component
 signalling uses props, counters or context.
 
-**Onboarding.** `NewCompanyWizard` (company → profile → team → submit) calls
-`provision-workspace` and deliberately does **not** auto-sign-in — it hands
-`{username, slug}` back so the login screen opens pre-filled.
-`NewUserWelcome` appears whenever `onboarded_at` is null and collects display
-name, pronouns, title and an optional avatar, then stamps `onboarded_at`.
+**Sign-in is COMPANY-FIRST (S43).** `LoginScreen` has four stages: `company`
+(one input) → `auth` (username + password) → `mfa` → `workspace`. Step 1
+validates the SLUG SHAPE ONLY and makes **no network call** — a "does this
+company exist?" endpoint would be a customer-list oracle for anyone holding the
+anon key, which is precisely what the rest of this screen's enumeration defence
+exists to prevent. The slug rides `resolve-login`'s long-supported (and, until
+S43, never-sent) `workspace_slug` field. Side effect worth knowing: that also
+**repairs multi-workspace sign-in**, which was impossible before — a bare
+username matching two memberships made `resolve-login` reply "miss".
+`slugifyWorkspace` in `src/cloud/auth/workspaceSlug.js` is the one definition
+of the normalisation (the operator console still has an inline copy).
+
+**Onboarding is INVITE-ONLY and operator-driven (S43).** There is no self-serve
+company creation on this surface — no button, no route, and no code in the app
+bundle. A company is created by a platform operator in the operator console
+(`Companies → New company` → `operator-workspaces` `create`), which returns a
+show-once password for the first admin. `NewUserWelcome` appears whenever
+`onboarded_at` is null and collects display name, pronouns, title and an
+optional avatar, then stamps `onboarded_at`.
 
 ### 13.5 The pet companion and the agent
 
@@ -2811,8 +2825,8 @@ else.
 
 11. **Renderer → `resolve-login`** (unauthenticated) and **→ `issue-session`**
     (bearer token) during sign-in and workspace switching.
-12. **Renderer → `provision-workspace`** (unauthenticated) from the new-company
-    wizard.
+12. *(was `provision-workspace` from the new-company wizard — removed in S43;
+    the app makes no unauthenticated call other than `resolve-login`.)*
 13. **Renderer → `invite-member`, `admin-create-user`, `admin-reset-password`,
     `admin-set-active`, `admin-user-security`** from the Admin Terminal and
     Team Members, each with the caller's bearer token.
@@ -3549,9 +3563,13 @@ of a session — this section is limits by design, that file is faults.
   `35_platform_audit.sql` now asserts that **zero** SECURITY DEFINER functions
   in `public` are anon-executable — a count, not a named list, so it fails for
   a function nobody has thought of yet.
+- ⚠️ **S43 removed `provision-workspace` from the repo but it is STILL DEPLOYED
+  on all three projects until `supabase functions delete` is run per env** — so
+  the statement below remains true of the live system, not of the source tree.
+  See `docs/OUTSTANDING.md`.
 - `provision-workspace` can still create an `admin` from a public,
-  pre-authentication endpoint. This is by design — it is self-serve company
-  creation and the caller becomes the first admin — but it means "no
+  pre-authentication endpoint. This was by design — it was self-serve company
+  creation and the caller became the first admin — but it means "no
   unauthenticated path can mint an admin" is **not** a true statement about
   the system, even after `invite-member` was gated.
 - Operator sign-in, sign-out and guard refusals write no audit row anywhere, and

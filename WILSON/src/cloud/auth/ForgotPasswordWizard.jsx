@@ -20,7 +20,17 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
+import AuthShell, {
+  AUTH_TEXT_STYLE,
+  AUTH_TITLE_STYLE,
+  AUTH_INPUT_STYLE,
+  AUTH_BUTTON_STYLE,
+  AUTH_LINK_STYLE,
+  AUTH_HINT_STYLE,
+  AUTH_ERROR_STYLE,
+  AUTH_GAP_BETWEEN_FIELDS,
+  AuthField,
+} from './AuthShell'
 import { supabase } from './supabaseClient'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
@@ -106,29 +116,8 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
     setRevealing(true)
   }, [])
 
-  const inputStyle = {
-    ...AUTH_TEXT_STYLE,
-    fontSize: '17px',
-    fontWeight: 400,
-    textTransform: 'none',
-    letterSpacing: '0.02em',
-    background: 'transparent',
-    border: 'none',
-    borderBottom: '1px solid rgba(255,255,255,0.55)',
-    outline: 'none',
-    caretColor: '#fff',
-    textAlign: 'center',
-    width: '22ch',
-    padding: '4px 0 6px',
-  }
-  const labelStyle = {
-    ...AUTH_TEXT_STYLE,
-    fontSize: '11px',
-    fontWeight: 600,
-    opacity: 0.8,
-    letterSpacing: '0.22em',
-  }
-
+  // Session 43 §A7: field styling comes from AuthShell so this wizard and the
+  // login screen cannot drift apart again.
   return (
     <AuthShell
       isRevealing={revealing}
@@ -139,20 +128,21 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
     >
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '16px', minWidth: '320px',
+        gap: '18px', minWidth: '320px',
       }}>
-        <div style={{ ...AUTH_TEXT_STYLE, fontSize: '24px', letterSpacing: '0.18em' }}>
-          RESET PASSWORD
-        </div>
+        <div style={AUTH_TITLE_STYLE}>RESET PASSWORD</div>
 
         {stage === 'form' && (
           <form onSubmit={handleSubmit}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', opacity: 0.75, maxWidth: '32ch', textAlign: 'center' }}>
+                style={{
+                  display: 'flex', flexDirection: 'column', alignItems: 'center',
+                  gap: AUTH_GAP_BETWEEN_FIELDS,
+                }}>
+            <div style={{ ...AUTH_HINT_STYLE, maxWidth: '32ch', textAlign: 'center' }}>
               ENTER YOUR USERNAME. WE'LL EMAIL A RESET LINK.
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <div style={labelStyle}>USERNAME</div>
+
+            <AuthField label="USERNAME">
               <input
                 ref={inputRef}
                 type="text"
@@ -160,70 +150,41 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
                 value={username}
                 onChange={(e) => setUsername(e.target.value.slice(0, 32))}
                 disabled={busy}
-                style={inputStyle}
+                style={AUTH_INPUT_STYLE}
                 aria-label="Username"
               />
-            </div>
+            </AuthField>
 
             <button
               type="submit"
               disabled={busy}
               style={{
-                ...AUTH_TEXT_STYLE,
-                fontSize: '12px', fontWeight: 600, letterSpacing: '0.18em',
-                marginTop: '6px',
-                background: '#fff', border: 'none', color: '#ea580c',
-                padding: '10px 34px', borderRadius: '2px',
-                cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.55 : 1,
+                ...AUTH_BUTTON_STYLE,
+                cursor: busy ? 'default' : 'pointer',
+                opacity: busy ? 0.55 : 1,
               }}
             >
               {busy ? 'Sending…' : 'Send reset link'}
             </button>
 
-            <button
-              type="button"
-              onClick={handleBack}
-              style={{
-                background: 'transparent', border: 'none',
-                color: '#fff',
-                fontFamily: AUTH_TEXT_STYLE.fontFamily,
-                fontSize: '12px', fontWeight: 500, letterSpacing: '0.04em',
-                textDecoration: 'underline',
-                cursor: 'pointer', padding: 0, opacity: 0.75,
-                marginTop: '4px',
-              }}
-            >
+            <button type="button" onClick={handleBack} style={AUTH_LINK_STYLE}>
               Back to login
             </button>
           </form>
         )}
 
         {stage === 'sent' && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px', maxWidth: '38ch', textAlign: 'center' }}>
             <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
               If an account matches that username, a reset link is on its way. Check your inbox — it expires in 1 hour.
             </div>
-            <button
-              type="button"
-              onClick={handleBack}
-              style={{
-                ...AUTH_TEXT_STYLE,
-                fontSize: '12px', fontWeight: 600, letterSpacing: '0.18em',
-                marginTop: '6px',
-                background: '#fff', border: 'none', color: '#ea580c',
-                padding: '10px 34px', borderRadius: '2px', cursor: 'pointer',
-              }}
-            >
+            <button type="button" onClick={handleBack} style={AUTH_BUTTON_STYLE}>
               Back to login
             </button>
           </div>
         )}
 
-        {error && (
-          <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', color: '#fee2e2' }}>
-            {error}
-          </div>
-        )}
+        {error && <div style={AUTH_ERROR_STYLE}>{error}</div>}
       </div>
     </AuthShell>
   )

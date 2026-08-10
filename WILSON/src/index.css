@@ -1,9 +1,8 @@
 @import "tailwindcss";
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
+/* Session 43: `@keyframes blink` was removed with its only consumer, the
+   decorative AuthCursor in AuthShell.jsx (§A6 — the phantom cursor). The
+   native caret does that job now. Do not re-add it without a caller. */
 
 /* Light-page scrollbar (Settings, Project Manager, Home) — orange thumb only, no track */
 .wilson-light-scroll::-webkit-scrollbar {

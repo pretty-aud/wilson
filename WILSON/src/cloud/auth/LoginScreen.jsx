@@ -1,24 +1,58 @@
 // =============================================================================
 // LoginScreen — terminal-aesthetic sign-in, built on AuthShell.
 //
-// Two stages:
-//   1. 'auth'      — single form with USERNAME + PASSWORD + SIGN IN button.
-//                    On submit:
-//                      a. POST /functions/v1/resolve-login with the username →
-//                         { exists, email }. Server replies in constant time.
+// Four stages:
+//   1. 'company'   — ONE input: the company. Shape-checked and remembered;
+//                    see "Why the company step does not phone home" below.
+//   2. 'auth'      — USERNAME + PASSWORD for that company. On submit:
+//                      a. POST /functions/v1/resolve-login with the username
+//                         AND the workspace slug → { exists, email }. Server
+//                         replies in constant time.
 //                      b. supabase.auth.signInWithPassword({ email, password }).
-//                         If username was unknown, we sign in against an
-//                         unreachable fake email so request timing still looks
-//                         like a real attempt (prevents username enumeration).
+//                         If the username/company pair was unknown, we sign in
+//                         against an unreachable fake email so request timing
+//                         still looks like a real attempt (prevents username
+//                         enumeration).
 //                      c. Fetch workspace memberships. One workspace → reveal
-//                         the app; more than one → advance to stage 2.
-//   2. 'workspace' — list of the user's active workspaces. Arrow keys move the
+//                         the app; more than one → advance to stage 4.
+//   3. 'mfa'       — TOTP challenge, between password success and everything
+//                    else (the challenge upgrades the session to aal2).
+//   4. 'workspace' — list of the user's active workspaces. Arrow keys move the
 //                    cursor, Enter selects. `issue-session` sets the active
 //                    workspace; refreshSession picks up the new JWT claims.
 //
+// Session 43 split stages 1 and 2 apart. Audrey, 2026-08-10: "first the user
+// should enter the company name … after the user enters the company … then
+// the user should see the name and password entry." One line visible at a
+// time, which is also the shape the screen had before the username input was
+// added to it. Hick's Law: one decision per step. Chunking: the company is a
+// different KIND of fact from the credential.
+//
+// 🚨 Why the company step does not phone home
+//   The obvious build — ask the server "does this company exist?" and answer
+//   the user instantly — is a customer-list oracle for anyone holding the
+//   anon key, which the web app ships. This file's whole enumeration defence
+//   (one generic error for every failure, plus a fake-email sign-in so the
+//   timing of an unknown username matches a known one) exists to stop exactly
+//   that, one field over.
+//
+//   So step 1 validates SHAPE ONLY and advances with no network call. The
+//   only thing that ever answers a question about a company is resolve-login,
+//   behind a username, a password, a constant-time floor and a rate limit —
+//   the defence that was already there. The cost is that a mistyped company
+//   is not caught until sign-in fails, and the generic error names the
+//   company as one of the three things to check. That is a deliberate trade,
+//   not an oversight: do not "improve" it by adding an existence endpoint.
+//
+// ⚠️ Passing the slug also repairs multi-workspace sign-in as a side effect.
+//   resolve-login answers a bare username by matching `.limit(2)` and
+//   replying "miss" when it finds two — so a person who is a member of two
+//   workspaces under the same username could never sign in at all. The slug
+//   disambiguates them. (Its own header always said the client would supply
+//   one; docs/RELEASE_TESTING.md:436 records that it never did.)
+//
 // Security notes:
-//   - The same generic error ("Sign-in failed. Check username and password.")
-//     is used for every failure mode below rate-limiting.
+//   - The same generic error is used for every failure mode below rate-limiting.
 //   - Response-body shape + timing are uniform across found / not-found /
 //     rate-limited (the Edge Function's job; we just mirror that here).
 // =============================================================================
@@ -26,13 +60,34 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
-import AuthShell, { AUTH_TEXT_STYLE } from './AuthShell'
+import AuthShell, {
+  AUTH_TEXT_STYLE,
+  AUTH_TITLE_STYLE,
+  AUTH_INPUT_STYLE,
+  AUTH_BUTTON_STYLE,
+  AUTH_LINK_STYLE,
+  AUTH_HINT_STYLE,
+  AUTH_ERROR_STYLE,
+  AUTH_GAP_BETWEEN_FIELDS,
+  AUTH_STEP_MS,
+  AUTH_STEP_OUT_MS,
+  AUTH_STEP_EASE,
+  AuthField,
+  AuthPasswordInput,
+  prefersReducedMotion,
+} from './AuthShell'
+import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK USERNAME AND PASSWORD.'
+// Session 43: names the company too. The company is now one of the things the
+// user supplied, so a message that lists only two of the three sends someone
+// with a mistyped company round a loop that cannot succeed. This is the
+// generic error — it stays generic, and it must never grow a branch that
+// says WHICH of the three was wrong.
+const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'
 
 async function resolveLogin({ username, workspaceSlug }) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
@@ -75,16 +130,18 @@ async function fetchUserWorkspaces() {
   return data ?? []
 }
 
-export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgotPassword, prefilledUsername }) {
+export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   // ── Shell phase gate ───────────────────────────────────────────────────
   const [ready, setReady]         = useState(false)
   const [revealing, setRevealing] = useState(false)
 
   // ── Auth flow state ───────────────────────────────────────────────────
-  // stage: 'auth' (username + password) | 'mfa' (Session 9 TOTP challenge,
-  // between password success and everything else) | 'workspace' (chooser)
-  const [stage, setStage]                   = useState('auth')
-  const [username, setUsername]             = useState(prefilledUsername ?? '')
+  const [stage, setStage]                   = useState('company')
+  // Raw as typed, so the field does not fight the user mid-word. Slugified
+  // on submit only.
+  const [company, setCompany]               = useState('')
+  const [companySlug, setCompanySlug]       = useState('')
+  const [username, setUsername]             = useState('')
   const [password, setPassword]             = useState('')
   const [error, setError]                   = useState('')
   const [busy, setBusy]                     = useState(false)
@@ -101,19 +158,29 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
   const revealFallbackRef = useRef(null)
   const completedRef = useRef(false)
   useEffect(() => () => { if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current) }, [])
+  const companyInputRef = useRef(null)
   const usernameInputRef = useRef(null)
   const mfaInputRef = useRef(null)
 
-  // Focus username when the shell settles and whenever we return to auth stage.
+  // Focus the step's first field when the shell settles and on every step
+  // change. Paradox of the Active User: nobody reads an instruction telling
+  // them where to type.
   useEffect(() => {
-    if (ready && stage === 'auth') usernameInputRef.current?.focus()
-    if (ready && stage === 'mfa') mfaInputRef.current?.focus()
+    if (!ready) return
+    if (stage === 'company') companyInputRef.current?.focus()
+    if (stage === 'auth')    usernameInputRef.current?.focus()
+    if (stage === 'mfa')     mfaInputRef.current?.focus()
   }, [ready, stage])
 
-  // Fade on stage transitions (only matters for auth → workspace swap).
+  // Cross-fade on step transitions. Content only — the shell's bars hold
+  // still at SPLIT_BAR_HEIGHT throughout, because a bar height on a 900ms
+  // curve running against a content opacity on a 200ms curve is precisely
+  // what reads as "not smooth" (Session 43 §A2). Reduced motion swaps
+  // instantly rather than slowly.
   useEffect(() => {
+    if (prefersReducedMotion()) { setStageFade(1); return }
     setStageFade(0)
-    const t = setTimeout(() => setStageFade(1), 150)
+    const t = setTimeout(() => setStageFade(1), AUTH_STEP_OUT_MS)
     return () => clearTimeout(t)
   }, [stage])
 
@@ -167,7 +234,21 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     }
   }, [onAuthenticated])
 
-  // Single submit handler: resolve username → email → signInWithPassword →
+  // Step 1. Shape check only — no network call. See the header note; this is
+  // the enumeration defence, not an omission.
+  const handleCompanySubmit = useCallback((e) => {
+    e?.preventDefault()
+    const slug = slugifyWorkspace(company)
+    if (!SLUG_RE.test(slug)) {
+      setError('ENTER YOUR COMPANY.')
+      return
+    }
+    setError('')
+    setCompanySlug(slug)
+    setStage('auth')
+  }, [company])
+
+  // Step 2. resolve username (+ company) → email → signInWithPassword →
   // either reveal (1 workspace) or advance to chooser (>1 workspace).
   const handleAuthSubmit = useCallback(async (e) => {
     e?.preventDefault()
@@ -180,7 +261,10 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     setBusy(true)
     setError('')
     try {
-      const { exists, email: resolved } = await resolveLogin({ username: u })
+      const { exists, email: resolved } = await resolveLogin({
+        username: u,
+        workspaceSlug: companySlug,
+      })
       // If resolver says "not found", sign in with an unreachable email so the
       // request timing still looks like a real attempt (prevents username
       // enumeration via response time).
@@ -225,7 +309,7 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
       setError(GENERIC_ERROR)
       setBusy(false)
     }
-  }, [busy, username, password, completeSignIn])
+  }, [busy, username, password, companySlug, completeSignIn])
 
   // TOTP verify → the SDK swaps in an aal2 session; continue exactly where
   // the password path left off (chooser vs reveal).
@@ -308,6 +392,15 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     await completeSignIn(pendingSession, wsId)
   }, [busy, pendingSession, completeSignIn])
 
+  // Back to the company step. State is kept, so the company is still in the
+  // field to be corrected — Working Memory: nobody should have to re-type
+  // something they already told us.
+  const handleChangeCompany = useCallback(() => {
+    setError('')
+    setPassword('')
+    setStage('company')
+  }, [])
+
   // Arrow-key navigation for the workspace chooser.
   useEffect(() => {
     if (stage !== 'workspace') return
@@ -329,30 +422,20 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
   }, [stage, workspaces, workspaceIndex, handleWorkspaceChoose])
 
   // ── Render helpers ────────────────────────────────────────────────────
-  // Native caret in white — browsers blink it gently; disappears when the
-  // input isn't focused. Text is lowercased-normal (not uppercase) so the
-  // typed value reads naturally against the uppercase labels above.
-  const inputStyle = {
-    ...AUTH_TEXT_STYLE,
-    fontSize: '17px',
-    fontWeight: 400,
-    textTransform: 'none',
-    letterSpacing: '0.02em',
-    background: 'transparent',
-    border: 'none',
-    borderBottom: '1px solid rgba(255,255,255,0.55)',
-    outline: 'none',
-    caretColor: '#fff',
-    textAlign: 'center',
-    width: '22ch',
-    padding: '4px 0 6px',
+  const formStyle = {
+    display: 'flex', flexDirection: 'column', alignItems: 'center',
+    gap: AUTH_GAP_BETWEEN_FIELDS,
   }
-  const labelStyle = {
-    ...AUTH_TEXT_STYLE,
-    fontSize: '11px',
-    fontWeight: 600,
-    opacity: 0.8,
-    letterSpacing: '0.22em',
+  const submitStyle = {
+    ...AUTH_BUTTON_STYLE,
+    cursor: busy ? 'default' : 'pointer',
+    opacity: busy ? 0.55 : 1,
+    transition: `opacity 150ms ease-out, transform 100ms ease-out`,
+  }
+  const press = {
+    onMouseDown: (e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)'),
+    onMouseUp:   (e) => (e.currentTarget.style.transform = 'scale(1)'),
+    onMouseLeave:(e) => (e.currentTarget.style.transform = 'scale(1)'),
   }
 
   return (
@@ -370,19 +453,44 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
     >
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
-        gap: '16px', minWidth: '320px',
-        opacity: stageFade, transition: 'opacity 150ms ease-out',
+        gap: '18px', minWidth: '320px',
+        opacity: stageFade,
+        transition: prefersReducedMotion()
+          ? 'none'
+          : `opacity ${stageFade === 0 ? AUTH_STEP_OUT_MS : AUTH_STEP_MS}ms ${AUTH_STEP_EASE}`,
       }}>
         {/* Static title. In reveal, the parent fades the whole block. */}
-        <div style={{ ...AUTH_TEXT_STYLE, fontSize: '24px', letterSpacing: '0.18em' }}>
-          LOGIN
-        </div>
+        <div style={AUTH_TITLE_STYLE}>LOGIN</div>
 
+        {/* ── Step 1: COMPANY ── one input, one action ────────────────── */}
+        {stage === 'company' && (
+          <form onSubmit={handleCompanySubmit} style={formStyle}>
+            <AuthField label="COMPANY">
+              <input
+                ref={companyInputRef}
+                type="text"
+                autoComplete="organization"
+                value={company}
+                onChange={(e) => setCompany(e.target.value.slice(0, 80))}
+                style={AUTH_INPUT_STYLE}
+                aria-label="Company"
+              />
+            </AuthField>
+
+            <button type="submit" style={submitStyle} {...press}>
+              Continue
+            </button>
+          </form>
+        )}
+
+        {/* ── Step 2: SIGN IN ── the company is fixed and shown ───────── */}
         {stage === 'auth' && (
-          <form onSubmit={handleAuthSubmit}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <div style={labelStyle}>USERNAME</div>
+          <form onSubmit={handleAuthSubmit} style={formStyle}>
+            {/* Goal-Gradient: progress made visible, and the only way to see
+                that you are signing in to the right place. */}
+            <div style={AUTH_HINT_STYLE}>{companySlug}</div>
+
+            <AuthField label="USERNAME">
               <input
                 ref={usernameInputRef}
                 type="text"
@@ -390,96 +498,41 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
                 value={username}
                 onChange={(e) => setUsername(e.target.value.slice(0, 32))}
                 disabled={busy}
-                style={inputStyle}
+                style={AUTH_INPUT_STYLE}
                 aria-label="Username"
               />
-            </div>
+            </AuthField>
 
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <div style={labelStyle}>PASSWORD</div>
-              <input
-                type="password"
+            <AuthField label="PASSWORD">
+              <AuthPasswordInput
                 autoComplete="current-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={busy}
-                style={inputStyle}
                 aria-label="Password"
               />
-            </div>
+            </AuthField>
 
-            <button
-              type="submit"
-              disabled={busy}
-              style={{
-                ...AUTH_TEXT_STYLE,
-                fontSize: '12px',
-                fontWeight: 600,
-                letterSpacing: '0.18em',
-                marginTop: '6px',
-                background: '#fff',
-                border: 'none',
-                color: '#ea580c',
-                padding: '10px 34px',
-                borderRadius: '2px',
-                cursor: busy ? 'default' : 'pointer',
-                opacity: busy ? 0.55 : 1,
-                transition: 'opacity 150ms ease-out, transform 100ms ease-out',
-              }}
-              onMouseDown={(e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)')}
-              onMouseUp={(e)   => (e.currentTarget.style.transform = 'scale(1)')}
-              onMouseLeave={(e)=> (e.currentTarget.style.transform = 'scale(1)')}
-            >
+            <button type="submit" disabled={busy} style={submitStyle} {...press}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
 
-            {onForgotPassword && (
-              <button
-                type="button"
-                onClick={onForgotPassword}
-                style={{
-                  background: 'transparent', border: 'none',
-                  color: '#fff',
-                  fontFamily: AUTH_TEXT_STYLE.fontFamily,
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  letterSpacing: '0.04em',
-                  textDecoration: 'underline',
-                  cursor: 'pointer', padding: 0,
-                  opacity: 0.6, marginTop: '2px',
-                }}
-              >
-                Forgot password?
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+              <button type="button" onClick={handleChangeCompany} style={AUTH_LINK_STYLE}>
+                Change company
               </button>
-            )}
-
-            {onCreateCompany && (
-              <button
-                type="button"
-                onClick={onCreateCompany}
-                style={{
-                  background: 'transparent', border: 'none',
-                  color: '#fff',
-                  fontFamily: AUTH_TEXT_STYLE.fontFamily,
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  letterSpacing: '0.04em',
-                  textDecoration: 'underline',
-                  cursor: 'pointer', padding: 0,
-                  opacity: 0.75, marginTop: '4px',
-                }}
-              >
-                New company?
-              </button>
-            )}
+              {onForgotPassword && (
+                <button type="button" onClick={onForgotPassword} style={AUTH_LINK_STYLE}>
+                  Forgot password?
+                </button>
+              )}
+            </div>
           </form>
         )}
 
         {stage === 'mfa' && (
-          <form onSubmit={handleMfaSubmit}
-                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-              <div style={labelStyle}>AUTHENTICATOR CODE</div>
+          <form onSubmit={handleMfaSubmit} style={formStyle}>
+            <AuthField label="AUTHENTICATOR CODE">
               <input
                 ref={mfaInputRef}
                 type="text"
@@ -489,35 +542,14 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
                 value={mfaCode}
                 onChange={(e) => setMfaCode(e.target.value.replace(/[^0-9\s]/g, ''))}
                 disabled={busy}
-                style={{ ...inputStyle, letterSpacing: '0.35em', textAlign: 'center' }}
+                style={{ ...AUTH_INPUT_STYLE, letterSpacing: '0.35em', textAlign: 'center' }}
                 aria-label="Authenticator code"
               />
-            </div>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', fontWeight: 400, opacity: 0.7, letterSpacing: '0.08em' }}>
+            </AuthField>
+            <div style={AUTH_HINT_STYLE}>
               ENTER THE 6-DIGIT CODE FROM YOUR AUTHENTICATOR APP
             </div>
-            <button
-              type="submit"
-              disabled={busy}
-              style={{
-                ...AUTH_TEXT_STYLE,
-                fontSize: '12px',
-                fontWeight: 600,
-                letterSpacing: '0.18em',
-                marginTop: '6px',
-                background: '#fff',
-                border: 'none',
-                color: '#ea580c',
-                padding: '10px 34px',
-                borderRadius: '2px',
-                cursor: busy ? 'default' : 'pointer',
-                opacity: busy ? 0.55 : 1,
-                transition: 'opacity 150ms ease-out, transform 100ms ease-out',
-              }}
-              onMouseDown={(e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)')}
-              onMouseUp={(e)   => (e.currentTarget.style.transform = 'scale(1)')}
-              onMouseLeave={(e)=> (e.currentTarget.style.transform = 'scale(1)')}
-            >
+            <button type="submit" disabled={busy} style={submitStyle} {...press}>
               {busy ? 'Verifying…' : 'Verify'}
             </button>
           </form>
@@ -525,9 +557,7 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
 
         {stage === 'workspace' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', opacity: 0.8 }}>
-              SELECT WORKSPACE
-            </div>
+            <div style={AUTH_HINT_STYLE}>SELECT WORKSPACE</div>
             <ul style={{
               listStyle: 'none', padding: 0, margin: 0,
               display: 'flex', flexDirection: 'column', gap: '4px',
@@ -552,28 +582,27 @@ export default function LoginScreen({ onAuthenticated, onCreateCompany, onForgot
                         textAlign: 'left',
                         padding: '4px 8px',
                         display: 'flex', alignItems: 'center', gap: '10px',
-                        opacity: selected ? 1 : 0.6,
+                        // Selection reads as weight, not as a lighter ink —
+                        // a dimmed row on light orange is the grey-on-orange
+                        // defect this session exists to remove.
+                        fontWeight: selected ? 700 : 400,
                       }}
                     >
                       <span style={{ width: '12px' }}>{selected ? '>' : ' '}</span>
                       <span>{ws.name}</span>
-                      <span style={{ fontSize: '11px', opacity: 0.6 }}>{ws.slug}</span>
+                      <span style={{ fontSize: '11px', fontWeight: 400 }}>{ws.slug}</span>
                     </button>
                   </li>
                 )
               })}
             </ul>
-            <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', opacity: 0.5, marginTop: '8px' }}>
+            <div style={{ ...AUTH_HINT_STYLE, marginTop: '8px' }}>
               ↑ ↓ TO MOVE · ENTER TO SELECT
             </div>
           </div>
         )}
 
-        {error && (
-          <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', color: '#fee2e2' }}>
-            {error}
-          </div>
-        )}
+        {error && <div style={AUTH_ERROR_STYLE}>{error}</div>}
       </div>
     </AuthShell>
   )

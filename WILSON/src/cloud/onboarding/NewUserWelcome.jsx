@@ -17,10 +17,32 @@
 // Storage bucket must exist as 'user-avatars' with public-read + RLS-scoped
 // writes. The bucket is created out-of-band by the platform operator;
 // see db/README.md Section 3.
+//
+// Session 43 §A6 — the phantom cursor is gone, and it was this file's
+// `TerminalInput`. Each one set `caretColor: 'transparent'` on its input and
+// then rendered a decorative blinking `_` BESIDE it, so the screen showed one
+// permanently-blinking glyph per field, none of which tracked focus or moved
+// with what you typed. Audrey: "it had the blinking lines to right of the
+// text box and it made no sense … you were trying to show the place where the
+// user could type but it didnt come out correctly." Correct: the idea was
+// right and the execution inverted it — a terminal cursor belongs at the
+// insertion point or nowhere. The native caret does that job, so it is back
+// on, and the terminal feel now comes from the FIELD TREATMENT (uppercase
+// label, baseline rule) rather than from a second glyph competing with the
+// real one.
 // =============================================================================
 
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
-import AuthShell, { AUTH_TEXT_STYLE, AuthCursor } from '../auth/AuthShell'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import AuthShell, {
+  AUTH_TITLE_STYLE,
+  AUTH_INPUT_STYLE,
+  AUTH_BUTTON_STYLE,
+  AUTH_HINT_STYLE,
+  AUTH_ERROR_STYLE,
+  AUTH_INK,
+  AUTH_GAP_BETWEEN_FIELDS,
+  AuthField,
+} from '../auth/AuthShell'
 import { supabase } from '../auth/supabaseClient'
 
 const AVATAR_BUCKET = 'user-avatars'
@@ -145,16 +167,10 @@ export default function NewUserWelcome({ onComplete, membership }) {
     }
   }, [busy, displayName, pronouns, title, avatarFile, membership])
 
-  const inputStyle = {
-    ...AUTH_TEXT_STYLE,
-    background: 'transparent',
-    border: 'none',
-    outline: 'none',
-    caretColor: 'transparent',
-    textAlign: 'center',
-    width: '24ch',
-    fontSize: '16px',
-  }
+  // Session 43 §A7: one field style for every auth surface, from AuthShell.
+  // This screen used to carry its own copy — that drift is why the login and
+  // the welcome page stopped looking like one system.
+  const inputStyle = { ...AUTH_INPUT_STYLE, width: '24ch' }
 
   return (
     <AuthShell
@@ -165,44 +181,51 @@ export default function NewUserWelcome({ onComplete, membership }) {
       playStartupSound={false}
     >
       <div style={{
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px',
+        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px',
         minWidth: '360px',
       }}>
-        <div style={AUTH_TEXT_STYLE}>WELCOME</div>
-        <div style={{ ...AUTH_TEXT_STYLE, fontSize: '10px', opacity: 0.6 }}>
-          TELL US ABOUT YOURSELF
-        </div>
+        <div style={AUTH_TITLE_STYLE}>WELCOME</div>
+        <div style={AUTH_HINT_STYLE}>TELL US ABOUT YOURSELF</div>
 
         <form onSubmit={handleSubmit}
-              style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
-          <FieldLabel>DISPLAY NAME</FieldLabel>
-          <TerminalInput
-            ref={firstInputRef}
-            value={displayName}
-            onChange={(v) => setDisplayName(v.slice(0, 80))}
-            style={inputStyle}
-            aria-label="Display name"
-          />
+              style={{
+                display: 'flex', flexDirection: 'column', alignItems: 'center',
+                gap: AUTH_GAP_BETWEEN_FIELDS,
+              }}>
+          <AuthField label="DISPLAY NAME">
+            <input
+              ref={firstInputRef}
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value.slice(0, 80))}
+              style={inputStyle}
+              aria-label="Display name"
+            />
+          </AuthField>
 
-          <FieldLabel>PRONOUNS · OPTIONAL</FieldLabel>
-          <TerminalInput
-            value={pronouns}
-            onChange={(v) => setPronouns(v.slice(0, 40))}
-            style={inputStyle}
-            placeholder="they/them"
-            aria-label="Pronouns"
-          />
+          <AuthField label="PRONOUNS · OPTIONAL">
+            <input
+              type="text"
+              value={pronouns}
+              onChange={(e) => setPronouns(e.target.value.slice(0, 40))}
+              style={inputStyle}
+              placeholder="they/them"
+              aria-label="Pronouns"
+            />
+          </AuthField>
 
-          <FieldLabel>TITLE · OPTIONAL</FieldLabel>
-          <TerminalInput
-            value={title}
-            onChange={(v) => setTitle(v.slice(0, 80))}
-            style={inputStyle}
-            placeholder="Lead Animator"
-            aria-label="Title"
-          />
+          <AuthField label="TITLE · OPTIONAL">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value.slice(0, 80))}
+              style={inputStyle}
+              placeholder="Lead Animator"
+              aria-label="Title"
+            />
+          </AuthField>
 
-          <FieldLabel>AVATAR · OPTIONAL</FieldLabel>
+          <AuthField label="AVATAR · OPTIONAL">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             {avatarPreview && (
               <img
@@ -210,7 +233,7 @@ export default function NewUserWelcome({ onComplete, membership }) {
                 alt=""
                 style={{
                   width: '48px', height: '48px', borderRadius: '50%',
-                  objectFit: 'cover', border: '2px solid #fff',
+                  objectFit: 'cover', border: `2px solid ${AUTH_INK}`,
                 }}
               />
             )}
@@ -225,64 +248,32 @@ export default function NewUserWelcome({ onComplete, membership }) {
               type="button"
               onClick={() => fileInputRef.current?.click()}
               style={{
-                ...AUTH_TEXT_STYLE, fontSize: '11px',
-                background: 'transparent', border: '1px solid #fff',
+                ...AUTH_HINT_STYLE, fontSize: '11px',
+                background: 'transparent', border: `1px solid ${AUTH_INK}`,
                 padding: '4px 10px', cursor: 'pointer',
               }}
             >
               {avatarFile ? 'CHANGE' : 'CHOOSE FILE'}
             </button>
           </div>
+          </AuthField>
 
           <button
             type="submit"
             disabled={busy}
             style={{
-              ...AUTH_TEXT_STYLE, marginTop: '8px', fontSize: '13px',
-              background: 'transparent', border: '2px solid #fff',
-              padding: '6px 18px',
+              ...AUTH_BUTTON_STYLE,
+              marginTop: '2px',
               cursor: busy ? 'default' : 'pointer',
-              opacity: busy ? 0.45 : 1,
+              opacity: busy ? 0.55 : 1,
             }}
           >
-            {busy ? 'SAVING…' : 'GET STARTED'}
+            {busy ? 'Saving…' : 'Get started'}
           </button>
         </form>
 
-        {error && (
-          <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', color: '#fee2e2' }}>
-            {error}
-          </div>
-        )}
+        {error && <div style={AUTH_ERROR_STYLE}>{error}</div>}
       </div>
     </AuthShell>
   )
 }
-
-// ── Shared building blocks (parallel to NewCompanyWizard's copy) ──────────
-function FieldLabel({ children }) {
-  return (
-    <div style={{ ...AUTH_TEXT_STYLE, fontSize: '11px', opacity: 0.8 }}>
-      {children}
-    </div>
-  )
-}
-
-const TerminalInput = forwardRef(function TerminalInput(
-  { value, onChange, style, type = 'text', ...rest },
-  ref,
-) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center' }}>
-      <input
-        ref={ref}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        style={style}
-        {...rest}
-      />
-      <AuthCursor />
-    </div>
-  )
-})

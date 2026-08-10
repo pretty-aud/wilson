@@ -77,6 +77,46 @@ that supersedes it. So the fix is small: gate it behind
 
 ---
 
+🚨 **HALF-CLOSED BY S43, AND THE REMAINING HALF IS THE HALF THAT MATTERS.**
+
+**Done in the repo** (S43, Audrey chose "delete it"): `NewCompanyWizard.jsx` is
+deleted, the `'new-company'` authMode is gone, the login screen's "New company?"
+link is gone, and `supabase/functions/provision-workspace/` plus its
+`config.toml` block are removed. The endpoint now has **zero callers anywhere**,
+and that is verified **by BUNDLE, not by grep**: `provision-workspace`,
+`PROVISIONING WORKSPACE`, `WORKSPACE SLUG ALREADY IN USE` and `NEW COMPANY` are
+all absent from `dist/assets/*.js` after `npm run build`.
+
+⚠️ **NOT done: the endpoint is still LIVE on wilson-dev, wilson-staging and
+wilson-prod, and is still callable by anyone with the anon key.** Deleting the
+directory from the repo does not undeploy it. Until these three run, the hole
+is exactly as open as it was — the only thing that changed is that WILSON no
+longer walks through it:
+
+```
+supabase functions delete provision-workspace --project-ref <dev-ref>
+supabase functions delete provision-workspace --project-ref <staging-ref>
+supabase functions delete provision-workspace --project-ref <prod-ref>
+```
+
+**Audrey's action** (it is a deploy, and this session does not touch her
+deployed functions). Confirm with `supabase functions list` per project.
+
+✅ Company creation still works throughout: the operator console's
+`Companies → New company` (`src/admin/CompaniesSection.jsx:919`) calls
+`operator-workspaces`' `create` behind `requirePlatformOperator`, and hands
+back a show-once password.
+
+📌 **Still owed and deliberately NOT built in S43** — Audrey asked for the
+operator to send an emailed **invite link** instead of handing over a password:
+*"lets make it that the operator ... can send this as a link for when they
+establish a new company."* That needs a new `operator-workspaces` action and
+probably a `platform_audit` action-CHECK widening (a migration), so it was
+scoped out of a design-polish session by agreement. It is an improvement to the
+handover, not a prerequisite for closing this.
+
+---
+
 ## Broken features
 
 ### ~~The budget system does not exist in the cloud schema~~ — FIXED (S24, `b07b6c9`)
@@ -748,12 +788,19 @@ predicate is called with NULL; a bare `upper(seg) IN (...)` returns NULL,
 the manifest becomes unreadable and unwritable by everyone — pgTAP 53 probes
 1, 5 and 11 all fail together when it is removed, which is how that was found.
 
-### Welcome page has a phantom cursor
-**REPORTED.** A black cursor blinks permanently, unattached to any input, and
-keeps blinking on the right while typing elsewhere. Likely the shared
-`AuthCursor` from `AuthShell.jsx` — **that is a guess, confirm in the DOM
-first.**
-→ S25.
+### ~~Welcome page has a phantom cursor~~ — FIXED (S43)
+Deleted per the rule for this file. **The guess was right and the mechanism was
+worse than the entry described.** `NewUserWelcome`'s `TerminalInput` set
+`caretColor: 'transparent'` on its input AND rendered an `AuthCursor` beside
+it — so the screen carried **one permanently-blinking `_` per field**, none of
+which tracked focus, while the real caret was deliberately invisible. That is
+why it "kept blinking on the right while typing elsewhere": it was never
+attached to anything in the first place.
+
+`AuthCursor` and its `@keyframes blink` are both gone (zero callers after the
+fix — `NewCompanyWizard` held the other three), and the native caret is back
+on. Confirmed in the running DOM: no element on the auth surfaces carries a
+`blink` animation.
 
 ### `file_events` has no money arm — invoice lifecycle metadata is readable by every project reader
 **MEASURED (2026-08-07, S33 adversarial review; pre-existing since 0027).**

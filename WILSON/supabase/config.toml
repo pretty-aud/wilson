@@ -95,10 +95,22 @@ verify_jwt = false
 [functions.issue-session]
 verify_jwt = false
 
-# provision-workspace is the pre-auth self-serve company onboarding endpoint.
-# Like resolve-login, it's called before the user has any JWT.
-[functions.provision-workspace]
-verify_jwt = false
+# Session 43: provision-workspace is GONE. It was the pre-auth, PUBLIC
+# self-serve company onboarding endpoint — anyone holding the anon key the web
+# app ships could create a workspace, an auth.users row and an admin
+# membership, three times an hour per IP (and the limiter was per-isolate, so
+# softer than it read). Audrey, 2026-08-10: "it needs to be invite only for
+# now." Its only caller in the repo was NewCompanyWizard, removed in the same
+# session; operator-workspaces' `create` action already does everything it did,
+# behind requirePlatformOperator.
+#
+# ⚠️ Removing it here and from the repo does NOT remove it from the three
+# hosted projects. It stays live until deleted per environment:
+#   supabase functions delete provision-workspace --project-ref <ref>
+# on wilson-dev, wilson-staging AND wilson-prod. See docs/OUTSTANDING.md.
+#
+# The provision_workspace_and_admin RPC (0009) and pgTAP suite 15 STAY —
+# operator-workspaces calls that RPC.
 
 # invite-member validates the caller's JWT in-function via
 # admin.auth.getUser(token) (same reason as issue-session — Edge gateway

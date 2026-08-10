@@ -5,7 +5,6 @@ import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
 import { looksLikeRecoveryLink } from './cloud/auth/recoveryLink'
-import NewCompanyWizard from './cloud/onboarding/NewCompanyWizard'
 import NewUserWelcome from './cloud/onboarding/NewUserWelcome'
 import { loadSession, clearSession } from './cloud/auth/sessionStorage'
 import { hydrateSupabase, supabase } from './cloud/auth/supabaseClient'
@@ -237,7 +236,15 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [showOverlay, setShowOverlay] = useState(true);
   const [sessionChecked, setSessionChecked] = useState(false);
-  // 'login' (default) | 'new-company' | 'forgot-password' | 'recovery'
+  // 'login' (default) | 'forgot-password' | 'recovery'
+  //
+  // Session 43: 'new-company' is gone. Company creation is a PLATFORM
+  // OPERATOR action and is not shipped to this surface at all — Audrey,
+  // 2026-08-10: "this is for the platform operator only. this is not to be
+  // seen in the actual wilson app." The operator console (admin.html →
+  // src/admin/CompaniesSection.jsx) owns it, and vite.config.js builds the
+  // two surfaces from separate entries, so the code is ABSENT here rather
+  // than hidden behind a role check.
   // 'recovery' is the landing mode when a user clicks the reset link in the
   // recovery email — the URL fragment carries access_token+refresh_token and
   // ResetPasswordWizard installs that session, prompts for a new password,
@@ -254,7 +261,6 @@ export default function App() {
     }
     return 'login'
   });
-  const [prefilledUsername, setPrefilledUsername] = useState('');
   // Set to a membership record when the signed-in user still has
   // onboarded_at = null; cleared once NewUserWelcome saves the profile.
   const [pendingOnboarding, setPendingOnboarding] = useState(null);
@@ -276,6 +282,10 @@ export default function App() {
   const [showNavMenu, setShowNavMenu] = useState(false);
   // Nav strip resources sub-column state
   const [navResourcesOpen, setNavResourcesOpen] = useState(false);
+  // Which nav item is hovered or focused, as "column:label". Both nav columns
+  // read it through navOpacity() below — see the note there for why the hover
+  // could not stay a Tailwind class.
+  const [navHovered, setNavHovered] = useState(null);
 
   // Triggers to open tool settings panels from nav strip
   const [openSettingsTrigger, setOpenSettingsTrigger] = useState(0);
@@ -1341,11 +1351,44 @@ export default function App() {
 
   // Close the resources sub-column when the nav menu closes or page changes
   useEffect(() => {
-    if (!showNavMenu) setNavResourcesOpen(false);
+    if (!showNavMenu) { setNavResourcesOpen(false); setNavHovered(null); }
   }, [showNavMenu]);
   useEffect(() => {
     setNavResourcesOpen(false);
+    setNavHovered(null);
   }, [currentPage]);
+
+  // ── Nav strip opacity (Session 43 §A8) ────────────────────────────────
+  // 🚨 `hover:opacity-70` was on BOTH columns and only worked on one. The
+  // main strip also carries an inline `opacity`, and an inline style beats a
+  // class selector — so the main strip was pinned at its inline value on
+  // every render and the hover never applied. The resources sub-column has no
+  // inline opacity, which is the entire reason its hover worked. That
+  // asymmetry is what Audrey saw: not a missing animation, a specificity
+  // collision.
+  //
+  // The fix cannot simply drop the inline value: `dimmed` is load-bearing —
+  // it fades the main strip to 0.35 while the resources column is open, which
+  // is what tells you which column is live. Hover and dimmed have to resolve
+  // in ONE place, so they do, here, and `hover:opacity-70` is gone from both
+  // columns so there is no second source of truth.
+  //
+  // 0.7 matches what the resources column was already doing, per Audrey: "it
+  // should work the same" (Law of Similarity — same control, same response).
+  //
+  // ✅ This grey is NOT the banned grey. It is white at reduced opacity on
+  // dark orange, as an interactive state on large bold type — not content
+  // text on an orange surface. Do not remove it while enforcing the colour
+  // rule.
+  const navOpacity = (key, dimmed) => (dimmed ? 0.35 : (navHovered === key ? 0.7 : 1));
+  // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
+  // the same state rather than leaving a keyboard user with no feedback.
+  const navStateProps = (key) => ({
+    onMouseEnter: () => setNavHovered(key),
+    onMouseLeave: () => setNavHovered((h) => (h === key ? null : h)),
+    onFocus:      () => setNavHovered(key),
+    onBlur:       () => setNavHovered((h) => (h === key ? null : h)),
+  });
 
   const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
   const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
@@ -1622,8 +1665,14 @@ export default function App() {
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="text-white font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
-                  style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
+                  className="text-white font-bold uppercase tracking-[0.2em]"
+                  style={{
+                    fontSize: '16px',
+                    whiteSpace: 'nowrap',
+                    opacity: navOpacity(`res:${item.label}`, false),
+                    transition: 'opacity 200ms ease',
+                  }}
+                  {...navStateProps(`res:${item.label}`)}
                 >
                   {item.label}
                 </button>
@@ -1655,14 +1704,15 @@ export default function App() {
                       }
                       item.action();
                     }}
-                    className="font-bold uppercase tracking-[0.2em] transition-opacity hover:opacity-70"
+                    className="font-bold uppercase tracking-[0.2em]"
                     style={{
                       fontSize: '16px',
                       whiteSpace: 'nowrap',
                       color: '#fff',
-                      opacity: dimmed ? 0.35 : 1,
+                      opacity: navOpacity(`main:${item.label}`, dimmed),
                       transition: 'opacity 200ms ease',
                     }}
+                    {...navStateProps(`main:${item.label}`)}
                   >
                     {item.label}
                   </button>
@@ -1791,28 +1841,14 @@ export default function App() {
         </div>
       )}
 
-      {/* Auth overlay — Supabase username → password. Wait for the initial
-          session check so returning users don't briefly see the login form.
-          The "new company?" link on LoginScreen flips authMode to 'new-company'
-          which mounts NewCompanyWizard in the same slot; on success the wizard
-          hands back the username so LoginScreen reopens pre-filled. */}
+      {/* Auth overlay — company → username → password. Wait for the initial
+          session check so returning users don't briefly see the login form. */}
       {showOverlay && sessionChecked && authMode === 'login' && (
         <LoginScreen
-          prefilledUsername={prefilledUsername}
-          onCreateCompany={() => setAuthMode('new-company')}
           onForgotPassword={() => setAuthMode('forgot-password')}
           onAuthenticated={() => {
             handleAuth();
             handleAnimationComplete();
-          }}
-        />
-      )}
-      {showOverlay && sessionChecked && authMode === 'new-company' && (
-        <NewCompanyWizard
-          onCancel={() => setAuthMode('login')}
-          onProvisioned={(payload) => {
-            setPrefilledUsername(payload?.username ?? '')
-            setAuthMode('login')
           }}
         />
       )}
