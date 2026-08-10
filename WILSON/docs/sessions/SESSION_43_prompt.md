@@ -320,12 +320,46 @@ as an improvement rather than extra work.
 ⚠️ **`NewCompanyWizard` is three of the four `AuthCursor` call sites (A6).** If
 it survives in any form it still needs that treatment.
 
-⚠️ **`wilson overall admin` needs pinning down.** WILSON has *platform
-operators* (`is_platform_operator`, the `src/admin/` console) and *workspace
-admins* (`app_role = 'admin'`, the in-app Admin Terminal). Creating a company is
-a platform-operator act — a workspace admin creating other companies would be a
-privilege escalation. **Confirm with Audrey that she means the operator console,
-and do not widen this to workspace admins on an assumption.**
+### ✅ SETTLED: platform operator ONLY, and not shipped to the app at all
+
+Audrey, 2026-08-10, asked directly whether *"wilson overall admin"* meant the
+platform operator console:
+
+> *"correct this is for the platform operator only. this is not to be seen in
+> the actual wilson app."*
+
+**So the requirement is not "hide it from workspace admins". It is "the WILSON
+app must not contain it".** Two different jobs, and the second is the one asked
+for.
+
+🚨 **THE BUILD ALREADY ENFORCES THIS, AND THAT IS THE MECHANISM TO USE.**
+`vite.config.js` produces two surfaces selected by `--mode`:
+`input: mode === 'admin' ? 'admin.html' : 'index.html'`, with
+`__WILSON_SURFACE__` defined as `'admin'` or `'app'`. Company creation belongs
+under **`src/admin/`**, reachable only from the operator entry point — so it is
+**not bundled into the app at all**, rather than bundled and hidden.
+
+**A permission check is the weaker answer here and should not be the only one.**
+`perms.role === 'admin'` hides a control from the wrong person; it still ships
+the code, the route and the endpoint call to every customer's browser. Audrey
+asked for absence, not concealment.
+
+**What this settles, concretely:**
+
+- The **in-app Admin Terminal** (`src/components/AdminTerminal/`) gains **no**
+  company-creation affordance. It is a *workspace*-admin surface — a workspace
+  admin creating other companies would be a privilege escalation.
+- `NewCompanyWizard.jsx` currently lives in `src/cloud/onboarding/`, which is app
+  territory. Whatever survives of it (decision 3 above) **moves under
+  `src/admin/` or goes**. It must not be left importable from the app entry.
+- The one thing that legitimately stays on the app surface is the **invitee's**
+  side: someone who receives the link is not an operator, and they land in the
+  normal app to set their password. That is `recoveryLink.js` + the existing
+  invite handling, and it is already there.
+- ⚠️ **Verify by BUILD, not by reading.** After the move, `npm run build` and
+  confirm the wizard's identifiers are absent from the app bundle. A grep over
+  source proves nothing about what shipped — and "not to be seen in the actual
+  wilson app" is a claim about the bundle.
 
 ## A6 — The blinking lines on onboarding
 
