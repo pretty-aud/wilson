@@ -382,15 +382,26 @@ export const AUTH_TEXT_STYLE = {
 export const AUTH_GAP_WITHIN_FIELD = '5px'
 export const AUTH_GAP_BETWEEN_FIELDS = '18px'
 
-// Step-to-step motion INSIDE the shell. This is a content change, not a page
-// change, so it takes the interactive-response band (160–240ms) rather than
-// the shell's own 900ms height curve. Running both at once on different
-// curves is what reads as "not smooth".
-// The departure is quicker than the arrival — an exit that lingers reads as
-// hesitation, an entrance that hurries reads as a jump.
-export const AUTH_STEP_MS     = 200
-export const AUTH_STEP_OUT_MS = 100
-export const AUTH_STEP_EASE   = 'cubic-bezier(0.2, 0, 0, 1)'
+// Step-to-step motion INSIDE the shell lives in src/index.css as `.auth-step`,
+// not here.
+//
+// 🚨 It began as three JS tokens driving an opacity on a persistent wrapper,
+// and that could not work: React commits the new step's markup BEFORE a
+// passive effect runs, so the fade-out played over the INCOMING step and over
+// the static LOGIN title, which dipped to 0 and back on every step change. A
+// blink, not a cross-fade — the opposite of what the code claimed. Found by
+// the pre-deploy review, not by a test: nothing in this repo can assert a
+// transition.
+//
+// A keyed element with a CSS entrance animation has no such ordering problem —
+// the new step mounts at opacity 0 and animates in, the old one is simply
+// gone. It also puts the animation where every other WILSON animation lives
+// (visual-language §Animations: "All animations live in src/index.css") and
+// lets the reduced-motion fallback be a media query rather than a branch.
+//
+// The three tokens were DELETED rather than left exported with no caller.
+// This repo has shipped nine features with no caller; it is not adding a
+// tenth.
 
 export const AUTH_TITLE_STYLE = {
   ...AUTH_TEXT_STYLE,
@@ -419,6 +430,12 @@ export const AUTH_INPUT_STYLE = {
   textAlign: 'center',
   width: '22ch',
   padding: '4px 0 6px',
+  // Explicit, because AuthPasswordInput's mask metrics pin 1.2 and an
+  // unstated `normal` resolved to 1.5 on the sans face — the plain fields
+  // came out 36.17px tall against the password field's 31.06px, so the gap
+  // between a label and its rule visibly differed from row to row. Measured,
+  // not eyeballed.
+  lineHeight: '1.2',
 }
 
 // Primary action. The one white surface on the screen — now that the type is
@@ -592,7 +609,25 @@ export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
     // inline-grid with both children in cell 1/1: the overlay inherits the
     // input's exact box rather than a hand-tuned `top` offset, so the two
     // stay aligned across zoom levels and font fallbacks.
-    <span style={{ display: 'inline-grid' }}>
+    //
+    // 🚨 The width is resolved HERE, not on the input. `ch` is one advance of
+    // the ELEMENT'S OWN font, so a 22ch monospace input came out 205.6px
+    // against the sans fields' 201.6px — the password rule was 4px longer
+    // than the username rule and their left edges did not line up. Measured,
+    // not theorised. Setting the sans face on the wrapper makes 22ch mean the
+    // same thing it means everywhere else, and both grid children stretch to
+    // fill it.
+    // ⚠️ `ch` depends on font-SIZE as well as font-family. Setting only the
+    // family here left the wrapper inheriting 16px against the input's 17px,
+    // and 22ch came out 189.75px instead of 201.6px — exactly 16/17 of it.
+    // Both properties have to match the field they are standing in for.
+    <span style={{
+      display: 'inline-grid',
+      gridTemplateColumns: '1fr',
+      fontFamily: AUTH_TEXT_STYLE.fontFamily,
+      fontSize: AUTH_INPUT_STYLE.fontSize,
+      width: AUTH_INPUT_STYLE.width,
+    }}>
       <input
         ref={ref}
         type="password"
@@ -604,6 +639,8 @@ export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
           ...metrics,
           ...style,
           gridArea: '1 / 1',
+          // Fill the wrapper, which owns the width (see the note above).
+          width: '100%',
           // The bullets are still laid out and measured — they are simply
           // not painted. That is what keeps the caret in the right place.
           color: 'transparent',

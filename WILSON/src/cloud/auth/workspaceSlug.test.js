@@ -34,6 +34,16 @@ describe('slugifyWorkspace', () => {
     expect(SLUG_RE.test(slugifyWorkspace('-acme-'))).toBe(true)
   })
 
+  it('folds diacritics the way the operator console does', () => {
+    // The console derives a new workspace's slug with
+    // `.normalize('NFKD').replace(/[^\w\s-]/g, '')`, which folds "Björn" to
+    // "bjorn". A bare [^a-z0-9] pass gives "bj-rn", so a company created with
+    // every default accepted would be unreachable from the login screen.
+    expect(slugifyWorkspace('Björn & Co. Studios')).toBe('bjorn-co-studios')
+    expect(slugifyWorkspace('Café Noir')).toBe('cafe-noir')
+    expect(slugifyWorkspace('Ünïcodé')).toBe('unicode')
+  })
+
   it('caps at 63 characters', () => {
     const out = slugifyWorkspace('a'.repeat(200))
     expect(out).toHaveLength(63)

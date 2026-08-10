@@ -69,12 +69,8 @@ import AuthShell, {
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
-  AUTH_STEP_MS,
-  AUTH_STEP_OUT_MS,
-  AUTH_STEP_EASE,
   AuthField,
   AuthPasswordInput,
-  prefersReducedMotion,
 } from './AuthShell'
 import { SLUG_RE, slugifyWorkspace } from './workspaceSlug'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
@@ -148,7 +144,6 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   const [pendingSession, setPendingSession] = useState(null)
   const [workspaces, setWorkspaces]         = useState([])
   const [workspaceIndex, setWorkspaceIndex] = useState(0)
-  const [stageFade, setStageFade]           = useState(1)
   const [mfaFactorId, setMfaFactorId]       = useState(null)
   const [mfaCode, setMfaCode]               = useState('')
 
@@ -171,18 +166,6 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     if (stage === 'auth')    usernameInputRef.current?.focus()
     if (stage === 'mfa')     mfaInputRef.current?.focus()
   }, [ready, stage])
-
-  // Cross-fade on step transitions. Content only — the shell's bars hold
-  // still at SPLIT_BAR_HEIGHT throughout, because a bar height on a 900ms
-  // curve running against a content opacity on a 200ms curve is precisely
-  // what reads as "not smooth" (Session 43 §A2). Reduced motion swaps
-  // instantly rather than slowly.
-  useEffect(() => {
-    if (prefersReducedMotion()) { setStageFade(1); return }
-    setStageFade(0)
-    const t = setTimeout(() => setStageFade(1), AUTH_STEP_OUT_MS)
-    return () => clearTimeout(t)
-  }, [stage])
 
   // ── Handlers ──────────────────────────────────────────────────────────
   const completeSignIn = useCallback(async (session, workspaceId) => {
@@ -261,10 +244,30 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     setBusy(true)
     setError('')
     try {
-      const { exists, email: resolved } = await resolveLogin({
-        username: u,
-        workspaceSlug: companySlug,
-      })
+      // 🚨 SCOPED FIRST, THEN FALL BACK — and the fallback is mandatory, not
+      // belt-and-braces.
+      //
+      // resolve-login matches `workspaces.slug` EXACTLY, and a workspace's
+      // slug is independent of its name: the operator console only SEEDS the
+      // slug from the name and leaves it editable, and 0020 makes it immutable
+      // afterwards while the name stays renameable. Measured on wilson-dev
+      // 2026-08-10: FOUR of four live workspaces are unreachable from their
+      // own name — "Petal Studios" is slug `petal`, "Smoke Workspace" is
+      // `smoke`, "Default Workspace" is `default`, "Other Studio" is `other`.
+      // Zero of four.
+      //
+      // So deriving a slug from the typed company and sending only that turned
+      // a working sign-in into a permanent lockout for every existing user,
+      // behind an error that is deliberately incapable of explaining itself.
+      // Before Session 43 no slug was sent at all and single-workspace users
+      // resolved on username alone; the retry restores exactly that floor.
+      //
+      // It leaks nothing new: the retry fires on ANY miss, so an observer
+      // cannot tell "no such company" from "no such username" — the same
+      // property the single call had.
+      let lookup = await resolveLogin({ username: u, workspaceSlug: companySlug })
+      if (!lookup.exists) lookup = await resolveLogin({ username: u })
+      const { exists, email: resolved } = lookup
       // If resolver says "not found", sign in with an unreachable email so the
       // request timing still looks like a real attempt (prevents username
       // enumeration via response time).
@@ -454,13 +457,21 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       <div style={{
         display: 'flex', flexDirection: 'column', alignItems: 'center',
         gap: '18px', minWidth: '320px',
-        opacity: stageFade,
-        transition: prefersReducedMotion()
-          ? 'none'
-          : `opacity ${stageFade === 0 ? AUTH_STEP_OUT_MS : AUTH_STEP_MS}ms ${AUTH_STEP_EASE}`,
       }}>
-        {/* Static title. In reveal, the parent fades the whole block. */}
+        {/* Static title — and it must stay OUTSIDE the keyed block below, or
+            it animates on every step change. That is exactly what the first
+            attempt at this did. In reveal, the parent fades the whole block. */}
         <div style={AUTH_TITLE_STYLE}>LOGIN</div>
+
+        {/* The step swap. `key={stage}` remounts on every change so the CSS
+            entrance in .auth-step (index.css) re-runs; the outgoing step is
+            simply gone. No effect, no timer, no ordering problem — see the
+            note in AuthShell where the old motion tokens used to live. */}
+        <div
+          key={stage}
+          className="auth-step"
+          style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '18px' }}
+        >
 
         {/* ── Step 1: COMPANY ── one input, one action ────────────────── */}
         {stage === 'company' && (
@@ -487,8 +498,13 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         {stage === 'auth' && (
           <form onSubmit={handleAuthSubmit} style={formStyle}>
             {/* Goal-Gradient: progress made visible, and the only way to see
-                that you are signing in to the right place. */}
-            <div style={AUTH_HINT_STYLE}>{companySlug}</div>
+                that you are signing in to the right place.
+                Echoes what was TYPED, not the derived slug — the slug is an
+                internal identifier that frequently differs from the name
+                ("Petal Studios" is `petal`), so showing it here presented a
+                confident-looking value the user had never seen and could not
+                act on. */}
+            <div style={AUTH_HINT_STYLE}>{company.trim()}</div>
 
             <AuthField label="USERNAME">
               <input
@@ -520,14 +536,28 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
             {/* One row, not a stack. Two underlined links sitting on top of
                 each other read as clutter under a single primary action;
                 side by side with a divider they read as one quiet line. */}
+            {/* Both are `disabled={busy}` for the same reason the submit is:
+                mid-sign-in, "Change company" walked the user back to step 1
+                while an auth request was still in flight, and its completion
+                then landed on a screen that had moved on. */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <button type="button" onClick={handleChangeCompany} style={AUTH_LINK_STYLE}>
+              <button
+                type="button"
+                onClick={handleChangeCompany}
+                disabled={busy}
+                style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+              >
                 Change company
               </button>
               {onForgotPassword && (
                 <>
-                  <span aria-hidden="true" style={{ ...AUTH_HINT_STYLE, opacity: 0.5 }}>·</span>
-                  <button type="button" onClick={onForgotPassword} style={AUTH_LINK_STYLE}>
+                  <span aria-hidden="true" style={AUTH_HINT_STYLE}>·</span>
+                  <button
+                    type="button"
+                    onClick={onForgotPassword}
+                    disabled={busy}
+                    style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+                  >
                     Forgot password?
                   </button>
                 </>
@@ -609,6 +639,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         )}
 
         {error && <div style={AUTH_ERROR_STYLE}>{error}</div>}
+        </div>
       </div>
     </AuthShell>
   )

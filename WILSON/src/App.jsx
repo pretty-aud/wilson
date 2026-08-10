@@ -1710,7 +1710,9 @@ export default function App() {
               alignItems: 'flex-end',
               opacity: contentFaded ? 0 : 1,
               transition: 'opacity 250ms ease',
-              pointerEvents: contentFaded ? 'none' : 'auto',
+              // Same 250ms hole as the content area below — the hamburger was
+              // live during 'fading-in' while navigateTo would still drop it.
+              pointerEvents: isAnimating ? 'none' : 'auto',
             }}>
               {renderTopBarContent()}
             </div>
@@ -1857,7 +1859,16 @@ export default function App() {
               overflow: 'hidden',
               opacity: contentFaded ? 0 : 1,
               transition: 'opacity 250ms ease',
-              pointerEvents: contentFaded ? 'none' : 'auto',
+              // 🚨 `isAnimating`, not `contentFaded`. They differ for the
+              // 250ms 'fading-in' step, and in that gap the content was
+              // clickable while navigateTo still early-returns on
+              // transitionRef — so a click was ACCEPTED AND SILENTLY DROPPED.
+              // Pre-existing for page transitions; Session 43's welcome made
+              // it reachable immediately after sign-in, which is how CI found
+              // it (Playwright clicks the instant a target is actionable, and
+              // that instant is precisely this window).
+              // A blocked click retries; a swallowed one is just lost.
+              pointerEvents: isAnimating ? 'none' : 'auto',
               padding: (isDarkPage || currentPage === 'help') ? 0 : '3vh 0',
               display: 'flex',
               flexDirection: 'column',

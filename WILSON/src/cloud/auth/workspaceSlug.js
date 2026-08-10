@@ -20,8 +20,16 @@ export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/
 // Postel's Law: liberal in what we accept, conservative in what we send.
 // Applied on SUBMIT, never on every keystroke — slugifying as the user types
 // turns "Acme " into "acme-" under their cursor and fights them.
+// ⚠️ The NFKD pass matters: without it this and the operator console's inline
+// derivation disagree on any non-ASCII name. The console does
+// `.normalize('NFKD').replace(/[^\w\s-]/g, '')`, which folds "Björn" to
+// "bjorn"; a bare `[^a-z0-9]+ -> '-'` gives "bj-rn". A company created with
+// every default accepted would then be unreachable from the login screen.
+// Stripping the combining marks here makes both derivations agree.
 export function slugifyWorkspace(s) {
   return String(s ?? '')
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
