@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -34,6 +34,7 @@ import { canThumbnail, generateThumbnail, THUMBNAIL_MAX_BYTES } from './thumbnai
 import {
   classifyUpload, noticeAfterUpload, summarizeBatch,
   uploadCapFor, PETAL_MAX_UPLOAD_BYTES, S3_MAX_SINGLE_PUT_BYTES,
+  LARGE_FILE_WARN_BYTES,
 } from './uploadNotices.js'
 import { WORKSPACE_PROVIDERS } from './index.js'
 import { ensureManagedVideoThumbnail, blobToBase64 } from './managedVideoThumbnail.js'
@@ -401,16 +402,67 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     expect(uploadCapFor(WORKSPACE_PROVIDERS.NETWORK)).toBeNull()
   })
 
-  it('🚨 mirrors migration 0027s rabbit-files file_size_limit exactly', () => {
-    const sql = readRepo('supabase', 'migrations', '0027_file_lifecycle.sql')
-    expect(sql).toContain(String(PETAL_MAX_UPLOAD_BYTES))
+  // 🚨 THIS TEST USED TO NAME 0027, AND SESSION 42 IS WHY THAT WAS WRONG.
+  // 0027 set the cap to 50 MiB; 0057 raised it to 50 GiB. A guard pinned to a
+  // migration BY NAME goes stale the moment a later migration re-sets the same
+  // value — and the tempting repair (repoint it at 0057) buys exactly one
+  // session before the next raise breaks it silently, this time passing
+  // vacuously against a file nobody edits any more.
+  //
+  // So: find EVERY migration that assigns rabbit-files' file_size_limit, take
+  // the LAST one in filename order — which is the one that wins on a fresh
+  // database, because migrations replay in that order — and assert the constant
+  // matches THAT. Comments are stripped first, because a migration that
+  // documents the old number in prose (0057 does, twice) would otherwise satisfy
+  // a naive `toContain` — the 0038 trap that has now caught this repo three
+  // times.
+  it('🚨 mirrors the LAST migration that sets rabbit-files file_size_limit', () => {
+    const dir = join(REPO, 'supabase', 'migrations')
+    const hits = readdirSync(dir)
+      .filter(f => f.endsWith('.sql'))
+      .sort()
+      .map(f => ({ file: f, sql: executable(readFileSync(join(dir, f), 'utf-8')) }))
+      .filter(({ sql }) => /rabbit-files/.test(sql) && /file_size_limit/.test(sql))
+
+    expect(hits.length).toBeGreaterThan(0)
+
+    const last = hits[hits.length - 1]
+    // The assigned value, not merely a number appearing somewhere in the file.
+    const assigned = [...last.sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
+      .concat([...last.sql.matchAll(/VALUES\s*\([^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+    expect(assigned.length).toBeGreaterThan(0)
+    expect(assigned).toContain(String(PETAL_MAX_UPLOAD_BYTES))
   })
 
+  // ...and the constant is the 50 GiB Audrey chose, stated once so a typo in the
+  // migration and a matching typo here cannot agree with each other.
+  it('🚨 the Petal cap is 50 GiB exactly', () => {
+    expect(PETAL_MAX_UPLOAD_BYTES).toBe(50 * 1024 * 1024 * 1024)
+  })
+
+  // Session 42: 80 MB used to be the over-cap case. It is now an ordinary
+  // upload, which is the entire point of the session — so the fixture moves to
+  // 51 GiB rather than the assertion being softened.
   it('blocks an over-cap file on petal — the one real stop', () => {
-    const v = classifyUpload(big(80), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
+    const v = classifyUpload(big(51 * 1024), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
     expect(v.blocked).toBe(true)
     expect(v.code).toBe('too_large')
     expect(v.message).toMatch(/desktop app/)
+  })
+
+  it('🚨 an 80 MB file is now ORDINARY on petal — the S42 headline', () => {
+    // The regression that would matter most: a cap silently reverting to 50 MiB
+    // (a re-run of 0027 does exactly that) makes multi-GB cloud storage vanish
+    // while every other test here stays green.
+    const v = classifyUpload(big(80), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
+    expect(v.blocked).toBe(false)
+    expect(v.code).toBeNull()
+  })
+
+  it('a multi-GB file is accepted on petal — Audrey’s actual requirement', () => {
+    // "im going to have multiple GB files at times" (2026-08-05).
+    const v = classifyUpload(big(8 * 1024), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
+    expect(v.blocked).toBe(false)
   })
 
   it('🚨 DOES NOT BLOCK THE SAME FILE ON s3 — a blanket cap is a FALSE REFUSAL', () => {
@@ -421,8 +473,11 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     expect(v.blocked).toBe(false)
   })
 
+  // Session 42: the slow band is min(cap / 2, LARGE_FILE_WARN_BYTES). At a
+  // 50 MiB cap that was 25 MB, so 30 MB tripped it. At 50 GiB the cap half is
+  // 25 GiB and the fixed 100 MB now binds — so the fixture moves to 200 MB.
   it('a large-but-legal file gets a note and is NOT blocked', () => {
-    const v = classifyUpload(big(30), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
+    const v = classifyUpload(big(200), { workspaceProvider: WORKSPACE_PROVIDERS.PETAL })
     expect(v.blocked).toBe(false)
     expect(v.notes.map(n => n.code)).toContain('slow')
   })
@@ -456,16 +511,51 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     expect(v.code).toBe('over_quota')
   })
 
-  // 🚨 AND THE FALSE-REFUSAL THE SOURCE DELIBERATELY AVOIDS. The server does
-  // NOT weigh the incoming object, so a workspace just under its ceiling IS
-  // allowed one more. Written as `used + size > quota` this would block, and
-  // the client would refuse an upload the server would have taken — the exact
-  // failure uploadNotices' own header calls worse than the limitation.
-  it('just under the ceiling does NOT block, even for a file that will cross it', () => {
+  // 🚨 THIS TEST IS DELIBERATELY INVERTED FROM S41, NOT PATCHED.
+  //
+  // It used to read "just under the ceiling does NOT block, even for a file that
+  // will cross it", and it was correct: S41's server predicate was `used <
+  // quota`, so blocking here would have been a false refusal. Migration 0057
+  // changed the server to `used + incoming <= quota`, so the false refusal now
+  // runs the other way — waving this through would hand the user the raw RLS
+  // error that classifyUpload exists to replace.
+  //
+  // The old assertion is kept in the name so a future reader can see the
+  // reversal happened on purpose rather than wonder which session got it wrong.
+  it('S42: a file that would CROSS the ceiling blocks — the server now weighs it', () => {
     const v = classifyUpload(big(30), {
       workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB - 1024),
     })
+    expect(v.blocked).toBe(true)
+    expect(v.code).toBe('over_quota')
+  })
+
+  // ...and the boundary is `<=`, not `<`: landing EXACTLY on the ceiling is
+  // legal, because used + incoming is the total after the write.
+  it('S42: a file that lands exactly ON the ceiling is allowed', () => {
+    const v = classifyUpload({ name: 'exact.mp4', size: 1024 }, {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB - 1024),
+    })
     expect(v.blocked).toBe(false)
+  })
+
+  // 🚨 TWO FACTS, TWO SENTENCES. A full workspace and a file that will not fit
+  // have different remedies, and only one of them is "add a smaller file".
+  it('S42: the doesn’t-fit message NAMES its file; the full message does not', () => {
+    const wontFit = classifyUpload({ name: 'dailies.mov', size: 900 * 1024 * 1024 }, {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB / 2),
+    })
+    expect(wontFit.blocked).toBe(true)
+    expect(wontFit.message).toMatch(/dailies\.mov/)
+    expect(wontFit.message).toMatch(/smaller file/)
+
+    // Full: no filename, so FileManager's dedup collapses a 30-clip batch to one
+    // line instead of repeating the same sentence thirty times.
+    const full = classifyUpload({ name: 'dailies.mov', size: 1024 }, {
+      workspaceProvider: WORKSPACE_PROVIDERS.PETAL, storagePlan: plan(GIB),
+    })
+    expect(full.blocked).toBe(true)
+    expect(full.message).not.toMatch(/dailies\.mov/)
   })
 
   it('🚨 an s3 workspace is never quota-blocked — its bodies never touch Petal', () => {
@@ -493,13 +583,27 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     expect(v.message).toMatch(/30 days/)
   })
 
-  it('the slow band is scaled to the provider, not a fixed number', () => {
-    // On petal 30 MB is worth mentioning; on s3, where the ceiling is 5 GB, it
-    // is unremarkable and a note there would be noise.
-    expect(classifyUpload(big(30), { workspaceProvider: WORKSPACE_PROVIDERS.S3 })
-      .notes.map(n => n.code)).not.toContain('slow')
-    expect(classifyUpload(big(400), { workspaceProvider: WORKSPACE_PROVIDERS.S3 })
-      .notes.map(n => n.code)).toContain('slow')
+  // ⚠️ SESSION 42 QUIETLY KILLED THIS TEST'S RATIONALE, AND IT STAYED GREEN.
+  // The band is min(cap / 2, LARGE_FILE_WARN_BYTES). While Petal's cap was
+  // 50 MiB the halves differed (25 MB vs 2.5 GB) and the band really was
+  // provider-scaled. Now both caps exceed 200 MB, so BOTH collapse to the fixed
+  // 100 MB and the scaling no longer distinguishes anything — a passing test
+  // whose stated reason had become false, found by asking what the cap change
+  // broke rather than what it fixed.
+  //
+  // Kept, renamed, and turned into an assertion of what is now true: the band is
+  // the fixed figure on both providers, and cap/2 is what would take over again
+  // if any provider's ceiling ever dropped below 200 MB.
+  it('the slow band is the fixed 100 MB on both providers now (was provider-scaled)', () => {
+    for (const p of [WORKSPACE_PROVIDERS.PETAL, WORKSPACE_PROVIDERS.S3]) {
+      expect(classifyUpload(big(99), { workspaceProvider: p })
+        .notes.map(n => n.code)).not.toContain('slow')
+      expect(classifyUpload(big(400), { workspaceProvider: p })
+        .notes.map(n => n.code)).toContain('slow')
+    }
+    // The cap/2 arm is still live — it just no longer binds at these ceilings.
+    expect(LARGE_FILE_WARN_BYTES).toBeLessThan(PETAL_MAX_UPLOAD_BYTES / 2)
+    expect(LARGE_FILE_WARN_BYTES).toBeLessThan(S3_MAX_SINGLE_PUT_BYTES / 2)
   })
 
   it('a professional container gets the pre-upload courtesy note, unblocked', () => {

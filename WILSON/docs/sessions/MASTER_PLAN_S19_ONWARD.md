@@ -473,8 +473,8 @@ below are superseded; only one of them actually moves.
 | **S44** ✅ | **DONE (2026-08-08)** — **a thumbnail lives where its source lives.** 0054 on all three envs: `storage_gc_queue.kind`, the enqueue routed to the body's store, `putThumbnailTo`/`removeThumbnailFrom`, the teardown pin + `byo_thumbnails_left`, `STORAGE_PRESIGN_RPM` 120→240. pgTAP suite 64; outcome block below. ⚠️ **Browser DISPLAY for s3 rows was deliberately deferred by Audrey** — no batch presign exists and no S3 workspace exists anywhere to verify one against; generation shipped because it is the one-way door. Tracked in `OUTSTANDING.md` | 1 | **S39** | `SESSION_44_prompt.md` |
 | **S40** ✅ | **DONE (2026-08-09)** — **video preview + video still-frames, with NO migration.** The Range-capable `managed-files/:id/stream` route (the first WILSON-mediated managed-file read, so AS-2.9 lands here — throttled, because a `<video>` issues one request per seek); `generateVideoThumbnail` as a SEPARATE entry point (`canThumbnail` still refuses video, and two guard tests still pin that); the cloud upload branching to it; `VideoPreview`; `getUrl` as an **optional** registry function; ffmpeg out-of-process with electron-**builder** packaging, **proven by staging a binary through `npm run dist`**; §5f's provider-keyed notices. Migrations stay 0000–0054, pgTAP stays 64 suites. Outcome block below | 1 | **S39**, **S44** ✅ | `SESSION_40_prompt.md` |
 | **S41** ✅ | **DONE (2026-08-09)** — **Petal cloud is a paid, operator-managed product.** 0055 **and** 0056 on all three envs: `workspace_storage_plans` (0031's shape — one member-read policy, ZERO write policies), `petal_storage_quota_insert` as the schema's **first `AS RESTRICTIVE` policy**, the meter reading `storage.objects.metadata->>'size'`, `operator-storage-plans`, the operator console's storage panel and the Admin Terminal's plan card. pgTAP suite 65 (40 assertions, **11 breakers**); outcome block below | 1 | — | `SESSION_41_prompt.md` |
-| **S42** ⬅️ **NEXT** | **Multi-GB files in cloud mode** — raise the cap + resumable uploads | 1 | ~~S41~~ ✅ **UNBLOCKED** — the quota plane exists, so raising the cap no longer creates an unmetered multi-GB free tier. ⚠️ Its brief carries five S41 facts that land on its surface | `SESSION_42_prompt.md` |
-| **S43** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | **S42** | `SESSION_43_prompt.md` |
+| ~~**S42**~~ ✅ **DONE (2026-08-10)** | **Multi-GB files in cloud mode** — cap 50 MiB → **50 GiB**, free tier 1 GiB → **5 GiB**, quota now weighs the incoming body, resumable TUS uploads, signed-URL download. Migrations **0057 + 0058** | 1 | ~~S41~~ ✅ | `SESSION_42_prompt.md` |
+| **S43** ⬅️ **NEXT** | **Design pass** — last on purpose; must cover all the surface S33–S42 adds, including the provider picker and per-provider config forms | ? | ~~S42~~ ✅ | `SESSION_43_prompt.md` |
 | **S38** ⏸️ | **Google Drive — MOVED TO LAST, OUT OF THE FIRST BUILD** (Audrey, 2026-08-08: *"lets set google drive for a later date. lets forego it for the first build. lets move that session to last."*). Petal-shipped OAuth client, **`drive.file` scope only**, encrypted refresh token, shared-drive requirement. **Nothing was built; the brief is untouched and correct**, and S37's corrections to it are already in. 🚨 **The NUMBER stays 38 deliberately — see the ledger.** | 1–2 | ⏳ **`OWED_AUDREY.md` §13 with Google** (calendar, outside Petal) — and note S37's research found this is **brand verification only, NOT mandatory app verification**, since `drive.file` is non-sensitive | `SESSION_38_prompt.md` |
 | — | **The file gateway** (design §4b/§4c) — ⚠️ **probably unnecessary** | 3–5 | a customer who has refused NAS, VPN, own-cloud *and* Petal cloud | not written |
 
@@ -484,12 +484,15 @@ below are superseded; only one of them actually moves.
 > any point after it** — it is now positioned last by choice, not by
 > dependency.
 >
-> ⭐ **REMAINING ORDER AFTER 2026-08-09: ~~S44~~ ✅ → ~~S40~~ ✅ → S41 → S42 →
-> S43, then S38.** Three arrows in that line are real — **S44 → S40** (video stills
-> must not be built on a thumbnail path that is about to move — **discharged:
-> S44 shipped, and the path S40 must use is `putThumbnailTo`**), **S41 → S42** (quota
-> plane before the cap raise), and S43 wanting to be after the UI stops
-> changing. The rest is priority.
+> ⭐ **REMAINING ORDER AFTER 2026-08-10: ~~S44~~ ✅ → ~~S40~~ ✅ → ~~S41~~ ✅ →
+> ~~S42~~ ✅ → S43, then S38.** Three arrows in that line were real — **S44 → S40**
+> (video stills must not be built on a thumbnail path that is about to move —
+> **discharged: S44 shipped, and the path S40 must use is `putThumbnailTo`**),
+> **S41 → S42** (quota plane before the cap raise — **discharged: 0055/0056
+> landed first, and S42's own review proved the ordering mattered, since raising
+> the cap turned S41's deliberate `used < quota` overshoot from trivial into a
+> 50× one**), and S43 wanting to be after the UI stops changing. The rest is
+> priority. **S43 is now the only thing before S38.**
 >
 > 📒 **S44 is numerically last and positionally first, and that is the rule
 > working.** It took the next free number rather than renumbering S40–S43,
@@ -1322,7 +1325,10 @@ below are superseded; only one of them actually moves.
 > `rabbit-files` INSERT only (thumbnails are derived and 256 KB-capped; avatars
 > are metered by nothing and gated by nothing); the predicate is `used < quota`
 > and does not weigh the incoming object, so a workspace may overshoot by one file
-> — bounded today by the 50 MB cap and **S42's to revisit**; money paths and the
+> — bounded today by the 50 MB cap and **S42's to revisit** *(✅ S42 did: 0057
+> makes it `used + incoming <= quota`. ⚠️ But CONCURRENT uploads still slip
+> through, and 0057's attempt to close that was withdrawn by 0058 — see
+> `OUTSTANDING.md`)*; money paths and the
 > manifest are exempt from the gate while still being metered, so invoice traffic
 > can push a company over a ceiling it cannot then come back under; and
 > `operator_storage_plan_summary()` runs one unindexable two-bucket scan per

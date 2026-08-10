@@ -273,8 +273,13 @@ SELECT lives_ok(
 SELECT is(
   (SELECT used_bytes || '|' || quota_bytes || '|' || status || '|' || has_plan
      FROM public.workspace_storage_usage()),
-  '5000000|1073741824|active|false',
-  'workspace_storage_usage reports the free tier: 1 GiB, active, has_plan false');
+  -- Session 42: migration 0057 raised the rowless free tier 1 GiB -> 5 GiB,
+  -- because a 50 GiB per-file cap makes a 1 GiB trial unable to hold one clip.
+  -- The figure is asserted rather than read from storage_free_tier_bytes() on
+  -- purpose: reading the function here would make this probe agree with any
+  -- value the function returns, including a typo.
+  '5000000|5368709120|active|false',
+  'workspace_storage_usage reports the free tier: 5 GiB, active, has_plan false');
                                                                             -- 20
 
 SELECT set_config('request.jwt.claims', '', true);

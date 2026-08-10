@@ -37,14 +37,29 @@
 import { WORKSPACE_PROVIDERS } from './index.js'
 import { isProbablyProfessionalCodec, isVideoExtension } from './videoThumbnails.js'
 
-// 🚨 MIRRORS migration 0027's `rabbit-files` file_size_limit. Storage refuses
-// anything larger, so this is not a policy choice made here — it is a fact
-// being reported early enough to be useful. If one changes, change both.
-export const PETAL_MAX_UPLOAD_BYTES = 52_428_800 // 50 MiB
+// 🚨 MIRRORS the `rabbit-files` file_size_limit set by the LATEST migration that
+// touches it — 0027 established 50 MiB, migration 0057 raised it to 50 GiB.
+// Storage refuses anything larger, so this is not a policy choice made here; it
+// is a fact reported early enough to be useful. If one changes, change both.
+//
+// ⚠️ THE BUCKET LIMIT IS NOT THE ONLY CEILING, AND THIS CONSTANT CANNOT SEE THE
+// OTHER ONE. Supabase caps every bucket at a PROJECT-LEVEL global limit set in
+// the dashboard, not in the database — "the global limit takes precedence". If
+// that global figure is lower than this number, storage-api refuses uploads this
+// file cheerfully waves through. There is no API the client can ask, so the
+// honest position is that this mirrors the bucket and the real ceiling is
+// proven by uploading a large file, not by reading a constant.
+export const PETAL_MAX_UPLOAD_BYTES = 53_687_091_200 // 50 GiB (migration 0057)
 
 // A single presigned PUT tops out around 5 GB (S3's documented single-object
-// PUT limit). Multipart would lift it and WILSON does not implement multipart —
-// that is Phase 2b's resumable-upload work, not this session's.
+// PUT limit). Multipart would lift it and WILSON does not implement S3
+// multipart — S42 implements resumable uploads for the SUPABASE provider (TUS)
+// only, so this stays where S37 put it.
+//
+// 🚨 SO PETAL'S CAP IS NOW TEN TIMES S3'S, WHICH INVERTS S37's ASSUMPTION. This
+// file's header was written when 50 MB on Petal made a blanket cap a false
+// refusal for s3 customers; the false refusal now runs the other way, and the
+// per-provider keying is what keeps both correct. Do not collapse them.
 export const S3_MAX_SINGLE_PUT_BYTES = 5 * 1024 * 1024 * 1024
 
 // Above this, a browser upload is slow enough to be worth mentioning even when
@@ -129,15 +144,20 @@ export function classifyUpload(file, {
         notes,
       }
     }
-    // ⚠️ MIRRORS THE SERVER PREDICATE EXACTLY — `used < quota`, and deliberately
-    // NOT `used + size > quota`. The policy does not weigh the incoming file, so
-    // a workspace just under its ceiling IS allowed one more object (overshoot
-    // is bounded by the bucket's own 50 MB per-object cap). Blocking on
-    // used+size here would refuse uploads the server would have accepted, which
-    // is the failure this file's own header calls worse than the limitation.
+    // ⚠️ MIRRORS THE SERVER PREDICATE EXACTLY — Session 42 changed BOTH to
+    // `used + incoming <= quota`, in this commit, because a client that refuses
+    // what the server allows is a false refusal and a client that allows what
+    // the server refuses is a raw RLS error in a dialog.
+    //
+    // 🚨 S41 DELIBERATELY DID NOT WEIGH THE FILE, AND WAS RIGHT AT THE TIME. The
+    // overshoot it accepted was bounded by a 50 MB per-object cap. At 50 GiB the
+    // same shape lets a brand-new free-tier workspace land an object fifty times
+    // its entire 5 GiB allowance on its first upload, so the argument that made
+    // `used < quota` correct is the argument that now makes it wrong.
     const used = Number(storagePlan.usedBytes)
     const quota = Number(storagePlan.quotaBytes)
-    if (Number.isFinite(used) && Number.isFinite(quota) && quota > 0 && used >= quota) {
+    const known = Number.isFinite(used) && Number.isFinite(quota) && quota > 0
+    if (known && used + size > quota) {
       // 🚨 DO NOT TELL THEM TO DELETE FILES. The obvious sentence — "remove some
       // files, or contact Petal" — offers a remedy that CANNOT WORK, which is
       // worse than offering none. A cloud delete is SOFT (0014): the `files` row
@@ -146,13 +166,30 @@ export function classifyUpload(file, {
       // deleting everything in the project changes the number by zero and the
       // uploads stay refused. Someone following that advice would delete real
       // work and still be stuck. Found by this session's own review.
+      //
+      // 🚨 TWO DIFFERENT FACTS, TWO DIFFERENT SENTENCES. "You are full" and
+      // "this particular file will not fit" are not the same problem and do not
+      // have the same remedy — the second is solved by adding a smaller file,
+      // which the first sentence would talk someone out of trying.
+      //
+      // The full-workspace message names NO file, so FileManager's dedup
+      // (`if (!refused.includes(message))`) collapses thirty identical copies
+      // into one line. The doesn't-fit message NAMES its file, exactly as
+      // `too_large` does, so each one is listed — which is what the user needs
+      // in order to know which files to leave out.
+      const remaining = Math.max(0, quota - used)
       return {
         blocked: true,
         code: 'over_quota',
-        message:
-          `This company has used all ${formatBytes(quota)} of its Petal cloud storage. ` +
-          'Contact Petal to raise the plan — deleting files does not free space ' +
-          'straight away, because deleted files stay recoverable for 30 days.',
+        message: used >= quota
+          ? `This company has used all ${formatBytes(quota)} of its Petal cloud storage. ` +
+            'Contact Petal to raise the plan — deleting files does not free space ' +
+            'straight away, because deleted files stay recoverable for 30 days.'
+          : `"${file?.name || 'This file'}" is ${formatBytes(size)}, but only ` +
+            `${formatBytes(remaining)} of this company's ${formatBytes(quota)} Petal ` +
+            'cloud storage is left. Add a smaller file, or contact Petal to raise ' +
+            'the plan — deleting files does not free space straight away, because ' +
+            'deleted files stay recoverable for 30 days.',
         notes,
       }
     }

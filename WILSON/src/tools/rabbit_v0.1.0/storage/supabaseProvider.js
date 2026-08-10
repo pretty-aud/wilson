@@ -21,7 +21,17 @@
 // would be an invitation to point project files at the wrong policy set.
 // =============================================================================
 
+import { putResumable, shouldUseResumable } from './resumableUpload.js'
+import { withTimeout } from '../../../cloud/auth/withTimeout.js'
+
 const BUCKET = 'rabbit-files'
+
+// The session read is bounded for the reason OUTSTANDING.md records: an
+// abandoned getSession() holds auth-js's global per-storageKey lock, and every
+// later auth operation queues behind it with no acquire timeout. Bounding it
+// here does not fix that class — nothing at a call site can — but it keeps a
+// stalled session from hanging an upload with no message.
+const AUTH_TIMEOUT_MS = 8000
 
 /**
  * @param {() => Promise<any>} requireClient resolves the authed supabase-js
@@ -38,7 +48,59 @@ export function createSupabaseStorageProvider(requireClient) {
     // action and a silent overwrite would destroy a version nobody asked to
     // replace. (The manifest and rates writers pass upsert:true deliberately
     // and do not ride this path — see writeProjectManifest/writeProjectRates.)
+    //
+    // ── 🚨 SESSION 42: TWO TRANSPORTS, ONE CONTRACT ─────────────────────────
+    //
+    // The branch lives HERE rather than in uploadFile on purpose. `put` is one
+    // of the five REQUIRED registry functions and its signature does not
+    // change, so uploadFile — the single writer that already decides the key,
+    // the provider and the money pin — gains no new decision to get wrong, and
+    // s3Provider is untouched (it has no TUS endpoint; S3 multipart is separate
+    // work and this session did not do it).
+    //
+    // 🚨 THE THRESHOLD IS THE PRE-0057 CAP, WHICH MAKES THIS CHANGE UNABLE TO
+    // REGRESS ANYTHING THAT WORKED. Every body that could be uploaded before
+    // this session is <= 50 MiB and still takes the identical standard call
+    // below; only sizes that were previously IMPOSSIBLE take the new path.
+    //
+    // ⚠️ NO FALLBACK FROM RESUMABLE TO STANDARD. A failed resumable upload is
+    // reported, never retried down the other transport: above 5 GB the standard
+    // path cannot succeed at all, and below it a silent second attempt would
+    // turn one refusal (an RLS quota denial, say) into two uploads' worth of
+    // egress and a second identical error the user never asked for.
     async put(key, body, opts = {}) {
+      if (shouldUseResumable(body)) {
+        const client = await requireClient()
+        // 🚨 A READER, NOT A READING. The upload can outlive the token — see
+        // resumableUpload.js's onBeforeRequest note — so this closure is called
+        // again before every request rather than once here. Reading the session
+        // ONCE and passing the string is the defect this session's pre-deploy
+        // review found, and it broke exactly the multi-GB uploads S42 exists
+        // for. supabase-js refreshes in the background; asking it each time is
+        // what lets that refresh reach the upload.
+        const readToken = async () => {
+          const { data } = await withTimeout(
+            client.auth.getSession(), AUTH_TIMEOUT_MS, 'reading your session',
+          )
+          return data?.session?.access_token ?? null
+        }
+        let token = null
+        try {
+          token = await readToken()
+        } catch (e) {
+          throw new Error(`[supabase] storage upload failed: ${e?.message || 'could not read your session'}`)
+        }
+        return putResumable({
+          bucket: BUCKET,
+          key,
+          body,
+          accessToken: token,
+          getAccessToken: readToken,
+          contentType: opts.contentType || body?.type || 'application/octet-stream',
+          onProgress: opts.onProgress,
+        })
+      }
+
       const b = await bucket()
       const { error } = await b.upload(key, body, {
         cacheControl: '3600',
@@ -99,9 +161,24 @@ export function createSupabaseStorageProvider(requireClient) {
     // element reports as a stall; the player re-mints on error rather than
     // holding a sticky failure flag over an expiring URL (S39's own review
     // finding, one bucket over).
-    async getUrl(key, expiresIn = 3600) {
+    // ── Session 42: the third argument, and why it is not cosmetic ──────────
+    //
+    // 🚨 `a.download` IS IGNORED FOR A CROSS-ORIGIN URL. A signed Supabase URL
+    // is a different origin from the app, so an anchor pointing at it would
+    // NAVIGATE rather than download — displaying video and images inline, and
+    // saving everything else under the storage key's mangled leaf name instead
+    // of the file's real one.
+    //
+    // `{ download: '<filename>' }` makes storage-api answer with
+    // `Content-Disposition: attachment; filename=...`, which works cross-origin
+    // and fixes the name at the same time. It is the only mechanism that does.
+    async getUrl(key, expiresIn = 3600, opts = {}) {
       const b = await bucket()
-      const { data, error } = await b.createSignedUrl(key, expiresIn)
+      // Only pass the option when asked: the S40 video player wants an inline,
+      // range-requestable URL, and Content-Disposition: attachment would make a
+      // <video> download the file instead of playing it.
+      const signOpts = opts.download ? { download: opts.download } : undefined
+      const { data, error } = await b.createSignedUrl(key, expiresIn, signOpts)
       if (error) throw new Error(`[supabase] storage url failed: ${error.message}`)
       return data?.signedUrl || null
     },

@@ -248,7 +248,7 @@ version of this section over-generalised a Local-Server measurement to cloud.
 | Path | Mechanism | Ceiling | Fixable? |
 |---|---|---|---|
 | **Local Server `files`** | base64 → JSON body | **~37 MB** | ❌ needs a rewrite |
-| **Cloud `files`** | `File` object → Supabase Storage | **50 MB** (bucket setting) | ✅ raise cap + resumable uploads |
+| **Cloud `files`** | `File` object → Supabase Storage | ~~50 MB~~ → **50 GiB** (S42) | ✅ **DONE — 0057** |
 | **Managed files** | native stream-to-stream copy | **none** | — already fine |
 
 **Path 1 — Local Server `files`. Ceiling ≈ 37 MB, and not a tuning problem.**
@@ -316,6 +316,52 @@ assert a figure. Check the current plan and pricing before telling a customer
 what cloud mode can hold — the engineering ceiling and the ceiling Petal Studios
 is willing to pay for are different numbers, and for multi-GB video the second
 one binds first.
+
+> **✅ BUILT BY S42 (2026-08-10, migrations 0057 + 0058).** Both halves shipped:
+> the cap is **50 GiB**, the rowless free tier rose **1 GiB → 5 GiB**, the quota
+> predicate now **weighs the incoming body** (`used + incoming <= quota`), and
+> resumable TUS uploads carry anything above 50 MiB via `tus-js-client`.
+> Audrey's decisions, 2026-08-09: Pro plan, 50 GiB, weigh the body, 5 GiB free.
+>
+> **Six corrections to this section, all measured while building it:**
+>
+> 1. 🚨 **"One number in one migration" WAS WRONG.** The bucket's
+>    `file_size_limit` is capped by a PROJECT-LEVEL global limit that lives in
+>    the Supabase **dashboard**, not the database — "the global limit takes
+>    precedence". 0057 applies cleanly, passes every post-condition, and changes
+>    nothing until that figure is raised by hand on each project. It cannot be
+>    automated: the only CLI route is `supabase config push`, under a standing
+>    ban since S19. Raised manually on all three projects, 2026-08-10.
+> 2. 🚨 **The TUS permission test carries `contentLength`, not `size`.**
+>    storage-api checks twice — a rolled-back trial insert at upload creation,
+>    then the real write at completion. A weighing predicate reading only
+>    `metadata->>'size'` is NULL at creation, and **a NULL DENIES under a
+>    RESTRICTIVE policy**, so every resumable upload would have been refused with
+>    a symptom indistinguishable from the quota working.
+> 3. 🚨 **`completeUpload` upserts REGARDLESS of the `isUpsert` flag.** The quota
+>    binds only because `uploadFile` mints a unique key per attempt, so the
+>    upsert takes its INSERT branch. `upsert:false` is not what saves it.
+> 4. 🚨 **The concurrency hole is NOT closed, and 0057 briefly claimed it was.**
+>    In-flight resumable bytes are invisible to the meter. 0057 metered
+>    `storage.s3_multipart_uploads.in_progress_size`; **0058 removed it**, because
+>    WILSON uploads over TUS, whose state lives in S3 `.info` objects via
+>    `@tus/s3-store` — that table is written only by the S3-compatible protocol
+>    handler WILSON never calls. The arm summed a permanently empty set, and the
+>    three pgTAP probes asserting the closure passed only on rows the suite
+>    inserted itself.
+> 5. 🚨 **TPN-CONT-017 IS NOT ADDRESSED, for the same reason.** 0057 added an
+>    `upload_abandoned` event term and a nightly sweep; 0058 removed both. TUS
+>    partials are reaped by Supabase's own 24h expiry, which SQL can neither see
+>    nor certify.
+> 6. ⚠️ **The write ceiling was raised a thousandfold and the READ side was not.**
+>    `downloadFile` buffered the whole object into a Blob, so the product could
+>    accept files it could never give back. Fixed in the same session with a
+>    signed-URL download (`Content-Disposition` via `createSignedUrl`'s
+>    `download` option, because `a.download` is ignored cross-origin).
+>
+> ⚠️ **s3 workspaces are unchanged: still a 5 GB single presigned PUT.** S3
+> multipart was not implemented, so Petal's cap is now ten times the s3 one —
+> which inverts S37's assumption and is why the notices stay provider-keyed.
 
 **Path 3 — `managedFiles`. No ceiling.** `rabbit:copy-file`
 (`electron/main.cjs` — cite by symbol, the line has drifted) is a native
@@ -772,7 +818,10 @@ S42 is blocked on S41 in the master plan's sequence table.
 > avatars are per-person and not metered, though they ARE Petal's bytes); the
 > predicate is `used < quota` and does not weigh the incoming file, so a
 > workspace may overshoot by one object — bounded today by the 50 MB per-object
-> cap and **worth revisiting in S42**; and a RESTRICTIVE denial reports a
+> cap and **worth revisiting in S42** *(✅ S42 DID revisit it: migration 0057
+> makes the predicate `used + incoming <= quota`, and the free tier rose 1 GiB →
+> 5 GiB in the same file, because a 1 GiB trial cannot hold one clip beside a
+> 50 GiB per-file cap. Audrey, 2026-08-09.)*; and a RESTRICTIVE denial reports a
 > DIFFERENT Postgres message than a permissive one (it names the policy), which
 > is measured at the SQL layer only — whether storage-api forwards it to a
 > browser is untested, so no client parses it.

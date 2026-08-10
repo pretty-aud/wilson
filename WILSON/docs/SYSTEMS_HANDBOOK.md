@@ -766,12 +766,25 @@ those accounts and an admin must reset instead; the response carries an
 | Bucket | Migration | Public | Cap | Path template |
 |---|---|---|---|---|
 | `user-avatars` | 0009 | **yes** (public read) | 2 MB, image mimes only | `{workspace_id}/{user_id}/{filename}` |
-| `rabbit-files` | 0027 | no (private) | 50 MB, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
+| `rabbit-files` | 0027, raised by **0057** | no (private) | **50 GiB**, any mime | `projects/{project_id}/{entity}/{entity_id}/{ts}-{filename}` |
 | `rabbit-thumbnails` | 0053 | no (private) | **256 KB, `image/jpeg` only** | the same key as its source **plus `.jpg`** |
 
+🚨 **THE BUCKET CAP IS NOT THE CEILING THAT BINDS.** Supabase caps every bucket
+at a PROJECT-LEVEL global limit set in the dashboard (Project Settings →
+Storage), not in the database and not in any migration — "the global limit takes
+precedence". A migration can raise `file_size_limit` to 50 GiB, pass every
+post-condition, and change nothing until that dashboard figure is raised too, on
+each project separately. Raised by hand on dev, staging and prod on 2026-08-10.
+Nothing in SQL can observe it, so the only proof is a real large file.
+
+⚠️ **A re-run of 0027 RESETS this cap to 50 MB.** 0027 sets the bucket with
+`INSERT ... ON CONFLICT DO UPDATE SET file_size_limit`, so replaying it silently
+undoes 0057. A re-run of 0027 must be followed by a re-run of 0057 (same class
+as 0028→0031→0055).
+
 `rabbit-thumbnails` exists because **a bucket has exactly one
-`file_size_limit`** and `rabbit-files` must accept multi-GB media once S42
-raises its cap — a thumbnail cap and a media cap cannot coexist. Its key layout
+`file_size_limit`** and `rabbit-files` had to accept multi-GB media once S42
+raised its cap — a thumbnail cap and a media cap cannot coexist. Its key layout
 is deliberately IDENTICAL to its source's so the first three path segments
 match, which is what lets it carry the same eight policies with only
 `bucket_id` changed. See §12.7b.
@@ -3256,10 +3269,37 @@ of a session — this section is limits by design, that file is faults.
   `FINANCE/RATES.json` is a mirror rewritten on every rates change, invoices are
   how a company pays Petal, and the manifest is WILSON's own bookkeeping.
   ⚠️ The manifest exemption tests the FILENAME as well as the depth: `[3] IS
-  NULL` alone would let `projects/<id>/dailies.mov` through, 50 MB at a time.
-- ⚠️ **The predicate is `used < quota` and does NOT weigh the incoming object**,
-  so a workspace may overshoot by one file. Bounded today by the 50 MB
-  per-object cap — **S42 must revisit this when that cap rises.**
+  NULL` alone would let `projects/<id>/dailies.mov` through, a whole object at a
+  time.
+- ✅ **The predicate WEIGHS the incoming object: `used + incoming <= quota`
+  (0057).** S41 shipped `used < quota` deliberately, and it was right while the
+  per-object cap was 50 MB — the overshoot was bounded and trivial. At 50 GiB
+  the same shape let a brand-new free-tier workspace land an object fifty times
+  its whole allowance on its first upload, so the argument that made it correct
+  is the argument that made it wrong. Suite 66 probes 14, 17 and 18 pin the
+  refusal, the acceptance and the `<=` boundary.
+- 🚨 **The incoming size is read from `metadata->>'size'` OR
+  `->>'contentLength'`, and reading only the first breaks every resumable
+  upload.** storage-api checks permission twice — a rolled-back trial insert at
+  upload creation, then the real write at completion — and the trial carries
+  `contentLength` while the committed row carries `size`. A `size`-only read is
+  NULL at creation, and **under a RESTRICTIVE policy a NULL DENIES**. Suite 66
+  probe 15 is the tripwire; probe 16 pins the converse, that an unknown size
+  falls back to `used < quota` rather than refusing.
+- 🚨 **The free tier is 5 GiB (0057), raised from 1 GiB.** A 1 GiB trial cannot
+  hold one clip next to a 50 GiB per-file cap. The number lives ONLY in
+  `storage_free_tier_bytes()`; the client reads the resolved figure back from
+  `workspace_storage_usage()`.
+- ⚠️ **CONCURRENT uploads can still exceed the quota, and this is OPEN.** Each
+  in-flight resumable upload is invisible to the others until it completes, so
+  two 30 GiB uploads started together against a 50 GiB quota both pass their
+  creation check. 0057 tried to close this by metering
+  `storage.s3_multipart_uploads.in_progress_size`; **0058 removed that because
+  WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects —
+  that table is written only by the S3-compatible protocol handler WILSON never
+  calls, so the arm summed a permanently empty set while claiming to close the
+  hole.** Suite 66 probe 13 now asserts the meter does NOT move, so re-adding it
+  fails there first. Recorded in `OUTSTANDING.md`.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious

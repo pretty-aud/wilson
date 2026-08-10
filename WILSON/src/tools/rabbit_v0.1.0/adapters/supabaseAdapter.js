@@ -961,7 +961,13 @@ export function supabaseAdapter() {
     },
 
     // ── Files (Storage + metadata row) ────────────────────────
-    async uploadFile(projectId, scope = {}, file) {
+    // 🚨 SESSION 42 — `opts` IS A FOURTH PARAMETER AND NOT A KEY ON `scope`.
+    // `scope` is the row's shape: uploadContainerFor reads it, and its keys land
+    // in the `files` INSERT through the column allowlist. A callback smuggled in
+    // there would either be stripped silently or reach toColumns as a value, and
+    // the S23/S28 lesson is that the allowlist and the call site are different
+    // things. Progress is transport, not content, so it travels beside the scope.
+    async uploadFile(projectId, scope = {}, file, opts = {}) {
       const client = await requireClient();
       // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
@@ -1058,6 +1064,10 @@ export function supabaseAdapter() {
       try {
         await getStorageProvider(storageProvider).put(storagePath, file, {
           contentType: file?.type,
+          // Only the resumable transport reports progress; the standard PUT and
+          // the s3 presigned PUT ignore this, which is why a small upload shows
+          // no bar rather than a fake one.
+          onProgress: opts.onProgress,
         });
       } catch (upErr) {
         lastError = upErr?.message || String(upErr);
@@ -1226,6 +1236,60 @@ export function supabaseAdapter() {
         console.warn('[supabase] download not logged:', err?.message || err);
       }
       return data; // Blob
+    },
+
+    // ── Session 42: download WITHOUT buffering the object into memory ───────
+    //
+    // 🚨 downloadFile ABOVE CANNOT CARRY WHAT S42 LET PEOPLE UPLOAD. It resolves
+    // the whole body as a Blob, FileManager then does URL.createObjectURL on it,
+    // and the entire object has to exist in the renderer before one byte
+    // reaches disk. At the pre-0057 50 MiB cap that was free. At 50 GiB it is
+    // not survivable in a browser or in Electron's renderer — so migration 0057
+    // raised the WRITE ceiling a thousandfold and left the READ side able to
+    // accept files it could never give back. Found by this session's pre-deploy
+    // review; it is the one open finding that could lose a customer's data
+    // rather than merely annoy them.
+    //
+    // A signed URL hands the transfer to the browser's own download manager:
+    // no Blob, no ceiling, resumable by the browser, and it starts instantly.
+    //
+    // 🚨 STILL FULLY GATED. The URL is minted by the CALLER's authenticated
+    // client, so storage-api evaluates the same RLS at signing time — a member
+    // who cannot read an invoice cannot sign one either. The money gate (0042)
+    // is untouched.
+    //
+    // ⚠️ SHORT EXPIRY ON PURPOSE. 300s, against fileUrl's 3600s, because a
+    // download URL is a bearer capability over pre-release content and only has
+    // to survive long enough to START. Expiry is checked when the request is
+    // made, not while the response streams, so a 40 GiB transfer that begins
+    // inside the window completes however long it takes.
+    //
+    // Returns null when the row's provider cannot mint a URL (s3 today — see
+    // fileUrl's note), and the caller falls back to the Blob path. That is the
+    // stated capability gap, not a fault.
+    async downloadUrl(file, filename, expiresIn = 300) {
+      const client = await requireClient();
+      const provider = resolveFileProvider(file);
+      if (typeof provider.getUrl !== 'function') return null;
+      const url = await provider.getUrl(file.storage_path, expiresIn, {
+        // Cross-origin `a.download` is ignored, so the attachment disposition
+        // and the real filename both have to come from the signature.
+        download: filename || file?.name || 'download',
+      });
+      if (!url) return null;
+      // 🚨 THE AUDIT ROW MUST STILL BE WRITTEN. S33/0047 (TPN-CONT-008,
+      // TPN-LOG-002) logs every download, and downloadFile does it above — a
+      // second download path that skipped it would make the trail silently
+      // incomplete for exactly the largest, most sensitive assets. Same
+      // best-effort idiom, same explicit .error check, because rpc() resolves
+      // for every status.
+      try {
+        const logged = await client.rpc('log_file_downloaded', { p_file_id: file.id });
+        if (logged.error) console.warn('[supabase] download not logged:', logged.error.message);
+      } catch (err) {
+        console.warn('[supabase] download not logged:', err?.message || err);
+      }
+      return url;
     },
 
     // Session 40: a streamable URL for the video player (§5d.2).

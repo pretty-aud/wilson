@@ -41,12 +41,34 @@
 > is deliberately read-only for a member. Do not re-expose it ungated while
 > rearranging tabs.
 
-> **STATE — re-measure; this block decays** (last refreshed after S33,
-> 2026-08-07, `ca4f252`): migrations **0000–0047** on dev, staging and prod
-> (next free **0048**); pgTAP **57 suites / 920 assertions** (next suite
-> **58**); vitest **940 / 44 files**. All CI checks green, Playwright
-> included. By the time this session runs, S34–S39 will have moved every one
-> of these numbers — the working tree is the authority.
+> **STATE — re-measure; this block decays** (last refreshed after **S42**,
+> 2026-08-10): migrations **0000–0058** (next free **0059**); pgTAP **66 suites
+> / 1180 assertions** (next suite **67**); vitest **1408 / 58 files**.
+> 🚨 **Read the working tree, never this block and never memory.**
+>
+> ⚠️ **0057 and 0058 are applied to DEV ONLY at the time of writing** — staging
+> and prod were still on 0056. Check `supabase migration list` per environment
+> before assuming anything about the schema you are looking at.
+>
+> 🚨 **FOUR S42 FACTS THAT LAND ON A DESIGN SESSION'S SURFACE:**
+>
+> 1. **The Petal cap is 50 GiB and the free tier is 5 GiB.** Any copy, tooltip
+>    or empty state quoting "50 MB" or "1 GB" is now wrong. The numbers live in
+>    SQL only — `storage_free_tier_bytes()` and the bucket row — and the client
+>    reads the resolved figure back from `workspace_storage_usage()`.
+> 2. **There is now a real upload progress bar on the cloud path**, feeding the
+>    same `copyProgress` surface the Local Server path uses. It only appears
+>    above 50 MiB, because only the resumable transport reports. A design pass
+>    that unifies those two surfaces should keep that asymmetry visible rather
+>    than faking a bar for small uploads.
+> 3. **Downloads no longer buffer into a Blob** — they hand off to the browser's
+>    download manager via a signed URL. There is no in-app progress for a
+>    download and no cancel; the browser owns it.
+> 4. ⚠️ **`StorageSection`'s used/quota card was written for a 1 GiB tier.** Its
+>    "files and their previews" caption and its bar are both worth re-reading at
+>    a 5 GiB tier with 50 GiB objects — nothing warns before the ceiling, and
+>    under the weighing predicate the bar is no longer a predictor of whether
+>    the next upload will be accepted.
 >
 > ✅ **Task templates work in cloud.** `public.task_templates` (JSONB `tasks`,
 > optional project pin), five adapter methods, `assets.task_template_id`, and a
@@ -237,10 +259,15 @@ code, so a stray debug border costs more than it saves.
   save (loud); a dropped KEY on an allowlisted table loses ONE FIELD and only
   warns (quiet — this was S28's `role_slug`); and a key that is *legitimate*
   inside a jsonb column is never seen by `toColumns` at all.
-- **Ordering rules for manual re-runs:** 0022 → 0025 AND 0026 · 0028 → 0031 ·
-  0002 → 0029 · 0011 → 0030 · 0009 → 0020 · 0011 → 0033 · **0027 → 0038 →
-  0039 → 0042** · 0040 → 0041 → **0043**. 0044 depends on 0004, 0008, 0013 and
-  0020 and nothing depends on it. **Replay forwards only.**
+- **Ordering rules for manual re-runs:** 0022 → 0025 AND 0026 · 0028 → 0031 →
+  **0055** · 0002 → 0029 · 0011 → 0030 · 0009 → 0020 · 0011 → 0033 · **0027 →
+  0038 → 0039 → 0042** · 0040 → 0041 → **0043** · **0027 → 0057** · **0057 →
+  0058**. 0044 depends on 0004, 0008, 0013 and 0020 and nothing depends on it.
+  **Replay forwards only.**
+  🚨 **0027 → 0057 is the dangerous new one.** 0027 sets the `rabbit-files`
+  bucket with `INSERT ... ON CONFLICT DO UPDATE SET file_size_limit` and the
+  value 52428800, so replaying it silently RESETS the cap from 50 GiB to 50 MB —
+  green migration, no error, and multi-GB cloud storage quietly stops working.
 - **`node scripts/tap-all.mjs` runs the WHOLE pgTAP set** in one command.
   `collected` MUST equal `planned`.
 - **`scripts/tap-hosted.py` can run an UNAPPLIED migration together with its

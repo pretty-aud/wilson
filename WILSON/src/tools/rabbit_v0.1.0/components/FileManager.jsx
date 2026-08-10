@@ -368,13 +368,18 @@ export default function FileManager({
       // string this feature exists to replace. Project this batch's own bytes
       // forward as we go.
       //
-      // ⚠️ STILL NOT `used + size` FOR THE FILE BEING JUDGED. The server does
-      // not weigh the incoming object (`used < quota`), so counting it would
-      // refuse uploads the server would have taken. Only bytes this batch has
-      // already committed AHEAD of this file are added. The projection also
-      // ignores the derived thumbnail bytes that workspace_petal_bytes does
-      // meter, so it fires slightly LATE rather than early — deliberately, on
-      // the same rule.
+      // ⚠️ SESSION 42 REVERSED THE RULE THIS COMMENT USED TO STATE. The server
+      // predicate is now `used + incoming <= quota` (migration 0057), so
+      // classifyUpload DOES weigh the file being judged — and this cursor still
+      // carries only the bytes of files queued AHEAD of it, because those are
+      // the ones the snapshot could not know about. The two together reproduce
+      // the server's arithmetic for every file in the batch.
+      //
+      // The projection still ignores the derived thumbnail bytes that
+      // workspace_petal_bytes does meter, so it fires slightly LATE rather than
+      // early — deliberately, on the standing rule that a client which refuses
+      // what the server would accept is worse than one that lets the server
+      // speak.
       let planCursor = storagePlan
       for (const file of incoming) {
         if (!provider) { queued.push(file); continue }
@@ -413,7 +418,32 @@ export default function FileManager({
         // taskTitle renaming is a managed-store behaviour: those records carry
         // a separate file_name and a version label. A cloud row keeps the real
         // filename, which is also what gets downloaded.
-        const row = await ctx.uploadFile(file, uploadScope)
+        // 🚨 SESSION 42 — THE BAR THE RESUMABLE PATH WAS BUILT TO FEED.
+        //
+        // The brief named progress as one of three things this path had to
+        // bring, and until this line the whole chain existed with NO CALLER:
+        // putResumable accepted onProgress, supabaseProvider.put forwarded it,
+        // and the only upload call site passed nothing. That is the repo's
+        // costliest pattern, and the review caught it here rather than in
+        // production.
+        //
+        // Reuses the exact `copyProgress` surface the managed path already
+        // renders — same shape, same bar — so a cloud upload and a Local Server
+        // copy look identical to the person watching. Only the resumable
+        // transport reports, so a small upload shows no bar rather than a fake
+        // one that jumps 0 → 100.
+        const row = await ctx.uploadFile(file, uploadScope, {
+          onProgress: (sent, total) => {
+            if (!total) return
+            setCopyProgress({
+              fileName: file?.name || 'file',
+              percent: Math.min(100, Math.round((sent / total) * 100)),
+            })
+          },
+        })
+        // Clear between files so a fast small upload after a slow large one
+        // does not leave the previous file's bar sitting at 100%.
+        setCopyProgress(null)
         // 🚨 THE ACCURATE ANSWER, and it replaces the extension heuristic
         // rather than joining it. The upload path already loaded this file
         // into a <video> and seeked it; a video row that came back with no
@@ -429,6 +459,9 @@ export default function FileManager({
         } catch (err) {
           // Named per file, so "which ones failed" is answerable.
           failed.push(`${file?.name || 'a file'}: ${err?.message || String(err)}`)
+          // ...and the bar must not be left frozen at whatever percent the
+          // upload died on, which would read as "still working".
+          setCopyProgress(null)
         }
       }
       if (failed.length) setUploadError(failed.join('\n'))
@@ -442,6 +475,10 @@ export default function FileManager({
       setUploadError(err?.message || String(err))
     } finally {
       setCopying(false)
+      // The per-file clears above cannot run if the OUTER try threw (a failed
+      // provider read, say), and a bar left on screen after the spinner stops
+      // is the one state that reads as "still uploading" when nothing is.
+      setCopyProgress(null)
     }
   }, [ctx, uploadScope, onFileAdded, desktopDecoder])
 
@@ -570,11 +607,46 @@ export default function FileManager({
   // The managed path below opens an OS explorer window at the file's folder,
   // which only means anything when the file is on this machine. A cloud file
   // is a blob in a bucket, so this actually downloads it.
+  // 🚨 SESSION 42 — THE SIGNED URL COMES FIRST, AND IT IS NOT AN OPTIMISATION.
+  //
+  // The Blob path below buffers the ENTIRE object into the renderer before a
+  // byte reaches disk. Migration 0057 raised the upload ceiling from 50 MiB to
+  // 50 GiB and left this untouched, so the product could accept files it could
+  // never give back — a customer's 12 GB master would land, bill monthly, and
+  // crash the tab on every attempt to retrieve it. Found by this session's
+  // pre-deploy review; it was the one finding that could lose data.
+  //
+  // The signed URL hands the transfer to the browser's own download manager:
+  // no memory ceiling, and it starts immediately instead of after a long,
+  // silent buffer.
+  //
+  // ⚠️ NO `a.download` ON THIS BRANCH, DELIBERATELY. The attribute is IGNORED
+  // for a cross-origin URL, and a signed Supabase URL always is one. The
+  // filename and the attachment behaviour both ride on Content-Disposition,
+  // which the adapter sets through createSignedUrl's `download` option —
+  // setting the attribute here would look like it was doing the work and would
+  // hide the fact that removing that option breaks the filename.
+  //
+  // The Blob path stays as the fallback for a provider that cannot sign (s3
+  // today), so nothing that works now stops working.
   const handleCloudDownload = useCallback(async (file) => {
     if (!ctx?.downloadFile) return
     setUploadError(null)
     let url
     try {
+      const signed = ctx.downloadUrl
+        ? await ctx.downloadUrl(file, displayName(file))
+        : null
+      if (signed) {
+        const a = document.createElement('a')
+        a.href = signed
+        a.rel = 'noopener'
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        return
+      }
+
       const blob = await ctx.downloadFile(file)
       url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -587,7 +659,8 @@ export default function FileManager({
       setUploadError(err?.message || String(err))
     } finally {
       // Revoking synchronously can cancel the download in some browsers; a
-      // tick after the click is enough and never leaks the object URL.
+      // tick after the click is enough and never leaks the object URL. Only the
+      // Blob branch creates one.
       if (url) setTimeout(() => URL.revokeObjectURL(url), 10_000)
     }
   }, [ctx])

@@ -2179,9 +2179,12 @@ export function RabbitProvider({ children }) {
   }, [activeProjectId]);
 
   // ── Files ───────────────────────────────────────────────
-  const uploadFile = useCallback(async (file, scope = {}) => {
+  // Session 42: `opts` carries transport concerns — today just onProgress, for
+  // the resumable path. Deliberately separate from `scope`, which describes the
+  // ROW and whose keys reach the files INSERT through the column allowlist.
+  const uploadFile = useCallback(async (file, scope = {}, opts = {}) => {
     if (!adapterRef.current || !activeProjectId) throw new Error('no project');
-    const created = await adapterRef.current.uploadFile(activeProjectId, scope, file);
+    const created = await adapterRef.current.uploadFile(activeProjectId, scope, file, opts);
     // Upsert, not append — see addPhase (broadcast echo race).
     setBundle(prev => ({
       ...prev,
@@ -2239,6 +2242,19 @@ export function RabbitProvider({ children }) {
   const fileUrl = useCallback(async (file) => {
     if (!adapterRef.current?.fileUrl) return null;
     return adapterRef.current.fileUrl(file);
+  }, []);
+
+  // Session 42: a URL that DOWNLOADS rather than plays. Distinct from fileUrl
+  // above, which is deliberately inline so a <video> can stream from it —
+  // Content-Disposition: attachment would make the player save the file
+  // instead. Distinct from downloadFile, which buffers the whole body into a
+  // Blob and therefore cannot carry the multi-GB objects 0057 now permits.
+  //
+  // Returns null on a backend or provider that cannot sign, and the caller
+  // falls back to the Blob path.
+  const downloadUrl = useCallback(async (file, filename) => {
+    if (!adapterRef.current?.downloadUrl) return null;
+    return adapterRef.current.downloadUrl(file, filename);
   }, []);
 
   // Session 39: signed display URLs for cloud thumbnails, keyed by object path.
@@ -2733,6 +2749,7 @@ export function RabbitProvider({ children }) {
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
+    downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
 
     // Session 27. WHICH file store this backend actually has.
@@ -2786,6 +2803,7 @@ export function RabbitProvider({ children }) {
     addTeamAssignment, updateTeamAssignment, removeTeamAssignment,
     syncProjectTeam,
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
+    downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
