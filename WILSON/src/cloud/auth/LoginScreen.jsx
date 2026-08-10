@@ -28,28 +28,33 @@
 // added to it. Hick's Law: one decision per step. Chunking: the company is a
 // different KIND of fact from the credential.
 //
-// 🚨 Why the company step does not phone home
-//   The obvious build — ask the server "does this company exist?" and answer
-//   the user instantly — is a customer-list oracle for anyone holding the
-//   anon key, which the web app ships. This file's whole enumeration defence
-//   (one generic error for every failure, plus a fake-email sign-in so the
-//   timing of an unknown username matches a known one) exists to stop exactly
-//   that, one field over.
+// 🚨 The company IS a gate, and that was a decision with a cost
+//   Audrey, 2026-08-10, after testing a wrong company and being let in:
+//   "the user has to enter the company, the system should verify that company
+//   exists, the login after the company should only allow users of that
+//   company to login."
 //
-//   So step 1 validates SHAPE ONLY and advances with no network call. The
-//   only thing that ever answers a question about a company is resolve-login,
-//   behind a username, a password, a constant-time floor and a rate limit —
-//   the defence that was already there. The cost is that a mistyped company
-//   is not caught until sign-in fails, and the generic error names the
-//   company as one of the three things to check. That is a deliberate trade,
-//   not an oversight: do not "improve" it by adding an existence endpoint.
+//   So step 1 asks resolve-login whether the company exists, and step 2 sends
+//   the canonical slug the server returned with NO fallback. A member of
+//   another workspace cannot get past step 2 no matter what they type.
 //
-// ⚠️ Passing the slug also repairs multi-workspace sign-in as a side effect.
-//   resolve-login answers a bare username by matching `.limit(2)` and
-//   replying "miss" when it finds two — so a person who is a member of two
-//   workspaces under the same username could never sign in at all. The slug
-//   disambiguates them. (Its own header always said the client would supply
-//   one; docs/RELEASE_TESTING.md:436 records that it never did.)
+//   The cost, stated once so it is not rediscovered as a surprise: this is a
+//   company-existence oracle. Anyone holding the anon key — which the web app
+//   ships — can now test whether a company is a customer. It is bounded by
+//   the same per-IP limiter and the same ~180ms constant-time floor as the
+//   username path, and returns only a boolean plus the slug. An earlier
+//   revision avoided the oracle by never checking, and the result was that a
+//   wrong company signed you in; that was rejected. This is the trade Audrey
+//   chose, with the alternative on the table.
+//
+//   🚨 THE USERNAME PATH'S DEFENCE IS UNTOUCHED and must stay that way: one
+//   generic error for every failure, and a fake-email sign-in so an unknown
+//   username takes the same time as a known one. Verifying a COMPANY does not
+//   license leaking anything about a PERSON.
+//
+// ⚠️ Requires the deployed resolve-login to understand `{company}` (contract
+//   v2). Against an older deployment the client degrades to a derived slug and
+//   warns in the console — the gate is not enforced until it is deployed.
 //
 // Security notes:
 //   - The same generic error is used for every failure mode below rate-limiting.
@@ -99,6 +104,32 @@ async function resolveLogin({ username, workspaceSlug }) {
   })
   if (!res.ok) return { exists: false, email: null }
   return res.json()
+}
+
+// Step 1's existence check (Session 43, Audrey: "the system should verify that
+// company exists"). Returns the CANONICAL slug so step 2 matches the workspace
+// exactly, whether the person typed the display name or the slug.
+//
+// `unavailable` is not a refusal. An older deployment of resolve-login answers
+// `{exists:false}` to any body without a username, which looks identical to
+// "no such company" — so the contract version is what separates "this company
+// is not real" from "this function has not been deployed yet". Without that
+// distinction, shipping this client before the function would lock out every
+// user instead of degrading to the previous behaviour.
+async function verifyCompany(company) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON },
+      body: JSON.stringify({ company }),
+    })
+    if (!res.ok) return { unavailable: true }
+    const data = await res.json()
+    if (data?.v !== 2) return { unavailable: true }
+    return { unavailable: false, exists: !!data.exists, slug: data.slug ?? null }
+  } catch {
+    return { unavailable: true }
+  }
 }
 
 async function issueSession(accessToken, workspaceId) {
@@ -217,19 +248,45 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     }
   }, [onAuthenticated])
 
-  // Step 1. Shape check only — no network call. See the header note; this is
-  // the enumeration defence, not an omission.
-  const handleCompanySubmit = useCallback((e) => {
+  // Step 1. Verifies the company exists and captures its CANONICAL slug, so
+  // step 2 can be a real gate rather than a suggestion.
+  const handleCompanySubmit = useCallback(async (e) => {
     e?.preventDefault()
-    const slug = slugifyWorkspace(company)
-    if (!SLUG_RE.test(slug)) {
+    if (busy) return
+    const typed = company.trim()
+    if (typed.length < 2 || typed.length > 80) {
       setError('ENTER YOUR COMPANY.')
       return
     }
+    setBusy(true)
     setError('')
-    setCompanySlug(slug)
-    setStage('auth')
-  }, [company])
+    try {
+      const result = await verifyCompany(typed)
+
+      // Not deployed yet → degrade to the derived slug rather than refusing a
+      // company that is perfectly real. Loud in the console, because in this
+      // state the gate is NOT enforced.
+      if (result.unavailable) {
+        console.warn(
+          '[wilson] company verification unavailable — deploy the resolve-login '
+          + 'Edge Function (supabase functions deploy resolve-login). Falling back '
+          + 'to a derived slug; the company gate is NOT enforced until then.',
+        )
+        setCompanySlug(slugifyWorkspace(typed))
+        setStage('auth')
+        return
+      }
+
+      if (!result.exists || !SLUG_RE.test(result.slug ?? '')) {
+        setError('COMPANY NOT FOUND.')
+        return
+      }
+      setCompanySlug(result.slug)
+      setStage('auth')
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, company])
 
   // Step 2. resolve username (+ company) → email → signInWithPassword →
   // either reveal (1 workspace) or advance to chooser (>1 workspace).
@@ -244,30 +301,24 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     setBusy(true)
     setError('')
     try {
-      // 🚨 SCOPED FIRST, THEN FALL BACK — and the fallback is mandatory, not
-      // belt-and-braces.
+      // 🚨 SCOPED ONLY — NO FALLBACK. This is what makes the company a gate.
       //
-      // resolve-login matches `workspaces.slug` EXACTLY, and a workspace's
-      // slug is independent of its name: the operator console only SEEDS the
-      // slug from the name and leaves it editable, and 0020 makes it immutable
-      // afterwards while the name stays renameable. Measured on wilson-dev
-      // 2026-08-10: FOUR of four live workspaces are unreachable from their
-      // own name — "Petal Studios" is slug `petal`, "Smoke Workspace" is
-      // `smoke`, "Default Workspace" is `default`, "Other Studio" is `other`.
-      // Zero of four.
+      // Audrey, 2026-08-10, after testing a wrong company and being let in:
+      // "the login after the company should only allow users of that company
+      // to login." A retry without the slug would sign in any single-workspace
+      // user regardless of what they typed, which is exactly the behaviour she
+      // rejected. Do not re-add it.
       //
-      // So deriving a slug from the typed company and sending only that turned
-      // a working sign-in into a permanent lockout for every existing user,
-      // behind an error that is deliberately incapable of explaining itself.
-      // Before Session 43 no slug was sent at all and single-workspace users
-      // resolved on username alone; the retry restores exactly that floor.
-      //
-      // It leaks nothing new: the retry fires on ANY miss, so an observer
-      // cannot tell "no such company" from "no such username" — the same
-      // property the single call had.
-      let lookup = await resolveLogin({ username: u, workspaceSlug: companySlug })
-      if (!lookup.exists) lookup = await resolveLogin({ username: u })
-      const { exists, email: resolved } = lookup
+      // This is only safe because step 1 now VERIFIES the company and captures
+      // its canonical slug — `companySlug` is a slug the server returned, not
+      // one derived from what was typed. A slug-shaped guess would refuse
+      // every real company (measured: four of four workspaces on wilson-dev
+      // have a slug no derivation of their name produces — "Petal Studios" is
+      // `petal`). If step 1 ever stops verifying, this line locks everyone out.
+      const { exists, email: resolved } = await resolveLogin({
+        username: u,
+        workspaceSlug: companySlug,
+      })
       // If resolver says "not found", sign in with an unreachable email so the
       // request timing still looks like a real attempt (prevents username
       // enumeration via response time).
@@ -488,8 +539,8 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               />
             </AuthField>
 
-            <button type="submit" style={submitStyle} {...press}>
-              Continue
+            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+              {busy ? 'Checking…' : 'Continue'}
             </button>
           </form>
         )}

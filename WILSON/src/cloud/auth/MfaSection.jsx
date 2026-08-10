@@ -227,12 +227,14 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         disabled={phase === 'verifying' || phase === 'enrolled'}
         className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm"
         style={{
-          // "Authenticate" is one of the two buttons Audrey named: dark orange
-          // fill, no outline, matching AUTH_BUTTON_STYLE exactly so the gate's
-          // primary action and the login screen's are the same control.
-          backgroundColor: '#ea580c',
-          color: dark ? AUTH_INK : '#fff7ed',
+          // "Authenticate" is one of the two buttons Audrey named. Matches
+          // AUTH_BUTTON_STYLE exactly on the auth overlay — #c2410c, white
+          // label, no outline, 6px radius — so the gate's primary action and
+          // the login screen's are visibly the same control.
+          backgroundColor: dark ? '#c2410c' : '#ea580c',
+          color: dark ? '#fff' : '#fff7ed',
           border: dark ? 'none' : '1px solid #c2410c',
+          borderRadius: dark ? '6px' : undefined,
           opacity: phase === 'verifying' || phase === 'enrolled' ? 0.6 : 1,
           cursor: phase === 'verifying' || phase === 'enrolled' ? 'default' : 'pointer',
         }}

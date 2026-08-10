@@ -463,29 +463,34 @@ export const AUTH_INPUT_STYLE = {
 // So: #ea580c fill, no border. One filled shape, the app's own primary orange,
 // against the light-orange well.
 //
-// ⚠️ The LABEL stays AUTH_INK, and that was a measurement rather than a
-// preference. Measured in the running app on #ea580c:
-//     #1c1917  →  4.91:1  passes AA at this size
-//     #ffffff  →  3.56:1  passes only for LARGE text (>=18.66px bold), and
-//                         this label is 12px
-// WILSON's other orange buttons pair with white, but they are not this size.
-// Black also keeps the screen on one ink, which is the whole point of the
-// Session 43 pass. Say the word and it is a one-token swap.
+// Audrey, 2026-08-10: "lets round the corners. lets also make it a different
+// darker orange. not the same as the header and footer."
 //
-// ⚠️ The fill measures 1.73:1 against the well — a filled orange block on an
-// orange page is a weak BOUNDARY even though its label is strong. It reads by
-// hue rather than by luminance. That is a deliberate call by Audrey, recorded
-// here so nobody "fixes" it back to an outline.
+// #c2410c (orange-700) — already in WILSON's palette as the border on the
+// Settings orange buttons, so this is an existing ink at a new job rather than
+// a fourth colour. Clearly separated from the #ea580c bars.
+//
+// Going darker flips the label back to WHITE, and that is a measurement:
+//                     on #ea580c        on #c2410c
+//     #ffffff           3.56:1 ✗          5.18:1 ✓
+//     #1c1917           4.91:1 ✓          3.38:1 ✗
+// The darker fill is the one that carries white, which is also WILSON's
+// house pairing for an orange button everywhere else in the app.
+//
+// It improves the boundary too: 1.73:1 against the well at #ea580c, 2.51:1
+// here. Still under the 3:1 that WCAG 1.4.11 wants for a component edge — a
+// filled orange block on an orange page reads by hue rather than luminance —
+// but the label is strong and the shape is unambiguous.
 export const AUTH_BUTTON_STYLE = {
   ...AUTH_TEXT_STYLE,
   fontSize: '12px',
   fontWeight: 700,
   letterSpacing: '0.18em',
-  background: '#ea580c',
-  color: AUTH_INK,
+  background: '#c2410c',
+  color: '#ffffff',
   border: 'none',
   padding: '12px 38px',
-  borderRadius: '2px',
+  borderRadius: '6px',
   cursor: 'pointer',
 }
 
@@ -502,7 +507,7 @@ export const AUTH_BUTTON_QUIET_STYLE = {
   color: AUTH_INK,
   border: `1px solid ${AUTH_INK}`,
   padding: '7px 16px',
-  borderRadius: '2px',
+  borderRadius: '6px',
   cursor: 'pointer',
 }
 

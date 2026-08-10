@@ -27,7 +27,12 @@ const WELL = '#f4a261'   // light orange — the content area between the bars
 const BARS = '#ea580c'   // dark orange — the panels themselves
 
 function luminance(hex) {
-  const n = hex.replace('#', '')
+  let n = hex.replace('#', '')
+  // Expand #fff → #ffffff. Without this the slices below yield NaN and every
+  // ratio silently becomes NaN, which fails an assertion in a way that looks
+  // like a contrast problem rather than a parsing one. (It did exactly that.)
+  if (n.length === 3) n = n.split('').map((c) => c + c).join('')
+  if (n.length !== 6) throw new Error(`unparseable colour: ${hex}`)
   const parts = [0, 2, 4].map((i) => parseInt(n.slice(i, i + 2), 16) / 255)
   const [r, g, b] = parts.map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4))
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
@@ -61,24 +66,31 @@ describe('the auth ink survives the surface it actually sits on', () => {
     expect(contrast('#ef4444', WELL)).toBeLessThan(3)
   })
 
-  it('the primary button is dark orange with no outline, and its LABEL clears AA', () => {
-    // Audrey, 2026-08-10: "make the buttons for sign in and authenticate be a
-    // dark orange. remove the outline to the button."
+  it('the primary button label clears AA on its own fill', () => {
+    // Audrey, 2026-08-10: "lets round the corners. lets also make it a
+    // different darker orange. not the same as the header and footer."
     //
-    // The label is the part with a threshold to meet. #1c1917 on #ea580c is
-    // 5.90:1; white would be 3.56:1, which only passes for LARGE text and this
-    // label is 12px. Asserting the ratio rather than the hex means a future
-    // change to either the fill or the ink has to stay legible.
-    expect(AUTH_BUTTON_STYLE.background).toBe(BARS)
+    // Asserting the RATIO rather than the hex: whichever fill is chosen, the
+    // label has to survive on it. Going darker is what flipped the label back
+    // to white — see the control below.
     expect(AUTH_BUTTON_STYLE.border).toBe('none')
     expect(contrast(AUTH_BUTTON_STYLE.color, AUTH_BUTTON_STYLE.background))
       .toBeGreaterThanOrEqual(4.5)
   })
 
-  it('white on the button fill would NOT clear AA at this size — the control', () => {
-    // Without this, the assertion above proves nothing about whether the
-    // threshold discriminates on this background.
+  it('the button fill is NOT the bar orange — it must read as a distinct surface', () => {
+    // The literal instruction. #ea580c is the header/footer.
+    expect(AUTH_BUTTON_STYLE.background).not.toBe(BARS)
+    // And it must actually be darker, not merely different.
+    expect(luminance(AUTH_BUTTON_STYLE.background)).toBeLessThan(luminance(BARS))
+  })
+
+  it('the label choice is forced by the fill, not by taste — the control', () => {
+    // On the BAR orange white fails (3.56:1) and black passes; on the darker
+    // button fill it inverts. Pinning both directions means a future fill
+    // change cannot quietly keep a label that no longer works.
     expect(contrast('#ffffff', BARS)).toBeLessThan(4.5)
+    expect(contrast(AUTH_INK, AUTH_BUTTON_STYLE.background)).toBeLessThan(4.5)
   })
 
   it('no auth button is a white block', () => {
