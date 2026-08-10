@@ -52,8 +52,15 @@
 
 import * as tus from 'tus-js-client'
 
-const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
+// 🚨 READ AT CALL TIME, NOT AT IMPORT. A module-level `const X =
+// import.meta.env.Y` freezes the value when the module is first evaluated,
+// which makes it untestable and made this file impossible to cover in CI: the
+// runner has no `.env*` files (they are gitignored), so the constants were
+// undefined the moment the module loaded and every test touching putResumable
+// failed there and only there. Predicted by S42's own pre-deploy review and
+// missed because that finding fell outside the verification budget.
+const supabaseUrl  = () => import.meta.env.VITE_SUPABASE_URL
+const supabaseAnon = () => import.meta.env.VITE_SUPABASE_ANON_KEY
 
 // The ceiling that stood from 0027 until 0057. See the header.
 export const RESUMABLE_THRESHOLD_BYTES = 52_428_800 // 50 MiB
@@ -131,7 +138,8 @@ export function shouldRetryTusError(err) {
 export function putResumable({
   bucket, key, body, accessToken, getAccessToken, contentType, onProgress,
 }) {
-  if (!SUPABASE_URL) {
+  const baseUrl = supabaseUrl()
+  if (!baseUrl) {
     throw new Error('[supabase] resumable upload needs VITE_SUPABASE_URL')
   }
   if (!accessToken) {
@@ -142,11 +150,11 @@ export function putResumable({
 
   return new Promise((resolve, reject) => {
     const upload = new tus.Upload(body, {
-      endpoint: `${SUPABASE_URL}/storage/v1/upload/resumable`,
+      endpoint: `${baseUrl}/storage/v1/upload/resumable`,
       retryDelays: [0, 1000, 3000, 5000, 10000],
       headers: {
         authorization: `Bearer ${accessToken}`,
-        apikey: SUPABASE_ANON,
+        apikey: supabaseAnon(),
         // Defensive rather than load-bearing — see the header: completeUpload
         // upserts either way, and it is the unique key that keeps the INSERT
         // branch (and so the quota policy) in play.

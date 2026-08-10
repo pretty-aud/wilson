@@ -41,7 +41,21 @@ const {
 const MIB = 1024 * 1024
 const blob = (bytes, type = 'video/mp4') => ({ size: bytes, type })
 
-beforeEach(() => { started.length = 0 })
+// 🚨 STUB THE ENV — DO NOT INHERIT IT. Vitest runs in mode 'test', where Vite
+// loads `.env`, `.env.test` and `.env.test.local`; this repo has none of those,
+// so the values these tests need come from a developer's `.env.local` and DO
+// NOT EXIST ON THE RUNNER. MEASURED by hiding the env files and re-running:
+// 11 of 31 tests here fail without them. That is a test suite that passes only
+// on the machine that wrote it, and it turned CI red on 583c57f.
+//
+// Works because resumableUpload.js reads import.meta.env at CALL time rather
+// than freezing it at import — a module-level `const X = import.meta.env.Y`
+// cannot be stubbed after the module loads.
+beforeEach(() => {
+  started.length = 0
+  vi.stubEnv('VITE_SUPABASE_URL', 'https://proj.supabase.co')
+  vi.stubEnv('VITE_SUPABASE_ANON_KEY', 'anon-key-for-tests')
+})
 
 // ═════════════════════════════════════════════════════════════════════════════
 describe('the threshold, and why it is the old cap', () => {
@@ -114,6 +128,17 @@ describe('putResumable', () => {
       bucket: 'rabbit-files', key: 'projects/p/ASSETS/a/1-x.mov',
       body: blob(80 * MIB), accessToken: null,
     })).toThrow(/signed-in session/)
+    expect(started).toHaveLength(0)
+  })
+
+  // ...and the absence of a URL is a clear refusal, not an upload to
+  // "undefined/storage/v1/upload/resumable". This is the case CI was silently
+  // hitting for every test in this file.
+  it('refuses clearly when VITE_SUPABASE_URL is absent', () => {
+    vi.stubEnv('VITE_SUPABASE_URL', '')
+    expect(() => putResumable({
+      bucket: 'rabbit-files', key: 'k', body: blob(80 * MIB), accessToken: 'JWT',
+    })).toThrow(/VITE_SUPABASE_URL/)
     expect(started).toHaveLength(0)
   })
 
