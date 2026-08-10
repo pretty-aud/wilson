@@ -15,9 +15,18 @@
 > **1409 / 58 files**. CI green on `abb7aae`.
 > 🚨 **Read the working tree, never this block and never memory.**
 >
-> ⚠️ **S43 should need NO migration and NO new pgTAP suite.** If you find
-> yourself writing SQL, stop and re-read the rule above — you have almost
-> certainly found a behaviour change wearing a design costume.
+> ⚠️ **EVERY ITEM EXCEPT A5 SHOULD NEED NO MIGRATION AND NO NEW pgTAP SUITE.**
+> If you find yourself writing SQL for A1, A2, A3, A4, A6, A7, A8 or any of
+> Phase B, stop and re-read the rule above — you have almost certainly found a
+> behaviour change wearing a design costume.
+>
+> 🚨 **A5 IS THE EXCEPTION AND IT IS A REAL ONE.** Audrey's invite-only
+> requirement turns out to sit on top of a **public, anon-callable
+> company-creation endpoint** (see A5). Closing that is a security fix, not
+> polish, and depending on how the invite is issued it may need a
+> `platform_audit` CHECK widening — i.e. a migration. **A5 may be too big for
+> this session. It is scoped so it can be lifted out cleanly: do A1–A4 and
+> A6–A8, ship the checkpoint, and give A5 its own session if it does not fit.**
 
 ---
 
@@ -230,29 +239,93 @@ drops them.** They are `AuthShell`'s job, and `AuthShell` should stay the only
 thing that draws them. If a screen needs different spacing, change
 `SPLIT_BAR_HEIGHT`; do not add a second set of bars in a child.
 
-## A5 — Remove the "new company" button
+## A5 — Invite-only company onboarding
 
-Audrey:
+Audrey, 2026-08-10:
 
 > *"lets remove the new company button. right now, any one can login and create
-> their own company. it needs to be invite only for now. so i should create
-> their company for them and share with the company the login information for
-> team members. this is only for onboarding a new company."*
+> their own company. it needs to be invite only for now."*
 
-**This is the one behaviour change in the session, and it is a removal.**
+...and, refining it:
 
-- `LoginScreen` takes an `onCreateCompany` prop. Remove the affordance.
-- 🚨 **DO NOT DELETE `NewCompanyWizard.jsx`.** Audrey still creates companies —
-  the flow must stay reachable *for her*, just not from a public sign-in screen.
-  **Decide where it lives and confirm with her**: the platform-operator console
-  (`src/admin/`) is the natural home, since that is already operator-gated and
-  is where storage plans and companies are managed.
-- ⚠️ **Check for a route as well as a button.** If the wizard is reachable by
-  URL, removing the button hides it without closing it — and a self-serve
-  company creation path that is merely unlinked is not "invite only". Grep for
-  every entry point before calling this done.
-- ⚠️ **`NewCompanyWizard` is one of the four `AuthCursor` call sites (A6).** If
-  it moves behind the operator console it still needs the same treatment.
+> *"lets make it that the operator and wilson overall admin can send this as a
+> link for when they establish a new company in the operator console for the new
+> company to set up their workspace."*
+
+> 🚨 **THIS ITEM IS NOT DESIGN POLISH AND MUST NOT BE TREATED AS SUCH.** It is a
+> security fix plus a flow change. It is written here because it belongs to the
+> same screens, but it has its own risk profile, its own tests, and possibly its
+> own migration. **If it cannot be done properly inside S43, do A1–A4 and A6–A8,
+> ship the checkpoint, and give this its own session.** Half-closing it is worse
+> than leaving it: a hole everyone believes is shut gets no further attention.
+
+### 🚨 The finding that changes the shape of this
+
+**REMOVING THE BUTTON DOES NOT CLOSE SELF-SERVE COMPANY CREATION.**
+
+`supabase/functions/provision-workspace/index.ts` describes itself, in its own
+header, as **"Self-serve company onboarding"** and **"Public endpoint.
+Rate-limited aggressively (3/h/IP)"**. It creates a `workspaces` row, an
+`auth.users` row and an admin `workspace_members` row.
+
+**It is callable by anyone with the anon key, which the web app ships.** So
+today the button is a convenience, not the gate — and after S43 removes the
+button, anybody who has ever opened devtools on the beta can still create a
+company three times an hour. **The measured caller list is exactly three lines,
+all in the file being removed from the login flow** (`NewCompanyWizard.jsx:5,
+38, 69), which is what makes closing it tractable.
+
+### The good news: almost all the plumbing already exists
+
+| Need | Already built |
+|---|---|
+| Operator creates a company | **`operator-workspaces` has a `create` action** (`:430`), behind `requirePlatformOperator`, writing `workspace.created` to `platform_audit` |
+| Emailed invite link | **`invite-member` uses `admin.inviteUserByEmail`**, minting a Supabase invite token and sending the `invite.html` template |
+| The app handling that link | **`recoveryLink.js` already parses `type=invite`** — and carries a hard-won fix for invites specifically, where the parser returned null and told the invitee *"This link has already been used, or it has expired."* |
+
+**So the flow Audrey describes is mostly assembly, not invention:** the operator
+creates the company in the console, the first admin is invited by email, they
+click the link and set their own password.
+
+⚠️ **That is also a BETTER security posture than the original plan.** Her first
+message said she would *"share with the company the login information"* — this
+version means Petal never knows the customer's password, and the credential is
+never sent over chat or email. Worth saying out loud so the change is understood
+as an improvement rather than extra work.
+
+### What S43 must decide, and what it must not guess
+
+1. **`provision-workspace`: gate it or delete it?** Once nothing calls it,
+   deleting is cleanest and leaves no dormant public endpoint. Gating it behind
+   `requirePlatformOperator` keeps a path that `operator-workspaces.create`
+   already covers. **Confirm nothing else calls it** — measured today as three
+   lines in one file — then recommend deletion to Audrey and let her choose.
+2. **Who sends the invite?** `invite-member` resolves the caller from **token
+   claims plus a LIVE `workspace_members` row plus MFA step-up**. An operator
+   creating a brand-new company **has no membership in it**, so that function
+   cannot serve this as written. Either `operator-workspaces` gains an
+   `invite_admin` action, or `create` mints the invite itself.
+   🚨 **A new `platform_audit` action value means widening its CHECK, which is a
+   MIGRATION** (the 0028 → 0031 → 0055 chain). If it comes to that, S43 has left
+   design-polish territory — say so and re-scope rather than quietly writing SQL.
+3. **What happens to `NewCompanyWizard`?** Its unique job was letting the
+   *company* choose its own name, slug and admin credentials. Under the new flow
+   the operator names the company and Supabase handles the credential, so most
+   of the wizard has no work left. **Do not delete it reflexively and do not
+   keep it reflexively** — establish what remains (workspace display name?
+   branding? nothing?) and act on that.
+4. ⚠️ **Check for a ROUTE, not just a button.** A self-serve path that is merely
+   unlinked is not "invite only".
+
+⚠️ **`NewCompanyWizard` is three of the four `AuthCursor` call sites (A6).** If
+it survives in any form it still needs that treatment.
+
+⚠️ **`wilson overall admin` needs pinning down.** WILSON has *platform
+operators* (`is_platform_operator`, the `src/admin/` console) and *workspace
+admins* (`app_role = 'admin'`, the in-app Admin Terminal). Creating a company is
+a platform-operator act — a workspace admin creating other companies would be a
+privilege escalation. **Confirm with Audrey that she means the operator console,
+and do not widen this to workspace admins on an assumption.**
 
 ## A6 — The blinking lines on onboarding
 
@@ -465,7 +538,10 @@ and the existing `App.jsx` curve for anything page-level. Nothing new invented.
 
 Stated once, and it governs every line above:
 
-- **No migration. No schema change. No new pgTAP suite.**
+- **No migration. No schema change. No new pgTAP suite** — **except A5**, whose
+  scope is stated in its own section and whose SQL, if any, is confined to
+  widening the `platform_audit` action CHECK. Nothing else in this session has
+  any business touching the database.
 - **No table columns added, removed or renamed.** No sort order, no filter
   semantics, no pagination behaviour.
 - **No input field added or removed** — except the A1 split, which reorders

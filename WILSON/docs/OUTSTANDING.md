@@ -46,6 +46,35 @@ RLS.
 `service_role`. The `anon` key beside it is publishable and needs nothing.
 **Audrey's action.** Never filter that command's output; select the one field.
 
+### Anyone with the anon key can create a company — `provision-workspace` is public
+**MEASURED (2026-08-10, while scoping S43).**
+`supabase/functions/provision-workspace/index.ts` describes itself as
+*"Self-serve company onboarding"* and *"Public endpoint. Rate-limited
+aggressively (3/h/IP)"*. It creates a `workspaces` row, an `auth.users` row and
+an admin `workspace_members` row. **The anon key ships in the web app**, so the
+endpoint is reachable by anyone who has opened devtools on the beta: three new
+companies per hour per IP, each with a real admin account.
+
+Audrey, 2026-08-10: *"right now, any one can login and create their own company.
+it needs to be invite only for now."* — **she is describing this, and the button
+is not the gate.** The login-screen affordance is scheduled for removal in S43,
+and removing it changes nothing about the endpoint.
+
+Live on dev, staging **and prod**. Not introduced by any recent session — it has
+been public since Session 2, when it was written for a product that intended
+self-serve signup.
+
+⚠️ **Bounded, but not by much.** Rate limiting is in-memory and per instance
+(*"resets on cold start"*, its own comment), so the 3/h ceiling is softer than it
+reads. There is no email verification on the created admin — the header says the
+address is *"email confirmed inline because Session 2 has no email infra yet"*.
+
+→ **Measured caller list is three lines in one file** — `NewCompanyWizard.jsx:5,
+38, 69 — and `operator-workspaces` already has an operator-gated `create` action
+that supersedes it. So the fix is small: gate it behind
+`requirePlatformOperator`, or delete it once nothing calls it. **Scoped in
+`SESSION_43_prompt.md` §A5, and flagged there as NOT design polish.**
+
 ---
 
 ## Broken features
