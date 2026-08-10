@@ -268,8 +268,27 @@ code, so a stray debug border costs more than it saves.
   bucket with `INSERT ... ON CONFLICT DO UPDATE SET file_size_limit` and the
   value 52428800, so replaying it silently RESETS the cap from 50 GiB to 50 MB —
   green migration, no error, and multi-GB cloud storage quietly stops working.
+- 🚨 **TWO WAYS CI FAILS WHILE EVERY LOCAL CHECK IS GREEN. S42 hit BOTH, in
+  consecutive pushes, and neither was visible to any command run locally.**
+  - **The local npm is a major version ahead of the runner's.** This machine has
+    npm 11 (Node 24); CI uses npm 10 (Node 20). npm 11 omits an *optional*
+    transitive dependency from the lockfile that npm 10 considers mandatory, so
+    `npm install` here can produce a lockfile that fails `npm ci` there with
+    `EUSAGE ... Missing: <pkg> from lock file`. `npm ci` locally PASSES — twice,
+    including a genuine clean install — because it is the same npm that wrote
+    it. **After any dependency change, verify with `npx --yes npm@10 ci`.**
+  - **Vitest runs in mode `test`, and this repo has no `.env`, `.env.test` or
+    `.env.test.local`.** Anything reading `import.meta.env.VITE_*` gets its
+    value from a developer's gitignored `.env.local` and gets NOTHING on the
+    runner. **A module-level `const X = import.meta.env.Y` cannot be stubbed
+    after import** — read env at call time, and stub it in the test rather than
+    inheriting it. To reproduce CI: hide `.env.development`, `.env.local` and
+    `.env.staging`, then run the suite.
 - **`node scripts/tap-all.mjs` runs the WHOLE pgTAP set** in one command.
-  `collected` MUST equal `planned`.
+  `collected` MUST equal `planned`. ⚠️ It runs against the LINKED project, so
+  running it against **staging** rather than dev is what surfaced suite 35's
+  unscoped counts (see `OUTSTANDING.md`) — dev is the environment least likely
+  to show a decay-with-use defect, because nothing has used it.
 - **`scripts/tap-hosted.py` can run an UNAPPLIED migration together with its
   suite** in one rolled-back transaction — pass the migration first, then the
   suite. The shim has NO `has_index`, `col_type_is`, `col_default_is`,
