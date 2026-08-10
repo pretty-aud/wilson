@@ -1018,6 +1018,43 @@ close the quota entry above — one design serves both), or an explicit statemen
 in the TPN pack that partial-upload disposal is the platform's control and not
 ours. **Audrey's call which.** Not scheduled.
 
+### pgTAP suite 35 cannot pass on staging or prod — its counts are unscoped
+
+**MEASURED (S42, 2026-08-10).** `node scripts/tap-all.mjs` is 66/66 clean
+against **dev** and **65/66 against staging**, failing two assertions in
+`35_platform_audit.sql`:
+
+```
+#17 an operator reads platform_audit across every workspace  [have: 5  want: 2]
+#19 an operator can list the operator roster                 [have: 2  want: 1]
+```
+
+Both are **unscoped counts that add real rows to the suite's own fixtures**.
+Staging holds 3 `platform_audit` rows and 1 `platform_operators` row, all dated
+**2026-07-31** — so 3 + 2 fixtures = 5, and 1 + 1 = 2. Nothing about it is new:
+it would have failed identically before S42, and `storage_plan.*` actions on
+staging are **0**, so none of it came from S41 or S42.
+
+It passes on dev only because dev has never had real operator activity. That
+makes it a **latent** failure that appears the first time anyone runs the full
+set against an environment in use — which is exactly what S42 did, and why it
+was found now rather than by reading.
+
+🚨 **This is the class 0055's header names in so many words** — *"Postgres-side
+reads are ALWAYS scoped to the fixture workspaces — dev carries real rows and an
+unscoped count decays the day the feature is used"* — and suite 35 predates the
+rule. Suites 56/57 had the same defect and were fixed in S33 (`439f702`).
+
+⚠️ **The cost is not the two assertions, it is the discipline.** The standing
+rule is "run the whole pgTAP set before pushing a migration", and a set that can
+never be clean on the environment the beta actually runs against trains people to
+read a red result as normal.
+
+→ Scope both probes to the fixture operator and fixture workspaces, exactly as
+S33 did for 56/57. Small and self-contained. **Deliberately not done in S42** —
+it is an unrelated suite and editing it mid-deploy is how a session breaks
+something it was not looking at.
+
 ### `too_large` points at the desktop app, which shares the same ceiling
 
 **MEASURED (S42 review, low).** The over-cap message says *"Add it from the
