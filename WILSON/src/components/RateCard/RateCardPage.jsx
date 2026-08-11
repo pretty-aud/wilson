@@ -73,15 +73,33 @@ export default function RateCardPage() {
   const activeCard = rateCards.find(c => c.id === activeRateCardId) || null
   const activeType = activeCard?.type || 'general'
 
+  // ─── Who belongs on the INTERNAL card ───
+  // Audrey, 2026-08-11: "the internal fulltime members are the only ones that
+  // should populate the internal rate card … for some projects a company may
+  // hire freelancers, for them the external rate card uses industry standard
+  // rates. the internal rate card is based on the salaries of the internal
+  // team members."
+  //
+  // So this is not a display filter — the two cards hold different KINDS of
+  // number, and a freelancer on the internal card would invite someone to
+  // enter a day rate where a salary-derived wage belongs.
+  const internalMembers = useMemo(
+    () => (teamMembers || []).filter(m => m.is_full_time),
+    [teamMembers],
+  )
+
   // ─── Team stats for internal tab ───
+  // Counts the internal population, not the whole roster: the "unrated" badge
+  // exists to say "someone on this card still has no wage", and freelancers
+  // are not on this card at all.
   const teamStats = useMemo(() => {
-    if (!teamMembers?.length) return { total: 0, rated: 0, unrated: 0 }
+    if (!internalMembers.length) return { total: 0, rated: 0, unrated: 0 }
     const entryMemberIds = new Set(
       entries.filter(e => e.member_id && e.wage != null).map(e => e.member_id)
     )
-    const rated = teamMembers.filter(m => entryMemberIds.has(m.id)).length
-    return { total: teamMembers.length, rated, unrated: teamMembers.length - rated }
-  }, [teamMembers, entries])
+    const rated = internalMembers.filter(m => entryMemberIds.has(m.id)).length
+    return { total: internalMembers.length, rated, unrated: internalMembers.length - rated }
+  }, [internalMembers, entries])
 
   // ─── Importer state ───
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -436,7 +454,9 @@ export default function RateCardPage() {
               entries={entries}
               deptDefaults={deptDefaults}
               cardType={activeType}
-              teamMembers={teamMembers}
+              // Internal = salaried staff only. The general card never merges
+              // the roster, so passing the full list there is inert.
+              teamMembers={activeType === 'internal' ? internalMembers : teamMembers}
               loading={loading}
               addEntry={addEntry}
               updateEntry={updateEntry}

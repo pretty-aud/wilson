@@ -389,6 +389,7 @@ export default function TeamMembersPage() {
                 <ThLight>Title</ThLight>
                 <ThLight>Department</ThLight>
                 <ThLight>Pronouns</ThLight>
+                <ThLight>Full-time</ThLight>
                 <ThLight>Role</ThLight>
                 {showEmail && <ThLight>Email</ThLight>}
                 {showStatus && <ThLight>Status</ThLight>}
@@ -573,6 +574,29 @@ function MemberRow({
       </TdLight>
       <TdLight>
         <ReadCell value={member.pronouns} />
+      </TdLight>
+      {/* Salaried staff or hired in (0059). Admin-only, and enforced DB-side
+          by fn_ws_members_prevent_self_role_change — a member who could set
+          this would choose which cost model they are billed under. The gate
+          here is presentation; the trigger is the control. */}
+      <TdLight>
+        <PermissionGate
+          requires="member.role.change"
+          fallback={(
+            <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
+              {member.is_full_time ? 'Yes' : 'No'}
+            </span>
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={!!member.is_full_time}
+            onChange={(e) => onUpdate({ is_full_time: e.target.checked })}
+            aria-label={`${member.display_name || member.username} is full-time staff`}
+            title="Full-time staff populate the internal rate card"
+            style={{ accentColor: '#c2410c', width: '14px', height: '14px', cursor: 'pointer' }}
+          />
+        </PermissionGate>
       </TdLight>
       <TdLight>
         {roleEditable ? (

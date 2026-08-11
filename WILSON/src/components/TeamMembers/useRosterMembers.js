@@ -54,6 +54,18 @@ export function useRosterMembers() {
           avatar_url: m.avatar_url || null,
           location:   null,
           is_active:  !!m.is_active,
+          // Session 43 (0059): salaried staff vs hired-in. Only full-time
+          // members populate the INTERNAL rate card, which is derived from
+          // salaries; everyone else is priced from the general card at
+          // industry-standard rates.
+          //
+          // 🚨 `!== false`, NOT `!!`. Until 0059 is applied the column does
+          // not exist, workspace_directory() cannot return it, and every row
+          // arrives `undefined` — with `!!` that is FALSE for everyone and the
+          // internal card silently empties. Undefined means "not yet
+          // deployed", so include; an explicit false means "hired in", so
+          // exclude. The filter only starts biting once the column is real.
+          is_full_time: m.is_full_time !== false,
         }))
     }
     if (mode === 'local_server') {
@@ -66,6 +78,11 @@ export function useRosterMembers() {
         avatar_url: m.profile_picture_url || null,
         location:   m.location || '',
         is_active:  true,
+        // Local rosters predate the flag and have no way to set it, so they
+        // default to INCLUDED — otherwise adding 0059 would silently empty
+        // the internal card on every desktop install. `!== false` rather than
+        // `!!` so an explicit false still counts.
+        is_full_time: m.is_full_time !== false,
       }))
     }
     // google_drive — read-only, no roster.
