@@ -24,6 +24,7 @@
 import { useRef, useState } from 'react'
 import { Trash2, Loader2, Check, AlertTriangle } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
+import { LIGHT_INK } from '../lightSurface' // §B — light page
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -86,7 +87,7 @@ export default function StorageCleanupCard() {
         trash, plus orphaned objects older than 24 hours and replaced-avatar
         leftovers — this workspace only.
       </p>
-      <p className="text-[10px] mb-4" style={{ color: '#78716c' }}>
+      <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
         Files still in the trash are never touched — restore keeps working
         for the full 30 days. Each run's counts land in Logs as WIL-3003
         (WIL-3004 if it fails part-way); per-blob records go to the

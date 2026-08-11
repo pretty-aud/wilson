@@ -53,6 +53,7 @@ import { canonicalizeRoot, classifyRoot } from '../../lib/storageRoot'
 // as a literal so this section and the registry cannot drift apart — the
 // vocabulary has exactly one definition on the client.
 import { WORKSPACE_PROVIDERS } from '../../tools/rabbit_v0.1.0/storage'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface' // §B — light page
 
 const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
@@ -587,7 +588,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       <h2 className="text-sm font-bold uppercase tracking-widest mb-1" style={{ color: '#1c1917' }}>
         Storage
       </h2>
-      <p className="text-xs leading-relaxed mb-4" style={{ color: '#57534e' }}>
+      <p className="text-xs leading-relaxed mb-4" style={{ color: LIGHT_INK }}>
         Where this company&rsquo;s media lives. Only workspace admins can
         change these settings.
       </p>
@@ -607,7 +608,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
       {/* ── Mode ─────────────────────────────────────────────────────── */}
       <div className="p-4 rounded-sm mb-3" style={cardStyle}>
-        <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#57534e' }}>
+        <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: LIGHT_INK }}>
           Storage mode
         </h3>
         <div className="flex flex-col gap-2">
@@ -625,12 +626,12 @@ export default function StorageSection({ isActive, workspaceId }) {
                   ? { backgroundColor: 'rgba(234, 88, 12, 0.10)', border: '1px solid #ea580c' }
                   : { backgroundColor: 'transparent', border: '1px solid rgba(120, 70, 30, 0.3)' }}
               >
-                <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : '#78716c' }} />
+                <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
                 <span className="flex flex-col gap-0.5">
                   <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                     {m.label}
                   </span>
-                  <span className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                  <span className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
                     {m.blurb}
                   </span>
                 </span>
@@ -655,12 +656,12 @@ export default function StorageSection({ isActive, workspaceId }) {
           means the mode is UNKNOWN, and the red banner above already says so. */}
       {mode === 'central' && !loadError && (
         <div className="p-4 rounded-sm mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#57534e' }}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: LIGHT_INK }}>
             Petal cloud plan
           </h3>
 
           {usagePhase === 'loading' && (
-            <p className="text-[11px] leading-relaxed" style={{ color: '#78716c' }}>
+            <p className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
               Reading how much storage this company is using&hellip;
             </p>
           )}
@@ -686,7 +687,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
           {usagePhase === 'ready' && usage && (
             <>
-              <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#57534e' }}>
+              <p className="text-[11px] leading-relaxed mb-2" style={{ color: LIGHT_INK }}>
                 <span className="font-mono" style={{ color: '#1c1917' }}>
                   {formatBytes(usage.usedBytes)}
                 </span>
@@ -699,7 +700,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                     rabbit-files + rabbit-thumbnails), so saying "files" alone
                     would leave an admin unable to reconcile the number with
                     what the file manager shows. */}
-                <span style={{ color: '#78716c' }}> — files and their previews.</span>
+                <span style={{ color: LIGHT_INK }}> — files and their previews.</span>
               </p>
 
               {/* The bar renders ONLY on a known quota. quotaKnown is false for
@@ -732,12 +733,12 @@ export default function StorageSection({ isActive, workspaceId }) {
                   colour, not a warning: a company on the free tier has done
                   nothing wrong. */}
               {!usage.hasPlan && !suspended && (
-                <p className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                <p className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
                   Free allowance — contact Petal to activate a larger plan.
                 </p>
               )}
               {usage.hasPlan && !suspended && (
-                <p className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                <p className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
                   Plan active — Petal manages this allowance. Contact Petal to
                   change it.
                 </p>
@@ -800,7 +801,7 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Provider picker (byos only, S37) ─────────────────────────── */}
       {mode === 'byos' && (
         <div className="p-4 rounded-sm mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: '#57534e' }}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-2" style={{ color: LIGHT_INK }}>
             What you own
           </h3>
           <div className="flex flex-col gap-2">
@@ -819,12 +820,12 @@ export default function StorageSection({ isActive, workspaceId }) {
                     ? { backgroundColor: 'rgba(234, 88, 12, 0.10)', border: '1px solid #ea580c' }
                     : { backgroundColor: 'transparent', border: '1px solid rgba(120, 70, 30, 0.3)' }}
                 >
-                  <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : '#78716c' }} />
+                  <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
                   <span className="flex flex-col gap-0.5">
                     <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                       {p.label}{saved ? ' · saved' : ''}
                     </span>
-                    <span className="text-[11px] leading-relaxed" style={{ color: '#57534e' }}>
+                    <span className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
                       {p.blurb}
                     </span>
                   </span>
@@ -838,10 +839,10 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Root (byos + server/NAS only) ────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.NETWORK && (
         <div className="p-4 rounded-sm mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>
             Storage root
           </h3>
-          <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#57534e' }}>
+          <p className="text-[11px] leading-relaxed mb-2" style={{ color: LIGHT_INK }}>
             The folder everything lives under, as every computer sees it —
             <span className="font-mono"> \\server\share\Projects</span>. Current:{' '}
             <span className="font-mono" style={{ color: '#1c1917' }}>
@@ -904,7 +905,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </div>
 
           {!bridge && (
-            <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#78716c' }}>
+            <p className="text-[11px] leading-relaxed mb-2" style={{ color: LIGHT_INK }}>
               Reachability can&rsquo;t be checked from a browser — the path is
               verified on each desktop when it connects. If the path is a
               mapped drive letter (<span className="font-mono">Z:\...</span>),
@@ -947,7 +948,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                 </button>
                 <button type="button" onClick={resetRootFlow}
                         className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
-                        style={{ color: '#57534e' }}>
+                        style={{ color: LIGHT_INK }}>
                   Cancel
                 </button>
               </div>
@@ -965,7 +966,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                 </button>
                 <button type="button" onClick={resetRootFlow}
                         className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
-                        style={{ color: '#57534e' }}>
+                        style={{ color: LIGHT_INK }}>
                   Cancel
                 </button>
               </div>
@@ -977,10 +978,10 @@ export default function StorageSection({ isActive, workspaceId }) {
       {/* ── Bucket (byos + S3 only, S37) ──────────────────────────────── */}
       {mode === 'byos' && byosProvider === WORKSPACE_PROVIDERS.S3 && (
         <div className="p-4 rounded-sm mb-3" style={cardStyle}>
-          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+          <h3 className="text-[11px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>
             Bucket
           </h3>
-          <p className="text-[11px] leading-relaxed mb-2" style={{ color: '#57534e' }}>
+          <p className="text-[11px] leading-relaxed mb-2" style={{ color: LIGHT_INK }}>
             Your S3-compatible bucket. Works from the browser and the desktop
             alike — both need the bucket&rsquo;s one-time CORS rule (the Test
             below checks it, and the setup guide has the JSON to paste).
@@ -1027,7 +1028,7 @@ export default function StorageSection({ isActive, workspaceId }) {
 
           <div className="flex flex-col gap-2 mb-2">
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>
                 Endpoint <span className="font-normal normal-case">(empty = AWS S3)</span>
               </span>
               <input type="text" value={s3Draft.endpoint}
@@ -1039,7 +1040,7 @@ export default function StorageSection({ isActive, workspaceId }) {
             </label>
             <div className="flex gap-2 flex-wrap">
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Region</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>Region</span>
                 <input type="text" value={s3Draft.region}
                        onChange={e => setS3Draft(d => ({ ...d, region: e.target.value }))}
                        placeholder="us-east-1 · us-west-004 · auto"
@@ -1048,7 +1049,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        style={lightInputStyle} />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Bucket</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>Bucket</span>
                 <input type="text" value={s3Draft.bucket}
                        onChange={e => setS3Draft(d => ({ ...d, bucket: e.target.value }))}
                        placeholder="studio-media"
@@ -1057,7 +1058,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        style={lightInputStyle} />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
-                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>
+                <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>
                   Prefix <span className="font-normal normal-case">(optional folder inside the bucket)</span>
                 </span>
                 <input type="text" value={s3Draft.prefix}
@@ -1069,7 +1070,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               </label>
             </div>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>Access key ID</span>
+              <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>Access key ID</span>
               <input type="text" value={s3Draft.accessKeyId}
                      onChange={e => setS3Draft(d => ({ ...d, accessKeyId: e.target.value }))}
                      placeholder="AKIA…"
@@ -1077,7 +1078,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
                      style={lightInputStyle} />
             </label>
-            <label className="flex items-center gap-2 text-[11px]" style={{ color: '#57534e' }}>
+            <label className="flex items-center gap-2 text-[11px]" style={{ color: LIGHT_INK }}>
               <input type="checkbox" checked={s3Draft.forcePathStyle}
                      onChange={e => setS3Draft(d => ({ ...d, forcePathStyle: e.target.checked }))}
                      disabled={saving || testing || !!loadError} />
@@ -1097,7 +1098,7 @@ export default function StorageSection({ isActive, workspaceId }) {
           </div>
 
           <div className="pt-2 mb-2" style={{ borderTop: '1px solid rgba(120, 70, 30, 0.3)' }}>
-            <p className="text-[11px] leading-relaxed mb-1" style={{ color: '#57534e' }}>
+            <p className="text-[11px] leading-relaxed mb-1" style={{ color: LIGHT_INK }}>
               Access key secret — stored encrypted; WILSON only ever shows its
               last characters.{' '}
               {/* Three states, never two: a failed check must not assert
@@ -1145,7 +1146,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                       className={darkBtnClass} style={darkBtnStyle}>
                 {testing ? 'Testing…' : 'Test connection'}
               </button>
-              <span className="text-[11px]" style={{ color: '#78716c' }}>
+              <span className="text-[11px]" style={{ color: LIGHT_INK }}>
                 A real round trip: the server writes, reads and deletes a probe
                 object, then this app repeats it — the second half is what
                 catches a missing CORS rule.

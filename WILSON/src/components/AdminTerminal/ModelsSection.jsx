@@ -48,6 +48,7 @@ import {
   loadApprovedModels, cachedApprovedModels,
   setWorkspaceModelOverride, loadModelSources,
 } from '../../lib/modelSources'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 export default function ModelsSection({ isActive }) {
   const [models, setModels] = useState(() => cachedApprovedModels())
@@ -110,7 +111,7 @@ export default function ModelsSection({ isActive }) {
           <h2 className="text-sm font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
             AI models
           </h2>
-          <p className="text-xs leading-relaxed" style={{ color: '#57534e' }}>
+          <p className="text-xs leading-relaxed" style={{ color: LIGHT_INK }}>
             Which model each function uses for everyone in this company.
             Individuals can still choose their own in SYSTEM SETTINGS.
           </p>
@@ -132,14 +133,14 @@ export default function ModelsSection({ isActive }) {
       )}
 
       {models.length === 0 && !loading && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: LIGHT_INK }}>
           No models have been approved for your account yet, so there is nothing
           to choose from. Every function still runs on its default. Ask your
           WILSON operator to approve one.
         </p>
       )}
 
-      <p className="text-[11px] mb-4" style={{ color: '#78716c' }}>
+      <p className="text-[11px] mb-4" style={{ color: LIGHT_INK }}>
         {overriddenCount === 0
           ? 'Nothing overridden — every function follows the platform default.'
           : `${overriddenCount} of ${REGISTRY.length} functions overridden by this company.`}
@@ -147,7 +148,7 @@ export default function ModelsSection({ isActive }) {
 
       {[...registryByTool().entries()].map(([tool, entries]) => (
         <div key={tool} className="mb-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>{tool}</div>
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>{tool}</div>
           <div className="rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
             {entries.map((entry, i) => {
               const chosen = overrides[entry.key] ?? ''
@@ -169,7 +170,7 @@ export default function ModelsSection({ isActive }) {
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>
                       <div className="text-[11px]" style={{ color: '#1c1917' }}>{entry.label}</div>
-                      <div className="text-[10px]" style={{ color: '#78716c' }}>
+                      <div className="text-[10px]" style={{ color: LIGHT_INK }}>
                         {chosen
                           ? `using ${labelFor(chosen)} — set by this company`
                           : `using ${labelFor(inherited)} — ${inheritedFrom}`}

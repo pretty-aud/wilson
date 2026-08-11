@@ -27,6 +27,13 @@ import { adminResetPassword, adminSetActive, adminUserSecurity } from '../../clo
 import CreateUserDialog from './CreateUserDialog'
 import MultiInviteDialog from './MultiInviteDialog'
 import CredentialsPopup from './CredentialsPopup'
+// Session 43 §B — this section renders on the Admin Terminal, which is a LIGHT
+// page (#f4a261). The greys inside the DISABLE-USER MODAL below are left alone
+// on purpose: that modal paints #1c1917, where a grey is correct.
+import {
+  LIGHT_INK, LIGHT_RULE, LIGHT_WELL,
+  LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW, LIGHT_TABLE_HEAD_CELL,
+} from '../lightSurface'
 
 const ROLE_LABELS = { admin: 'Admin', manager: 'Manager', user: 'User' }
 
@@ -144,7 +151,7 @@ export default function UsersSection({ wm }) {
         {/* Toolbar */}
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <div className="flex items-center gap-1 flex-1 max-w-xs">
-            <Search className="w-3 h-3" style={{ color: '#78716c' }} />
+            <Search className="w-3 h-3" style={{ color: LIGHT_INK }} />
             <input
               type="text"
               value={search}
@@ -154,7 +161,7 @@ export default function UsersSection({ wm }) {
               style={lightInputStyle}
             />
             {search && (
-              <button type="button" onClick={() => setSearch('')} className="p-0.5" style={{ color: '#78716c' }}>
+              <button type="button" onClick={() => setSearch('')} className="p-0.5" style={{ color: LIGHT_INK }}>
                 <X className="w-3 h-3" />
               </button>
             )}
@@ -168,7 +175,7 @@ export default function UsersSection({ wm }) {
                 className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                 style={statusFilter === f.key
                   ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                  : { backgroundColor: 'transparent', color: '#57534e' }}
+                  : { backgroundColor: 'transparent', color: LIGHT_INK }}
               >
                 {f.label}
               </button>
@@ -219,20 +226,20 @@ export default function UsersSection({ wm }) {
         {/* Table */}
         {(wm.loading || !wm.ready) && !wm.members.length ? (
           <div className="flex items-center justify-center py-20">
-            <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>Loading...</span>
+            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>Loading...</span>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3">
-            <Users className="w-8 h-8" style={{ color: '#a8a29e' }} />
-            <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>
+            <Users className="w-8 h-8" style={{ color: LIGHT_INK }} />
+            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
               {wm.members.length === 0 ? 'No members yet. Add your first teammate.' : 'No matches.'}
             </span>
           </div>
         ) : (
-          <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1' }}>
+          <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: `1px solid ${LIGHT_RULE}` }}>
             <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
               <thead>
-                <tr style={{ backgroundColor: '#e7e5e4' }}>
+                <tr style={LIGHT_TABLE_HEAD_ROW}>
                   <ThLight>Member</ThLight>
                   <ThLight>Username</ThLight>
                   <ThLight>Role</ThLight>
@@ -248,7 +255,7 @@ export default function UsersSection({ wm }) {
                     onClick={() => setSelectedId(m.user_id)}
                     className="cursor-pointer transition-colors"
                     style={{
-                      borderBottom: '1px solid #e7e5e4',
+                      borderBottom: `1px solid ${LIGHT_RULE}`,
                       opacity: m.is_active ? 1 : 0.55,
                       backgroundColor: selectedId === m.user_id ? 'rgba(234, 88, 12, 0.10)' : 'transparent',
                     }}
@@ -267,7 +274,7 @@ export default function UsersSection({ wm }) {
                       </div>
                     </TdLight>
                     <TdLight>
-                      <span className="text-xs font-mono" style={{ color: '#57534e' }}>{m.username}</span>
+                      <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{m.username}</span>
                     </TdLight>
                     <TdLight>
                       <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
@@ -281,7 +288,7 @@ export default function UsersSection({ wm }) {
                       <StatusDot active={!!m.is_active} />
                     </TdLight>
                     <TdLight>
-                      <span className="text-xs font-mono" style={{ color: '#57534e' }}>{fmtDate(m.created_at)}</span>
+                      <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{fmtDate(m.created_at)}</span>
                     </TdLight>
                   </tr>
                 ))}
@@ -397,16 +404,16 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
       className="flex-shrink-0 ml-4 pl-4 overflow-y-auto wilson-light-scroll transition-all duration-200"
       style={{
         width: '360px',
-        borderLeft: '1px solid #d6d3d1',
+        borderLeft: `1px solid ${LIGHT_RULE}`,
         transform: entered ? 'translateX(0)' : 'translateX(24px)',
         opacity: entered ? 1 : 0,
       }}
     >
       <div className="flex items-start justify-between mb-4">
-        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#78716c' }}>
+        <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: LIGHT_INK }}>
           Member detail
         </span>
-        <button type="button" onClick={onClose} className="p-1 rounded-sm hover:bg-stone-200 transition-colors" style={{ color: '#57534e' }} title="Close (Esc)">
+        <button type="button" onClick={onClose} className="p-1 rounded-sm hover:bg-stone-200 transition-colors" style={{ color: LIGHT_INK }} title="Close (Esc)">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -424,13 +431,13 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
               </span>
             )}
           </div>
-          <div className="text-xs font-mono truncate" style={{ color: '#57534e' }}>@{member.username}</div>
+          <div className="text-xs font-mono truncate" style={{ color: LIGHT_INK }}>@{member.username}</div>
         </div>
       </div>
-      <div className="text-xs font-mono mb-1" style={{ color: '#57534e' }}>
+      <div className="text-xs font-mono mb-1" style={{ color: LIGHT_INK }}>
         {[member.title, member.department].filter(Boolean).join(' · ') || '--'}
       </div>
-      <div className="text-[11px] font-mono mb-5" style={{ color: '#78716c' }}>
+      <div className="text-[11px] font-mono mb-5" style={{ color: LIGHT_INK }}>
         Joined {fmtDate(member.created_at)}
       </div>
 
@@ -447,7 +454,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
             value={member.app_role}
             onChange={(e) => wm.setRole(member.user_id, e.target.value).catch(() => {})}
             className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-            style={{ backgroundColor: 'transparent', color: '#1c1917', border: '1px solid #d6d3d1' }}
+            style={{ backgroundColor: 'transparent', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
           >
             <option value="user">User</option>
             <option value="manager">Manager</option>
@@ -456,7 +463,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
         )}
       </div>
       {isSelf && (
-        <div className="text-[10px] mb-3 -mt-2" style={{ color: '#78716c' }}>
+        <div className="text-[10px] mb-3 -mt-2" style={{ color: LIGHT_INK }}>
           Ask another admin to change your role.
         </div>
       )}
@@ -480,7 +487,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
         <GroupLabel>Security</GroupLabel>
       </div>
       {secLoading ? (
-        <div className="flex items-center gap-2 py-2 text-xs font-mono italic" style={{ color: '#78716c' }}>
+        <div className="flex items-center gap-2 py-2 text-xs font-mono italic" style={{ color: LIGHT_INK }}>
           <Loader2 className="w-3 h-3 animate-spin" /> Loading security info...
         </div>
       ) : secError ? (
@@ -492,7 +499,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
           <SecRow label="Email">
             <span className="font-mono break-all">{security.email || '--'}</span>
             {typeof security.email === 'string' && security.email.endsWith('@mail.petalstudios.co') && (
-              <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#78716c' }}>
+              <span className="ml-1.5 text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }}>
                 no real inbox
               </span>
             )}
@@ -505,7 +512,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
               className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
               style={security.mfa_enrolled
                 ? { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#15803d' }
-                : { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#78716c' }}
+                : { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }}
             >
               {security.mfa_enrolled ? `Enrolled (${security.factor_count})` : 'Not enrolled'}
             </span>
@@ -532,7 +539,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
           Danger zone
         </span>
         {isSelf ? (
-          <p className="text-[11px]" style={{ color: '#78716c' }}>
+          <p className="text-[11px]" style={{ color: LIGHT_INK }}>
             You cannot deactivate yourself here.
           </p>
         ) : (
@@ -687,14 +694,14 @@ function MenuItem({ label, hint, onClick }) {
       className="block w-full text-left px-3 py-2 transition-colors hover:bg-stone-800"
     >
       <span className="block text-xs font-mono" style={{ color: '#fde8d0' }}>{label}</span>
-      {hint && <span className="block text-[10px] mt-0.5" style={{ color: '#78716c' }}>{hint}</span>}
+      {hint && <span className="block text-[10px] mt-0.5" style={{ color: LIGHT_INK }}>{hint}</span>}
     </button>
   )
 }
 
 function ThLight({ children }) {
   return (
-    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>
+    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: LIGHT_INK }}>
       {children}
     </th>
   )
@@ -712,7 +719,7 @@ function Avatar({ member, size = 24 }) {
         src={member.avatar_url}
         alt=""
         className="rounded-full object-cover flex-shrink-0"
-        style={{ width: px, height: px, border: '1px solid #d6d3d1' }}
+        style={{ width: px, height: px, border: `1px solid ${LIGHT_RULE}` }}
       />
     )
   }
@@ -732,7 +739,7 @@ function GrantChips({ member }) {
   const view = !!member.grant_rate_card_view
   const edit = !!member.grant_rate_card_edit
   if (!view && !edit) {
-    return <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>--</span>
+    return <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>--</span>
   }
   return (
     <span className="flex items-center gap-1">
@@ -754,14 +761,14 @@ function StatusDot({ active }) {
   return (
     <span className="flex items-center gap-1.5">
       <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: active ? '#22c55e' : '#ef4444' }} />
-      <span className="text-xs font-mono" style={{ color: '#57534e' }}>{active ? 'Active' : 'Deactivated'}</span>
+      <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{active ? 'Active' : 'Deactivated'}</span>
     </span>
   )
 }
 
 function GroupLabel({ children }) {
   return (
-    <span className="block text-[10px] font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: '#78716c', borderBottom: '1px solid #e7e5e4' }}>
+    <span className="block text-[10px] font-bold uppercase tracking-widest mb-2 pb-1" style={{ color: LIGHT_INK, borderBottom: `1px solid ${LIGHT_RULE}` }}>
       {children}
     </span>
   )
@@ -772,7 +779,7 @@ function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
     <div className="flex items-center justify-between mb-2" style={{ opacity: disabled ? 0.7 : 1 }}>
       <span className="text-xs" style={{ color: '#1c1917' }}>
         {label}
-        {note && <span className="ml-1.5 text-[10px]" style={{ color: '#78716c' }}>{note}</span>}
+        {note && <span className="ml-1.5 text-[10px]" style={{ color: LIGHT_INK }}>{note}</span>}
       </span>
       <span className="flex items-center gap-1.5">
         {busy && <Loader2 className="w-3 h-3 animate-spin" style={{ color: '#ea580c' }} />}
@@ -786,7 +793,9 @@ function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
           aria-label={label}
           style={{
             width: '32px', height: '18px', padding: '2px',
-            backgroundColor: on ? '#ea580c' : '#a8a29e',
+            // Off-state track: a tint of the ink rather than stone-400, which
+        // measured 1.4:1 against the page and read as "missing" not "off".
+        backgroundColor: on ? '#ea580c' : 'rgba(28, 25, 23, 0.35)',
             cursor: disabled ? 'default' : 'pointer',
           }}
         >
@@ -806,7 +815,7 @@ function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
 function SecRow({ label, children }) {
   return (
     <div className="flex items-baseline justify-between gap-2 text-xs" style={{ color: '#1c1917' }}>
-      <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: '#78716c' }}>{label}</span>
+      <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: LIGHT_INK }}>{label}</span>
       <span className="text-right min-w-0">{children}</span>
     </div>
   )

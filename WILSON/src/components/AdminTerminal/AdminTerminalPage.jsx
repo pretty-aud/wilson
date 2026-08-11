@@ -31,6 +31,7 @@ import DiagnosticsSection from './DiagnosticsSection'
 import ChangeRequestsSection from './ChangeRequestsSection'
 import ModelsSection from './ModelsSection'
 import StorageSection from './StorageSection'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 // Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
 // Serial Position keeps the two most-used sections at the ends: Users first,
@@ -65,8 +66,8 @@ export default function AdminTerminalPage() {
   if (perms.role !== 'admin') {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
-        <Lock className="w-8 h-8" style={{ color: '#a8a29e' }} />
-        <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>
+        <Lock className="w-8 h-8" style={{ color: LIGHT_INK }} />
+        <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
           The Admin Terminal is available to workspace admins.
         </span>
       </div>
@@ -106,9 +107,11 @@ function AdminTerminalBody({ workspaceId }) {
                 className="flex items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-left rounded-sm transition-colors"
                 style={active
                   ? { backgroundColor: 'rgba(234, 88, 12, 0.18)', color: '#1c1917', borderLeft: '3px solid #ea580c' }
-                  : { backgroundColor: 'transparent', color: '#57534e', borderLeft: '3px solid transparent' }}
+                  : { backgroundColor: 'transparent', color: LIGHT_INK, borderLeft: '3px solid transparent' }}
               >
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: active ? '#ea580c' : '#78716c' }} />
+                {/* Inactive nav is now weight-and-fill, not a lighter ink:
+                    #57534e measured 3.70:1 on this page and #78716c 2.33:1. */}
+                <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
                 {item.label}
               </button>
             )
@@ -117,7 +120,7 @@ function AdminTerminalBody({ workspaceId }) {
 
         {/* Sections stay mounted; display toggles (state survives hops),
             fetches gate on isActive so inactive sections stay idle. */}
-        <div className="flex-1 min-w-0 min-h-0 pl-4" style={{ borderLeft: '1px solid #e7e5e4' }}>
+        <div className="flex-1 min-w-0 min-h-0 pl-4" style={{ borderLeft: `1px solid ${LIGHT_RULE}` }}>
           <div className="h-full min-h-0" style={{ display: section === 'users' ? 'block' : 'none' }}>
             <UsersSection isActive={section === 'users'} wm={wm} />
           </div>

@@ -119,6 +119,28 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
+### Every input on every light page is under AA, and it is not the grey problem
+**MEASURED (2026-08-10, S43 §B).** WILSON's light-page input well is
+`rgba(120, 70, 30, 0.55)` over `#f4a261` (visual-language §Inputs). Composited,
+that is `#b06f3c`, and:
+
+- the `#fde8d0` it is actually paired with measures **3.38:1**
+- black on it measures **4.32:1**
+
+Both under the 4.5:1 AA floor for normal text. Neither ink rescues it — the
+WELL is the problem, not the text on it.
+
+This is **pre-existing and distinct from the grey complaint S43 fixed**: it was
+found because the new `lightSurface` contrast test refused to accept the value
+as a token, not because anything looked wrong on screen. It is recorded rather
+than fixed because changing that well restyles every field on Home, Settings,
+Projects, Rate Card, Team Members and the Admin Terminal at once, on a guess
+about what Audrey wants them to look like.
+
+→ Fixing it means choosing a new well and re-pairing the ink — a design
+decision, not a repair. `src/components/lightSurface.js` carries the numbers
+and deliberately does NOT export the value, so nobody adopts it by accident.
+
 ### ~~The budget system does not exist in the cloud schema~~ — FIXED (S24, `b07b6c9`)
 Deleted per the rule for this file. Migrations 0036 + 0037 applied and verified
 **by query** on dev, staging and prod: nine budget settings on `projects`,

@@ -18,6 +18,7 @@ import { supabase } from '../../cloud/auth/supabaseClient'
 import { copyTextToClipboard } from './CredentialsPopup'
 import { loadOtterSettings, saveOtterSettings } from '../../lib/localData'
 import WorkspaceTakeout from './WorkspaceTakeout'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 const lightInputStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.55)',
@@ -175,7 +176,7 @@ export default function CompanySection({ isActive, wm }) {
           </div>
         )}
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#57534e' }}>
+        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
           Workspace name
         </label>
         <div className="flex items-center gap-2 mb-4">
@@ -198,7 +199,7 @@ export default function CompanySection({ isActive, wm }) {
           </button>
         </div>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#57534e' }}>
+        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
           Slug
         </label>
         <div className="flex items-center gap-2 mb-1">
@@ -206,11 +207,11 @@ export default function CompanySection({ isActive, wm }) {
             {ws?.slug || '--'}
           </code>
         </div>
-        <p className="text-[10px] mb-4" style={{ color: '#78716c' }}>
+        <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
           Slug is permanent — it's part of sign-in.
         </p>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#57534e' }}>
+        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
           Workspace ID
         </label>
         <div className="flex items-center gap-2 mb-4">
@@ -221,14 +222,14 @@ export default function CompanySection({ isActive, wm }) {
             type="button"
             onClick={copyId}
             className="p-1 rounded-sm hover:bg-stone-200 transition-colors flex-shrink-0"
-            style={{ color: copiedId ? '#22c55e' : '#57534e' }}
+            style={{ color: copiedId ? '#22c55e' : LIGHT_INK }}
             title="Copy workspace ID"
           >
             {copiedId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
         </div>
 
-        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: '#57534e' }}>
+        <label className="block text-[11px] font-bold uppercase tracking-wider mb-1.5" style={{ color: LIGHT_INK }}>
           Created
         </label>
         <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
@@ -266,13 +267,13 @@ export default function CompanySection({ isActive, wm }) {
               className="flex items-center gap-1 px-2 py-1 text-[11px] font-mono rounded-sm"
               style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
             >
-              <Building2 className="w-3 h-3" style={{ color: '#78716c' }} />
+              <Building2 className="w-3 h-3" style={{ color: LIGHT_INK }} />
               {d}
               <button
                 type="button"
                 onClick={() => persistDepartments(departments.filter(x => x !== d))}
                 className="p-0.5 rounded-sm hover:bg-stone-300 transition-colors"
-                style={{ color: '#78716c' }}
+                style={{ color: LIGHT_INK }}
                 title={`Remove ${d}`}
               >
                 <X className="w-3 h-3" />
@@ -280,7 +281,7 @@ export default function CompanySection({ isActive, wm }) {
             </span>
           ))}
           {departments.length === 0 && (
-            <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>No departments yet.</span>
+            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>No departments yet.</span>
           )}
         </div>
         <div className="flex items-center gap-2 mb-2">
@@ -303,7 +304,7 @@ export default function CompanySection({ isActive, wm }) {
             Add
           </button>
         </div>
-        <p className="text-[10px]" style={{ color: '#78716c' }}>
+        <p className="text-[10px]" style={{ color: LIGHT_INK }}>
           Departments are stored on this machine (cloud parity lands with O.T.T.E.R.'s content model).
         </p>
       </div>
@@ -318,7 +319,7 @@ function CountStat({ label, value, color = '#1c1917' }) {
   return (
     <div>
       <div className="text-xl font-bold font-mono" style={{ color }}>{value}</div>
-      <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: '#78716c' }}>{label}</div>
+      <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>{label}</div>
     </div>
   )
 }

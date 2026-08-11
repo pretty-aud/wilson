@@ -19,6 +19,7 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { ERROR_CODES, reportAppEvent } from '../../cloud/errorCodes'
 import { copyTextToClipboard } from './CredentialsPopup'
 import StorageCleanupCard from './StorageCleanupCard'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
@@ -28,7 +29,9 @@ const darkBtnClass = 'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bol
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 
 const REALTIME_DOT = {
-  live: '#22c55e', connecting: '#fbbf24', error: '#ef4444', off: '#a8a29e',
+  // `off` was stone-400 — 1.4:1 on this page, so the dot meaning "not
+  // connected" was invisible against it. A tint of the ink reads as inert.
+  live: '#22c55e', connecting: '#fbbf24', error: '#ef4444', off: 'rgba(28, 25, 23, 0.45)',
 }
 
 function supabaseHost() {
@@ -121,7 +124,7 @@ export default function DiagnosticsSection() {
         <div className="space-y-1.5 mb-4">
           {envRows.map(([k, v]) => (
             <div key={k} className="flex items-baseline justify-between gap-3">
-              <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: '#78716c' }}>{k}</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ color: LIGHT_INK }}>{k}</span>
               <span className="text-xs font-mono break-all text-right" style={{ color: '#1c1917' }}>{v}</span>
             </div>
           ))}
@@ -154,7 +157,7 @@ export default function DiagnosticsSection() {
           <div className="flex items-center gap-2">
             <span
               className="w-2 h-2 rounded-full flex-shrink-0"
-              style={{ backgroundColor: REALTIME_DOT[realtimeStatus] || '#a8a29e' }}
+              style={{ backgroundColor: REALTIME_DOT[realtimeStatus] || 'rgba(28, 25, 23, 0.45)' }}
             />
             <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
               Workspace realtime: {realtimeStatus}
@@ -218,7 +221,7 @@ export default function DiagnosticsSection() {
             <span className="text-[11px] font-mono" style={{ color: '#15803d' }}>Test exception sent.</span>
           )}
           {sentryState === 'missing' && (
-            <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>Sentry test hook not available in this build.</span>
+            <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>Sentry test hook not available in this build.</span>
           )}
         </div>
       </div>

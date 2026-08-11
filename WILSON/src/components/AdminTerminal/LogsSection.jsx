@@ -17,11 +17,17 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, ScrollText, Loader2 } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { describeErrorCode } from '../../cloud/errorCodes'
+import {
+  LIGHT_INK, LIGHT_RULE, LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW,
+} from '../lightSurface' // §B — light page
 
 const EVENT_TYPES = ['auth', 'admin', 'error', 'system', 'update', 'storage', 'realtime']
 const SEVERITIES = ['info', 'warning', 'error', 'critical']
 const SEVERITY_DOT = {
-  info: '#a8a29e', warning: '#fbbf24', error: '#dc2626', critical: '#7c2d12',
+  // `info` was stone-400, which measures 1.4:1 against this page — the dot
+  // that means "nothing is wrong" was the one you could not see. A tint of
+  // the ink reads as neutral without disappearing.
+  info: 'rgba(28, 25, 23, 0.45)', warning: '#fbbf24', error: '#dc2626', critical: '#7c2d12',
 }
 // PostgREST codes for "relation does not exist" — table not deployed yet.
 const MISSING_TABLE_CODES = new Set(['42P01', 'PGRST205'])
@@ -176,7 +182,7 @@ export default function LogsSection({ isActive, workspaceId }) {
               className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
               style={tab === t.key
                 ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                : { backgroundColor: 'transparent', color: '#57534e' }}
+                : { backgroundColor: 'transparent', color: LIGHT_INK }}
             >
               {t.label}
             </button>
@@ -259,7 +265,7 @@ function SystemTable({ events, allCount, loading, error, missing, expandedId, on
     <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1', maxHeight: '100%' }}>
       <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
         <thead>
-          <tr style={{ backgroundColor: '#e7e5e4' }}>
+          <tr style={LIGHT_TABLE_HEAD_ROW}>
             <ThLight>Time</ThLight>
             <ThLight>Sev</ThLight>
             <ThLight>Type</ThLight>
@@ -292,19 +298,19 @@ function SystemRow({ event, expanded, onToggle }) {
         style={{ borderBottom: expanded ? 'none' : '1px solid #e7e5e4' }}
       >
         <TdLight>
-          <span className="text-xs font-mono whitespace-nowrap" style={{ color: '#57534e' }} title={fmtAbs(event.created_at)}>
+          <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(event.created_at)}>
             {timeAgo(event.created_at)}
           </span>
         </TdLight>
         <TdLight>
           <span
             className="inline-block w-2 h-2 rounded-full"
-            style={{ backgroundColor: SEVERITY_DOT[event.severity] || '#a8a29e' }}
+            style={{ backgroundColor: SEVERITY_DOT[event.severity] || 'rgba(28, 25, 23, 0.45)' }}
             title={event.severity}
           />
         </TdLight>
         <TdLight>
-          <span className="text-xs font-mono" style={{ color: '#57534e' }}>{event.event_type}</span>
+          <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{event.event_type}</span>
         </TdLight>
         <TdLight>
           {event.code ? (
@@ -316,11 +322,11 @@ function SystemRow({ event, expanded, onToggle }) {
               {event.code}
             </span>
           ) : (
-            <span className="text-xs font-mono" style={{ color: '#a8a29e' }}>--</span>
+            <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>--</span>
           )}
         </TdLight>
         <TdLight>
-          <span className="text-xs font-mono" style={{ color: '#57534e' }}>{event.actor_label ?? 'system'}</span>
+          <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{event.actor_label ?? 'system'}</span>
         </TdLight>
         <TdLight>
           <span className="text-xs font-mono" style={{ color: '#1c1917' }}>{event.message}</span>
@@ -363,7 +369,7 @@ function ActivityTable({ rows, loading, error, missing }) {
     <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1', maxHeight: '100%' }}>
       <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
         <thead>
-          <tr style={{ backgroundColor: '#e7e5e4' }}>
+          <tr style={LIGHT_TABLE_HEAD_ROW}>
             <ThLight>Time</ThLight>
             <ThLight>Actor</ThLight>
             <ThLight>Action</ThLight>
@@ -374,7 +380,7 @@ function ActivityTable({ rows, loading, error, missing }) {
           {rows.map(r => (
             <tr key={r.id} style={{ borderBottom: '1px solid #e7e5e4' }}>
               <TdLight>
-                <span className="text-xs font-mono whitespace-nowrap" style={{ color: '#57534e' }} title={fmtAbs(r.created_at)}>
+                <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(r.created_at)}>
                   {timeAgo(r.created_at)}
                 </span>
               </TdLight>
@@ -384,15 +390,15 @@ function ActivityTable({ rows, loading, error, missing }) {
               <TdLight>
                 <span
                   className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
-                  style={ACTION_CHIP[r.action] || { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#57534e' }}
+                  style={ACTION_CHIP[r.action] || { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }}
                 >
                   {r.action}
                 </span>
               </TdLight>
               <TdLight>
-                <span className="text-xs font-mono" style={{ color: '#57534e' }}>
+                <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
                   {r.entity_type}{' '}
-                  <span style={{ color: '#a8a29e' }}>{String(r.entity_id || '').slice(0, 8)}</span>
+                  <span style={{ color: LIGHT_INK }}>{String(r.entity_id || '').slice(0, 8)}</span>
                 </span>
               </TdLight>
             </tr>
@@ -406,15 +412,15 @@ function ActivityTable({ rows, loading, error, missing }) {
 function EmptyState({ text }) {
   return (
     <div className="flex flex-col items-center justify-center py-16 gap-3">
-      <ScrollText className="w-8 h-8" style={{ color: '#a8a29e' }} />
-      <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>{text}</span>
+      <ScrollText className="w-8 h-8" style={{ color: LIGHT_INK }} />
+      <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>{text}</span>
     </div>
   )
 }
 
 function ThLight({ children }) {
   return (
-    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>
+    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: LIGHT_INK }}>
       {children}
     </th>
   )

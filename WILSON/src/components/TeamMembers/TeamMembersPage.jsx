@@ -20,6 +20,14 @@ import {
   Users, Search, Trash2, X, UserPlus, Eye, RotateCcw, Download,
 } from 'lucide-react'
 import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
+// Session 43 §B — light-page tokens. This page renders on #f4a261, where the
+// whole stone ramp measures between 1.4:1 and 3.7:1. The greys inside the
+// RATE MODAL are deliberately untouched: that modal paints #1c1917, and a
+// grey on dark stone was never the problem.
+import {
+  LIGHT_INK, LIGHT_RULE, LIGHT_WELL,
+  LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW, LIGHT_TABLE_HEAD_CELL,
+} from '../lightSurface'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
 import { useRateCard, computeEntryTotal } from '../RateCard/useRateCard'
 import { useRateCardAccess } from '../RateCard/useRateCardAccess'
@@ -284,7 +292,7 @@ export default function TeamMembersPage() {
         {/* Saved views — only the views at or below your role */}
         {availableViews.length > 1 && (
           <div className="flex items-center gap-1 rounded-sm p-0.5" style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)' }}>
-            <Eye className="w-3 h-3 ml-1" style={{ color: '#78716c' }} />
+            <Eye className="w-3 h-3 ml-1" style={{ color: LIGHT_INK }} />
             {availableViews.map(v => (
               <button
                 key={v.key}
@@ -293,7 +301,7 @@ export default function TeamMembersPage() {
                 className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                 style={activeView === v.key
                   ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                  : { backgroundColor: 'transparent', color: '#57534e' }}
+                  : { backgroundColor: 'transparent', color: LIGHT_INK }}
               >
                 {v.label}
               </button>
@@ -318,7 +326,7 @@ export default function TeamMembersPage() {
           disabled={filtered.length === 0}
           title={filtered.length === 0 ? 'No members in the current view' : 'Export the current view as CSV'}
           className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-          style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#57534e' }}
+          style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: LIGHT_INK }}
         >
           <Download className="w-3 h-3" /> Export
         </button>
@@ -332,7 +340,7 @@ export default function TeamMembersPage() {
           {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
         <div className="flex items-center gap-1 flex-1 max-w-xs">
-          <Search className="w-3 h-3" style={{ color: '#78716c' }} />
+          <Search className="w-3 h-3" style={{ color: LIGHT_INK }} />
           <input
             type="text"
             value={search}
@@ -342,12 +350,12 @@ export default function TeamMembersPage() {
             style={inputStyle}
           />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-0.5" style={{ color: '#78716c' }}>
+            <button type="button" onClick={() => setSearch('')} className="p-0.5" style={{ color: LIGHT_INK }}>
               <X className="w-3 h-3" />
             </button>
           )}
         </div>
-        <span className="text-[10px] font-mono uppercase tracking-wider ml-auto" style={{ color: '#78716c' }}>
+        <span className="text-[10px] font-mono uppercase tracking-wider ml-auto" style={{ color: LIGHT_INK }}>
           {filtered.length} member{filtered.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -355,20 +363,27 @@ export default function TeamMembersPage() {
       {/* Table */}
       {(wm.loading || !wm.ready) && !wm.members.length ? (
         <div className="flex items-center justify-center py-20">
-          <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>Loading...</span>
+          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>Loading...</span>
         </div>
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <Users className="w-8 h-8" style={{ color: '#a8a29e' }} />
-          <span className="text-xs font-mono italic" style={{ color: '#78716c' }}>
+          <Users className="w-8 h-8" style={{ color: LIGHT_INK }} />
+          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
             {wm.members.length === 0 ? 'No members yet. Invite your first teammate.' : 'No matches.'}
           </span>
         </div>
       ) : (
-        <div className="overflow-auto flex-1 rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
+        // §B1 — "there is a white box and white header for the box that doesnt
+        // fit the visual language." It was a #d6d3d1 frame around a #e7e5e4
+        // header: a near-white card dropped onto the orange page. The REGION
+        // is kept (Law of Common Region) and the card is not — a hairline in
+        // the page's own ink plus a warm well for the header group do the same
+        // job and cost no new colour. Table structure, columns, sort and
+        // inline edit are unchanged.
+        <div className="overflow-auto flex-1 rounded-sm" style={LIGHT_TABLE_FRAME}>
           <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
             <thead>
-              <tr style={{ backgroundColor: '#e7e5e4' }}>
+              <tr style={LIGHT_TABLE_HEAD_ROW}>
                 <ThLight>Member</ThLight>
                 <ThLight>Username</ThLight>
                 <ThLight>Title</ThLight>
@@ -508,7 +523,7 @@ function MemberRow({
   const highlighted = !inactive && staffBadges.length > 0
   return (
     <tr style={{
-      borderBottom: '1px solid #e7e5e4',
+      borderBottom: `1px solid ${LIGHT_RULE}`,
       opacity: inactive ? 0.5 : 1,
       backgroundColor: highlighted ? 'rgba(244, 162, 97, 0.14)' : undefined,
     }}>
@@ -536,7 +551,7 @@ function MemberRow({
         </div>
       </TdLight>
       <TdLight>
-        <span className="text-xs font-mono" style={{ color: '#57534e' }}>{member.username}</span>
+        <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{member.username}</span>
       </TdLight>
       <TdLight>
         {canEditProfile ? (
@@ -595,7 +610,7 @@ function MemberRow({
           <span
             className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
             style={inactive
-              ? { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: '#78716c' }
+              ? { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }
               : { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#15803d' }}
           >
             {inactive ? 'Inactive' : 'Active'}
@@ -620,7 +635,7 @@ function MemberRow({
             {assignedProjects.length > 2 ? ` +${assignedProjects.length - 2}` : ''}
           </span>
         ) : (
-          <span className="text-xs font-mono" style={{ color: '#a8a29e' }} title="No project assignments">
+          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }} title="No project assignments">
             --
           </span>
         )}
@@ -662,7 +677,7 @@ function Avatar({ member }) {
         src={member.avatar_url}
         alt=""
         className="w-6 h-6 rounded-full object-cover flex-shrink-0"
-        style={{ border: '1px solid #d6d3d1' }}
+        style={{ border: `1px solid ${LIGHT_RULE}` }}
       />
     )
   }
@@ -684,9 +699,15 @@ function RolePill({ role }) {
   )
 }
 
+// Empty and de-emphasised cells used to be lighter greys. On #f4a261 those
+// measured 1.42:1 and 3.70:1, so "less important" was rendered as "unreadable".
+// Emptiness is italic now and de-emphasis is weight — one ink either way.
 function ReadCell({ value, muted }) {
   return (
-    <span className="text-xs font-mono truncate" style={{ color: value ? (muted ? '#57534e' : '#1c1917') : '#a8a29e' }}>
+    <span
+      className={`text-xs font-mono truncate${value ? '' : ' italic'}`}
+      style={{ color: LIGHT_INK, fontWeight: muted ? 400 : 500 }}
+    >
       {value || '--'}
     </span>
   )
@@ -696,8 +717,8 @@ function RateCell({ entry, editable, onEdit }) {
   const wage = formatMoney(entry?.wage, entry?.currency)
   const total = formatMoney(entry?.day_rate, entry?.currency) // day_rate = computed total
   const label = wage
-    ? <>{wage}{total && total !== wage ? <span style={{ color: '#78716c' }}> / {total}</span> : null}</>
-    : <span style={{ color: '#a8a29e' }}>{editable ? 'Set rate' : '--'}</span>
+    ? <>{wage}{total && total !== wage ? <span style={{ color: LIGHT_INK }}> / {total}</span> : null}</>
+    : <span className="italic" style={{ color: LIGHT_INK }}>{editable ? 'Set rate' : '--'}</span>
   if (!editable) {
     return <span className="text-xs font-mono">{label}</span>
   }
@@ -875,7 +896,7 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
 // ─── Light-themed table atoms (for settings pages) ───
 function ThLight({ children }) {
   return (
-    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={{ color: '#57534e' }}>
+    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={LIGHT_TABLE_HEAD_CELL}>
       {children}
     </th>
   )
@@ -903,7 +924,7 @@ function InlineLightText({ value, onCommit, placeholder }) {
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
         className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: '1px solid #d6d3d1' }}
+        style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
       />
     )
   }
@@ -911,8 +932,10 @@ function InlineLightText({ value, onCommit, placeholder }) {
     <button
       type="button"
       onClick={() => { setDraft(value); setEditing(true) }}
-      className="text-xs font-mono text-left w-full truncate hover:bg-stone-200 px-1 py-0.5 rounded-sm transition-colors"
-      style={{ color: value ? '#1c1917' : '#a8a29e' }}
+      className={`text-xs font-mono text-left w-full truncate px-1 py-0.5 rounded-sm transition-colors${value ? '' : ' italic'}`}
+      style={{ color: LIGHT_INK }}
+      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = LIGHT_WELL }}
+      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
     >
       {value || placeholder || '--'}
     </button>
@@ -926,7 +949,7 @@ function InlineLightSelect({ value, options, onCommit }) {
       value={value}
       onChange={(e) => onCommit(e.target.value)}
       className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-      style={{ backgroundColor: 'transparent', color: '#1c1917', border: '1px solid #d6d3d1' }}
+      style={{ backgroundColor: 'transparent', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
     >
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
     </select>

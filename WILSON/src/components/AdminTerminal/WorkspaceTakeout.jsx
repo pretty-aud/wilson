@@ -26,6 +26,7 @@ import { useRef, useState } from 'react'
 import { Archive, Loader2, Check } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { toCsv, downloadBlob, exportDateStamp } from '../../lib/csvExport'
+import { LIGHT_INK } from '../lightSurface' // §B — light page
 
 // Every cloud table an admin's RLS lets them read, in dependency-ish order.
 // otter_* and notes are EXCLUDED — see header.
@@ -132,7 +133,7 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
         table, zipped, with a manifest. Built from your own reads — it can
         only contain what your role can already see.
       </p>
-      <p className="text-[10px] mb-4" style={{ color: '#78716c' }}>
+      <p className="text-[10px] mb-4" style={{ color: LIGHT_INK }}>
         Excluded by design: O.T.T.E.R. courses (personal content is private
         even from admins) and Notes. File rows are metadata — the blobs stay
         in your storage provider.

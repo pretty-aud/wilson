@@ -52,6 +52,7 @@ import {
   ExternalLink, Archive,
 } from 'lucide-react'
 import { otterFetch } from '../../tools/otter_v0.3.1/adapters'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 const TABS = [
   { key: 'open',    label: 'Open' },
@@ -63,7 +64,7 @@ const STATUS_STYLE = {
   changes_requested: { color: '#9a3412', label: 'Changes requested' },
   approved:          { color: '#166534', label: 'Approved' },
   rejected:          { color: '#991b1b', label: 'Rejected' },
-  withdrawn:         { color: '#57534e', label: 'Withdrawn' },
+  withdrawn:         { color: LIGHT_INK, label: 'Withdrawn' },
 }
 
 function fmt(iso) {
@@ -228,7 +229,7 @@ export default function ChangeRequestsSection({ isActive }) {
               className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
               style={tab === t.key
                 ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                : { backgroundColor: 'transparent', color: '#57534e' }}
+                : { backgroundColor: 'transparent', color: LIGHT_INK }}
             >
               {t.label}
               {t.key === 'open' && open.length > 0 && (
@@ -277,13 +278,13 @@ export default function ChangeRequestsSection({ isActive }) {
       <div className="flex-1 min-h-0 overflow-y-auto wilson-light-scroll">
         {loading && rows.length === 0 ? (
           <div className="flex items-center gap-2 py-10 justify-center">
-            <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#78716c' }} />
-            <span className="text-[11px] font-mono" style={{ color: '#78716c' }}>Loading…</span>
+            <Loader2 className="w-4 h-4 animate-spin" style={{ color: LIGHT_INK }} />
+            <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>Loading…</span>
           </div>
         ) : visible.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
-            <GitPullRequestArrow className="w-7 h-7" style={{ color: '#a8a29e' }} />
-            <span className="text-[11px] font-mono italic" style={{ color: '#78716c' }}>
+            <GitPullRequestArrow className="w-7 h-7" style={{ color: LIGHT_INK }} />
+            <span className="text-[11px] font-mono italic" style={{ color: LIGHT_INK }}>
               {tab === 'open'
                 ? 'No one has suggested a change to a company standard course.'
                 : 'Nothing has been decided yet.'}
@@ -309,7 +310,7 @@ export default function ChangeRequestsSection({ isActive }) {
                       <span className="block text-[12px] font-bold" style={{ color: '#1c1917' }}>
                         {r.target_name ?? 'A company standard course'}
                       </span>
-                      <span className="block text-[11px] font-mono truncate" style={{ color: '#57534e' }}>
+                      <span className="block text-[11px] font-mono truncate" style={{ color: LIGHT_INK }}>
                         {r.proposer_label ?? 'someone'} · {fmt(r.created_at)}
                         {(r.revision ?? 1) > 1 ? ` · round ${r.revision}` : ''}
                       </span>
@@ -324,7 +325,7 @@ export default function ChangeRequestsSection({ isActive }) {
 
                   {isOpen && (
                     <div className="px-3 pb-3 pt-1" style={{ borderTop: '1px solid rgba(120,70,30,0.15)' }}>
-                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>
+                      <p className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>
                         What they changed, and why
                       </p>
                       <p className="text-[12px] whitespace-pre-wrap mb-3" style={{ color: '#1c1917' }}>
@@ -334,7 +335,7 @@ export default function ChangeRequestsSection({ isActive }) {
                       {/* The review window: readable while the request is live. */}
                       {(r.status === 'open' || r.status === 'changes_requested') && (
                         r.source_readable ? (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: '#57534e' }}>
+                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: LIGHT_INK }}>
                             <Eye className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>
                               Submitting shared their copy with reviewers for as long as this
@@ -350,7 +351,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             </span>
                           </p>
                         ) : (
-                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: '#57534e' }}>
+                          <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5" style={{ color: LIGHT_INK }}>
                             <EyeOff className="w-3 h-3 mt-0.5 flex-shrink-0" />
                             <span>Their copy no longer exists, so the note above is all there is to go on.</span>
                           </p>
@@ -358,14 +359,14 @@ export default function ChangeRequestsSection({ isActive }) {
                       )}
 
                       {r.status === 'changes_requested' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: '#57534e' }}>
+                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: LIGHT_INK }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           Changes requested by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}.
                           Waiting on {r.proposer_label ?? 'the proposer'} to revise or accept.
                         </p>
                       ) : r.status !== 'open' ? (
-                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: '#57534e' }}>
+                        <p className="text-[11px] font-mono flex items-center gap-1.5" style={{ color: LIGHT_INK }}>
                           <Lock className="w-3 h-3 flex-shrink-0" />
                           {st.label} by {r.reviewer_label ?? 'an admin'} on {fmt(r.reviewed_at)}
                           {r.review_note ? ` — “${r.review_note}”` : ''}
@@ -456,7 +457,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             </button>
                           </div>
                           {!note.trim() && (
-                            <p className="text-[10px] mt-1" style={{ color: '#78716c' }}>
+                            <p className="text-[10px] mt-1" style={{ color: LIGHT_INK }}>
                               A note is required — the proposer needs to know what to change.
                             </p>
                           )}

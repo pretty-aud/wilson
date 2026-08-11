@@ -24,6 +24,9 @@ import StorageConnections from './settings/StorageConnections'
 import UserModelsSection from './settings/UserModelsSection'
 import { usePermissions } from '../permissions'
 import GatedAction from '../permissions/GatedAction'
+// Session 43 §B — Settings is a light page (#f4a261). The two CONFIRM DIALOGS
+// near the bottom paint #1c1917 and keep their greys.
+import { LIGHT_INK, LIGHT_RULE } from './lightSurface'
 
 
 export default function SettingsPage({
@@ -318,7 +321,7 @@ export default function SettingsPage({
                 className="px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-t-sm transition-colors"
                 style={{
                   backgroundColor: activeTab === tab.key ? 'rgba(120, 70, 30, 0.55)' : 'transparent',
-                  color: activeTab === tab.key ? '#ffffff' : '#57534e',
+                  color: activeTab === tab.key ? '#ffffff' : LIGHT_INK,
                   borderBottom: activeTab === tab.key ? '2px solid #f97316' : '2px solid transparent',
                 }}
               >
@@ -442,7 +445,7 @@ export default function SettingsPage({
                         className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
                         style={{
                           backgroundColor: petData.petMode ? '#f97316' : '#44403c',
-                          color: petData.petMode ? '#fff' : '#a8a29e',
+                          color: petData.petMode ? '#fff' : LIGHT_INK,
                         }}
                       >
                         {petData.petMode ? 'ON' : 'OFF'}
@@ -464,7 +467,7 @@ export default function SettingsPage({
                               className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                               style={{
                                 backgroundColor: petData.difficulty === d ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                                color: petData.difficulty === d ? '#fff' : '#a8a29e',
+                                color: petData.difficulty === d ? '#fff' : LIGHT_INK,
                               }}
                             >
                               {d}
@@ -525,7 +528,7 @@ export default function SettingsPage({
                   {filesRootDir ? (
                     <div className="space-y-3">
                       <div>
-                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Current path</span>
+                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: LIGHT_INK }}>Current path</span>
                         <div className="mt-1 px-3 py-2 rounded-sm text-xs font-mono break-all" style={{ backgroundColor: 'rgba(0,0,0,0.1)', color: '#1c1917' }}>
                           {filesRootDir}
                         </div>
@@ -557,7 +560,7 @@ export default function SettingsPage({
                             window.electronAPI?.rabbit?.openInExplorer?.({ filePath: filesRootDir })
                           }}
                           className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: '#57534e', border: '1px solid #a8a29e' }}
+                          style={{ color: LIGHT_INK, border: `1px solid ${LIGHT_RULE}` }}
                         >
                           Open in Explorer
                         </button>
@@ -565,7 +568,7 @@ export default function SettingsPage({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <p className="text-xs italic" style={{ color: '#78716c' }}>
+                      <p className="text-xs italic" style={{ color: LIGHT_INK }}>
                         No default location set. Project files will not be managed until a root directory is chosen.
                       </p>
                       <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
@@ -830,7 +833,7 @@ export default function SettingsPage({
                     />
                   ))}
                   {departments.length === 0 && (
-                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: '#78716c' }}>
+                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: LIGHT_INK }}>
                       No departments configured. Add one above.
                     </div>
                   )}
@@ -871,7 +874,7 @@ export default function SettingsPage({
                       className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
                       style={{
                         backgroundColor: agentEnabled ? '#f97316' : '#44403c',
-                        color: agentEnabled ? '#fff' : '#a8a29e',
+                        color: agentEnabled ? '#fff' : LIGHT_INK,
                       }}
                     >
                       {agentEnabled ? 'ON' : 'OFF'}
@@ -897,7 +900,7 @@ export default function SettingsPage({
                             className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                             style={{
                               backgroundColor: autoApprove === opt.key ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                              color: autoApprove === opt.key ? '#fff' : '#a8a29e',
+                              color: autoApprove === opt.key ? '#fff' : LIGHT_INK,
                             }}
                           >
                             {opt.label}
@@ -955,7 +958,7 @@ export default function SettingsPage({
                                   className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm transition-colors"
                                   style={{
                                     backgroundColor: isLocked ? '#ef4444' : 'rgba(120, 70, 30, 0.45)',
-                                    color: isLocked ? '#fff' : '#a8a29e',
+                                    color: isLocked ? '#fff' : LIGHT_INK,
                                   }}
                                 >
                                   {isLocked ? 'Unlock' : 'Lock'}
@@ -994,14 +997,14 @@ export default function SettingsPage({
                               <button
                                 onClick={() => setEditingAgentPrompt(false)}
                                 className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#a8a29e' }}
+                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
                               >
                                 Cancel
                               </button>
                               <button
                                 onClick={() => { setAgentPromptDraft(AGENT_SYSTEM_PROMPT); }}
                                 className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#a8a29e' }}
+                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
                               >
                                 Reset
                               </button>
