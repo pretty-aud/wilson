@@ -242,7 +242,7 @@ export default function RateCardPage() {
               {!rateCardRestricted && teamStats.unrated > 0 && (
                 <span
                   className="px-1.5 py-0.5 text-[9px] rounded-full font-bold"
-                  style={{ backgroundColor: '#fbbf24', color: '#7c2d12' }}
+                  style={{ backgroundColor: '#c2410c', color: '#ffffff' }}
                 >
                   {teamStats.unrated}
                 </span>
@@ -348,10 +348,10 @@ export default function RateCardPage() {
                     {teamStats.unrated > 0 && (
                       <div className="flex justify-between items-center">
                         <span className="flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" style={{ color: '#d97706' }} />
+                          <AlertTriangle className="w-3 h-3" style={{ color: '#c2410c' }} />
                           Without rates
                         </span>
-                        <span className="font-bold" style={{ color: '#d97706' }}>{teamStats.unrated}</span>
+                        <span className="font-bold" style={{ color: '#c2410c' }}>{teamStats.unrated}</span>
                       </div>
                     )}
                   </div>

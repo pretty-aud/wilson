@@ -103,7 +103,7 @@ function EditCell({
     <button
       type="button"
       onClick={start}
-      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-50'} ${mono ? 'font-mono' : ''}`}
+      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-900/10'} ${mono ? 'font-mono' : ''}`}
       style={{ color: LIGHT_INK, textAlign: align, minHeight: '28px' }}
     >
       {display || <span style={{ color: '#7c2d12', opacity: 0.4 }}>{placeholder || '—'}</span>}
@@ -175,7 +175,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         <button
           type="button"
           onClick={start}
-          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-50 transition-colors text-right"
+          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-900/10 transition-colors text-right"
           style={{ color: LIGHT_INK }}
         >
           {hasValue
@@ -232,7 +232,7 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
       <button
         type="button"
         onClick={() => { if (!readOnly) setOpen(o => !o) }}
-        className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-50 transition-colors flex items-center justify-center gap-0.5"
+        className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-900/10 transition-colors flex items-center justify-center gap-0.5"
         style={{ color: '#1c1917', minHeight: '28px' }}
       >
         <span style={{ color: '#7c2d12' }}>{current.symbol}</span>
@@ -258,7 +258,7 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
               key={c.code}
               type="button"
               onClick={() => { onCommit(c.code); setOpen(false) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-900/10 transition-colors"
               style={{ color: c.code === current.code ? '#ea580c' : '#1c1917' }}
             >
               <span className="w-6" style={{ color: '#7c2d12' }}>{c.symbol}</span>
@@ -288,7 +288,7 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
     <select
       value={value || ''}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-50 cursor-pointer"
+      className="w-full px-1 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -304,7 +304,7 @@ function TierSelect({ value, onChange, readOnly = false }) {
       value={value || ''}
       disabled={readOnly}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-50 cursor-pointer"
+      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -359,10 +359,12 @@ function DeptDefaultInput({ label, value, onChange }) {
     <button
       type="button"
       onClick={start}
-      className="flex items-center gap-1 hover:bg-amber-200/40 rounded-sm px-1.5 py-0.5 transition-colors"
+      // These sit ON the department bar, which is now #c2410c — white, not the
+      // brown that was chosen against the old amber fill.
+      className="flex items-center gap-1 hover:bg-black/10 rounded-sm px-1.5 py-0.5 transition-colors"
     >
-      <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#7c2d12' }}>{label}:</span>
-      <span className="text-[10px] font-mono font-bold" style={{ color: '#1c1917' }}>
+      <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#ffffff' }}>{label}:</span>
+      <span className="text-[10px] font-mono font-bold" style={{ color: '#ffffff' }}>
         {value != null ? `${value}%` : '—'}
       </span>
     </button>
@@ -397,9 +399,19 @@ function RowActions({ onDuplicate, onDelete }) {
 
 // ─── Column widths ───
 const COL = {
-  name: '19%', dept: '10%', wage: '11%', burden: '13%', overhead: '13%',
-  total: '10%', curr: '6%', region: '6%', tier: '7%', actions: '5%',
+  name: '17%', dept: '9%', hourly: '10%', wage: '10%', burden: '12%', overhead: '12%',
+  total: '9%', curr: '5%', region: '6%', tier: '6%', actions: '4%',
 }
+
+// Hours in a standard working day. `wage` is stored per DAY — it is the only
+// rate persisted — so the hourly column is DERIVED from it and editing hourly
+// writes the day rate back. One stored number means the two boxes can never
+// disagree, which two independent columns would allow within a week.
+//
+// ⚠️ 8 is an assumption, and it is visible in the column header rather than
+// buried here, so it can be argued with. If a studio bills 10-hour days this
+// wants to become a workspace setting, which is a schema change, not a tweak.
+const HOURS_PER_DAY = 8
 
 // ─── Main table ───
 export default function RateCardTable({
@@ -576,7 +588,7 @@ export default function RateCardTable({
           <button
             type="button"
             onClick={() => setDefaultsOpen(o => !o)}
-            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-orange-50 transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-orange-900/10 transition-colors"
           >
             {defaultsOpen
               ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
@@ -624,7 +636,8 @@ export default function RateCardTable({
             <tr>
               <th style={{ ...th, width: COL.name }}>{isInternal ? 'Member' : 'Role'}</th>
               <th style={{ ...th, width: COL.dept }}>Dept</th>
-              <th style={{ ...th, width: COL.wage, textAlign: 'right' }}>Wage</th>
+              <th style={{ ...th, width: COL.hourly, textAlign: 'right' }}>Hourly</th>
+              <th style={{ ...th, width: COL.wage, textAlign: 'right' }}>Day</th>
               <th style={{ ...th, width: COL.burden, textAlign: 'right' }}>Burden</th>
               <th style={{ ...th, width: COL.overhead, textAlign: 'right' }}>Overhead</th>
               <th style={{ ...th, width: COL.total, textAlign: 'right' }}>Total</th>
@@ -644,10 +657,16 @@ export default function RateCardTable({
                 <Fragment key={dept}>
                   {/* ── Department group header ── */}
                   <tr>
-                    <td colSpan={10} style={{ padding: 0, borderBottom: '2px solid #d97706' }}>
+                    {/* Audrey, 2026-08-10: "make the yellow team bars in the
+                        internal page a dark orange … stick to our color
+                        palette." #fde68a/#d97706 were amber — outside the
+                        three-ink palette entirely. #c2410c is the same dark
+                        orange as the primary button, and carries white at
+                        5.18:1. */}
+                    <td colSpan={11} style={{ padding: 0, borderBottom: `1px solid ${LIGHT_INK}` }}>
                       <div
                         className="flex items-center gap-3 px-3 py-1.5"
-                        style={{ backgroundColor: '#fde68a' }}
+                        style={{ backgroundColor: '#c2410c' }}
                       >
                         <button
                           type="button"
@@ -655,15 +674,15 @@ export default function RateCardTable({
                           className="flex items-center gap-1.5 hover:opacity-80"
                         >
                           {isOpen
-                            ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
-                            : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />}
+                            ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />
+                            : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />}
                           <span
                             className="text-xs font-mono font-bold uppercase tracking-wider"
-                            style={{ color: '#7c2d12' }}
+                            style={{ color: '#ffffff' }}
                           >
                             {dept}
                           </span>
-                          <span className="text-[10px] font-mono" style={{ color: '#92400e' }}>
+                          <span className="text-[10px] font-mono" style={{ color: '#ffffff' }}>
                             ({rows.length})
                           </span>
                         </button>
@@ -694,7 +713,7 @@ export default function RateCardTable({
                     return (
                       <tr
                         key={row.id}
-                        className="hover:bg-orange-50 transition-colors"
+                        className="hover:bg-orange-900/10 transition-colors"
                         style={isGhost ? { backgroundColor: LIGHT_WELL } : undefined}
                       >
                         {/* Role / Member name */}
@@ -712,7 +731,7 @@ export default function RateCardTable({
                               {isGhost && (
                                 <AlertTriangle
                                   className="w-3 h-3 flex-shrink-0"
-                                  style={{ color: '#d97706' }}
+                                  style={{ color: '#c2410c' }}
                                   title="No rate set"
                                 />
                               )}
@@ -736,7 +755,27 @@ export default function RateCardTable({
                           />
                         </td>
 
-                        {/* Wage */}
+                        {/* Hourly — derived from the day rate, and editable.
+                            Committing here multiplies back up so `wage`
+                            stays the single stored number. */}
+                        <td style={td}>
+                          <EditCell
+                            value={row.wage == null || row.wage === '' ? null
+                              : Math.round((Number(row.wage) / HOURS_PER_DAY) * 100) / 100}
+                            numeric
+                            currency={row.currency}
+                            onCommit={v => handleUpdate(row, {
+                              wage: v == null || v === '' ? null
+                                : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100,
+                            })}
+                            placeholder="—"
+                            align="right"
+                            mono
+                            readOnly={readOnly}
+                          />
+                        </td>
+
+                        {/* Day rate — the stored `wage` */}
                         <td style={td}>
                           <EditCell
                             value={row.wage}
@@ -854,6 +893,20 @@ export default function RateCardTable({
                 <td style={td}>
                   <DepartmentSelect value={draft.department} onChange={v => patchDraft('department', v)} />
                 </td>
+                {/* Hourly on the draft row, same derivation as a live row. */}
+                <td style={td}>
+                  <EditCell
+                    value={draft.wage == null || draft.wage === '' ? null
+                      : Math.round((Number(draft.wage) / HOURS_PER_DAY) * 100) / 100}
+                    numeric
+                    currency={draft.currency}
+                    onCommit={v => patchDraft('wage', v == null || v === '' ? null
+                      : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100)}
+                    placeholder="—"
+                    align="right"
+                    mono
+                  />
+                </td>
                 <td style={td}>
                   <EditCell
                     value={draft.wage}
@@ -902,7 +955,7 @@ export default function RateCardTable({
             {/* ── Empty state ── */}
             {displayRows.length === 0 && !loading && (
               <tr>
-                <td colSpan={10} className="text-center text-xs font-mono py-8" style={{ color: '#7c2d12', opacity: 0.7 }}>
+                <td colSpan={11} className="text-center text-xs font-mono py-8 italic" style={{ color: LIGHT_INK }}>
                   {isInternal
                     ? 'No team members found — add team members in the Team Members page.'
                     : 'No rate card entries yet — add one above or import from a file.'}
