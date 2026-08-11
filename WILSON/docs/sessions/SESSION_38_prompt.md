@@ -55,8 +55,27 @@
 > session while it clears. Everything else here is ordinary work.
 
 > **STATE — re-measure, do not trust this block.** After **S43**
-> (2026-08-11): migrations **0000–0059** on dev, staging AND prod, next free
-> **0060**. pgTAP **67 suites**, next suite **68**. Vitest **1440 / 62 files**.
+> (2026-08-11): migrations **0000–0058 on all three envs; 0059 on DEV ONLY** —
+> next free **0060**. pgTAP **67 suites**, next suite **68**. Vitest
+> **1440 / 62 files**.
+>
+> 🚨 **0059 IS OWED ON STAGING AND PROD.** Until it is applied, the Team
+> Members full-time checkbox fails there with PGRST204 ("could not find the
+> 'is_full_time' column ... in the schema cache"). The client degrades safely
+> (`is_full_time !== false`), so the internal rate card still lists everyone
+> rather than emptying.
+>
+> 🚨 **`supabase db query --linked` DOES NOT FOLLOW `linked-project.json`.**
+> The CLI resolves its target from `supabase/.temp/project-ref` (and
+> `pooler-url`). Editing only the JSON leaves every query pointed at whatever
+> `project-ref` says — S43 ran a whole diagnosis against dev believing it was
+> staging, and only caught it because a deployed Edge Function contradicted
+> the "staging" data. `db query` has NO `--project-ref` flag: retargeting needs
+> `supabase link -p <db password>` or `--db-url`. `functions deploy/delete`
+> and `secrets list` DO take `--project-ref` and are safe.
+>
+> ⚠️ Do not write those .temp files with PowerShell `Set-Content -Encoding
+> utf8` — 5.1 emits a BOM and the CLI then rejects the ref as malformed.
 >
 > ⚠️ **S43 ended up writing SQL after all.** It was scoped as a design pass
 > with no migration, and 0059 (`workspace_members.is_full_time`) landed at the
