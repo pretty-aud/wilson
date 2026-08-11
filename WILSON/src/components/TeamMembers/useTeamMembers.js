@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 
 export const DEFAULT_DEPARTMENTS = [
   'CG Art',
@@ -36,8 +37,10 @@ export const EMPLOYMENT_TYPES = [
 
 export function useTeamMembers() {
   const rabbit = useRabbit()
+  const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
-  const workspaceId = rabbit?.DEFAULT_WORKSPACE_ID
+  // Same trap as useRateCard — see the long note there.
+  const workspaceId = perms?.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 

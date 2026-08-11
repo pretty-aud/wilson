@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 
 export function makeSlug(label) {
@@ -211,8 +212,30 @@ export function sharedLoadRateCards(adapter, workspaceId) {
 
 export function useRateCard() {
   const rabbit = useRabbit()
+  const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
-  const workspaceId = rabbit?.DEFAULT_WORKSPACE_ID
+  // 🚨 THIS LINE WAS `rabbit?.DEFAULT_WORKSPACE_ID` AND IT BROKE THE WHOLE
+  // SCREEN IN CLOUD MODE.
+  //
+  // DEFAULT_WORKSPACE_ID is '00000000-0000-0000-0000-000000000001' — the
+  // pre-multi-tenant seed constant. supabaseAdapter.js:799 already documents
+  // exactly this trap for projects: "harmless in local mode and fatal in
+  // cloud mode: projects_insert requires workspace_id = current_workspace_id(),
+  // so the insert was refused 42501 for EVERY workspace except the seed."
+  // The fix landed for projects and never reached the rate card.
+  //
+  // Measured on wilson-staging 2026-08-10: Audrey's workspace is Petal Studios
+  // (aaaaaaaa-…), so the card INSERT sent 00000000-… , rate_cards_insert's
+  // WITH CHECK compared it against her real claim, and refused — the exact
+  // "new row violates row-level security policy for table rate_cards" on her
+  // screen. The SELECT then filtered on the same wrong id, so the grid said
+  // "No rate card available", internalCard stayed null, and the INTERNAL tab
+  // click did nothing. One wrong constant, four symptoms.
+  //
+  // perms.workspaceId is the JWT's app_metadata.workspace_id and is null when
+  // there is no session, so LOCAL/desktop mode still falls through to the seed
+  // constant, where it is correct.
+  const workspaceId = perms?.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 
