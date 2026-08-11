@@ -23,7 +23,7 @@ import { Trash2, Copy, Plus, ChevronDown, ChevronRight, AlertTriangle } from 'lu
 import { CURRENCIES } from '../settings/CurrencyPicker'
 import { DEFAULT_DEPARTMENTS } from '../TeamMembers/useTeamMembers'
 import { computeEntryTotal, BUDGET_TIERS } from './useRateCard'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL, LIGHT_SURFACE_SOLID } from '../lightSurface'
 
 const DEPT_ORDER = Object.fromEntries(DEFAULT_DEPARTMENTS.map((d, i) => [d, i]))
 
@@ -94,7 +94,7 @@ function EditCell({
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
         className={`w-full px-2 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
-        style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: align }}
+        style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: align }}
       />
     )
   }
@@ -155,7 +155,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
           className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: 'right' }}
+          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
         <button
           type="button"
@@ -241,7 +241,8 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
       {open && (
         <div
           className="absolute z-50 mt-1 right-0 w-48 max-h-64 overflow-auto rounded-sm shadow-xl"
-          style={{ backgroundColor: '#fff', border: '2px solid #ea580c' }}
+          // Floating dropdown — must be OPAQUE or the grid shows through it.
+        style={{ backgroundColor: LIGHT_SURFACE_SOLID, border: `2px solid ${LIGHT_INK}` }}
         >
           <input
             type="text"
@@ -348,7 +349,7 @@ function DeptDefaultInput({ label, value, onChange }) {
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
           className="w-14 px-1 py-0.5 text-[10px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: 'right' }}
+          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
       </div>
     )
@@ -571,7 +572,7 @@ export default function RateCardTable({
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* ── Department defaults panel ── */}
       {updateDeptDefault && (
-        <div style={{ backgroundColor: '#fff7ed', borderBottom: '2px solid #d97706', flexShrink: 0 }}>
+        <div style={{ backgroundColor: LIGHT_WELL, borderBottom: `1px solid ${LIGHT_RULE}`, flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => setDefaultsOpen(o => !o)}
@@ -592,7 +593,7 @@ export default function RateCardTable({
                   <div
                     key={dept}
                     className="flex flex-col gap-1 p-2 rounded-sm"
-                    style={{ backgroundColor: '#fef3e8', border: '1px solid #f4a261' }}
+                    style={{ backgroundColor: 'transparent', border: `1px solid ${LIGHT_RULE}` }}
                   >
                     <span className="text-[9px] font-mono font-bold uppercase tracking-wider truncate" style={{ color: '#7c2d12' }}>
                       {dept}
@@ -617,7 +618,7 @@ export default function RateCardTable({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: '#fef3e8' }}>
+      <div className="flex-1 overflow-auto" style={{ backgroundColor: 'transparent' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr>
@@ -694,7 +695,7 @@ export default function RateCardTable({
                       <tr
                         key={row.id}
                         className="hover:bg-orange-50 transition-colors"
-                        style={isGhost ? { backgroundColor: '#fff7ed' } : undefined}
+                        style={isGhost ? { backgroundColor: LIGHT_WELL } : undefined}
                       >
                         {/* Role / Member name */}
                         <td style={td}>
@@ -839,7 +840,7 @@ export default function RateCardTable({
 
             {/* ── Draft row (general card only) ── */}
             {!isInternal && !readOnly && (
-              <tr style={{ backgroundColor: '#fff7ed' }}>
+              <tr style={{ backgroundColor: LIGHT_WELL }}>
                 <td style={td}>
                   <EditCell
                     value={draft.role_label}

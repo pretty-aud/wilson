@@ -61,6 +61,16 @@ export const LIGHT_WELL = 'rgba(120, 70, 30, 0.18)'
 // Selected / active chip.
 export const LIGHT_ACCENT = '#ea580c'
 
+// OPAQUE surface for floating UI — dropdowns, popovers, menus — which must
+// not let the page show through them. This is LIGHT_WELL composited over the
+// page and flattened, so a floating panel is the same tone as a docked one.
+// Black on it measures 6.91:1.
+//
+// Audrey, 2026-08-10, on the Rate Card: "NO WHITE BACKGROUND." The panels
+// there were #fef3e8 / #fff7ed / #fff — near-white cards dropped onto the
+// orange page, which is the same defect as the Team Members box, at scale.
+export const LIGHT_SURFACE_SOLID = '#dd9155'
+
 // Shared table treatment (§B3). A table in Team Members, one in Users and one
 // in Logs should be the same table; today they are three tables that happen
 // to sit near each other.

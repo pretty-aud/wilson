@@ -31,6 +31,7 @@ import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
 import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
 import { importCsv } from './importers/csvImporter'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
 import { importXlsx } from './importers/xlsxImporter'
 import { importPdf } from './importers/pdfImporter'
 import { importGoogleSheet } from './importers/googleSheetImporter'
@@ -180,16 +181,20 @@ export default function RateCardPage() {
   function tabStyle(type) {
     const isActive = activeType === type
     return {
-      backgroundColor: isActive ? '#fef3e8' : 'rgba(255,255,255,0.15)',
+      // Selected tab is the warm well, not a white pill. Unselected is bare
+      // page — the selection reads by fill + rule, not by a lighter ink.
+      backgroundColor: isActive ? LIGHT_WELL : 'transparent',
       color: isActive ? '#7c2d12' : '#451a03',
       border: isActive ? '1px solid #7c2d12' : '1px solid transparent',
-      borderBottom: isActive ? '1px solid #fef3e8' : '1px solid transparent',
+      borderBottom: isActive ? `1px solid ${LIGHT_WELL}` : '1px solid transparent',
       marginBottom: '-2px',
     }
   }
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ backgroundColor: '#fef3e8' }}>
+    // Was #fef3e8 — a near-white sheet over the whole orange page. The page IS
+    // the surface; panels group with wells and rules, not with a card.
+    <div className="h-full w-full flex flex-col" style={{ backgroundColor: 'transparent' }}>
       {/* ── Page header with tabs ── */}
       <div
         className="flex items-center justify-between px-6 py-3"
@@ -216,11 +221,20 @@ export default function RateCardPage() {
             >
               General
             </button>
+            {/* 🚨 This was `onClick={() => internalCard && setActive…}` — when
+                the internal card does not exist the click did NOTHING, with no
+                explanation. Audrey: "when i press internal i am not seeing the
+                internal one." The card is missing because its INSERT was
+                refused (see the softError banner above), so the honest
+                behaviour is to say so, not to swallow the click. `disabled`
+                also makes the dead state visible before it is clicked. */}
             <button
               type="button"
-              onClick={() => internalCard && setActiveRateCardId(internalCard.id)}
+              disabled={!internalCard}
+              title={internalCard ? undefined : 'The internal rate card could not be created — see the error above.'}
+              onClick={() => { if (internalCard) setActiveRateCardId(internalCard.id) }}
               className="px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors flex items-center gap-1.5"
-              style={tabStyle('internal')}
+              style={{ ...tabStyle('internal'), cursor: internalCard ? 'pointer' : 'not-allowed', opacity: internalCard ? 1 : 0.55 }}
             >
               Internal
               {/* entries are RLS-empty when restricted — the badge would
@@ -265,7 +279,7 @@ export default function RateCardPage() {
                 downloadCsv(`rate-card-${activeType}-${exportDateStamp()}.csv`, entries, cols)
               }}
               className="flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
-              style={{ backgroundColor: '#7c2d12', color: '#fef3e8' }}
+              style={{ backgroundColor: LIGHT_INK, color: '#ffffff' }}
             >
               <Download className="w-3.5 h-3.5" /> Export CSV
             </button>
@@ -299,7 +313,7 @@ export default function RateCardPage() {
         {/* ── Left panel ── */}
         <div
           className="flex flex-col w-72 flex-shrink-0"
-          style={{ borderRight: '2px solid #7c2d12', backgroundColor: '#fff7ed' }}
+          style={{ borderRight: `1px solid ${LIGHT_RULE}`, backgroundColor: LIGHT_WELL }}
         >
           <div
             className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest"
@@ -314,7 +328,7 @@ export default function RateCardPage() {
                 {/* ── Team stats panel ── */}
                 <div
                   className="p-3 rounded-sm"
-                  style={{ backgroundColor: '#fef3e8', border: '2px solid #f4a261' }}
+                  style={{ backgroundColor: 'transparent', border: `1px solid ${LIGHT_RULE}` }}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Users className="w-4 h-4" style={{ color: '#7c2d12' }} />
@@ -345,7 +359,7 @@ export default function RateCardPage() {
 
                 <div
                   className="p-3 rounded-sm text-[11px] font-mono leading-relaxed"
-                  style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                  style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
                 >
                   Internal rate card is auto-populated from team
                   members. Set individual wage, burden, and overhead
@@ -376,7 +390,7 @@ export default function RateCardPage() {
                 {rateReadOnly ? (
                   <div
                     className="p-3 rounded-sm text-[11px] font-mono leading-relaxed"
-                    style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                    style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
                   >
                     View-only access — rate edits and imports are
                     limited to admins and edit-granted members.
@@ -403,7 +417,7 @@ export default function RateCardPage() {
 
                 <div
                   className="mt-4 p-3 rounded-sm text-[11px] font-mono leading-relaxed"
-                  style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                  style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
                 >
                   General rate card defines standard day rates
                   per role. Used for estimating before specific
@@ -489,7 +503,7 @@ function ImporterCard({ label, note, onClick, disabled }) {
       disabled={disabled}
       className="w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed hover:bg-orange-100"
       style={{
-        backgroundColor: '#fef3e8',
+        backgroundColor: 'transparent',
         border: '2px solid #f4a261',
         color: '#7c2d12',
         opacity: disabled ? 0.6 : 1,
