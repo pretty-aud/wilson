@@ -23,6 +23,7 @@ import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from '../../cloud/auth/wit
 import { usePermissions } from '../../permissions/usePermissions'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import { loadOtterSettings } from '../../lib/localData'
+import { LIGHT_INK } from '../lightSurface'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -267,7 +268,7 @@ export default function ProfileSection({ onSaved }) {
   }
   const disabledStyle = {
     backgroundColor: 'rgba(120, 70, 30, 0.18)',
-    color: '#78716c',
+    color: LIGHT_INK,
     border: 'none',
   }
   const inputClass = 'w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
@@ -279,12 +280,12 @@ export default function ProfileSection({ onSaved }) {
 
   if (loading) {
     return (
-      <div className="py-8 text-xs font-mono italic" style={{ color: '#78716c' }}>Loading profile…</div>
+      <div className="py-8 text-xs font-mono italic" style={{ color: LIGHT_INK }}>Loading profile…</div>
     )
   }
   if (!row) {
     return (
-      <div className="py-8 text-xs font-mono italic" style={{ color: error ? '#dc2626' : '#78716c' }}>
+      <div className="py-8 text-xs font-mono italic" style={{ color: error ? '#dc2626' : LIGHT_INK }}>
         {error || 'No cloud profile found — sign in to a workspace to edit your profile.'}
       </div>
     )
@@ -345,7 +346,7 @@ export default function ProfileSection({ onSaved }) {
               </button>
             )}
           </div>
-          <p className="text-[10px] mt-1.5" style={{ color: '#78716c' }}>
+          <p className="text-[10px] mt-1.5" style={{ color: LIGHT_INK }}>
             PNG, JPEG, WEBP, or GIF · under 2 MB{avatarFile ? ` · ${avatarFile.name}` : ''}
           </p>
         </div>
@@ -354,7 +355,7 @@ export default function ProfileSection({ onSaved }) {
       {/* Editable fields */}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Display name</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Display name</label>
           <input
             type="text"
             value={displayName}
@@ -365,7 +366,7 @@ export default function ProfileSection({ onSaved }) {
           />
         </div>
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Pronouns</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Pronouns</label>
           <input
             type="text"
             value={pronouns}
@@ -377,7 +378,7 @@ export default function ProfileSection({ onSaved }) {
           />
         </div>
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Title</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Title</label>
           <input
             type="text"
             value={title}
@@ -389,7 +390,7 @@ export default function ProfileSection({ onSaved }) {
           />
         </div>
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Department</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Department</label>
           <select
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
@@ -406,15 +407,15 @@ export default function ProfileSection({ onSaved }) {
       {/* Locked fields — enforced by the DB guard trigger, disabled here */}
       <div className="grid grid-cols-3 gap-4 mb-5">
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Username</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Username</label>
           <input type="text" value={row.username || ''} disabled className={inputClass} style={disabledStyle} title="Usernames are managed by your workspace admin." />
         </div>
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Role</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Role</label>
           <input type="text" value={ROLE_LABELS[row.app_role] || row.app_role || ''} disabled className={inputClass} style={disabledStyle} title="Roles are managed by your workspace admin." />
         </div>
         <div>
-          <label className={labelClass} style={{ color: '#57534e' }}>Email</label>
+          <label className={labelClass} style={{ color: LIGHT_INK }}>Email</label>
           <input type="text" value={email} disabled className={inputClass} style={disabledStyle} title="Email changes arrive with the account settings work (Session 9)." />
         </div>
       </div>

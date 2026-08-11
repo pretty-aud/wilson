@@ -21,6 +21,7 @@
 import { useCallback, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { usePermissions } from '../../permissions/usePermissions'
+import { LIGHT_INK } from '../lightSurface'
 
 export default function SessionSection() {
   const perms = usePermissions()
@@ -46,7 +47,7 @@ export default function SessionSection() {
       </h2>
 
       {!perms.ready ? (
-        <p className="text-xs font-mono italic" style={{ color: '#78716c' }}>
+        <p className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
           Checking your account…
         </p>
       ) : !perms.userId ? (

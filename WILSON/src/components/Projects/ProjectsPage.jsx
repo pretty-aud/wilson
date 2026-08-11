@@ -28,6 +28,7 @@ import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
+import { LIGHT_INK } from '../lightSurface'
 
 function newFileId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -315,7 +316,7 @@ export default function ProjectsPage({ onNavigate }) {
     return (
       <div className="h-full flex items-center justify-center px-8">
         <div className="w-full max-w-md">
-          <h2 className="text-lg font-bold uppercase tracking-widest text-stone-300 mb-6 text-center">
+          <h2 className="text-lg font-bold uppercase tracking-widest mb-6 text-center" style={{ color: LIGHT_INK }}>
             Create New Project
           </h2>
           <input

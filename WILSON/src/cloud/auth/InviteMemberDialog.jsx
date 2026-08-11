@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { usePermissions } from '../../permissions/usePermissions'
+import { LIGHT_INK, LIGHT_RULE } from '../../components/lightSurface'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -244,10 +245,10 @@ function Overlay({ children, onClose }) {
 
 function Field({ label, hint, children }) {
   return (
-    <label style={{ display: 'block', marginTop: 12, fontSize: 11, letterSpacing: '0.1em', color: '#57534e', textTransform: 'uppercase' }}>
+    <label style={{ display: 'block', marginTop: 12, fontSize: 11, letterSpacing: '0.1em', color: LIGHT_INK, textTransform: 'uppercase' }}>
       {label}
       <div style={{ marginTop: 4 }}>{children}</div>
-      {hint && <div style={{ marginTop: 4, fontSize: 11, letterSpacing: 0, textTransform: 'none', color: '#78716c' }}>{hint}</div>}
+      {hint && <div style={{ marginTop: 4, fontSize: 11, letterSpacing: 0, textTransform: 'none', color: LIGHT_INK }}>{hint}</div>}
     </label>
   )
 }
@@ -266,7 +267,7 @@ const titleStyle = {
 const inputStyle = {
   width: '100%', padding: '7px 10px', fontSize: 14,
   background: '#fff', color: '#1c1917',
-  border: '1px solid #d6d3d1', borderRadius: 3,
+  border: `1px solid ${LIGHT_RULE}`, borderRadius: 3,
 }
 const codeStyle = {
   fontFamily: 'Menlo, Consolas, monospace',
@@ -282,5 +283,5 @@ const btnPrimary = {
 const btnSecondary = {
   ...btnPrimary,
   background: 'transparent', color: '#44403c',
-  border: '1px solid #d6d3d1',
+  border: `1px solid ${LIGHT_RULE}`,
 }

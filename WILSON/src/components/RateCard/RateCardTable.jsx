@@ -23,6 +23,7 @@ import { Trash2, Copy, Plus, ChevronDown, ChevronRight, AlertTriangle } from 'lu
 import { CURRENCIES } from '../settings/CurrencyPicker'
 import { DEFAULT_DEPARTMENTS } from '../TeamMembers/useTeamMembers'
 import { computeEntryTotal, BUDGET_TIERS } from './useRateCard'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface'
 
 const DEPT_ORDER = Object.fromEntries(DEFAULT_DEPARTMENTS.map((d, i) => [d, i]))
 
@@ -103,7 +104,7 @@ function EditCell({
       type="button"
       onClick={start}
       className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-50'} ${mono ? 'font-mono' : ''}`}
-      style={{ color: readOnly ? '#78716c' : '#1c1917', textAlign: align, minHeight: '28px' }}
+      style={{ color: LIGHT_INK, textAlign: align, minHeight: '28px' }}
     >
       {display || <span style={{ color: '#7c2d12', opacity: 0.4 }}>{placeholder || '—'}</span>}
     </button>
@@ -160,7 +161,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
           type="button"
           onClick={e => { e.stopPropagation(); onToggleType() }}
           className="px-1.5 py-1 text-[10px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
-          style={{ color: '#7c2d12', border: '1px solid #d6d3d1' }}
+          style={{ color: '#7c2d12', border: `1px solid ${LIGHT_RULE}` }}
         >
           {isPercent ? '%' : '$'}
         </button>
@@ -175,7 +176,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
           type="button"
           onClick={start}
           className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-50 transition-colors text-right"
-          style={{ color: hasValue ? '#1c1917' : '#78716c' }}
+          style={{ color: LIGHT_INK }}
         >
           {hasValue
             ? (isPercent ? `${value}%` : formatCurrency(value, currency))
@@ -196,7 +197,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         </button>
       </div>
       {computedAmount > 0 && (
-        <span className="text-[9px] font-mono pr-5" style={{ color: '#78716c' }}>
+        <span className="text-[9px] font-mono pr-5" style={{ color: LIGHT_INK }}>
           = {formatCurrency(computedAmount, currency)}
         </span>
       )}
@@ -277,7 +278,7 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
 function DepartmentSelect({ value, onChange, readOnly = false }) {
   if (readOnly) {
     return (
-      <span className="block px-2 py-1.5 text-xs truncate" style={{ color: '#78716c' }}>
+      <span className="block px-2 py-1.5 text-xs truncate" style={{ color: LIGHT_INK }}>
         {value || '—'}
       </span>
     )
@@ -703,7 +704,7 @@ export default function RateCardTable({
                                 {row._member.name}
                               </span>
                               {row._member.title && (
-                                <span className="text-[10px] truncate" style={{ color: '#78716c' }}>
+                                <span className="text-[10px] truncate" style={{ color: LIGHT_INK }}>
                                   {row._member.title}
                                 </span>
                               )}
@@ -785,8 +786,7 @@ export default function RateCardTable({
                           <span
                             className="block px-2 py-1.5 text-xs font-mono text-right font-bold"
                             style={{
-                              color: computed.total > 0 ? '#166534' : '#78716c',
-                              opacity: computed.total > 0 ? 1 : 0.4,
+                              color: computed.total > 0 ? '#166534' : LIGHT_INK,
                             }}
                           >
                             {computed.total > 0 ? formatCurrency(computed.total, row.currency) : '—'}
@@ -865,12 +865,12 @@ export default function RateCardTable({
                   />
                 </td>
                 <td style={td} colSpan={2}>
-                  <span className="block px-2 py-1.5 text-[10px] font-mono text-center" style={{ color: '#78716c' }}>
+                  <span className="block px-2 py-1.5 text-[10px] font-mono text-center italic" style={{ color: LIGHT_INK }}>
                     editable after adding
                   </span>
                 </td>
                 <td style={td}>
-                  <span className="block px-2 py-1.5 text-xs font-mono text-right" style={{ color: '#78716c', opacity: 0.4 }}>
+                  <span className="block px-2 py-1.5 text-xs font-mono text-right italic" style={{ color: LIGHT_INK }}>
                     —
                   </span>
                 </td>

@@ -13,6 +13,7 @@ import {
   updatesSupported, getUpdateState, checkForUpdates, downloadUpdate,
   installUpdate, onUpdateStatus,
 } from '../../cloud/updates'
+import { LIGHT_INK } from '../lightSurface'
 
 const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
@@ -117,7 +118,7 @@ export default function VersionPanel() {
       </div>
 
       {line && (
-        <div className="mt-2 text-[11px] font-mono" style={{ color: status.state === 'error' ? '#dc2626' : '#57534e' }}>
+        <div className="mt-2 text-[11px] font-mono" style={{ color: status.state === 'error' ? '#dc2626' : LIGHT_INK }}>
           {line}
         </div>
       )}

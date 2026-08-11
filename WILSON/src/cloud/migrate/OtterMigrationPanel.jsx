@@ -37,6 +37,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../auth/supabaseClient'
 import { runOtterMigration } from './runOtterMigration'
+import { LIGHT_INK } from '../../components/lightSurface'
 
 export default function OtterMigrationPanel() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
@@ -189,8 +190,8 @@ function OtterReportTable({ r }) {
       <td className="pr-3 py-0.5">{label}</td>
       <td className="px-2 text-right">{bucket.total}</td>
       <td className="px-2 text-right" style={{ color: '#166534' }}>{bucket.inserted}</td>
-      <td className="px-2 text-right" style={{ color: '#57534e' }}>{bucket.skipped}</td>
-      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : '#57534e' }}>{bucket.failed}</td>
+      <td className="px-2 text-right" style={{ color: LIGHT_INK }}>{bucket.skipped}</td>
+      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : LIGHT_INK }}>{bucket.failed}</td>
     </tr>
   )
   return (
@@ -200,7 +201,7 @@ function OtterReportTable({ r }) {
       </div>
       <table className="text-[11px] font-mono">
         <thead>
-          <tr className="text-stone-500">
+          <tr className="text-stone-900">
             <th className="pr-3 py-0.5 text-left">Table</th>
             <th className="px-2 text-right">Total</th>
             <th className="px-2 text-right">Migrated</th>

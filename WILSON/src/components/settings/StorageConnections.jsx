@@ -14,6 +14,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FolderOpen, Cloud, HardDrive, Unplug } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import GatedAction from '../../permissions/GatedAction'
+import { LIGHT_INK } from '../lightSurface'
 
 const SUPABASE_HOST = (() => {
   try { return new URL(import.meta.env.VITE_SUPABASE_URL).host } catch { return null }
@@ -23,7 +24,7 @@ function Dot({ on }) {
   return (
     <span
       className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-      style={{ backgroundColor: on ? '#22c55e' : '#a8a29e' }}
+      style={{ backgroundColor: on ? '#22c55e' : 'rgba(28, 25, 23, 0.45)' }}
     />
   )
 }
@@ -32,8 +33,8 @@ function Card({ icon: Icon, title, connected, children }) {
   return (
     <div className="p-3 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)' }}>
       <div className="flex items-center gap-2 mb-1.5">
-        <Icon className="w-4 h-4" style={{ color: '#57534e' }} />
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#57534e' }}>
+        <Icon className="w-4 h-4" style={{ color: LIGHT_INK }} />
+        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>
           {title}
         </span>
         <Dot on={connected} />

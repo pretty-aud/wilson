@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../auth/supabaseClient'
 import { runMigration } from './runMigration'
+import { LIGHT_INK } from '../../components/lightSurface'
 
 export default function MigrationPanel() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
@@ -169,8 +170,8 @@ function ReportTable({ r }) {
       <td className="pr-3 py-0.5">{label}</td>
       <td className="px-2 text-right">{bucket.total}</td>
       <td className="px-2 text-right" style={{ color: '#166534' }}>{bucket.inserted}</td>
-      <td className="px-2 text-right" style={{ color: '#57534e' }}>{bucket.skipped}</td>
-      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : '#57534e' }}>{bucket.failed}</td>
+      <td className="px-2 text-right" style={{ color: LIGHT_INK }}>{bucket.skipped}</td>
+      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : LIGHT_INK }}>{bucket.failed}</td>
     </tr>
   )
   return (
@@ -180,7 +181,7 @@ function ReportTable({ r }) {
       </div>
       <table className="text-[11px] font-mono">
         <thead>
-          <tr className="text-stone-500">
+          <tr className="text-stone-900">
             <th className="pr-3 py-0.5 text-left">Table</th>
             <th className="px-2 text-right">Total</th>
             <th className="px-2 text-right">Inserted</th>
@@ -197,7 +198,7 @@ function ReportTable({ r }) {
         </tbody>
       </table>
       {r.files.bytes > 0 && (
-        <div className="text-[10px] text-stone-600 mt-1">
+        <div className="text-[10px] text-stone-900 mt-1">
           Uploaded {(r.files.bytes / 1_000_000).toFixed(1)} MB to rabbit-files bucket.
         </div>
       )}

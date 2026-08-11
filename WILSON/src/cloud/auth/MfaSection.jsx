@@ -21,6 +21,7 @@ import AuthShell, { AUTH_TEXT_STYLE, AUTH_INK, AUTH_ERROR_INK, AUTH_LINK_STYLE }
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
+import { LIGHT_INK } from '../../components/lightSurface'
 
 async function listVerifiedTotp() {
   const { data, error } = await supabase.auth.mfa.listFactors()
@@ -149,7 +150,7 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
   // so `sub` is no longer a lighter colour, it is the same ink at a smaller
   // size and lighter weight.
   const fg = AUTH_INK
-  const sub = dark ? AUTH_INK : '#57534e'
+  const sub = dark ? AUTH_INK : LIGHT_INK
 
   if (phase === 'loading') {
     return <div className="text-xs font-mono" style={{ color: sub }}>Preparing enrollment…</div>
@@ -369,7 +370,7 @@ export function MfaSecuritySection() {
       </p>
 
       {state.loading ? (
-        <div className="text-xs font-mono" style={{ color: '#57534e' }}>Checking status…</div>
+        <div className="text-xs font-mono" style={{ color: LIGHT_INK }}>Checking status…</div>
       ) : enrolling ? (
         <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)' }}>
           <MfaEnrollPanel onEnrolled={() => { setEnrolling(false); refresh() }} />
@@ -382,14 +383,14 @@ export function MfaSecuritySection() {
                 <ShieldCheck className="w-4 h-4" /> Enabled
               </span>
               {isAdminTier ? (
-                <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
                   Admins must keep MFA on.
                 </span>
               ) : confirmDisable ? (
                 <span className="flex items-center gap-2">
                   <span className="text-[11px] font-mono" style={{ color: '#dc2626' }}>Disable MFA?</span>
                   <button type="button" onClick={disable} className="text-[11px] font-mono px-2 py-1 rounded-sm" style={{ backgroundColor: '#dc2626', color: '#fff' }}>Disable</button>
-                  <button type="button" onClick={() => setConfirmDisable(false)} className="text-[11px] font-mono px-2 py-1 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.18)', color: '#57534e' }}>Keep it</button>
+                  <button type="button" onClick={() => setConfirmDisable(false)} className="text-[11px] font-mono px-2 py-1 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.18)', color: LIGHT_INK }}>Keep it</button>
                 </span>
               ) : (
                 <button
@@ -404,7 +405,7 @@ export function MfaSecuritySection() {
             </>
           ) : (
             <>
-              <span className="text-xs font-mono" style={{ color: '#57534e' }}>Not enrolled</span>
+              <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>Not enrolled</span>
               <button
                 type="button"
                 onClick={() => setEnrolling(true)}

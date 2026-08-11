@@ -27,14 +27,18 @@ import {
   applyTaskFilters, applyTaskSort, groupTasks, buildGroupPatch,
   statusColor, priorityColor, fmt, myRoleOnTask,
 } from './dashboardTaskModel'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
 
 // ── WILSON light-page tokens (local per page, by convention) ──
 const L = {
   text:        '#1c1917',
-  label:       '#57534e',
+  label:       LIGHT_INK,
+  // ⚠️ DARK-SURFACE ONLY. Sole consumer is RolePill's "no role" dash when
+  // `onDark` is set (the gallery's #1c1917 card) — LIGHT_INK there would be
+  // invisible. Every light-surface site uses LIGHT_INK directly.
   muted:       '#78716c',
-  border:      '#d6d3d1',
-  headRow:     '#e7e5e4',
+  border:      LIGHT_RULE,
+  headRow:     LIGHT_WELL,
   inputBg:     'rgba(120, 70, 30, 0.55)',
   inputText:   '#fde8d0',
   chipBg:      '#1c1917',
@@ -96,8 +100,17 @@ function PrioritySelect({ value, onChange, disabled }) {
   )
 }
 
-function RolePill({ role }) {
-  if (!role) return <span className="text-xs font-mono" style={{ color: L.muted }}>—</span>
+// 🚨 Renders on BOTH surfaces — the light table cell and the dark gallery
+// card — and only the "no role" dash differs. One ink cannot serve both, so
+// the CALLER states which surface it is on rather than the component guessing.
+// Defaults to light, because a wrong guess there is unreadable (2.33:1) while
+// a wrong guess on the dark card is merely dim.
+function RolePill({ role, onDark = false }) {
+  if (!role) {
+    return (
+      <span className="text-xs font-mono italic" style={{ color: onDark ? L.muted : LIGHT_INK }}>—</span>
+    )
+  }
   const assigned = role === 'assigned'
   return (
     <span
@@ -205,11 +218,11 @@ export default function DashboardTasksView() {
   if (!mt.cloudReady) {
     return (
       <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <CloudOff className="w-8 h-8" style={{ color: L.muted }} />
+        <CloudOff className="w-8 h-8" style={{ color: LIGHT_INK }} />
         <div className="text-sm font-bold uppercase tracking-widest" style={{ color: L.label }}>
           Dashboard needs the cloud
         </div>
-        <div className="text-xs font-mono text-center max-w-md" style={{ color: L.muted }}>
+        <div className="text-xs font-mono text-center max-w-md" style={{ color: LIGHT_INK }}>
           Your cross-project tasks live on the central workspace. Sign in and
           switch R.A.B.B.I.T. to the Supabase adapter (System Settings → RABBIT)
           to see them here.
@@ -301,7 +314,7 @@ export default function DashboardTasksView() {
         </button>
 
         <div className="flex-1" />
-        <span className="text-xs font-mono" style={{ color: L.muted }}>
+        <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
           {processed.length} task{processed.length === 1 ? '' : 's'}
         </span>
         <button
@@ -333,8 +346,8 @@ export default function DashboardTasksView() {
       {/* ── Views ── */}
       {processed.length === 0 && !mt.loading ? (
         <div className="flex flex-col items-center justify-center py-16 gap-3">
-          <ListChecks className="w-8 h-8" style={{ color: L.muted }} />
-          <div className="text-xs font-mono" style={{ color: L.muted }}>
+          <ListChecks className="w-8 h-8" style={{ color: LIGHT_INK }} />
+          <div className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
             {mt.tasks.length === 0
               ? 'Nothing assigned to you yet — tasks appear here when you are set as assignee or reviewer.'
               : 'No tasks match the current search/filters.'}
@@ -410,7 +423,7 @@ function FilterPanel({ filters, setFilters, projectsById }) {
             type="button"
             onClick={() => setFilters(prev => prev.filter((_, idx) => idx !== i))}
             className="p-1.5 rounded-sm"
-            style={{ color: L.muted }}
+            style={{ color: LIGHT_INK }}
             title="Remove filter"
           >
             <X className="w-3.5 h-3.5" />
@@ -505,7 +518,7 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
             <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: L.label }}>
               {group.label}
             </span>
-            <span className="text-[10.5px] font-mono" style={{ color: L.muted }}>{group.tasks.length}</span>
+            <span className="text-[10.5px] font-mono" style={{ color: LIGHT_INK }}>{group.tasks.length}</span>
           </div>
         </td>
       </tr>
@@ -516,11 +529,11 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
           onDragStart={(e) => { e.dataTransfer.setData('text/plain', task.id); e.dataTransfer.effectAllowed = 'move' }}
           onClick={() => onOpen(task.id)}
           className="cursor-pointer transition-colors hover:bg-black/5"
-          style={{ borderBottom: `1px solid ${L.headRow}` }}
+          style={{ borderBottom: `1px solid ${LIGHT_RULE}` }}
         >
           <td className="px-3 py-2 text-xs font-mono" style={{ color: L.text }}>{task.title}</td>
-          <td className="px-3 py-2 text-xs font-mono" style={{ color: L.muted }}>{task.project?.title || '—'}</td>
-          <td className="px-3 py-2 text-xs font-mono" style={{ color: L.muted }}>{task.asset?.name || '—'}</td>
+          <td className="px-3 py-2 text-xs font-mono" style={{ color: LIGHT_INK }}>{task.project?.title || '—'}</td>
+          <td className="px-3 py-2 text-xs font-mono" style={{ color: LIGHT_INK }}>{task.asset?.name || '—'}</td>
           <td className="px-3 py-2">
             <StatusSelect value={task.status} disabled={!canWriteTask(task)} onChange={v => mt.patchTask(task.id, { status: v }).catch(() => {})} />
           </td>
@@ -528,7 +541,7 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
             <PrioritySelect value={task.priority} disabled={!canWriteTask(task)} onChange={v => mt.patchTask(task.id, { priority: v }).catch(() => {})} />
           </td>
           <td className="px-3 py-2"><RolePill role={myRoleOnTask(task, mt.userId)} /></td>
-          <td className="px-3 py-2 text-xs font-mono" style={{ color: L.muted }}>{fmtDate(task.start_date)}</td>
+          <td className="px-3 py-2 text-xs font-mono" style={{ color: LIGHT_INK }}>{fmtDate(task.start_date)}</td>
           <td className="px-3 py-2 text-xs font-mono" style={{ color: L.text }}>{fmtDate(task.end_date)}</td>
         </tr>
       ))}
@@ -591,7 +604,7 @@ function KanbanColumn({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
         <span className="text-[10.5px] font-bold uppercase tracking-wider" style={{ color: L.label }}>
           {group.label}
         </span>
-        <span className="text-[10.5px] font-mono" style={{ color: L.muted }}>{group.tasks.length}</span>
+        <span className="text-[10.5px] font-mono" style={{ color: LIGHT_INK }}>{group.tasks.length}</span>
       </div>
       <div className="flex flex-col gap-2 p-2 overflow-y-auto">
         {group.tasks.map(task => (
@@ -667,7 +680,8 @@ function TaskGallery({ groups, mt, onOpen }) {
                 {task.project?.title || '—'}
               </div>
               <div className="flex items-center justify-between pt-1">
-                <RolePill role={myRoleOnTask(task, mt.userId)} />
+                {/* Gallery card is L.chipBg (#1c1917) — the dark branch. */}
+                <RolePill role={myRoleOnTask(task, mt.userId)} onDark />
                 <span className="text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
                   {fmtDate(task.end_date)}
                 </span>

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import ProjectFilesTable from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { useTeamMembers } from '../TeamMembers/useTeamMembers'
+import { LIGHT_INK } from '../lightSurface'
 
 /* ── Design tokens (on tan page bg) ───────────────────────── */
 
@@ -185,7 +186,7 @@ export default function ProjectDetailPanel({
                 onChange={(e) => onUpdate({ director_id: e.target.value || null })}
                 style={{
                   ...L.select,
-                  color: project.director_id ? '#fde8d0' : '#78716c',
+                  color: project.director_id ? '#fde8d0' : LIGHT_INK,
                 }}
               >
                 <option value="">Select director...</option>
@@ -204,7 +205,7 @@ export default function ProjectDetailPanel({
                 onChange={(e) => onUpdate({ producer_id: e.target.value || null })}
                 style={{
                   ...L.select,
-                  color: project.producer_id ? '#fde8d0' : '#78716c',
+                  color: project.producer_id ? '#fde8d0' : LIGHT_INK,
                 }}
               >
                 <option value="">Select producer...</option>
@@ -487,7 +488,7 @@ export default function ProjectDetailPanel({
               className="rounded-sm transition-colors"
               style={{
                 padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                textTransform: 'uppercase', color: '#78716c',
+                textTransform: 'uppercase', color: LIGHT_INK,
               }}
             >
               Cancel

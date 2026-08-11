@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
+import { LIGHT_INK } from '../../components/lightSurface'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -161,7 +162,7 @@ export default function WorkspaceSwitcher() {
                 <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                   {ws.name}
                 </span>
-                <span className="text-[11px] font-mono" style={{ color: '#57534e' }}>
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
                   {ws.slug}
                 </span>
               </div>

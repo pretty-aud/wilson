@@ -43,6 +43,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { withTimeout, AUTH_TIMEOUT_MS } from '../../cloud/auth/withTimeout'
+import { LIGHT_INK } from '../lightSurface'
 
 // Mirrors ResetPasswordWizard.jsx:158 — one rule for the whole app, so a
 // password accepted at reset is accepted here.
@@ -133,7 +134,7 @@ export default function PasswordSection() {
       </h2>
 
       {checking ? (
-        <p className="text-xs font-mono italic" style={{ color: '#78716c' }}>
+        <p className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
           Checking your account…
         </p>
       ) : !email ? (
@@ -154,7 +155,7 @@ export default function PasswordSection() {
 
           <form onSubmit={handleSubmit} className="max-w-md space-y-3">
             <div>
-              <label className={labelClass} style={{ color: '#57534e' }} htmlFor="pw-new">
+              <label className={labelClass} style={{ color: LIGHT_INK }} htmlFor="pw-new">
                 New password
               </label>
               <input
@@ -170,7 +171,7 @@ export default function PasswordSection() {
             </div>
 
             <div>
-              <label className={labelClass} style={{ color: '#57534e' }} htmlFor="pw-confirm">
+              <label className={labelClass} style={{ color: LIGHT_INK }} htmlFor="pw-confirm">
                 Confirm new password
               </label>
               <input

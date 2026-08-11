@@ -38,6 +38,7 @@ import {
   loadApprovedModels, cachedApprovedModels,
   setUserModelOverride, loadModelSources,
 } from '../../lib/modelSources'
+import { LIGHT_INK, LIGHT_RULE } from '../lightSurface'
 
 /** Which tier supplies this key's value, and what it is. */
 function provenance(key, tier, sources, builtin) {
@@ -99,10 +100,10 @@ export default function UserModelsSection() {
     <div>
       <div className="flex items-start justify-between mb-3">
         <div>
-          <h3 className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: '#57534e' }}>
+          <h3 className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: LIGHT_INK }}>
             AI models
           </h3>
-          <p className="text-[11px] leading-relaxed" style={{ color: '#78716c' }}>
+          <p className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
             Which Claude model each WILSON function uses for you. Your choice
             beats your company&rsquo;s, which beats the platform default.
           </p>
@@ -125,14 +126,14 @@ export default function UserModelsSection() {
       )}
 
       {models.length === 0 && !loading && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: '#57534e' }}>
+        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: LIGHT_INK }}>
           There are no models available for you to choose from yet. Everything
           still runs on its default — ask your administrator if you need a choice
           here.
         </p>
       )}
 
-      <p className="text-[11px] mb-4" style={{ color: '#78716c' }}>
+      <p className="text-[11px] mb-4" style={{ color: LIGHT_INK }}>
         {!areModelSourcesLoaded()
           // Distinguishing "nothing is set" from "nothing has loaded" matters:
           // both draw an identical screen, and only one of them is the truth.
@@ -144,8 +145,8 @@ export default function UserModelsSection() {
 
       {[...registryByTool().entries()].map(([tool, entries]) => (
         <div key={tool} className="mb-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#a8a29e' }}>{tool}</div>
-          <div className="rounded-sm" style={{ border: '1px solid #d6d3d1' }}>
+          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>{tool}</div>
+          <div className="rounded-sm" style={{ border: `1px solid ${LIGHT_RULE}` }}>
             {entries.map((entry, i) => {
               const mine = sources.user?.[entry.key] ?? ''
               const busy = busyKey === entry.key
@@ -165,14 +166,14 @@ export default function UserModelsSection() {
                   key={entry.key}
                   className="px-3 py-2"
                   style={{
-                    borderTop: i === 0 ? 'none' : '1px solid #e7e5e4',
+                    borderTop: i === 0 ? 'none' : `1px solid ${LIGHT_RULE}`,
                     backgroundColor: mine ? 'rgba(234, 88, 12, 0.05)' : 'transparent',
                   }}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>
-                      <div className="text-[11px]" style={{ color: '#1c1917' }}>{entry.label}</div>
-                      <div className="text-[10px]" style={{ color: '#78716c' }}>
+                      <div className="text-[11px]" style={{ color: LIGHT_INK }}>{entry.label}</div>
+                      <div className="text-[10px]" style={{ color: LIGHT_INK }}>
                         {mine
                           ? `using ${labelFor(mine)} — your choice`
                           : `using ${labelFor(withoutMe.model)} — from ${withoutMe.from}`}
@@ -190,7 +191,7 @@ export default function UserModelsSection() {
                       onChange={(e) => apply(entry.key, e.target.value)}
                       title={entry.hint || entry.label}
                       className="px-2 py-1 text-[11px] rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
-                      style={{ border: '1px solid #d6d3d1', color: '#1c1917', minWidth: '190px' }}
+                      style={{ border: `1px solid ${LIGHT_RULE}`, color: LIGHT_INK, minWidth: '190px' }}
                     >
                       <option value="">Inherit ({labelFor(withoutMe.model)})</option>
                       {models.map((m) => (

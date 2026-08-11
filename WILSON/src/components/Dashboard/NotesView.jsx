@@ -26,14 +26,17 @@ import {
 } from 'lucide-react'
 import { useNotes } from './useNotes'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
 
 // ── WILSON light-page tokens (local per page, by convention) ──
+// The Dashboard is a LIGHT page (#f4a261), so every ink here is LIGHT_INK —
+// hierarchy comes from size, weight and italic, never from a lighter grey.
 const L = {
   text:        '#1c1917',
-  label:       '#57534e',
-  muted:       '#78716c',
-  border:      '#d6d3d1',
-  headRow:     '#e7e5e4',
+  label:       LIGHT_INK,
+  muted:       LIGHT_INK,
+  border:      LIGHT_RULE,
+  headRow:     LIGHT_WELL,
   inputBg:     'rgba(120, 70, 30, 0.55)',
   inputText:   '#fde8d0',
   chipBg:      '#1c1917',
@@ -215,7 +218,7 @@ export default function NotesView() {
           {visible.length === 0 && !nb.loading && (
             <div className="flex flex-col items-center py-10 gap-2">
               <StickyNote className="w-6 h-6" style={{ color: L.muted }} />
-              <span className="text-xs font-mono" style={{ color: L.muted }}>
+              <span className="text-xs font-mono italic" style={{ color: L.muted }}>
                 {nb.notes.length === 0 ? 'No notes yet.' : 'No notes match the filter.'}
               </span>
             </div>
@@ -276,7 +279,7 @@ export default function NotesView() {
         ) : (
           <div className="flex flex-col items-center justify-center flex-1 gap-3">
             <StickyNote className="w-8 h-8" style={{ color: L.muted }} />
-            <span className="text-xs font-mono" style={{ color: L.muted }}>
+            <span className="text-xs font-mono italic" style={{ color: L.muted }}>
               Select a note, or create one.
             </span>
           </div>
@@ -297,7 +300,7 @@ function SubjectManager({ nb }) {
         Your subjects
       </div>
       {nb.subjects.length === 0 && (
-        <span className="text-[10.5px] font-mono" style={{ color: L.muted }}>None yet — add one below.</span>
+        <span className="text-[10.5px] font-mono italic" style={{ color: L.muted }}>None yet — add one below.</span>
       )}
       {nb.subjects.map(s => (
         <div key={s.id} className="flex items-center gap-1.5">
@@ -720,7 +723,7 @@ function NoteEditor({ note, nb, onDelete }) {
         ) : docReady ? (
           <EditorContent editor={editor} />
         ) : (
-          <span className="text-xs font-mono" style={{ color: L.muted }}>Loading…</span>
+          <span className="text-xs font-mono italic" style={{ color: L.muted }}>Loading…</span>
         )}
       </div>
     </div>

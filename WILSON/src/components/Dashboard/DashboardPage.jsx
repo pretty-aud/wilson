@@ -19,6 +19,7 @@ import { useWorkspaceMembers, isOwnAvatarUrl } from '../TeamMembers/useWorkspace
 import ProfileSection from '../settings/ProfileSection'
 import DashboardTasksView from './DashboardTasksView'
 import NotesView from './NotesView'
+import { LIGHT_INK } from '../lightSurface'
 
 const TABS = [
   { key: 'tasks',   label: 'My Tasks' },
@@ -43,7 +44,7 @@ export default function DashboardPage() {
               className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-t-sm transition-colors"
               style={tab === t.key
                 ? { backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#ffffff', borderBottom: '2px solid #f97316' }
-                : { backgroundColor: 'transparent', color: '#57534e', borderBottom: '2px solid transparent' }}
+                : { backgroundColor: 'transparent', color: LIGHT_INK, borderBottom: '2px solid transparent' }}
             >
               {t.label}
             </button>
