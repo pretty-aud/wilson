@@ -449,7 +449,34 @@ export default function RateCardPage() {
 
         {/* ── Right: table ── */}
         <div className="flex-1 overflow-hidden">
-          {activeRateCardId ? (
+          {/* An internal card with nobody on it used to render as a blank grid
+              that explained nothing — the same "silently does nothing" shape as
+              the dead INTERNAL tab. There are three different reasons it can be
+              empty and the user can only act on two of them, so say which. */}
+          {activeRateCardId && activeType === 'internal' && internalMembers.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <Users className="w-7 h-7" style={{ color: LIGHT_INK }} />
+              <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
+                {teamLoading
+                  ? 'Loading the team roster…'
+                  : teamMembers.length === 0
+                    ? 'The team roster is empty here, so there is nobody to rate.'
+                    : `No full-time members yet — ${teamMembers.length} on the roster, none marked full-time.`}
+              </span>
+              {!teamLoading && teamMembers.length > 0 && (
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
+                  Tick <strong>Full-time</strong> in Resources → Team Members. The internal card
+                  is salary-based, so only staff belong on it.
+                </span>
+              )}
+              {!teamLoading && teamMembers.length === 0 && (
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
+                  Roster source: <strong>{rosterMode || 'unknown'}</strong>. If that is not
+                  “supabase” the page is reading the wrong backend.
+                </span>
+              )}
+            </div>
+          ) : activeRateCardId ? (
             <RateCardTable
               entries={entries}
               deptDefaults={deptDefaults}
