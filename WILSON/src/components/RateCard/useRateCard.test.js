@@ -27,6 +27,18 @@ vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({
 vi.mock('../../tools/rabbit_v0.1.0/adapters', () => ({
   adapterSupportsWrites: (mode) => mode !== 'googledrive',
 }))
+// Session 43: useRateCard now reads the workspace id from usePermissions
+// instead of the seed constant, and usePermissions imports the Supabase client,
+// which is CONSTRUCTED AT MODULE LOAD and throws "supabaseUrl is required"
+// without VITE_SUPABASE_URL.
+//
+// 🚨 That is invisible locally — a developer's gitignored .env.local supplies
+// it — and fails only on the CI runner, which has no .env at all. It is the
+// same trap S42 hit. Stubbing the hook keeps this suite testing what it is
+// named after (the concurrent-mount create guard) rather than the auth stack.
+vi.mock('../../permissions/usePermissions', () => ({
+  usePermissions: () => ({ ready: true, workspaceId: null }),
+}))
 
 const { sharedLoadRateCards, __resetRateCardLoadCache } = await import('./useRateCard')
 
