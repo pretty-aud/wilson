@@ -2714,6 +2714,21 @@ keyboard shortcut, because it only ever fires from an explicit admin click and
 handling it while hidden is the entire point. All other cross-component
 signalling uses props, counters or context.
 
+**Design tokens (S43).** Two shared modules, both with contrast tests that
+carry FAILING CONTROLS so a regression fails a test rather than shipping:
+`src/cloud/auth/AuthShell.jsx` (auth surfaces) and
+`src/components/lightSurface.js` (light pages — Home, Settings, Projects, Rate
+Card, Team Members, Dashboard, Admin Terminal, Help).
+
+🚨 **Light pages are text on `#f4a261`, and the whole stone ramp fails there**
+— `#a8a29e` 1.42:1, `#78716c` 2.33:1, `#57534e` 3.70:1, and `#d6d3d1`/`#e7e5e4`
+are *lighter than the page*. `#1c1917` is 8.49:1. Audrey's rule: on orange,
+white or black, never grey. Hierarchy comes from size and weight; emptiness
+from italic. **A grey on dark stone (`#1c1917`) is correct and must stay** —
+classify by the SURFACE an element sits on, not by the file it lives in. The
+Admin Terminal in particular is a LIGHT page whose `#1c1917` occurrences are
+mostly dark BUTTONS, not panels.
+
 **Sign-in is COMPANY-FIRST (S43).** `LoginScreen` has four stages: `company`
 (one input) → `auth` (username + password) → `mfa` → `workspace`. Step 1
 validates the SLUG SHAPE ONLY and makes **no network call** — a "does this

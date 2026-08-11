@@ -54,12 +54,31 @@
 > before starting this session**; if it is not, file it and run another
 > session while it clears. Everything else here is ordinary work.
 
-> **STATE — re-measure, do not trust this block.** After **S37**
-> (2026-08-08): migrations **0000–0052** on all three envs, next free
-> **0053**. pgTAP **62 suites / 1077 assertions**, next suite **63**. Vitest
-> **1159 / 53 files**. 🚨 **Read the working tree** — this block has been
-> stale within the hour before, and it was stale again inside S37 itself:
-> 0052 landed after the review, from the review.
+> **STATE — re-measure, do not trust this block.** After **S43**
+> (2026-08-10): migrations **0000–0058** on dev, staging AND prod, next free
+> **0059**. pgTAP **66 suites / 1180 assertions**, next suite **67** —
+> unchanged by S43, which wrote no SQL. Vitest **1435 / 61 files**. CI green
+> on `17e2228`. 🚨 **Read the working tree** — this block has been stale
+> within the hour before, and it was stale again inside S37 itself: 0052
+> landed after the review, from the review.
+>
+> ⚠️ **TWO DEPLOYS ARE OWED TO AUDREY AND BLOCK NOTHING IN THIS BRIEF, but
+> the login is not what it looks like until they run:**
+> 1. `supabase functions deploy resolve-login` — S43 added a company
+>    verification mode (contract **v2**). Until it is deployed the login
+>    screen degrades to a derived slug and the company gate is NOT enforced;
+>    it warns in the console when that happens.
+> 2. `supabase functions delete provision-workspace` on **each** of dev,
+>    staging and prod. S43 deleted it from the repo, which does not undeploy
+>    it — the public company-creation endpoint is live until then. See
+>    `OUTSTANDING.md`.
+>
+> ⭐ **S43 also left two things this session will meet.** The light-page
+> tokens now live in `src/components/lightSurface.js` and the auth tokens in
+> `AuthShell.jsx`; both have contrast tests WITH FAILING CONTROLS, so adding
+> a grey on an orange surface fails a test rather than shipping. And every
+> light page is text on `#f4a261` — if this session adds any Drive config
+> UI, that is the surface it lands on.
 >
 > ⭐ **S37 SETTLED THE SHAPE THIS SESSION COPIES. Read its outcome block in
 > `MASTER_PLAN_S19_ONWARD.md` before this brief.** What gdrive inherits:
