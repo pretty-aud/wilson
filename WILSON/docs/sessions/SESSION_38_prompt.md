@@ -55,10 +55,17 @@
 > session while it clears. Everything else here is ordinary work.
 
 > **STATE — re-measure, do not trust this block.** After **S43**
-> (2026-08-10): migrations **0000–0058** on dev, staging AND prod, next free
-> **0059**. pgTAP **66 suites / 1180 assertions**, next suite **67** —
-> unchanged by S43, which wrote no SQL. Vitest **1435 / 61 files**. CI green
-> on `17e2228`. 🚨 **Read the working tree** — this block has been stale
+> (2026-08-11): migrations **0000–0059** on dev, staging AND prod, next free
+> **0060**. pgTAP **67 suites**, next suite **68**. Vitest **1440 / 62 files**.
+>
+> ⚠️ **S43 ended up writing SQL after all.** It was scoped as a design pass
+> with no migration, and 0059 (`workspace_members.is_full_time`) landed at the
+> end because Audrey asked for the internal rate card to be staff-only. Two
+> traps from it, both verified by query on all three envs:
+> `workspace_directory()` has an EXPLICIT `RETURNS TABLE` list so a new column
+> is invisible until named there (and DROP+CREATE is required — CREATE OR
+> REPLACE raises 42P13), and `fn_ws_members_prevent_self_role_change` is a
+> DENYLIST, so a new member column is self-editable until it is added. 🚨 **Read the working tree** — this block has been stale
 > within the hour before, and it was stale again inside S37 itself: 0052
 > landed after the review, from the review.
 >
