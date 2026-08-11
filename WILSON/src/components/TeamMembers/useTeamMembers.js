@@ -40,7 +40,10 @@ export function useTeamMembers() {
   const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
   // Same trap as useRateCard — see the long note there.
-  const workspaceId = perms?.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID
+  // Gated on `ready` — see the long note in useRateCard.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 

@@ -356,11 +356,11 @@ function DeptDefaultInput({ label, value, onChange }) {
   }
 
   return (
+    // These sit ON the department bar, which is now #c2410c — white, not the
+    // brown that was chosen against the old amber fill.
     <button
       type="button"
       onClick={start}
-      // These sit ON the department bar, which is now #c2410c — white, not the
-      // brown that was chosen against the old amber fill.
       className="flex items-center gap-1 hover:bg-black/10 rounded-sm px-1.5 py-0.5 transition-colors"
     >
       <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#ffffff' }}>{label}:</span>

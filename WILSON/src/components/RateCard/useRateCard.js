@@ -235,7 +235,22 @@ export function useRateCard() {
   // perms.workspaceId is the JWT's app_metadata.workspace_id and is null when
   // there is no session, so LOCAL/desktop mode still falls through to the seed
   // constant, where it is correct.
-  const workspaceId = perms?.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID
+  //
+  // 🚨 GATED ON `perms.ready`, AND THAT IS THE WHOLE FIX, NOT A REFINEMENT.
+  // usePermissions resolves the session ASYNCHRONOUSLY: on the first render
+  // `workspaceId` is null and `ready` is false. Without this gate the fallback
+  // fires immediately with the seed constant, so the create-on-first-visit
+  // runs against 00000000-… , is refused by RLS, and leaves the red banner —
+  // which is exactly what it did after the previous fix, because that fix
+  // corrected WHICH id is used and not WHEN it is read.
+  //
+  // `ready` flips true on BOTH branches of the session probe (resolved and
+  // failed), so a signed-out desktop session still reaches the seed constant.
+  // This is the "`ready` is the field everyone forgets" rule in
+  // docs — permission-gate rules; it has now cost two sessions.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 

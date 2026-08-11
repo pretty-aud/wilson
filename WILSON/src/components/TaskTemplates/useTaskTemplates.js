@@ -24,7 +24,12 @@ export function useTaskTemplates() {
   // is the pre-multi-tenant seed constant and is refused by every
   // workspace-scoped RLS policy in cloud mode. Null claim -> local mode ->
   // the seed constant, which is correct there.
-  const workspaceId = perms?.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID
+  // Gated on `ready` — see the long note in useRateCard. Reading
+  // perms.workspaceId before the session resolves yields the seed constant and
+  // every workspace-scoped write is refused.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 
