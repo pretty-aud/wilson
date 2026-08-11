@@ -88,6 +88,25 @@ export const REGISTRY = [
   // outright was faster still but cost three slides, and Anthropic's guidance
   // for this model prefers lowering effort over switching thinking off.
   //
+  // 2026-08-11 — the HTTP 546 outage is NOT an effort problem, and nothing on
+  // this entry fixes it. Read this before you reach for `effort` or
+  // `max_tokens` again, because both look like the lever and neither is.
+  //
+  // Measured from app_events on staging: D.O.G.'s last successful full deck
+  // (2026-08-03) carried 232,275 INPUT tokens — 16x the 14,513 of the probe
+  // deck every S19 number above was measured against. Audrey's failures since
+  // log no usage row at all, and ai-proxy logs one even when a stream is
+  // cancelled mid-generation. So the worker dies before it reaches Anthropic,
+  // while handling the request body — an input-side kill.
+  //
+  // `effort` and `max_tokens` both govern OUTPUT. They cannot reach it. The
+  // real fix is to stop pushing whole documents through the Edge worker's
+  // JSON body; see docs/OUTSTANDING.md.
+  //
+  // The ~150s deadline these numbers were reasoned against is also not the
+  // binding limit: the response is an SSE stream whose first byte arrives at
+  // once, so only the 400s wall clock governs (ai-proxy/index.ts, header).
+  //
   // `carriesEffort` marks a call site that actually SPREADS `tuningFor(key)`
   // into its request body. Session 20 added it because the operator console
   // offers an effort control, and offering one for a function whose call path
@@ -307,9 +326,24 @@ export const EFFORT_LEVELS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'm
  *
  * Returns `{}` when a function has no tuning, so spreading it is always safe.
  *
- * NOTE: ai-proxy must forward these. It gained that in S19 and is deployed to
- * STAGING only — dev and prod still drop both fields, so this degrades to
- * today's behaviour there rather than breaking.
+ * NOTE (corrected 2026-08-11): ai-proxy must forward these, and it does — on
+ * ALL THREE environments. This note previously said "deployed to STAGING only
+ * — dev and prod still drop both fields". That was written mid-S19, before the
+ * dev and prod deploys landed later the same day, and was never revisited.
+ *
+ * Measured 2026-08-11 by downloading each deployed function and diffing it
+ * against this working tree: dev (eqjzmnvkrakroyqxfsvw), staging
+ * (rzkirvkotslbovzbsdfh) and prod (rqyriuyldhovirbuievt) are all on version 9
+ * and all IDENTICAL to the repo. The S19 commit that added forwarding landed
+ * 2026-08-02 01:14, before every one of those deploys.
+ *
+ * The correction matters because the stale wording named a specific, wrong
+ * root cause for a real outage (D.O.G. generating nothing, 2026-08-10) and
+ * cost an investigation pass. If you are here because a tuning field looks
+ * dropped, re-measure with `supabase functions download ai-proxy
+ * --project-ref <ref>` FROM A SCRATCH DIRECTORY — it writes into
+ * supabase/functions/<slug> relative to cwd and will overwrite this repo's
+ * source if run from the root.
  */
 export function tuningFor(key) {
   const entry = BY_KEY[key]

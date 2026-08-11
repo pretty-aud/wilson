@@ -40,6 +40,20 @@ const FRIENDLY = {
   // Distinct from `unauthorized` on purpose: a stalled session read is a
   // network problem, and "sign in again" is the wrong remedy for it.
   session_stalled: 'Could not read your session — check your connection and try again.',
+  // 546 is not an HTTP status and not something Anthropic returns. It is the
+  // Supabase Edge Runtime killing the worker for exceeding its resource
+  // ceiling (wall clock / CPU / memory) INSTEAD of returning a response — so
+  // there is no upstream message to forward and the generic
+  // "AI request failed (546)." is all the user got on 2026-08-10.
+  //
+  // Deliberately NOT added to isRetryableAIError below: the same payload is
+  // killed the same way, so a retry only spends the time again.
+  //
+  // Measured 2026-08-11: the worker dies handling the REQUEST BODY, before it
+  // reaches Anthropic — so this is a WILSON-side ceiling on how much document
+  // it can relay, not a limit on the user's work. The message says so rather
+  // than telling someone their deck is too ambitious.
+  http_546: 'WILSON could not pass a request this large through to the AI — it was stopped before it got there. This is a limit in WILSON’s AI relay, not in your work. Attaching fewer documents will get through in the meantime.',
 }
 
 export class AIProxyError extends Error {

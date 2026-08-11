@@ -161,6 +161,11 @@ describe('tuningFor', () => {
   })
 
   it('is spreadable into a request body without disturbing it', () => {
+    // 16384 is the shipped value and it is NOT implicated in the 546 outage:
+    // that is an input-side worker kill, measured 2026-08-11 (see the comment
+    // above the continuation loop in DeckOutlineGenerator.jsx). Lowering this
+    // was tried the same day and reverted — it governs output, and it forces
+    // continuations that resend the whole ~232k-token payload.
     const body = { model: modelFor('dog.fullDeck'), ...tuningFor('dog.fullDeck'), max_tokens: 16384 }
     expect(body.model).toBe(BUILTIN.REASONING)
     expect(body.max_tokens).toBe(16384)

@@ -142,6 +142,16 @@ verify_jwt = false
 [functions.ai-proxy]
 verify_jwt = false
 
+# ai-files: the UPLOAD half of locked #21, added 2026-08-11 to fix the HTTP 546
+# outage that stopped D.O.G. generating anything. Documents go to Anthropic's
+# Files API once and are referenced by file_id thereafter, so ai-proxy relays a
+# few KB instead of a multi-megabyte base64 body — the body was what killed the
+# worker. Same gateway opt-out and same in-function memberGuard check as
+# ai-proxy. 🚨 It streams req.body through untouched; see its header before
+# adding anything that reads the request.
+[functions.ai-files]
+verify_jwt = false
+
 # storage-gc (Session 14, Block E): admin-invoked blob disposal with
 # certificates. Rides _shared/adminGuard.ts — same in-function validation as
 # the Session 9 admin set.
