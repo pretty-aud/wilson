@@ -32,7 +32,7 @@
 //   'logo-out'   → logo fades out (500ms), background switches to light orange
 //   'idle'       → panels sit at 50vh each with no transform; 1000ms hold
 //   'split'      → panels push outward 20px (subtle "arrival"); child shown
-//   'revealing'  → panels compress to 268px, light-orange bg fades out
+//   'revealing'  → panels compress to Home's resting bar height, bg fades out
 //   'done'       → component returns null; parent may unmount
 //
 // Timings were originally matched to the pre-cloud PasswordScreen so the two
@@ -42,6 +42,7 @@
 // =============================================================================
 
 import { forwardRef, useState, useEffect, useRef } from 'react'
+import { HOME_BAR_HEIGHT } from '../../layout/pageBars'
 
 // Timings — the intro's rhythm (see header note on their origin).
 const LOGO_FADE_IN_MS   = 1200
@@ -50,7 +51,12 @@ const LOGO_HOLD_MS      = 3800   // safety fallback when the chime can't play
 const IDLE_HOLD_MS      = 1000
 const SPLIT_HOLD_MS     = 1600
 const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
-const REVEAL_BAR_HEIGHT = '268px'
+// 🚨 NOT A LITERAL. The reveal has to land on exactly the height App.jsx rests
+// Home's bars at, or the bars visibly jump at the moment the user arrives —
+// the first thing anyone sees after signing in. Phase 4 made that height
+// viewport-responsive, so a copied '268px' would now be wrong on any short
+// screen. See the seam note in src/layout/pageBars.js.
+const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // Split-phase bar height. Session 43 re-derived it from 28vh, because §A1
 // changed the content it has to clear and a stale justification is how the
 // next session trusts a figure that no longer holds.
@@ -197,13 +203,13 @@ export default function AuthShell({
   }, [phase, onIntroComplete])
 
   // ── isRevealing prop → drive the end animation ────────────────────────
-  // Compresses bars from SPLIT_BAR_HEIGHT (~28vh) down to REVEAL_BAR_HEIGHT
-  // (268px) — which matches PAGE_BARS.home.top/bottom in App.jsx — then
-  // hands off to the parent via onAnimationComplete. We intentionally do
-  // NOT fade the bars/bg to 0: App.jsx's root div is dark-orange, so a
-  // panels-fade would flash that orange between our final state and Home's
-  // first paint. Keeping the bars at full opacity means Home's matching
-  // orange 268px bars take over invisibly.
+  // Compresses bars from SPLIT_BAR_HEIGHT (~24vh) down to REVEAL_BAR_HEIGHT —
+  // which IS PAGE_BARS.home.top, imported, not matched by hand — then hands
+  // off to the parent via onAnimationComplete. We intentionally do NOT fade
+  // the bars/bg to 0: App.jsx's root div is dark-orange, so a panels-fade
+  // would flash that orange between our final state and Home's first paint.
+  // Keeping the bars at full opacity means Home's identically-sized orange
+  // bars take over invisibly.
   useEffect(() => {
     if (!isRevealing || revealStartedRef.current) return
     revealStartedRef.current = true

@@ -16,6 +16,7 @@ import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSource
 import { loadPet, savePetData, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import { canCreateNewEgg, mintEggFrom } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
+import { PAGE_BARS } from './layout/pageBars'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
 import Home from './components/Home'
@@ -97,22 +98,6 @@ const PAGE_TITLES = {
   dashboard: 'DASHBOARD',
   'admin-terminal': 'ADMIN TERMINAL',
   help: 'HELP',
-};
-
-// Bar height configs per page (top, bottom in CSS values)
-// Content area fills whatever space remains between the bars
-const PAGE_BARS = {
-  home:               { top: '268px', bottom: '268px' },
-  dog:                { top: '95px', bottom: '8px' },
-  otter:              { top: '95px', bottom: '8px' },
-  rabbit:             { top: '95px', bottom: '8px' },
-  settings:           { top: '200px', bottom: '150px' },
-  'project-manager':  { top: '200px', bottom: '150px' },
-  'rate-card':        { top: '200px', bottom: '150px' },
-  'team-members':     { top: '200px', bottom: '150px' },
-  dashboard:          { top: '200px', bottom: '150px' },
-  'admin-terminal':   { top: '200px', bottom: '150px' },
-  help:               { top: '140px', bottom: '100px' },
 };
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
@@ -1486,7 +1471,8 @@ export default function App() {
   //    out — AuthShell has been covering the app and its reveal has only just
   //    handed over, so fading content the user has never seen would read as a
   //    flicker before the bars move. AuthShell's reveal settles the bars at
-  //    268px (PAGE_BARS.home) and this picks them straight up from there, so
+  //    PAGE_BARS.home (imported by both, see src/layout/pageBars.js — Phase 4
+  //    made it viewport-responsive) and this picks them up from there, so
   //    the two animations read as one continuous movement: the bars close,
   //    say WELCOME, and open onto Home.
   const playWelcome = useCallback(() => {
@@ -1572,9 +1558,16 @@ export default function App() {
   const isDarkPage = isDog || isOtter || isRabbit;
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
-  // Bottom offset for pet sprite — positions it above the bottom bar
-  const BOTTOM_BAR_PX = { home: 268, dog: 8, otter: 8, rabbit: 8, settings: 150, 'project-manager': 150, 'rate-card': 150, 'team-members': 150, dashboard: 150, 'admin-terminal': 150, help: 100 };
-  const petBottomOffset = (BOTTOM_BAR_PX[currentPage] || 8) + 16;
+  // Bottom offset for pet sprite — positions it above the bottom bar.
+  //
+  // 🚨 DERIVED FROM PAGE_BARS, never re-typed. This was a private
+  // `BOTTOM_BAR_PX` table — a second, silent copy of every bottom-bar height,
+  // 150px of it duplicated six times. Phase 4 made the bars viewport-relative
+  // and that copy would have gone on insisting Home's bar was 268px, standing
+  // the pet ~76px above the bar it is drawn sitting on, on exactly the screen
+  // this phase set out to fix. Nothing tests where the pet sits.
+  const petBottomOffset =
+    `calc(${(PAGE_BARS[currentPage] || PAGE_BARS.home).bottom} + 16px)`;
 
   // Close the resources sub-column when the nav menu closes or page changes
   useEffect(() => {

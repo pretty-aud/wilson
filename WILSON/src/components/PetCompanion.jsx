@@ -19,7 +19,15 @@ export default function PetCompanion({
   sleepZCycle, cloudVisible, attentionJump,
   showHatchModal, hatchNameInput, onHatchNameChange, onHatchConfirm,
   isDarkPage, onNavigateLink,
-  bottomOffset = 48, petVisible = true,
+  // 🚨 A CSS LENGTH STRING, not a number. The pet is drawn sitting on top of
+  // the bottom bar, so this has to be an expression that TRACKS that bar
+  // ('calc(min(268px, …) + 16px)') rather than a pixel count copied from it.
+  //
+  // A number was correct for as long as the bars were fixed pixels. Phase 4
+  // made them viewport-responsive, and a number would have gone on reporting
+  // Home's bar as 268px on every screen — leaving the pet floating ~76px above
+  // it on a 14-inch Mac, i.e. on exactly the display that phase set out to fix.
+  bottomOffset = '48px', petVisible = true,
   // Session 12 (locked #21): AI rides the authenticated ai-proxy, so the
   // only unavailable state is "not signed in" — there is no API key anymore.
   aiUnavailable = false,
@@ -122,7 +130,7 @@ export default function PetCompanion({
     <>
       {/* Chat popup — hidden while egg */}
       {companionOpen && !isEgg && (
-        <div className={`fixed right-[5.5rem] w-[350px] h-[450px] ${bgPanel} border-2 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] z-30 flex flex-col slide-in-right`} style={{ borderColor: accent, bottom: `${bottomOffset + 72}px` }}>
+        <div className={`fixed right-[5.5rem] w-[350px] h-[450px] ${bgPanel} border-2 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] z-30 flex flex-col slide-in-right`} style={{ borderColor: accent, bottom: `calc(${bottomOffset} + 72px)` }}>
           <div className={`${bgHeader} border-b-2 px-3 py-2 flex items-center justify-between shrink-0 rounded-t-sm`} style={{ borderColor: accent }}>
             <span className="text-sm font-bold font-mono" style={{ color: headerText }}>{headerTitle}</span>
             <div className="flex items-center gap-1">
@@ -261,7 +269,7 @@ export default function PetCompanion({
 
       {/* Stats card — left of sprite, only when chat open + pet mode + alive + not in agent mode */}
       {showStats && (
-        <div className="fixed right-[5.5rem] z-30 flex flex-col gap-1 slide-up font-mono" style={{ bottom: `${bottomOffset}px` }}>
+        <div className="fixed right-[5.5rem] z-30 flex flex-col gap-1 slide-up font-mono" style={{ bottom: bottomOffset }}>
           <div className="rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] px-2.5 py-1 border-2" style={{ background: isDarkPage ? '#1c1917' : '#f4a261', borderColor: accent }}>
             <div className="text-[11px] uppercase font-bold tracking-wider leading-none" style={{ color: accent }}>Status: {state}</div>
           </div>
@@ -276,7 +284,7 @@ export default function PetCompanion({
       {/* Sprite — fixed bottom-right, slides in/out during transitions */}
       <div
         className={`fixed right-4 z-30 cursor-pointer hover:scale-110 transition-transform ${attentionJump ? 'attention-jump' : ''} ${petVisible ? 'pet-slide-in' : 'pet-slide-out'}`}
-        style={{ bottom: `${bottomOffset}px` }}
+        style={{ bottom: bottomOffset }}
         onClick={() => isEgg ? onPetAction() : onCompanionToggle(!companionOpen)}
       >
         <div className="relative">
