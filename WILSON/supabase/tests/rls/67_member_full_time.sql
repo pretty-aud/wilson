@@ -64,16 +64,39 @@ SELECT is(
 
 -- ── 3. the guard ────────────────────────────────────────────────────────────
 -- Fixtures: one workspace, an admin, a manager and a plain member.
-SELECT tests.rls_setup();
+SELECT * FROM tests.rls_setup();
 
 INSERT INTO public.workspaces (id, name, slug)
 VALUES ('cccccccc-cccc-cccc-cccc-cccccccccccc', 'FT Test Co', 'ft-test')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO auth.users (id, email) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'ft-admin@example.test'),
-  ('22222222-2222-2222-2222-222222222222', 'ft-mgr@example.test'),
-  ('33333333-3333-3333-3333-333333333333', 'ft-user@example.test')
+-- 🚨 THIRD BUG (2026-08-12). This insert originally named only (id, email).
+-- Hosted Postgres tolerates that — `id` is the sole NOT NULL column with no
+-- default there, MEASURED on wilson-dev — but CI runs a LOCAL Supabase whose
+-- auth image carries its own constraints, and every other file in this suite
+-- writes the full eleven-column shape: tests.rls_setup() itself, and
+-- 14_ws_members_self.sql (same table, green since Session 3). 67 was the only
+-- outlier. Conform to the proven pattern rather than the minimum that happens
+-- to satisfy one server.
+INSERT INTO auth.users (id, email, encrypted_password, email_confirmed_at,
+                        raw_app_meta_data, raw_user_meta_data, aud, role,
+                        instance_id, created_at, updated_at)
+VALUES
+  ('11111111-1111-1111-1111-111111111111', 'ft-admin@example.test',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated',
+   '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('22222222-2222-2222-2222-222222222222', 'ft-mgr@example.test',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated',
+   '00000000-0000-0000-0000-000000000000', now(), now()),
+  ('33333333-3333-3333-3333-333333333333', 'ft-user@example.test',
+   crypt('testpw', gen_salt('bf')), now(),
+   '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb,
+   'authenticated', 'authenticated',
+   '00000000-0000-0000-0000-000000000000', now(), now())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.workspace_members (workspace_id, user_id, username, app_role, is_active)
