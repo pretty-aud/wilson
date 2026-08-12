@@ -93,8 +93,31 @@ jobs:
       - name: Start Supabase local DB
         run: supabase start --exclude realtime,storage-api,imgproxy,edge-runtime,studio,mailpit
 
+      # 🚨 THE SUITE'S OWN OUTPUT IS THE PRIMARY DIAGNOSTIC, and until
+      # 2026-08-12 nothing captured it. pg_prove's summary NAMES the failing
+      # file and the failing test number; the replay step below can only guess.
+      # Full logs need repo admin, so anything not turned into an ::error::
+      # annotation is invisible to everyone without admin rights — which is how
+      # the 2026-08-11 break survived three blind fixes and ten red runs.
       - name: Run pgTAP suite
-        run: supabase test db
+        run: |
+          set -o pipefail
+          supabase test db 2>&1 | tee /tmp/pgtap.log
+
+      - name: Annotate pgTAP failure
+        if: failure()
+        run: |
+          # pg_prove emits TAP: "not ok 12 - ...", "# Failed test ...",
+          # "# Looks like you failed 1 test of 30", and a Result: FAIL summary.
+          # Cap at 20 so one broken suite cannot exhaust GitHub's 10-per-step
+          # annotation budget before the useful lines are reached.
+          grep -nE 'not ok|# +Failed test|# +Looks like|Result: FAIL|ERROR|FATAL|could not' /tmp/pgtap.log \
+            | head -20 \
+            | while IFS= read -r line; do
+                echo "::error title=pgTAP::${line}"
+              done
+          echo "----- full pgTAP output (tail 120) -----"
+          tail -120 /tmp/pgtap.log || true
 
       - name: Capture logs on failure
         if: failure()
@@ -216,7 +239,19 @@ jobs:
           # run — recreate it here or every replay dies at plan().
           for f in supabase/tests/rls/01_projects.sql supabase/tests/rls/02_phases.sql supabase/tests/rls/03_assets.sql supabase/tests/rls/04_tasks.sql supabase/tests/rls/05_files.sql supabase/tests/rls/06_comments.sql supabase/tests/rls/07_rate_cards.sql supabase/tests/rls/08_rate_card_entries.sql supabase/tests/rls/09_asset_versions.sql supabase/tests/rls/10_task_dependencies.sql supabase/tests/rls/11_task_links.sql supabase/tests/rls/12_ingestion_runs.sql supabase/tests/rls/13_ingestion_chunks.sql supabase/tests/rls/14_ws_members_self.sql supabase/tests/rls/15_provision_rpc.sql supabase/tests/rls/16_member_directory.sql supabase/tests/rls/17_edit_history.sql supabase/tests/rls/18_project_members.sql supabase/tests/rls/19_soft_delete.sql supabase/tests/rls/20_realtime.sql supabase/tests/rls/21_notes.sql supabase/tests/rls/22_note_subjects.sql supabase/tests/rls/23_workspace_realtime.sql supabase/tests/rls/24_admin_grants.sql supabase/tests/rls/25_app_events.sql supabase/tests/rls/26_otter_courses.sql supabase/tests/rls/27_otter_subjects.sql supabase/tests/rls/28_otter_progress.sql supabase/tests/rls/29_otter_course_editors.sql supabase/tests/rls/30_otter_change_requests.sql supabase/tests/rls/31_otter_trash.sql supabase/tests/rls/32_otter_cr_apply.sql supabase/tests/rls/33_file_lifecycle.sql supabase/tests/rls/34_workspace_ai_keys.sql supabase/tests/rls/35_platform_audit.sql supabase/tests/rls/36_edge_rate_limits.sql supabase/tests/rls/37_workspace_write_lockdown.sql supabase/tests/rls/38_ws_member_audit.sql supabase/tests/rls/39_platform_approved_models.sql supabase/tests/rls/40_platform_model_defaults.sql supabase/tests/rls/41_workspace_model_overrides.sql supabase/tests/rls/42_user_model_overrides.sql supabase/tests/rls/43_budget_lines.sql supabase/tests/rls/44_budget_actuals.sql supabase/tests/rls/45_budget_versions.sql supabase/tests/rls/46_expenses.sql supabase/tests/rls/47_project_rate_overrides.sql supabase/tests/rls/48_scenes.sql supabase/tests/rls/49_shots.sql supabase/tests/rls/50_levels.sql supabase/tests/rls/51_experiences.sql supabase/tests/rls/52_folders.sql supabase/tests/rls/53_money_segments.sql supabase/tests/rls/54_task_templates.sql supabase/tests/rls/55_otter_quiz_attempts.sql supabase/tests/rls/56_user_pets.sql supabase/tests/rls/57_user_settings.sql supabase/tests/rls/58_workspace_storage.sql supabase/tests/rls/59_project_folder_root.sql supabase/tests/rls/60_workspace_storage_provider.sql supabase/tests/rls/61_workspace_storage_s3.sql supabase/tests/rls/62_workspace_storage_secrets.sql supabase/tests/rls/63_thumbnails_bucket.sql supabase/tests/rls/64_thumbnail_provider.sql supabase/tests/rls/65_workspace_storage_plans.sql supabase/tests/rls/66_cloud_multi_gb.sql supabase/tests/rls/67_member_full_time.sql supabase/tests/rls/68_phase_dependencies.sql; do
             echo "=== psql replay: $f ==="
+            # 🚨 `-t -A --no-psqlrc` IS LOAD-BEARING, ADDED 2026-08-12.
+            #
+            # Without them psql prints ALIGNED output, which pads every cell
+            # with a leading space — so a failing assertion arrives as
+            # " not ok 12 - ..." and the `^not ok` anchor in the grep below
+            # could never match it. That is exactly why the 2026-08-11 break
+            # produced ZERO annotations across ten consecutive red runs while
+            # the step claiming to explain it reported nothing at all.
+            #
+            # This is also why pg_prove itself runs psql tuples-only and
+            # unaligned: raw aligned psql output is not valid TAP.
             OUT=$(PGPASSWORD=postgres psql -h 127.0.0.1 -p 54322 -U postgres -d postgres \
+              -t -A --no-psqlrc \
               -c 'CREATE EXTENSION IF NOT EXISTS pgtap SCHEMA extensions' \
               -c 'SET search_path TO public, extensions' \
               -v ON_ERROR_STOP=1 -e -f "$f" 2>&1 | tail -60 || true)
@@ -230,7 +265,12 @@ jobs:
             # "the SQL blew up" and "the SQL ran and the answer was wrong", and
             # only the second one describes an actual broken policy or contract.
             # Matching both is the whole point of the step.
-            ERR=$(echo "$OUT" | grep -E 'ERROR|FATAL|could not|^not ok|^# +Failed test' | head -6 | tr '\n' ' ')
+            # ⚠️ UNANCHORED, 2026-08-12. The `^` on `not ok` / `# Failed test`
+            # made both patterns dead against padded psql output. Even with
+            # `-t -A` above they stay unanchored: one flag removed from that
+            # psql call and the anchors silently stop matching again, with no
+            # test to notice. Match the text, not the column it lands in.
+            ERR=$(echo "$OUT" | grep -E 'ERROR|FATAL|could not|not ok|# +Failed test' | head -6 | tr '\n' ' ')
             # 🚨 ONLY annotate a file that actually errored. This used to emit
             # an ::error:: for EVERY replayed file, falling back to "replay
             # produced no ERROR lines" when a file passed — which defeated the
