@@ -32,40 +32,34 @@ Anything that is merely unverified, interim, or planned belongs in
 
 ## 🚨 Security — blocks the v1.0.0 tag
 
-### Migration history is missing every row from 0059 onward, on all three environments
+### Migrations 0060 and 0061 are not applied to any environment
 
 **MEASURED (2026-08-12) on dev, staging and prod — identical on each.**
 
-`supabase_migrations.schema_migrations` contains **no rows at or above 0059**,
-while 0059's schema **is** deployed (`workspace_members.is_full_time` exists on
-all three). So the recorded history and the actual database disagree: 0059 was
-applied without being recorded.
+Migration history was repaired the same day, so `supabase db push` now works and
+is the normal route. `--dry-run` on each environment reports the same three:
 
 ```
-history_rows_ge_0059      = 0     -- but...
-col_is_full_time_0059     = 1     -- 0059's column is live
-directory_has_grants_0060 = 0     -- 0060 genuinely not applied
-table_phase_deps_0061     = 0     -- 0061 genuinely not applied
+ • 0060_restore_directory_grant_columns.sql
+ • 0061_phase_dependencies.sql
+ • 0062_restore_grant_flag_guards.sql
 ```
 
-🚨 **`supabase db push` is unsafe until this is reconciled.** It would try to
-re-apply 0059 against a database that already has it. If any statement in 0059
-is not idempotent the push aborts — and everything after it, including any
-future security fix, never lands. That is exactly why 0062 was applied as direct
-SQL rather than through `db push` (it is a bare `CREATE OR REPLACE FUNCTION`, so
-it is idempotent and depends on nothing in 0060/0061).
+- **0060** restores the two grant columns to `workspace_directory()` that 0059
+  dropped from its `RETURNS TABLE`. Until it lands, any client reading those
+  columns from the RPC gets nothing — a column the RPC does not NAME is
+  invisible.
+- **0061** creates `public.phase_dependencies`. 🚨 **This is the one users feel:
+  phase→phase timeline links fail with a visible banner until it lands.**
+- **0062** is already applied and verified on all three; it is listed only
+  because it was applied as direct SQL rather than through the migration
+  runner. Re-applying it is a no-op — a bare `CREATE OR REPLACE FUNCTION` with
+  identical content — and pushing it is what makes the recorded history
+  complete again.
 
-Two consequences to settle, in order:
-
-1. **Reconcile the history** — `supabase migration repair --status applied 0059`
-   (per environment), after confirming statement by statement that 0059 is
-   wholly present. Do not guess: read the deployed objects.
-2. **Then decide about 0060 and 0061**, which are genuinely unapplied
-   everywhere. 0061 is the one that matters to users: phase→phase timeline
-   links fail with a banner until it lands.
-
-⚠️ 0062 is applied and verified on all three, but is **also** absent from the
-history for the same reason. It will need the same repair treatment.
+⚠️ Nobody has decided whether 0060 and 0061 should go out. They were left
+pending deliberately: applying them is a product change, not part of closing the
+0059 security hole.
 
 
 ### `smoke_admin` password is in public git history
