@@ -91,9 +91,32 @@ SELECT is(
   'seeded members all start not-full-time'
 );
 
--- 3a. A MEMBER may not flip their own flag.
-SELECT tests.authenticate_as('33333333-3333-3333-3333-333333333333',
-  'cccccccc-cccc-cccc-cccc-cccccccccccc', 'user');
+-- 🚨 SECOND BUG, found 2026-08-12 behind the first one. This file originally
+-- called `tests.authenticate_as(user, workspace, role)` here and twice below.
+-- **That function has never existed.** The tests schema contains exactly three
+-- helpers — `tests.login_as(uuid, uuid)`, `tests.logout()`, `tests.rls_setup()`
+-- — and no other file in the 67-file suite calls `authenticate_as`. It was
+-- invented, so every call was `42883: function does not exist`.
+--
+-- And `tests.login_as` is NOT the substitute: it sets app_metadata with
+-- workspace_id ONLY, no app_role. Both policies these assertions depend on
+-- gate on `current_app_role()` —
+--   ws_members_manager_write  USING current_app_role() = 'manager'
+--   ws_members_admin_write    USING current_app_role() = 'admin'
+-- — so login_as would silently fail the manager and admin arms while the
+-- member arm passed, which is a worse failure than a missing function.
+--
+-- So this uses the explicit claim block, which is what 14_ws_members_self.sql
+-- (same table, same guard, passing since Session 3) has always done.
+SELECT set_config('request.jwt.claims',
+  jsonb_build_object(
+    'sub',  '33333333-3333-3333-3333-333333333333',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      'app_role',     'user'))::text,
+  true);
+SELECT set_config('role', 'authenticated', true);
 
 SELECT throws_ok(
   $$UPDATE public.workspace_members SET is_full_time = true
@@ -111,8 +134,15 @@ SELECT lives_ok(
 );
 
 -- 3b. A MANAGER may not flip anyone else's.
-SELECT tests.authenticate_as('22222222-2222-2222-2222-222222222222',
-  'cccccccc-cccc-cccc-cccc-cccccccccccc', 'manager');
+SELECT set_config('request.jwt.claims',
+  jsonb_build_object(
+    'sub',  '22222222-2222-2222-2222-222222222222',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      'app_role',     'manager'))::text,
+  true);
+SELECT set_config('role', 'authenticated', true);
 
 SELECT throws_ok(
   $$UPDATE public.workspace_members SET is_full_time = true
@@ -128,8 +158,15 @@ SELECT lives_ok(
 );
 
 -- 3c. An ADMIN can — this is the tier that owns employment facts.
-SELECT tests.authenticate_as('11111111-1111-1111-1111-111111111111',
-  'cccccccc-cccc-cccc-cccc-cccccccccccc', 'admin');
+SELECT set_config('request.jwt.claims',
+  jsonb_build_object(
+    'sub',  '11111111-1111-1111-1111-111111111111',
+    'role', 'authenticated',
+    'app_metadata', jsonb_build_object(
+      'workspace_id', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      'app_role',     'admin'))::text,
+  true);
+SELECT set_config('role', 'authenticated', true);
 
 SELECT lives_ok(
   $$UPDATE public.workspace_members SET is_full_time = true

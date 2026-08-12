@@ -165,10 +165,25 @@ none, so the file was never executed. The "1440 tests green" in that commit was
 **vitest** — a different suite that never touches these files. A pgTAP test is
 verified by CI or a local Supabase, never by vitest.
 
-→ Fix pushed. ⚠️ **Assertions 7–14 of that file — the RLS guard checks — have
-never executed once**, because the parse error killed the file before reaching
-them. Un-blocking them may surface further failures; CI is the first run they
-will ever get.
+**SECOND BUG, found behind the first (2026-08-12).** Fixing the parse error let
+assertions 7–14 run for the first time; CI stayed red. Cause: the file called
+`tests.authenticate_as(user, workspace, role)` three times and **that function
+has never existed**. MEASURED against dev — the `tests` schema holds exactly
+`login_as(uuid, uuid)`, `logout()`, `rls_setup()`. Across all 67 files
+`login_as` is used 130 times and `authenticate_as` exactly once, here. It was
+invented.
+
+🚨 **And `login_as` is not the drop-in substitute:** it sets `app_metadata` with
+`workspace_id` only, **no `app_role`**, while both policies these assertions
+need gate on `current_app_role()` (`ws_members_manager_write` on `'manager'`,
+`ws_members_admin_write` on `'admin'`). Swapping it in would have passed the
+member arm and silently failed the manager and admin arms — worse than a
+missing function. Fixed with the explicit claim block that
+`14_ws_members_self.sql` (same table, same guard, green since Session 3) has
+always used.
+
+→ Both fixes pushed. **Still unverified**: no pgTAP run has ever executed
+assertions 7–14, so CI remains the first real exercise of them.
 
 ### Every input on every light page is under AA, and it is not the grey problem
 **MEASURED (2026-08-10, S43 §B).** WILSON's light-page input well is
