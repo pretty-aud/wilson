@@ -32,13 +32,31 @@ SELECT col_default_is('public', 'workspace_members', 'is_full_time', 'false',
 SELECT has_function('public', 'workspace_directory', ARRAY[]::TEXT[],
   'workspace_directory() exists');
 
+-- 🚨 The first version of this assertion was INVALID SQL and failed the whole
+-- pgTAP job on every run from 2026-08-11 (cfe2cbd) to 2026-08-12. It read:
+--
+--     FROM information_schema.routines r
+--     JOIN LATERAL unnest(string_to_array(pg_get_function_result(p.oid), ',')) ...
+--     JOIN pg_proc p ON p.proname = r.routine_name ...
+--
+-- LATERAL may only reference tables that appear EARLIER in the FROM list, and
+-- `p` was joined after it — `42P01: missing FROM-clause entry for table "p"`.
+-- Postgres raises that at parse time, so the error aborts the transaction and
+-- takes the whole file down with it: assertions 7-14 below never ran once.
+--
+-- It could never have passed on any database. It shipped because pgTAP needs
+-- Docker to run locally, this machine has none, and "1440 tests green" in that
+-- commit was VITEST — a different suite that never touches these files. A
+-- pgTAP test is only verified by CI or by a local Supabase, never by vitest.
+--
+-- information_schema.routines contributed nothing here but the scope hazard,
+-- so the fix drops it and starts from pg_proc.
 SELECT is(
   (SELECT count(*)::int
-     FROM information_schema.routines r
+     FROM pg_proc p
      JOIN LATERAL unnest(string_to_array(pg_get_function_result(p.oid), ',')) AS col(def) ON true
-     JOIN pg_proc p ON p.proname = r.routine_name AND p.pronamespace = 'public'::regnamespace
-    WHERE r.routine_schema = 'public'
-      AND r.routine_name = 'workspace_directory'
+    WHERE p.pronamespace = 'public'::regnamespace
+      AND p.proname = 'workspace_directory'
       AND col.def ILIKE '%is_full_time%'),
   1,
   'workspace_directory() RETURNS TABLE names is_full_time'

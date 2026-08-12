@@ -140,12 +140,35 @@ failures are silent: nothing crashes, every screen renders, and the wrong person
 can read the data. It is the only gate that catches a bad migration before it
 reaches a real database, and there are migrations still to come (S43b needs one).
 
-→ **What is NOT known is whether the tests found a real problem or the harness
-itself broke** (local Postgres failing to start in CI, a version bump, a missing
-dependency). Those need very different responses and the difference cannot be
-seen from outside: the job-log endpoint returns 403 without repo admin. Settle it
-by running the suite locally against a throwaway Supabase, or by reading the log
-from the Actions page.
+**CAUSE FOUND 2026-08-12 — neither the database nor the harness. The test file
+itself was invalid SQL.** `67_member_full_time.sql` (added by `cfe2cbd`, the
+first red run) checked `workspace_directory()`'s return list with:
+
+```
+FROM information_schema.routines r
+JOIN LATERAL unnest(string_to_array(pg_get_function_result(p.oid), ',')) ...
+JOIN pg_proc p ON p.proname = r.routine_name ...
+```
+
+`LATERAL` may only reference tables appearing EARLIER in the `FROM` list, and
+`p` is joined after it. MEASURED by running the statement against wilson-dev:
+`42P01: missing FROM-clause entry for table "p"`. Postgres raises it at parse
+time, so it aborts the transaction and takes the whole file with it.
+
+**Migration 0059 is sound** — every fact the test means to assert was verified
+true on dev: the column exists, is `boolean`, is `NOT NULL`, defaults `false`;
+`workspace_directory` has one overload and its return list names `is_full_time`;
+and both guard messages are present in the trigger function body.
+
+🚨 **How it shipped:** pgTAP needs Docker to run locally and this machine has
+none, so the file was never executed. The "1440 tests green" in that commit was
+**vitest** — a different suite that never touches these files. A pgTAP test is
+verified by CI or a local Supabase, never by vitest.
+
+→ Fix pushed. ⚠️ **Assertions 7–14 of that file — the RLS guard checks — have
+never executed once**, because the parse error killed the file before reaching
+them. Un-blocking them may surface further failures; CI is the first run they
+will ever get.
 
 ### Every input on every light page is under AA, and it is not the grey problem
 **MEASURED (2026-08-10, S43 §B).** WILSON's light-page input well is
