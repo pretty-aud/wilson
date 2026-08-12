@@ -215,7 +215,14 @@ jobs:
             echo "$OUT"
             # Surface the SQL error as an annotation — annotations are
             # readable via the public API, full logs are not.
-            ERR=$(echo "$OUT" | grep -B1 -E 'ERROR|FATAL|could not' | tail -6 | tr '\n' ' ')
+            # 🚨 `not ok` is NOT an SQL error. A pgTAP assertion that FAILS
+            # prints a plain TAP line — no ERROR, no FATAL, nothing this grep
+            # used to match — so a failing assertion replayed as "clean" while
+            # pg_prove correctly failed the job. That is the difference between
+            # "the SQL blew up" and "the SQL ran and the answer was wrong", and
+            # only the second one describes an actual broken policy or contract.
+            # Matching both is the whole point of the step.
+            ERR=$(echo "$OUT" | grep -E 'ERROR|FATAL|could not|^not ok|^# +Failed test' | head -6 | tr '\n' ' ')
             # 🚨 ONLY annotate a file that actually errored. This used to emit
             # an ::error:: for EVERY replayed file, falling back to "replay
             # produced no ERROR lines" when a file passed — which defeated the
