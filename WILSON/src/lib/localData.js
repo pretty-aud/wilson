@@ -55,6 +55,8 @@
 // future work, not an oversight.
 // =============================================================================
 
+import { defaultPet } from './petLifecycle'
+
 export function hasLocalServer() {
   return typeof window !== 'undefined' && !!window.electronAPI
 }
@@ -98,21 +100,10 @@ function writeLocal(key, value) {
 
 // ── Pet ──────────────────────────────────────────────────────────────────────
 
-// Mirror of defaultPet() in electron/main.cjs — the web build has no main
-// process, so the default egg is minted client-side.
-function defaultPet() {
-  return {
-    name: 'Ollie', gender: Math.random() < 0.5 ? 'male' : 'female',
-    breed: null, form: 'egg',
-    hunger: 0, happiness: 0,
-    state: 'content', difficulty: 'medium', petMode: true,
-    eggPetCount: 0, eggHatchThreshold: Math.floor(Math.random() * 3) + 2,
-    bornAt: null, evolvedAt: null, diedAt: null,
-    lastFedAt: null, lastPettedAt: null, lastSleptAt: null, sleepingSince: null,
-    interactionCount: 0, lastUpdatedAt: new Date().toISOString(),
-    feedback: [], totalThumbsUp: 0, totalThumbsDown: 0,
-  }
-}
+// The default egg now lives in petLifecycle.js beside the rules that mint one
+// after a death, so there is ONE definition in the renderer. (electron/main.cjs
+// keeps its own copy — it is CommonJS in the main process and cannot import
+// this module.)
 
 /** GET /api/pet semantics: always yields a pet, minting the default egg. */
 export async function loadPet() {
@@ -152,25 +143,19 @@ export async function savePetData(pet) {
   writeLocal(PET_KEY, pet)
 }
 
-/** POST /api/pet/new-egg semantics: ghost → fresh egg, feedback carries over. */
-export async function newPetEgg() {
-  if (hasLocalServer()) {
-    const res = await fetch('/api/pet/new-egg', { method: 'POST' })
-    if (!res.ok) throw new Error('Pet must be a ghost to create new egg')
-    return res.json()
-  }
-  const old = readLocal(PET_KEY, null)
-  if (!old || old.form !== 'ghost') {
-    throw new Error('Pet must be a ghost to create new egg')
-  }
-  const pet = defaultPet()
-  pet.difficulty = old.difficulty
-  pet.feedback = old.feedback || []
-  pet.totalThumbsUp = old.totalThumbsUp || 0
-  pet.totalThumbsDown = old.totalThumbsDown || 0
-  writeLocal(PET_KEY, pet)
-  return pet
-}
+// 🚨 `newPetEgg()` IS GONE — Phase 3, 2026-08-12. It decided eligibility by
+// re-reading a PER-DEVICE store, which is the bug Audrey reported: the same
+// account, the same dead pet, worked on one computer and did nothing on
+// another. Its replacement is canCreateNewEgg()/mintEggFrom() in
+// petLifecycle.js — pure functions that judge the pet App.jsx is holding —
+// and the write goes through savePet(), the one caller that routes by ACCOUNT
+// rather than by `window.electronAPI`.
+//
+// It also fabricated `'Pet must be a ghost to create new egg'` for EVERY
+// non-ok HTTP status, so a 500 from a full disk reported a lifecycle rule.
+//
+// `POST /api/pet/new-egg` was removed from electron/main.cjs in the same
+// change; this was its only caller.
 
 // ── O.T.T.E.R. settings (prompts, storage location, companion name, and the
 //    rabbit/agentSkills slices SettingsPage stows here) ──────────────────────

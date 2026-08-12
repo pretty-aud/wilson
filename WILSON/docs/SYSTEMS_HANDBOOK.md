@@ -174,7 +174,7 @@ roughly 144 endpoints at runtime.
 
 | Family | Representative routes | Consumer |
 |---|---|---|
-| Pet | `GET/POST /api/pet`, `POST /api/pet/reset`, `POST /api/pet/new-egg` | Pet companion (§13.5) |
+| Pet | `GET/POST /api/pet` only (**Phase 3, 2026-08-12: `POST /api/pet/reset` and `POST /api/pet/new-egg` REMOVED — both verified callerless. `reset` never had one; `new-egg` answered an ACCOUNT-scoped question from the per-device `pet.json`, which was half of Audrey's "Create Egg does nothing" bug. Eligibility now lives in `src/lib/petLifecycle.js`**) | Pet companion (§13.5) |
 | O.T.T.E.R. content | `GET/POST /api/software`, `…/:slug/subjects` (**incl. `PUT …/subjects/:sub`, S30**), `…/hotkeys`, `…/functions`, `…/nodes`, `…/progress`, `…/references`, `…/corrections`, `GET /api/export-all` | O.T.T.E.R. local mode |
 | O.T.T.E.R. quiz history | `GET/POST /api/otter/quiz-history` (**S30 — not per course, and the one `/api/otter/` route that is NOT cloud-only**) | O.T.T.E.R., both backends |
 | O.T.T.E.R. settings | `GET/POST /api/otter-settings`, `GET/POST /api/agent-skills` | Settings, agent |

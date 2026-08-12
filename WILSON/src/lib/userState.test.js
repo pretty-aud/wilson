@@ -139,11 +139,80 @@ describe('resolveUserPet — which pet wins', () => {
     const { upsert } = stubTable({ selectRow: null })
     loadPet.mockResolvedValue(PRISTINE_EGG)
 
-    await resolveUserPet()
+    const res = await resolveUserPet()
 
-    // It seeds the row so one exists, but only because the cloud was empty too.
-    // The property that matters: it never beat anything.
-    expect(upsert.mock.calls.length).toBeLessThanOrEqual(1)
+    // 🚨 PHASE 3 STRENGTHENED THIS FROM `<= 1` TO EXACTLY ZERO, and the
+    // difference is load-bearing.
+    //
+    // It used to seed the blank egg into the account "so a row exists". Once
+    // "any cloud row wins" (the guard that stops a stale device pet destroying
+    // a new egg), that seed became poison: loadPet()/GET /api/pet MINT AND
+    // STORE a blank egg the first time any host reads an empty store, so the
+    // first sign-in on a never-used browser or a second computer would create
+    // a permanent not-real row that then outranked Audrey's real local Ollie
+    // FOREVER — and the cache mirror would overwrite the last copy of him.
+    //
+    // Seeding bought nothing: saveCloudPet upserts, so the row appears on the
+    // first real save whenever that comes.
+    expect(upsert).not.toHaveBeenCalled()
+    expect(res.pet.form).toBe('egg')
+    expect(res.adopted).toBe(false)
+  })
+
+  it('🚨 a BLANK egg row from a stray click does NOT shadow a real local pet', async () => {
+    // The regression two attempted fixes introduced. Both made "any cloud row
+    // exists" win, on the belief that a row implies a deliberate save. It does
+    // not: savePet writes whatever it is handed, and FIVE ordinary controls run
+    // while the pet is still the blank egg loadPet() mints — the Pet Mode
+    // toggle, the difficulty buttons, Reset History, a companion thumbs-up, and
+    // petting the egg (eggHatchThreshold is 2–4, so the first click can never
+    // hatch it and always writes).
+    //
+    // So: Audrey signs in on a fresh machine, clicks ONE of those, and her real
+    // Ollie on the original machine became permanently unreachable — then
+    // savePet's cache mirror overwrote him on disk too.
+    const { upsert } = stubTable({
+      selectRow: { name: 'Ollie', form: 'egg', born_at: null, interaction_count: 0,
+                   hunger: 0, happiness: 0, difficulty: 'medium', feedback: [],
+                   total_thumbs_up: 0, total_thumbs_down: 0 },
+    })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    const res = await resolveUserPet()
+
+    expect(res.source).toBe('local')
+    expect(res.adopted).toBe(true)
+    expect(res.pet.bornAt).toBe('2026-07-16T07:57:42.865Z')
+    expect(upsert).toHaveBeenCalledTimes(1)
+  })
+
+  it('a deliberate egg is told apart from a blank one by the history it carries', async () => {
+    // The whole fix in one assertion pair: same form, same counters, different
+    // provenance.
+    expect(isRealPet({ form: 'egg', bornAt: null, interactionCount: 0,
+                       feedback: [], totalThumbsUp: 0, totalThumbsDown: 0 })).toBe(false)
+    expect(isRealPet({ form: 'egg', bornAt: null, interactionCount: 0,
+                       feedback: [{ rating: 'up' }], totalThumbsUp: 0, totalThumbsDown: 0 })).toBe(true)
+    expect(isRealPet({ form: 'egg', bornAt: null, interactionCount: 0,
+                       feedback: [], totalThumbsUp: 7, totalThumbsDown: 0 })).toBe(true)
+    expect(isRealPet({ form: 'egg', bornAt: null, interactionCount: 0,
+                       feedback: [], totalThumbsUp: 0, totalThumbsDown: 3 })).toBe(true)
+  })
+
+  it('🚨 a real local pet is STILL adopted after another machine has signed in first', async () => {
+    // The regression the guard above nearly caused: machine B signs in first
+    // and (before the fix) seeded a blank egg row; machine A, holding the real
+    // Ollie, could then never adopt him. With no seeding, the account still has
+    // no row, so A's pet is lifted up exactly as S31 intended.
+    const { upsert } = stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    const res = await resolveUserPet()
+
+    expect(res.adopted).toBe(true)
+    expect(res.source).toBe('local')
+    expect(upsert).toHaveBeenCalledTimes(1)
+    expect(upsert.mock.calls[0][0].form).toBe('ghost')
   })
 
   it('a real cloud pet always wins over a real local one', async () => {
@@ -157,6 +226,45 @@ describe('resolveUserPet — which pet wins', () => {
 
     expect(res.pet.name).toBe('CloudPet')
     expect(upsert).not.toHaveBeenCalled()
+  })
+
+  it('🚨 a NEW EGG in the account survives another computer signing in (Phase 3)', async () => {
+    // The regression this replaces: isRealPet() calls a fresh egg "not real" —
+    // that is its purpose, so a never-used computer cannot upload a blank egg
+    // over a real pet. But the egg Audrey creates after a death IS a fresh egg.
+    //
+    // So: Create Egg on PC A -> the account row is an egg. Open PC B, whose
+    // cache still holds the DEAD pet (real, because form !== 'egg'). Adoption
+    // fired and uploaded the ghost back over the new egg. The egg vanished and
+    // the dead pet returned — on the exact cross-machine path Audrey asked to
+    // have working.
+    const { upsert } = stubTable({
+      selectRow: { name: 'Ollie', form: 'egg', born_at: null, interaction_count: 0,
+                   hunger: 0, happiness: 0, difficulty: 'low', feedback: [],
+                   total_thumbs_up: 7, total_thumbs_down: 3 },
+    })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    const res = await resolveUserPet()
+
+    expect(res.source).toBe('cloud')
+    expect(res.pet.form).toBe('egg')
+    expect(res.adopted).toBe(false)
+    // 🚨 The property that matters: the stale ghost was never uploaded.
+    expect(upsert).not.toHaveBeenCalled()
+    // And the carry-over survived the round trip.
+    expect(res.pet.totalThumbsUp).toBe(7)
+  })
+
+  it('CONTROL: adoption still happens when the account has NO row at all', async () => {
+    // The guard above must not disable the migration case it sits in front of.
+    const { upsert } = stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    const res = await resolveUserPet()
+
+    expect(res.adopted).toBe(true)
+    expect(upsert).toHaveBeenCalledTimes(1)
   })
 
   it('a broken local cache does not stop a cloud pet loading', async () => {

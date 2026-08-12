@@ -339,31 +339,29 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    expressApp.post('/api/pet/reset', (req, res) => {
-      const petPath = path.join(getDataDir(), 'pet.json');
-      let pet = readJSON(petPath);
-      if (pet) {
-        pet.feedback = []; pet.totalThumbsUp = 0; pet.totalThumbsDown = 0;
-        pet.interactionCount = 0;
-        writeJSON(petPath, pet);
-      }
-      res.json(pet || defaultPet());
-    });
-
-    expressApp.post('/api/pet/new-egg', (req, res) => {
-      const petPath = path.join(getDataDir(), 'pet.json');
-      let old = readJSON(petPath);
-      if (!old || old.form !== 'ghost') {
-        return res.status(400).json({ error: 'Pet must be a ghost to create new egg' });
-      }
-      const pet = defaultPet();
-      pet.difficulty = old.difficulty;
-      pet.feedback = old.feedback || [];
-      pet.totalThumbsUp = old.totalThumbsUp || 0;
-      pet.totalThumbsDown = old.totalThumbsDown || 0;
-      writeJSON(petPath, pet);
-      res.json(pet);
-    });
+    // 🚨 `POST /api/pet/reset` AND `POST /api/pet/new-egg` ARE GONE — Phase 3,
+    // 2026-08-12. Both were verified callerless across all of src/ and
+    // electron/ before removal:
+    //
+    //   * /api/pet/reset had NEVER had one. It is on the repo's standing
+    //     no-caller list (SYSTEMS_HANDBOOK §17, MASTER_PLAN). App.jsx's
+    //     handlePetReset clears the counters on the pet object and persists it
+    //     through savePet(), which is the only writer that routes by ACCOUNT.
+    //
+    //   * /api/pet/new-egg was reached only by localData.js's newPetEgg(),
+    //     removed in the same change. It was the DESKTOP half of Audrey's bug:
+    //     it answered "is this pet a ghost?" from the per-device pet.json,
+    //     which since S31 is a cache and not the authority — and it demanded
+    //     form === 'ghost' while SettingsPage offers the button for a corpse
+    //     too. Eligibility now lives in src/lib/petLifecycle.js and is decided
+    //     against the pet the app is actually rendering.
+    //
+    // 🚨 A per-device route MUST NOT arbitrate an account-scoped decision. That
+    // is the same predicate trap as gating a STORE on `window.electronAPI`,
+    // which is true for the desktop app in cloud mode.
+    //
+    // GET/POST /api/pet stay: they are the local cache, and savePetData/loadPet
+    // still use them for the signed-out and local-only paths.
 
     // ── Software/Course endpoints ──
     expressApp.get('/api/software', (req, res) => {

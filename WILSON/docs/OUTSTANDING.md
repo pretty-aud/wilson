@@ -119,6 +119,121 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
+### The pet does not sync live between machines, and a second open window writes its stale copy back
+
+**INFERRED (2026-08-12, Phase 3).** The account pet is read once, by an effect
+keyed `[perms.ready, perms.userId]`. There is no subscription and no refetch, so
+a computer left open never learns that the pet changed elsewhere — and the moment
+anything touches the pet there (a decay tick reaching death, a difficulty change,
+petting), `savePet` writes that machine's stale copy over the account row.
+
+Phase 3 makes this visible in a new place: create an egg on PC A while PC B is
+open on the old ghost, and B can put the ghost back. The Create Egg path itself
+is now correct on both machines; what is missing is propagation.
+
+Practical mitigation until it is fixed: close WILSON on the other computer before
+creating an egg. This is the same class as the known two-tab clobber recorded
+against `localData.js`, but it now spans machines rather than tabs.
+
+### The pet requires Supabase even on the Local Server adapter
+
+**INFERRED (2026-08-12, Phase 3).** `savePet` routes on `petUserIdRef.current`,
+which is correct — the pet follows the person. But the app is behind a mandatory
+sign-in, so that ref is effectively never null in normal use, and the
+`savePetData` → `POST /api/pet` branch is reachable only in the sub-second window
+before permissions resolve.
+
+The consequence for the Phase 3 brief's "works on desktop in **local** mode":
+with the Local Server adapter selected but no network, Create Egg fails, now
+reports the failure on Settings, and the ghost returns on reload. The egg is
+never written to `pet.json` as a fallback, because `mirrorPetToCache` runs only
+after `saveCloudPet` succeeds.
+
+This is S31's design rather than a Phase 3 regression — one pet per person cannot
+also be a per-device file — but the "local mode" line in the brief is not
+satisfied on its own terms and no one has recorded the reinterpretation. Decide
+whether an offline pet is meant to exist at all.
+
+### A pet saved as a `corpse` never becomes a ghost
+
+**INFERRED (2026-08-12, Phase 3).** The live decay tick sets `form = 'corpse'`
+(`App.jsx`, death check) and only a **10-second `setTimeout` inside that same
+tick** promotes it to `'ghost'`. `form` is part of `petMaterialSignature`, so the
+corpse is persisted the moment it happens — to the account row, not just the
+cache. Close the app, reload or sign out inside those 10 seconds and the corpse
+is the stored state forever: `applyOfflineDecay`'s guard excludes `'corpse'`, and
+the decay interval's first line excludes it too, so nothing ever moves it again.
+
+Phase 3 made this **recoverable** — `canCreateNewEgg` accepts `corpse` as well as
+`ghost` (`src/lib/petLifecycle.js`), so the Create Egg button works from that
+state instead of being visible-but-refusing. The state machine itself is
+unchanged: the pet still renders as a corpse indefinitely, and a user who does
+not press Create Egg has no way forward.
+
+Would settle it: kill the app within 10s of a death, reopen, and read
+`form` from `user_pets`. Fixing it means completing the transition on load
+(promote a `corpse` whose `diedAt` is more than 10s old), which is a change to
+the death rules and was explicitly out of scope for Phase 3.
+
+### Turning Pet Mode OFF does not protect the pet while the app is closed
+
+**INFERRED (2026-08-12, Phase 3).** The live decay tick short-circuits on
+`if (!prev.petMode) return prev`, but `applyOfflineDecay` never reads `petMode`
+at all — it decays from the `lastUpdatedAt` anchor regardless. So switching Pet
+Mode off does not pause starvation, it defers the whole elapsed interval to the
+next launch, and the pet can be found dead on reopening. The same function also
+ends no sleep and performs no evolution, so a pet asleep at close is immortal
+offline and a baby cannot grow while the app is shut.
+
+Would settle it: set `petMode` false, set `lastUpdatedAt` back several hours in
+`user_pets`, reload, and read the resulting `hunger`/`form`.
+
+### The per-device pet cache is keyed to the machine, not the account
+
+**INFERRED (2026-08-12, Phase 3).** `getDataDir()` in `electron/main.cjs` has no
+user segment, and `PET_KEY` in `src/lib/localData.js` is one `localStorage` key
+per origin. Nothing anywhere removes either on sign-out — `SessionSection`
+records that the disk copy survives deliberately, on the grounds that the React
+state leak was closed. But `resolveUserPet` still **reads that uncleaned copy**
+to make its adoption decision, so on a shared computer person A's pet can be
+lifted into person B's account when B has no pet row of their own. Suite 56
+proves an admin cannot read a member's pet through RLS; this hands one person's
+pet to another underneath RLS, through the filesystem.
+
+Phase 3 narrowed the blast radius — adoption now happens only when the account
+has **no** row at all — but did not close it.
+
+Would settle it: sign out on the desktop, sign in as a second account with no
+`user_pets` row, and read that row afterwards.
+
+### A failed cloud pet read leaves the stale device pet routed to the account
+
+**INFERRED (2026-08-12, Phase 3).** In the sign-in effect `petUserIdRef.current`
+is set unconditionally, *before* the async block. If `resolveUserPet()` then
+throws, the catch deliberately does not clear or replace `petData` — so the app
+keeps rendering the **stale device pet** while `savePet` now routes writes to the
+**account**. Any interaction, or the decay tick reaching death, writes that stale
+pet over the account row, with no adoption decision and no staleness check. A
+transient Supabase blip on the second computer is enough to overwrite the first
+computer's pet. The S34 storage-root effect two blocks below refuses to act on a
+failed read for exactly this reason; the pet effect does the opposite.
+
+### The `user_pets.feedback` size cap is untested, and Create Egg is the statement most likely to trip it
+
+**INFERRED (2026-08-12, Phase 3).** `0046` carries
+`CHECK (pg_column_size(feedback) <= 262144)` and claims in comments that it sits
+far above anything a conversation can produce. Nothing tests that claim. Feedback
+entries store the assistant reply **untruncated** (the 2000-char truncation
+applies only to what is sent to the model), replies run at `max_tokens: 1024`,
+and the array keeps the last 50 — the same order of magnitude as the cap.
+
+Create Egg carries the entire feedback array into the new pet by design, so it is
+the write most likely to hit the ceiling. A violation throws inside
+`saveCloudPet`; Phase 3 now surfaces that on the Settings page rather than
+silently, but the egg would still fail to persist. Suite 56 probes `feedback`
+for array-ness only and has **no probe of the size cap, and no accepting control**
+proving a maximal legitimate payload is allowed.
+
 ### Migration 0061 is written and NOT applied to any environment
 
 **MEASURED (2026-08-11).** Phase 2 of the build pass fixes the timeline

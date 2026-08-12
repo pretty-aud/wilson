@@ -27,10 +27,20 @@ import GatedAction from '../permissions/GatedAction'
 // Session 43 §B — Settings is a light page (#f4a261). The two CONFIRM DIALOGS
 // near the bottom paint #1c1917 and keep their greys.
 import { LIGHT_INK, LIGHT_RULE } from './lightSurface'
+import { canCreateNewEgg } from '../lib/petLifecycle'
 
 
 export default function SettingsPage({
   petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet,
+  // Phase 3 (2026-08-12): Create Egg reported nothing on this page. It set an
+  // error into App's `petSaveError`, whose only renderer is the companion chat
+  // panel — which navigateTo force-closes on every page change. So the button
+  // threw, the dialog shut, and Audrey saw "nothing happened".
+  //
+  // `newPetStatus` is this button's OWN channel: { ok, message }, success as
+  // well as failure. It is not `petSaveError`, which multiplexes four unrelated
+  // conditions and is cleared by any later successful save.
+  newPetStatus = null, newPetPending = false,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
   agentEnabled, onAgentEnabledChange,
   autoApprove, onAutoApproveChange,
@@ -247,7 +257,13 @@ export default function SettingsPage({
 
   const form = petData?.form || 'egg'
   const breedLabel = PET_BREEDS[petData?.breed]?.label || (form === 'egg' ? 'Unknown' : 'Otter')
-  const isGhost = form === 'ghost' || form === 'corpse'
+  // 🚨 THE BUTTON AND THE ACTION MUST ASK THE SAME QUESTION. This read
+  // `form === 'ghost' || form === 'corpse'` while newPetEgg() demanded
+  // `form === 'ghost'` exactly — two hand-written copies of one rule that had
+  // silently drifted apart, so a pet sitting in 'corpse' was OFFERED a button
+  // that could only ever refuse. Importing the predicate is what stops that
+  // recurring; do not inline the form list here again.
+  const isGhost = canCreateNewEgg(petData)
 
   // ── Departments state ──
   const [departments, setDepartments] = useState([
@@ -506,10 +522,52 @@ export default function SettingsPage({
                             onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#f97316'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
                           >
+                            {/* ⚠️ NO pending label or `disabled` here, deliberately.
+                                A first pass added both and they were DEAD CODE: the
+                                same batch that sets newPetPending also installs the
+                                egg, so `isGhost` goes false and this button unmounts
+                                before either can render. The pending state is shown
+                                by the status block below, which is outside that gate.
+                                Re-entrancy is guarded in handleNewPet itself. */}
                             New Pet
                           </button>
                         )}
                       </div>
+
+                      {/* 🚨 Phase 3: the outcome, ON THE PAGE THAT HOSTS THE
+                          BUTTON. Pressing Create Egg must never again be
+                          indistinguishable from pressing nothing.
+
+                          🚨 THE INK IS LIGHT_INK IN ALL THREE STATES, AND THAT
+                          IS NOT A STYLE PREFERENCE. This block has no opaque
+                          ancestor — SettingsPage's wrappers are transparent —
+                          so these translucent fills composite straight onto the
+                          page's #f4a261. A first pass used green-900 and
+                          red-900, which measure 4.00:1 and 4.33:1 at 10px:
+                          both UNDER AA, the same class as the white-on-#f4a261
+                          at 2.06:1 that shipped in S43. On the same fills
+                          LIGHT_INK measures 7.68:1 and 7.56:1.
+
+                          ⚠️ lightSurface.test.js only checks the EXPORTED
+                          tokens, so an inline colour here is invisible to the
+                          contrast suite. Classify by the SURFACE, not the file,
+                          and use the token. */}
+                      {(newPetPending || newPetStatus) && (
+                        <div
+                          role="status"
+                          aria-live="polite"
+                          className="mt-3 px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
+                          style={
+                            newPetPending
+                              ? { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
+                              : newPetStatus.ok
+                                ? { borderColor: '#14532d', color: LIGHT_INK, backgroundColor: 'rgba(21, 128, 61, 0.10)' }
+                                : { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
+                          }
+                        >
+                          {newPetPending ? 'Creating a new egg…' : newPetStatus.message}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

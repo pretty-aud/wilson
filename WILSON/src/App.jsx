@@ -13,7 +13,9 @@ import { callAI, isRetryableAIError } from './cloud/aiProxy'
 import { textFromMessage } from './cloud/anthropicStream'
 import { modelFor } from './lib/activeModel'
 import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSources'
-import { loadPet, savePetData, newPetEgg, loadOtterSettings, saveOtterSettings } from './lib/localData'
+import { loadPet, savePetData, loadOtterSettings, saveOtterSettings } from './lib/localData'
+import { canCreateNewEgg, mintEggFrom } from './lib/petLifecycle'
+import { createCoalescingSave } from './lib/coalescingSave'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
 import Home from './components/Home'
@@ -186,6 +188,19 @@ const SLEEP_DURATIONS = { low: 3 * 60000, medium: 2 * 60000, high: 1 * 60000 };
 function derivePetState(pet) {
   if (!pet) return 'content';
   if (pet.form === 'corpse' || pet.form === 'ghost') return 'dead';
+  // 🚨 AN EGG IS NOT STARVING. Phase 3, 2026-08-12.
+  //
+  // Every egg is minted with `hunger: 0`, and the hunger ladder below turns
+  // that into 'starving' — rendered in RED on Settings and as a sad face by the
+  // sprite. So a brand-new egg announced itself as about to die, which is
+  // exactly how somebody who has just replaced a pet that DID die would read
+  // "the fix did not work".
+  //
+  // Eggs do not eat: the decay tick's first line returns early for 'egg', so
+  // hunger never moves until it hatches. The label was meaningless as well as
+  // alarming. Display only — `state` is derived on every read and is
+  // deliberately absent from the stored columns (0046).
+  if (pet.form === 'egg') return 'content';
   if (pet.sleepingSince) return 'sleeping';
   if (pet.hunger <= 15) return 'starving';
   if (pet.hunger <= 40) return 'hungry';
@@ -476,6 +491,11 @@ export default function App() {
       setPetData(null);
       petUserIdRef.current = null;
       petPersistedSigRef.current = null;
+      // Phase 3: the two error channels were left set across sign-out, so the
+      // next person at this computer inherited "Ollie isn't being saved" from
+      // somebody else's session.
+      setPetSaveError(null);
+      setNewPetStatus(null);
       setAuthed(false);
       setShowOverlay(true);
       // Arm the welcome again — signing back in during the same session is a
@@ -559,8 +579,9 @@ export default function App() {
   // S30: refs, not state. `petSaving` was only ever the in-flight guard, and
   // having it in savePet's dependency list changed savePet's identity on every
   // save — which tore down and rebuilt the 30-second save interval each time.
-  const petSavingRef = useRef(false);
-  const petPendingRef = useRef(null);
+  // (Phase 3: petSavingRef / petPendingRef are gone — the in-flight guard and
+  // the newest-wins queue they implemented now live in lib/coalescingSave.js,
+  // where they can be tested. The semantics S30 established are unchanged.)
   const [petSaveError, setPetSaveError] = useState(null);
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
@@ -570,6 +591,32 @@ export default function App() {
   const petPersistedSigRef = useRef(null);
   const petTimerRef = useRef(null);
   // (S31: petSaveTimerRef is gone with the 30-second auto-save it armed.)
+
+  // ── Phase 3: the Create Egg action, reported on the page that hosts it ─────
+  //
+  // 🚨 A SEPARATE CHANNEL FROM petSaveError, DELIBERATELY. `petSaveError`
+  // multiplexes four unrelated conditions — load failure, sync failure, save
+  // failure and egg failure — and is cleared by ANY later successful save. Had
+  // Settings simply rendered it, toggling Pet Mode would have wiped the egg's
+  // error, and a transient sync blip would have printed "Ollie isn't being
+  // saved" on Settings for the next person to sign in at that computer.
+  //
+  // This one belongs to one button, says whether it WORKED as well as whether
+  // it failed, and is cleared when that button is pressed again.
+  // null | { ok: true, message } | { ok: false, message }
+  const [newPetStatus, setNewPetStatus] = useState(null);
+  const [newPetPending, setNewPetPending] = useState(false);
+  // 🚨 THE GUARD IS THE REF, NOT THE STATE. `newPetPending` is only for
+  // RENDERING. A second click dispatched before React re-renders reads the same
+  // stale `false` from the closure, so guarding on the state value is guarding
+  // on nothing — the same reason `disabled={newPetPending}` on the button was
+  // dead code and was removed.
+  const newPetPendingRef = useRef(false);
+  // Bumped by handleNewPet. The sign-in effect's async pet read captures this
+  // and refuses to install a result that was issued BEFORE the egg was made —
+  // otherwise a slow resolveUserPet() landing after the click overwrites the
+  // fresh egg with the dead pet it had already fetched.
+  const petEpochRef = useRef(0);
 
   // Companion state
   const [companionOpen, setCompanionOpen] = useState(false);
@@ -604,14 +651,27 @@ export default function App() {
   // The pet is the worst case for a silent save: the old state stays on screen
   // and looks completely right, so nothing distinguishes "saved" from "lost
   // until you next reload".
-  const savePet = useCallback(async (data) => {
-    if (!data) return;
-    // A save is already in flight: remember the NEWEST state and flush it when
-    // that one lands. The old guard was `if (petSaving) return`, which DROPPED
-    // the update — so a decay tick colliding with a slow write was discarded,
-    // silently, and the pet aged backwards on the next load.
-    if (petSavingRef.current) { petPendingRef.current = data; return; }
-    petSavingRef.current = true;
+  // Returns TRUE when the write landed, FALSE when it was reported as failed.
+  //
+  // Phase 3: the return value exists because handleNewPet has to tell Audrey
+  // whether her new egg was actually stored. It cannot infer that from
+  // `petSaveError`, which is set asynchronously and is shared with three other
+  // conditions. Existing callers ignore the result.
+  //
+  // 🚨 A COALESCED SAVE RESOLVES WITH THE RESULT OF THE WRITE THAT REPLACES IT,
+  // NOT WITH `true`. The first version of this returned `true` the moment a
+  // save was queued behind an in-flight one, so "A new egg is on its way" was
+  // printed for a write that had not happened — and if the flush then failed,
+  // the only report was petSaveError, which no Settings surface renders.
+  //
+  // It is reachable from one screen: "Reset History" sits beside "New Pet" in
+  // the same Danger Zone and calls savePet, so pressing one and then the other
+  // inside a single cloud round trip takes exactly this path.
+  // ⚠️ The one-at-a-time / newest-wins QUEUE now lives in lib/coalescingSave.js,
+  // because two hand-rolled versions of it in this file both reported a success
+  // for a write that had not happened, and neither was visible to a test that
+  // reads source text. This half is only the WRITE.
+  const performPetSave = useCallback(async (data) => {
     try {
       const next = { ...data, lastUpdatedAt: new Date().toISOString() };
       // 🚨 S31: the destination is "is there a signed-in user", NOT "is this
@@ -632,14 +692,28 @@ export default function App() {
         await savePetData(next);
       }
       setPetSaveError(null);
+      return true;
     } catch (err) {
       setPetSaveError(err?.message || 'Your pet could not be saved.');
-    } finally {
-      petSavingRef.current = false;
-      const pending = petPendingRef.current;
-      petPendingRef.current = null;
-      if (pending) savePet(pending);
+      return false;
     }
+  }, []);
+
+  // The queue is created ONCE and must stay that way — recreating it would
+  // drop whatever is queued and lose the in-flight guard. It reaches the write
+  // through a ref so that this stays true even if performPetSave ever gains a
+  // dependency, and so savePet below can keep the stable identity the decay
+  // effects' dependency lists rely on.
+  const performPetSaveRef = useRef(performPetSave);
+  performPetSaveRef.current = performPetSave;
+  const petSaveQueueRef = useRef(null);
+  if (petSaveQueueRef.current === null) {
+    petSaveQueueRef.current = createCoalescingSave((data) => performPetSaveRef.current(data));
+  }
+
+  const savePet = useCallback(async (data) => {
+    if (!data) return false;
+    return petSaveQueueRef.current(data);
   }, []);
 
   // Load the CACHED pet on mount so the companion renders instantly. The
@@ -715,15 +789,38 @@ export default function App() {
     if (!userId) { setPetData(null); return; }
 
     let cancelled = false;
+    // Phase 3: the read is stamped with the epoch it was ISSUED in. Creating a
+    // new egg bumps the epoch, so a resolveUserPet() that was already in flight
+    // cannot land afterwards and reinstate the pet Audrey just replaced —
+    // `cancelled` does not cover this, because the effect is not torn down.
+    const epoch = petEpochRef.current;
     (async () => {
       try {
         const { pet, adopted } = await resolveUserPet();
-        if (cancelled || !pet) return;
-        const fresh = applyOfflineDecay(pet);
-        petPersistedSigRef.current = petMaterialSignature(fresh);
-        setPetData(fresh);
-        setPetSaveError(null);
-        if (adopted) await mirrorPetToCache(fresh);
+        // 🚨 Phase 3: this NO LONGER `return`s when the epoch has moved. It
+        // only skips INSTALLING the pet, then falls through to the settings
+        // half below. Returning here meant that creating an egg while the
+        // first pet read was still in flight abandoned resolveUserSettings and
+        // mirrorSettingsToCache for the whole session — the effect is keyed
+        // [perms.ready, perms.userId], so there is no second chance, and Otter's
+        // prompt editor, the companion prompt and AgentProvider would silently
+        // read this device's stale settings instead of her account's.
+        const stillCurrent = !cancelled && pet && epoch === petEpochRef.current;
+        if (stillCurrent) {
+          const fresh = applyOfflineDecay(pet);
+          petPersistedSigRef.current = petMaterialSignature(fresh);
+          setPetData(fresh);
+          setPetSaveError(null);
+          // ⚠️ STAYS GATED ON `adopted`. Phase 3 briefly made this
+          // unconditional to keep the device cache fresh, and that was a real
+          // defect: applyOfflineDecay moves hunger/happiness but never
+          // lastUpdatedAt, so mirroring `fresh` writes decayed values against
+          // the ORIGINAL anchor and the next launch decays the same interval
+          // again — the pet drifts dead-ward on every sign-in. The invariant
+          // this file states at petMaterialSignature is that hunger/happiness
+          // and lastUpdatedAt are only ever written TOGETHER, by savePet.
+          if (adopted) await mirrorPetToCache(fresh);
+        }
 
         // The settings half. Filling the per-device cache from the account is
         // what makes every EXISTING reader — Otter's prompt editor, the pet's
@@ -1256,21 +1353,64 @@ export default function App() {
   // the Validator's "Accept Fix", a green tick over a write that may not have
   // happened. Hatching a new egg is the one action taken by somebody whose pet
   // has DIED, so failing at it silently is the worst possible moment to be
-  // quiet. newPetEgg writes to the per-device store; the new egg is then
-  // promoted to the account by savePet, so the pet a person starts after a
-  // death follows them like any other.
+  // quiet.
+  //
+  // 🚨 PHASE 3 (2026-08-12) — THIS IS THE FIX FOR AUDREY'S REPORT. It used to
+  // call `newPetEgg()`, which asked a PER-DEVICE store whether the pet was a
+  // ghost. Three independent reasons that could only fail:
+  //
+  //   * the pet follows the PERSON since S31, so the device copy is a cache
+  //     that a second computer may never have held;
+  //   * `hasLocalServer()` picked the branch, and it is true for the desktop
+  //     app IN CLOUD MODE;
+  //   * an OFFLINE death is never written to ANY store — applyOfflineDecay
+  //     computes the ghost in memory and both load paths deliberately prime
+  //     the signature ref instead of saving. So the screen said "ghost" while
+  //     the cache AND the account row both still said "adult", and re-pointing
+  //     the old check at the account would have thrown just the same.
+  //
+  // The pet React is rendering is the only thing that knows the pet is dead, so
+  // that is what decides, via the pure canCreateNewEgg(). savePet() then does
+  // the write, and it is the one function that routes by ACCOUNT.
+  //
+  // ⚠️ petPersistedSigRef is primed BEFORE the await, exactly as it was: the
+  // material-change effect must see the egg as already-persisted so it does not
+  // fire a second, competing save for the same object.
   const handleNewPet = useCallback(async () => {
+    setNewPetStatus(null);
+    if (newPetPendingRef.current) return;
+
+    const current = petData;
+    if (!canCreateNewEgg(current)) {
+      // ⚠️ One message, not a ternary on `current`. The "pet has not loaded yet"
+      // arm had NO REACHABLE RENDERER — SettingsPage gates the whole pet panel,
+      // this status block included, on `{petData && …}`, so a null pet means
+      // there is no button to press and nowhere to show it. That is the repo's
+      // signature no-caller shape and it does not get to ship again here.
+      setNewPetStatus({ ok: false, message: 'A new egg can only be created once your pet has died.' });
+      return;
+    }
+
+    newPetPendingRef.current = true;
+    setNewPetPending(true);
     try {
-      const pet = await newPetEgg();
-      if (pet?.error) throw new Error(pet.error);
+      const pet = mintEggFrom(current);
+      // Invalidate any pet read that was already in flight — see petEpochRef.
+      petEpochRef.current += 1;
       setPetData(pet);
       setChatMessages([]);
       petPersistedSigRef.current = petMaterialSignature(pet);
-      await savePet(pet);
+      const saved = await savePet(pet);
+      setNewPetStatus(saved
+        ? { ok: true, message: 'A new egg is on its way. Pet it a few times to hatch it.' }
+        : { ok: false, message: 'The new egg could not be saved, so it may not reach your other computers. Check your connection and try again.' });
     } catch (err) {
-      setPetSaveError(err?.message || 'A new egg could not be created.');
+      setNewPetStatus({ ok: false, message: err?.message || 'A new egg could not be created.' });
+    } finally {
+      newPetPendingRef.current = false;
+      setNewPetPending(false);
     }
-  }, [savePet]);
+  }, [savePet, petData]);
 
   // Transition: fade-out(250ms) → compress(600ms) → title-hold(400ms) → [swap] → expand(600ms) → fade-in(250ms) → idle
   // fromHistory: true when the browser back/forward button initiated the
@@ -1278,6 +1418,11 @@ export default function App() {
   const navigateTo = useCallback((targetPage, fromHistory = false) => {
     if (transitionRef.current || targetPage === currentPage) return;
     transitionRef.current = true;
+    // Phase 3: the Create Egg result describes one press, not a lasting state.
+    // Without this it survived every later visit to Settings, so a success
+    // banner outlived the egg it described — and after the egg hatched it was
+    // describing a pet that no longer existed.
+    setNewPetStatus(null);
 
     if (URL_ROUTING_ENABLED && !fromHistory) {
       try {
@@ -1573,6 +1718,12 @@ export default function App() {
           onDifficultyChange={handleDifficultyChange}
           onPetReset={handlePetReset}
           onNewPet={handleNewPet}
+          // Phase 3: pressing Create Egg used to set an error into state whose
+          // ONLY renderer is the companion chat panel — which is closed on
+          // every page change. The page that hosts the button now reports its
+          // own outcome, success as well as failure.
+          newPetStatus={newPetStatus}
+          newPetPending={newPetPending}
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>

@@ -138,6 +138,28 @@ export function isRealPet(pet) {
   return pet.bornAt != null
       || (pet.form && pet.form !== 'egg')
       || (pet.interactionCount || 0) > 0
+      // 🚨 PHASE 3 (2026-08-12): AN EGG THAT CARRIES A HISTORY IS A REAL PET.
+      //
+      // The three clauses above call EVERY egg "nothing yet", and that is right
+      // for the blank egg loadPet() mints on an empty store — the whole point of
+      // this predicate. But the egg mintEggFrom() creates after a death is also
+      // an egg, and it is the opposite of "nothing yet": it is the continuation
+      // of a pet Audrey has lived with, carrying her whole feedback history and
+      // both thumb totals forward.
+      //
+      // Without this, her brand-new egg was "not real", so any other computer
+      // signing in re-uploaded ITS stale dead pet over the top and the egg
+      // vanished — the cross-machine half of the Create Egg bug.
+      //
+      // ⚠️ Deliberately NOT `difficulty !== 'medium'`: difficulty has a default
+      // that a blank egg also carries, so it cannot distinguish anything.
+      //
+      // The S31 protection is untouched: a never-used computer's pet is
+      // defaultPet(), whose feedback is [] and whose totals are 0, so it is
+      // still "nothing yet" and still cannot beat anything.
+      || (Array.isArray(pet.feedback) && pet.feedback.length > 0)
+      || (pet.totalThumbsUp || 0) > 0
+      || (pet.totalThumbsDown || 0) > 0
 }
 
 /** Reads the signed-in user's pet. Returns null when they have no row yet. */
@@ -207,11 +229,15 @@ export async function saveCloudSettings({ prompts, agentPromptOverrides }) {
  * user likes:
  *
  *   1. A REAL cloud pet always wins. Once the account has a pet, that is the
- *      pet, on every computer.
+ *      pet, on every computer. (Phase 3 did not change this rule — it changed
+ *      isRealPet, so that the egg minted after a death counts as real. It
+ *      carries the dead pet's feedback history, so it is a continuation, not
+ *      a blank.)
  *   2. No real cloud pet + a REAL local pet → upload the local one. This is
  *      Audrey's case: Ollie has lived on this machine since 16 July.
- *   3. Neither is real → keep whatever the cloud has, or seed from local so the
- *      row exists. A pristine egg is never uploaded over anything.
+ *   3. Neither is real → keep whatever the cloud has. A pristine local egg is
+ *      never uploaded over anything, and since Phase 3 it is not uploaded at
+ *      all: seeding blank rows only created more not-real state to misread.
  *
  * ⚠️ There is deliberately no "both are real, pick the newer" branch. Rule 1
  * makes it unreachable, and a timestamp comparison here would be reading
@@ -219,12 +245,37 @@ export async function saveCloudSettings({ prompts, agentPromptOverrides }) {
  */
 export async function resolveUserPet() {
   const cloud = await fetchCloudPet()
+
+  // 🚨 THE ORDER HERE IS S31'S ORIGINAL AND MUST STAY THAT WAY — Phase 3 tried
+  // twice to change it and was wrong both times. Recorded so nobody repeats it:
+  //
+  //   Attempt 1 hoisted an unconditional `if (cloud) return cloud` above the
+  //   adoption branch, to stop a stale dead pet overwriting a new egg. That
+  //   made rule 2 unreachable for any account whose row already existed.
+  //
+  //   Attempt 2 kept the hoist and merely stopped SEEDING a blank row,
+  //   reasoning that "a row exists" would then mean "somebody deliberately
+  //   saved a pet". THAT IS FALSE. savePet writes whatever it is handed, and
+  //   five ordinary controls run while the pet is still a blank egg — the Pet
+  //   Mode toggle, the difficulty buttons, Reset History, a companion
+  //   thumbs-up, and PETTING THE EGG (eggHatchThreshold is 2–4, so the first
+  //   click can never hatch it and always writes). One click on a second
+  //   computer would have permanently shadowed the real pet on the first, and
+  //   savePet's cache mirror would then have overwritten it on disk too.
+  //
+  // The real defect was never the ORDER — it was that isRealPet() could not
+  // tell a blank egg from a deliberate one. That is fixed at isRealPet, above,
+  // where the distinction actually lives: an egg carrying a feedback history is
+  // real, a pristine one is not. With that, rule 1 short-circuits for Audrey's
+  // new egg and no reordering is needed.
   if (isRealPet(cloud)) return { pet: cloud, source: 'cloud', adopted: false }
 
   // RAW local read — see the adoption-trap note at the top of this file.
   let local = null
   try { local = await loadLocalPet() } catch { /* a broken cache is not fatal */ }
 
+  // Rule 2: no REAL cloud pet + a REAL local pet → lift it up. This is the
+  // pre-accounts migration case (Audrey's Ollie, resident since 16 July).
   if (isRealPet(local)) {
     await saveCloudPet(local)
     return { pet: local, source: 'local', adopted: true }
@@ -232,10 +283,14 @@ export async function resolveUserPet() {
 
   if (cloud) return { pet: cloud, source: 'cloud', adopted: false }
 
-  if (local) {
-    await saveCloudPet(local)
-    return { pet: local, source: 'local', adopted: false }
-  }
+  // 🚨 A PRISTINE EGG IS RETURNED BUT **NOT** UPLOADED — Phase 3.
+  //
+  // It used to be written to the account "so a row exists". Seeding bought
+  // nothing — saveCloudPet upserts, so the row appears on the first real save
+  // whenever that comes — and every blank row it created was one more chance
+  // for a not-real pet to be mistaken for the account's own state.
+  if (local) return { pet: local, source: 'local', adopted: false }
+
   return { pet: null, source: 'none', adopted: false }
 }
 
