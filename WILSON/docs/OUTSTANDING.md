@@ -32,36 +32,6 @@ Anything that is merely unverified, interim, or planned belongs in
 
 ## 🚨 Security — blocks the v1.0.0 tag
 
-### Migrations 0060 and 0061 are not applied to any environment
-
-**MEASURED (2026-08-12) on dev, staging and prod — identical on each.**
-
-Migration history was repaired the same day, so `supabase db push` now works and
-is the normal route. `--dry-run` on each environment reports the same three:
-
-```
- • 0060_restore_directory_grant_columns.sql
- • 0061_phase_dependencies.sql
- • 0062_restore_grant_flag_guards.sql
-```
-
-- **0060** restores the two grant columns to `workspace_directory()` that 0059
-  dropped from its `RETURNS TABLE`. Until it lands, any client reading those
-  columns from the RPC gets nothing — a column the RPC does not NAME is
-  invisible.
-- **0061** creates `public.phase_dependencies`. 🚨 **This is the one users feel:
-  phase→phase timeline links fail with a visible banner until it lands.**
-- **0062** is already applied and verified on all three; it is listed only
-  because it was applied as direct SQL rather than through the migration
-  runner. Re-applying it is a no-op — a bare `CREATE OR REPLACE FUNCTION` with
-  identical content — and pushing it is what makes the recorded history
-  complete again.
-
-⚠️ Nobody has decided whether 0060 and 0061 should go out. They were left
-pending deliberately: applying them is a product change, not part of closing the
-0059 security hole.
-
-
 ### `smoke_admin` password is in public git history
 **MEASURED.** The repo `pretty-aud/wilson` is public and the password was
 committed. Rotating the account does not remove it from history.
