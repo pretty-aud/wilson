@@ -49,3 +49,11 @@ dist-web-admin/
 # plus the signed installer. `git add -A` would have swept all of it into a
 # public repository. `*.exe` above covers only the installer itself.
 release/
+
+# docs/fixes/ — Audrey's own working briefs for the fix phases (2026-08-12).
+# Deliberately local: "these docs dont need to be pushed its just for me to
+# use. we will remove them eventually." Ignored rather than merely untracked
+# because this repository is PUBLIC and the briefs quote her directly and
+# carry the forward plan — the same `git add -A` hazard the release/ rule
+# above exists for.
+docs/fixes/

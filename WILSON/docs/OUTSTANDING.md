@@ -119,59 +119,33 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
-### D.O.G. cannot generate a deck from a real document set — `ai-proxy` dies on the request body
+### The pgTAP suite has been failing on every commit since at least 2026-08-11
 
-**MEASURED (2026-08-11).** Audrey: *"dog tool stopped working. i just tried to
-make a deck and it did not generate any thing."* The browser console on the beta
-shows `POST .../functions/v1/ai-proxy 546` and `AIProxyError: AI request failed
-(546)`. 546 is not an HTTP status — it is the Supabase Edge Runtime killing the
-worker for exceeding a resource ceiling *instead of* returning a response.
+**MEASURED (2026-08-12).** The `RLS tests` workflow has one failing job on every
+run inspected: **pgTAP (Supabase local DB)**, step `Run pgTAP suite`. The other
+three jobs — Vitest, Playwright auth, issue-session smoke — pass on every one.
 
-**It is an INPUT-side kill, not a generation one.** From `app_events`
-(WIL-6001/6002) on staging, all-time, `context->>tool = 'dog'`:
-
-| Date | input tokens | outcome |
+| commit | pgTAP | others |
 |---|---|---|
-| 2026-08-02 | 14,513 | succeeded, 5 runs (the S19 probe deck) |
-| 2026-08-03 | **232,275** | succeeded — the last time D.O.G. ever worked |
-| 2026-08-10, 08-11 | — | **no usage row at all** |
+| `cfe2cbd` `2f76913` `d4f81b9` `a2de100` `5d48b53` | fail | pass |
+| `6d4ac65` (the D.O.G. fix) | fail | pass |
 
-`ai-proxy` calls `logUsage` on the upstream-error path *and* from the stream's
-`cancel()`, so a worker killed mid-generation still leaves a WIL-6002 row.
-These leave none. The worker therefore dies before `fetch(ANTHROPIC_URL)`
-returns — while doing `await req.json()` on a multi-megabyte body and
-`JSON.stringify()`ing it back out (`supabase/functions/ai-proxy/index.ts`,
-handler). Audrey's real decks carry ~232k input tokens of base64 documents;
-S19's probe deck carried 14.5k, which is why every number in the registry
-comment was measured on a payload 16x smaller than the failing one.
+The job profile is **identical before and after** the D.O.G. fix, which adds no
+migration and touches no policy — so this is pre-existing, not caused by it.
+The S43 notes record CI as green, so it went red after that and nobody caught it.
 
-**Two levers that look right and are not.** `effort` and `max_tokens` both
-govern OUTPUT and cannot reach an input-side kill. Lowering `max_tokens` was
-tried on 2026-08-11 and reverted: it forces continuations that resend the whole
-~232k-token payload, which costs ~$0.70 a call and gives the same worker limit
-more chances to fire. Also, the ~150s deadline S19 reasoned against is not the
-binding limit — the response is an SSE stream whose first byte arrives at once,
-so only the 400s wall clock governs (see the `ai-proxy` header comment).
+This matters more than an ordinary red suite. pgTAP is what checks the DATABASE
+shape — 67 suites over RLS policies, table grants and constraints — and RLS
+failures are silent: nothing crashes, every screen renders, and the wrong person
+can read the data. It is the only gate that catches a bad migration before it
+reaches a real database, and there are migrations still to come (S43b needs one).
 
-→ **Fix written 2026-08-11, NOT yet verified in the product.** Audrey chose the
-Files API route. Documents are now uploaded once through a new `ai-files` Edge
-Function — which streams `req.body` straight upstream and never materialises it
-— and referenced by `file_id` in all three D.O.G. generators (full deck, single
-page, regenerate; all three had the same exposure). `ai-proxy` is unchanged: it
-already forwarded `betas` into the `anthropic-beta` header and already passed
-`messages` through verbatim, so the whole fix sits either side of it.
-
-`ai-files` is deployed and boots on all three envs (v1, 2026-08-11; each returns
-a clean 401 from `requireActiveMember` unauthenticated). **The client half is
-not deployed** — until it ships, the beta still runs the base64 path and will
-still 546.
-
-This entry stays until a real deck generates. Two things remain unproven: that
-Deno's `duplex: 'half'` streaming upload works on Supabase's Edge Runtime (it
-cannot be exercised without an authenticated session), and which ceiling was
-firing (CPU vs memory) — the stage was proven, and the stage is what picked the
-fix. Note the fix bounds the request BODY; it does not reduce input tokens, so
-a deck still costs what it always did.
+→ **What is NOT known is whether the tests found a real problem or the harness
+itself broke** (local Postgres failing to start in CI, a version bump, a missing
+dependency). Those need very different responses and the difference cannot be
+seen from outside: the job-log endpoint returns 403 without repo admin. Settle it
+by running the suite locally against a throwaway Supabase, or by reading the log
+from the Actions page.
 
 ### Every input on every light page is under AA, and it is not the grey problem
 **MEASURED (2026-08-10, S43 §B).** WILSON's light-page input well is
