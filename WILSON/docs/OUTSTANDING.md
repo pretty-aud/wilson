@@ -32,51 +32,40 @@ Anything that is merely unverified, interim, or planned belongs in
 
 ## 🚨 Security — blocks the v1.0.0 tag
 
-### Any member can grant themselves the rate-card money gate — 0062 written, NOT APPLIED
+### Migration history is missing every row from 0059 onward, on all three environments
 
-**MEASURED (2026-08-12), live on dev / staging / prod.**
+**MEASURED (2026-08-12) on dev, staging and prod — identical on each.**
 
-Migration 0059 needed to add `is_full_time` to
-`fn_ws_members_prevent_self_role_change` and did it by rewriting the whole body
-with `CREATE OR REPLACE`. The rewrite **dropped two guard clauses that 0020 had**
-— the self-branch check on `grant_rate_card_view` / `grant_rate_card_edit`, and
-both of those columns from the manager denylist.
-
-Consequence, on every environment, right now:
-
-- **Any member can grant themselves `grant_rate_card_view` AND
-  `grant_rate_card_edit`.** The latter is the money gate — it permits rewriting
-  day rates, which every RABBIT budget is computed from.
-- **Any manager can flip those flags for anyone.**
-
-Both via a plain `UPDATE` on a row members are already allowed to update (they
-may edit their own title and department).
-
-How it was measured, not inferred — against hosted `wilson-dev`:
+`supabase_migrations.schema_migrations` contains **no rows at or above 0059**,
+while 0059's schema **is** deployed (`workspace_members.is_full_time` exists on
+all three). So the recorded history and the actual database disagree: 0059 was
+applied without being recorded.
 
 ```
-SELECT pg_get_functiondef(oid) LIKE '%self-grant change not allowed%'
-  FROM pg_proc WHERE proname = 'fn_ws_members_prevent_self_role_change';
--> false
+history_rows_ge_0059      = 0     -- but...
+col_is_full_time_0059     = 1     -- 0059's column is live
+directory_has_grants_0060 = 0     -- 0060 genuinely not applied
+table_phase_deps_0061     = 0     -- 0061 genuinely not applied
 ```
 
-**`0062_restore_grant_flag_guards.sql` fixes it and is proved** against real
-Postgres with a failing control (`scripts/tap-hosted.py`): suite 24 is 29/32
-without it (probes 11, 12, 31 — "[no exception raised]") and **32/32 with it**.
-Neighbouring suites re-checked: 14 8/8, 16 12/12, 38 14/14.
+🚨 **`supabase db push` is unsafe until this is reconciled.** It would try to
+re-apply 0059 against a database that already has it. If any statement in 0059
+is not idempotent the push aborts — and everything after it, including any
+future security fix, never lands. That is exactly why 0062 was applied as direct
+SQL rather than through `db push` (it is a bare `CREATE OR REPLACE FUNCTION`, so
+it is idempotent and depends on nothing in 0060/0061).
 
-⚠️ **The hole stays open until 0062 is applied to each environment.** CI proving
-the fix does not deploy it. Owed: `supabase db push` (or equivalent) against
-dev, staging and prod.
+Two consequences to settle, in order:
 
-🚨 **The rule this cost:** never rewrite a guard function from scratch to add one
-column. `CREATE OR REPLACE` deletes silently, and the diff reads as "a new
-function" rather than "two protections removed" — there is nothing in the patch
-to notice. Read the deployed body with `pg_get_functiondef` and add to it.
+1. **Reconcile the history** — `supabase migration repair --status applied 0059`
+   (per environment), after confirming statement by statement that 0059 is
+   wholly present. Do not guess: read the deployed objects.
+2. **Then decide about 0060 and 0061**, which are genuinely unapplied
+   everywhere. 0061 is the one that matters to users: phase→phase timeline
+   links fail with a banner until it lands.
 
-Suite 24 caught this the hour 0059 landed and had been shouting into a log
-nobody could read for eighteen consecutive runs — see the diagnostic fix in
-`a350115`.
+⚠️ 0062 is applied and verified on all three, but is **also** absent from the
+history for the same reason. It will need the same repair treatment.
 
 
 ### `smoke_admin` password is in public git history
