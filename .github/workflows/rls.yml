@@ -216,7 +216,21 @@ jobs:
             # Surface the SQL error as an annotation — annotations are
             # readable via the public API, full logs are not.
             ERR=$(echo "$OUT" | grep -B1 -E 'ERROR|FATAL|could not' | tail -6 | tr '\n' ' ')
-            echo "::error title=pgTAP replay ${f}::${ERR:-replay produced no ERROR lines — file may have passed under raw psql}"
+            # 🚨 ONLY annotate a file that actually errored. This used to emit
+            # an ::error:: for EVERY replayed file, falling back to "replay
+            # produced no ERROR lines" when a file passed — which defeated the
+            # entire purpose of the step. GitHub caps annotations at 10 per
+            # step, and with 67 suites replayed in numeric order the whole
+            # budget was spent announcing that 01-10 PASSED. The real failure,
+            # in 67, was past the cap and unreadable — and the full log needs
+            # repo admin, so there was no other way to see it. That is why the
+            # pgTAP break of 2026-08-11 took three blind fixes to chase.
+            #
+            # The step's own comment above says annotations exist because they
+            # are public and logs are not. Spend the budget on failures only.
+            if [ -n "$ERR" ]; then
+              echo "::error title=pgTAP replay ${f}::${ERR}"
+            fi
           done
 
       - name: Stop Supabase
