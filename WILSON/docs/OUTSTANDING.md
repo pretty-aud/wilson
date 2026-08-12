@@ -119,71 +119,63 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
-### The pgTAP suite has been failing on every commit since at least 2026-08-11
+### Migration 0059 dropped two columns from `workspace_directory()`
 
-**MEASURED (2026-08-12).** The `RLS tests` workflow has one failing job on every
-run inspected: **pgTAP (Supabase local DB)**, step `Run pgTAP suite`. The other
-three jobs — Vitest, Playwright auth, issue-session smoke — pass on every one.
+**MEASURED (2026-08-12) on wilson-dev.** `workspace_members` carries
+`grant_rate_card_view` and `grant_rate_card_edit`; `workspace_directory()` names
+**neither** in its `RETURNS TABLE` list. 0059 DROPped and re-CREATEd that RPC to
+add `is_full_time` and did not carry the two grant columns across.
 
-| commit | pgTAP | others |
-|---|---|---|
-| `cfe2cbd` `2f76913` `d4f81b9` `a2de100` `5d48b53` | fail | pass |
-| `6d4ac65` (the D.O.G. fix) | fail | pass |
+0059's own header warned about precisely this — *"a column the function does not
+name is INVISIBLE to every client no matter how correct the table is"* — and the
+rebuild dropped two anyway. **When a migration re-creates a function with an
+explicit column list, the risk is not the column you are ADDING; it is every
+column already there.**
 
-The job profile is **identical before and after** the D.O.G. fix, which adds no
-migration and touches no policy — so this is pre-existing, not caused by it.
-The S43 notes record CI as green, so it went red after that and nobody caught it.
+**Impact is narrower than it looks, and the distinction matters:**
 
-This matters more than an ordinary red suite. pgTAP is what checks the DATABASE
-shape — 67 suites over RLS policies, table grants and constraints — and RLS
-failures are silent: nothing crashes, every screen renders, and the wrong person
-can read the data. It is the only gate that catches a bad migration before it
-reaches a real database, and there are migrations still to come (S43b needs one).
+- **Enforcement is UNAFFECTED.** `useRateCardAccess.js` reads the grants
+  straight off the table (`.from('workspace_members').select(...)`), not through
+  this RPC. Nobody gained or lost rate-card access.
+- **Display lies.** Anything reading the grants from the DIRECTORY gets
+  undefined, which coerces to false. `UsersSection.jsx`'s
+  `!!member.grant_rate_card_view` toggles in the Admin Terminal read OFF for
+  everyone regardless of what the table says.
 
-**CAUSE FOUND 2026-08-12 — neither the database nor the harness. The test file
-itself was invalid SQL.** `67_member_full_time.sql` (added by `cfe2cbd`, the
-first red run) checked `workspace_directory()`'s return list with:
+⚠️ **Dev is MEASURED. staging and prod are INFERRED** — the same migration ran
+there, so the same loss is expected, but neither has been queried.
 
-```
-FROM information_schema.routines r
-JOIN LATERAL unnest(string_to_array(pg_get_function_result(p.oid), ',')) ...
-JOIN pg_proc p ON p.proname = r.routine_name ...
-```
+→ **Migration 0060 is written and NOT applied**
+(`0060_restore_directory_grant_columns.sql`): DROP + CREATE restoring both grant
+columns, keeping `is_full_time`, column order matching 0021, plus a
+post-condition that asserts all three names are present. Applying it to any
+environment is Audrey's call.
 
-`LATERAL` may only reference tables appearing EARLIER in the `FROM` list, and
-`p` is joined after it. MEASURED by running the statement against wilson-dev:
-`42P01: missing FROM-clause entry for table "p"`. Postgres raises it at parse
-time, so it aborts the transaction and takes the whole file with it.
+#### How it stayed hidden for two days — the part worth keeping
 
-**Migration 0059 is sound** — every fact the test means to assert was verified
-true on dev: the column exists, is `boolean`, is `NOT NULL`, defaults `false`;
-`workspace_directory` has one overload and its return list names `is_full_time`;
-and both guard messages are present in the trigger function body.
+pgTAP suite `24_admin_grants.sql` has asserted this contract since Session 9 and
+failed the moment 0059 landed (`column d.grant_rate_card_edit does not exist`).
+**The suite did its job perfectly.** Two things hid it:
 
-🚨 **How it shipped:** pgTAP needs Docker to run locally and this machine has
-none, so the file was never executed. The "1440 tests green" in that commit was
-**vitest** — a different suite that never touches these files. A pgTAP test is
-verified by CI or a local Supabase, never by vitest.
+1. `cfe2cbd` broke TWO things at once — this regression, AND it added a new test
+   file (`67_member_full_time.sql`) that had never been executed and carried
+   three faults of its own: invalid `LATERAL` scope; a call to
+   `tests.authenticate_as`, which has never existed; and a 2-column `auth.users`
+   seed where every other file in the suite writes 11. All three are fixed and
+   67 now replays clean.
+2. 🚨 **The CI step built to explain pgTAP failures guaranteed they could not be
+   read.** It emitted an `::error::` annotation for EVERY replayed file,
+   including passing ones. GitHub caps annotations at 10 per step, so with 67
+   suites the entire budget was spent announcing that files 01–10 were fine, and
+   the real error sat past the cap. Job logs need repo admin (403), so there was
+   no other route. Fixed in `.github/workflows/rls.yml` — annotate only on real
+   errors. **That fix is what surfaced this bug in a single run.**
 
-**SECOND BUG, found behind the first (2026-08-12).** Fixing the parse error let
-assertions 7–14 run for the first time; CI stayed red. Cause: the file called
-`tests.authenticate_as(user, workspace, role)` three times and **that function
-has never existed**. MEASURED against dev — the `tests` schema holds exactly
-`login_as(uuid, uuid)`, `logout()`, `rls_setup()`. Across all 67 files
-`login_as` is used 130 times and `authenticate_as` exactly once, here. It was
-invented.
+🚨 **pgTAP needs Docker and this machine has none, so these tests are never run
+before being committed.** The "1440 tests green" recorded against `cfe2cbd` was
+**vitest**, which never reads these files. Installing Docker would let
+`supabase test db` run locally and close this whole class of failure.
 
-🚨 **And `login_as` is not the drop-in substitute:** it sets `app_metadata` with
-`workspace_id` only, **no `app_role`**, while both policies these assertions
-need gate on `current_app_role()` (`ws_members_manager_write` on `'manager'`,
-`ws_members_admin_write` on `'admin'`). Swapping it in would have passed the
-member arm and silently failed the manager and admin arms — worse than a
-missing function. Fixed with the explicit claim block that
-`14_ws_members_self.sql` (same table, same guard, green since Session 3) has
-always used.
-
-→ Both fixes pushed. **Still unverified**: no pgTAP run has ever executed
-assertions 7–14, so CI remains the first real exercise of them.
 
 ### Every input on every light page is under AA, and it is not the grey problem
 **MEASURED (2026-08-10, S43 §B).** WILSON's light-page input well is
