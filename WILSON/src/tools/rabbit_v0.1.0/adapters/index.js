@@ -84,8 +84,23 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  * @property {(task: object) => Promise<object>}                    upsertTask
  * @property {(id: string) => Promise<void>}                        deleteTask
  *
+ * Dependencies. `dep.kind` ('task' | 'phase', absent means 'task') selects the
+ * backing table on the Supabase adapter — migration 0061 split phase→phase
+ * edges into public.phase_dependencies so that public.task_dependencies could
+ * keep its foreign keys to tasks(id). The returned row carries `kind` back, so
+ * callers never have to re-derive it.
+ *
+ * 🚨 deleteDependency's signature is (id, projectId, kind) and BOTH trailing
+ * arguments are load-bearing on one adapter each. This typedef used to say
+ * `(id: string)`, which was simply wrong: localServerAdapter has always read
+ * argument two to build `/projects/${projectId}/dependencies/${id}`. A cleanup
+ * that "conformed the implementations to the contract" would have posted to
+ * /projects/undefined/ and broken every desktop dependency delete — silently,
+ * because there is no test on this path and the caller swallowed rejections
+ * until Phase 2. The contract was the thing that was wrong; it is fixed here.
+ *
  * @property {(dep: object) => Promise<object>}                     upsertDependency
- * @property {(id: string) => Promise<void>}                        deleteDependency
+ * @property {(id: string, projectId?: string, kind?: 'task'|'phase') => Promise<void>} deleteDependency
  *
  * @property {(link: object) => Promise<object>}                    upsertTaskLink
  * @property {(id: string) => Promise<void>}                        deleteTaskLink

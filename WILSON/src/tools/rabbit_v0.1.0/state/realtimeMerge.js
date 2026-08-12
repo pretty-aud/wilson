@@ -31,14 +31,36 @@
 // Bundle collection per broadcast table. project_members and projects are
 // handled specially (roster slice / index + bundle.project).
 export const TABLE_TO_COLLECTION = {
-  phases:            'phases',
-  assets:            'assets',
-  tasks:             'tasks',
-  files:             'files',
-  comments:          'comments',
-  task_dependencies: 'dependencies',
-  task_links:        'taskLinks',
-  asset_versions:    'assetVersions',
+  phases:             'phases',
+  assets:             'assets',
+  tasks:              'tasks',
+  files:              'files',
+  comments:           'comments',
+  task_dependencies:  'dependencies',
+  // 0061: phase→phase edges live in their own table but share the collection.
+  phase_dependencies: 'dependencies',
+  task_links:         'taskLinks',
+  asset_versions:     'assetVersions',
+}
+
+// 0061: `kind` is not a column on either edge table — it is implied by WHICH
+// TABLE the row came from, and the adapter's loader stamps it on read. A
+// broadcast payload arrives straight from the DB trigger, so it carries no
+// kind at all and must be stamped here too.
+//
+// 🚨 Miss this and a phase edge created by a collaborator arrives as
+// `kind: undefined`, DetailPane reads it as `d.kind || 'task'`, looks the
+// endpoints up in rowIndexByTaskId, misses, and draws nothing. The edge is in
+// local state and on screen it does not exist — and it would appear correctly
+// for that user after a reload, which is the worst possible bug shape.
+const DEPENDENCY_KIND_BY_TABLE = {
+  task_dependencies:  'task',
+  phase_dependencies: 'phase',
+}
+
+export function stampKindFromTable(table, row) {
+  const kind = DEPENDENCY_KIND_BY_TABLE[table]
+  return kind && row ? { ...row, kind } : row
 }
 
 // Collections whose render order comes from sort_order at load time
@@ -118,7 +140,18 @@ function removeWithMirror(bundle, table, id) {
       return {
         ...bundle,
         tasks: bundle.tasks.filter(t => t.id !== id),
-        dependencies: bundle.dependencies.filter(
+        dependencies: (bundle.dependencies || []).filter(
+          d => d.predecessor_id !== id && d.successor_id !== id,
+        ),
+      }
+    // 0061: the phase mirror of the case above. Before 0061 a phase edge could
+    // not exist in cloud, so there was nothing to prune and no case here; now
+    // there is. Matches RabbitProvider.deletePhase, which does the same locally.
+    case 'phases':
+      return {
+        ...bundle,
+        phases: bundle.phases.filter(p => p.id !== id),
+        dependencies: (bundle.dependencies || []).filter(
           d => d.predecessor_id !== id && d.successor_id !== id,
         ),
       }
@@ -148,8 +181,10 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
   const noop = { bundle, effects: [] }
   if (!evt || !evt.table || !evt.op) return noop
   const { table, op } = evt
-  const record    = evt.record    ?? null
-  const oldRecord = evt.oldRecord ?? null
+  // 0061: stamp the dependency `kind` from the source table before anything
+  // reads the row. Non-dependency tables pass through untouched.
+  const record    = stampKindFromTable(table, evt.record    ?? null)
+  const oldRecord = stampKindFromTable(table, evt.oldRecord ?? null)
   const pending   = typeof opts.pendingFields === 'function' ? opts.pendingFields : () => null
 
   // ── roster: lives outside the bundle — signal only ──────────────────────

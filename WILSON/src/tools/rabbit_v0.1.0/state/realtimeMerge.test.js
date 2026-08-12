@@ -10,6 +10,7 @@ import {
   mergeRow,
   isStaleIncoming,
   TABLE_TO_COLLECTION,
+  stampKindFromTable,
 } from './realtimeMerge'
 
 const T0 = '2026-07-28T10:00:00.000Z'
@@ -268,11 +269,65 @@ describe('applyRealtimeEvent — robustness', () => {
     expect(applyRealtimeEvent(bundle, { table: 'assets', op: 'UPDATE', record: null }, {}).bundle).toBe(bundle)
   })
   it('covers every broadcast table with a collection or special-case', () => {
-    // 0016 broadcasts 10 tables; projects + project_members are handled
-    // specially, the other 8 map through TABLE_TO_COLLECTION.
+    // 0016 broadcast 10 tables; 0061 added phase_dependencies as an 11th.
+    // projects + project_members are handled specially, the other 9 map
+    // through TABLE_TO_COLLECTION.
     expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
       'asset_versions', 'assets', 'comments', 'files',
-      'phases', 'task_dependencies', 'task_links', 'tasks',
+      'phase_dependencies', 'phases', 'task_dependencies', 'task_links', 'tasks',
     ])
+  })
+})
+
+// ── 0061: two edge tables, one collection ───────────────────────────────────
+describe('dependency kind stamping (0061)', () => {
+  it('stamps kind from the source table, because the DB has no such column', () => {
+    // `kind` is not a column on either edge table — it is implied by WHICH
+    // TABLE the row came from. A broadcast payload comes straight from the
+    // trigger, so it arrives with no kind at all.
+    expect(stampKindFromTable('phase_dependencies', { id: 'd1' })).toEqual({ id: 'd1', kind: 'phase' })
+    expect(stampKindFromTable('task_dependencies',  { id: 'd2' })).toEqual({ id: 'd2', kind: 'task' })
+  })
+
+  it('leaves non-dependency tables and null rows untouched', () => {
+    const row = { id: 't1', title: 'x' }
+    expect(stampKindFromTable('tasks', row)).toBe(row)
+    expect(stampKindFromTable('phase_dependencies', null)).toBe(null)
+  })
+
+  it('a phase edge arriving over the wire lands in dependencies WITH its kind', () => {
+    // 🚨 THE REGRESSION THIS GUARDS. Without the stamp the row lands with
+    // kind undefined; DetailPane reads `d.kind || 'task'`, looks the endpoints
+    // up in rowIndexByTaskId, misses, and draws nothing. The edge would be in
+    // local state and invisible on screen — then appear correctly after a
+    // reload, because the LOADER stamps kind. Worst possible bug shape.
+    const bundle = makeBundle()
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'phase_dependencies',
+      op: 'INSERT',
+      record: { id: 'pd1', predecessor_id: 'ph1', successor_id: 'ph2' },
+    }, {})
+    const added = next.dependencies.find(d => d.id === 'pd1')
+    expect(added).toBeTruthy()
+    expect(added.kind).toBe('phase')
+  })
+
+  it('deleting a phase drops its edges, mirroring the DB cascade', () => {
+    // Before 0061 a phase edge could not exist in cloud, so removeWithMirror
+    // had no 'phases' case and nothing pruned them. deleteTask has always done
+    // this; the phase side is new.
+    const bundle = {
+      ...makeBundle(),
+      phases: [{ id: 'ph1' }, { id: 'ph2' }],
+      dependencies: [
+        { id: 'pd1', kind: 'phase', predecessor_id: 'ph1', successor_id: 'ph2' },
+        { id: 'td1', kind: 'task',  predecessor_id: 't1',  successor_id: 't2'  },
+      ],
+    }
+    const { bundle: next } = applyRealtimeEvent(bundle, {
+      table: 'phases', op: 'DELETE', oldRecord: { id: 'ph1' },
+    }, {})
+    expect(next.dependencies.map(d => d.id)).toEqual(['td1'])
+    expect(next.phases.map(p => p.id)).toEqual(['ph2'])
   })
 })

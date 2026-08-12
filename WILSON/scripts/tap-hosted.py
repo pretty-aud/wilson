@@ -189,6 +189,37 @@ $tapx$;
 CREATE OR REPLACE FUNCTION public.throws_ok(text, text)
 RETURNS text LANGUAGE sql AS $tapx$ SELECT public.throws_ok($1, $2, NULL::text); $tapx$;
 
+-- Real pgTAP's four-argument form: (sql, errcode, errmsg, description), where
+-- errcode is a SQLSTATE. Added for suite 68, which matches by SQLSTATE rather
+-- than by message text on purpose — Postgres names the ALPHABETICALLY FIRST
+-- matching constraint when it reports a violation, so a message-matched
+-- assertion starts failing the day an unrelated constraint sorts earlier.
+-- Without this overload such a suite cannot run under the shim at all: it is a
+-- hard "function does not exist", not a silent miss.
+-- NULL in either of errcode/errmsg means "do not check that one", matching pgTAP.
+CREATE OR REPLACE FUNCTION public.throws_ok(text, char(5), text, text)
+RETURNS text LANGUAGE plpgsql AS $tapx$
+DECLARE
+  got   text;
+  state text;
+BEGIN
+  BEGIN
+    EXECUTE $1;
+  EXCEPTION WHEN OTHERS THEN
+    got := SQLERRM; state := SQLSTATE;
+    IF ($2 IS NULL OR state = $2) AND ($3 IS NULL OR got = $3) THEN
+      RETURN tapx.record(true, $4, NULL);
+    END IF;
+    RETURN tapx.record(
+      false, $4,
+      'threw ' || state || ': ' || got ||
+      '  want state: ' || COALESCE($2::text, '<any>') ||
+      '  want msg: '   || COALESCE($3, '<any>'));
+  END;
+  RETURN tapx.record(false, $4, 'no exception raised');
+END;
+$tapx$;
+
 CREATE OR REPLACE FUNCTION public.lives_ok(text, text)
 RETURNS text LANGUAGE plpgsql AS $tapx$
 BEGIN

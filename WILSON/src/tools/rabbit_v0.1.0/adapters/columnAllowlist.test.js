@@ -24,7 +24,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
 
-const { toColumns, COLUMN_ALLOWLIST } = await import('./supabaseAdapter')
+const { toColumns, COLUMN_ALLOWLIST, DEPENDENCY_TABLE, dependencyKind } =
+  await import('./supabaseAdapter')
 
 let warn
 beforeEach(() => { warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) })
@@ -54,6 +55,15 @@ describe('every client-written table has an allowlist entry', () => {
   it('covers task_templates, added in 0044', () => {
     expect(COLUMN_ALLOWLIST.task_templates,
       'task_templates has no COLUMN_ALLOWLIST entry').toBeDefined()
+  })
+
+  it('covers both dependency tables — the last two writers on the raw denylist', () => {
+    // upsertDependency called sanitize(dep, []) — a denylist with an EMPTY drop
+    // list — right through S23, S24 and S27, which added entries for every
+    // other table. This is the entry that closes that class out.
+    for (const t of ['task_dependencies', 'phase_dependencies']) {
+      expect(COLUMN_ALLOWLIST[t], `${t} has no COLUMN_ALLOWLIST entry`).toBeDefined()
+    }
   })
 
   it('a table with no entry passes everything through — the hazard, pinned', () => {
@@ -285,6 +295,108 @@ describe('the whole-row re-send on update', () => {
     }
     expect(toColumns('scenes', row)).toEqual(row)
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+
+// ── Dependencies — Phase 2 of the 2026-08-10 build pass, migration 0061 ─────
+
+describe('dependencies — the exact rows linkTasks and linkPhases build', () => {
+  // 🚨 THE DEFECT THIS PHASE EXISTS FOR, pinned as the EXECUTABLE payload
+  // rather than as a description of it. Audrey, 2026-08-10: "i was able to
+  // grab the line from the dependency task but i could not attach it to
+  // another this is crucial to work."
+  //
+  // RabbitProvider.linkTasks/linkPhases build this literal. `kind` and
+  // `project_id` are not columns on either table, so before 0061 the whole
+  // request was rejected with PGRST204 and TimelineView swallowed it.
+  const linkRow = (kind) => ({
+    id: 'd1',
+    predecessor_id: 'x1',
+    successor_id: 'x2',
+    kind,
+    type: 'FS',
+    lag_days: 0,
+    project_id: 'p1',
+  })
+
+  it('drops kind and project_id, keeps everything the table actually has', () => {
+    const out = toColumns('task_dependencies', linkRow('task'))
+    expect(out).not.toHaveProperty('kind')
+    expect(out).not.toHaveProperty('project_id')
+    expect(out).toEqual({
+      id: 'd1', predecessor_id: 'x1', successor_id: 'x2', type: 'FS', lag_days: 0,
+    })
+  })
+
+  it('treats the phase table identically — 0061 gave it the same column shape', () => {
+    const out = toColumns('phase_dependencies', linkRow('phase'))
+    expect(out).toEqual({
+      id: 'd1', predecessor_id: 'x1', successor_id: 'x2', type: 'FS', lag_days: 0,
+    })
+  })
+
+  it('keeps lag_days: 0 rather than dropping the key', () => {
+    // A falsy value is still a value. Dropping the key would leave a previous
+    // lag in place on an upsert that was meant to clear it.
+    expect(toColumns('task_dependencies', { id: 'd1', lag_days: 0 }))
+      .toEqual({ id: 'd1', lag_days: 0 })
+  })
+
+  it('drops the loader\'s `predecessor` embed — the undo-after-reload bug', () => {
+    // 🚨 THE THIRD NON-COLUMN, and the one a fix aimed only at kind/project_id
+    // would have missed. loadProject selects
+    //   '*, predecessor:tasks!..._fkey!inner(project_id)'
+    // so EVERY row in the bundle carries a `predecessor` object. Undo-of-unlink
+    // re-sends the loaded row verbatim via upsertDependency(oldRow), so undo
+    // stayed broken for any dependency the user had not created in that same
+    // session — the failure would look intermittent and depend on whether the
+    // page had been reloaded.
+    const loaded = {
+      id: 'd1', predecessor_id: 'x1', successor_id: 'x2', type: 'FS', lag_days: 2,
+      predecessor: { project_id: 'p1' },
+      kind: 'task',
+    }
+    const out = toColumns('task_dependencies', loaded)
+    expect(out).not.toHaveProperty('predecessor')
+    expect(out).toEqual({
+      id: 'd1', predecessor_id: 'x1', successor_id: 'x2', type: 'FS', lag_days: 2,
+    })
+  })
+
+  it('warns about the dropped keys instead of dropping them silently', () => {
+    toColumns('task_dependencies', linkRow('task'))
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toContain('public.task_dependencies')
+    expect(warn.mock.calls[0][0]).toContain('kind')
+    expect(warn.mock.calls[0][0]).toContain('project_id')
+  })
+})
+
+describe('dependency routing — which table an edge lives in (0061)', () => {
+  it('routes by kind, and anything not "phase" is a task edge', () => {
+    // Matches DetailPane's `const kind = d.kind || 'task'` exactly. A row
+    // written before 0061 has no kind at all and must route to the task table.
+    expect(dependencyKind({ kind: 'phase' })).toBe('phase')
+    expect(dependencyKind({ kind: 'task' })).toBe('task')
+    expect(dependencyKind({})).toBe('task')
+    expect(dependencyKind(undefined)).toBe('task')
+    expect(dependencyKind({ kind: 'nonsense' })).toBe('task')
+  })
+
+  it('maps each kind to its real table name', () => {
+    // The executable mapping, not a restatement of it: a typo here is a
+    // PGRST205 at runtime and nothing else would catch it.
+    expect(DEPENDENCY_TABLE[dependencyKind({ kind: 'task' })]).toBe('task_dependencies')
+    expect(DEPENDENCY_TABLE[dependencyKind({ kind: 'phase' })]).toBe('phase_dependencies')
+  })
+
+  it('every routed table has an allowlist entry', () => {
+    // Ties the two halves together: routing to a table with no entry would
+    // reopen the exact hole this phase closed.
+    for (const table of Object.values(DEPENDENCY_TABLE)) {
+      expect(COLUMN_ALLOWLIST[table], `${table} is routed to but has no allowlist`).toBeDefined()
+    }
   })
 })
 

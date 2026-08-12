@@ -1256,12 +1256,43 @@ export function RabbitProvider({ children }) {
 
   const deletePhase = useCallback(async (id) => {
     const oldPhase = bundleRef.current.phases.find(p => p.id === id);
+    // Migration 0061 gave phase→phase edges a real table, so deletePhase now
+    // has to do what deleteTask has always done: strip the matching edges and
+    // capture them for undo. Before 0061 phase edges could not exist in cloud
+    // at all, so nothing pruned them.
+    //
+    // ⚠️ THIS PRUNES THE CLIENT BUNDLE ONLY. In local/desktop mode the Express
+    // route is the generic rabbitSubentityRoutes('phases','phases') DELETE,
+    // which splices bundle.phases and nothing else — so the orphaned edges are
+    // still written back to project.json and return on the next load. Cloud
+    // does not need a server-side prune (0061's ON DELETE CASCADE covers a hard
+    // delete, and a soft-deleted phase deliberately KEEPS its edges so they
+    // come back on restore); desktop does, and does not have one. deleteTask
+    // has the identical gap and always has. Recorded in docs/OUTSTANDING.md.
+    //
+    // Matching on id alone (not on kind) mirrors deleteTask exactly. The ids
+    // are uuids, so a task edge cannot collide with a phase id.
+    const removedDeps = bundleRef.current.dependencies.filter(
+      d => d.predecessor_id === id || d.successor_id === id,
+    );
     // Soft-aware: supabase soft-deletes (0014) so undo restores the DB
     // row and reinstates the captured row locally; local mode keeps the
     // re-insert undo path.
+    //
+    // Note the DB does NOT cascade here: 0061's ON DELETE CASCADE fires only on
+    // a HARD delete, and a soft-deleted phase leaves its edges in place. That is
+    // deliberate — the edges come back with the phase on restore. The loader
+    // hides them meanwhile, because its `!inner` embed drops any edge whose
+    // parent phase is no longer visible.
     const canSoftDelete = typeof adapterRef.current?.restorePhase === 'function';
     const result = await optimistic(
-      prev => ({ ...prev, phases: prev.phases.filter(p => p.id !== id) }),
+      prev => ({
+        ...prev,
+        phases:       prev.phases.filter(p => p.id !== id),
+        dependencies: prev.dependencies.filter(
+          d => d.predecessor_id !== id && d.successor_id !== id,
+        ),
+      }),
       () => adapterRef.current.deletePhase(id, activeProjectId),
     );
     if (oldPhase) {
@@ -1269,9 +1300,23 @@ export function RabbitProvider({ children }) {
         undoOps: canSoftDelete
           ? [async () => {
               await adapterRef.current.restorePhase(id);
-              setBundle(prev => ({ ...prev, phases: [...prev.phases, oldPhase] }));
+              setBundle(prev => ({
+                ...prev,
+                phases:       [...prev.phases, oldPhase],
+                dependencies: [...prev.dependencies, ...removedDeps],
+              }));
             }]
-          : [() => mutationsRef.current.addPhase(oldPhase)],
+          : [
+              () => mutationsRef.current.addPhase(oldPhase),
+              ...removedDeps.map(d => async () => {
+                // Re-insert the row directly so id + kind survive, bypassing
+                // the link* helpers' fresh-uuid path.
+                await optimistic(
+                  prev => ({ ...prev, dependencies: [...prev.dependencies, d] }),
+                  () => adapterRef.current.upsertDependency(d),
+                );
+              }),
+            ],
         redoOps: [() => mutationsRef.current.deletePhase(id)],
       });
       if (token != null) {
@@ -2076,7 +2121,13 @@ export function RabbitProvider({ children }) {
     const oldRow = bundleRef.current.dependencies.find(d => d.id === dependencyId);
     const result = await optimistic(
       prev => ({ ...prev, dependencies: prev.dependencies.filter(d => d.id !== dependencyId) }),
-      () => adapterRef.current.deleteDependency(dependencyId, activeProjectId),
+      // Third argument is the edge's kind — 0061 split the two edge kinds
+      // across two tables and the supabase adapter needs to know which one to
+      // delete from. It goes third because argument two is projectId, which
+      // localServerAdapter interpolates into its URL. An undefined kind is
+      // handled (the adapter tries both tables); passing the wrong one would
+      // be a silent no-op, so it is read from the row, never assumed.
+      () => adapterRef.current.deleteDependency(dependencyId, activeProjectId, oldRow?.kind),
     );
     if (oldRow) {
       pushHistory({

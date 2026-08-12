@@ -205,6 +205,52 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // funnel and the affordances move together.
   const { canWrite, writeReason } = useProjectAccess()
 
+  // ── Dependency-write failures (Phase 2 of the 2026-08-10 build pass) ──────
+  // Audrey, 2026-08-10: "i was able to grab the line from the dependency task
+  // but i could not attach it to another this is crucial to work."
+  //
+  // The three dependency gestures used to end in `.catch(() => {})`. The write
+  // was rejected by PostgREST, optimistic() rolled the arrow back, and the user
+  // saw a line appear and vanish with no explanation — the same "it just
+  // stopped working" shape the read-only strip below was written to prevent.
+  //
+  // 🚨 DELETING THE CATCH IS NOT ENOUGH ON ITS OWN. optimistic() does call
+  // setError and rethrow, and `error` IS exposed on the Rabbit context — but
+  // nothing in the repo reads it. Dropping the catch would convert a silent
+  // failure into an unhandled promise rejection: still silent. The handler has
+  // to be local, which is also the only mutation-failure idiom this tool has
+  // (TaskEditor.handleSave below, NewTaskPopup, ProjectAssetsView).
+  const [depError, setDepError] = useState(null)
+
+  // unwrap() throws `new Error('[supabase] ' + message)` and DROPS .code, so a
+  // schema mismatch and an RLS refusal are indistinguishable here. The raw text
+  // is internal vocabulary — "Could not find the 'kind' column of
+  // 'task_dependencies' in the schema cache" — so it goes in the tooltip and a
+  // plain sentence goes on the strip.
+  //
+  // The three call sites use `.then(undefined, onErr)` rather than `.catch`: a
+  // two-argument then handles a rejection of the mutation ONLY, so a throw
+  // inside a success path stays visible instead of being swallowed the way a
+  // trailing .catch would swallow it. That is the same mistake, one link
+  // further down the chain.
+  //
+  // 🚨 AND THERE IS DELIBERATELY NO setDepError(null) ON SUCCESS. The rewire
+  // gesture (beginDependencyRewire) fires onUnlinkDependency and then
+  // onLinkTasks/onLinkPhases without awaiting either, so the two settle in
+  // network order. Clearing on success meant a slow-but-successful UNLINK could
+  // land after a failed LINK and wipe its message — leaving the user with the
+  // original arrow genuinely deleted, no new arrow, and nothing on screen
+  // saying so. That is the silent failure this whole block exists to remove,
+  // reintroduced as a race. The banner is dismissible and any later failure
+  // replaces it, so letting it persist costs nothing; clearing it can cost the
+  // user a dependency.
+  const onDependencyError = useCallback((action) => (err) => {
+    setDepError({
+      message: `Could not ${action}. The change was not saved.`,
+      detail:  err?.message || String(err),
+    })
+  }, [])
+
   const [zoomId, setZoomId] = useState('week')
   const zoom = ZOOM_LEVELS.find(z => z.id === zoomId) || ZOOM_LEVELS[1]
   const DAY_PX = zoom.dayPx
@@ -654,6 +700,31 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         </div>
       )}
 
+      {/* ── Dependency write failure (Phase 2) ──────────────────────────────
+          Same slot and the same reasoning as the read-only strip above: a drag
+          gesture has no rendered control to hang a message on, so the message
+          lives at pane level. Dismissible, because unlike the read-only state
+          this is a transient event rather than a property of the project. */}
+      {depError && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-mono"
+          style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #7f1d1d', color: '#fca5a5' }}
+        >
+          <AlertTriangle className="w-3 h-3 shrink-0" />
+          <span className="uppercase tracking-widest shrink-0">Not saved</span>
+          <span className="truncate" title={depError.detail}>{depError.message}</span>
+          <button
+            type="button"
+            onClick={() => setDepError(null)}
+            className="ml-auto shrink-0 opacity-70 hover:opacity-100"
+            title="Dismiss"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* ── Summary + minimap controls (single consolidated row) ── */}
       <SummaryBand
         summary={summary}
@@ -798,9 +869,12 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           })
         }}
         onToggleCollapse={(phase) => toggleCollapsed(phase.id)}
-        onLinkTasks={(predId, succId) => ctx.linkTasks(predId, succId).catch(() => {})}
-        onLinkPhases={(predId, succId) => ctx.linkPhases(predId, succId).catch(() => {})}
-        onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).catch(() => {})}
+        onLinkTasks={(predId, succId) => ctx.linkTasks(predId, succId).then(
+          undefined, onDependencyError('link those tasks'))}
+        onLinkPhases={(predId, succId) => ctx.linkPhases(predId, succId).then(
+          undefined, onDependencyError('link those phases'))}
+        onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).then(
+          undefined, onDependencyError('remove that dependency'))}
         onMoveTaskToPhase={(taskId, phaseId) => {
           // Drag-drop a task into another phase row in the label gutter.
           // We update the task's phase_id; the buildSchedule pass will
@@ -2262,21 +2336,41 @@ function DetailPane({
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
                     outline: isReparentHoverDz ? '2px dashed #fb923c' : undefined,
-                    // Session 29: denied stays at the resting 0.4 and never
-                    // lights up on hover, so it reads as unavailable rather
-                    // than as something that failed to respond.
-                    opacity: canWrite ? (isDzHover || isReparentHoverDz ? 1 : 0.4) : 0.4,
+                    // Session 29: denied stays dimmed and never lights up on
+                    // hover, so it reads as unavailable rather than as
+                    // something that failed to respond.
+                    //
+                    // 🚨 Phase 2 (2026-08-10) — Audrey: "i am not seeing the
+                    // blank line below the existing tasks for a user to place a
+                    // new task." The row was never missing and was never gated
+                    // away: buildRows pushes it unconditionally and is not even
+                    // passed canWrite. It was INVISIBLE. #78716c at opacity 0.4
+                    // over the #1c1917 label column composites to #413c39 —
+                    // 1.61:1, under the 3:1 floor for a UI component and far
+                    // under 4.5:1 for text.
+                    //
+                    // Worse, BOTH branches of the old expression resolved to
+                    // 0.4 at rest, so the allowed and denied states were pixel
+                    // identical and the S29 "greyed with a reason" treatment
+                    // had no signal to carry. Allowed now rests at full opacity
+                    // (the colours below keep it faint, which is what she asked
+                    // for — "the faint + new task in the left side table"), and
+                    // denied keeps the dimming, so the two finally differ.
+                    opacity: canWrite ? 1 : 0.4,
                   }}
                   aria-disabled={canWrite ? undefined : 'true'}
                   title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
                 >
+                  {/* Icon stays stone-500 (3.65:1 — a glyph, so the 3:1 floor
+                      applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
+                      the floor for text. Both are existing palette values. */}
                   <Plus
                     className="w-3 h-3 mr-1.5"
                     style={{ color: isDzHover && canWrite ? '#fb923c' : '#78716c' }}
                   />
                   <span
                     className="text-[11.5px] font-mono italic"
-                    style={{ color: isDzHover && canWrite ? '#fdba74' : '#78716c' }}
+                    style={{ color: isDzHover && canWrite ? '#fdba74' : '#a8a29e' }}
                   >
                     New task…
                   </span>
@@ -3719,7 +3813,19 @@ function DetailBar({
           when you hover and then refuses to drag teaches nothing, and the bar's
           own title already carries the reason. Greying is for controls that are
           visible at rest; this one is not. */}
-      {hover && canWrite && (
+      {/* 🚨 Phase 2 (2026-08-10) — ...and withheld when there is no handler to
+          receive it. DetailPane passes `onBeginDependencyDrag={r.isSubgroup ?
+          null : beginDependencyDrag}`, and every non-phase grouping mode
+          (team, asset, scene, level, experience) pushes its grouping rows with
+          isSubgroup: true. The grip was gated only on `hover && canWrite`, so
+          in those modes it appeared on hover, said "Drag to link a dependency",
+          and did nothing at all — onDepHandleDown bails at `if
+          (!onBeginDependencyDrag) return`.
+          That is Audrey's exact reported symptom — "i was able to grab the line
+          from the dependency task but i could not attach it to another" — so
+          even though her report was the cloud write failure, a second live path
+          to the same experience is not something to leave standing. */}
+      {hover && canWrite && onBeginDependencyDrag && (
         <div
           onMouseDown={onDepHandleDown}
           onMouseEnter={() => { cancelHoverOff(); setHover(true) }}

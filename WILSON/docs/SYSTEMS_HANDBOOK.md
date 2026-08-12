@@ -530,9 +530,12 @@ DEFINER trigger as their sole writer and zero client write policies.
 | `platform_operators` | 0001 | Cross-tenant operator registry. No `workspace_id`. |
 | `auth_attempt_log` | 0001 | `resolve-login` attempt trail; operator-read |
 
-**R.A.B.B.I.T. core** (the 13 RLS-locked tables, all forced)
+**R.A.B.B.I.T. core** (the 14 RLS-locked tables, all forced)
 
-`projects`, `phases`, `assets`, `tasks`, `task_dependencies`, `task_links`,
+`projects`, `phases`, `assets`, `tasks`, `task_dependencies`,
+`phase_dependencies` (0061 — the phase→phase edge sibling; `task_dependencies`
+keeps its FKs to `tasks(id)` because `supabaseAdapter.loadProject` resolves a
+PostgREST embed by that constraint's NAME), `task_links`,
 `files`, `asset_versions`, `comments`, `rate_cards`, `rate_card_entries`,
 `ingestion_runs`, `ingestion_chunks` — created in 0000, locked down in 0004,
 tightened by 0013 (project roles), 0014 (soft delete), 0015 (rate identity),
@@ -627,7 +630,7 @@ Grouped by job, because the *category* is what a reader needs:
   `fn_ws_members_audit_capture` (0030 — privilege changes on
   `workspace_members` into the reserved `app_events` `'admin'` stream; fires
   only on a real change to `app_role`, `is_active` or a rate-card grant).
-- **Realtime broadcast** — `fn_realtime_broadcast` (10 tables → project topic),
+- **Realtime broadcast** — `fn_realtime_broadcast` (11 tables → project topic),
   `fn_workspace_realtime_broadcast` (5 tables → workspace topic).
 - **Auto-staffing** — `fn_projects_auto_staff` seats the creator and producer as
   project managers on **client** creates only (`auth.uid() IS NULL` skips), so
@@ -653,7 +656,7 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | Migration | 0016 | 0018 |
 | Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
 | Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
-| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the

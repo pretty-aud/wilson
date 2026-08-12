@@ -119,6 +119,108 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
+### Migration 0061 is written and NOT applied to any environment
+
+**MEASURED (2026-08-11).** Phase 2 of the build pass fixes the timeline
+dependency write, but the phase→phase half needs `public.phase_dependencies`,
+which migration `0061_phase_dependencies.sql` creates. Nothing has been applied:
+dev, staging and prod are all still at 0060.
+
+**Until it is applied, on every environment:** task→task links work (that half is
+a pure client fix — the `COLUMN_ALLOWLIST` entry), and phase→phase links fail
+with a visible error rather than silently. The client degrades deliberately —
+`listDependenciesWith` absorbs `42P01`/`PGRST205` on `phase_dependencies` — so
+the missing table costs phase edges and nothing else.
+
+✅ **The SQL HAS been executed against real Postgres** — via
+`scripts/tap-hosted.py` against hosted **wilson-dev**, in one rolled-back
+transaction, so nothing was committed:
+
+- migration + suite: **planned 12 / collected 12 / passed 12 / failed 0**
+- migration applied **twice** then the suite: **12 / 12 / 12 / 0**, so the
+  idempotency the header claims is measured rather than asserted
+
+`collected == planned` in both runs, which is the check that matters — a pgTAP
+function the shim does not implement still burns a test number and never reaches
+the collector, so a shortfall means the run is lying about coverage rather than
+merely failing.
+
+⚠️ Still **not applied** anywhere. The rolled-back run proves the SQL is valid
+and its post-conditions hold; it does not put the table on any environment.
+→ Apply order: CI green, then dev, then staging, then prod, verifying **by
+query** after each, never by exit code.
+
+### A dependency rewire deletes before it links, so a failed link is data loss
+
+**INFERRED (2026-08-11, code reading).** `beginDependencyRewire`'s `onUp` calls
+`onUnlinkDependency(dep.id)` and only then `onLinkTasks` / `onLinkPhases`, with
+neither awaited and no `ctx.runBatch` wrapper. If the link half is rejected —
+the commonest case being the `unique (predecessor_id, successor_id)` constraint
+when the target edge already exists — the unlink has already committed and the
+gesture is a pure delete.
+
+Two compounding details, both pre-existing:
+
+- `optimistic()` reads `snapshot = bundleRef.current` synchronously, and
+  `bundleRef` is only refreshed by an effect, so both writes in that tick
+  capture the SAME pre-gesture snapshot. The rollback therefore redraws the
+  arrow that was genuinely deleted — the chart shows an edge the database no
+  longer has, until the next load.
+- It pushes two separate history entries, so one Ctrl+Z undoes half a rewire.
+
+Phase 2 made the failure *visible* (the "Not saved" strip) but did not make the
+gesture atomic. The honest fix is to await the unlink and only then link, or to
+wrap both in `runBatch`. Not attempted this phase because it changes undo
+semantics and deserves its own test.
+
+### The cloud dependency loader is workspace-scoped, not project-scoped
+
+**INFERRED (2026-08-11, code reading).** `listDependenciesWith` filters on a
+NON-inner embed (`.eq('predecessor.project_id', …)` with no `!inner`), which in
+PostgREST filters the embedded resource rather than the top-level rows — so the
+server left-joins and rows belonging to other projects come back with
+`predecessor: null`. `task_deps_select` (0004, never revised by 0013) scopes to
+the WORKSPACE, so `ctx.dependencies` carries every project's edges. The adjacent
+`task_links` fetch uses `tasks!inner` and is correctly scoped; the two lines were
+written differently and behave differently.
+
+**No user-visible symptom today:** `visibleDeps`, `buildSchedule` and
+`selectCriticalPath` all drop edges whose endpoints are not in the current
+project's lookup.
+
+🚨 **Deliberately not fixed in Phase 2.** Adding `!inner` means combining a
+constraint-name hint with a join modifier
+(`tasks!task_dependencies_predecessor_id_fkey!inner`) — a form that appears
+NOWHERE else in this repo and has therefore never been executed against a real
+PostgREST. That query is the one that draws every dependency arrow in the
+product, and it ends in `.catch(() => [])`. Getting it wrong empties every Gantt
+silently. → Fix it in its own change, and settle the syntax first with one
+authenticated GET against staging before pushing anything.
+
+### Deleting a task or a phase leaves orphaned dependency rows on the desktop
+
+**INFERRED (2026-08-11, code reading).** `electron/main.cjs` backs both deletes
+with the generic `rabbitSubentityRoutes` DELETE, which splices only the target
+collection — there is no cascade and no dependency sweep, so edges referencing
+the deleted row stay in `project.json` and are re-mirrored into
+`{Slug}_DATABASES/tasks.json` and `timeline.json` on every write. `RabbitProvider`
+prunes the CLIENT bundle, which masks it for the session; they return on reload.
+Cloud is unaffected (0061's `ON DELETE CASCADE` on a hard delete; a soft-deleted
+parent keeps its edges deliberately so they return on restore).
+
+Harmless to render — every consumer skips edges with unknown endpoints — but the
+two backends diverge, and the orphans accumulate.
+
+### A desktop→cloud migration silently drops the whole dependency graph
+
+**INFERRED (2026-08-11, code reading).** `src/cloud/migrate/runMigration.js`
+inserts projects, phases, assets, tasks and files. The word `dependencies`
+appears in it exactly once, inside a comment describing
+`localServerAdapter.loadProject`'s return shape. There is no write to
+`task_dependencies` and none to `phase_dependencies`. A user who migrates a
+desktop project to the cloud arrives with an empty Gantt link set, no error, and
+no indication anything was lost.
+
 ### Migration 0059 dropped two columns from `workspace_directory()`
 
 **MEASURED (2026-08-12) on wilson-dev.** `workspace_members` carries

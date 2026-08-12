@@ -138,6 +138,88 @@ describe('the folder tree rides the same load (Session 26, 0041)', () => {
   })
 })
 
+// ── Dependencies: two tables, one collection (0061) ─────────────────────────
+
+describe('loadProject unions both dependency tables', () => {
+  const TASK_EDGE  = { id: 'td1', predecessor_id: 't1', successor_id: 't2', type: 'FS', lag_days: 0 }
+  const PHASE_EDGE = { id: 'pd1', predecessor_id: 'ph1', successor_id: 'ph2', type: 'FS', lag_days: 0 }
+
+  function clientWith(deps) {
+    return makeClient({
+      projects: { data: { id: 'p1', title: 'Project One' }, error: null },
+      ...deps,
+    })
+  }
+
+  it('returns both kinds in one collection, each stamped from its table', () => {
+    // `kind` is NOT a column on either table — it is implied by which table the
+    // row came from. DetailPane.visibleDeps routes the arrow by `d.kind ||
+    // 'task'`, so an unstamped phase edge is looked up in rowIndexByTaskId,
+    // misses, and draws nothing.
+    globalThis.__testSupabase = clientWith({
+      task_dependencies:  { data: [TASK_EDGE],  error: null },
+      phase_dependencies: { data: [PHASE_EDGE], error: null },
+    })
+    resetSupabaseAdapter()
+
+    return supabaseAdapter().loadProject('p1').then(bundle => {
+      expect(bundle.dependencies).toHaveLength(2)
+      expect(bundle.dependencies.find(d => d.id === 'td1').kind).toBe('task')
+      expect(bundle.dependencies.find(d => d.id === 'pd1').kind).toBe('phase')
+    })
+  })
+
+  it('strips the `predecessor` embed — the undo-after-reload bug', async () => {
+    // 🚨 The select carries `predecessor:tasks!..._fkey(project_id)`, so every
+    // loaded row arrives with a `predecessor` object that is not a column.
+    // RabbitProvider's undo path re-sends the loaded row verbatim via
+    // upsertDependency(oldRow), so leaving it on meant undo-of-unlink PGRST204'd
+    // on any dependency the user had not created in that same session — a
+    // failure that looks intermittent because it depends on whether the page
+    // had been reloaded.
+    globalThis.__testSupabase = clientWith({
+      task_dependencies: {
+        data: [{ ...TASK_EDGE, predecessor: { project_id: 'p1' } }],
+        error: null,
+      },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.dependencies[0]).not.toHaveProperty('predecessor')
+    expect(bundle.dependencies[0].id).toBe('td1')
+  })
+
+  it('degrades to task edges only on a client deployed ahead of 0061', async () => {
+    // The beta auto-deploys on push; 0061 is applied by hand. In that window
+    // phase_dependencies does not exist, and "no phase edges yet" is true.
+    // Losing the TASK edges as well would be the actual regression.
+    globalThis.__testSupabase = clientWith({
+      task_dependencies:  { data: [TASK_EDGE], error: null },
+      phase_dependencies: { data: null, error: { code: 'PGRST205', message: "Could not find the table 'public.phase_dependencies' in the schema cache" } },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.dependencies).toHaveLength(1)
+    expect(bundle.dependencies[0].kind).toBe('task')
+  })
+
+  it('does NOT swallow a genuine phase_dependencies error as an empty list', async () => {
+    // The failing control for the test above. unwrapOptionalTable absorbs only
+    // 42P01/PGRST205; an RLS refusal must not be indistinguishable from "this
+    // project has no phase edges". A trailing `.catch(() => [])` on that query
+    // would make this test fail — which is exactly why it is here.
+    globalThis.__testSupabase = clientWith({
+      phase_dependencies: { data: null, error: { code: '42501', message: 'permission denied for table phase_dependencies' } },
+    })
+    resetSupabaseAdapter()
+
+    await expect(supabaseAdapter().loadProject('p1'))
+      .rejects.toThrow(/permission denied/)
+  })
+})
+
 describe('a client deployed ahead of migration 0040', () => {
   // `feat/multi-user-v1` auto-deploys the STAGING-backed beta on push, so the
   // client can legitimately reach a database without 0040. The four entity

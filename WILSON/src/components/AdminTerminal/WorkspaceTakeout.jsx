@@ -33,7 +33,10 @@ import { LIGHT_INK } from '../lightSurface' // §B — light page
 const TAKEOUT_TABLES = [
   'workspaces', 'workspace_members', 'project_members',
   'projects', 'phases', 'assets', 'tasks',
-  'task_dependencies', 'task_links',
+  // phase_dependencies joins its sibling here (0061). A takeout that exports
+  // task edges but not phase edges would look complete and quietly lose half
+  // the dependency graph.
+  'task_dependencies', 'phase_dependencies', 'task_links',
   'files', 'file_events', 'asset_versions', 'comments',
   'rate_cards', 'rate_card_entries',
   'ingestion_runs', 'ingestion_chunks',
@@ -72,7 +75,21 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
       let q = supabase.from(table).select('*')
       for (const k of orderKeys) q = q.order(k, { ascending: true })
       const { data, error: err } = await q.range(from, from + PAGE - 1)
-      if (err) throw new Error(`${table}: ${err.message}`)
+      if (err) {
+        // 🚨 A table this build knows about may not exist on this database
+        // yet: the web app auto-deploys on every push while migrations are
+        // applied BY HAND (phase_dependencies / 0061 is the current example).
+        // fetchAll throwing would abort runTakeout's single try/catch, so the
+        // admin would get NO archive at all — every table already paged
+        // discarded, every table after it never attempted — because one table
+        // was missing. Absorb exactly "relation does not exist" and record it
+        // in the manifest; anything else still throws, because an RLS refusal
+        // must never look like an empty table.
+        if (err.code === '42P01' || err.code === 'PGRST205') {
+          return { rows, truncated, missing: true }
+        }
+        throw new Error(`${table}: ${err.message}`)
+      }
       rows.push(...(data || []))
       if (!data || data.length < PAGE) return { rows, truncated }
     }
@@ -105,7 +122,19 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
       for (let i = 0; i < TAKEOUT_TABLES.length; i++) {
         const table = TAKEOUT_TABLES[i]
         setProgress({ table, done: i, total: TAKEOUT_TABLES.length })
-        const { rows, truncated } = await fetchAll(table)
+        const { rows, truncated, missing } = await fetchAll(table)
+        // A table that does not exist on this database is recorded rather than
+        // skipped in silence — an archive that quietly omits a table looks
+        // exactly like an archive of a workspace that had no such rows.
+        if (missing) {
+          manifest.tables[table] = {
+            rows: 0,
+            truncated: false,
+            missing: true,
+            note: 'table not present on this database — its migration has not been applied here',
+          }
+          continue
+        }
         zip.file(`${table}.csv`, toCsv(rows))
         manifest.tables[table] = { rows: rows.length, truncated }
         totalRows += rows.length

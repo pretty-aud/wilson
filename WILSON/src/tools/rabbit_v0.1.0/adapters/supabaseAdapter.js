@@ -428,9 +428,58 @@ const FILE_COLUMNS = new Set([
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
 
+// ── Phase 2 of the 2026-08-10 build pass (migration 0061) ───────────────
+// The LAST write path still on the raw `sanitize(dep, [])` denylist, and the
+// one this whole defect class was named after. Audrey, 2026-08-10: "i was able
+// to grab the line from the dependency task but i could not attach it to
+// another this is crucial to work."
+//
+// THREE non-columns reach this table, not one:
+//   * `kind`       — RabbitProvider.linkTasks/linkPhases stamp 'task'/'phase'.
+//                    It is a client-side RENDER discriminator (DetailPane's
+//                    `const kind = d.kind || 'task'`), never a column. The
+//                    adapter re-derives it on read from WHICH TABLE the row
+//                    came from, so dropping it on write loses nothing.
+//   * `project_id` — needed by localServerAdapter, which interpolates it into
+//                    the URL (`/projects/${dep.project_id}/dependencies`).
+//                    🚨 That is why it is stripped HERE and not at the row
+//                    construction site: deleting it in RabbitProvider would
+//                    POST to /projects/undefined/dependencies and break every
+//                    desktop dependency write.
+//   * `predecessor`— the embed object loadProject's select adds to every row it
+//                    returns. Nothing stripped it, so undo-after-reload re-sent
+//                    it and PGRST204'd all over again. A fix that only removed
+//                    `kind` and `project_id` would still have left undo broken
+//                    on any dependency the user did not create this session.
+//
+// Both dependency tables share this set — 0061 gives phase_dependencies the
+// same column shape as its sibling deliberately, so the adapter can route by
+// kind without a second vocabulary.
+const DEPENDENCY_COLUMNS = new Set([
+  'id', 'predecessor_id', 'successor_id', 'type', 'lag_days',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+  'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
+]);
+
+// Which table a given edge lives in. Exported so dependencyRouting.test.js can
+// assert the EXECUTABLE mapping rather than a restatement of it.
+export const DEPENDENCY_TABLE = {
+  task:  'task_dependencies',
+  phase: 'phase_dependencies',
+};
+
+// Anything that is not literally 'phase' is a task edge. Matches DetailPane's
+// `const kind = d.kind || 'task'` exactly — a row loaded before 0061, or one
+// written by a client that never set the field, is a task edge.
+export function dependencyKind(dep) {
+  return dep?.kind === 'phase' ? 'phase' : 'task';
+}
+
 export const COLUMN_ALLOWLIST = {
   tasks: TASK_COLUMNS,
   files: FILE_COLUMNS,
+  task_dependencies:  DEPENDENCY_COLUMNS,
+  phase_dependencies: DEPENDENCY_COLUMNS,
   assets: ASSET_COLUMNS,
   projects: PROJECT_COLUMNS,
   budget_lines: BUDGET_LINE_COLUMNS,
@@ -522,6 +571,85 @@ export function toColumns(table, obj) {
     );
   }
   return out;
+}
+
+// ── Dependency loading (migration 0061) ─────────────────────────────────
+//
+// Both edge tables, unioned into the one collection the views read, each row
+// stamped with the `kind` its table implies.
+//
+// THREE things about this query are deliberate and each fixes a live defect:
+//
+//   1. THE EMBED HINT IS A CONSTRAINT NAME, NOT A TABLE NAME. Both tables have
+//      TWO foreign keys to the same parent, so `tasks(project_id)` is ambiguous
+//      and PostgREST answers PGRST201. It must be disambiguated by constraint.
+//      0061 names phase_dependencies' FKs explicitly and asserts them in a
+//      post-condition for this reason; task_dependencies' name is still the
+//      auto-generated one from 0000 and is asserted there too.
+//
+//   2. THE EMBED IS STRIPPED FROM THE ROW. `predecessor` is not a column, and
+//      RabbitProvider's undo path re-sends the loaded row verbatim
+//      (`upsertDependency(oldRow)`). Leaving it on meant undo-of-unlink
+//      PGRST204'd on any dependency the user had not created in that same
+//      session — a bug that would have survived fixing `kind`/`project_id`
+//      alone. toColumns strips it too; this is the belt to that braces, and it
+//      keeps the bundle honest for anything that iterates keys.
+//
+//   3. NO `!inner`, DELIBERATELY — and this is a decision, not an oversight.
+//      Both queries filter on a NON-inner embed, which in PostgREST filters the
+//      EMBEDDED resource and not the top-level rows: the server left-joins, so
+//      rows whose predecessor is in another project come back with
+//      `predecessor: null` still attached. Since task_deps_select (0004, never
+//      revised by 0013) scopes to the WORKSPACE rather than the project, this
+//      collection is workspace-wide rather than project-scoped. That is a
+//      PRE-EXISTING leak, it is invisible (every consumer — visibleDeps,
+//      buildSchedule, selectCriticalPath — drops edges whose endpoints are not
+//      in the current project's lookup), and `!inner` on the adjacent
+//      task_links fetch shows the author knew the distinction.
+//      🚨 It is NOT fixed here on purpose. Adding `!inner` to the task query
+//      means combining a constraint-name HINT with a join modifier
+//      (`tasks!task_dependencies_predecessor_id_fkey!inner`), a form that
+//      appears NOWHERE else in this repo and therefore has never once been
+//      executed against a real PostgREST. If that token order is rejected the
+//      server answers PGRST100, the load fails, and this is the single query
+//      that draws every dependency arrow in the product. Trading a harmless
+//      invisible leak for an unproven syntax on the one path this whole phase
+//      exists to repair is a bad trade. The leak is recorded in
+//      docs/OUTSTANDING.md; fix it in its own change, where it can be verified
+//      on its own.
+function stampDependencyKind(rows, kind) {
+  return (rows || []).map(({ predecessor: _embed, ...row }) => ({ ...row, kind }));
+}
+
+async function listDependenciesWith(client, projectId) {
+  const [taskEdges, phaseEdges] = await Promise.all([
+    // Byte-for-byte the query that has always run here, so this phase adds no
+    // risk at all to the task-dependency path. Only the mapping below is new.
+    client
+      .from('task_dependencies')
+      .select('*, predecessor:tasks!task_dependencies_predecessor_id_fkey(project_id)')
+      .eq('predecessor.project_id', projectId)
+      .then(unwrap)
+      .catch(() => []),
+    // unwrapOptionalTable and NO blanket catch. The beta auto-deploys on every
+    // push while migrations are applied by hand, so there is a window where
+    // this client knows about phase_dependencies and the database does not —
+    // 42P01/PGRST205 is absorbed and the user sees "no phase edges yet", which
+    // is true. Every OTHER error still throws.
+    // 🚨 A trailing `.catch(() => [])` here would undo exactly that: this
+    // helper's own doctrine (see unwrapOptionalTable's header) is that an RLS
+    // refusal or a network fault must NOT look like an empty list. Adding the
+    // catch back is the mistake that comment exists to prevent.
+    client
+      .from('phase_dependencies')
+      .select('*, predecessor:phases!phase_dependencies_predecessor_id_fkey(project_id)')
+      .eq('predecessor.project_id', projectId)
+      .then(unwrapOptionalTable),
+  ]);
+  return [
+    ...stampDependencyKind(taskEdges,  'task'),
+    ...stampDependencyKind(phaseEdges, 'phase'),
+  ];
 }
 
 // ── Folder-tree helpers (Session 26, migration 0041) ────────────────────
@@ -741,8 +869,7 @@ export function supabaseAdapter() {
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
           client.from('assets').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
           client.from('tasks').select('*').eq('project_id', projectId).then(unwrap),
-          client.from('task_dependencies').select('*, predecessor:tasks!task_dependencies_predecessor_id_fkey(project_id)')
-            .eq('predecessor.project_id', projectId).then(unwrap).catch(() => []),
+          listDependenciesWith(client, projectId),
           client.from('task_links').select('*, task:tasks!inner(project_id)').eq('task.project_id', projectId).then(unwrap).catch(() => []),
           client.from('files').select('*').eq('project_id', projectId).then(unwrap),
           client.from('asset_versions').select('*, asset:assets!inner(project_id)').eq('asset.project_id', projectId).then(unwrap).catch(() => []),
@@ -940,14 +1067,49 @@ export function supabaseAdapter() {
     },
 
     // ── Dependencies ──────────────────────────────────────────
+    //
+    // Two tables, one client-side collection (ctx.dependencies). `kind` picks
+    // the table on the way in and is re-stamped on the row that comes back.
+    //
+    // 🚨 Re-stamping is not cosmetic. DetailPane.visibleDeps routes the ARROW
+    // by `d.kind || 'task'`, while buildSchedule and selectCriticalPath route
+    // by endpoint membership in taskById. The two layers classify by different
+    // fields, so a phase row returned WITHOUT `kind` is looked up in
+    // rowIndexByTaskId, misses, and its arrow silently vanishes while the
+    // schedule stays correct — data present, picture wrong.
     async upsertDependency(dep) {
       const client = await requireClient();
-      const row = sanitize(dep, []);
-      return unwrap(await client.from('task_dependencies').upsert(row).select().single());
+      const kind   = dependencyKind(dep);
+      const table  = DEPENDENCY_TABLE[kind];
+      const saved  = unwrap(
+        await client.from(table).upsert(toColumns(table, dep)).select().single()
+      );
+      return { ...saved, kind };
     },
-    async deleteDependency(id) {
+
+    // Argument two is projectId and argument three is kind — that order is
+    // forced, not chosen. localServerAdapter.deleteDependency(id, projectId)
+    // LOAD-BEARS on argument two for its URL, so kind has to go after it.
+    //
+    // When the caller cannot say which kind it is — a history entry from
+    // before this session, or a row loaded before 0061 — both tables are
+    // tried. The delete is keyed on a uuid primary key, so the miss is a
+    // zero-row no-op rather than a wrong delete.
+    async deleteDependency(id, _projectId, kind) {
       const client = await requireClient();
-      unwrap(await client.from('task_dependencies').delete().eq('id', id));
+      const tables =
+        kind === 'phase' ? ['phase_dependencies'] :
+        kind === 'task'  ? ['task_dependencies']  :
+                           ['task_dependencies', 'phase_dependencies'];
+      for (const table of tables) {
+        // unwrapOptionalTable, not unwrap: this file's own header records that
+        // the beta auto-deploys on every push while migrations are applied by
+        // hand, so there is a real window where this client knows about
+        // phase_dependencies and the database does not. A bare unwrap() would
+        // make every dependency delete fail during that window, including the
+        // task edges that have nothing to do with 0061.
+        unwrapOptionalTable(await client.from(table).delete().eq('id', id));
+      }
     },
 
     // ── Task links (free URLs) ────────────────────────────────
