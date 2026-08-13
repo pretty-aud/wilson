@@ -3600,7 +3600,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       }`}>
                         {sw.name}
                       </span>
-                      {cloudMode && <VisibilityBadge visibility={sw.visibility} compact />}
+                      {cloudMode && <VisibilityBadge course={sw} compact />}
                     </button>
                     {/* PHASE 5: was `opacity-0 group-hover/course:opacity-100`.
                         This menu is the ONLY way to reach a course's sharing
@@ -3883,7 +3883,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-2xl font-bold text-orange-400">{activeSoftware.name}</h2>
-                  {cloudMode && <VisibilityBadge visibility={activeCourseRow?.visibility} />}
+                  {cloudMode && <VisibilityBadge course={activeCourseRow} />}
                   {cloudMode && <ReadOnlyBadge course={activeCourseRow} />}
                   {cloudMode && <MetadataOnlyBadge course={activeCourseRow} />}
                 </div>
@@ -4145,7 +4145,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   }`}>{sw.name}</h3>
                   {cloudMode && (
                     <div className="flex items-center gap-1.5 flex-wrap mb-2">
-                      <VisibilityBadge visibility={sw.visibility} />
+                      <VisibilityBadge course={sw} />
                       <MetadataOnlyBadge course={sw} />
                       <ReadOnlyBadge course={sw} />
                       <OwnerBadge course={sw} />

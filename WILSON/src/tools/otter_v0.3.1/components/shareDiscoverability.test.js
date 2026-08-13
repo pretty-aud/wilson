@@ -451,6 +451,28 @@ describe('the defects the nomination review found stay fixed', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+describe('every course list passes the ROW to the badge, not just the tier', () => {
+  // originOf is unit-tested in courseBadges.test.js, but it can only tell your
+  // shared course from a colleague's if the caller hands it `course`. A call
+  // site that reverts to `visibility={sw.visibility}` silently restores the
+  // exact ambiguity Audrey asked to have fixed, and every pure test stays green.
+  it('the sidebar row, the course header and the library card all pass course', () => {
+    const passes = OTTER.match(/<VisibilityBadge course=\{/g) ?? []
+    const tierOnly = OTTER.match(/<VisibilityBadge visibility=\{/g) ?? []
+    expect(passes.length, 'expected three course-aware badges in Otter.jsx').toBe(3)
+    expect(tierOnly.length, 'no Otter.jsx list may badge on tier alone').toBe(0)
+  })
+
+  it('originOf is exported so the rules can be asserted, not scanned', () => {
+    const badges = stripComments(read('./CourseBadges.jsx'))
+    expect(badges).toMatch(/export function originOf/)
+    // The local-mode rule, which is the one that would badge every course in a
+    // single-user desktop install as "shared with you by a stranger".
+    expect(badges).toMatch(/course\.is_own !== false/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 describe('a refused or failed submission surfaces a real error', () => {
   it('never lets res.json() pre-empt the status check', () => {
     // Every call was `await res.json()` THEN `if (!res.ok)`. otterFetch
