@@ -43,7 +43,7 @@ import { otterFetch } from '../adapters'
 
 const SUMMARY_MAX = 4000   // otter_cr_summary_chk
 
-export default function ChangeRequestDialog({ course, standardName, onClose }) {
+export default function ChangeRequestDialog({ course, standardName, sourceIsStandard = false, onClose }) {
   const [existing, setExisting] = useState(null)
   const [summary, setSummary]   = useState('')
   const [loading, setLoading]   = useState(true)
@@ -53,6 +53,21 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
 
   const targetId = course?.source_course_id ?? null
   const isDeclined = existing?.status === 'changes_requested'
+
+  // MAY A REQUEST BE FILED OR RESUBMITTED AGAINST THIS TARGET?
+  //
+  // Being a fork is necessary but not sufficient. otter_cr_insert (0025) also
+  // requires the target to be company_standard RIGHT NOW, and a standard can be
+  // demoted underneath an existing fork — by hand via ShareCourseDialog's
+  // confirmDrop, or automatically whenever a nomination is approved (0064).
+  // Until this gate existed the whole submit form rendered in that state and the
+  // user only learned at POST time, having written the summary.
+  //
+  // This is deliberately NOT the whole dialog. otter_cr_update gates on WHO the
+  // caller is and never on the target's visibility, so withdrawing an open
+  // request and accepting a decline both still work after a demotion — hiding
+  // them would strand a proposer with a request they cannot close.
+  const canPropose = !!targetId && sourceIsStandard
 
   // Is there already a LIVE request from this fork? Open means refine or
   // withdraw; changes_requested means the admin answered and it is the
@@ -199,17 +214,34 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          {!targetId && (
+          {/* Widened from `!targetId`. There are two ways to have no target —
+              never forked from a standard, and forked from one that has since
+              stood down — and the second is the common one now that approving a
+              nomination demotes the incumbent. Naming which it is matters: the
+              first is a fact about the user's course, the second is a thing that
+              happened TO it, and telling someone their course "wasn't copied
+              from a company standard" when it demonstrably was reads as a bug. */}
+          {!canPropose && (
             <div className="bg-stone-900 border border-stone-700 rounded-sm p-3">
-              <p className="text-stone-400 text-[11px]">
-                This course wasn&apos;t copied from a company standard, so there is nothing to
-                suggest a change to. Start from a company standard course and you can send your
-                improvements back.
-              </p>
+              {!targetId ? (
+                <p className="text-stone-400 text-[11px]">
+                  This course wasn&apos;t copied from a company standard, so there is nothing to
+                  suggest a change to. Start from a company standard course and you can send your
+                  improvements back.
+                </p>
+              ) : (
+                <p className="text-stone-400 text-[11px]">
+                  {standardName ? `“${standardName}”` : 'The course this was copied from'} is no
+                  longer the company standard, so there is nothing to suggest a change to. Your
+                  copy is unaffected — it is still yours, and nothing in it has changed. If
+                  another course has taken its place as the standard, take a copy of that one
+                  and you can suggest changes there.
+                </p>
+              )}
             </div>
           )}
 
-          {targetId && (
+          {(canPropose || existing) && (
             <>
               {loading ? (
                 <p className="text-stone-500 text-[11px] flex items-center gap-1.5">
@@ -247,38 +279,46 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-orange-400 mb-1 uppercase tracking-wide">
-                      What did you change, and why?
-                    </label>
-                    <textarea
-                      value={summary}
-                      onChange={e => setSummary(e.target.value)}
-                      disabled={busy}
-                      placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
-                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-sm resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
-                    />
-                    <div className="flex justify-between mt-1">
-                      <span className="text-stone-600 text-[10px]">
-                        This is what the reviewer reads first.
-                      </span>
-                      <span className={`text-[10px] ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
-                        {summary.length} / {SUMMARY_MAX}
-                      </span>
-                    </div>
-                  </div>
+                  {/* The write half, and ONLY the write half, is gated. The two
+                      banners above stay visible after a demotion because a
+                      proposer with a live request still needs to see its state
+                      to withdraw it or accept the decline. */}
+                  {canPropose && (
+                    <>
+                      <div>
+                        <label className="block text-[11px] font-bold text-orange-400 mb-1 uppercase tracking-wide">
+                          What did you change, and why?
+                        </label>
+                        <textarea
+                          value={summary}
+                          onChange={e => setSummary(e.target.value)}
+                          disabled={busy}
+                          placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
+                          className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-sm resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
+                        />
+                        <div className="flex justify-between mt-1">
+                          <span className="text-stone-600 text-[10px]">
+                            This is what the reviewer reads first.
+                          </span>
+                          <span className={`text-[10px] ${tooLong ? 'text-red-400' : 'text-stone-600'}`}>
+                            {summary.length} / {SUMMARY_MAX}
+                          </span>
+                        </div>
+                      </div>
 
-                  {/* The review window, stated once (Session 13 — the "also
-                      share my copy" checkbox is gone because this replaced it). */}
-                  <div className="bg-stone-900 border border-stone-700 rounded-sm p-2.5">
-                    <p className="text-stone-400 text-[10px] leading-relaxed">
-                      Submitting lets reviewers open your copy of this course, read-only, while
-                      the request is under review. That access ends when the request is decided.
-                      If it is approved, your changes are added to the standard course — nothing
-                      is ever deleted from it, and its hotkey/function/node references stay as
-                      they are.
-                    </p>
-                  </div>
+                      {/* The review window, stated once (Session 13 — the "also
+                          share my copy" checkbox is gone because this replaced it). */}
+                      <div className="bg-stone-900 border border-stone-700 rounded-sm p-2.5">
+                        <p className="text-stone-400 text-[10px] leading-relaxed">
+                          Submitting lets reviewers open your copy of this course, read-only, while
+                          the request is under review. That access ends when the request is decided.
+                          If it is approved, your changes are added to the standard course — nothing
+                          is ever deleted from it, and its hotkey/function/node references stay as
+                          they are.
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
             </>
@@ -298,7 +338,9 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
           )}
         </div>
 
-        {targetId && !loading && (
+        {/* `canPropose || existing`, not `targetId`: after a demotion there is
+            nothing to propose but a live request still has to be closable. */}
+        {(canPropose || existing) && !loading && (
           <div className="border-t-2 border-stone-600 p-3 flex gap-2 shrink-0">
             {existing && !isDeclined && (
               <button
@@ -325,14 +367,16 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
             >
               Close
             </button>
-            <button
-              onClick={submit}
-              disabled={busy || !summary.trim() || tooLong}
-              className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-              {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}
-            </button>
+            {canPropose && (
+              <button
+                onClick={submit}
+                disabled={busy || !summary.trim() || tooLong}
+                className="px-4 py-2 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                {isDeclined ? 'Resubmit with changes' : existing ? 'Save changes' : 'Send to admin'}
+              </button>
+            )}
           </div>
         )}
       </div>

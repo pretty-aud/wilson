@@ -611,6 +611,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     [softwareList, courseFilter],
   );
 
+  // The course a fork was copied FROM, resolved out of the same index the forks
+  // themselves come from. Both the "Suggest a change…" gate and the change-request
+  // dialog's title need it, so it is one lookup rather than two that can drift.
+  //
+  // ABSENCE MEANS "NOT A STANDARD I CAN PROPOSE AGAINST", and that is sound:
+  // otter_course_index() returns every company_standard course to every member
+  // (0022 — `OR c.visibility IN ('shared','company_standard')`), so a live
+  // standard is always in this list. A source that is missing is therefore
+  // demoted, trashed (the index filters `deleted_at IS NULL`) or in another
+  // workspace — every one of which otter_cr_insert would refuse.
+  //
+  // NO FIRST-PAINT FLICKER. Every CourseRowMenu site renders from softwareList
+  // (the sidebar and library map visibleCourses; the header is guarded by
+  // activeCourseRow, itself a lookup in this list), and loadSoftwareList sets the
+  // whole array in ONE setSoftwareList(data). So a fork and its source arrive
+  // together — there is no paint in which the fork is on screen and its source
+  // has merely not loaded yet.
+  const sourceCourseOf = useCallback(
+    (course) => (course?.source_course_id
+      ? softwareList.find(sw => sw.slug === course.source_course_id) ?? null
+      : null),
+    [softwareList],
+  );
+
   const filterCounts = useMemo(() => {
     const counts = {};
     for (const chip of filtersFor(appRole)) {
@@ -3217,9 +3241,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       {crDialogCourse && (
         <ChangeRequestDialog
           course={crDialogCourse}
-          standardName={
-            softwareList.find(sw => sw.slug === crDialogCourse.source_course_id)?.name ?? null
-          }
+          standardName={sourceCourseOf(crDialogCourse)?.name ?? null}
+          // RequestsView opens this dialog directly (onOpenDialog below), so
+          // gating the MENU item is not enough on its own — a proposer whose
+          // standard was demoted mid-review can still reach the form from their
+          // queue. The dialog makes its own decision from the same lookup.
+          sourceIsStandard={sourceCourseOf(crDialogCourse)?.visibility === 'company_standard'}
           onClose={() => {
             setCrDialogCourse(null);
             setRequestsRefreshTick(t => t + 1);
@@ -3613,6 +3640,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                           course={sw}
                           role={appRole}
                           compact
+                          sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                           onShare={setShareDialogCourse}
                           onSuggestChange={setCrDialogCourse}
                           onFork={(c) => forkCourse(c)}
@@ -3905,6 +3933,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <CourseRowMenu
                     course={activeCourseRow}
                     role={appRole}
+                    sourceIsStandard={sourceCourseOf(activeCourseRow)?.visibility === 'company_standard'}
                     onShare={setShareDialogCourse}
                     onSuggestChange={setCrDialogCourse}
                     onFork={(c) => forkCourse(c)}
@@ -4125,6 +4154,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       <CourseRowMenu
                         course={sw}
                         role={appRole}
+                        sourceIsStandard={sourceCourseOf(sw)?.visibility === 'company_standard'}
                         onShare={setShareDialogCourse}
                         onSuggestChange={setCrDialogCourse}
                         onFork={(c) => forkCourse(c)}
