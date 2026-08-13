@@ -18,9 +18,19 @@
 // so a normally-positioned dropdown is clipped on two axes. Measuring on open
 // keeps the menu inside the window without a portal.
 //
+// PHASE 5 (2026-08-12) — THIS MENU WAS UNFINDABLE, WHICH MADE THE WHOLE SHARING
+// MODEL UNFINDABLE. It is the only route to a course's tier, so "how do I submit
+// a course company-wide?" had no answer a user could see. Three things changed:
+// the trigger is no longer hidden until hover (the wrappers in Otter.jsx), it
+// now meets contrast and target-size minimums, and the item says "submit".
+// The menu is still filtered by capability — that part was right.
+//
 // UX LAWS APPLIED
-//   Jakob's Law         A "⋯" on row hover opening a small menu is the pattern
-//                       every file manager and document app already taught.
+//   Jakob's Law         A "⋯" opening a small menu is the pattern every file
+//                       manager and document app already taught. Those apps
+//                       draw it at readable contrast and 24px+, and back it
+//                       with a right-click menu; hiding it until hover at
+//                       1.35:1 kept the affordance and lost the teaching.
 //   Fitts's Law         Destructive "Move to trash" sits last and separated by
 //                       a rule, so it is never adjacent to Sharing.
 //   Hick's Law          Items are filtered by capability, not disabled — a menu
@@ -62,12 +72,33 @@ export default function CourseRowMenu({
   const mayTrash   = isOwn || isAdmin
 
   const items = [
-    mayShare   && { key: 'share',   label: 'Sharing…',          Icon: Share2,            run: onShare },
+    // PHASE 5 label: "Sharing…" was the only route to the company library and it
+    // never said so. Audrey (2026-08-10) went looking for how to "submit" a
+    // course company-wide and could not find this item. The verb she searched
+    // for now appears in the one place she would have looked.
+    mayShare   && { key: 'share',   label: 'Share or submit…',  Icon: Share2,            run: onShare },
     maySuggest && { key: 'suggest', label: 'Suggest a change…', Icon: MessageSquarePlus, run: onSuggestChange },
     mayFork    && { key: 'fork',    label: 'Make my own copy',  Icon: Copy,              run: onFork },
   ].filter(Boolean)
 
   const menuHeight = (items.length + (mayTrash ? 1 : 0)) * MENU_ITEM_H + MENU_CHROME_H
+
+  // The trigger's label must name the actions that are ACTUALLY in the menu.
+  // A fixed "share, submit, copy or trash" was wrong for most rows: on a
+  // colleague's shared course — and on every company-standard course, which is
+  // is_own:false for everyone but its owner — mayShare, maySuggest and mayTrash
+  // are all false and the menu holds one item, "Make my own copy". Promising
+  // "submit" there and then not offering it is worse than the silence this
+  // phase set out to fix. Derived from the same flags the items are.
+  const verbs = [
+    mayShare   && 'share or submit',
+    maySuggest && 'suggest a change',
+    mayFork    && 'copy',
+    mayTrash   && 'move to trash',
+  ].filter(Boolean)
+  const verbList = verbs.length > 1
+    ? `${verbs.slice(0, -1).join(', ')} or ${verbs[verbs.length - 1]}`
+    : (verbs[0] ?? 'actions')
 
   const place = useCallback(() => {
     const r = btnRef.current?.getBoundingClientRect()
@@ -121,11 +152,19 @@ export default function CourseRowMenu({
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o) }}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label={`Actions for ${course?.name ?? 'course'}`}
-        title="Actions"
-        className={`shrink-0 rounded-sm text-stone-600 hover:text-orange-400 hover:bg-stone-700 transition-all ${
-          compact ? 'p-0.5' : 'p-1'
-        } ${open ? 'text-orange-400 opacity-100' : ''}`}
+        aria-label={`Actions for ${course?.name ?? 'course'} — ${verbList}`}
+        title={verbList.charAt(0).toUpperCase() + verbList.slice(1)}
+        // PHASE 5 — CONTRAST AND TARGET SIZE.
+        //   text-stone-600 put the revealed glyph at 1.35:1 on a hovered sidebar
+        //   row (stone-600 on stone-700), 1.99:1 on a library card and 2.29:1 on
+        //   the course header. WCAG 1.4.11 wants 3:1 for a UI component, and
+        //   this is the ONLY route to the sharing model. stone-400 measures
+        //   4.08:1 on stone-700 and better on the darker two.
+        //   Padding takes the hit box to 24x24 (compact: 12px icon + p-1.5) and
+        //   30x30 (14px icon + p-2), clearing WCAG 2.2 2.5.8. It was 16x16/22x22.
+        className={`shrink-0 rounded-sm text-stone-400 hover:text-orange-400 hover:bg-stone-700 transition-all ${
+          compact ? 'p-1.5' : 'p-2'
+        } ${open ? 'text-orange-400' : ''}`}
       >
         <MoreHorizontal className={compact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
       </button>

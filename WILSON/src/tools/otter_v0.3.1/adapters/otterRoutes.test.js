@@ -152,6 +152,31 @@ describe('parseOtterRoute — Session 11 cloud-only surfaces', () => {
     // Session 13: approve is its own POST — it applies, it is not a status PATCH.
     expect(p('/api/otter/change-requests/cr-1/approve', 'POST'))
       .toEqual({ op: 'cr.approve', id: 'cr-1', cloudOnly: true })
+  })
+
+  // Phase 5 / 0064 — company-standard nominations.
+  it('routes nominations', () => {
+    expect(p('/api/otter/nominations', 'GET'))
+      .toEqual({ op: 'nomination.list', cloudOnly: true })
+    expect(p('/api/otter/nominations', 'POST'))
+      .toEqual({ op: 'nomination.create', cloudOnly: true })
+    expect(p('/api/otter/nominations/nom-1', 'PATCH'))
+      .toEqual({ op: 'nomination.update', id: 'nom-1', cloudOnly: true })
+    // Approve PROMOTES — it demotes the incumbent standard and raises this
+    // course in one transaction. A bare status PATCH is refused by the trigger.
+    expect(p('/api/otter/nominations/nom-1/approve', 'POST'))
+      .toEqual({ op: 'nomination.approve', id: 'nom-1', cloudOnly: true })
+  })
+
+  it('refuses nomination verbs that do not exist', () => {
+    // 🚨 cloudOnly is what makes otterFetch answer 501 instead of falling
+    // through to the local Express server — where an unmatched GET under /api/
+    // hits the SPA catch-all and returns 200 with index.html, i.e. an empty
+    // nomination list that reads as a success.
+    expect(p('/api/otter/nominations', 'DELETE')).toBeNull()
+    expect(p('/api/otter/nominations/nom-1', 'DELETE')).toBeNull()
+    expect(p('/api/otter/nominations/nom-1/approve', 'PATCH')).toBeNull()
+    expect(p('/api/otter/nominations/nom-1/reject', 'POST')).toBeNull()
     expect(p('/api/otter/change-requests/cr-1/approve', 'PATCH')).toBeNull()
   })
 

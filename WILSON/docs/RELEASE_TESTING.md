@@ -327,9 +327,9 @@ automated coverage of this path (§6 #68).
 
 - Create a course, add a subject, generate → expect it to save and survive a reload.
   `[BLOCKING]`
-- Course row `⋯` → `Sharing…` → "Who can edit it" → add `testmgr` → expect success and
+- Course row `⋯` → `Share or submit…` → "Who can edit it" → add `testmgr` → expect success and
   `testmgr` listed. Completely broken once; least-proven thing here. `[BLOCKING]`
-- `Sharing…` tier flip "Just for me" ⇄ "Share with the company" → **close and reopen** → expect
+- `Share or submit…` tier flip "Just for me" ⇄ "Share with the company" → **close and reopen** → expect
   the tier you set (the database silently reverts what it won't allow). OWED §4. `[BLOCKING]`
 - `Move to trash` → `Recently deleted` → `Restore` → expect the course back with its subjects.
   OWED §4. `[BLOCKING]`

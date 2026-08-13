@@ -132,6 +132,31 @@ export function parseOtterRoute(pathname, method = 'GET') {
       return null
     }
 
+    // /api/otter/nominations[/:id[/approve]]  (0064)
+    // cloudOnly throughout: there is no local-server equivalent. The Express
+    // server has no nominations table, and an unmatched GET under /api/ hits
+    // the SPA catch-all and returns 200 with index.html — so without the guard
+    // a signed-out `nomination.list` would read as an empty success.
+    if (seg[0] === 'nominations') {
+      if (seg.length === 1) {
+        if (verb === 'GET')  return { op: 'nomination.list', cloudOnly: true }
+        if (verb === 'POST') return { op: 'nomination.create', cloudOnly: true }
+        return null
+      }
+      if (seg.length === 2 && verb === 'PATCH') {
+        return { op: 'nomination.update', id: seg[1], cloudOnly: true }
+      }
+      // Approving is NOT a status PATCH — it calls otter_nomination_apply,
+      // which demotes the incumbent standard and promotes this course in one
+      // transaction. The trigger refuses a bare status flip, because the pin
+      // trigger would silently revert the promotion and leave an "approved"
+      // nomination whose course never moved.
+      if (seg.length === 3 && seg[2] === 'approve' && verb === 'POST') {
+        return { op: 'nomination.approve', id: seg[1], cloudOnly: true }
+      }
+      return null
+    }
+
     return null
   }
 

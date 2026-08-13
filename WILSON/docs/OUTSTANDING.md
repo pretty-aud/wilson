@@ -800,6 +800,102 @@ had ever written, so every export WILSON produced carried an empty quiz
 history while presenting itself as complete. Both backends now ship one
 honest top-level `quiz_history`.
 
+### A non-admin has no way to submit a course to the company library, and nowhere to ask
+**MEASURED against source, migrations and pgTAP (2026-08-12, Phase 5). Product
+decision owed by Audrey — nothing is scheduled.**
+
+`otter_courses.visibility` has three tiers, and `company_standard` is admin-only
+at the **database** level: `fn_otter_pin_course_identity` gates it on
+`current_app_role()`. `selectableVisibilities()` mirrors that correctly, offering
+a non-admin owner only `['personal','shared']`, and a green assertion in
+`otterSharing.test.js` pins it. So the client is right — **there is simply no
+path.**
+
+There is also **no nomination surface anywhere**: no table, no route, no UI
+representing "make my course the company standard". The change-request queue
+cannot serve as one — `otter_cr_insert` requires the target to already be
+`company_standard`, and `otter_cr_apply` never writes `visibility`. Promotion is
+therefore an **immediate, unreviewed, admin-only flip**, and nothing in the
+product can create the *first* standard course of a topic except an admin doing
+that by hand.
+
+Three specifics worth keeping:
+
+- **Promotion is genuinely two steps, and nothing says so.** `otter_courses_select`
+  has no admin arm (three migrations ship post-conditions that fail the build if
+  `current_app_role` appears there), and Postgres applies SELECT policies to an
+  UPDATE's WHERE — so an admin asked to promote a still-`personal` course matches
+  **zero rows**. The owner must set `shared` first. Phase 5 put this in the
+  Sharing dialog for non-admins; it is still undocumented in the schema.
+- **A refusal is silent.** `fn_otter_pin_course_identity` never raises — it
+  assigns the old value back, and because RLS `WITH CHECK` runs *after* BEFORE-ROW
+  triggers, the reverted row passes and the UPDATE reports success, 1 row
+  affected, no error. `ShareCourseDialog` compares sent-vs-returned and is safe;
+  **`course.update` in the adapter does not**, so any future caller gets a
+  phantom success.
+- **The gate is untested on both sides.** pgTAP 26 covers the INSERT gate but has
+  **no test for the UPDATE promotion gate by a non-admin owner** — the exact
+  `ELSIF` arm that blocks this is uncovered across the whole suite. On the client,
+  no test mentions `cloudMode` or `otterCloudActive`, the predicate that decides
+  whether any sharing UI renders at all (and which calls `getSession()` unbounded
+  — see *One hung `getSession()` pins the whole app's auth* above).
+
+→ **UPDATE, same day.** Audrey decided the shape: *"it needs to be
+reviewers/managers not just admins with approval access. anyone should be able
+to submit to become company standard"*, and — on the consent question 0026 had
+deliberately answered the other way — that **submitting grants approvers a
+read-only window** on the course, as change requests already do.
+
+**BUILT, BOTH HALVES. 0064 IS APPLIED TO DEV ONLY (2026-08-12) — staging and
+prod are still at 0063 — and NOTHING IS COMMITTED.** Migration
+`0064_otter_course_nominations.sql` + pgTAP suite 70 (36/36 against wilson-dev in
+a rolled-back transaction), `nomination.*` adapter ops, four `cloudOnly` routes,
+the submit panel in `ShareCourseDialog` and the review surface in `RequestsView`.
+1557 unit tests green, build clean, 22 breaker mutations all red.
+
+⚠️ **Nothing has been exercised by a human, on any environment.** Every
+assertion above is a unit test or a rolled-back transaction. The feature has
+never round-tripped through a real browser against a real database.
+
+Still owed before this can be considered done:
+- ✅ dev applied + verified (2026-08-12). **Staging and prod still owed** — and
+  the link must be put back to dev afterwards, because `db push` has no
+  `--project-ref` and acts on whatever `supabase/.temp/project-ref` holds.
+  ⚠️ **Staging backs the beta**, so pushing there makes this live for Audrey's
+  `tester` account the moment the client is deployed.
+- a human walkthrough: submit as a plain member, approve as a manager, confirm
+  the incumbent stood down, confirm the read window opens AND closes
+- ⚠️ **`maySuggest`'s dead-end (below) gets worse with this feature**: approving
+  a nomination DEMOTES the incumbent standard, so every fork of it immediately
+  starts showing a "Suggest a change…" item whose POST cannot succeed.
+- ⚠️ **A manager can approve their own nomination.** The RPC checks role, not
+  authorship, and the UI hides the controls on your own row but the route is
+  open. Deliberate for now — a manager already has the authority — but it is an
+  unreviewed self-promotion path and Audrey has not ruled on it.
+
+### "Suggest a change…" is offered on forks of a demoted standard, where it cannot work
+**MEASURED at code level (2026-08-12, Phase 5); NOT observed at runtime.**
+`CourseRowMenu`'s `maySuggest` gates only on `!!course?.source_course_id` — it
+never re-checks that the source is *still* `company_standard`. If an admin demotes
+a standard (the `confirmDrop` path in `ShareCourseDialog`), every existing fork
+keeps showing the menu item, `ChangeRequestDialog` renders its full submit form,
+and only the POST fails, at RLS, with *"Change requests can only be raised against
+a company standard course."* The user is offered a control that cannot succeed.
+
+Not fixed in Phase 5 because the check needs the caller to resolve
+`source_course_id` against `softwareList` (`CourseRowMenu` only receives one
+course), and "source not in my list" would have to be treated as "not a readable
+standard" — correct, but worth a deliberate look rather than a drive-by.
+
+### `POST /api/software` on the local server silently discards `visibility`
+**MEASURED at code level (2026-08-12, Phase 5); latent.**
+Both O.T.T.E.R. create paths send a `visibility` field (`generateCourse` and the
+agent path). `electron/main.cjs` drops it, and the caller's guard
+(`if (!metaRes.ok || !meta?.slug)`) cannot detect the loss. Harmless **today**
+only because the tier picker is wrapped in `{isCourseMode && cloudMode && …}`, so
+the field is never sent on the backend that ignores it. It becomes a real bug the
+moment anything offers tiers outside cloud mode.
+
 ### Signing in to the desktop app hides O.T.T.E.R.'s local courses, with no way back
 **MEASURED at code level (2026-08-05); NOT observed at runtime.**
 `otterFetch` routes to Supabase whenever the session carries a `workspace_id`

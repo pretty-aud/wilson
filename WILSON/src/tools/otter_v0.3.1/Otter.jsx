@@ -3082,6 +3082,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   setCrDialogCourse(course);
                   return true;
                 }}
+                // Approving a nomination changes the visibility of TWO courses
+                // — the promoted one and the standard it stands down — so every
+                // badge, filter chip and capability flag derived from the index
+                // is stale until this runs. invalidateCache too: the per-course
+                // meta in softwareCacheRef carries the old tier.
+                onCoursesChanged={() => { invalidateCache(); loadSoftwareList(); }}
               />
             </div>
           )}
@@ -3200,7 +3206,11 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           course={shareDialogCourse}
           role={appRole}
           userId={perms.userId}
-          onClose={() => setShareDialogCourse(null)}
+          // Bump the Requests tick too: this dialog can submit or withdraw a
+          // NOMINATION, and the sidebar that opens it renders outside the view
+          // switch — so it can be used while RequestsView is mounted behind it.
+          // Without this the queue keeps showing the pre-submit state.
+          onClose={() => { setShareDialogCourse(null); setRequestsRefreshTick(t => t + 1); }}
           onCourseChanged={handleCourseChanged}
         />
       )}
@@ -3592,8 +3602,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       </span>
                       {cloudMode && <VisibilityBadge visibility={sw.visibility} compact />}
                     </button>
+                    {/* PHASE 5: was `opacity-0 group-hover/course:opacity-100`.
+                        This menu is the ONLY way to reach a course's sharing
+                        tier, so concealing it until hover concealed the whole
+                        company-library model — the literal reason Audrey could
+                        not find how to submit a course. Always visible now. */}
                     {cloudMode && (
-                      <span className="opacity-0 group-hover/course:opacity-100 focus-within:opacity-100 transition-opacity pr-1">
+                      <span className="pr-1">
                         <CourseRowMenu
                           course={sw}
                           role={appRole}
@@ -4101,8 +4116,12 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   }`}
                   onClick={() => { if (openable) { selectSoftware(sw.slug); setCurrentView('library'); } }}
                 >
+                  {/* PHASE 5: hover concealment removed here too — see the
+                      sidebar site above. A card is the surface a user scans
+                      when hunting for an action, so this is the one that most
+                      needed to be visible at rest. */}
                   {cloudMode && (
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2">
                       <CourseRowMenu
                         course={sw}
                         role={appRole}
@@ -4113,7 +4132,15 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                       />
                     </div>
                   )}
-                  <h3 className={`font-bold text-lg leading-tight pr-6 transition-colors mb-2 ${
+                  {/* pr-8. The trigger is absolutely positioned at right-2 and
+                      is 30px wide since the PHASE 5 target-size fix, so its
+                      left edge sits 8+30 = 38px from the CARD's padding edge —
+                      but this h3 is a block child of a `p-4` card, so its
+                      content box already starts 16px in. It therefore needs
+                      only 38-16 = 22px of right padding to clear the trigger.
+                      pr-6 (24px) still cleared it, by 2px; pr-8 (32px) restores
+                      the ~10px breathing gap the old 22px trigger had. */}
+                  <h3 className={`font-bold text-lg leading-tight pr-8 transition-colors mb-2 ${
                     openable ? 'text-white group-hover:text-orange-400' : 'text-stone-500'
                   }`}>{sw.name}</h3>
                   {cloudMode && (

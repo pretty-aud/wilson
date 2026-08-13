@@ -408,11 +408,11 @@ admin, one plain member) if you can.
 
 **Highest value first — these are the ones most likely to be wrong:**
 
-1. **Give someone edit access.** Course row → ⋯ → Sharing… → "Who can edit it" →
+1. **Give someone edit access.** Course row → ⋯ → Share or submit… → "Who can edit it" →
    pick a colleague → Add. This path was **completely broken** until the review
    caught it (the insert was missing `workspace_id`), so it is the single least
    proven thing in the session. It should now succeed and list them.
-2. **Change a course's tier and watch what comes back.** Sharing… → "Just for
+2. **Change a course's tier and watch what comes back.** Share or submit… → "Just for
    me" ⇄ "Share with the company". The database silently reverts changes it
    won't allow, so the dialog re-reads the row — if you ever see a tier change
    *appear* to work and then come back wrong on reload, that is a real bug.

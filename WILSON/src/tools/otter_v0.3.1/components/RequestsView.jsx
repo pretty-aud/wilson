@@ -53,7 +53,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   RefreshCw, Loader2, GitPullRequestArrow, Check, X, AlertCircle, Lock,
-  Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning,
+  Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
 
@@ -81,7 +81,9 @@ function StatusChip({ status }) {
   )
 }
 
-export default function RequestsView({ role, userId, softwareList, refreshTick, onOpenCourse, onOpenDialog }) {
+export default function RequestsView({
+  role, userId, softwareList, refreshTick, onOpenCourse, onOpenDialog, onCoursesChanged,
+}) {
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
@@ -93,6 +95,17 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
   const [applied, setApplied] = useState(null)   // Peak-End: { name, adds, updates }
   const [showDecided, setShowDecided] = useState(false)
   const diffForRef = useRef(null)
+  // ── company-standard nominations (0064) ──
+  // Deliberately separate state from `rows`: a nomination is not a change
+  // request, the decide-set is wider (admins AND managers), and conflating the
+  // two lists would put manager controls on change-request rows — which pgTAP
+  // 32 asserts must never work.
+  const [noms, setNoms]         = useState([])
+  const [nomBusy, setNomBusy]   = useState(false)
+  const [nomDecide, setNomDecide] = useState(null)  // { id, action: 'approve' | 'decline' }
+  const [nomNote, setNomNote]   = useState('')
+  const [promoted, setPromoted] = useState(null)
+  const [nomError, setNomError] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -110,11 +123,38 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
     }
   }, [])
 
+  // Nominations keep their OWN error. Writing into the shared `error` was worse
+  // than untidy: that banner is worded for change requests, and it gates
+  // `{promoted && !error}` — so a transient refresh failure AFTER
+  // otter_nomination_apply had already committed replaced the confirmation with
+  // "could not load", and the approver would reasonably retry into
+  // "nomination is approved — only an open nomination can be approved".
+  //
+  // Returns the rows so a caller that needs the SETTLED row (approveNom) can
+  // read it without waiting for a state flush. `quiet` suppresses the banner
+  // after a successful write, for the same reason ChangeRequestDialog does.
+  const loadNoms = useCallback(async (quiet = false) => {
+    try {
+      const res = await otterFetch('/api/otter/nominations')
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Could not load nominations')
+      const list = Array.isArray(data) ? data : []
+      setNoms(list)
+      setNomError(null)
+      return list
+    } catch (e) {
+      if (!quiet) { setNoms([]); setNomError(e.message) }
+      return null
+    }
+  }, [])
+
+  const refreshAll = useCallback(() => { load(); loadNoms() }, [load, loadNoms])
+
   // The view is conditionally mounted (fresh on every visit), so a load on
   // mount is exactly the lazy-fetch the all-pages shell demands. refreshTick
   // bumps when the ChangeRequestDialog closes: the dialog is the proposer's
   // actuator, and the list behind it must reflect what they just did.
-  useEffect(() => { load() }, [load, refreshTick])
+  useEffect(() => { load(); loadNoms() }, [load, loadNoms, refreshTick])
 
   // Capability split (see header): admins decide everything; anyone decides
   // requests against a standard course they OWN; managers see the rest
@@ -257,6 +297,100 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
     }
   }, [busy, load])
 
+  // ── nomination actions (0064) ─────────────────────────────────────────────
+  // Approving is a PROMOTION, not a status flip: otter_nomination_apply demotes
+  // the incumbent standard for this slug and promotes this course in one
+  // transaction. The server refuses a bare status change, because the pin
+  // trigger would silently revert the visibility and record an approval that
+  // never happened.
+  const approveNom = useCallback(async (n) => {
+    if (nomBusy) return
+    setNomBusy(true); setNomError(null)
+    try {
+      const res = await otterFetch(`/api/otter/nominations/${n.id}/approve`, { method: 'POST' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Could not promote this course')
+      setNomDecide(null)
+      // superseded_course_id is written BY the RPC, so the row captured before
+      // the click never has it — reading `n.superseded_name` made the "X stood
+      // down" half of the banner unreachable. Take it from the settled row.
+      const fresh = await loadNoms(true)
+      const settled = fresh?.find(x => x.id === n.id)
+      setPromoted({
+        name: settled?.course_name ?? n.course_name ?? 'the course',
+        superseded: settled?.superseded_name ?? null,
+      })
+      // Promotion changes the visibility of TWO courses. Without this the
+      // library keeps rendering both at their old tier — the promoted course
+      // still badged personal/shared, the demoted one still badged Company
+      // standard — and ShareCourseDialog would compute selectableVisibilities
+      // from the stale row.
+      onCoursesChanged?.()
+    } catch (e) {
+      setNomError(e.message)
+    } finally {
+      setNomBusy(false)
+    }
+  }, [nomBusy, loadNoms, onCoursesChanged])
+
+  const declineNom = useCallback(async (n) => {
+    const text = nomNote.trim()
+    if (!text || nomBusy) return
+    setNomBusy(true); setNomError(null)
+    try {
+      const res = await otterFetch(`/api/otter/nominations/${n.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'changes_requested', review_note: text }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.error || 'Could not send your note back')
+      setNomDecide(null)
+      setNomNote('')
+      await loadNoms(true)
+    } catch (e) {
+      setNomError(e.message)
+    } finally {
+      setNomBusy(false)
+    }
+  }, [nomBusy, nomNote, loadNoms])
+
+  // The consent window closes the instant the nomination is decided or
+  // withdrawn, and `course_readable` is a snapshot from load time. Probe before
+  // jumping: selectSoftware caches whatever it gets back WITHOUT an ok-check,
+  // so an unreadable id poisons softwareCacheRef for the rest of the session.
+  // This is the S13 rule its change-request sibling openTheirCourse follows.
+  const openNominatedCourse = useCallback(async (n) => {
+    try {
+      const res = await otterFetch(`/api/software/${n.course_id}`)
+      if (!res.ok) throw new Error()
+    } catch {
+      setNomError('Their course is not readable right now — the nomination may have just been decided. Refresh to see its current state.')
+      return
+    }
+    onOpenCourse?.(n.course_id)
+  }, [onOpenCourse])
+
+  // Admins AND managers decide nominations — the one place the two roles are
+  // equal, and the only difference from the change-request queue above.
+  const isApprover = role === 'admin' || role === 'manager'
+  const { nomToDecide, nomMine, nomDecided } = useMemo(() => {
+    const d = [], m = [], h = []
+    for (const n of noms) {
+      const live = n.status === 'open' || n.status === 'changes_requested'
+      // LIVENESS FIRST. Testing ownership first kept the caller's own settled
+      // nominations in the live list forever, under a chip reading "Approved"
+      // and copy offering to edit or withdraw them — actions
+      // fn_otter_nomination_review refuses outright ("nomination already
+      // approved — reopen is not permitted"), on a course whose submit panel
+      // has since disappeared because it IS the standard now.
+      if (!live) h.push(n)
+      else if (n.proposed_by === userId) m.push(n)
+      else if (isApprover) d.push(n)
+    }
+    return { nomToDecide: d, nomMine: m, nomDecided: h }
+  }, [noms, userId, isApprover])
+
   const sectionHeader = (icon, text, count) => (
     <h3 className="text-orange-400 font-bold text-[11px] uppercase tracking-wide mb-2 flex items-center gap-1.5">
       {icon} {text}{count != null ? <span className="text-stone-500">· {count}</span> : null}
@@ -276,14 +410,17 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
             </h2>
             <p className="text-stone-500 text-[11px] mt-0.5">
               {isAdmin
-                ? 'Suggested changes to the company standard courses. Approving applies them; declining sends them back with your note.'
+                ? 'Courses put forward to become the company standard, and suggested changes to the standards you already have.'
                 : isManager
-                  ? 'Suggested changes to the company standard courses. Admins (and a course’s owner) decide; you can follow the queue.'
-                  : 'Changes you have suggested to company standard courses, and the feedback that came back.'}
+                  // A manager decides NOMINATIONS but not change requests (0064
+                  // widened one flow and deliberately not the other), so the
+                  // copy has to say which is which rather than "you can decide".
+                  ? 'Courses put forward to become the company standard — you decide those. Suggested changes to an existing standard are decided by an admin or the course’s owner.'
+                  : 'Courses you have put forward, changes you have suggested, and the feedback that came back.'}
             </p>
           </div>
           <button
-            onClick={load}
+            onClick={refreshAll}
             disabled={loading}
             className="px-3 py-2 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[11px] font-bold flex items-center gap-1.5 disabled:opacity-50 shrink-0"
           >
@@ -313,6 +450,31 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
               A pre-change archive was kept in your library.
             </p>
             <button onClick={() => setApplied(null)} aria-label="Dismiss">
+              <X className="w-3 h-3 text-green-400" />
+            </button>
+          </div>
+        )}
+
+        {nomError && (
+          <div className="bg-red-900/30 border-2 border-red-700 rounded-sm p-2.5 flex items-start gap-2">
+            <AlertCircle className="w-4 h-4 text-red-400 mt-0.5 shrink-0" />
+            <p className="text-red-300 text-[11px] flex-1">{nomError}</p>
+            <button onClick={() => setNomError(null)} aria-label="Dismiss">
+              <X className="w-3 h-3 text-red-400" />
+            </button>
+          </div>
+        )}
+
+        {promoted && !nomError && (
+          <div className="bg-green-900/25 border-2 border-green-800 rounded-sm p-2.5 flex items-start gap-2">
+            <ShieldCheck className="w-4 h-4 text-green-400 shrink-0" />
+            <p className="text-green-300 text-[11px] flex-1">
+              “{promoted.name}” is now the company standard, live for everyone.
+              {promoted.superseded
+                ? ` “${promoted.superseded}” stood down and is now shared with the company — nothing was deleted.`
+                : ''}
+            </p>
+            <button onClick={() => setPromoted(null)} aria-label="Dismiss">
               <X className="w-3 h-3 text-green-400" />
             </button>
           </div>
@@ -525,6 +687,217 @@ export default function RequestsView({ role, userId, softwareList, refreshTick, 
                     )
                   })}
                 </ul>
+              </section>
+            )}
+
+            {/* ── Company standard: courses put forward (0064) ──
+                Admins AND managers decide here — the only surface where the
+                two roles are equal. Approving PROMOTES the course and stands
+                the incumbent down, so it confirms both halves before firing. */}
+            {(isApprover || nomMine.length > 0 || nomDecided.length > 0) && (
+              <section>
+                {sectionHeader(
+                  <ShieldCheck className="w-3.5 h-3.5" />,
+                  isApprover ? 'Put forward as company standard' : 'My nominations',
+                  isApprover ? nomToDecide.length : nomMine.length)}
+
+                {isApprover && nomToDecide.length === 0 && nomMine.length === 0 && (
+                  <p className="text-stone-600 text-[11px] italic bg-stone-900/60 border border-stone-700 rounded-sm p-3">
+                    Nothing is waiting on you. When someone puts a course forward to become
+                    the company standard, it lands here.
+                  </p>
+                )}
+
+                <ul className="space-y-2">
+                  {[...nomToDecide, ...nomMine].map(n => {
+                    const isOpen = expandedId === n.id
+                    const isMine = n.proposed_by === userId
+                    const canDecide = isApprover && !isMine && n.status === 'open'
+                    return (
+                      <li
+                        key={n.id}
+                        className={`rounded-sm border ${n.status === 'changes_requested' && isMine
+                          ? 'bg-stone-900 border-orange-700/60'
+                          : 'bg-stone-900/60 border-stone-700'}`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => { setExpandedId(prev => (prev === n.id ? null : n.id)); setNomDecide(null); setNomNote('') }}
+                          className="w-full text-left px-3 py-2 flex items-start gap-2"
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[12px] font-bold text-stone-200">
+                              {n.course_name ?? 'A course'}
+                              {(n.revision ?? 1) > 1 && (
+                                <span className="text-stone-500 font-normal"> · round {n.revision}</span>
+                              )}
+                            </span>
+                            <span className="block text-[11px] font-mono truncate text-stone-500">
+                              {isMine ? 'put forward by you' : (n.proposer_label ?? 'someone')} · {fmt(n.created_at)}
+                            </span>
+                          </span>
+                          <StatusChip status={n.status} />
+                        </button>
+
+                        {isOpen && (
+                          <div className="px-3 pb-3 pt-1 border-t border-stone-700/70">
+                            <p className="text-[10px] font-bold uppercase tracking-wider mb-1 text-stone-500">
+                              Why it should be the standard
+                            </p>
+                            <p className="text-[12px] whitespace-pre-wrap mb-3 text-stone-300">{n.summary}</p>
+
+                            {isMine ? (
+                              <p className="text-[11px] font-mono flex items-start gap-1.5 text-stone-500">
+                                <Lock className="w-3 h-3 mt-0.5 shrink-0" />
+                                <span>
+                                  {n.status === 'changes_requested'
+                                    ? `${n.reviewer_label ?? 'A reviewer'} asked for changes: “${n.review_note}” — respond from the course's “Share or submit…” menu.`
+                                    : 'An admin or a manager decides this one. You can edit or withdraw it from the course’s “Share or submit…” menu.'
+                                  }
+                                  {/* Only live rows reach this branch — settled
+                                      ones are bucketed into nomDecided, because
+                                      neither sentence above is true of them. */}
+                                </span>
+                              </p>
+                            ) : (
+                              <>
+                                {n.course_readable ? (
+                                  <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                    <Eye className="w-3 h-3 mt-0.5 shrink-0" />
+                                    <span>
+                                      Putting it forward opened their course to reviewers while this is
+                                      undecided.{' '}
+                                      <button
+                                        type="button"
+                                        onClick={() => openNominatedCourse(n)}
+                                        className="underline font-bold text-orange-400 inline-flex items-center gap-0.5"
+                                      >
+                                        Open their course <ExternalLink className="w-2.5 h-2.5" />
+                                      </button>
+                                    </span>
+                                  </p>
+                                ) : (
+                                  <p className="text-[11px] font-mono mb-3 flex items-start gap-1.5 text-stone-500">
+                                    <EyeOff className="w-3 h-3 mt-0.5 shrink-0" />
+                                    <span>Their course is not readable right now — refresh to see its current state.</span>
+                                  </p>
+                                )}
+
+                                {canDecide && nomDecide?.id === n.id && nomDecide.action === 'approve' ? (
+                                  <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
+                                    <p className="text-[11px] mb-2 text-stone-300">
+                                      This makes “{n.course_name}” the company standard, live for
+                                      everyone immediately — anyone starting this topic will be
+                                      offered it instead of generating their own. Any course
+                                      currently holding that spot stands down to
+                                      &ldquo;shared with the company&rdquo;; nothing is deleted.
+                                    </p>
+                                    <div className="flex gap-2">
+                                      <button
+                                        onClick={() => setNomDecide(null)}
+                                        disabled={nomBusy}
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        onClick={() => approveNom(n)}
+                                        disabled={nomBusy}
+                                        className="px-3 py-1.5 bg-green-800 text-white border border-green-700 rounded-sm hover:bg-green-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      >
+                                        {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+                                        Make it the standard
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : canDecide && nomDecide?.id === n.id && nomDecide.action === 'decline' ? (
+                                  <div className="bg-stone-800 border border-stone-600 rounded-sm p-2.5">
+                                    <p className="text-[11px] mb-2 text-stone-300">
+                                      Your note goes back to {n.proposer_label ?? 'the proposer'}. They can
+                                      improve the course and resubmit, or accept the decision.
+                                    </p>
+                                    <textarea
+                                      value={nomNote}
+                                      onChange={(e) => setNomNote(e.target.value)}
+                                      placeholder="What would have to change before this could be the company's official course?"
+                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
+                                    />
+                                    <div className="flex gap-2 mt-2">
+                                      <button
+                                        onClick={() => { setNomDecide(null); setNomNote('') }}
+                                        disabled={nomBusy}
+                                        className="px-3 py-1.5 bg-stone-700 text-stone-300 border border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider disabled:opacity-50"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        onClick={() => declineNom(n)}
+                                        disabled={nomBusy || !nomNote.trim()}
+                                        className="px-3 py-1.5 bg-orange-700 text-white border border-orange-600 rounded-sm hover:bg-orange-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 disabled:opacity-50"
+                                      >
+                                        {nomBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                                        Send it back
+                                      </button>
+                                    </div>
+                                    {!nomNote.trim() && (
+                                      <p className="text-[10px] mt-1 text-stone-500">
+                                        A note is required — the proposer needs to know what to change.
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : canDecide ? (
+                                  <div className="flex gap-2">
+                                    <button
+                                      onClick={() => { setNomDecide({ id: n.id, action: 'approve' }); setNomNote('') }}
+                                      className="px-3 py-1.5 bg-orange-600 text-white border-2 border-orange-700 rounded-sm hover:bg-orange-700 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                    >
+                                      <Check className="w-3 h-3" /> Approve
+                                    </button>
+                                    <button
+                                      onClick={() => { setNomDecide({ id: n.id, action: 'decline' }); setNomNote('') }}
+                                      className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+                                    >
+                                      <X className="w-3 h-3" /> Decline
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <p className="text-[11px] font-mono flex items-center gap-1.5 text-stone-600">
+                                    <Lock className="w-3 h-3 shrink-0" />
+                                    {n.status === 'changes_requested'
+                                      ? 'Sent back to the proposer — waiting on them.'
+                                      : 'An admin or a manager decides this one.'}
+                                  </p>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
+
+                {nomDecided.length > 0 && (
+                  <ul className="space-y-1.5 mt-2">
+                    {nomDecided.map(n => (
+                      <li key={n.id} className="bg-stone-900/40 border border-stone-800 rounded-sm px-3 py-2 flex items-start gap-2">
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-bold text-stone-400">
+                            {n.course_name ?? 'A course'}
+                            <span className="font-normal text-stone-600"> · {n.proposer_label ?? 'someone'}</span>
+                          </span>
+                          <span className="block text-[10px] font-mono text-stone-600">
+                            {fmt(n.reviewed_at ?? n.updated_at)}
+                            {n.status === 'approved' && n.superseded_name
+                              ? ` — replaced “${n.superseded_name}”`
+                              : n.review_note ? ` — “${n.review_note}”` : ''}
+                          </span>
+                        </span>
+                        <StatusChip status={n.status} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
             )}
 

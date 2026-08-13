@@ -684,6 +684,116 @@ export const supabaseOtterAdapter = {
     return { ok: true, archive_course_id: data }
   },
 
+  // ── company-standard nominations (0064) ───────────────────────────────────
+  // The sibling of cr.* for "make MY course the standard". Two differences from
+  // change requests, both deliberate and both enforced server-side:
+  //   * anyone may propose a course they OWN — there is no pre-existing target;
+  //   * admins AND MANAGERS decide. A manager still cannot decide a change
+  //     request; 0064 widened only this flow.
+
+  async 'nomination.list'() {
+    const rows = unwrap(
+      await supabase.from('otter_course_nominations')
+        .select('id, course_id, proposed_by, summary, status, reviewed_by, reviewed_at, review_note, revision, applied_at, applied_by, superseded_course_id, acknowledged_at, created_at, updated_at')
+        .order('created_at', { ascending: false })) ?? []
+    if (rows.length === 0) return []
+
+    // Labels come from the index the caller can already see. Since 0064 an
+    // approver's index includes the nominated course while the nomination is
+    // open or changes_requested (the consented window), so course_readable is
+    // true exactly when "Open their course" would work.
+    const courses = unwrap(await supabase.rpc('otter_course_index')) ?? []
+    const courseById = new Map(courses.map(c => [c.id, c]))
+    const ids = [...new Set(rows.flatMap(r => [r.proposed_by, r.reviewed_by]).filter(Boolean))]
+    const people = ids.length
+      ? (unwrap(await supabase.from('workspace_members')
+          .select('user_id, username, display_name').in('user_id', ids)) ?? [])
+      : []
+    const label = (id) => {
+      const p = people.find(x => x.user_id === id)
+      return p ? (p.display_name || p.username) : null
+    }
+
+    return rows.map(r => ({
+      ...r,
+      course_name: courseById.get(r.course_id)?.name ?? null,
+      course_readable: courseById.get(r.course_id)?.can_read_content === true,
+      course_visibility: courseById.get(r.course_id)?.visibility ?? null,
+      superseded_name: r.superseded_course_id
+        ? (courseById.get(r.superseded_course_id)?.name ?? null)
+        : null,
+      proposer_label: label(r.proposed_by),
+      reviewer_label: label(r.reviewed_by),
+    }))
+  },
+
+  // Only course_id and summary are the client's to send. workspace_id and
+  // proposed_by DEFAULT server-side (0064) precisely so a proposer cannot file
+  // as someone else or into another workspace.
+  async 'nomination.create'({ body }) {
+    const summary = (body?.summary ?? '').trim()
+    if (!summary) throw new OtterCloudError('summary required', 400)
+    if (!body?.course_id) throw new OtterCloudError('course_id required', 400)
+    const { data, error } = await supabase.from('otter_course_nominations')
+      .insert({ course_id: body.course_id, summary })
+      .select('id, status, revision, created_at').single()
+    if (error) {
+      // The partial unique index, surfaced as the thing the user should do next
+      // rather than as "duplicate key value violates unique constraint".
+      if (error.code === '23505') {
+        throw new OtterCloudError(
+          'This course is already put forward. Open Requests to edit or withdraw it.', 409)
+      }
+      if (error.code === '42501') {
+        throw new OtterCloudError(
+          'You can only put forward a course you own, and it cannot already be the company standard.', 403)
+      }
+      throw new OtterCloudError(error.message, 500)
+    }
+    return data
+  },
+
+  // Decline / withdraw / refine / resubmit / accept. fn_otter_nomination_review
+  // owns the rules — it stamps the reviewer, refuses to re-decide a settled
+  // nomination, and strips decision fields a proposer tries to write. The
+  // client only sends intent.
+  async 'nomination.update'({ id, body }) {
+    const patch = {}
+    if (body?.status != null)      patch.status = body.status
+    if (body?.summary != null)     patch.summary = body.summary
+    if (body?.review_note != null) patch.review_note = body.review_note
+    if (Object.keys(patch).length === 0) throw new OtterCloudError('nothing to update', 400)
+
+    const { data, error } = await supabase.from('otter_course_nominations')
+      .update(patch).eq('id', id)
+      .select('id, status, reviewed_by, reviewed_at, review_note, summary, revision').maybeSingle()
+    if (error) {
+      // The trigger raises plain text written for a person; pass it through.
+      throw new OtterCloudError(error.message, 409)
+    }
+    // 0 rows = RLS refused. Without this the UI would show a nomination as
+    // declined while the row never moved (the 204-on-refusal trap).
+    if (!data) throw new OtterCloudError('not allowed to change this nomination', 403)
+    return data
+  },
+
+  // Approve = PROMOTE. otter_nomination_apply demotes the incumbent standard
+  // for this slug, promotes the nominated course, and settles the nomination in
+  // one transaction. A bare status flip is refused by the trigger, because the
+  // pin trigger would silently revert the visibility change and the approval
+  // would record something that never happened.
+  async 'nomination.approve'({ id }) {
+    const { data, error } = await supabase.rpc('otter_nomination_apply', {
+      p_nomination_id: id,
+    })
+    if (error) {
+      // Every refusal the RPC raises is already written for a person ("there is
+      // already a company standard called … under a different identifier").
+      throw new OtterCloudError(error.message, 409)
+    }
+    return { ok: true, course_id: data }
+  },
+
   // ── export ────────────────────────────────────────────────────────────────
 
   // 🚨 QUIZ HISTORY MOVED OUT OF THE PER-COURSE LOOP (S30), and the old shape
