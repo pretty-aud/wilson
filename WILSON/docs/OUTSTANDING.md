@@ -846,8 +846,13 @@ to submit to become company standard"*, and — on the consent question 0026 had
 deliberately answered the other way — that **submitting grants approvers a
 read-only window** on the course, as change requests already do.
 
-**BUILT, BOTH HALVES. 0064 IS APPLIED TO DEV AND STAGING (2026-08-12) — PROD is
-still at 0063. Committed as `a7d87c5`, NOT PUSHED.** Migration
+**BUILT, BOTH HALVES, AND LIVE ON THE BETA (2026-08-12).** 0064 applied to dev
+and staging (**prod still at 0063**); `a7d87c5` + `fb17ac7` pushed; CI green on
+`fb17ac7` (all four jobs, including a from-scratch replay of every migration
+0000–0064 with suite 70); the deployed bundle
+`/wilson/assets/index-hYIqRWuY.js` was probed and carries the client
+(`/api/otter/nominations`, `otter_nomination_apply`, both new strings) — not
+just a deploy timestamp, per the Phase 3 lesson. Migration
 `0064_otter_course_nominations.sql` + pgTAP suite 70 (36/36 against wilson-dev in
 a rolled-back transaction), `nomination.*` adapter ops, four `cloudOnly` routes,
 the submit panel in `ShareCourseDialog` and the review surface in `RequestsView`.
