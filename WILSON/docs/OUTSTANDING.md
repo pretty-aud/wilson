@@ -846,8 +846,8 @@ to submit to become company standard"*, and — on the consent question 0026 had
 deliberately answered the other way — that **submitting grants approvers a
 read-only window** on the course, as change requests already do.
 
-**BUILT, BOTH HALVES. 0064 IS APPLIED TO DEV ONLY (2026-08-12) — staging and
-prod are still at 0063 — and NOTHING IS COMMITTED.** Migration
+**BUILT, BOTH HALVES. 0064 IS APPLIED TO DEV AND STAGING (2026-08-12) — PROD is
+still at 0063. Committed as `a7d87c5`, NOT PUSHED.** Migration
 `0064_otter_course_nominations.sql` + pgTAP suite 70 (36/36 against wilson-dev in
 a rolled-back transaction), `nomination.*` adapter ops, four `cloudOnly` routes,
 the submit panel in `ShareCourseDialog` and the review surface in `RequestsView`.
@@ -858,11 +858,16 @@ assertion above is a unit test or a rolled-back transaction. The feature has
 never round-tripped through a real browser against a real database.
 
 Still owed before this can be considered done:
-- ✅ dev applied + verified (2026-08-12). **Staging and prod still owed** — and
-  the link must be put back to dev afterwards, because `db push` has no
-  `--project-ref` and acts on whatever `supabase/.temp/project-ref` holds.
-  ⚠️ **Staging backs the beta**, so pushing there makes this live for Audrey's
-  `tester` account the moment the client is deployed.
+- ✅ dev AND staging applied + verified (2026-08-12); link restored to dev.
+  Staging was preflighted to confirm it sat at the pre-0064 shape before the
+  three `CREATE OR REPLACE` objects were replaced, and post-checked to confirm
+  every pre-existing arm survived (owner arm, both silent-revert assignments,
+  the 0025 review-window arm, the editor arm, still no `current_app_role` in the
+  SELECT policy) and its 2 courses / 0 change requests were untouched. pgTAP 70
+  green against the APPLIED schema on both. **PROD still owed.**
+  ⚠️ **Staging backs the beta**, so the schema is live there while the CLIENT is
+  not deployed — which is the safe order. Pushing the branch is what turns the
+  feature on for `tester`.
 - a human walkthrough: submit as a plain member, approve as a manager, confirm
   the incumbent stood down, confirm the read window opens AND closes
 - ⚠️ **`maySuggest`'s dead-end (below) gets worse with this feature**: approving
