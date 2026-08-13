@@ -878,14 +878,14 @@ Still owed before this can be considered done:
 - ~~⚠️ **`maySuggest`'s dead-end (below) gets worse with this feature**: approving
   a nomination DEMOTES the incumbent standard, so every fork of it immediately
   starts showing a "Suggest a change…" item whose POST cannot succeed.~~ — FIXED
-  (2026-08-13), see the struck entry below. This was the reason the dead-end
-  stopped being a corner case, so it is what made it worth fixing.
+  (2026-08-13, `b051e20`), see the struck entry below. This was the reason the
+  dead-end stopped being a corner case, so it is what made it worth fixing.
 - ⚠️ **A manager can approve their own nomination.** The RPC checks role, not
   authorship, and the UI hides the controls on your own row but the route is
   open. Deliberate for now — a manager already has the authority — but it is an
   unreviewed self-promotion path and Audrey has not ruled on it.
 
-### ~~"Suggest a change…" is offered on forks of a demoted standard, where it cannot work~~ — FIXED (2026-08-13)
+### ~~"Suggest a change…" is offered on forks of a demoted standard, where it cannot work~~ — FIXED (2026-08-13, `b051e20`)
 Kept struck rather than deleted because the brief's suggested fix was half of
 one, and the missing half is the part worth remembering.
 
