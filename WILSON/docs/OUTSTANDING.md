@@ -119,6 +119,56 @@ handover, not a prerequisite for closing this.
 
 ## Broken features
 
+### `otterContext` is written on every O.T.T.E.R. navigation and read by nothing
+
+**OBSERVED (2026-08-14, Phase 6.)** `App.jsx` declares
+`const [otterContext, setOtterContext] = useState(null)` and passes
+`onContextChange={setOtterContext}` to `<Otter>`, which fires it with
+`{activeSoftwareSlug, activeSubjectSlug, selectedLessonId}`. The **value** has no
+reader anywhere in the repo. This is the tenth instance of the no-caller shape,
+after the folder tree (S27), task templates (S28), quiz history (S30),
+`setOtterAdapterMode`, `workspaces.storage_mode`, `POST /api/pet/reset`, S31's
+settings half and S37's `storageSecretClear`.
+
+Phase 6 deliberately did **not** consume it: the pet must answer a Blender
+question from any page, so scoping retrieval to the last-opened course would be
+wrong. It is recorded here rather than fixed because deleting it is a judgement
+about whether anything is meant to use it.
+
+⚠️ **Note for whoever greps for this:** `grep otterContext` is case-sensitive and
+matches only the declaration — the writer is spelled `setOtterContext`. That is
+how a first pass this session concluded, wrongly, that it was never written.
+
+### The companion prompt tells the model to emit links against a context block that does not exist
+
+**OBSERVED (2026-08-14, Phase 6.)** `COMPANION_PROMPT` (`prompts.js`) says:
+*"Use `[[nav:type:slug|Display Text]]` for clickable links to pages in the
+LINKABLE PAGES context."* There is exactly one repo-wide hit for **LINKABLE
+PAGES** — that sentence. Nothing assembles such a block, so the model is being
+told to link against a list it never receives.
+
+Downstream, `handleCompanionNavLink` parses the slug out of a nav string and then
+discards it: both branches call `navigateTo('otter')` identically, so every
+course, subject and lesson link lands on the O.T.T.E.R. root.
+
+Phase 6's injected block instructs the model **not** to emit `[[nav:]]` links for
+course content, and injects titles rather than slugs, so it does not make this
+worse. Fixing it properly means either assembling a real LINKABLE PAGES block
+with deep-link targets, or removing the instruction.
+
+### The pet reads the courses in chat mode but not in agent mode
+
+**OBSERVED (2026-08-14, Phase 6.)** `PetCompanion.jsx` picks the send handler
+with `activeOnSend = agentMode ? onSendAgent : onSendChat`, and Phase 6's
+retrieval lives in `sendChat`. With the wrench toggled on — which is only offered
+on the O.T.T.E.R. page, via `agentEnabled={onOtterPage && agent.agentEnabled}` —
+the pet stops reading lesson content.
+
+Deliberate for now: agent mode is a different feature with its own prompt, its own
+`AgentProvider` context assembly and an approval gate on every write, and giving
+it retrieval is a design question rather than a port. Recorded because the
+behaviour changes under a toggle with no explanation on screen.
+
 ### The pet does not sync live between machines, and a second open window writes its stale copy back
 
 **INFERRED (2026-08-12, Phase 3).** The account pet is read once, by an effect

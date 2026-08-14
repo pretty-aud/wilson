@@ -41,6 +41,9 @@ import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
+import { otterFetch } from './tools/otter_v0.3.1/adapters'
+import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
+import { withTimeout } from './cloud/auth/withTimeout'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
@@ -101,6 +104,12 @@ const PAGE_TITLES = {
 };
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+
+// Phase 6: the ceiling on reading the courses for one chat message. Generous
+// enough that a cold index build over a real library finishes (it is bounded-
+// concurrency, so a dozen courses is a few waves), short enough that a stalled
+// auth-js lock costs the pet a beat rather than the whole reply.
+const KNOWLEDGE_TIMEOUT_MS = 8000;
 
 // ── URL ↔ page sync (Session 12, locked #18) ────────────────────────────────
 // On the web the app lives under /wilson and every page gets a path
@@ -838,6 +847,19 @@ export default function App() {
     clearWorkspaceStorageCache();
   }, [perms.ready, perms.workspaceId]);
 
+  // ── Phase 6: the pet's course index dies with the identity ────────────────
+  // petKnowledge holds ONE module-level index of every course the caller may
+  // read. It is keyed on nothing — so a sign-out, an account switch or a
+  // workspace switch must forget it, or the next person's pet answers from the
+  // previous person's library. Keyed on userId as WELL as workspaceId because
+  // the index is per-PERSON: an admin and a member in one workspace get
+  // different rows out of otter_course_index, and Audrey runs two accounts in
+  // two browsers at once.
+  useEffect(() => {
+    if (!perms.ready) return;
+    clearPetKnowledgeCache();
+  }, [perms.ready, perms.userId, perms.workspaceId]);
+
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,
   // migration 0048) is pushed over IPC here — the ONE call site that makes a
@@ -1223,6 +1245,46 @@ export default function App() {
     }
 
     try {
+      // ── PHASE 6: the pet reads the lessons ────────────────────────────────
+      // Audrey asked Tomithy how to scale something in Blender — written down
+      // in her Blender course — and it told her to look it up herself. It was
+      // not broken: the three blocks above are the WHOLE of what this function
+      // has ever known, and none of them contains a line of course content.
+      //
+      // 🚨 INSIDE the try, so the `finally` below still clears the spinner.
+      //    setChatLoading(true) fires at the top of this function and the only
+      //    thing that lowers it is that finally — an await added between them
+      //    hangs the pet's thinking dots forever on any rejection.
+      // 🚨 OUTSIDE the retry loop below, or a retried overload re-runs every
+      //    read for a request that already fetched its content.
+      // 🚨 NOT gated on `currentPage === 'otter'`. The pet is on every page and
+      //    Audrey's question does not become a Blender question only while she
+      //    is already looking at the Blender course.
+      //
+      // 🚨 AND BOUNDED. Every otterFetch runs `cloudActive()`, which awaits a
+      //    BARE `supabase.auth.getSession()` — no ceiling. callAI, the only
+      //    network call this function used to make, deliberately wraps that
+      //    same await in withTimeout(…, AUTH_TIMEOUT_MS) because an abandoned
+      //    getSession() holds auth-js's global per-storageKey lock and every
+      //    later call queues behind it. Adding an UNBOUNDED session read in
+      //    front of the spinner would have re-opened, in the pet, exactly the
+      //    hang that ceiling was built to close.
+      //    ⚠️ withTimeout races but never aborts: the reads keep running and
+      //    are discarded. That is fine — what matters is that the chat is free.
+      //
+      // retrieveOtterKnowledge is written to resolve, never throw — but this is
+      // belt and braces, because a chat that dies on a retrieval failure is
+      // strictly worse than the "look it up yourself" it replaces.
+      let knowledgeBlock = '';
+      try {
+        const knowledge = await withTimeout(
+          retrieveOtterKnowledge({ question: currentInput, fetchImpl: otterFetch }),
+          KNOWLEDGE_TIMEOUT_MS, 'reading your courses',
+        );
+        knowledgeBlock = knowledge.block;
+      } catch { /* answer without the library rather than not at all */ }
+      context += knowledgeBlock;
+
       // Load O.T.T.E.R. settings for custom companion prompt
       let companionPrompt = COMPANION_PROMPT;
       try {
