@@ -175,11 +175,20 @@ describe('the session index cache is torn down with the identity', () => {
 })
 
 describe('the permission guard is in the module, not improvised at the call site', () => {
-  it('🚨 filters on can_read_content, and as `=== false` — never `=== true`', () => {
-    expect(petKnowledge).toMatch(/can_read_content\s*===\s*false/)
-    // `=== true` would hide every Local Server course: GET /api/software on
-    // Express returns exactly six fields and none of them is a capability.
-    expect(stripComments(petKnowledge)).not.toMatch(/can_read_content\s*===\s*true/)
+  it('🚨 the REFUSAL is the hard guard and comes first; the admission is a narrow arm after it', () => {
+    // This test used to assert `=== true` appeared NOWHERE, because an
+    // `=== true` HARD guard hides every Local Server course (GET /api/software
+    // on Express returns six fields, none of them a capability). Audrey's
+    // 2026-08-14 ruling — allow a colleague's personal course while a review
+    // window is open — needs exactly one `=== true`, as the LAST arm. So the
+    // claim being pinned is now the ORDER, not the absence.
+    const code = stripComments(petKnowledge)
+    expect(code).toMatch(/can_read_content\s*===\s*false/)
+    expect(code).toMatch(/visibility\s*==\s*null/)   // the Local Server passthrough
+    expect(code.indexOf('can_read_content === false'))
+      .toBeLessThan(code.indexOf('can_read_content === true'))
+    // The semantics themselves are pinned behaviourally, with failing controls,
+    // in petKnowledge.test.js → 'isRetrievableCourse — what the pet may read'.
   })
 
   it('🚨 the guard runs BEFORE any body fetch', () => {

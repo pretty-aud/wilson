@@ -192,18 +192,33 @@ describe('isRetrievableCourse — what the pet may read', () => {
     })).toBe(false)
   })
 
-  it('🚨 NOT a colleague\'s personal course opened by a live NOMINATION review', () => {
-    // 0064 sets can_read_content TRUE here. The consent was to review the
-    // course, not to answer study questions from it, and it expires on decision.
+  it('⭐ a colleague\'s personal course opened by a live NOMINATION review', () => {
+    // AUDREY'S RULING 2026-08-14: "allow to view while review window is open."
+    // 0064 sets can_read_content TRUE for the reviewer; the pet follows it.
+    // The first build refused this outright and she decided the other way.
     expect(isRetrievableCourse({
       visibility: 'personal', is_own: false, can_read_content: true,
-    })).toBe(false)
+    })).toBe(true)
   })
 
-  it('🚨 NOT a colleague\'s personal course opened by a live CHANGE REQUEST', () => {
+  it('⭐ a colleague\'s personal course opened by a live CHANGE REQUEST', () => {
     expect(isRetrievableCourse({
       visibility: 'personal', is_own: false, can_read_content: true, source_course_id: 'x',
-    })).toBe(false)
+    })).toBe(true)
+  })
+
+  it('⭐ …and an EDITOR GRANT on a personal course, which the first build lost', () => {
+    // Durable, explicit consent. It rides the same flag, so following the flag
+    // recovers it — the blanket refusal had treated it as collateral damage.
+    expect(isRetrievableCourse({
+      visibility: 'personal', is_own: false, can_read_content: true, can_write: true,
+    })).toBe(true)
+  })
+
+  it('🚨 a personal course with NO flag is refused — only course.list computes it', () => {
+    // An object from course.get/create/update carries no can_read_content, so
+    // we cannot tell whether a window is open. Fail closed rather than guess.
+    expect(isRetrievableCourse({ visibility: 'personal', is_own: false })).toBe(false)
   })
 
   it('🚨 can_read_content === false OUTRANKS everything else', () => {
@@ -494,16 +509,23 @@ describe('buildKnowledgeBlock', () => {
     // "and attribute it to a course", which reads as licence to invent freely
     // provided the invention is labelled as the model's own knowledge.
     expect(b).not.toMatch(/and attribute it to a course/i)
+    // ⭐ AUDREY'S RULING 2026-08-14 — THREE BEATS, IN ORDER: the honest miss,
+    //    a BRIEF answer, then the offer to make a course for it.
+    expect(b).toMatch(/could not find this one in their courses/i)
+    expect(b).toMatch(/give a BRIEF one/)
+    expect(b).toMatch(/two or three sentences/i)
+    expect(b).toMatch(/New Course button/)
+    expect(b.indexOf('could not find')).toBeLessThan(b.indexOf('BRIEF one'))
+    expect(b.indexOf('BRIEF one')).toBeLessThan(b.indexOf('New Course button'))
     // 🚨 AND IT MUST NOT RECREATE THE BUG. A miss is not licence to refuse:
     // "look it up yourself" is the behaviour Audrey reported.
-    expect(b).toMatch(/help anyway if you genuinely know the answer/i)
-    // 🚨 THE BAN ON INVENTED SPECIFICS IS UNCONDITIONAL. The first wording
+    expect(b).toMatch(/Do not tell them to go and look it up/i)
+    // 🚨 THE BAN ON INVENTED SPECIFICS IS UNCONDITIONAL. An earlier wording
     // forbade invention only "and attribute it to a course", which reads as
     // licence to invent freely provided it is labelled as own knowledge — and a
     // made-up shortcut is equally useless whichever label it carries.
     expect(b).toMatch(/NEVER state a specific keyboard shortcut/i)
     expect(b).not.toMatch(/and attribute it to a course/i)
-    expect(b).toMatch(/Do not tell them to go and look it up/i)
   })
 
   it('🚨 unreachable reads differently from empty — "could not reach" is not "you have no courses"', () => {

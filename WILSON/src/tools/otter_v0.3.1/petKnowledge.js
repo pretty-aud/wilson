@@ -301,32 +301,46 @@ export function shouldRetrieve(text) {
  *      admin can see that a course exists and this flag says they may not read
  *      it. `!== false` rather than `=== true` because Local Server sends no flag.
  *
- *   2. It is not someone ELSE'S PERSONAL course, whatever window happens to be
- *      open on it. Since 0025 and 0064, a reviewer holding a live change request
- *      or a live nomination gets can_read_content = TRUE on the proposer's
- *      personal course. That consent was to REVIEW the course, not to let the
- *      reviewer's study buddy quote it — and the window closes the moment the
- *      nomination is decided, so a pet that answered from it would give a
- *      different answer next week for reasons nobody could see. It fails CLOSED:
- *      the reviewer reads the course in O.T.T.E.R.'s review surface, which is
- *      where the consent actually points.
+ *   2. Someone else's PERSONAL course is admitted ONLY on an explicit
+ *      `can_read_content === true`, never on a missing flag.
  *
- * ⚠️ KNOWN, DELIBERATE FALSE NEGATIVE: an EDITOR GRANT on someone else's
- *    PERSONAL course is durable, explicit consent and is excluded here anyway,
- *    because the course index cannot distinguish it from a review window
- *    without a per-course round trip. Editor grants on SHARED courses are
- *    unaffected. Recovering it via `can_write` was tried and rejected: can_write
- *    is true everywhere for an admin, and the client's only role signal is the
- *    JWT, which can lag a live promotion — that arm would fail OPEN.
+ * ⭐ AUDREY'S RULING (2026-08-14): "allow to view while review window is open."
+ *    The first build refused these outright, reasoning that consenting to have
+ *    your course REVIEWED is not consenting to have it quoted back as study
+ *    material. She decided the other way, and it is her product: since 0025 and
+ *    0064 a reviewer holding a live change request or a live nomination gets
+ *    can_read_content = TRUE, and the pet now follows that flag.
+ *
+ *    Two consequences worth knowing, neither of them a bug:
+ *      * The window CLOSES when the nomination or change request is decided, so
+ *        the same question can legitimately answer this week and not next. That
+ *        is the database's grant expiring, not the retriever changing its mind.
+ *      * It also recovers a case the first build listed as a known cost: an
+ *        EDITOR GRANT on someone else's personal course is durable, explicit
+ *        consent, and it too rides can_read_content. It now works.
+ *
+ * 🚨 STILL REFUSED, and this is the arm that matters: an ADMIN's index carries
+ *    metadata-only rows for every colleague's personal course, because
+ *    otter_course_index admits on SIX arms (including a bare v_role = 'admin')
+ *    while computing can_read_content from only FIVE. Those rows arrive with the
+ *    flag explicitly FALSE. Being an admin is not a consent window; a live
+ *    nomination is.
  */
 export function isRetrievableCourse(course) {
   if (!course) return false
+  // The hard guard. `!== false` and never `=== true`, because Local Server
+  // sends no flag at all and an `=== true` test would hide Audrey's own courses.
   if (course.can_read_content === false) return false
   // Local Server has no multi-user model at all: no visibility, no owner, one
   // person's files on one disk. Everything there is the caller's own.
   if (course.visibility == null) return true
   if (course.is_own === true) return true
-  return course.visibility === 'shared' || course.visibility === 'company_standard'
+  if (course.visibility === 'shared' || course.visibility === 'company_standard') return true
+  // Someone else's PERSONAL course: a review window, a nomination window or an
+  // editor grant. Each of those sets the flag TRUE, so require it explicitly —
+  // `undefined` here means the object did not come from course.list (the only
+  // path that computes the flag) and we cannot tell. Fail closed on that.
+  return course.can_read_content === true
 }
 
 // ── the session index cache ──────────────────────────────────────────────────
@@ -776,9 +790,15 @@ export function buildKnowledgeBlock(excerpts, { reachable = true, searched = tru
     //    would produce exactly that again on every retrieval miss — and a miss
     //    is not proof the answer is unknowable, only that it is not in her
     //    courses. So: say what was searched, then help anyway, clearly labelled.
+    // ⭐ AUDREY'S RULING (2026-08-14): "it should give a brief answer and
+    //    suggest to create a new otter course". Three beats, in order — the
+    //    honest miss, a SHORT answer, and the offer to make it permanent. The
+    //    third beat is what turns a gap in the library into an action, which is
+    //    the whole point of the pet living inside a course builder.
     return '\n\nO.T.T.E.R. COURSE CONTENT: searched the courses this user can read; nothing in them matched this question.' +
-      '\nSay plainly that you could not find this one in their courses. Then help anyway if you genuinely know the answer, saying clearly that this part is from your own knowledge and not from their course. Do not tell them to go and look it up — that is the behaviour this exists to replace.' +
-      // 🚨 UNCONDITIONAL. The first wording banned invention only "and attribute
+      '\nDo three things, in this order. (1) Say plainly that you could not find this one in their courses. (2) If you genuinely know the answer, give a BRIEF one — two or three sentences, the gist only — and be clear that this part is from your own knowledge rather than from their course. (3) Suggest they make an O.T.T.E.R. course for it, using the New Course button, so it is there next time.' +
+      '\nDo not tell them to go and look it up elsewhere — that is the behaviour this exists to replace.' +
+      // 🚨 UNCONDITIONAL. An earlier wording banned invention only "and attribute
       //    it to a course", which reads as licence to invent freely so long as
       //    the invention is labelled as your own knowledge — and a made-up
       //    keyboard shortcut is exactly as useless whichever label it carries.
