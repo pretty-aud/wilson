@@ -72,20 +72,43 @@ already existing at link time.
 ### The two honest shapes
 
 **A. A second action, `send_setup_link`** *(recommended)*
-Leave `create` alone. Add an action that mints a **recovery** link for the
+Leave `create` alone. Add an action that mints a **RECOVERY** link for the
 already-created admin and lets GoTrue mail it. Smallest diff, no change to a
 path that already works, and it is re-sendable — which matters, because the
 first email will sometimes go to a typo'd address.
 
+> 🚨 **RECOVERY, NOT INVITE, AND THE DISTINCTION IS THE WHOLE REASON THIS SHAPE
+> WORKS.** `inviteUserByEmail` **creates** the auth row; against a user that
+> already exists it returns *"already been registered"* — permanently, on every
+> call. Since `create` has already made the account, **any shape that sends an
+> *invite* after `create` is dead on arrival.** A reviewer of this brief read
+> "send a link" as "send an invite" and concluded the shape was impossible; it
+> is impossible *for invites*, which is exactly why this says recovery. Use
+> `generateLink({ type: 'recovery' })` or `resetPasswordForEmail`.
+
 **B. Fold it into `create`**
 When a real `admin_email` is supplied, skip `createUser`+password and use
 `inviteUserByEmail`, then provision against the returned user id. Cleaner
-end-state, but it rewrites a working, audited, rollback-handling path, and it
-leaves no way to re-send.
+end-state — the password never exists for a company that has a mailbox — but it
+rewrites a working, audited, rollback-handling path, it leaves no way to
+re-send, and it makes the rollback worse: `create` deletes the auth user when
+provisioning fails, which under B means **deleting a user whose invite email is
+already in flight**, leaving the recipient holding a live token for a user that
+no longer exists.
 
 ⚠️ **The session must pick one and say which in the close-out.** A recommends
-itself, but B is defensible if Audrey would rather the password never exist for
-a company that has a real mailbox. **Ask her if it is close.**
+itself. B is defensible if Audrey would rather no password ever be generated for
+a company with a real mailbox. **Ask her if it is close.**
+
+### 🚨 Where `send_setup_link` gets the address — it is not handed to you
+
+`operator_workspace_summary()` (migration `0028`) returns `member_count`,
+`active_members` and `admin_count` — **no `admin_user_id`, no email**. So the
+action must resolve the admin itself: `workspace_members` filtered to
+`app_role = 'admin'` and `is_active`, joined out to the auth user for the
+address. ⚠️ **A workspace can have more than one admin.** Decide and state which
+one gets the link — the founding admin (the one `provision_workspace_and_admin`
+created) is the defensible answer, but nothing on the row marks it as such.
 
 ---
 
@@ -106,6 +129,37 @@ resets are admin-only by design"*.
 an email has nowhere to send a link, and the show-once password stays the only
 hand-over for it. The new action must refuse politely on a synthesized address
 (a real error code, not a silent no-op) rather than mailing `@wilson.invalid`.
+
+---
+
+## 3b. 🚨 THE ONE PARAGRAPH TO READ IF YOU READ NOTHING ELSE
+
+**Today a mistyped `admin_email` is harmless.** Nothing is sent. The operator
+reads the show-once password down the phone to a person they are already
+talking to, and `email_synthesized` is a visible state in the console.
+
+**Under a setup link, a mistyped address emails ADMIN ACCESS TO A REAL,
+ALREADY-PROVISIONED COMPANY TO A STRANGER** — because `provision_workspace_and_admin`
+has already inserted the `workspaces` row and an `is_active`, `app_role='admin'`
+`workspace_members` row by the time any mail goes out. There is no "pending"
+state to fall back to. The recipient of a wrong-address link does not sign up
+for something; they take over something that exists.
+
+That is a real change in risk posture and it is the reason this session is not
+the trivial feature its one-line plan row suggests. Consequences the session
+must handle rather than discover:
+
+- **The address must be confirmed at the point of sending**, not typed once in a
+  create dialog and forgotten. Show it back to the operator and make them
+  confirm the exact string.
+- **The audit entry must record the address it went to**, in `context`. Without
+  it, "we sent it to the wrong place" is unanswerable after the fact.
+- **Decide what a second send does** — see §9 test point 6.
+- ⚠️ **Token lifetime is NOT set anywhere in this repo.** `invite.html` says
+  "valid for 24 hours" and `recovery.html` says 1 hour, but nothing in
+  `config.toml` or any function sets either — it is a per-project dashboard
+  value. For a link that hands over a company, **measure it per environment and
+  state it**; do not repeat the copy.
 
 ---
 
@@ -231,6 +285,36 @@ was true when written and nobody updated it. Do not trust it; count the list.
   Do not touch it.
 - 🚨 **Check every status.** The house failure is a UI that reports success over
   a write that never happened. If the mail send fails, the operator must see it.
+- 🚨 **THE EMAIL COPY IS WRONG FOR THIS FLOW, AND THERE IS ONLY ONE TEMPLATE PER
+  PROJECT.** `supabase/templates/invite.html` hardcodes
+  *"{{ .Data.inviter_name }} added you as a team member."* — false for a company
+  handover — and the same template serves `invite-member`. Either write copy
+  that is true for both, or branch on a new `.Data.*` flag with Go `{{ if }}`.
+  ⚠️ **Either way the file must be re-pasted by hand into three dashboards**;
+  the template's own header warns about this, and **no test and no CI job
+  verifies hosted template state.** (Shape A uses `recovery.html` instead, whose
+  copy is about resetting a password — less wrong, still not right for "here is
+  your new company".)
+- ⚠️ **`.Data.inviter_name` has no honest value here.** `operatorGuard` builds
+  `callerLabel` as the operator's **email**, falling back to a
+  `workspace_members.username` lookup that is **not scoped to any workspace** —
+  so it can return a username from an unrelated tenant. Putting either into a
+  customer's mailbox is wrong. Send a fixed sender identity ("Petal Studios"),
+  not `callerLabel`.
+- ⚠️ **The email prints the company NAME; sign-in may need the SLUG.**
+  `resolve-login` matches the company by display name with
+  `.ilike(...).limit(2)` and **refuses outright when two workspaces share a
+  name** — deliberately, rather than picking one. Two customers called "Acme"
+  and neither invitee can sign in from the email alone. Decide whether the
+  setup email must print the slug.
+- ⚠️ **`EMAIL_RE` WILL NOT SAVE YOU.** `invite-member`'s
+  `/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/` happily accepts `x.y@wilson.invalid`. The
+  guard must be an explicit `email_synthesized` refusal, not a shape check. And
+  note `CreateCompanyDialog`'s `canSubmit` ignores the email field entirely —
+  there is no email validation in `src/admin/` at all.
+- ⚠️ **`FRIENDLY` has no `invite_failed` entry** (`src/admin/operatorApi.js`).
+  Reuse `invite-member`'s code without adding one and the operator sees
+  `Request failed (502).`
 - ❌ **Do not gate or re-add self-serve company creation.** It is deleted and
   undeployed; keep it that way.
 - ❌ **Do not edit `docs/OWED_AUDREY.md` entries as if done** without measuring.
@@ -279,6 +363,13 @@ per edit to confirm it landed where you meant.
 - [ ] A failed send surfaces an error; no green tick over a mail that never went
 - [ ] Which shape (A or B) was chosen is stated, with why
 - [ ] Whether dev/prod can deliver these emails at all is stated, measured
+- [ ] The audit `context` records the address the link was sent to
+- [ ] The operator confirms the exact address at send time, not just at create
+- [ ] Token lifetime measured per env and stated — not quoted from the template
+- [ ] The email copy is true for a company handover, and whether it must be
+      re-pasted into the three dashboards by hand is stated
+- [ ] Which admin receives the link, when a workspace has more than one, is stated
+- [ ] Resend: "operator button" vs "point them at Forgot password" is decided
 - [ ] `0065`'s untested state is restated in the close-out, not quietly stepped over
 
 ---
@@ -302,3 +393,28 @@ per edit to confirm it landed where you meant.
 ⚠️ **Point 6 is the one I most want your judgement on.** Re-sending is either
 the feature's most useful property or an invitation to spray links at an
 address; it depends on how you expect to use it.
+
+> ⚠️ **A resend button may not need to exist at all.** `ForgotPasswordWizard`
+> posts `{ username }` to `resolve-login` with **no company slug**, gets the
+> address back and calls `resetPasswordForEmail` itself. A stranded admin who
+> has their username — and it is printed in the setup email — can already
+> self-serve a fresh link with zero new server surface, provided
+> `recovery.html` is uploaded in that environment. **Decide "operator resend
+> button" vs "point them at Forgot password" deliberately; do not build the
+> button by default.**
+
+---
+
+## 10. Scope guard — what would quietly double this session
+
+**Showing whether an invite was accepted is a second migration of a different
+shape, and it is not in scope unless Audrey asks.** `operator_workspace_summary()`
+counts `workspace_members` rows, which exist from the instant provisioning runs,
+so a never-accepted company renders **identically** to a live one in the
+console. Surfacing pending state means widening that function's `RETURNS TABLE`,
+which is a `DROP FUNCTION` + `CREATE` (`0028` already does exactly that) — not
+the `platform_audit` CHECK widening this session is scoped for.
+
+⚠️ The honest interim is the audit trail: `workspace.invite_sent` tells the
+operator a link went out, and the absence of a sign-in tells them nothing. **Say
+that plainly in the close-out rather than implying the console shows status.**
