@@ -84,6 +84,10 @@ const ACTIONS = [
   ['storage_plan.cleared', 'Storage plan cleared'],
   ['storage_plan.suspended', 'Storage suspended'],
   ['storage_plan.restored', 'Storage restored'],
+  // Session 43b — the operator-sent setup link (0066). This is the row an
+  // operator goes looking for when a company says the email never arrived, so
+  // the address it went to is in the row's `context.sent_to`.
+  ['workspace.invite_sent', 'Setup link sent'],
 ]
 
 // PostgREST codes for "relation does not exist" — migration not deployed here

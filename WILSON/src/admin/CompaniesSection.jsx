@@ -69,7 +69,7 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Plus, RefreshCw, KeyRound, Trash2, Check, Copy } from 'lucide-react'
+import { Plus, RefreshCw, KeyRound, Trash2, Check, Copy, Mail } from 'lucide-react'
 import {
   listWorkspaces,
   createWorkspace,
@@ -78,6 +78,7 @@ import {
   teardownWorkspace,
   setWorkspaceAiKey,
   clearWorkspaceAiKey,
+  sendWorkspaceSetupLink,
   listStoragePlans,
   setStoragePlan,
   clearStoragePlan,
@@ -435,6 +436,10 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
   const [err, setErr] = useState('')
   const [keyInput, setKeyInput] = useState('')
   const [showKeyField, setShowKeyField] = useState(false)
+  // S43b — the setup link. Typed-confirmation field, closed by default so the
+  // send is always a deliberate two-step.
+  const [linkEmail, setLinkEmail] = useState('')
+  const [showLinkField, setShowLinkField] = useState(false)
 
   // ── Session 41 storage-plan state ─────────────────────────────────────────
   // Seeded from the plan ONLY when there is one. A free-tier company gets an
@@ -545,6 +550,66 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
       <p className="text-[10px] mb-4" style={{ color: '#78716c' }}>
         The slug is permanent — it is part of sign-in.
       </p>
+
+      {/* ── Setup link (S43b) ────────────────────────────────────────────────
+          🚨 THE TYPED CONFIRMATION IS THE POINT, NOT CEREMONY. This company
+          already exists, with a live admin membership, from the moment it was
+          created. Sending this link to the wrong address does not invite a
+          stranger to sign up — it hands them a real company. So the operator
+          types the address back, and the server compares it to the one on
+          file (it does not trust this field; it is checked both ends).
+          A company created without an email has none on file at all, and the
+          server refuses with `email_synthesized` rather than mailing a
+          reserved-domain address into the void. */}
+      <div className="mb-4">
+        <label className="block text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: '#57534e' }}>
+          Setup link
+        </label>
+        <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
+          Emails this company’s admin a link to set their own password, so you never
+          have to read one out. Type their address to confirm — this hands over a
+          company that already exists.
+        </p>
+        {showLinkField ? (
+          <div className="flex items-end gap-2">
+            <input
+              type="email"
+              autoComplete="off"
+              placeholder="admin@theircompany.com"
+              value={linkEmail}
+              onChange={(e) => setLinkEmail(e.target.value)}
+              className={`flex-1 ${inputClass}`}
+              style={lightInputStyle}
+            />
+            <button
+              className={darkBtnClass}
+              style={darkBtnStyle}
+              disabled={!!busy || linkEmail.trim().length === 0}
+              onClick={async () => {
+                const ok = await run(
+                  'setuplink',
+                  () => sendWorkspaceSetupLink(row.workspace_id, linkEmail.trim()),
+                  'Setup link sent.',
+                )
+                if (ok) { setLinkEmail(''); setShowLinkField(false) }
+              }}
+            >
+              {busy === 'setuplink' ? 'Sending…' : 'Send link'}
+            </button>
+            <button
+              className={darkBtnClass}
+              style={{ backgroundColor: 'transparent', color: '#57534e' }}
+              onClick={() => { setShowLinkField(false); setLinkEmail('') }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button className={darkBtnClass} style={darkBtnStyle} onClick={() => setShowLinkField(true)}>
+            <Mail size={12} /> Send setup link
+          </button>
+        )}
+      </div>
 
       {/* Suspend / restore — reversible, so it is a normal button. */}
       <div className="flex items-center gap-2 mb-4">

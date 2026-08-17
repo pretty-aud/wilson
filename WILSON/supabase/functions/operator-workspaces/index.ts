@@ -69,14 +69,24 @@ import { isRateLimited, envInt } from '../_shared/rateLimit.ts'
 import { generatePassword } from '../_shared/adminGuard.ts'
 import { reservedProjectObjectPaths } from '../_shared/reservedObjects.ts'
 
+// 🚨 A CLOSED ENUM, VALIDATED BEFORE ANY WORK. An action implemented below but
+// missing here is rejected with validation_failed/400 and never runs — the
+// handler reads as live code and is unreachable.
 const ACTIONS = new Set([
   'list',
   'create',
   'rename',
+  'send_setup_link',
   'suspend',
   'restore',
   'teardown',
 ])
+
+// Where the setup link points. ⚠️ Mirrors invite-member's constant, including
+// the localhost fallback. The recovery TEMPLATE builds its href from
+// {{ .SiteURL }} rather than from this — see the send_setup_link handler — so
+// this is the redirect hint, not the address the recipient clicks.
+const SITE_URL = Deno.env.get('WILSON_SITE_URL') ?? 'http://localhost:5203'
 
 const BUCKET = 'rabbit-files'
 // S39. Derived previews. Teardown must sweep this bucket too, and the reason is
@@ -551,6 +561,110 @@ Deno.serve(async (req: Request) => {
       context: { previous_name: ws.name },
     })
     return reply({ workspace: data })
+  }
+
+  // ── send_setup_link ───────────────────────────────────────────────────────
+  // Session 43b. Audrey: "lets make it that the operator ... can send this as a
+  // link for when they establish a new company ... for the new company to set
+  // up their workspace."
+  //
+  // 🚨 A RECOVERY LINK, NOT AN INVITE, AND THAT IS NOT A STYLE CHOICE.
+  //    `inviteUserByEmail` CREATES the auth row. `create` above has already
+  //    created it — with `email_confirm: true` and a generated password — so an
+  //    invite here returns "already been registered" on every call, forever.
+  //    Recovery is the only verb that works against an existing user.
+  //
+  // 🚨 THE WORKSPACE AND ITS ADMIN ALREADY EXIST WHEN THIS RUNS. There is no
+  //    "pending company" state: provision_workspace_and_admin inserted the
+  //    workspaces row and an is_active, app_role='admin' membership at create
+  //    time. So a link sent to the wrong address does not invite a stranger to
+  //    sign up — it hands them a real company. Hence: the caller must echo back
+  //    the exact address (confirm_email), and the address is recorded in the
+  //    certificate.
+  if (action === 'send_setup_link') {
+    // The founding admin. `create` makes exactly one; a workspace can acquire
+    // more later, so order by creation and take the oldest rather than relying
+    // on there being one. ⚠️ maybeSingle() on a multi-admin workspace would
+    // throw PGRST116 — limit(1) is deliberate, not lazy.
+    const { data: admins, error: adminErr } = await ctx.admin
+      .from('workspace_members')
+      .select('user_id, username, created_at')
+      .eq('workspace_id', workspaceId)
+      .eq('app_role', 'admin')
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+    if (adminErr) return reply({ error: 'admin_lookup_failed', detail: adminErr.message }, 500)
+    const admin0 = admins?.[0] as { user_id?: string; username?: string } | undefined
+    // ⚠️ The cast is not cosmetic. `ctx.admin` is an untyped client, so a
+    //    selected column arrives as `unknown` and `getUserById(unknown)` is a
+    //    type error `deno check` catches and vitest never will — the Deno
+    //    functions are parsed as text by the tests, never imported.
+    const adminUserId = admin0?.user_id
+    if (!adminUserId) return reply({ error: 'no_admin' }, 409)
+
+    // The address lives on the auth user, not on the membership row.
+    const { data: authUser, error: authErr } =
+      await ctx.admin.auth.admin.getUserById(adminUserId)
+    if (authErr || !authUser?.user) {
+      return reply({ error: 'admin_lookup_failed', detail: authErr?.message ?? 'no auth user' }, 500)
+    }
+    const adminEmail = (authUser.user.email ?? '').trim()
+
+    // 🚨 THE SYNTHESIZED-ADDRESS REFUSAL, AND IT IS A SUFFIX TEST ON PURPOSE.
+    //    `create` writes `${username}.${slug}@wilson.invalid` when the operator
+    //    supplies no email, meaning "resets are admin-only by design". A shape
+    //    check cannot catch it: invite-member's own
+    //    EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/ accepts
+    //    x.y@wilson.invalid quite happily. Mailing it would bounce into a
+    //    domain reserved by RFC 2606 and the operator would see a success.
+    if (!adminEmail || adminEmail.toLowerCase().endsWith('@wilson.invalid')) {
+      return reply({ error: 'email_synthesized' }, 409)
+    }
+
+    // The operator must retype/confirm the address they are about to hand a
+    // company to. Compared case-insensitively because mail is; compared at all
+    // because a typo at create time is otherwise invisible until a stranger
+    // signs in.
+    // ⚠️ NOT `confirmation_mismatch`. That code already exists for teardown's
+    //    typed-slug gate, and its FRIENDLY string reads "The slug you typed
+    //    does not match" — which would appear over an EMAIL field. A code with
+    //    the wrong noun is the same defect as no code at all, just quieter.
+    const confirm = typeof body.confirm_email === 'string' ? body.confirm_email.trim() : ''
+    if (confirm.toLowerCase() !== adminEmail.toLowerCase()) {
+      return reply({ error: 'email_mismatch' }, 400)
+    }
+
+    // GoTrue mails the recovery template and mints the token. The redirect is
+    // passed for completeness, but ⚠️ the TEMPLATE decides where the link
+    // actually points: recovery.html builds its href from {{ .SiteURL }}, on
+    // purpose, because the desktop app runs on a dynamic 127.0.0.1 port. If the
+    // link lands somewhere wrong, the project's Site URL is what to fix — not
+    // this line.
+    const { error: mailErr } = await ctx.admin.auth.resetPasswordForEmail(
+      adminEmail,
+      { redirectTo: `${SITE_URL}/#/recovery` },
+    )
+    if (mailErr) {
+      // 🚨 SURFACED, NOT SWALLOWED. A green tick over a mail that never left is
+      //    this repo's signature defect, and here it would leave the operator
+      //    believing a company has been handed over when nobody was told.
+      return reply({ error: 'send_failed', detail: mailErr.message }, 502)
+    }
+
+    await logPlatformEvent(ctx, {
+      action: 'workspace.invite_sent',
+      workspaceId,
+      workspaceSlug: ws.slug,
+      workspaceName: ws.name,
+      code: 'WIL-7006',
+      message: `Setup link sent for ${ws.name} (${ws.slug})`,
+      // sent_to is the whole point of the certificate: "we sent it to the wrong
+      // place" is unanswerable after the fact without it.
+      context: { sent_to: adminEmail, admin_username: admin0?.username ?? null },
+    })
+
+    return reply({ ok: true, sent_to: adminEmail, username: admin0?.username ?? null })
   }
 
   // ── suspend / restore ─────────────────────────────────────────────────────

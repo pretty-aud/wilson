@@ -28,7 +28,7 @@
 -- =============================================================================
 BEGIN;
 
-SELECT plan(24);
+SELECT plan(28);
 
 SELECT * FROM tests.rls_setup();
 
@@ -288,6 +288,52 @@ SELECT is(
       AND has_function_privilege('anon', p.oid, 'EXECUTE')),
   0,
   '0033: no SECURITY DEFINER function in public is executable by anon'
+);
+
+
+-- ── Session 43b: the setup-link verb (migration 0066) ────────────────────────
+-- The operator emails a company's admin a link to set their own password. That
+-- send gets its OWN action rather than reusing workspace.created, because the
+-- question it exists to answer — "did the link go out, and to what address" —
+-- is unanswerable if creation and hand-over share a verb.
+--
+-- 🚨 THE SECOND PROBE IS THE 0059 GUARD AND IT TESTS A VERB 0066 DID NOT ADD.
+--    0066 restates the WHOLE action list to widen it (a wrapped ADD is a silent
+--    no-op on an already-migrated environment). A restatement that loses a verb
+--    does not error: it makes every future write of that verb fail on the
+--    supabase-js `error` channel, which logPlatformEvent only console.errors —
+--    so the operator's action still returns 200 and no certificate exists.
+--    0059 did exactly this shape to 0020's grant guards and it became a live
+--    privilege escalation.
+
+SELECT lives_ok(
+  $$INSERT INTO public.platform_audit (action, message)
+    VALUES ('workspace.invite_sent', 'pgTAP 35: 0066 admits the new verb')$$,
+  '0066: platform_audit admits workspace.invite_sent'
+);
+
+SELECT lives_ok(
+  $$INSERT INTO public.platform_audit (action, message)
+    VALUES ('workspace.teardown', 'pgTAP 35: the restatement kept the old verbs')$$,
+  '0066: the CHECK restatement did NOT drop workspace.teardown'
+);
+
+SELECT lives_ok(
+  $$INSERT INTO public.platform_audit (action, message)
+    VALUES ('storage_plan.suspended', 'pgTAP 35: 0055 verbs survived 0066')$$,
+  '0066: the CHECK restatement did NOT drop 0055''s storage_plan verbs'
+);
+
+-- ── FAILING CONTROL ──────────────────────────────────────────────────────────
+-- Without this, the three probes above pass just as happily against a CHECK
+-- that was dropped and never re-added — which is the one outcome that would
+-- make all of them meaningless.
+SELECT throws_ok(
+  $$INSERT INTO public.platform_audit (action, message)
+    VALUES ('workspace.not_a_real_action', 'pgTAP 35: control')$$,
+  '23514',
+  NULL,
+  '0066: the CHECK still REFUSES an unknown action'
 );
 
 SELECT * FROM finish();

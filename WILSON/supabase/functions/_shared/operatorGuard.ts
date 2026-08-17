@@ -169,6 +169,12 @@ export type PlatformAuditFields = {
     | 'storage_plan.cleared'
     | 'storage_plan.suspended'
     | 'storage_plan.restored'
+    // Session 43b — the operator-sent setup link (migration 0066 widens the
+    // CHECK to admit this one). Deliberately NOT 'workspace.created': the
+    // question this verb exists to answer is "did the link actually go out, and
+    // to what address", which is unanswerable if the send shares a verb with
+    // the creation. The address lands in `context.sent_to`.
+    | 'workspace.invite_sent'
   message: string
   workspaceId?: string | null
   workspaceSlug?: string | null

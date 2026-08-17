@@ -41,6 +41,15 @@ const FRIENDLY = {
   teardown_failed: 'Teardown failed partway — check the audit log before retrying.',
   provision_failed: 'Company creation failed. Nothing was kept.',
   create_failed: 'Company creation failed. Nothing was kept.',
+  // Session 43b — the setup link. Every code send_setup_link can return needs
+  // an entry, or the operator sees `Request failed (409).` and has no idea the
+  // company simply has no mailbox on file.
+  email_synthesized:
+    'This company has no email address on file, so there is nowhere to send a link. Hand over the password instead.',
+  no_admin: 'This company has no active admin to send a link to.',
+  email_mismatch: 'That does not match the address on file for this company.',
+  admin_lookup_failed: 'Could not look up this company’s admin. Try again in a moment.',
+  send_failed: 'The email could not be sent. Nothing was changed — try again.',
   update_failed: 'Update failed. Try again in a minute.',
   encrypt_failed: 'Could not encrypt the key — nothing was stored.',
   bad_json: 'Malformed request.',
@@ -114,6 +123,21 @@ export function createWorkspace({ name, slug, adminUsername, adminDisplayName, a
 
 export function renameWorkspace(workspaceId, name) {
   return callOperatorFn('operator-workspaces', { action: 'rename', workspace_id: workspaceId, name })
+}
+
+/**
+ * Email the company's founding admin a link to set their own password.
+ *
+ * `confirmEmail` must equal the address the server has on file — the operator
+ * is handing over a company that already exists, so a typo does not fail
+ * harmlessly. The server compares case-insensitively and refuses otherwise.
+ */
+export function sendWorkspaceSetupLink(workspaceId, confirmEmail) {
+  return callOperatorFn('operator-workspaces', {
+    action: 'send_setup_link',
+    workspace_id: workspaceId,
+    confirm_email: confirmEmail,
+  })
 }
 
 /** Soft delete — reversible. Members lose access; nothing is destroyed. */
