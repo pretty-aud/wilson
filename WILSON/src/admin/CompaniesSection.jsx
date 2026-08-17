@@ -79,6 +79,7 @@ import {
   setWorkspaceAiKey,
   clearWorkspaceAiKey,
   sendWorkspaceSetupLink,
+  getWorkspaceAdminContact,
   listStoragePlans,
   setStoragePlan,
   clearStoragePlan,
@@ -440,6 +441,11 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
   // send is always a deliberate two-step.
   const [linkEmail, setLinkEmail] = useState('')
   const [showLinkField, setShowLinkField] = useState(false)
+  // Who the link would go to. Fetched on demand rather than with the list: it
+  // is one extra round trip per company the operator actually opens, against a
+  // read on every company on every refresh.
+  const [contact, setContact] = useState(null)
+  const [contactErr, setContactErr] = useState('')
 
   // ── Session 41 storage-plan state ─────────────────────────────────────────
   // Seeded from the plan ONLY when there is one. A free-tier company gets an
@@ -571,41 +577,80 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
           company that already exists.
         </p>
         {showLinkField ? (
-          <div className="flex items-end gap-2">
-            <input
-              type="email"
-              autoComplete="off"
-              placeholder="admin@theircompany.com"
-              value={linkEmail}
-              onChange={(e) => setLinkEmail(e.target.value)}
-              className={`flex-1 ${inputClass}`}
-              style={lightInputStyle}
-            />
-            <button
-              className={darkBtnClass}
-              style={darkBtnStyle}
-              disabled={!!busy || linkEmail.trim().length === 0}
-              onClick={async () => {
-                const ok = await run(
-                  'setuplink',
-                  () => sendWorkspaceSetupLink(row.workspace_id, linkEmail.trim()),
-                  'Setup link sent.',
-                )
-                if (ok) { setLinkEmail(''); setShowLinkField(false) }
-              }}
-            >
-              {busy === 'setuplink' ? 'Sending…' : 'Send link'}
-            </button>
-            <button
-              className={darkBtnClass}
-              style={{ backgroundColor: 'transparent', color: '#57534e' }}
-              onClick={() => { setShowLinkField(false); setLinkEmail('') }}
-            >
-              Cancel
-            </button>
-          </div>
+          <>
+            {/* 🚨 THE ADDRESS IS SHOWN BEFORE IT IS TYPED. This is teardown's
+                pattern: that flow prints the real slug and real counts and THEN
+                asks for the slug typed back. A confirmation you cannot read is
+                theatre — and until admin_contact existed, no operator surface
+                showed this address at all, so the confirmation was not merely
+                weak, it was impossible to satisfy for any company whose
+                show-once dialog had been closed. */}
+            {contactErr ? (
+              <p className="text-[11px] mb-2" style={{ color: '#991b1b' }}>{contactErr}</p>
+            ) : !contact ? (
+              <p className="text-[11px] mb-2" style={{ color: '#78716c' }}>Looking up the admin…</p>
+            ) : !contact.deliverable ? (
+              <p className="text-[11px] mb-2" style={{ color: '#b45309' }}>
+                This company has no real email on file (<code className="font-mono">{contact.email}</code>),
+                so there is nowhere to send a link. Hand over the password instead.
+              </p>
+            ) : (
+              <p className="text-[11px] mb-2 leading-relaxed" style={{ color: '#57534e' }}>
+                Goes to <code className="font-mono font-bold">{contact.email}</code>
+                {contact.username && <> (<code className="font-mono">{contact.username}</code>)</>}.
+                Type it below to confirm.
+              </p>
+            )}
+            <div className="flex items-end gap-2">
+              <input
+                type="email"
+                autoComplete="off"
+                placeholder={contact?.deliverable ? contact.email : 'admin@theircompany.com'}
+                value={linkEmail}
+                onChange={(e) => setLinkEmail(e.target.value)}
+                disabled={!contact?.deliverable}
+                className={`flex-1 ${inputClass}`}
+                style={lightInputStyle}
+              />
+              <button
+                className={darkBtnClass}
+                style={darkBtnStyle}
+                disabled={!!busy || !contact?.deliverable || linkEmail.trim().length === 0}
+                onClick={async () => {
+                  const ok = await run(
+                    'setuplink',
+                    () => sendWorkspaceSetupLink(row.workspace_id, linkEmail.trim()),
+                    'Setup link sent.',
+                  )
+                  if (ok) { setLinkEmail(''); setShowLinkField(false); setContact(null) }
+                }}
+              >
+                {busy === 'setuplink' ? 'Sending…' : 'Send link'}
+              </button>
+              <button
+                className={darkBtnClass}
+                style={{ backgroundColor: 'transparent', color: '#57534e' }}
+                onClick={() => { setShowLinkField(false); setLinkEmail(''); setContact(null); setContactErr('') }}
+              >
+                Cancel
+              </button>
+            </div>
+          </>
         ) : (
-          <button className={darkBtnClass} style={darkBtnStyle} onClick={() => setShowLinkField(true)}>
+          <button
+            className={darkBtnClass}
+            style={darkBtnStyle}
+            disabled={!!row.deleted_at}
+            title={row.deleted_at ? 'Restore this company first.' : undefined}
+            onClick={async () => {
+              setShowLinkField(true); setContact(null); setContactErr('')
+              const res = await getWorkspaceAdminContact(row.workspace_id)
+              // 🚨 CHECKED. An unchecked read here would render "Looking up the
+              //    admin…" forever, which reads as a hang rather than a failure.
+              if (!res.ok) setContactErr(res.data?.friendly ?? 'Could not look up the admin.')
+              else setContact(res.data)
+            }}
+          >
             <Mail size={12} /> Send setup link
           </button>
         )}

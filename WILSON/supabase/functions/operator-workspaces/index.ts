@@ -76,6 +76,7 @@ const ACTIONS = new Set([
   'list',
   'create',
   'rename',
+  'admin_contact',
   'send_setup_link',
   'suspend',
   'restore',
@@ -105,6 +106,28 @@ const PAGE = 1000          // PostgREST max_rows; read in exactly one page's wor
 const REMOVE_BATCH = 100   // objects per storage.remove() call
 const CERT_BATCH = 40      // paths per certificate row (context CHECK is 8000 chars)
 
+/**
+ * Addresses that exist only to satisfy GoTrue's email shape, and that nobody
+ * reads. Mailing one reports success to the operator and delivers nothing.
+ *
+ * 🚨 TWO FORMATS, NOT ONE, AND THE SECOND IS REACHABLE HERE. This function's
+ *    own `create` mints `${username}.${slug}@wilson.invalid`. But a company
+ *    admin created later through admin-create-user gets
+ *    `wilson.<workspace8>.<local>@mail.petalstudios.co` — a domain Petal really
+ *    controls, which UsersSection badges "no real inbox" on screen. If the
+ *    founding admin is deactivated, that member becomes the oldest active admin
+ *    and this handler would happily mail a mailbox with no reader.
+ *
+ * ⚠️ A SHAPE CHECK CANNOT DO THIS. invite-member's own
+ *    EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/ accepts both of them.
+ */
+const SYNTHESIZED_SUFFIXES = ['@wilson.invalid', '@mail.petalstudios.co']
+
+function isSynthesizedAddress(email: string): boolean {
+  const e = email.trim().toLowerCase()
+  return SYNTHESIZED_SUFFIXES.some((suffix) => e.endsWith(suffix))
+}
+
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/
 
@@ -125,6 +148,47 @@ async function loadWorkspace(
     .eq('id', id)
     .maybeSingle()
   return (data as WorkspaceRow | null) ?? null
+}
+
+/**
+ * The company's FOUNDING admin, with the address mail would actually go to.
+ *
+ * Oldest active admin by created_at. `provision_workspace_and_admin` makes
+ * exactly one at creation, so on an untouched company this is that person; a
+ * company can acquire more admins later, and the oldest is the defensible
+ * choice because nothing on the row marks the founder as such.
+ *
+ * ⚠️ limit(1), NOT maybeSingle(). A workspace with two admins makes
+ *    maybeSingle() throw PGRST116, which would turn "this company has more than
+ *    one admin" into a 500.
+ * ⚠️ The address lives on the AUTH user, never on the membership row.
+ */
+async function loadFoundingAdmin(
+  ctx: OperatorContext,
+  workspaceId: string,
+): Promise<{ userId: string; username: string | null; email: string } | null> {
+  const { data, error } = await ctx.admin
+    .from('workspace_members')
+    .select('user_id, username, created_at')
+    .eq('workspace_id', workspaceId)
+    .eq('app_role', 'admin')
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+  if (error) throw new Error(`admin lookup failed: ${error.message}`)
+  const row = data?.[0] as { user_id?: string; username?: string } | undefined
+  if (!row?.user_id) return null
+
+  const { data: authUser, error: authErr } =
+    await ctx.admin.auth.admin.getUserById(row.user_id)
+  if (authErr || !authUser?.user) {
+    throw new Error(`admin lookup failed: ${authErr?.message ?? 'no auth user'}`)
+  }
+  return {
+    userId: row.user_id,
+    username: row.username ?? null,
+    email: (authUser.user.email ?? '').trim(),
+  }
 }
 
 /**
@@ -563,6 +627,34 @@ Deno.serve(async (req: Request) => {
     return reply({ workspace: data })
   }
 
+  // ── admin_contact ─────────────────────────────────────────────────────────
+  // 🚨 THIS EXISTS BECAUSE THE SAFETY MECHANISM WAS UNUSABLE WITHOUT IT.
+  //    send_setup_link makes the operator type the admin's address back, on the
+  //    reasoning that this hands over a company that already exists. But NO
+  //    operator surface shows that address: operator_workspace_summary() (0028)
+  //    returns member COUNTS and no contact detail, and the create-time
+  //    CredentialsDialog is show-once. An operator returning to a company a
+  //    week later could not send a link at all — not because it was refused,
+  //    but because they had nothing to type.
+  //    This is the teardown precedent, not a new idea: that flow SHOWS the slug
+  //    and real counts and then requires the slug typed back. A confirmation
+  //    you cannot read is theatre; one you can read is a check.
+  // ⚠️ Read-only, and no wider than the operator already is — an operator can
+  //    already tear this company down. It reveals nothing about anyone outside
+  //    the workspace they named.
+  if (action === 'admin_contact') {
+    const admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    if (!admin0) return reply({ error: 'no_admin' }, 409)
+    return reply({
+      email: admin0.email,
+      username: admin0.username,
+      // The console greys out Send rather than letting the operator type an
+      // address that the server will refuse anyway.
+      deliverable: !isSynthesizedAddress(admin0.email),
+      suspended: Boolean(ws.deleted_at),
+    })
+  }
+
   // ── send_setup_link ───────────────────────────────────────────────────────
   // Session 43b. Audrey: "lets make it that the operator ... can send this as a
   // link for when they establish a new company ... for the new company to set
@@ -582,43 +674,31 @@ Deno.serve(async (req: Request) => {
   //    the exact address (confirm_email), and the address is recorded in the
   //    certificate.
   if (action === 'send_setup_link') {
-    // The founding admin. `create` makes exactly one; a workspace can acquire
-    // more later, so order by creation and take the oldest rather than relying
-    // on there being one. ⚠️ maybeSingle() on a multi-admin workspace would
-    // throw PGRST116 — limit(1) is deliberate, not lazy.
-    const { data: admins, error: adminErr } = await ctx.admin
-      .from('workspace_members')
-      .select('user_id, username, created_at')
-      .eq('workspace_id', workspaceId)
-      .eq('app_role', 'admin')
-      .eq('is_active', true)
-      .order('created_at', { ascending: true })
-      .limit(1)
-    if (adminErr) return reply({ error: 'admin_lookup_failed', detail: adminErr.message }, 500)
-    const admin0 = admins?.[0] as { user_id?: string; username?: string } | undefined
-    // ⚠️ The cast is not cosmetic. `ctx.admin` is an untyped client, so a
-    //    selected column arrives as `unknown` and `getUserById(unknown)` is a
-    //    type error `deno check` catches and vitest never will — the Deno
-    //    functions are parsed as text by the tests, never imported.
-    const adminUserId = admin0?.user_id
-    if (!adminUserId) return reply({ error: 'no_admin' }, 409)
+    // 🚨 NOT FOR A SUSPENDED COMPANY. loadWorkspace deliberately returns
+    //    soft-deleted rows and the suspend/restore branch below guards on the
+    //    same field. Without this the link works, the recipient sets a
+    //    password, and then cannot sign in at all — workspaces_select filters
+    //    `deleted_at IS NULL` — while the certificate asserts a hand-over that
+    //    did not happen.
+    if (ws.deleted_at) return reply({ error: 'already_suspended' }, 409)
 
-    // The address lives on the auth user, not on the membership row.
-    const { data: authUser, error: authErr } =
-      await ctx.admin.auth.admin.getUserById(adminUserId)
-    if (authErr || !authUser?.user) {
-      return reply({ error: 'admin_lookup_failed', detail: authErr?.message ?? 'no auth user' }, 500)
+    // Same helper the admin_contact read uses, so the address the console
+    // DISPLAYS and the address the server DEMANDS can never diverge — two
+    // copies of this query would be exactly the drift that makes a typed
+    // confirmation impossible to satisfy.
+    let admin0
+    try {
+      admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    } catch (err) {
+      return reply({ error: 'admin_lookup_failed', detail: String((err as Error)?.message ?? err) }, 500)
     }
-    const adminEmail = (authUser.user.email ?? '').trim()
+    if (!admin0) return reply({ error: 'no_admin' }, 409)
+    const adminEmail = admin0.email
 
-    // 🚨 THE SYNTHESIZED-ADDRESS REFUSAL, AND IT IS A SUFFIX TEST ON PURPOSE.
-    //    `create` writes `${username}.${slug}@wilson.invalid` when the operator
-    //    supplies no email, meaning "resets are admin-only by design". A shape
-    //    check cannot catch it: invite-member's own
-    //    EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/ accepts
-    //    x.y@wilson.invalid quite happily. Mailing it would bounce into a
-    //    domain reserved by RFC 2606 and the operator would see a success.
-    if (!adminEmail || adminEmail.toLowerCase().endsWith('@wilson.invalid')) {
+    // 🚨 THE SYNTHESIZED-ADDRESS REFUSAL. Two formats exist and both are
+    //    reachable here — see isSynthesizedAddress. Mailing one reports success
+    //    and delivers to nobody.
+    if (!adminEmail || isSynthesizedAddress(adminEmail)) {
       return reply({ error: 'email_synthesized' }, 409)
     }
 
@@ -657,14 +737,18 @@ Deno.serve(async (req: Request) => {
       workspaceId,
       workspaceSlug: ws.slug,
       workspaceName: ws.name,
-      code: 'WIL-7006',
+      // ⚠️ WIL-7009, NOT 7006. WIL-7006 is the registered blob.purged BATCH
+      //    certificate (SYSTEMS_HANDBOOK §17) and is emitted from three places
+      //    in this very file. A duplicated code makes the audit trail
+      //    unreadable exactly when someone is trying to read it.
+      code: 'WIL-7009',
       message: `Setup link sent for ${ws.name} (${ws.slug})`,
       // sent_to is the whole point of the certificate: "we sent it to the wrong
       // place" is unanswerable after the fact without it.
-      context: { sent_to: adminEmail, admin_username: admin0?.username ?? null },
+      context: { sent_to: adminEmail, admin_username: admin0.username },
     })
 
-    return reply({ ok: true, sent_to: adminEmail, username: admin0?.username ?? null })
+    return reply({ ok: true, sent_to: adminEmail, username: admin0.username })
   }
 
   // ── suspend / restore ─────────────────────────────────────────────────────

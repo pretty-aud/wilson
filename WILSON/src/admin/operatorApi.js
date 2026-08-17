@@ -126,6 +126,20 @@ export function renameWorkspace(workspaceId, name) {
 }
 
 /**
+ * Who a setup link would go to. Read-only.
+ *
+ * The console needs this because sendWorkspaceSetupLink demands the address
+ * typed back, and no other operator surface shows it — operator_workspace_summary
+ * returns member counts, and the create-time credentials dialog is show-once.
+ */
+export function getWorkspaceAdminContact(workspaceId) {
+  return callOperatorFn('operator-workspaces', {
+    action: 'admin_contact',
+    workspace_id: workspaceId,
+  })
+}
+
+/**
  * Email the company's founding admin a link to set their own password.
  *
  * `confirmEmail` must equal the address the server has on file — the operator
