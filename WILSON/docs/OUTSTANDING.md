@@ -46,74 +46,35 @@ RLS.
 `service_role`. The `anon` key beside it is publishable and needs nothing.
 **Audrey's action.** Never filter that command's output; select the one field.
 
-### Anyone with the anon key can create a company — `provision-workspace` is public
-**MEASURED (2026-08-10, while scoping S43).**
-`supabase/functions/provision-workspace/index.ts` describes itself as
-*"Self-serve company onboarding"* and *"Public endpoint. Rate-limited
-aggressively (3/h/IP)"*. It creates a `workspaces` row, an `auth.users` row and
-an admin `workspace_members` row. **The anon key ships in the web app**, so the
-endpoint is reachable by anyone who has opened devtools on the beta: three new
-companies per hour per IP, each with a real admin account.
-
-Audrey, 2026-08-10: *"right now, any one can login and create their own company.
-it needs to be invite only for now."* — **she is describing this, and the button
-is not the gate.** The login-screen affordance is scheduled for removal in S43,
-and removing it changes nothing about the endpoint.
-
-Live on dev, staging **and prod**. Not introduced by any recent session — it has
-been public since Session 2, when it was written for a product that intended
-self-serve signup.
-
-⚠️ **Bounded, but not by much.** Rate limiting is in-memory and per instance
-(*"resets on cold start"*, its own comment), so the 3/h ceiling is softer than it
-reads. There is no email verification on the created admin — the header says the
-address is *"email confirmed inline because Session 2 has no email infra yet"*.
-
-→ **Measured caller list is three lines in one file** — `NewCompanyWizard.jsx:5,
-38, 69 — and `operator-workspaces` already has an operator-gated `create` action
-that supersedes it. So the fix is small: gate it behind
-`requirePlatformOperator`, or delete it once nothing calls it. **Scoped in
-`SESSION_43_prompt.md` §A5, and flagged there as NOT design polish.**
-
----
-
-🚨 **HALF-CLOSED BY S43, AND THE REMAINING HALF IS THE HALF THAT MATTERS.**
-
-**Done in the repo** (S43, Audrey chose "delete it"): `NewCompanyWizard.jsx` is
-deleted, the `'new-company'` authMode is gone, the login screen's "New company?"
-link is gone, and `supabase/functions/provision-workspace/` plus its
-`config.toml` block are removed. The endpoint now has **zero callers anywhere**,
-and that is verified **by BUNDLE, not by grep**: `provision-workspace`,
-`PROVISIONING WORKSPACE`, `WORKSPACE SLUG ALREADY IN USE` and `NEW COMPANY` are
-all absent from `dist/assets/*.js` after `npm run build`.
-
-⚠️ **NOT done: the endpoint is still LIVE on wilson-dev, wilson-staging and
-wilson-prod, and is still callable by anyone with the anon key.** Deleting the
-directory from the repo does not undeploy it. Until these three run, the hole
-is exactly as open as it was — the only thing that changed is that WILSON no
-longer walks through it:
-
-```
-supabase functions delete provision-workspace --project-ref <dev-ref>
-supabase functions delete provision-workspace --project-ref <staging-ref>
-supabase functions delete provision-workspace --project-ref <prod-ref>
-```
-
-**Audrey's action** (it is a deploy, and this session does not touch her
-deployed functions). Confirm with `supabase functions list` per project.
+### ~~Anyone with the anon key can create a company — `provision-workspace` is public~~ — CLOSED (S43 removed it; deployed nowhere, re-verified 2026-09-04)
+Deleted per the rule for this file. S43 deleted `NewCompanyWizard.jsx`, the
+`'new-company'` authMode, the login screen's "New company?" link and
+`supabase/functions/provision-workspace/` (zero callers, verified by BUNDLE),
+and the deployed function is gone as well: `supabase functions list
+--project-ref` on wilson-dev, wilson-staging and wilson-prod returns **no
+`provision-workspace` row on any of them** (first measured 2026-08-14,
+re-measured 2026-09-04). The entry that stood here went on saying the endpoint
+was LIVE for three weeks after it was not. A deploy is recorded nowhere in the
+repo, so **check `functions list` per project before believing any note about
+what is deployed.**
 
 ✅ Company creation still works throughout: the operator console's
-`Companies → New company` (`src/admin/CompaniesSection.jsx:919`) calls
+`Companies → New company` (`src/admin/CompaniesSection.jsx`) calls
 `operator-workspaces`' `create` behind `requirePlatformOperator`, and hands
 back a show-once password.
 
-📌 **Still owed and deliberately NOT built in S43** — Audrey asked for the
-operator to send an emailed **invite link** instead of handing over a password:
-*"lets make it that the operator ... can send this as a link for when they
-establish a new company."* That needs a new `operator-workspaces` action and
-probably a `platform_audit` action-CHECK widening (a migration), so it was
-scoped out of a design-polish session by agreement. It is an improvement to the
-handover, not a prerequisite for closing this.
+📌 **The emailed setup link Audrey asked for is BUILT and NOT USABLE YET** —
+S43b, `186fa63` + `df257d0`, migration 0066. Measured 2026-09-04: 0066 is
+applied on dev and staging (the `platform_audit` action CHECK carries
+`workspace.invite_sent` on both; prod is at 0063 and does not), but
+`operator-workspaces` has not been redeployed on any project since 2026-08-08
+(dev v11, staging v9, prod v9), so the console's send button calls a function
+that does not know the action and fails. What is owed is one deploy per
+environment — `supabase functions deploy operator-workspaces --project-ref
+<ref>` — and 0066 must precede it (already true on dev and staging; on prod,
+0064 and 0066 first). In the wrong order the send reports success and writes no
+certificate. A deploy step, not a defect; the S43b commit messages' "applied to
+NO environment yet" is out of date.
 
 ---
 
@@ -284,36 +245,17 @@ silently, but the egg would still fail to persist. Suite 56 probes `feedback`
 for array-ness only and has **no probe of the size cap, and no accepting control**
 proving a maximal legitimate payload is allowed.
 
-### Migration 0061 is written and NOT applied to any environment
-
-**MEASURED (2026-08-11).** Phase 2 of the build pass fixes the timeline
-dependency write, but the phase→phase half needs `public.phase_dependencies`,
-which migration `0061_phase_dependencies.sql` creates. Nothing has been applied:
-dev, staging and prod are all still at 0060.
-
-**Until it is applied, on every environment:** task→task links work (that half is
-a pure client fix — the `COLUMN_ALLOWLIST` entry), and phase→phase links fail
-with a visible error rather than silently. The client degrades deliberately —
-`listDependenciesWith` absorbs `42P01`/`PGRST205` on `phase_dependencies` — so
-the missing table costs phase edges and nothing else.
-
-✅ **The SQL HAS been executed against real Postgres** — via
-`scripts/tap-hosted.py` against hosted **wilson-dev**, in one rolled-back
-transaction, so nothing was committed:
-
-- migration + suite: **planned 12 / collected 12 / passed 12 / failed 0**
-- migration applied **twice** then the suite: **12 / 12 / 12 / 0**, so the
-  idempotency the header claims is measured rather than asserted
-
-`collected == planned` in both runs, which is the check that matters — a pgTAP
-function the shim does not implement still burns a test number and never reaches
-the collector, so a shortfall means the run is lying about coverage rather than
-merely failing.
-
-⚠️ Still **not applied** anywhere. The rolled-back run proves the SQL is valid
-and its post-conditions hold; it does not put the table on any environment.
-→ Apply order: CI green, then dev, then staging, then prod, verifying **by
-query** after each, never by exit code.
+### ~~Migration 0061 is written and NOT applied to any environment~~ — APPLIED on all three (re-verified 2026-09-04)
+Deleted per the rule for this file. `public.phase_dependencies` exists and
+`0061` is recorded in `supabase_migrations.schema_migrations` on wilson-dev,
+wilson-staging and wilson-prod, queried on 2026-09-04 through three throwaway
+`--workdir` links with a per-environment discriminator (`inet_server_addr()`
+and the workspace count differ on each; the repo's own link to dev was never
+touched). The entry was written on 2026-08-11 and the migrations were applied
+on 2026-08-12 (`docs/fixes/README.md` records 0000–0063 on all three); nobody
+came back to this file. ⚠️ Phase→phase links have still **not been re-tested
+by Audrey** since the table arrived — a verification item recorded in
+`docs/fixes/README.md`, not a defect.
 
 ### A dependency rewire deletes before it links, so a failed link is data loss
 
@@ -386,37 +328,17 @@ appears in it exactly once, inside a comment describing
 desktop project to the cloud arrives with an empty Gantt link set, no error, and
 no indication anything was lost.
 
-### Migration 0059 dropped two columns from `workspace_directory()`
-
-**MEASURED (2026-08-12) on wilson-dev.** `workspace_members` carries
-`grant_rate_card_view` and `grant_rate_card_edit`; `workspace_directory()` names
-**neither** in its `RETURNS TABLE` list. 0059 DROPped and re-CREATEd that RPC to
-add `is_full_time` and did not carry the two grant columns across.
-
-0059's own header warned about precisely this — *"a column the function does not
-name is INVISIBLE to every client no matter how correct the table is"* — and the
-rebuild dropped two anyway. **When a migration re-creates a function with an
+### ~~Migration 0059 dropped two columns from `workspace_directory()`~~ — FIXED by 0060, APPLIED on all three (re-verified 2026-09-04)
+Deleted per the rule for this file. `workspace_directory()`'s `RETURNS TABLE`
+list names `grant_rate_card_view` and `grant_rate_card_edit` again on
+wilson-dev, wilson-staging and wilson-prod, and `0060` is recorded on all three
+(queried 2026-09-04; applied 2026-08-12 per `docs/fixes/README.md`). The Admin
+Terminal's rate-card toggles therefore read the table's values again instead of
+`undefined`. ⚠️ Nobody has watched those toggles since — an eyeball check, not
+an entry. The lesson stands: **when a migration re-creates a function with an
 explicit column list, the risk is not the column you are ADDING; it is every
-column already there.**
-
-**Impact is narrower than it looks, and the distinction matters:**
-
-- **Enforcement is UNAFFECTED.** `useRateCardAccess.js` reads the grants
-  straight off the table (`.from('workspace_members').select(...)`), not through
-  this RPC. Nobody gained or lost rate-card access.
-- **Display lies.** Anything reading the grants from the DIRECTORY gets
-  undefined, which coerces to false. `UsersSection.jsx`'s
-  `!!member.grant_rate_card_view` toggles in the Admin Terminal read OFF for
-  everyone regardless of what the table says.
-
-⚠️ **Dev is MEASURED. staging and prod are INFERRED** — the same migration ran
-there, so the same loss is expected, but neither has been queried.
-
-→ **Migration 0060 is written and NOT applied**
-(`0060_restore_directory_grant_columns.sql`): DROP + CREATE restoring both grant
-columns, keeping `is_full_time`, column order matching 0021, plus a
-post-condition that asserts all three names are present. Applying it to any
-environment is Audrey's call.
+column already there** — and 0060's post-condition asserts all three names, so
+the next rebuild cannot drop them silently.
 
 #### How it stayed hidden for two days — the part worth keeping
 
@@ -850,9 +772,10 @@ had ever written, so every export WILSON produced carried an empty quiz
 history while presenting itself as complete. Both backends now ship one
 honest top-level `quiz_history`.
 
-### A non-admin has no way to submit a course to the company library, and nowhere to ask
-**MEASURED against source, migrations and pgTAP (2026-08-12, Phase 5). Product
-decision owed by Audrey — nothing is scheduled.**
+### ~~A non-admin has no way to submit a course to the company library, and nowhere to ask~~ — FIXED (Phase 5, migration 0064, `a7d87c5` + `fb17ac7`)
+Deleted per the rule for this file — built the same day as course nominations
+(the BUILT block below). The original finding is kept because its three
+specifics still hold for the promotion path.
 
 `otter_courses.visibility` has three tiers, and `company_standard` is admin-only
 at the **database** level: `fn_otter_pin_course_identity` gates it on
@@ -912,26 +835,30 @@ the submit panel in `ShareCourseDialog` and the review surface in `RequestsView`
 assertion above is a unit test or a rolled-back transaction. The feature has
 never round-tripped through a real browser against a real database.
 
-Still owed before this can be considered done:
-- ✅ dev AND staging applied + verified (2026-08-12); link restored to dev.
-  Staging was preflighted to confirm it sat at the pre-0064 shape before the
-  three `CREATE OR REPLACE` objects were replaced, and post-checked to confirm
-  every pre-existing arm survived (owner arm, both silent-revert assignments,
-  the 0025 review-window arm, the editor arm, still no `current_app_role` in the
-  SELECT policy) and its 2 courses / 0 change requests were untouched. pgTAP 70
-  green against the APPLIED schema on both. **PROD still owed.**
-  ⚠️ **Staging backs the beta**, so the schema is live there while the CLIENT is
-  not deployed — which is the safe order. Pushing the branch is what turns the
-  feature on for `tester`.
-- a human walkthrough: submit as a plain member, approve as a manager, confirm
-  the incumbent stood down, confirm the read window opens AND closes
-- ⚠️ **`maySuggest`'s dead-end (below) gets worse with this feature**: approving
-  a nomination DEMOTES the incumbent standard, so every fork of it immediately
-  starts showing a "Suggest a change…" item whose POST cannot succeed.
-- ⚠️ **A manager can approve their own nomination.** The RPC checks role, not
-  authorship, and the UI hides the controls on your own row but the route is
-  open. Deliberate for now — a manager already has the authority — but it is an
-  unreviewed self-promotion path and Audrey has not ruled on it.
+What remains is not this file's kind of entry, and is tracked elsewhere:
+- **Prod is at 0063** — re-measured 2026-09-04: no `otter_course_nominations`
+  table there; dev and staging have it, with 0064 applied and verified on both
+  on 2026-08-12 (staging preflighted before its three `CREATE OR REPLACE`
+  objects were replaced and post-checked afterwards; pgTAP 70 green against the
+  applied schema). Environment state — `docs/fixes/README.md`.
+- **A human walkthrough is owed:** submit as a plain member, approve as a
+  manager, confirm the incumbent stood down, confirm the read window opens AND
+  closes. `docs/RELEASE_TESTING.md`.
+- ⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
+  approving a nomination DEMOTES the incumbent standard, so every fork of it
+  immediately starts showing a "Suggest a change…" item whose POST cannot
+  succeed.
+
+### A manager can approve their own nomination
+**MEASURED in code (2026-08-12, Phase 5); decision owed by Audrey.** The
+nomination RPC checks the caller's role, not authorship, and the UI only hides
+the decide controls on your own row — the route is open. So a manager can
+nominate their own course and approve it in one sitting: an unreviewed
+self-promotion path. Deliberate for now, because a manager already holds the
+authority to promote by hand, and **Audrey has not ruled on it.** Split out of
+the closed entry above on 2026-09-04 so it does not sit under a FIXED heading.
+→ If she wants it closed: refuse in the RPC when the nominator is the caller,
+with a pgTAP probe and a breaker.
 
 ### "Suggest a change…" is offered on forks of a demoted standard, where it cannot work
 **MEASURED at code level (2026-08-12, Phase 5); NOT observed at runtime.**
@@ -1606,6 +1533,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S40 (2026-08-09) | **three entries, none of them a regression and one of them a narrowing.** (a) **the loopback server has no auth, and S40 raised what that discloses** from manifests and 256px derivatives to original media bytes — pre-existing shape, materially bigger stake, and the three parts S40 *could* fix in scope were fixed. (b) **professional codecs have no preview until an ffmpeg binary is installed** — an install step, recorded because the feature Audrey asked for is not complete without it and nothing in the app says so. (c) **a managed video added before ffmpeg is installed keeps its icon**, because the two decoders have different reach. No migration; migrations stay 0000–0054 and pgTAP stays 64 suites. 🚨 **The finding of the session is that S40's own headline change silently killed a feature that had nothing to do with video.** Inserting `await getWorkspaceStorageCached()` ahead of `Array.from(fileList)` in `handleAddCloudFiles` moved the read into a microtask — and the picker's `onChange` does `handler(e.target.files); e.target.value = ''`. **MEASURED in Electron 33's own Chromium: `input.files` returns ONE FileList object that `value=''` empties IN PLACE** (`{sameObject: true, afterLength: 0}`), so **every cloud upload on the beta and on desktop-in-cloud-mode became a silent no-op** — no rows, no error, no console output. Caught by the pre-deploy adversarial review; **no wiring test could have seen it, because they grep source text and this is an ORDERING property.** 🚨 **Second: the containment base was itself client-controlled.** `resolveProjectFolderRoot` joined `folder_slug` — written verbatim from `req.body` by the project POST and the PATCH spread — under the configured root, so `folder_slug: '../../../..'` turned `D:\WilsonRoot\Projects` into `D:\` and every `resolveContainedFilePath` below it faithfully contained against a directory the caller chose. Pre-existing since the folder tree; S40 is where it stopped being survivable, because the stream route returns original bytes of any type instead of a 256px JPEG of an image. **Verified by running the real expressions, fixed at the resolver AND both writers** — the resolver half is load-bearing, because a bundle already on disk may carry a poisoned slug. ⚠️ **And the review's value was not only in its findings: writing the test for one of them exposed a bug the review missed** — `resolveFfmpegPath`'s env override short-circuited on `existsSync` and so was the one path exempt from the "must be a file" rule it was written to enforce. **17 of 37 findings were confirmed and fixed** (5 high), against code already green on 1315 assertions and 16/16 breakers; the breaker set is now **33/33**. | **nothing was on this list for S40 to remove.** ⚠️ The S44 entry *"a BYO workspace's thumbnails have no browser preview"* was **annotated, not closed**: it asked that S40 decide the same question for video stills, and S40 decided it the same way — **generate, do not display** — so s3 playback and s3 still-display are deferred together, for the same two measured reasons (no batch presign; no S3 workspace on any environment to verify one against). ⚠️ Comment blocks re-counted at close-out: still pairing. |
