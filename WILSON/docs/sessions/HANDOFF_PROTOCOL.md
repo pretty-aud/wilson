@@ -129,6 +129,15 @@ English, fixed / diagnosed / hers to do.
   take.
 - `feat/multi-user-v1` auto-deploys the staging-backed beta on push. A merge
   is a deploy; its migration must already be on staging.
+- **Shared docs have no single owner, so edit them narrowly.** `OUTSTANDING.md`,
+  `SYSTEMS_HANDBOOK.md`, `CHANGELOG.md`, `MASTER_PLAN*.md`, `OWED_AUDREY.md`,
+  `RELEASE_TESTING.md`, `NETWORK_STORAGE_DESIGN.md`: change only the lines
+  about your own bundle, append rather than restructure, never reflow a
+  paragraph you did not write. Three tracks touch these files; the merges
+  must stay trivial.
+- **Discard lockfile noise.** `npm install` in a fresh worktree tends to
+  rewrite `WILSON/package-lock.json`; `git checkout -- WILSON/package-lock.json`
+  before committing unless you deliberately changed `package.json`.
 
 ## 7. What the controller session does
 
