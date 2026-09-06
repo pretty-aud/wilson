@@ -1604,9 +1604,17 @@ Every relink writes a `relinked` event, including a base-folder change itself.
 
 ### 12.3 `file_events` — the lifecycle stream
 
-Vocabulary (a CHECK constraint, not a convention): `uploaded`, `moved`,
-`relinked`, `trashed`, `restored`, `purged`. Cloud path changes emit `moved`;
-local relink emits `relinked`.
+Vocabulary (a CHECK constraint, not a convention): `uploaded`, `downloaded`
+(0047), `moved`, `relinked`, `trashed`, `restored`, `purged`, and
+`upload_abandoned` (0073). Cloud path changes emit `moved`; local relink emits
+`relinked`. `upload_abandoned` is written **only** by
+`sweep_abandoned_uploads()` (§12.4): a resumable upload whose
+`upload_reservations` row expired unreleased with no object landed. Its
+`file_id` is a SURROGATE — the fragment never had a `files` row — so the
+per-file audit drawer never shows one; the workspace takeout and the
+`WIL-3003` cleanup counts do. 0057 added the term without a writer and 0058
+withdrew it; suite 66 probe 27 now asserts the term and the writer land
+together.
 
 Written **only** by `trg_files_lifecycle` → `fn_file_events_capture()`
 (SECURITY DEFINER). INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
@@ -1644,6 +1652,20 @@ Function (adminGuard, workspace-scoped) then does three jobs:
    reads (max_rows applies to service_role too — the unpaged version deleted
    *current* avatars past the cap), removing anything that is not a member's
    current `avatar_url` and older than 24 hours.
+4. **Abandoned-upload certification (0073, Track C)** — calls
+   `sweep_abandoned_uploads(workspace_id)`: every `upload_reservations` row
+   past its 24 h expiry that was never released is closed as `completed` (its
+   object landed, or a `files` row names the path) or `abandoned` (one
+   `file_events` `upload_abandoned` row, TPN-CONT-017). The counts land on the
+   certificate as `reservations_abandoned` / `reservations_completed`, and
+   `reservation_sweep_failed: true` says the RPC itself failed — a database
+   without 0073 — rather than letting 0/0 claim a sweep that never ran. It
+   destroys nothing (the partial is reaped by Supabase's own 24 h TUS expiry,
+   which nothing here can see), so TS-1.5's dual-authorisation argument does
+   not bind it and the same function also runs **hourly under pg_cron**
+   (`wilson-sweep-abandoned-uploads`, `39 * * * *`) across all workspaces; the
+   per-workspace call here is so an admin's cleanup click certifies now rather
+   than within the hour.
 
 🚨 **A row is not the only thing that makes an object wanted — the RESERVED
 rule (S36).** R.A.B.B.I.T. writes two objects straight to the bucket with **no
@@ -3322,16 +3344,33 @@ of a session — this section is limits by design, that file is faults.
   hold one clip next to a 50 GiB per-file cap. The number lives ONLY in
   `storage_free_tier_bytes()`; the client reads the resolved figure back from
   `workspace_storage_usage()`.
-- ⚠️ **CONCURRENT uploads can still exceed the quota, and this is OPEN.** Each
-  in-flight resumable upload is invisible to the others until it completes, so
-  two 30 GiB uploads started together against a 50 GiB quota both pass their
-  creation check. 0057 tried to close this by metering
-  `storage.s3_multipart_uploads.in_progress_size`; **0058 removed that because
-  WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects —
-  that table is written only by the S3-compatible protocol handler WILSON never
-  calls, so the arm summed a permanently empty set while claiming to close the
-  hole.** Suite 66 probe 13 now asserts the meter does NOT move, so re-adding it
-  fails there first. Recorded in `OUTSTANDING.md`.
+- ✅ **CONCURRENT uploads can no longer exceed the quota (0073, Track C).** A
+  resumable upload RESERVES its bytes in `public.upload_reservations` before
+  `tus.Upload.start()` — `reserve_upload_bytes(path, bytes)`, SECURITY DEFINER,
+  evaluating the SAME predicate as the policy under a per-workspace advisory
+  lock — and `workspace_petal_bytes()` adds active reservations to the total
+  the RESTRICTIVE policy weighs, so the second of two uploads that together
+  exceed the quota is refused at START, with the standing over-quota sentence
+  (HTTP 402 through PostgREST, SQLSTATE `PT402`). 0057's attempt metered a
+  table TUS never writes; suites 66/13 and 77/48 both assert that meter still
+  does not move. **Two things that had to be true at once:** the policy now
+  passes the object's own key (`rabbit_petal_storage_ok(project, incoming,
+  path)`) so an upload's own reservation is never weighed against it, at the
+  tus trial insert or at completion; and the reservation arm EXCLUDES any
+  reservation whose object has landed, so object and reservation are never both
+  in `used` for the same instant, whatever the client does next — suite 77
+  probes 23–27, proven by breakers. **Limits, both directions:** only the
+  resumable path (bodies over 50 MiB) reserves — a standard PUT lands in one
+  request and is weighed as it lands; a reservation lasts 24 h (Supabase's own
+  TUS URL expiry, past which the upload cannot complete anyway) and a lapsed
+  one cannot admit an over-quota object because the policy re-weighs at commit;
+  reserved space shows as USED in `workspace_storage_usage()` and the operator
+  summary until the upload lands, is released, or expires; a database without
+  0073 makes the client upload UNRESERVED (PostgREST `PGRST202`, said in the
+  console) with the policy still gating at commit — exactly the pre-0073
+  behaviour, never a refusal. An abandoned upload's reservation expires and is
+  certified `upload_abandoned` by the sweep (§12.4): the certificate names the
+  abandonment, not the disposal of bytes, which SQL cannot see.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious

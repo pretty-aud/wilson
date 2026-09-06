@@ -349,10 +349,17 @@ one binds first.
 >    handler WILSON never calls. The arm summed a permanently empty set, and the
 >    three pgTAP probes asserting the closure passed only on rows the suite
 >    inserted itself.
-> 5. 🚨 **TPN-CONT-017 IS NOT ADDRESSED, for the same reason.** 0057 added an
->    `upload_abandoned` event term and a nightly sweep; 0058 removed both. TUS
->    partials are reaped by Supabase's own 24h expiry, which SQL can neither see
->    nor certify.
+> 5. ✅ **TPN-CONT-017 IS ADDRESSED BY 0073 (Track C, 2026-09-06)** — not by
+>    seeing the partial, which SQL still cannot, but by a WILSON-side
+>    reservation (`public.upload_reservations`) written before
+>    `tus.Upload.start()`: one that expires unreleased with no object landed
+>    is certified `upload_abandoned` by `sweep_abandoned_uploads()` (storage-gc
+>    per workspace on every cleanup; pg_cron hourly across all). The
+>    certificate claims the abandonment, not the disposal — Supabase's 24 h
+>    TUS expiry reaps the bytes. The same row is what closes note 4's
+>    concurrency hole: `workspace_petal_bytes()` adds active reservations, the
+>    policy weighs them, and the second of two over-quota uploads is refused at
+>    start (pgTAP suite 77; handbook §12.4, §17).
 > 6. ⚠️ **The write ceiling was raised a thousandfold and the READ side was not.**
 >    `downloadFile` buffered the whole object into a Blob, so the product could
 >    accept files it could never give back. Fixed in the same session with a

@@ -1422,58 +1422,6 @@ previews" action to the Files view. Small. **Not scheduled.**
 
 ---
 
-### Concurrent resumable uploads can exceed a workspace's Petal quota
-
-**MEASURED at code level (S42, 2026-08-10); not observed at runtime.** Each
-in-flight resumable upload is invisible to every other one until it completes,
-so two 30 GiB uploads started together against a 50 GiB quota both pass their
-creation check and both land. The gate is correct for one upload at a time and
-has no view of the rest.
-
-🚨 **S42 tried to close this and the fix was built on a false premise, which is
-the part worth keeping.** Migration 0057 taught `workspace_petal_bytes` to count
-`storage.s3_multipart_uploads.in_progress_size`, and pgTAP suite 66 asserted in
-three probes that the hole was shut. Both were wrong: WILSON uploads over **TUS**
-(`/storage/v1/upload/resumable`), and storage-api keeps TUS state in S3 `.info`
-objects via `@tus/s3-store` with an in-process cache — it writes nothing to
-Postgres. That table is populated only by the **S3-compatible protocol handler**
-(`/storage/v1/s3/…`), which WILSON never calls. The arm summed a permanently
-empty set, and the three probes passed only on rows the suite inserted itself.
-Migration 0058 removed it; suite 66 probe 13 now asserts the meter does **not**
-move, so re-adding it fails there first.
-
-Verified against storage-api v1.68.1 source, and consistent with the live
-databases: `storage.s3_multipart_uploads` holds 0 rows on dev.
-
-→ Closing it properly needs a reservation the gate can see — a WILSON-side row
-written at upload creation and cleared on completion or expiry — which is its own
-design, not a patch. **Not scheduled.** Exposure today is one company with
-concurrent multi-GB uploads, and billing is manual.
-
-### TUS partial objects have no WILSON-side lifecycle (TPN-CONT-017)
-
-**MEASURED (S42, 2026-08-10).** An abandoned, interrupted or superseded
-resumable upload leaves a partial in Supabase's own S3 bucket. WILSON cannot
-enumerate it, cannot count it, and cannot certify its disposal: `file_events` is
-fed from `files`-row transitions a fragment never had, and the fragment is not in
-Postgres at all.
-
-S42's brief asked for this to be designed **with** the feature rather than after
-it, and 0057 did add an `upload_abandoned` event term plus a nightly
-`purge_abandoned_uploads()` sweep. **0058 removed both**, because they operated on
-the table above that WILSON's uploads never write — a lifecycle term with no
-writer and a sweep with nothing to find are the same defect twice.
-
-⚠️ **The bytes are not orphaned forever** — `@tus/s3-store` is constructed with
-`expirationPeriodInMilliseconds` and Supabase expires a resumable upload at 24h.
-So this is a **certification** gap, not a disposal gap: the fragments do go, and
-WILSON has no evidence that they did.
-
-→ Needs either a WILSON-side record written at upload creation (which would also
-close the quota entry above — one design serves both), or an explicit statement
-in the TPN pack that partial-upload disposal is the platform's control and not
-ours. **Audrey's call which.** Not scheduled.
-
 ### pgTAP suite 35 cannot pass on staging or prod — its counts are unscoped
 
 **MEASURED (S42, 2026-08-10).** `node scripts/tap-all.mjs` is 66/66 clean
@@ -1533,6 +1481,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Track C / bundle C1, reservation half (2026-09-06) — migration 0073, pgTAP suite 77, `68f97fe` on `track-c-storage` | **nothing.** | **Two entries, both fixed by `68f97fe`:** (a) *concurrent resumable uploads can exceed a workspace's Petal quota* — an upload above 50 MiB now reserves its bytes in `upload_reservations` before `tus.Upload.start()`, and the RESTRICTIVE policy weighs active reservations, so the second of two uploads that together exceed the quota is refused at START with the standing sentence (suite 77, 53 probes, seven breakers; the object's own reservation is excluded from the weighing, and a reservation stops counting the instant its object lands, so nothing is ever counted twice); (b) *TUS partial objects have no WILSON-side lifecycle (TPN-CONT-017)* — a reservation that expires unreleased with no object landed is certified `upload_abandoned` by `sweep_abandoned_uploads()` (storage-gc per workspace on every cleanup, pg_cron hourly), the term 0057 added and 0058 withdrew, now with a writer. The certificate names the abandonment, not the disposal of bytes, which SQL still cannot see. ⚠️ 0073 is on **dev** by query; the **staging** apply was refused twice by the session's permission classifier and is the next session's first action, so the bundle cannot merge yet. **The BYO-display entry stays**: no s3 workspace exists on any environment (all three re-measured 2026-09-06), so C1's display half waits on Audrey's test bucket. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
