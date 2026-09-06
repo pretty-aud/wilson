@@ -6,6 +6,15 @@ Written 2026-08-01, at the end of S18, from Audrey's first real testing pass.
 and stays canonical for anything already shipped. **This file is the forward
 plan** and is superseded by each session's own close-out.
 
+> ⭐ **2026-09-04: for ORDERING, read `FIX_PLAN_2026-09-04.md` first.** It
+> records Audrey's 41 rulings on every known problem and the session sequence
+> that follows (fix sessions on this branch → UI overhaul → release test →
+> merge PR #4 with a merge commit → tag). This file keeps the standing rules
+> and the ledger; where the two disagree on what comes next, the fix plan
+> wins until it is exhausted. Two rulings reverse entries below: Google Drive
+> (S38) is back INSIDE the first release, and the agent surface is to be built
+> for real rather than left prompt-only.
+
 ---
 
 ## How to read this
