@@ -643,7 +643,21 @@ Deno.serve(async (req: Request) => {
   //    already tear this company down. It reveals nothing about anyone outside
   //    the workspace they named.
   if (action === 'admin_contact') {
-    const admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    // 🚨 CAUGHT, exactly as send_setup_link catches it. loadFoundingAdmin THROWS
+    //    on a failed lookup — that is the R1 correction that made it the one
+    //    shared query — and Deno.serve wraps this function in no error handler,
+    //    so an uncaught throw here was a bare 500 with no CORS headers and no
+    //    JSON body, which the browser refuses to hand to the console. A
+    //    transient PostgREST or GoTrue hiccup on this READ therefore surfaced as
+    //    "Network error — check your connection." instead of admin_lookup_failed's
+    //    own sentence. The helper's failure contract changed in R1 and only one
+    //    of its two callers followed it. Found by the R2 review (Track A, A1).
+    let admin0
+    try {
+      admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    } catch (err) {
+      return reply({ error: 'admin_lookup_failed', detail: String((err as Error)?.message ?? err) }, 500)
+    }
     if (!admin0) return reply({ error: 'no_admin' }, 409)
     return reply({
       email: admin0.email,

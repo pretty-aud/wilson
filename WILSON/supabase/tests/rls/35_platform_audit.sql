@@ -168,8 +168,13 @@ SELECT throws_ok(
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
+-- Two fixture operators, not one: user_a is the session under test and user_b
+-- is the OTHER operator that probe 19 must be able to see. Before Track A (A1)
+-- the roster probe counted the whole table, which on a live environment
+-- includes real operators — see the note on probe 19.
 INSERT INTO public.platform_operators (user_id)
-VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
+VALUES ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'),
+       ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
 ON CONFLICT (user_id) DO NOTHING;
 
 SELECT tests.login_as(
@@ -186,8 +191,17 @@ SELECT ok(
 
 -- 17: the operator now reads the stream, including rows for workspaces they
 -- are not a member of (ws-doomed).
+-- Scoped to the two fixture workspaces, NOT count(*) over the table. Staging
+-- carries REAL platform_audit rows (3, measured by S42 on 2026-08-10 and again
+-- by Track A on 2026-09-06), so the unscoped count read 5 there and this suite
+-- could never be clean against the environment the beta runs on. The
+-- cross-tenant claim survives the scope: ws-doomed is still a workspace this
+-- operator is not a member of. Same fix S33 made to suites 56/57 (439f702) —
+-- a postgres-side read has no RLS scope of its own and must bring one.
 SELECT is(
-  (SELECT count(*)::int FROM public.platform_audit),
+  (SELECT count(*)::int FROM public.platform_audit
+    WHERE workspace_id IN ('11111111-1111-1111-1111-111111111111',
+                           '33333333-3333-3333-3333-333333333333')),
   2, 'an operator reads platform_audit across every workspace'
 );
 
@@ -203,9 +217,16 @@ SELECT throws_ok(
 
 -- 19: operators can see each other (0002 gave platform_operators a
 -- self-SELECT arm only, so a console roster needed the new policy).
+-- Scoped to the two fixture operators for the same reason as 17: staging has a
+-- real operator row, so the unscoped roster count read 2 against a want of 1.
+-- The count is 2 on purpose — user_b's row is the one 0002's self-only arm
+-- would have hidden, so seeing it is what proves the roster policy. Scoping
+-- to user_a alone would have turned this into a test of the self arm.
 SELECT is(
-  (SELECT count(*)::int FROM public.platform_operators),
-  1, 'an operator can list the operator roster'
+  (SELECT count(*)::int FROM public.platform_operators
+    WHERE user_id IN ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+                      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')),
+  2, 'an operator can list the operator roster'
 );
 
 -- ── Teardown survival: the gap #34 pin ──────────────────────────────────────
