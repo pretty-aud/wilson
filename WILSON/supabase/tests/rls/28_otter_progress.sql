@@ -135,7 +135,15 @@ RESET ROLE;
 
 DELETE FROM public.otter_courses WHERE id='0c000003-0000-0000-0000-000000000001';
 
-SELECT is((SELECT count(*)::int FROM public.otter_progress),
+-- Scoped to the deleted fixture course, NOT count(*) over the table: this read
+-- runs as postgres (RESET ROLE above), which has no RLS scope of its own, and
+-- staging now carries a REAL study record (have: 1, measured by Track A on
+-- 2026-09-06 — someone used O.T.T.E.R. on the beta). Every other count probe in
+-- this file is implicitly scoped by the self-only policy; a postgres read must
+-- bring its own. The S33 fix to suites 56/57 (439f702) and the Track A fix to
+-- suite 35, applied here.
+SELECT is((SELECT count(*)::int FROM public.otter_progress
+            WHERE course_id = '0c000003-0000-0000-0000-000000000001'),
           0, 'hard-deleting a course cascades away its progress rows');
 
 SELECT tests.login_as('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
