@@ -36,9 +36,15 @@
    §12.1a, §12.4, §12.7a–c), and the auto-memory `wilson_network_storage_design`
    (the BYO-provider rules: a provider is FIVE functions; money-gated files
    never leave Supabase; `rabbit-files` has EIGHT storage policies, not four).
-2. **Cut the worktree:** `git worktree add ../wilson-track-c -b track-c-storage
-   feat/multi-user-v1` from the git root. Check `supabase/.temp/linked-project.json`
-   and `project-ref` say wilson-dev before anything writes.
+2. **Read `HANDOFF_PROTOCOL.md` and do its fresh-worktree setup.** You start
+   inside a worktree the desktop app made for this session (a `claude/…`
+   branch cut from `feat/multi-user-v1`): rename it `track-c-storage` (or check
+   out that branch if a hand-off says it exists), `npm install`, copy
+   `.env.local` from the canonical checkout, and `supabase link` to wilson-dev
+   from `WILSON/` inside the worktree — `supabase/.temp/` is gitignored, so
+   the worktree is UNLINKED until you do. Check `linked-project.json` and
+   `project-ref` say wilson-dev before anything writes. **One bundle per
+   session; hand off at the boundary as the protocol says.**
 3. **Re-measure the STATE and EXPOSURE blocks by query on all three
    environments** with the throwaway-workdir recipe (config.toml + templates/
    in a scratch dir, `link --password ""`, `db query --linked --workdir`, and

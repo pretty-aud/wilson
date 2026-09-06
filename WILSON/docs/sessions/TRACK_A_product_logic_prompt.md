@@ -29,10 +29,15 @@
 1. **Load the `wilson-app` skill** and skim its `versioning.md`. Read
    `docs/fixes/README.md` "Rules that apply to every phase" and
    `docs/sessions/FIX_PLAN_2026-09-04.md` "Rules for running tracks in tandem".
-2. **Cut the worktree:** `git worktree add ../wilson-track-a -b track-a-product
-   feat/multi-user-v1` from the git root (the PARENT `wilson/`). Run the
-   Supabase CLI from `WILSON/` inside it; check `supabase/.temp/linked-project.json`
-   **and** `project-ref` say wilson-dev before anything writes.
+2. **Read `HANDOFF_PROTOCOL.md` and do its fresh-worktree setup.** You start
+   inside a worktree the desktop app made for this session (a `claude/…`
+   branch cut from `feat/multi-user-v1`): rename it `track-a-product` (or check
+   out that branch if a hand-off says it exists), `npm install`, copy
+   `.env.local` from the canonical checkout, and `supabase link` to wilson-dev
+   from `WILSON/` inside the worktree — `supabase/.temp/` is gitignored, so
+   the worktree is UNLINKED until you do. Check `linked-project.json` **and**
+   `project-ref` say wilson-dev before anything writes. **One bundle per
+   session; hand off at the boundary as the protocol says.**
 3. **Re-measure the STATE block**: `git log --oneline -3`, `git status --short`,
    `ls supabase/migrations | tail`, `ls supabase/tests/rls | tail`, and the
    migration history on dev, staging and prod **by query** (the throwaway

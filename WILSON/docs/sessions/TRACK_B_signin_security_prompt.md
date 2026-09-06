@@ -36,9 +36,15 @@
    apply to every phase", `FIX_PLAN_2026-09-04.md` "Rules for running tracks in
    tandem", and `TPN_AUDIT/FINDINGS.md` for TPN-AUTH (sessions, MFA), TPN-LOG
    (auth events, TPN-LOG-007) and TPN-NET (the loopback server).
-2. **Cut the worktree:** `git worktree add ../wilson-track-b -b track-b-auth
-   feat/multi-user-v1` from the git root. Check `supabase/.temp/linked-project.json`
-   and `project-ref` say wilson-dev before anything writes.
+2. **Read `HANDOFF_PROTOCOL.md` and do its fresh-worktree setup.** You start
+   inside a worktree the desktop app made for this session (a `claude/…`
+   branch cut from `feat/multi-user-v1`): rename it `track-b-auth` (or check
+   out that branch if a hand-off says it exists), `npm install`, copy
+   `.env.local` from the canonical checkout, and `supabase link` to wilson-dev
+   from `WILSON/` inside the worktree — `supabase/.temp/` is gitignored, so
+   the worktree is UNLINKED until you do. Check `linked-project.json` and
+   `project-ref` say wilson-dev before anything writes. **One bundle per
+   session; hand off at the boundary as the protocol says.**
 3. **Re-measure the STATE block** and the facts above by grep and by query.
 4. **Read `docs/OUTSTANDING.md`** for: *One hung `getSession()` pins the whole
    app's auth*, *`ResetPasswordWizard` still performs a global sign-out*,
