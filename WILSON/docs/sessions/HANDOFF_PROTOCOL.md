@@ -84,6 +84,12 @@ Run `supabase db query --linked` **one query per call**; three in one shell
 loop hung. Write files longer than ~100 lines with the Write tool, not a
 heredoc.
 
+**Local-only docs.** `docs/fixes/` (the phase briefs and their README) is
+gitignored by Audrey's choice (*"these docs dont need to be pushed"*), so it
+is absent from every worktree. Read those files by absolute path from the
+canonical checkout, `C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON\docs\fixes\`,
+and never add them to git. `.env.local` is the same: copy, never commit.
+
 ## 3. Milestones, and what "check context" means
 
 Milestones are bundle boundaries, the sub-boundaries a brief names, and the
