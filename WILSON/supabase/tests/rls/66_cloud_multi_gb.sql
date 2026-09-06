@@ -460,13 +460,20 @@ SELECT ok(
     LIKE '%downloaded%',
   'the 0057->0058 round trip did not drop 0047''s ''downloaded''');          -- 26
 
--- ...and the term really is gone, so nothing can write a certificate no sweep
--- produces.
+-- Track C / 0073 (2026-09-06): the term is BACK, and this time it has a writer —
+-- public.sweep_abandoned_uploads(), driven by an upload_reservations row the
+-- client writes before tus.Upload.start(). This probe used to assert the
+-- opposite (0058 removed the term with its writer); it now asserts the pair
+-- lands together, and suite 77 drives the writer. A term without a writer and
+-- a writer without a term are the same defect twice, in either direction.
 SELECT ok(
   (SELECT pg_get_constraintdef(oid) FROM pg_constraint
     WHERE conname = 'file_events_event_check')
-    NOT LIKE '%upload_abandoned%',
-  '''upload_abandoned'' is NOT in the vocabulary — 0058 removed it with its writer');
+    LIKE '%upload_abandoned%'
+  AND EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'sweep_abandoned_uploads'),
+  '''upload_abandoned'' is in the vocabulary AND has a writer (0073) — never one without the other');
                                                                             -- 27
 
 -- The sweep is gone with it. A term without a writer and a writer without

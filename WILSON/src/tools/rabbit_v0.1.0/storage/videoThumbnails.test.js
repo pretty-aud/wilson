@@ -416,22 +416,46 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
   // documents the old number in prose (0057 does, twice) would otherwise satisfy
   // a naive `toContain` — the 0038 trap that has now caught this repo three
   // times.
+  //
+  // 🚨 TRACK C / 0073 FOUND THIS PIN PASSING OFF A COMMENT. `executable()` above
+  // strips JS comments, but a migration is SQL and its comments are `--`; so
+  // "the last migration mentioning file_size_limit" was 0058, whose only
+  // executable mention is a post-condition READ, and the "assignment" this test
+  // found was `file_size_limit = 53687091200` in 0058's HEADER PROSE. 0073 reads
+  // the cap in a post-condition too, documents nothing numeric in prose, and
+  // the pin failed — for the right reason, one migration late. Two repairs:
+  // SQL comments are stripped as well, and a migration counts only if it
+  // ASSIGNS the cap (an executable `file_size_limit = N` or a bucket VALUES
+  // row), never because it merely mentions the column.
+  const executableSql = (src) => executable(src).replace(/--[^\n]*/g, '')
+  const capAssignments = (sql) =>
+    [...sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
+      .concat([...sql.matchAll(/VALUES\s*\([^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+
   it('🚨 mirrors the LAST migration that sets rabbit-files file_size_limit', () => {
     const dir = join(REPO, 'supabase', 'migrations')
     const hits = readdirSync(dir)
       .filter(f => f.endsWith('.sql'))
       .sort()
-      .map(f => ({ file: f, sql: executable(readFileSync(join(dir, f), 'utf-8')) }))
-      .filter(({ sql }) => /rabbit-files/.test(sql) && /file_size_limit/.test(sql))
+      .map(f => ({ file: f, sql: executableSql(readFileSync(join(dir, f), 'utf-8')) }))
+      .filter(({ sql }) => /rabbit-files/.test(sql) && capAssignments(sql).length > 0)
 
     expect(hits.length).toBeGreaterThan(0)
 
     const last = hits[hits.length - 1]
     // The assigned value, not merely a number appearing somewhere in the file.
-    const assigned = [...last.sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
-      .concat([...last.sql.matchAll(/VALUES\s*\([^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+    const assigned = capAssignments(last.sql)
     expect(assigned.length).toBeGreaterThan(0)
     expect(assigned).toContain(String(PETAL_MAX_UPLOAD_BYTES))
+  })
+
+  // The repair proven by its own breaker: a migration that only READS the cap in
+  // a post-condition (0058, 0073) must not be the one this pin measures.
+  it('a migration that merely reads the cap is not a candidate', () => {
+    const dir = join(REPO, 'supabase', 'migrations')
+    const readOnly = executableSql(readFileSync(join(dir, '0073_upload_reservations.sql'), 'utf-8'))
+    expect(/file_size_limit/.test(readOnly)).toBe(true)
+    expect(capAssignments(readOnly)).toEqual([])
   })
 
   // ...and the constant is the 50 GiB Audrey chose, stated once so a typo in the

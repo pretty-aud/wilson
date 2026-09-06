@@ -1,0 +1,226 @@
+// =============================================================================
+// uploadReservation.test.js — Track C, bundle C1 (migration 0073).
+//
+// The client half of the quota reservation: reserve BEFORE tus.Upload.start(),
+// refuse to start when the server refuses, release afterwards whatever
+// happened, and degrade to the pre-0073 behaviour ONLY when the RPC does not
+// exist yet. The server half (the meter, the policy, the sweep) is pgTAP suite
+// 77, proven by breakers; nothing here re-tests SQL.
+//
+// The order test is the one that matters: the whole point of the reservation
+// is that the refusal arrives before any byte moves, and a reservation written
+// AFTER start would be a green test over the same hole.
+// =============================================================================
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join, dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+vi.mock('./resumableUpload.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return { ...actual, putResumable: vi.fn(async ({ key }) => ({ key })) }
+})
+
+import { putResumable, RESUMABLE_THRESHOLD_BYTES } from './resumableUpload.js'
+import { createSupabaseStorageProvider } from './supabaseProvider.js'
+import {
+  reserveUpload, releaseUpload, isFunctionMissing, RESERVATION_UNAVAILABLE,
+} from './uploadReservation.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+// Above the 50 MiB threshold, so the provider takes the resumable branch.
+const BIG = { size: RESUMABLE_THRESHOLD_BYTES + 1, type: 'video/quicktime' }
+const KEY = 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a1/1-master.mov'
+
+const OK        = { data: 42,   error: null }
+const EXEMPT    = { data: null, error: null }
+const MISSING   = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.reserve_upload_bytes(p_bytes, p_path) in the schema cache' } }
+const REFUSED   = { data: null, error: { code: 'PT402', message: 'Not enough Petal cloud storage for "1-master.mov": it needs 6144 MB, but only 2048 MB of this company\'s 10 GB is left once uploads already in progress are counted. Add a smaller file, or contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.' } }
+const RELEASED  = { data: true, error: null }
+
+function fakeClient({ reserve = OK, release = RELEASED } = {}) {
+  const calls = []
+  const answer = (which, args) => (typeof which === 'function' ? which(args) : which)
+  return {
+    calls,
+    rpc: vi.fn(async (name, args) => {
+      calls.push([name, args])
+      if (name === 'reserve_upload_bytes') return answer(reserve, args)
+      if (name === 'release_upload_reservation') return answer(release, args)
+      return { data: null, error: { message: `unknown rpc ${name}` } }
+    }),
+    auth: { getSession: async () => ({ data: { session: { access_token: 'tok' } } }) },
+    storage: { from: () => ({ upload: async () => ({ error: null }) }) },
+  }
+}
+
+let warn
+beforeEach(() => {
+  putResumable.mockClear()
+  putResumable.mockImplementation(async ({ key }) => ({ key }))
+  warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+})
+afterEach(() => { warn.mockRestore() })
+
+describe('reserveUpload', () => {
+  it('calls the RPC with the key and a whole-number byte count', async () => {
+    const client = fakeClient()
+    await expect(reserveUpload(client, KEY, 1234.7)).resolves.toEqual({ reserved: true, id: 42 })
+    expect(client.calls).toEqual([['reserve_upload_bytes', { p_path: KEY, p_bytes: 1234 }]])
+  })
+
+  it('NULL from the server means the path is quota-exempt — nothing reserved, nothing to release', async () => {
+    await expect(reserveUpload(fakeClient({ reserve: EXEMPT }), KEY, 5e9))
+      .resolves.toEqual({ reserved: false, reason: 'exempt' })
+  })
+
+  it('PGRST202 means the migration is not there yet — proceed unreserved, and say so', async () => {
+    await expect(reserveUpload(fakeClient({ reserve: MISSING }), KEY, BIG.size))
+      .resolves.toEqual({ reserved: false, reason: RESERVATION_UNAVAILABLE })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0][0])).toMatch(/0073/)
+  })
+
+  it('🚨 a refusal THROWS with the server’s own sentence — the upload never starts', async () => {
+    await expect(reserveUpload(fakeClient({ reserve: REFUSED }), KEY, BIG.size))
+      .rejects.toThrow(/Not enough Petal cloud storage .* deleted files stay recoverable for 30 days/)
+  })
+
+  it('a body with no usable size reserves nothing and calls nothing', async () => {
+    const client = fakeClient()
+    await expect(reserveUpload(client, KEY, undefined)).resolves.toEqual({ reserved: false, reason: 'no-size' })
+    await expect(reserveUpload(client, KEY, 0)).resolves.toEqual({ reserved: false, reason: 'no-size' })
+    expect(client.rpc).not.toHaveBeenCalled()
+  })
+
+  it('does not swallow a network failure — no reservation, no upload', async () => {
+    const client = fakeClient()
+    client.rpc = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    await expect(reserveUpload(client, KEY, BIG.size)).rejects.toThrow(/Failed to fetch/)
+  })
+})
+
+describe('releaseUpload', () => {
+  it('closes the reservation and reports true', async () => {
+    const client = fakeClient()
+    await expect(releaseUpload(client, KEY)).resolves.toBe(true)
+    expect(client.calls).toEqual([['release_upload_reservation', { p_path: KEY }]])
+  })
+
+  it('a server error is reported as false and warned, never thrown', async () => {
+    const client = fakeClient({ release: { data: null, error: { message: 'boom' } } })
+    await expect(releaseUpload(client, KEY)).resolves.toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a thrown network error is reported as false and warned, never thrown', async () => {
+    const client = fakeClient()
+    client.rpc = vi.fn(async () => { throw new TypeError('Failed to fetch') })
+    await expect(releaseUpload(client, KEY)).resolves.toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('"nothing to close" is false, not an error', async () => {
+    await expect(releaseUpload(fakeClient({ release: { data: false, error: null } }), KEY)).resolves.toBe(false)
+  })
+})
+
+describe('isFunctionMissing', () => {
+  it('recognises PostgREST’s missing-function shape by code or by message', () => {
+    expect(isFunctionMissing({ code: 'PGRST202', message: 'x' })).toBe(true)
+    expect(isFunctionMissing({ message: 'Could not find the function public.reserve_upload_bytes' })).toBe(true)
+  })
+  it('does not mistake a refusal for an absence', () => {
+    expect(isFunctionMissing(REFUSED.error)).toBe(false)
+    expect(isFunctionMissing({ code: '42501', message: 'you cannot write to this project' })).toBe(false)
+    expect(isFunctionMissing(null)).toBe(false)
+  })
+})
+
+describe('the provider: reserve → start → release', () => {
+  it('🚨 an over-quota reservation stops the upload BEFORE tus starts', async () => {
+    const client = fakeClient({ reserve: REFUSED })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).rejects.toThrow(/upload refused: Not enough Petal cloud storage/)
+    expect(putResumable).not.toHaveBeenCalled()
+    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes'])
+  })
+
+  it('reserves BEFORE starting and releases AFTER success, in that order', async () => {
+    const seq = []
+    const client = fakeClient({
+      reserve: () => { seq.push('reserve'); return OK },
+      release: () => { seq.push('release'); return RELEASED },
+    })
+    putResumable.mockImplementationOnce(async ({ key }) => { seq.push('start'); return { key } })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).resolves.toEqual({ key: KEY })
+    expect(seq).toEqual(['reserve', 'start', 'release'])
+    expect(client.calls[0]).toEqual(['reserve_upload_bytes', { p_path: KEY, p_bytes: BIG.size }])
+    expect(client.calls[1]).toEqual(['release_upload_reservation', { p_path: KEY }])
+  })
+
+  it('releases on failure too, and the failure still propagates', async () => {
+    const client = fakeClient()
+    putResumable.mockRejectedValueOnce(new Error('[supabase] resumable upload failed (500): storage-api'))
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).rejects.toThrow(/resumable upload failed \(500\)/)
+    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes', 'release_upload_reservation'])
+  })
+
+  it('a database without 0073 uploads unreserved and never calls release', async () => {
+    const client = fakeClient({ reserve: MISSING })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).resolves.toEqual({ key: KEY })
+    expect(putResumable).toHaveBeenCalledTimes(1)
+    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes'])
+  })
+
+  it('a quota-exempt path (money, manifest) uploads and never calls release', async () => {
+    const client = fakeClient({ reserve: EXEMPT })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).resolves.toEqual({ key: KEY })
+    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes'])
+  })
+
+  it('a failed release does not fail a successful upload', async () => {
+    const client = fakeClient({ release: { data: null, error: { message: 'pooler reset' } } })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).resolves.toEqual({ key: KEY })
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a body under the threshold takes the standard path and never touches the RPC', async () => {
+    const client = fakeClient()
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, new Blob(['tiny']))).resolves.toEqual({ key: KEY })
+    expect(client.rpc).not.toHaveBeenCalled()
+    expect(putResumable).not.toHaveBeenCalled()
+  })
+})
+
+describe('source pins — the call sites exist and sit in the right order', () => {
+  const provider = readFileSync(join(__dirname, 'supabaseProvider.js'), 'utf8')
+  const gc = readFileSync(
+    join(__dirname, '..', '..', '..', '..', 'supabase', 'functions', 'storage-gc', 'index.ts'), 'utf8',
+  )
+
+  it('the provider reserves before it starts the resumable upload', () => {
+    const reserveAt = provider.indexOf('await reserveUpload(client, key, body?.size)')
+    const startAt   = provider.indexOf('return await putResumable({')
+    expect(reserveAt).toBeGreaterThan(-1)
+    expect(startAt).toBeGreaterThan(reserveAt)
+  })
+
+  it('the provider releases in a finally, gated on a reservation having been made', () => {
+    expect(provider).toMatch(/finally \{\s*if \(reservation\.reserved\) await releaseUpload\(client, key\)/)
+  })
+
+  it('storage-gc drives the sweep per workspace and reports a failed RPC rather than hiding it', () => {
+    expect(gc).toContain(".rpc('sweep_abandoned_uploads', { p_workspace_id: ctx.workspaceId })")
+    expect(gc).toContain('reservation_sweep_failed = true')
+    expect(gc).toContain('reservations_abandoned')
+  })
+})

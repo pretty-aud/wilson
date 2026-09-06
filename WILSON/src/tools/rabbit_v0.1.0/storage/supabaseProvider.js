@@ -22,6 +22,7 @@
 // =============================================================================
 
 import { putResumable, shouldUseResumable } from './resumableUpload.js'
+import { reserveUpload, releaseUpload } from './uploadReservation.js'
 import { withTimeout } from '../../../cloud/auth/withTimeout.js'
 
 const BUCKET = 'rabbit-files'
@@ -90,15 +91,29 @@ export function createSupabaseStorageProvider(requireClient) {
         } catch (e) {
           throw new Error(`[supabase] storage upload failed: ${e?.message || 'could not read your session'}`)
         }
-        return putResumable({
-          bucket: BUCKET,
-          key,
-          body,
-          accessToken: token,
-          getAccessToken: readToken,
-          contentType: opts.contentType || body?.type || 'application/octet-stream',
-          onProgress: opts.onProgress,
-        })
+        // ── 🚨 TRACK C / 0073: RESERVE BEFORE tus.Upload.start() ─────────────
+        // The quota policy cannot see an upload until it lands, so the space is
+        // reserved here, first, and an over-quota upload is refused before any
+        // byte moves (reserveUpload THROWS on refusal, so the upload never
+        // starts). Released in the finally — on completion AND on failure —
+        // and the release is best-effort because the meter already stops
+        // counting a reservation the instant its object lands (0073's
+        // NOT EXISTS arm): release timing cannot double-count. An unreleased
+        // row after a crash expires at 24 h and is certified by the sweep.
+        const reservation = await reserveUpload(client, key, body?.size)
+        try {
+          return await putResumable({
+            bucket: BUCKET,
+            key,
+            body,
+            accessToken: token,
+            getAccessToken: readToken,
+            contentType: opts.contentType || body?.type || 'application/octet-stream',
+            onProgress: opts.onProgress,
+          })
+        } finally {
+          if (reservation.reserved) await releaseUpload(client, key)
+        }
       }
 
       const b = await bucket()

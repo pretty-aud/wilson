@@ -86,6 +86,14 @@ type Counts = {
   // apart for the same reason as skipped_reserved — the counter is the
   // evidence the branch exists and fired.
   queue_s3_drained: number
+  // Track C / 0073 (TPN-CONT-017): expired upload reservations this run
+  // classified — certified abandoned (one file_events row each) or closed as
+  // completed. `reservation_sweep_failed` is true when the RPC itself failed
+  // (before 0073 is applied it does not exist) — said rather than hidden, so a
+  // certificate never reads 0/0 for a sweep that did not run.
+  reservations_abandoned: number
+  reservations_completed: number
+  reservation_sweep_failed: boolean
   certify_failed: number
   truncated: boolean
 }
@@ -170,6 +178,7 @@ Deno.serve(async (req) => {
     orphans_deleted: 0, avatar_orphans_deleted: 0,
     skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0,
     queue_s3_drained: 0,
+    reservations_abandoned: 0, reservations_completed: 0, reservation_sweep_failed: false,
     certify_failed: 0, truncated: false,
   }
 
@@ -475,6 +484,32 @@ Deno.serve(async (req) => {
           await certify(ctx, counts, AVATAR_BUCKET, path, 'avatar-orphan', 'deleted', 'not the member\'s current avatar')
         }
       }
+    }
+
+    // ── 4. Abandoned resumable uploads (Track C / 0073, TPN-CONT-017) ──────
+    // An upload_reservations row the client wrote before tus.Upload.start()
+    // and never released, past its 24 h expiry, is the WILSON-side record of a
+    // partial upload. The SQL sweep classifies each one (object landed →
+    // 'completed'; otherwise → 'abandoned' plus one file_events certificate)
+    // and this run reports the counts on its own certificate. It destroys
+    // nothing — the partial is reaped by Supabase's TUS expiry, which nothing
+    // here can see — so TS-1.5's dual-authorisation argument for keeping the
+    // rest of this function admin-invoked does not apply: pg_cron runs the
+    // same sweep hourly across all workspaces, and this per-workspace call is
+    // so an admin's cleanup click certifies now rather than within the hour.
+    //
+    // 🚨 A FAILED RPC IS SAID, NOT SWALLOWED. rpc() resolves for every status;
+    // before 0073 is applied it answers PGRST202, and a certificate that
+    // silently read 0/0 there would claim a sweep that never ran.
+    const { data: swept, error: sweepErr } = await ctx.admin
+      .rpc('sweep_abandoned_uploads', { p_workspace_id: ctx.workspaceId })
+    if (sweepErr) {
+      counts.reservation_sweep_failed = true
+    } else {
+      const row = (Array.isArray(swept) ? swept[0] : swept) as
+        { abandoned?: number; completed?: number } | null | undefined
+      counts.reservations_abandoned = Number(row?.abandoned ?? 0)
+      counts.reservations_completed = Number(row?.completed ?? 0)
     }
 
     await logAdminEvent(ctx, {

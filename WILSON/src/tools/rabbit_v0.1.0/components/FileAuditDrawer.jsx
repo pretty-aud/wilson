@@ -27,6 +27,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   X, RefreshCw, FileClock, Upload, Download, MoveRight, Link2, Trash2, RotateCcw, Flame,
+  CloudOff,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { formatHistoryTimestamp } from './editHistoryFormat'
@@ -41,6 +42,12 @@ export const FILE_EVENT_META = {
   trashed:    { label: 'Trashed',    color: '#fca5a5', Icon: Trash2 },
   restored:   { label: 'Restored',   color: '#4ade80', Icon: RotateCcw },
   purged:     { label: 'Purged',     color: '#f87171', Icon: Flame },
+  // Track C / 0073 (TPN-CONT-017): a resumable upload that never completed —
+  // its reservation expired unreleased. Written by the sweep under a
+  // SURROGATE file_id, so this per-file drawer never shows one; the label is
+  // here so any surface that renders file_events through this map (takeout,
+  // a future project-level stream) has a word for it rather than a blank.
+  upload_abandoned: { label: 'Upload abandoned', color: '#fca5a5', Icon: CloudOff },
 }
 
 export default function FileAuditDrawer({ fileId, projectId, fileName, onClose }) {
