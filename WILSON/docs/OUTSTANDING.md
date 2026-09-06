@@ -63,18 +63,16 @@ what is deployed.**
 `operator-workspaces`' `create` behind `requirePlatformOperator`, and hands
 back a show-once password.
 
-📌 **The emailed setup link Audrey asked for is BUILT and NOT USABLE YET** —
-S43b, `186fa63` + `df257d0`, migration 0066. Measured 2026-09-04: 0066 is
-applied on dev and staging (the `platform_audit` action CHECK carries
-`workspace.invite_sent` on both; prod is at 0063 and does not), but
-`operator-workspaces` has not been redeployed on any project since 2026-08-08
-(dev v11, staging v9, prod v9), so the console's send button calls a function
-that does not know the action and fails. What is owed is one deploy per
-environment — `supabase functions deploy operator-workspaces --project-ref
-<ref>` — and 0066 must precede it (already true on dev and staging; on prod,
-0064 and 0066 first). In the wrong order the send reports success and writes no
-certificate. A deploy step, not a defect; the S43b commit messages' "applied to
-NO environment yet" is out of date.
+✅ **The emailed setup link is DEPLOYED and testable** — S43b (`186fa63` +
+`df257d0`), second-reviewed and shipped by Track A bundle A1 (`5dcff98`,
+2026-09-06): `operator-workspaces` v10 on staging and v12 on dev, both
+hash-verified against the source from a scratch download; migration 0066 was
+already on both by query. Prod has neither 0064, 0066 nor the function — the
+release session does prod, in that order. The R2 round found one defect inside
+the corrections (the read-only `admin_contact` action did not catch the shared
+lookup's throw, so a database hiccup read as "Network error") and fixed it.
+Walkthrough `docs/walkthroughs/02_setup_link.md` is hers; the bundle merges
+after her report.
 
 ---
 
@@ -1474,43 +1472,6 @@ close the quota entry above — one design serves both), or an explicit statemen
 in the TPN pack that partial-upload disposal is the platform's control and not
 ours. **Audrey's call which.** Not scheduled.
 
-### pgTAP suite 35 cannot pass on staging or prod — its counts are unscoped
-
-**MEASURED (S42, 2026-08-10).** `node scripts/tap-all.mjs` is 66/66 clean
-against **dev** and **65/66 against staging**, failing two assertions in
-`35_platform_audit.sql`:
-
-```
-#17 an operator reads platform_audit across every workspace  [have: 5  want: 2]
-#19 an operator can list the operator roster                 [have: 2  want: 1]
-```
-
-Both are **unscoped counts that add real rows to the suite's own fixtures**.
-Staging holds 3 `platform_audit` rows and 1 `platform_operators` row, all dated
-**2026-07-31** — so 3 + 2 fixtures = 5, and 1 + 1 = 2. Nothing about it is new:
-it would have failed identically before S42, and `storage_plan.*` actions on
-staging are **0**, so none of it came from S41 or S42.
-
-It passes on dev only because dev has never had real operator activity. That
-makes it a **latent** failure that appears the first time anyone runs the full
-set against an environment in use — which is exactly what S42 did, and why it
-was found now rather than by reading.
-
-🚨 **This is the class 0055's header names in so many words** — *"Postgres-side
-reads are ALWAYS scoped to the fixture workspaces — dev carries real rows and an
-unscoped count decays the day the feature is used"* — and suite 35 predates the
-rule. Suites 56/57 had the same defect and were fixed in S33 (`439f702`).
-
-⚠️ **The cost is not the two assertions, it is the discipline.** The standing
-rule is "run the whole pgTAP set before pushing a migration", and a set that can
-never be clean on the environment the beta actually runs against trains people to
-read a red result as normal.
-
-→ Scope both probes to the fixture operator and fixture workspaces, exactly as
-S33 did for 56/57. Small and self-contained. **Deliberately not done in S42** —
-it is an unrelated suite and editing it mid-deploy is how a session breaks
-something it was not looking at.
-
 ### `too_large` points at the desktop app, which shares the same ceiling
 
 **MEASURED (S42 review, low).** The over-cap message says *"Add it from the
@@ -1533,6 +1494,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Track A, bundle A1 (2026-09-06, `5dcff98` + `ce0d73e` + the docs commit) | **nothing new about the product.** Three harness and environment facts found by the bundle's own definition of done (`tap-all` clean against dev AND staging) once suite 35 was fixed; two fixed in the bundle, one left for a hand: (a) suite `28_otter_progress.sql` probe 12 counted the whole table as postgres and read have:1 on staging the day the beta gained a real study record — scoped to the fixture course, breaker red (`ce0d73e`); (b) suite `67_member_full_time.sql` had NEVER run through the hosted shim — `scripts/tap-hosted.py` lacked `col_type_is`, `col_not_null` and `col_default_is`, so every hosted full run QUERY FAILED that suite without counting it as red (43 and 49 had rewritten theirs to dodge exactly this) — the three added in the shim's style, each proven to fail on a wrong type, a nullable column and a wrong default (`ce0d73e`); (c) **dev's `file_events_event_check` has drifted back to 0057's eight-value list** (it admits `upload_abandoned`) while 0058 is recorded and every other 0058 artefact is intact — cause unknown, staging is correct, suite 66 probe 27 is red on dev only. The Track A session's DDL against dev was refused by the desktop app's classifier; the exact one-transaction repair with 0058's own post-checks is `docs/sessions/handoffs/track-a-A1-dev-renarrow-0058.sql`, Audrey's or a permitted session's to run. Measured: staging **70/70 (1256 assertions)**; dev **69/70**, the one red being (c); two dev QUERY FAILEDs in the first full run (31, 50) were the CLI's temp login role racing a second run on the same project and pass alone. | **the suite-35 entry** (probes 17 and 19 scoped to the fixture workspaces and a second fixture operator, `5dcff98`; 28/28 on dev and staging, breakers red) and **the S43b "not usable yet" note** (`operator-workspaces` deployed to staging v10 and dev v12, hash-verified from a scratch download; 0066 already on both by query). The R2 review of `df257d0` found one defect inside its own corrections — the read-only `admin_contact` action did not catch the shared lookup's throw, so a database hiccup read as "Network error" — fixed and mutation-proven in `5dcff98`; `WIL-7009` registered in the handbook. Five walkthroughs in `docs/walkthroughs/`, every label grep-verified. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |

@@ -998,7 +998,8 @@ environment.
 
 ### 5.4 `operator-workspaces`
 
-Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
+Actions: `list`, `create`, `rename`, `admin_contact`, `send_setup_link`,
+`suspend`, `restore`, `teardown`.
 
 - `list` — paged calls to `operator_workspace_summary()`, the **single**
   cross-tenant read in the system. Returns per-company member/active/admin
@@ -1010,6 +1011,33 @@ Actions: `list`, `create`, `rename`, `suspend`, `restore`, `teardown`.
 - `rename` — name only; the slug is immutable by trigger.
 - `suspend` / `restore` — set and clear `workspaces.deleted_at`, with
   `already_suspended` / `not_suspended` conflict guards.
+- `admin_contact` (S43b, shipped by Track A bundle A1) — read-only. Returns
+  the company's founding admin — the oldest active `app_role = 'admin'`
+  membership by `created_at`, with the address read from the **auth** user —
+  plus `deliverable` (false for a synthesized address: `@wilson.invalid` from
+  `create`, or `wilson.<workspace8>.<local>@mail.petalstudios.co` from
+  `admin-create-user`) and `suspended`. It exists because `send_setup_link`
+  demands the address typed back and no other operator surface showed it:
+  `operator_workspace_summary()` returns counts, and the create-time
+  credentials dialog is show-once. Both actions read through ONE helper,
+  `loadFoundingAdmin()`, so the address displayed and the address demanded
+  cannot diverge; the helper throws on a failed lookup and both callers catch
+  it as `admin_lookup_failed` (the R2 review found the read-only caller had
+  not).
+- `send_setup_link` (S43b) — emails the founding admin a **recovery** link
+  (not an invite: the auth user already exists with `email_confirm: true`).
+  Refuses, in this order, a suspended company (`already_suspended`), a
+  synthesized address (`email_synthesized`) and a `confirm_email` that does
+  not match the address on file (`email_mismatch`, compared
+  case-insensitively); a failed send is surfaced as `send_failed` (502) and
+  never certified. On success it certificates `workspace.invite_sent`
+  (`WIL-7009`) with `context.sent_to` and `context.admin_username`. The
+  recovery TEMPLATE decides where the link points (`{{ .SiteURL }}`), not the
+  `redirectTo` hint. Limits: both actions share the operator **write** rate
+  bucket (`OPERATOR_WRITE_RPM`, 20/min), so opening the field and sending
+  spend two tokens; the console's Audit table shows the action, the message
+  and the expanded `context`, not the `WIL-` code; and re-sending is allowed —
+  nothing rate-limits a second link to the same company beyond that bucket.
 
 **Teardown — the ORDER is the design.** Reading it in sequence is the only way
 to understand why it cannot be simplified:
@@ -3759,6 +3787,7 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
+| `WIL-7009` | `workspace.invite_sent` — a setup link was emailed to a company's founding admin (S43b); the address is in `context.sent_to` | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
 
 ---
