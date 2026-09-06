@@ -136,8 +136,9 @@ function unwrap({ data, error }) {
 //
 // Only "relation does not exist" is absorbed. An RLS refusal, a network fault
 // or any other error still throws, because those must not look like an empty
-// list — that is precisely the mistake useRosterMembers makes, where a broken
-// RPC and an empty workspace are indistinguishable at every call site.
+// list — that was precisely the mistake useRosterMembers made until B1, where
+// a broken RPC and an empty workspace were indistinguishable at every call
+// site (it returns `error` now).
 // unwrap() itself cannot do this: it raises a new Error and drops `.code`.
 function unwrapOptionalTable({ data, error }) {
   if (error) {
@@ -2051,8 +2052,8 @@ export function supabaseAdapter() {
     // an empty set rather than an error, so there is nothing to swallow, and
     // swallowing a genuine failure here would make a broken budget look like
     // an empty one. That distinction is exactly what useRosterMembers got
-    // wrong (OUTSTANDING: an RPC failure and an empty workspace are
-    // indistinguishable at every call site).
+    // wrong until B1 (an RPC failure and an empty workspace were
+    // indistinguishable at every call site; it returns `error` now).
 
     async listBudgetLines(projectId) {
       const client = await requireClient();

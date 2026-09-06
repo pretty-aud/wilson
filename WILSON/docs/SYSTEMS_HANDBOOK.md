@@ -3594,19 +3594,58 @@ of a session — this section is limits by design, that file is faults.
   `platform_audit`'s action CHECK has no value that would let them
   (TPN-LOG-007). The same CHECK reserves `operator.granted` / `operator.revoked`,
   which nothing emits.
-- `resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
-  (client-supplied, spoofable) where `provision-workspace` correctly uses the
-  last (TPN-NET-004); both still use per-isolate in-memory buckets
-  (TPN-NET-005), and six other functions have no limiter at all.
+- ~~`resolve-login` keys its per-IP throttle on the **first** X-Forwarded-For hop
+  (client-supplied, spoofable) … both still use per-isolate in-memory buckets
+  (TPN-NET-005)~~ ✅ **CLOSED for `resolve-login` by Track B bundle B1
+  (2026-09-06).** It keys on Cloudflare's `cf-connecting-ip` (fallback: the
+  X-Forwarded-For hop BEFORE the platform relay) and counts through the
+  durable `fn_rate_limit_hit` (0028) in two buckets — `resolve-login:company`
+  (20/min/IP) and `resolve-login:user` (30/min/IP), both env-tunable — with
+  the shared limiter's new `{ failOpen: false }`, so a limiter that cannot
+  count refuses rather than waves through (TPN-NET-011's constraint for a
+  pre-auth path). A throttled caller gets 429 and the screen says `TOO MANY
+  ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.`; that status depends only on the
+  caller's own count in the window, never on whether a name exists.
+  `provision-workspace` is out of the source tree (S43); six other functions
+  still have no limiter at all. 🚨 **"Take the LAST X-Forwarded-For hop" is
+  WRONG on this platform** — measured in B1 with a throwaway header-echo
+  function: the chain is `<caller-supplied…>, <client via Cloudflare>,
+  <client via the AWS balancer>, <13.248.0.0/14 relay>`, so the last hop is
+  Supabase's own relay and varies per request. Keyed on it, 22 requests from
+  one machine spread over ten limiter rows and nothing was refused; and a
+  relay's pooled counter would eventually refuse every customer behind it.
+  Do not copy the S9 `provision-workspace` recipe anywhere.
+- **Accepted, rate-limited disclosure: the company step is a company-existence
+  oracle** (Track B bundle B1; Audrey's ruling, fix plan answer 34 — "the
+  system should confirm the company listed first exists and is real"). Step 1
+  of sign-in asks `resolve-login` whether the typed company exists and gets a
+  boolean plus the canonical slug back. Anyone holding the anon key — which
+  the web app ships — can therefore test whether a name is a Petal customer,
+  at up to 20 names per minute per address, each answered in constant time.
+  What it does NOT reveal: status (a suspended, soft-deleted workspace answers
+  exactly like a name that never existed — one wording, `COMPANY NOT
+  FOUND.`), members, counts, or anything about a person; the username path's
+  enumeration defence (uniform wording, fake-email sign-in, constant time) is
+  untouched and pinned by a Playwright scenario. The alternative — never
+  checking — shipped for one S43 commit and signed people into the wrong
+  company; she chose the oracle with the trade-off on the table. Recorded as
+  `TPN-AUTH-009` in `TPN_AUDIT/FINDINGS.md`.
 
 **Correctness**
 
-- A username that collides across two workspaces makes sign-in unreachable: the
-  resolver treats "two matches" as a miss unless a workspace slug disambiguates,
-  and the login screen has no slug field. (The resolver already accepts the
-  slug and the client already has the parameter — only the form field is
-  missing, and adding one changes the first screen every user sees, which is
-  why S17 left it.)
+- ~~A username that collides across two workspaces makes sign-in unreachable~~
+  ✅ **CLOSED (S43 `bec9185` / `158172c`, finished by Track B bundle B1,
+  2026-09-06).** Sign-in is company-first: step 1 verifies the company and
+  captures its canonical slug, step 2 sends username + password scoped to
+  it, so the resolver's "two matches is a miss" branch is unreachable from
+  the client. The same username in two companies is two different people
+  (Audrey: "two files with the exact name as long as they are in a different
+  folder"); `UNIQUE (workspace_id, username)` has said so since 0001, and
+  `admin-create-user` / `invite-member` both pre-flight it into a
+  `username_taken` 409 rather than a raw constraint error. The branch stays
+  for older clients and for the CI smoke probe, which resolve by username
+  alone. The company is remembered per device and a `?company=` deep link
+  pre-fills it; neither skips the verification.
 - `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup
   **failed**" lands in the log stream indistinguishable from the success line.
   One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so

@@ -618,54 +618,8 @@ trace, so unlike the Validator write below there is nothing to verify by query:
 her eyes are the only possible instrument, and per S23's lesson a user action
 that requires a precondition outranks reasoning about that precondition.
 
-→ **One thing from the old entry survives and is now its own item below**:
-`useRosterMembers` swallowing the RPC error.
-
-### `useRosterMembers` cannot tell a broken roster from an empty one
-**INFERRED (S23, unchanged).** Split out of the assignee-dropdown entry above
-when that closed, rather than deleted with it. `ProjectTasksView`'s dropdown is
-on the healthy `workspace_directory()` path and intersects correctly — but if
-the roster ever resolves to `[]`, the staffed branch filters an empty list and
-yields `[]` too, and the hook **drops the error** rather than passing it
-through. So an RPC failure and a genuinely empty workspace are indistinguishable
-at every call site. Not currently biting anything; it is what would make the
-next roster problem take a session instead of a minute.
-→ Surface the error. Not scheduled.
-
-<!-- historical, kept for the reasoning:
-### Two of the four assignee dropdowns are hard-empty in cloud mode
-**MEASURED (S23).** Upgraded from the S22 entry, which reasoned from **dev**
-where `project_members` is empty. On **staging** — Audrey's actual environment
-— it has 3 rows, so the *staffed* branch runs, not the fallback. The S22
-conclusion was measured against the wrong database.
-
-- ~~`TimelineView.jsx:4228` (task editor) and `ProjectAssetsView.jsx:2108`
-  (asset-detail task rows) are unconditionally empty in cloud~~ — **the stated
-  cause is REMOVED (S24, `b07b6c9`).** Both early-returned because
-  `adapter.listTeamMembers` existed only on `localServerAdapter`; the Supabase
-  adapter now implements it over the existing `workspace_directory()` RPC, and
-  `loadProject` now returns `teamAssignments` from `project_members` (it was
-  omitting the key, and the provider's
-  `setBundle({ ...EMPTY_BUNDLE, ...next })` reset it to `[]` on every load).
-  ⚠️ **This is CODE-level, not observed. STILL NOT OBSERVED after S25.** The
-  adapter method exists and is built; nobody has watched these two dropdowns
-  populate in the running app. S25 was asked to confirm this at runtime and
-  **did not** — reaching those dropdowns needs a signed-in session against
-  staging with a staffed project, which no automated check in this repo
-  performs. Recorded as still-unverified rather than quietly closed: the fix
-  was a by-product of the budget work (the Crew/Team tab needs the same
-  roster), not a targeted repair, and an unwatched fix is not a fix.
-  → **One look at the Timeline task editor on the beta settles it.**
-- `ProjectTasksView`'s dropdown is on the healthy `workspace_directory()` path
-  and intersects correctly — but if the roster ever resolves to `[]`, the
-  staffed branch filters an empty list and yields `[]` too, and
-  `useRosterMembers` **drops the error** rather than passing it through, so an
-  RPC failure and a genuinely empty workspace are indistinguishable at every
-  call site.
-
-→ Roster-error surfacing is still owed: `useRosterMembers` swallowing the error
-means a broken RPC and an empty workspace look identical everywhere. S25.
--->
+→ ~~**One thing from the old entry survived as its own item**: `useRosterMembers`
+swallowing the RPC error.~~ **Closed by Track B bundle B1 (2026-09-06):** the hook returns `error`, `RateCardPage` shows it, and `useRosterMembers.test.js` goes red if it is swallowed again.
 
 ### ~~Scenes / levels / experiences are unavailable on cloud projects~~ — FIXED (S25, `183b4c2`)
 Deleted per the rule for this file. Migration 0040 creates `scenes`, `shots`,
@@ -1102,16 +1056,6 @@ second caller to a live path, **not** a fourth built-with-no-caller feature.
 Same correction `quiz.get` needed in S30: before writing "nothing calls this",
 grep for it.
 
-### `ResetPasswordWizard` still performs a global sign-out
-**MEASURED (S31, 2026-08-05).** `src/cloud/auth/ResetPasswordWizard.jsx` calls
-`supabase.auth.signOut()` with no `scope` argument, so completing a password
-reset revokes every refresh token the person holds — including the operator
-console's — with no copy saying so. Found while fixing the same defect in
-`App.jsx`'s `wilsonSignOut`.
-→ Deliberately **not** changed in S31: what a password reset should revoke is a
-security decision, not a tidy-up. Arguably a global revoke is *correct* there.
-Needs a decision, then one line either way. Not scheduled.
-
 ### A failed pet LOAD has nowhere to show itself
 **MEASURED (S31).** `loadPet` was the one function in `localData.js` that S30
 left with neither a `res.ok` check nor a reported catch; S31 makes the failure
@@ -1533,6 +1477,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Track B — B1 (2026-09-06, branch `track-b-auth`) | **nothing.** Nothing regressed and nothing new is known broken. The session's finding is not an entry because it was fixed before it reached anything that mattered: **"take the LAST X-Forwarded-For hop" — the remedy TPN-NET-004 prescribed and the old `provision-workspace` carried — is wrong on this platform.** The last hop is Supabase's own relay and varies per request, so for eleven minutes on wilson-dev (`resolve-login` v7) the new durable limiter counted each request under a different subject and refused nothing. Caught by the burst probe the brief's "harness with a failing control" rule demanded, measured with a throwaway header-echo function (a caller-supplied `x-forwarded-for` is stripped; a spoofed `cf-connecting-ip` gets a Cloudflare 403), fixed in v8 (`cf-connecting-ip`; the 21st check in a minute answers 429). No migration; migrations stay 0000–0066 and pgTAP stays 70 suites. | **`useRosterMembers` cannot tell a broken roster from an empty one** — the hook returns `error`, `RateCardPage` shows it, `useRosterMembers.test.js` goes red if it is swallowed again. **`ResetPasswordWizard` still performs a global sign-out** — decided by Audrey (answer 12): it stays global, `scope: 'global'` is now explicit, and the screen says `YOU WILL BE SIGNED OUT ON EVERY DEVICE.` before and "signed out on every device" after. Both in the B1 commit. |
 | 2026-09-04 (`main` merged into the branch, PR #4 readied; no source change) | **one entry, by splitting, not by regression:** *a manager can approve their own nomination* was a bullet inside a now-closed entry and is its own entry so it does not sit under a FIXED heading. Nothing regressed. | **Four stale entries closed, each re-verified the same day against all three projects — by `supabase functions list --project-ref` and by `db query` through throwaway `--workdir` links with a per-environment discriminator — rather than from notes:** `provision-workspace` (removed by S43, deployed nowhere; the entry had said LIVE for three weeks); migration 0061 (applied everywhere on 2026-08-12, `phase_dependencies` present on all three); migrations 0059/0060 (0060 applied everywhere; `workspace_directory()` names both grant columns again); the non-admin course submission (built as Phase 5 nominations: 0064 on dev + staging, prod at 0063). 🚨 **The finding of the pass is drift: all four were resolved by 2026-08-14 and still read as open on 2026-09-04, because closing work updates commits and briefs and nobody re-reads them into this file.** ⚠️ Measured on the way and recorded in the `provision-workspace` closure: **migration 0066 IS applied on dev and staging** (the audit CHECK carries `workspace.invite_sent`; prod does not), contradicting the S43b commit messages of 2026-08-16, and `operator-workspaces` has not been redeployed on any project since 2026-08-08 — so the setup-link button is inert for the function's reason alone. 0065 is still applied nowhere. Comment markers re-counted at close-out: 5 → 5, still pairing. |
 | S42 (2026-08-10) | **three entries, and two of them are about S42's own work being wrong rather than about anything regressing.** (a) **concurrent resumable uploads can exceed the quota** — pre-existing, and S42 shipped a fix for it that did not work; (b) **TUS partial objects have no WILSON-side lifecycle** — the brief's TPN-CONT-017 deliverable, attempted and withdrawn; (c) the `too_large` message points at a desktop app that shares the same ceiling. 🚨 **THE FINDING OF THE SESSION IS THAT MIGRATION 0057 CLOSED A HOLE IT DID NOT CLOSE, AND ITS OWN pgTAP SUITE AGREED.** 0057 metered `storage.s3_multipart_uploads.in_progress_size` to stop N concurrent uploads each passing a check blind to the others; suite 66 asserted the closure in three probes. **WILSON uploads over TUS, whose state storage-api keeps in S3 `.info` objects via `@tus/s3-store` — that table is written only by the S3-compatible protocol handler WILSON never calls.** The arm summed a permanently empty set and the three probes passed solely on rows the suite inserted itself: a green test over a path the product does not have, written into the suite meant to catch exactly that. 0058 removes the arm, the `upload_abandoned` term and the sweep, and probe 13 now asserts the meter does **not** move. It was surfaced by a verifier *refuting a different claim*, then confirmed independently against storage-api v1.68.1 source — **a review's refutations are worth reading as carefully as its findings.** 🚨 **Second: the resumable path froze the bearer token at upload start.** `jwt_expiry` is 3600 s and auth-js returns any token with ≥91 s of life unrefreshed; tus re-reads `options.headers` per request but nothing mutated it, and `shouldRetryTusError` classified the resulting 401 as permanent — so **no upload lasting longer than its token could ever finish**, on the one path that only runs above 50 MiB. Fixed with `onBeforeRequest` re-reading a live token, plus 401 made retryable. Confirmed HIGH by two independent verifiers. ⚠️ **Third, and it is a `git status` blind spot: `.github/workflows/rls.yml` lives in the PARENT git root**, so the pgTAP replay list read as up to date from inside `WILSON/` while stopping at suite 65 — the S17 failure mode, where suites failed invisibly and every annotation pointed at a file that was fine. 🚨 **Fourth: a migration can be green and change nothing.** `storage.buckets.file_size_limit` is capped by a PROJECT-LEVEL limit in the Supabase dashboard that SQL cannot observe; 0057 raises the bucket to 50 GiB and does nothing until that figure is raised by hand on each project (done 2026-08-10). ⭐ **Three of the review's own findings were REFUTED with evidence**, and one of my own tests was replaced twice for being vacuous — an occurrence count that passed with the defect present, and a regex matching `onProgressX`. Stated limits (s3 stays at a 5 GB single PUT; no cross-session upload resume; the progress pins are structural, not breaker-verified) are in the S42 outcome block. | **nothing was on this list for S42 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |
 | S41 (2026-08-09) | **nothing.** Nothing regressed and nothing new is known broken. The session's own work — Petal cloud as a paid, operator-managed product, migrations 0055 **and** 0056 — is tracked in the design (§4a3) and `MASTER_PLAN`, and **the pre-push adversarial review's 8 confirmed findings (1 from its completeness critic) were all fixed before the code was pushed**, so per this file's rule they are commit content, not entries. 🚨 **The one worth remembering is not a bug in the feature but a LIE IN ITS ERROR MESSAGE: both new over-quota notices told the user to delete files, and that remedy CANNOT WORK.** A cloud delete is soft (0014), `storage-gc` refuses a trashed row for 30 days, and the meter reads `storage.objects` — so an admin following the advice deletes real work and watches the number not move. Offering a remedy that cannot work is worse than offering none; both messages now name the 30 days instead. 🚨 **Second: the wrong keyword on the new policy re-opens the invoice hole.** Breaker B1 dropped `AS RESTRICTIVE` expecting the quota to stop binding; as a ninth PERMISSIVE arm its own money EXEMPTION instead ORs in and GRANTS a write `rabbit_files_money_insert` was refusing — 0038's inversion, recreated by the file adding a quota. ⚠️ **Third, about this session's own tests: the ordering pin written to catch S40's FileList defect DID NOT FIRE**, because it matched the COMMENT that quotes the expression while explaining the bug. Two operands, same trap; the fix is to strip comments, not to chase forms. ⭐ **Two PRE-EXISTING defects were found by new guards rather than by looking:** `platformAuditActions.test.js` found on its first run that `operator.granted`/`operator.revoked` have been in the CHECK since S15 and never in the operator console's filter; and suite 65's new thumbnail probe exists because the EXCLUSION had a probe and the INCLUSION did not — dropping `rabbit-thumbnails` from the meter left the suite at 38/38 and every post-condition green. Stated limits (the gate is `rabbit-files` INSERT only; `used < quota` does not weigh the incoming object; money paths are metered but never gated; the operator summary scans both buckets once per company) are in the S41 outcome block and handbook §17, where scope choices belong. | **nothing was on this list for S41 to remove.** ⚠️ Comment markers re-counted at close-out: still pairing. |

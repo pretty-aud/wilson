@@ -19,7 +19,15 @@
 // Returned shape:
 //   { members: [{ id, name, title, department, email, avatar_url,
 //                 location, is_active }],
-//     mode, loading }
+//     mode, loading, error }
+//
+// `error` (Track B, bundle B1 — Audrey's answer 17: "show an error when the
+// roster fails to load") is the active source hook's error message, or null.
+// Before B1 this hook DROPPED it, so a broken workspace_directory() RPC and a
+// genuinely empty workspace were the same `[]` at every call site — the
+// OUTSTANDING entry that sat under "cannot tell a broken roster from an empty
+// one". Consumers must show it or pass it on; an empty `members` with a
+// non-null `error` is a failure, not an empty company.
 //
 // `location` is only populated in local_server mode (the cloud
 // workspace_directory has no such column — null there). RateCardTable's
@@ -94,5 +102,13 @@ export function useRosterMembers() {
     mode === 'local_server' ? team.loading :
     false
 
-  return { members, mode, loading }
+  // Same selection as `loading`: only the ACTIVE backend's error counts. The
+  // inactive hook is a no-op and never sets one, but keying on mode means a
+  // stale error from a backend the user just switched away from cannot leak.
+  const error =
+    mode === 'supabase'     ? (workspace.error ?? null) :
+    mode === 'local_server' ? (team.error ?? null) :
+    null
+
+  return { members, mode, loading, error }
 }

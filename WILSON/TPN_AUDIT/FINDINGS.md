@@ -589,6 +589,41 @@ opened: 2026-07-30
 
 ---
 
+## TPN-AUTH-009 — The company step of sign-in is a company-existence oracle (accepted, rate-limited)
+
+```yaml
+id: TPN-AUTH-009
+severity: LOW
+control: AS-3.8
+domain: auth
+title: The company step of sign-in is a company-existence oracle (accepted, rate-limited)
+location: supabase/functions/resolve-login/index.ts (the company branch); src/cloud/auth/LoginScreen.jsx handleCompanySubmit
+evidence: |
+  // resolve-login/index.ts — the company branch answers, in constant time,
+  //   { exists: boolean, slug: string | null, v: 2 }
+  // to any caller holding the anon key, which the web app ships.
+required: |
+  AS-3.8: a pre-authentication endpoint discloses no more than the workflow needs, and what it does disclose is rate-limited and logged.
+gap: |
+  Recording an ACCEPTED disclosure, not a defect owed a fix.
+
+  Audrey's ruling (2026-08-10, reaffirmed 2026-09-04 as fix-plan answer 34): "the system should confirm the company listed first exists and is real, after it makes sure the company exists THEN it should pull from that companies list." The alternative — a company step that verifies nothing — shipped for one S43 commit and signed people into the wrong company; she chose the oracle with the trade-off on the table.
+
+  What it discloses: whether a typed name (display name or slug) is an existing, non-suspended workspace — at most 20 answers per minute per client address (`resolve-login:company`, durable, fail-closed, keyed on `cf-connecting-ip`), each answered in ~180 ms regardless of outcome, each logged to auth_attempt_log with that address.
+
+  What it does NOT disclose: status (a suspended, soft-deleted workspace answers exactly like a name that never existed — one wording on screen, `COMPANY NOT FOUND.`), members, counts, the display name behind a slug or the slug behind a name beyond the one the caller typed, or anything about a person. The username path's defence — one generic wording, a fake-email sign-in so an unknown username costs the same as a known one, constant time — is untouched, and tests/e2e/auth.spec.ts scenario 4 pins the wording.
+
+  Residual: an actor with many addresses can enumerate customer names faster than 20 per minute. Accepted. Revisit if the customer list ever becomes commercially sensitive; the step could then accept only the slug (an identifier the company hands out) and stop matching display names, at the cost of every user having to know it.
+effort: none
+blocks_tier: none
+recommendation_ref: RECO-NET-SEG
+opened: 2026-09-06
+```
+
+**Opened by Track B bundle B1 (2026-09-06)** to record a product decision, as the B1 brief required: "record the residual risk … in the TPN pack as an accepted, rate-limited disclosure." (`TPN-AUTH-008` was merged into TPN-NET-005 during the 2026-07-30 re-audit, hence the gap in numbering.)
+
+---
+
 ## TPN-NET-001 — CORS wildcard-open on local Express server
 
 ```yaml
@@ -766,6 +801,8 @@ opened: 2026-07-30
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
+**✅ FIXED, and this finding's own remedy corrected — Track B bundle B1 (2026-09-06).** Measured with a throwaway header-echo function on wilson-dev (deployed, called, deleted within the minute): a request to `<ref>.supabase.co` reaches the function with `x-forwarded-for` = `<client via Cloudflare>, <client via the AWS balancer>, <13.248.0.0/14 relay>`. A caller-supplied `x-forwarded-for` or `x-real-ip` is **stripped** before the function sees it, and a caller-supplied `cf-connecting-ip` is refused by Cloudflare with a 403. So on today's platform the first hop was not attacker-supplied after all — but the remedy prescribed above, "take the last hop as `provision-workspace` did", is **wrong**: the last hop is Supabase's own relay and varies per request. Deployed that way for eleven minutes (wilson-dev v7), 22 company checks from one machine spread across ten limiter rows of 1–4 hits and nothing was refused; at scale a relay's pooled counter would refuse every customer behind it at once. `clientIp()` now takes `cf-connecting-ip`, falling back to the hop *before* the relay. Wilson-dev v8: the 21st consecutive company check in a minute answers 429 and the credentials bucket stays open; `auth_attempt_log` records that address. **Do not copy the `provision-workspace` recipe quoted in the evidence anywhere.**
+
 ---
 
 ## TPN-NET-005 — Both pre-auth Edge Functions still use the per-isolate in-memory limiter S15 replaced everywhere else
@@ -812,6 +849,8 @@ opened: 2026-07-30
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
 Merged into this finding during the re-audit (same defect, reported from another domain pass): `TPN-AUTH-008`.
+
+**✅ FIXED for `resolve-login` — Track B bundle B1 (2026-09-06).** The per-isolate Map and its "Session 3" TODOs are gone; the function calls `isRateLimited()` (`fn_rate_limit_hit`, migration 0028) with `{ failOpen: false }` in two buckets — `resolve-login:company` (20/min per client address, `RESOLVE_LOGIN_COMPANY_RPM`) and `resolve-login:user` (30/min, `RESOLVE_LOGIN_USER_RPM`) — keyed as TPN-NET-004's annotation describes. Measured on wilson-dev v8: the 21st company check inside a minute answers 429 with the same body shape (the client says `TOO MANY ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.`); the user bucket is untouched by a company burst. The other half of this finding, `provision-workspace`, left the source tree in S43 and closes when the per-environment `functions delete` in `OUTSTANDING.md` runs.
 
 ---
 
@@ -1085,6 +1124,8 @@ opened: 2026-07-30
 ```
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
+
+**Applied — Track B bundle B1 (2026-09-06).** `isRateLimited()` gained `opts: { failOpen?: boolean }`, default `true`, so the eight authenticated callers are unchanged and were not redeployed. `resolve-login` passes `{ failOpen: false }`: if `fn_rate_limit_hit` errors or throws, the pre-auth caller is refused with 429, and the same `console.error` line names the bucket — a broken limiter now shows up as "everyone throttled", which gets noticed, rather than "nobody throttled", which does not.
 
 ---
 

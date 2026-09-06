@@ -183,7 +183,14 @@ export default function ResetPasswordWizard({ onDone }) {
       // Sign out so the user has to re-auth with the new password — this is
       // both a sanity check and how we round-trip through NewUserWelcome
       // when the invite path lands here.
-      await supabase.auth.signOut()
+      //
+      // `scope: 'global'` ON PURPOSE (Audrey, 2026-09-04, fix plan answer 12:
+      // "keep signing out everywhere on a password reset; say so on screen").
+      // A new password revokes every refresh token the person holds — every
+      // device, and the operator console too. The form above says so before
+      // they commit, and the done screen says it happened. Contrast
+      // App.jsx's wilsonSignOut, which is deliberately `scope: 'local'`.
+      await supabase.auth.signOut({ scope: 'global' })
       setStage('done')
       setBusy(false)
     } catch (err) {
@@ -288,13 +295,21 @@ export default function ResetPasswordWizard({ onDone }) {
             <button type="submit" disabled={busy} style={primaryButton(busy)}>
               {busy ? 'Updating…' : 'Set password'}
             </button>
+
+            {/* B1 (answer 12): the reset revokes every session, and the
+                person should know that BEFORE they press the button — the
+                operator console tab they may have open goes too. */}
+            <div style={{ ...AUTH_HINT_STYLE, maxWidth: '38ch', textAlign: 'center' }}>
+              YOU WILL BE SIGNED OUT ON EVERY DEVICE.
+            </div>
           </form>
         )}
 
         {stage === 'done' && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', maxWidth: '38ch', textAlign: 'center' }}>
             <div style={{ ...AUTH_TEXT_STYLE, fontSize: '14px', fontWeight: 500, letterSpacing: '0.04em', textTransform: 'none' }}>
-              Password updated. Sign in with your new password.
+              Password updated. You have been signed out on every device —
+              sign in again with your new password.
             </div>
             <button
               type="button"

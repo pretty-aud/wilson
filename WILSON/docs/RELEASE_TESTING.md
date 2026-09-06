@@ -65,8 +65,11 @@ npm run electron:dev        # build:dev + electron — or run the built installe
 > safeStorage session persistence (§B), auto-update (§N), relink and managed files (§J), and
 > it forces RABBIT onto the Supabase adapter. Use it for web-parity checks only.
 
-You land on the terminal-style login screen: `USERNAME`, `PASSWORD`, `SIGN IN`, with
-`Forgot password?` and `New company?` beneath.
+You land on the terminal-style login screen. It is **two steps** (S43, finished in Track B
+bundle B1): first `COMPANY` with a `Continue` button; once the company is verified,
+`USERNAME`, `PASSWORD` and `Sign in`, with `Change company` · `Forgot password?` beneath and
+the company you typed echoed above the fields. There is no `New company?` link any more —
+companies are created from the operator console (S43; `OWED_AUDREY.md` §12 Step 1).
 
 ## Step 3. Create the company — use the wizard
 
@@ -106,9 +109,11 @@ drop you back on the profile step with the fields intact.
 
 ## Step 4. Sign in as the first admin
 
-Type the password, `SIGN IN`. One workspace → straight into the app. More than one → a
-workspace picker (arrow keys, Enter). There is no company field: usernames resolve across
-workspaces, so keep them unique across every company you make on dev (Known #7).
+Type the company, `Continue`; then the username and password, `Sign in`. One workspace →
+straight into the app. More than one → a workspace picker (arrow keys, Enter). Usernames are
+unique **within a company only** (B1): the same username can exist in two companies, and the
+company you typed decides which account signs in. Next time, that browser starts with the
+company already filled in.
 
 ## Step 5. Enrol TOTP — do it now
 
@@ -244,10 +249,21 @@ automated coverage of this path (§6 #68).
 
 ## §B. Sign-in and identity
 
-- Correct username + wrong password → expect `SIGN-IN FAILED. CHECK USERNAME AND PASSWORD.`
+- A company that does not exist → expect `COMPANY NOT FOUND.` and **no username field**.
   `[BLOCKING]`
+- A company that exists but is **suspended** (suspend one from the operator console) →
+  expect **the identical `COMPANY NOT FOUND.`** — step 1 reveals existence only, never
+  status. `[BLOCKING]`
+- Correct username + wrong password → expect
+  `SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.` `[BLOCKING]`
 - A username that does not exist → expect **the identical error at a similar speed**.
   Different wording or a visibly faster failure is a username-enumeration leak. `[BLOCKING]`
+  (pinned by `tests/e2e/auth.spec.ts` scenario 4 since B1)
+- The same username in **two** companies → sign in as each by naming the company first;
+  each lands in its own company. `[BLOCKING]`
+- Twenty-one company checks inside one minute from one machine → expect
+  `TOO MANY ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.` on the 21st; a minute later it works
+  again. `[NOTE]`
 - Sign in as the MFA-enrolled admin → expect a **6-digit code challenge**; a wrong code →
   refusal and retry, never a half-signed-in state. `[BLOCKING]`
 - Add your admin to a second workspace → expect the **workspace picker** (arrows, Enter), and
@@ -255,6 +271,10 @@ automated coverage of this path (§6 #68).
   together. `[BLOCKING]`
 - `Forgot password?` on a real-email account **on staging/beta** → expect the email, the reset
   screen, and the new password to work. `[BLOCKING]` (on dev `[NOTE]` — auth URLs unset)
+- On that reset screen → expect `YOU WILL BE SIGNED OUT ON EVERY DEVICE.` under the button
+  before you submit, and after it "Password updated. You have been signed out on every
+  device". Have the operator console open in another tab first: it must be signed out too
+  (B1, Audrey's answer 12 — a reset revokes every session on purpose). `[BLOCKING]`
 - `Forgot password?` on a synthesized-email account → expect it to go nowhere. Intended.
   `[NOTE]`
 - Sign out, relaunch → expect the login screen, not a restored session. `[BLOCKING]`
@@ -551,7 +571,9 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
 5. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
    methods throw.
 6. Managed files (the ASSETS/SCENES/SHOTS mirror) are local_server only.
-7. A username colliding across two workspaces makes sign-in unreachable — no company field.
+7. ~~A username colliding across two workspaces makes sign-in unreachable — no company field.~~
+   Closed by S43 + Track B bundle B1: sign-in is company-first and usernames are unique per
+   company.
 8. Google Drive is read-only in v0.1; every write throws.
 9. No single-instance lock — two desktop copies share one userData directory.
 10. Web multi-tab is last-writer-wins on pet / otter-settings / agent-skills.

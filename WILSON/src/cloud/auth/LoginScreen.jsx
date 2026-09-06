@@ -2,8 +2,11 @@
 // LoginScreen — terminal-aesthetic sign-in, built on AuthShell.
 //
 // Four stages:
-//   1. 'company'   — ONE input: the company. Shape-checked and remembered;
-//                    see "Why the company step does not phone home" below.
+//   1. 'company'   — ONE input: the company (display name or slug). Verified
+//                    against resolve-login (contract v2), which answers with
+//                    the canonical slug step 2 is scoped to. Remembered per
+//                    DEVICE for next time; a `?company=` deep link pre-fills
+//                    it (Track B, bundle B1).
 //   2. 'auth'      — USERNAME + PASSWORD for that company. On submit:
 //                      a. POST /functions/v1/resolve-login with the username
 //                         AND the workspace slug → { exists, email }. Server
@@ -90,6 +93,36 @@ const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
 // says WHICH of the three was wrong.
 const GENERIC_ERROR = 'SIGN-IN FAILED. CHECK COMPANY, USERNAME AND PASSWORD.'
 
+// B1: resolve-login now answers 429 from a DURABLE per-IP limiter. That status
+// depends only on this address's own request count in the last minute, never
+// on whether a company or a username exists, so naming it costs nothing and
+// stops a throttled person from re-typing a password that was right.
+const RATE_LIMITED_ERROR = 'TOO MANY ATTEMPTS. WAIT A MINUTE AND TRY AGAIN.'
+
+// B1: the last company that cleared step 1 on THIS DEVICE, so the next
+// sign-in starts with the field filled. Per device, never per account —
+// Audrey tests two accounts in two browsers, and each browser remembers
+// whatever was typed in it last. It is a display name, not a credential, so
+// plain localStorage on both hosts is fine (sessionStorage.js keeps the
+// session itself in safeStorage on the desktop; this key is not that).
+const LAST_COMPANY_KEY = 'wilson.lastCompany'
+function readLastCompany() {
+  try { return localStorage.getItem(LAST_COMPANY_KEY) ?? '' } catch { return '' }
+}
+function saveLastCompany(name) {
+  try { localStorage.setItem(LAST_COMPANY_KEY, name) } catch { /* private mode, quota */ }
+}
+// A deep link may pre-fill the company: `?company=<name or slug>` in the
+// query. Query only — the hash belongs to recovery links (recoveryLink.js).
+// It is still verified like anything typed; a link cannot skip step 1.
+export function companyFromDeepLink(search) {
+  try {
+    return (new URLSearchParams(search).get('company') ?? '').trim().slice(0, 80)
+  } catch {
+    return ''
+  }
+}
+
 async function resolveLogin({ username, workspaceSlug }) {
   const res = await fetch(`${SUPABASE_URL}/functions/v1/resolve-login`, {
     method: 'POST',
@@ -102,6 +135,7 @@ async function resolveLogin({ username, workspaceSlug }) {
       ...(workspaceSlug ? { workspace_slug: workspaceSlug } : {}),
     }),
   })
+  if (res.status === 429) return { limited: true, exists: false, email: null }
   if (!res.ok) return { exists: false, email: null }
   return res.json()
 }
@@ -123,6 +157,10 @@ async function verifyCompany(company) {
       headers: { 'content-type': 'application/json', apikey: SUPABASE_ANON },
       body: JSON.stringify({ company }),
     })
+    // 429 is a refusal from a deployment that DOES understand the contract —
+    // it must not read as "not deployed", or a throttled caller would be
+    // waved through step 1 on a derived slug with the gate off.
+    if (res.status === 429) return { unavailable: false, limited: true, exists: false, slug: null }
     if (!res.ok) return { unavailable: true }
     const data = await res.json()
     if (data?.v !== 2) return { unavailable: true }
@@ -165,8 +203,13 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   // ── Auth flow state ───────────────────────────────────────────────────
   const [stage, setStage]                   = useState('company')
   // Raw as typed, so the field does not fight the user mid-word. Slugified
-  // on submit only.
-  const [company, setCompany]               = useState('')
+  // on submit only. Starts from the deep link if there is one, else from what
+  // this device last signed in to (B1) — either way it is only a pre-fill,
+  // and step 1 still verifies it.
+  const [company, setCompany]               = useState(() => (
+    companyFromDeepLink(typeof window === 'undefined' ? '' : window.location.search)
+    || readLastCompany()
+  ))
   const [companySlug, setCompanySlug]       = useState('')
   const [username, setUsername]             = useState('')
   const [password, setPassword]             = useState('')
@@ -263,6 +306,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     try {
       const result = await verifyCompany(typed)
 
+      if (result.limited) {
+        setError(RATE_LIMITED_ERROR)
+        return
+      }
+
       // Not deployed yet → degrade to the derived slug rather than refusing a
       // company that is perfectly real. Loud in the console, because in this
       // state the gate is NOT enforced.
@@ -277,10 +325,14 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
         return
       }
 
+      // ONE wording for "no such company" and "company exists but is
+      // suspended": the server folds both into `exists:false`, so this step
+      // reveals existence only, never status. Do not add a branch here.
       if (!result.exists || !SLUG_RE.test(result.slug ?? '')) {
         setError('COMPANY NOT FOUND.')
         return
       }
+      saveLastCompany(typed)
       setCompanySlug(result.slug)
       setStage('auth')
     } finally {
@@ -315,10 +367,19 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // every real company (measured: four of four workspaces on wilson-dev
       // have a slug no derivation of their name produces — "Petal Studios" is
       // `petal`). If step 1 ever stops verifying, this line locks everyone out.
-      const { exists, email: resolved } = await resolveLogin({
+      const { exists, email: resolved, limited } = await resolveLogin({
         username: u,
         workspaceSlug: companySlug,
       })
+      // Throttled: say so and stop. This is the one failure on this step that
+      // is worded differently, and it is safe because it is decided by this
+      // address's request count alone — a wrong username and a wrong password
+      // are still the same words at the same speed below.
+      if (limited) {
+        setError(RATE_LIMITED_ERROR)
+        setBusy(false)
+        return
+      }
       // If resolver says "not found", sign in with an unreachable email so the
       // request timing still looks like a real attempt (prevents username
       // enumeration via response time).

@@ -1,18 +1,32 @@
 // =============================================================================
 // resolve-login Edge Function
-// Username (+ optional workspace slug) -> email for Supabase signInWithPassword.
+// Username (+ workspace slug) -> email for Supabase signInWithPassword, and
+// the company-existence check that runs before it (contract v2, Session 43).
 //
 // Security properties:
 //  - Constant-time response floor (~180ms) regardless of outcome, to defeat
 //    username enumeration timing attacks.
-//  - IP-based rate limit: 5 requests / minute (simple in-memory bucket;
-//    replace with an Upstash KV in Session 3 when email infra lands).
+//  - Per-IP rate limit through the DURABLE limiter (public.fn_rate_limit_hit,
+//    migration 0028; one counter shared by every isolate). Two buckets, one
+//    per path, so a burst of company probes cannot lock credentials out and
+//    vice versa. It fails CLOSED: this is a pre-authentication endpoint and
+//    the limiter is the only volume control, so a limiter that cannot count
+//    refuses (TPN-NET-011). Track B bundle B1 replaced the per-isolate Map
+//    that TPN-NET-005 recorded.
+//  - The IP is Cloudflare's `cf-connecting-ip`, with the X-Forwarded-For hop
+//    BEFORE the platform relay as the fallback — never the first hop, which
+//    the caller supplies (TPN-NET-004), and never the last, which is the
+//    platform's own relay (measured; see clientIp).
 //  - Outcome is always logged to auth_attempt_log.
-//  - Response shape is identical for found / not-found / rate-limited to
-//    prevent enumeration via response body.
+//  - Response BODY shape is identical for found / not-found / rate-limited to
+//    prevent enumeration via response body. A rate-limited call answers 429,
+//    so the client can say "wait a minute" instead of "wrong password". The
+//    status depends only on the caller's own request count in the window,
+//    never on whether a username or a company exists.
 // =============================================================================
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { envInt, isRateLimited } from '../_shared/rateLimit.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -20,29 +34,50 @@ const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 // ~180ms floor — enough to mask DB lookup variance without hurting UX.
 const MIN_RESPONSE_MS = 180
 
-// Per-IP rate limit bucket. In-memory; resets on function cold start which is
-// acceptable for v1. Swap to durable KV in Session 3.
-const RATE_LIMIT_WINDOW_MS = 60_000
-const RATE_LIMIT_MAX = 5
-const rateBuckets = new Map<string, { count: number; resetAt: number }>()
+// Per-IP limits, per fixed 60-second window, one bucket per path.
+//
+// Why these numbers: an office signs in from ONE NAT address, and a person
+// who mistypes a password needs several attempts inside a minute — so the
+// credentials bucket is generous. The company bucket is tighter because a
+// real person clears step 1 once or twice per sign-in, and it is the one
+// that is also a company-existence oracle (see the company branch below).
+// Both are the VOLUME bound only; the constant-time floor and the uniform
+// body are what keep the username path closed to enumeration.
+const RATE_WINDOW_SECONDS = 60
+const COMPANY_RPM = envInt('RESOLVE_LOGIN_COMPANY_RPM', 20)
+const USER_RPM    = envInt('RESOLVE_LOGIN_USER_RPM', 30)
 
-function rateLimitHit(ip: string): boolean {
-  const now = Date.now()
-  const bucket = rateBuckets.get(ip)
-  if (!bucket || bucket.resetAt < now) {
-    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS })
-    return false
-  }
-  bucket.count++
-  return bucket.count > RATE_LIMIT_MAX
-}
-
+// Which address is the caller's — MEASURED, because the obvious answers are
+// both wrong on this platform.
+//
+// wilson-dev, 2026-09-06, via a throwaway header-echo function (deleted the
+// same minute): every request to <ref>.supabase.co arrives through Cloudflare
+// and then AWS, and x-forwarded-for reaches the function as
+//
+//   "<anything the caller sent>, <client as Cloudflare saw it>,
+//    <client as the AWS load balancer saw it>, <13.248.0.0/14 relay>"
+//
+// So the FIRST hop is caller-supplied — a throttle keyed on it is not a
+// throttle, and auth_attempt_log named whatever the caller typed
+// (TPN-NET-004). And the LAST hop is the platform's own relay, which varies
+// per request: keyed on it, 22 requests from one machine landed in ten
+// limiter rows of 1–4 hits and nothing was refused — and once a relay's
+// shared counter did cross the limit it would refuse EVERY customer behind
+// it at once. The S9 comment in the old provision-workspace that said "take
+// the last hop" was wrong here. Cloudflare sets `cf-connecting-ip` from the
+// actual connection; a caller-supplied value does not get through the edge
+// (measured: the request is answered by Cloudflare, not by us). Fallback,
+// for a request that somehow arrives without it: the hop BEFORE the relay.
 function clientIp(req: Request): string {
-  return (
-    req.headers.get('x-forwarded-for')?.split(',')[0].trim() ??
-    req.headers.get('x-real-ip') ??
-    'unknown'
-  )
+  const cf = req.headers.get('cf-connecting-ip')?.trim()
+  if (cf) return cf
+  const xff = req.headers.get('x-forwarded-for')
+  if (xff) {
+    const parts = xff.split(',').map((s) => s.trim()).filter(Boolean)
+    if (parts.length >= 2) return parts[parts.length - 2]
+    if (parts.length === 1) return parts[0]
+  }
+  return req.headers.get('x-real-ip') ?? 'unknown'
 }
 
 async function sleepUntil(deadline: number) {
@@ -57,6 +92,8 @@ type Body = { username?: string; workspace_slug?: string; company?: string }
 // an old deployment answers `{exists:false}` to a body with no username, which
 // is indistinguishable from "no such company". Without this marker, shipping
 // the client before the function would lock everyone out instead of degrading.
+// B1 did not bump it: the body shape is unchanged, and 429 is a status an
+// older client reads as "unavailable" (it degrades), not as a refusal.
 const CONTRACT_VERSION = 2
 
 function isValidUsername(s: unknown): s is string {
@@ -90,6 +127,12 @@ const corsHeaders = {
   'access-control-allow-headers': 'content-type, authorization, apikey',
 }
 
+type AttemptRow = {
+  workspace_id?: string | null
+  username_tried?: string | null
+  outcome: 'resolved' | 'not_found' | 'rate_limited' | 'error'
+}
+
 Deno.serve(async (req: Request) => {
   const start = Date.now()
   const deadline = start + MIN_RESPONSE_MS
@@ -113,40 +156,71 @@ Deno.serve(async (req: Request) => {
     return reply({ exists: false, email: null }, 405)
   }
 
-  // Rate limit FIRST — even bad input shouldn't be a free probe.
-  if (rateLimitHit(ip)) {
-    // Log but respond identically to a miss.
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
+
+  // Fire-and-forget audit row; never on the response path.
+  const log = (row: AttemptRow) => {
     queueMicrotask(async () => {
       try {
-        const sb = createClient(SUPABASE_URL, SERVICE_ROLE)
-        await sb.from('auth_attempt_log').insert({
+        await admin.from('auth_attempt_log').insert({
+          ...row,
           ip_address: ip === 'unknown' ? null : ip,
-          outcome: 'rate_limited',
         })
       } catch { /* swallow */ }
     })
-    return reply({ exists: false, email: null })
   }
 
-  let body: Body
+  // A malformed body is not a free probe: it is parsed as empty, counted
+  // against the credentials bucket, and refused as a miss below.
+  let body: Body = {}
   try {
     body = await req.json()
   } catch {
-    return reply({ exists: false, email: null })
+    body = {}
+  }
+  if (body === null || typeof body !== 'object') body = {}
+
+  const companyMode = typeof body.company === 'string' && body.username === undefined
+  const miss = companyMode
+    ? { exists: false, slug: null, v: CONTRACT_VERSION }
+    : { exists: false, email: null }
+
+  // Rate limit FIRST — before any lookup, for either path.
+  const limited = await isRateLimited(
+    admin,
+    companyMode ? 'resolve-login:company' : 'resolve-login:user',
+    ip,
+    companyMode ? COMPANY_RPM : USER_RPM,
+    RATE_WINDOW_SECONDS,
+    { failOpen: false },
+  )
+  if (limited) {
+    log({ outcome: 'rate_limited' })
+    return reply(miss, 429)
   }
 
   // ── Company verification (Session 43) ──────────────────────────────────
   // Audrey, 2026-08-10: "the user has to enter the company, the system should
   // verify that company exists, the login after the company should only allow
-  // users of that company to login."
+  // users of that company to login." Reaffirmed 2026-09-04 (fix plan, answer
+  // 34): "the system should confirm the company listed first exists and is
+  // real, after it makes sure the company exists THEN it should pull from
+  // that companies list."
   //
   // ⚠️ This IS a company-existence oracle, and that is a deliberate product
   // decision taken with the trade-off on the table: anyone holding the anon
-  // key can now test whether a company name is a customer. It is bounded by
-  // the same per-IP limiter and the same ~180ms constant-time floor as the
-  // username path, and it returns a boolean plus the canonical slug — never a
-  // name, never a list, never a count. Do not extend it to return anything
-  // else. The USERNAME path's enumeration defence is untouched.
+  // key can test whether a company name is a customer. It is bounded by the
+  // durable per-IP limiter above (COMPANY_RPM per minute per address), the
+  // ~180ms constant-time floor, and a reply that is a boolean plus the
+  // canonical slug — never a name, never a list, never a count. Do not extend
+  // it to return anything else. The USERNAME path's enumeration defence is
+  // untouched.
+  //
+  // ONE answer for "no such company" and "company exists but is suspended":
+  // a suspended workspace is a soft-deleted one (deleted_at set by the
+  // operator console), and the `deleted_at IS NULL` filter on both lookups
+  // makes it indistinguishable from a name that was never created. The step
+  // reveals existence only, never status.
   //
   // Accepts the display NAME or the slug, because they are independent: the
   // operator console only seeds the slug from the name and leaves it editable,
@@ -154,14 +228,11 @@ Deno.serve(async (req: Request) => {
   // wilson-dev 2026-08-10, four of four workspaces had a slug that no
   // derivation of their name would produce ("Petal Studios" is `petal`), so a
   // slug-only match would refuse every real company.
-  if (typeof body.company === 'string' && body.username === undefined) {
-    const typed = body.company.trim()
+  if (companyMode) {
+    const typed = (body.company as string).trim()
     if (typed.length < 1 || typed.length > 80) {
-      return reply({ exists: false, slug: null, v: CONTRACT_VERSION })
+      return reply(miss)
     }
-
-    // Own client: the shared `sb` below is declared after this branch.
-    const admin = createClient(SUPABASE_URL, SERVICE_ROLE)
 
     // 1. Exact slug match (covers someone typing the slug they were given).
     const candidate = slugifyWorkspace(typed)
@@ -192,15 +263,7 @@ Deno.serve(async (req: Request) => {
       if (data && data.length === 1) hit = data[0] as { slug: string; id: string }
     }
 
-    queueMicrotask(async () => {
-      try {
-        await admin.from('auth_attempt_log').insert({
-          workspace_id: hit?.id ?? null,
-          ip_address: ip === 'unknown' ? null : ip,
-          outcome: hit ? 'resolved' : 'not_found',
-        })
-      } catch { /* swallow */ }
-    })
+    log({ workspace_id: hit?.id ?? null, outcome: hit ? 'resolved' : 'not_found' })
 
     return reply({ exists: !!hit, slug: hit?.slug ?? null, v: CONTRACT_VERSION })
   }
@@ -209,25 +272,20 @@ Deno.serve(async (req: Request) => {
   const slug = body.workspace_slug?.trim().toLowerCase()
 
   if (!isValidUsername(username) || (slug !== undefined && !isValidSlug(slug))) {
-    queueMicrotask(async () => {
-      try {
-        const sb = createClient(SUPABASE_URL, SERVICE_ROLE)
-        await sb.from('auth_attempt_log').insert({
-          username_tried: typeof username === 'string' ? username : null,
-          ip_address: ip === 'unknown' ? null : ip,
-          outcome: 'error',
-        })
-      } catch { /* swallow */ }
-    })
-    return reply({ exists: false, email: null })
+    log({ username_tried: typeof username === 'string' ? username : null, outcome: 'error' })
+    return reply(miss)
   }
 
-  const sb = createClient(SUPABASE_URL, SERVICE_ROLE)
-
   // Join workspace_members -> workspaces -> auth.users.email.
-  // When slug omitted we accept any single match (for v1 single-workspace users);
-  // multi-workspace users supply slug to disambiguate.
-  let query = sb
+  //
+  // The B1 client ALWAYS sends the slug it got back from the company step, so
+  // from that client the "two matches" branch below is unreachable: the same
+  // username in two companies is two different people, and the slug picks
+  // one ("two files with the same name in different folders" — Audrey).
+  // When the slug is omitted we still accept any SINGLE match, for older
+  // clients and for the CI smoke probe (scripts/probes/issue-session.sh),
+  // which resolves by username alone.
+  let query = admin
     .from('workspace_members')
     .select('user_id, workspace_id, workspaces!inner(slug, deleted_at)')
     .eq('username', username)
@@ -240,42 +298,25 @@ Deno.serve(async (req: Request) => {
   const { data: members, error: membersErr } = await query
 
   if (membersErr) {
-    return reply({ exists: false, email: null })
+    return reply(miss)
   }
 
   // Ambiguous (multi-workspace hit without slug): respond as miss to force the
   // client to supply workspace_slug. Still logged.
   if (!members || members.length === 0 || members.length > 1) {
-    queueMicrotask(async () => {
-      try {
-        await sb.from('auth_attempt_log').insert({
-          username_tried: username,
-          ip_address: ip === 'unknown' ? null : ip,
-          outcome: 'not_found',
-        })
-      } catch { /* swallow */ }
-    })
-    return reply({ exists: false, email: null })
+    log({ username_tried: username, outcome: 'not_found' })
+    return reply(miss)
   }
 
   const { user_id, workspace_id } = members[0]
 
   // Look up email via admin API (service_role).
-  const { data: userData, error: userErr } = await sb.auth.admin.getUserById(user_id)
+  const { data: userData, error: userErr } = await admin.auth.admin.getUserById(user_id)
   if (userErr || !userData.user?.email) {
-    return reply({ exists: false, email: null })
+    return reply(miss)
   }
 
-  queueMicrotask(async () => {
-    try {
-      await sb.from('auth_attempt_log').insert({
-        workspace_id,
-        username_tried: username,
-        ip_address: ip === 'unknown' ? null : ip,
-        outcome: 'resolved',
-      })
-    } catch { /* swallow */ }
-  })
+  log({ workspace_id, username_tried: username, outcome: 'resolved' })
 
   return reply({ exists: true, email: userData.user.email })
 })

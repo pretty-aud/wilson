@@ -57,7 +57,13 @@ export default function RateCardPage() {
   // mode — in cloud mode ids are auth user_ids, so internal-card entries
   // written by the Team Members page (member_id = user_id) resolve here
   // instead of orphaning.
-  const { members: teamMembers, mode: rosterMode, loading: teamLoading } = useRosterMembers()
+  // B1: `rosterError` is surfaced in the error banner below. Without it a
+  // failed workspace_directory() read left the INTERNAL card empty with no
+  // explanation, which reads as "nobody is full-time" rather than "the roster
+  // did not load".
+  const {
+    members: teamMembers, mode: rosterMode, loading: teamLoading, error: rosterError,
+  } = useRosterMembers()
   const rabbit = useRabbit()
 
   // 0020 matrix parity: role matrix OR per-user grants (view/edit), live off
@@ -306,14 +312,14 @@ export default function RateCardPage() {
       </div>
 
       {/* ── Error banner ── */}
-      {(error || importError) && (
+      {(error || importError || rosterError) && (
         <div
           className="flex items-start gap-2 px-6 py-2"
           style={{ backgroundColor: '#fee2e2', borderBottom: '1px solid #991b1b' }}
         >
           <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: '#991b1b' }} />
           <span className="text-xs font-mono" style={{ color: '#991b1b' }}>
-            {importError || error}
+            {importError || error || `Team roster failed to load: ${rosterError}`}
           </span>
         </div>
       )}

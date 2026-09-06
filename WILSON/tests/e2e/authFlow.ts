@@ -51,9 +51,16 @@ if (!PASSWORD) {
   )
 }
 
-// Step 1 of 2. The company step deliberately makes NO network call — it
-// shape-checks the slug and advances — so there is nothing to wait on beyond
-// the step cross-fade; waiting for the Username field covers it.
+// Step 1 of 2. Since `158172c` (S43, "the company is a real gate") this step
+// POSTs `{company}` to resolve-login and only advances on `exists:true` —
+// the earlier "no network call, shape-check only" note was true for one
+// commit. Waiting for the Username field covers the round trip.
+//
+// ⚠️ B1: resolve-login's limiter is now DURABLE and per IP (20 company
+// checks and 30 credential checks per minute per address). Each scenario
+// here spends one or two of each; the whole file stays well under, but a
+// spec that loops sign-ins will hit `TOO MANY ATTEMPTS` — that is the
+// limiter working, not a flake.
 export async function clearCompanyStep(page: Page, workspace = WORKSPACE) {
   await expect(page.getByText(/^LOGIN$/)).toBeVisible({ timeout: 15_000 })
   await page.getByLabel('Company').fill(workspace)

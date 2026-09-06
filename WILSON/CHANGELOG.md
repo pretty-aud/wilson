@@ -31,7 +31,7 @@ Tools in this release: D.O.G. 0.514, O.T.T.E.R. 0.3.1, R.A.B.B.I.T. 0.1.0. Datab
 
 **Accounts, sign-in and onboarding**
 
-- **Username-first login.** You type a workspace username, not an email; a constant-time server-side resolver finds the account. Multiple memberships get a workspace chooser.
+- **Company-first login.** You type your company, then a workspace username (not an email) and password scoped to it; a constant-time, durably rate-limited server-side resolver finds the account. The same username can exist in two companies. The company is remembered on that device, and a `?company=` link pre-fills it. Multiple memberships still get a workspace chooser.
 - **TOTP multi-factor.** Enrol and manage in Settings → Profile. Enrolment is optional for ordinary users, and the login MFA stage fires only once an account has a verified factor. It is **required** for the operator console and enforced as a step-up on privileged admin actions.
 - **Show-once credentials.** New users get a copyable username + password panel shown exactly once at creation, plus admin-initiated resets.
 - **Invite, forgot-password and reset wizards**, with mail delivered through Resend.
@@ -182,11 +182,11 @@ The user-facing subset, with each item marked blocking or note, is **`docs/RELEA
 - **`provision-workspace` can still create an `admin` from a public, pre-authentication endpoint.** This is by design — it is self-serve company creation and the caller becomes that company's first admin — but it means *"no unauthenticated path can mint an admin"* is not a true statement about this system, even with `invite-member` now gated.
 - **Eight SECURITY DEFINER functions remain executable by `anon`.** Six key on `auth.uid()` and leak nothing; `project_is_staffed` and `fn_comment_project_id` have no caller gate but reveal one bit about a UUID the caller must already hold. Revoking them was tested and is a **behaviour change** — `has_active_membership` backs nearly every policy, so every anonymous table read turns from an empty result into a 42501. The post-1.0 fix is a `auth.uid() IS NOT NULL` guard inside the two ungated functions, not a grant change.
 - **Authentication events are not logged anywhere.** Sign-in success, sign-in failure, MFA challenge failure, sign-out and session expiry write no row; the same is true of operator sign-in, sign-out and guard refusals, and `platform_audit`'s action CHECK has no value that would accept them. Two of the three declared `WIL-1001` / `WIL-1002` / `WIL-1003` codes **cannot** be wired client-side at all — at sign-in failure there is no session, and `app_events`' INSERT policy requires one. This needs a server-side writer.
-- **Rate limiting is uneven.** `resolve-login` and `provision-workspace` still use per-isolate in-memory buckets; six other Edge Functions have no limiter; `resolve-login` keys its per-IP throttle on the **first**, client-supplied `X-Forwarded-For` hop (spoofable) where `provision-workspace` correctly uses the last.
+- **Rate limiting is uneven.** ~~`resolve-login` and `provision-workspace` still use per-isolate in-memory buckets … `resolve-login` keys its per-IP throttle on the **first**, client-supplied `X-Forwarded-For` hop~~ — Track B bundle B1 (2026-09-06) moved `resolve-login` onto the durable, fail-closed limiter keyed on the Cloudflare-set client address (`provision-workspace` left the tree in S43). Six other Edge Functions still have no limiter.
 - **`app_events` and `edit_history` purge at 90 days** against a one-year retention requirement.
 - **The `user-avatars` bucket is public**, with unconditional SELECT.
 - **Storage-cleanup failures log as informational.** `logAdminEvent` hardcodes `severity: 'info'`, so `WIL-3004` "Storage cleanup **failed**" is indistinguishable from the success line in the admin log stream. One line to fix — but `adminGuard.ts` is bundled by nine Edge Functions, so changing it forces a redeploy of all nine, which was not worth doing on release day.
-- **A username that collides across two workspaces makes sign-in unreachable** — the resolver treats two matches as a miss unless a workspace slug disambiguates, and the login screen has no field for one.
+- ~~**A username that collides across two workspaces makes sign-in unreachable**~~ — closed: sign-in is company-first (S43, finished in Track B bundle B1), so the same username in two companies is two people and the company typed first decides which one signs in.
 
 **Product and correctness**
 

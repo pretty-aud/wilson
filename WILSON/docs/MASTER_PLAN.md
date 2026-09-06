@@ -1225,8 +1225,9 @@ The first four are **release-gating**; S17's prompt carries the triage.
     Otter's interface while RABBIT is active. The DiffView approval gate is
     exercised only by O.T.T.E.R. Either wire it or stop advertising it in the
     prompt and the skills UI.
-57. **NEW (S16): a cross-workspace username collision makes sign-in
-    unreachable.** `workspace_members` uniqueness is scoped
+57. ~~**NEW (S16): a cross-workspace username collision makes sign-in
+    unreachable.**~~ **CLOSED (S43 + Track B bundle B1, 2026-09-06): sign-in is
+    company-first; see the ledger row below.** `workspace_members` uniqueness is scoped
     `(workspace_id, username)`, so the same username can legitimately exist in
     two companies. `resolve-login` treats 0 matches and ≥2 matches identically
     as a miss unless `workspace_slug` disambiguates (`:141,151-164`), and its
@@ -1319,7 +1320,7 @@ undecided gap at a release is a decision nobody made.
 | 54 | **RE-OWNED** | Quiz scores and Validator findings are never persisted. The columns, routes and adapter ops all exist; the client never calls them. Wiring them is a feature, and it changes what the user sees. **Listed in RELEASE_TESTING.md's "known not to work" so it is not re-found as a bug.** |
 | 55 | **RE-OWNED** | Settings → Tools "Storage Location" is inert. Both honest fixes — making it work, or removing it — are visible changes barred this session. Listed as known-not-working. |
 | 56 | **CLOSED S17** (`6ab10c6`), partially | The *advertising* is fixed: both misleading strings corrected. The wiring is **RE-OWNED**. Recon sharpened the finding — RABBIT's agent surface is not merely unwired but *unreachable*, because `App.jsx` hard-gates the agent to the O.T.T.E.R. page, so no user can hit a silent no-op. |
-| 57 | **ACCEPTED** | A cross-workspace username collision makes sign-in unreachable. The resolver already accepts a `workspace_slug` and the client already has the parameter — the login form simply has no company field, and adding one is a visible change to the first screen every user sees. Real, bounded, and not something to alter on release day. |
+| 57 | **CLOSED B1** | Company-first sign-in: S43 (`bec9185`, `158172c`) added the company step and made it a verified gate; Track B bundle B1 (2026-09-06) finished it — the resolver's throttle is durable, keyed on the Cloudflare-set client address and fail-closed, the company is remembered per device and deep-linkable, and a Playwright scenario pins the identical wording for a wrong password and an unknown username. Usernames are unique per company; the client always sends the slug, so the resolver's ambiguity branch is unreachable from it. |
 | 58 | **CLOSED S17** (`6ab10c6`) | All five documentation-drift items, plus two the gap did not name: db/README was missing sections for 0025/0026 as well as 0028/0029, and the intake step-count drift had a **third** site — the RABBIT knowledge snippet in `App.jsx` that is fed to the companion at runtime, so the agent was actively describing a wizard that no longer exists. |
 
 ### Filed by Session 17 (new)

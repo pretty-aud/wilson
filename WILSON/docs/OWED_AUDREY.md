@@ -1022,7 +1022,10 @@ through `signInWithPassword`; there is no second way in.
 
 ### Step 2 — Sign in and enrol TOTP
 
-Sign in at `/wilson` with the **username** (not the email) and password.
+Sign in at `/wilson`: the **company** first (`COMPANY` → `Continue`), then the
+**username** (not the email) and password (`Sign in`). Since Track B bundle
+B1 that browser remembers the company for next time, and a link of the form
+`/wilson?company=<name>` pre-fills it.
 
 Because you are an admin with no verified factor, the app meets you with a
 full-screen overlay headed **`SECURE YOUR ADMIN ACCOUNT`** before you reach
