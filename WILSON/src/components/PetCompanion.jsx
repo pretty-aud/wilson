@@ -19,8 +19,23 @@ export default function PetCompanion({
   sleepZCycle, cloudVisible, attentionJump,
   showHatchModal, hatchNameInput, onHatchNameChange, onHatchConfirm,
   isDarkPage, onNavigateLink,
-  bottomOffset = 48, petVisible = true,
-  apiKeyMissing = false,
+  // 🚨 A CSS LENGTH STRING, not a number. The pet is drawn sitting on top of
+  // the bottom bar, so this has to be an expression that TRACKS that bar
+  // ('calc(min(268px, …) + 16px)') rather than a pixel count copied from it.
+  //
+  // A number was correct for as long as the bars were fixed pixels. Phase 4
+  // made them viewport-responsive, and a number would have gone on reporting
+  // Home's bar as 268px on every screen — leaving the pet floating ~76px above
+  // it on a 14-inch Mac, i.e. on exactly the display that phase set out to fix.
+  bottomOffset = '48px', petVisible = true,
+  // Session 12 (locked #21): AI rides the authenticated ai-proxy, so the
+  // only unavailable state is "not signed in" — there is no API key anymore.
+  aiUnavailable = false,
+  // S30: non-null when the last attempt to save the pet failed. Until this
+  // existed a failed save looked exactly like a successful one — the pet is
+  // still on screen, still correct-looking, and only a reload reveals that the
+  // state went nowhere. Cleared by the next save that works.
+  petSaveError = null,
   // Agent props
   agentEnabled = false,
   agentMode = false,
@@ -115,7 +130,7 @@ export default function PetCompanion({
     <>
       {/* Chat popup — hidden while egg */}
       {companionOpen && !isEgg && (
-        <div className={`fixed right-[5.5rem] w-[350px] h-[450px] ${bgPanel} border-2 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] z-30 flex flex-col slide-in-right`} style={{ borderColor: accent, bottom: `${bottomOffset + 72}px` }}>
+        <div className={`fixed right-[5.5rem] w-[350px] h-[450px] ${bgPanel} border-2 rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] z-30 flex flex-col slide-in-right`} style={{ borderColor: accent, bottom: `calc(${bottomOffset} + 72px)` }}>
           <div className={`${bgHeader} border-b-2 px-3 py-2 flex items-center justify-between shrink-0 rounded-t-sm`} style={{ borderColor: accent }}>
             <span className="text-sm font-bold font-mono" style={{ color: headerText }}>{headerTitle}</span>
             <div className="flex items-center gap-1">
@@ -124,13 +139,19 @@ export default function PetCompanion({
             </div>
           </div>
           <div className={`flex-1 overflow-y-auto p-3 space-y-3 ${bgPanel}`}>
-            {apiKeyMissing && !isEgg && (
-              <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#451a03' : '#fef3c7', borderColor: isDarkPage ? '#92400e' : '#f59e0b', color: isDarkPage ? '#fbbf24' : '#92400e' }}>
+            {petSaveError && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#450a0a' : '#fee2e2', borderColor: isDarkPage ? '#991b1b' : '#ef4444', color: isDarkPage ? '#fca5a5' : '#991b1b' }}>
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span>API key missing — add your Anthropic key in <strong>System Settings</strong> to {agentMode ? 'use the agent' : `chat with ${name}`}.</span>
+                <span><strong>{name} isn’t being saved.</strong> {petSaveError}</span>
               </div>
             )}
-            {!isEgg && activeMessages.length === 0 && !apiKeyMissing && (
+            {aiUnavailable && !isEgg && (
+              <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#451a03' : '#fef3c7', borderColor: isDarkPage ? '#92400e' : '#f59e0b', color: isDarkPage ? '#fbbf24' : '#92400e' }}>
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                <span>Sign in to your workspace to {agentMode ? 'use the agent' : `chat with ${name}`}.</span>
+              </div>
+            )}
+            {!isEgg && activeMessages.length === 0 && !aiUnavailable && (
               <div className="text-center py-6 text-sm font-mono" style={{ color: accent, opacity: 0.3 }}>
                 {agentMode ? `Tell ${name} what to edit or create` : `Say hello to ${name}!`}
               </div>
@@ -187,7 +208,7 @@ export default function PetCompanion({
                 style={{ borderColor: `${accent}40` }}
                 disabled={activeLoading}
               />
-              <button onClick={activeOnSend} disabled={activeLoading || !activeInput?.trim() || apiKeyMissing} className="p-2 rounded-sm hover:opacity-80 disabled:opacity-40 transition-colors" style={{ background: accent, color: isDarkPage ? '#1c1917' : '#fff' }}>
+              <button onClick={activeOnSend} disabled={activeLoading || !activeInput?.trim() || aiUnavailable} className="p-2 rounded-sm hover:opacity-80 disabled:opacity-40 transition-colors" style={{ background: accent, color: isDarkPage ? '#1c1917' : '#fff' }}>
                 <Send className="w-4 h-4" />
               </button>
             </div>
@@ -248,7 +269,7 @@ export default function PetCompanion({
 
       {/* Stats card — left of sprite, only when chat open + pet mode + alive + not in agent mode */}
       {showStats && (
-        <div className="fixed right-[5.5rem] z-30 flex flex-col gap-1 slide-up font-mono" style={{ bottom: `${bottomOffset}px` }}>
+        <div className="fixed right-[5.5rem] z-30 flex flex-col gap-1 slide-up font-mono" style={{ bottom: bottomOffset }}>
           <div className="rounded-sm shadow-[4px_4px_0px_0px_rgba(0,0,0,0.3)] px-2.5 py-1 border-2" style={{ background: isDarkPage ? '#1c1917' : '#f4a261', borderColor: accent }}>
             <div className="text-[11px] uppercase font-bold tracking-wider leading-none" style={{ color: accent }}>Status: {state}</div>
           </div>
@@ -263,7 +284,7 @@ export default function PetCompanion({
       {/* Sprite — fixed bottom-right, slides in/out during transitions */}
       <div
         className={`fixed right-4 z-30 cursor-pointer hover:scale-110 transition-transform ${attentionJump ? 'attention-jump' : ''} ${petVisible ? 'pet-slide-in' : 'pet-slide-out'}`}
-        style={{ bottom: `${bottomOffset}px` }}
+        style={{ bottom: bottomOffset }}
         onClick={() => isEgg ? onPetAction() : onCompanionToggle(!companionOpen)}
       >
         <div className="relative">

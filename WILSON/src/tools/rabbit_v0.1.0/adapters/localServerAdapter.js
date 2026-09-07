@@ -50,6 +50,14 @@ function arrayBufferToBase64(buf) {
   return btoa(binary);
 }
 
+// Session 26: the folder tree is returned in path order on BOTH backends.
+// Supabase does it with `.order('path')`; the local bundle is a plain array,
+// so it is sorted here. Copied rather than sorted in place — the caller owns
+// the bundle and mutating it would reorder the file on the next write.
+function sortByPath(rows) {
+  return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
+}
+
 export function localServerAdapter() {
   return {
     mode: 'local_server',
@@ -91,6 +99,23 @@ export function localServerAdapter() {
         shots:           bundle.shots || [],
         levels:          bundle.levels || [],
         experiences:     bundle.experiences || [],
+        // Session 26 — same reason as every key above it: setActiveProject
+        // does setBundle({ ...EMPTY_BUNDLE, ...next }), so an omitted key is
+        // reset to [] on every load, project switch and realtime refetch.
+        //
+        // Sorted by path to match the Supabase adapter's `.order('path')`.
+        // The bundle is an array and therefore in INSERTION order — root,
+        // then categories, then whichever entity happened to be created
+        // first — so without this the two backends return the same tree in
+        // different orders and any consumer that trusts the order (a
+        // depth-first render, say) draws two different pictures. Same trap
+        // S25 called out for scenes, where the fix was `.order('sort_order')`.
+        folders:         sortByPath(bundle.folders),
+        // Session 17 (§6 #47): omitting this dropped every milestone on load.
+        // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
+        // missing key reset the array — real data loss on every reload,
+        // project switch and realtime refetch.
+        milestones:      bundle.milestones || [],
       };
     },
 
@@ -180,6 +205,28 @@ export function localServerAdapter() {
 
     deleteFile: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/files/${id}`, { method: 'DELETE' }),
 
+    // ── File lifecycle + storage relink (Session 14) ──────────
+    // listFileEvents mirrors the cloud file_events stream; the server
+    // appends to bundle.fileEvents on upload/relink/delete.
+    listFileEvents: async (fileId, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/files/${fileId}/events`),
+
+    // Scan: dangling rows + (optionally) a recursive walk of folderPath.
+    relinkScan: (projectId, folderPath = null) =>
+      jfetch(`${BASE}/projects/${projectId}/files/relink-scan`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(folderPath ? { folderPath } : {}),
+      }),
+
+    // Apply: bulk storage_path remap, all-or-nothing on the server.
+    relinkApply: (projectId, baseDir, mappings) =>
+      jfetch(`${BASE}/projects/${projectId}/files/relink-apply`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ baseDir, mappings }),
+      }),
+
     // ── Asset versions ────────────────────────────────────────
     upsertAssetVersion: (version) => jfetch(`${BASE}/projects/${version.project_id}/asset-versions`, {
       method:  'POST',
@@ -202,6 +249,11 @@ export function localServerAdapter() {
       return (bundle.comments || []).filter(c => c.entity_type === entityType && c.entity_id === entityId);
     },
     deleteComment: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/comments/${id}`, { method: 'DELETE' }),
+
+    // ── Edit history ──────────────────────────────────────────
+    // No capture in local mode (DB-trigger feature, supabase only).
+    // Empty result → the drawer shows its "unavailable in this mode" note.
+    listEditHistory: async () => [],
 
     // ── Ingestion runs + chunks ───────────────────────────────
     createIngestionRun: (run) => jfetch(`${BASE}/projects/${run.project_id}/ingestion-runs`, {
@@ -305,6 +357,21 @@ export function localServerAdapter() {
       body:    JSON.stringify({ folderPath }),
     }),
 
+    // ── Project rate overrides (Session 24) ─────────────────────
+    // A rate edited inside a project is PROJECT-SCOPED and must never write
+    // back to the workspace rate card. Same shape as the Supabase adapter so
+    // one UI serves both backends.
+    listProjectRateOverrides: async (projectId) =>
+      (await jfetch(`${BASE}/projects/${projectId}`)).projectRateOverrides || [],
+    upsertProjectRateOverride: (override) =>
+      jfetch(`${BASE}/projects/${override.project_id}/project-rate-overrides`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(override),
+      }),
+    deleteProjectRateOverride: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/project-rate-overrides/${id}`, { method: 'DELETE' }),
+
     // ── Budget versions ─────────────────────────────────────────
     listBudgetVersions: async (projectId) =>
       (await jfetch(`${BASE}/projects/${projectId}`)).budgetVersions || [],
@@ -407,6 +474,61 @@ export function localServerAdapter() {
     }),
     deleteExperience: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/experiences/${id}`, { method: 'DELETE' }),
+
+    // ── Folders (Session 26) ───────────────────────────────────
+    //
+    // The same three methods the Supabase adapter exposes, so the provider
+    // calls one interface. The difference is where the work happens: here the
+    // Express route creates REAL DIRECTORIES with fs.mkdirSync and records
+    // them in the bundle, because Local Server has an actual filesystem.
+    //
+    // Both sides plan the tree with the same folderPaths.js, which is what
+    // stops the two backends filing the same project differently.
+    listFolders: async (projectId) =>
+      sortByPath((await jfetch(`${BASE}/projects/${projectId}`)).folders),
+
+    ensureProjectFolders: (projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/ensure`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
+
+    // The project is NOT sent: the server reads it from the bundle, which is
+    // the copy the folder actually has to agree with. Sending the client's
+    // copy would let a stale render create a folder under the old name.
+    ensureEntityFolder: (projectId, project, entityType, entity) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/ensure-entity`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ entityType, entityId: entity?.id }),
+      }),
+
+    deleteFolder: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/folders/${id}`, { method: 'DELETE' }),
+
+    // The manifest is written by the SERVER, not posted from here: the server
+    // has the bundle, and the bundle is the copy the file has to mirror.
+    // Posting a client-built manifest would let a stale render write a
+    // description of a project as it was three edits ago.
+    writeProjectManifest: (projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/manifest`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
+
+    // Session 27. Same server-builds-it reasoning as the manifest, and the
+    // mirror argument is accepted and IGNORED so one provider call serves both
+    // backends: the server reads the overrides from the bundle, which is the
+    // copy the file has to agree with. On Supabase the equivalent method is
+    // handed a client-built mirror because there is no server to build one.
+    writeProjectRates: (projectId, _mirror) =>
+      jfetch(`${BASE}/projects/${projectId}/rates-mirror`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({}),
+      }),
 
     // ── Milestones ────────────────────────────────────────────
     listMilestones: async (projectId) =>

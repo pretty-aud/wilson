@@ -36,6 +36,8 @@ import { useRateCard } from '../../../components/RateCard/useRateCard'
 import { useExpenses } from '../../../components/Expenses/useExpenses'
 import { useBudgetLines, COLUMN_MODES } from '../../../components/Budget/useBudgetLines'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useProjectRateOverrides } from '../../../components/Budget/useProjectRateOverrides'
+import { buildRoleRates } from '../../../components/Budget/budgetMath'
 import CurrencyDisplay from '../components/CurrencyDisplay'
 import CrewTeamTab from './budget/CrewTeamTab'
 import TalentTab from './budget/TalentTab'
@@ -107,6 +109,7 @@ export default function BudgetView() {
   const syncProjectTeam = ctx?.syncProjectTeam
 
   const rateCard = useRateCard()
+  const rateOverrides = useProjectRateOverrides()
   const expensesHook = useExpenses()
   const budgetHook = useBudgetLines()
   const tm = useTeamMembers()
@@ -138,17 +141,37 @@ export default function BudgetView() {
     })
   }, [project?.id, assignedTeam, syncProjectTeam])
 
-  // Build a slug -> day_rate lookup from the active rate card.
-  const roleRates = useMemo(() => {
+  // Build a slug -> day_rate lookup: the company rate card, with this
+  // PROJECT's own overrides layered on top.
+  //
+  // Session 24. A rate edited inside a project is project-scoped and must
+  // never write back to the workspace rate card (Audrey, twice) — otherwise
+  // negotiating one project's rate silently rewrites every other project's
+  // numbers. The layering rule and its tests live in budgetMath.js.
+  const roleRates = useMemo(
+    () => buildRoleRates(rateCard.entries || [], rateOverrides.overrides || []),
+    [rateCard.entries, rateOverrides.overrides]
+  )
+
+  // Session 24: the per-project JOB TITLE, keyed by member.
+  //
+  // 🚨 Read from `project_title`, NOT `project_role`. project_role is the
+  // permission setting (manager/member/reviewer) behind every RLS gate;
+  // Audrey's "project role" is a free-text job title like "Lead Animator".
+  // They are separate columns and must stay that way.
+  const projectTitles = useMemo(() => {
     const map = {}
-    for (const e of rateCard.entries || []) {
-      if (!e.role_slug) continue
-      const rate = Number(e.day_rate || 0)
-      if (!Number.isFinite(rate)) continue
-      if (map[e.role_slug] == null) map[e.role_slug] = rate
+    for (const a of teamAssignments) {
+      if (a?.member_id) map[a.member_id] = a.project_title || ''
     }
     return map
-  }, [rateCard.entries])
+  }, [teamAssignments])
+
+  // MEASURED on the beta 2026-08-03: zero rate cards, zero entries. With no
+  // rates, every total is legitimately zero — so say so, rather than
+  // rendering a confident $0 that reads as a broken budget.
+  const hasNoRates = (rateCard.entries || []).length === 0
+                  && (rateOverrides.overrides || []).length === 0
 
   const variance = useMemo(
     () => ctx?.selectVarianceForProject?.() || { bid: 0, logged: 0, variance: 0 },
@@ -206,6 +229,25 @@ export default function BudgetView() {
           )
         })}
       </div>
+
+      {/* Session 24: an empty rate card is the difference between "this
+          budget is zero" and "this budget cannot be calculated yet". Without
+          this, both render as $0 and the second looks like a bug. */}
+      {hasNoRates && (
+        <div
+          className="flex items-start gap-2 px-5 py-2.5"
+          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c' }}
+        >
+          <AlertCircle className="w-3.5 h-3.5 mt-px shrink-0" style={{ color: '#fb923c' }} />
+          <div className="text-[10.5px] font-mono leading-relaxed" style={{ color: '#d6d3d1' }}>
+            <span style={{ color: '#fb923c' }}>NO RATE CARD YET.</span>{' '}
+            Bids are calculated as a role&rsquo;s rate &times; the days assigned to it, so
+            every total below will stay at zero until this workspace has rate-card
+            roles with rates. Add them in <span style={{ color: '#fff7ed' }}>Resources &rsaquo; Rate Card</span>.
+            Everything else on this page — actuals, expenses, margin and contingency — works now.
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 overflow-auto p-6">
         {tab === 'summary'  && (
@@ -270,6 +312,8 @@ export default function BudgetView() {
             teamMembers={assignedTeam}
             expenses={expensesHook.expenses}
             currency={budget.currency}
+            projectTitles={projectTitles}
+            onSaveProjectTitle={ctx?.updateProjectMemberTitle}
           />
         )}
         {tab === 'talent' && (
@@ -2521,6 +2565,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [fileIds, setFileIds]             = useState(expense?.file_ids || [])
   const [uploadedFiles, setUploadedFiles] = useState([])
   const [uploading, setUploading]         = useState(false)
+  const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
   const fileInputRef = useRef(null)
 
@@ -2555,7 +2600,16 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       }
       setUploadedFiles(prev => [...prev, ...results])
       setFileIds(prev => [...prev, ...results.map(r => r.id)])
-    } catch (err) { console.error('Upload failed', err) }
+    } catch (err) {
+      // 🚨 A REFUSAL MUST BE READ, NOT LOGGED. Session 37 gave uploadFile
+      // three new guaranteed-throw paths (a workspace on its own server has
+      // no cloud upload route; an unreadable storage choice; a bucket the
+      // browser was blocked from reaching) — and this catch turned every one
+      // of them into a spinner that stops with no file and no explanation.
+      // console.error is invisible to the person the sentence was written for.
+      console.error('Upload failed', err)
+      setUploadError(err?.message || 'Upload failed.')
+    }
     finally { setUploading(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }
   function removeFile(id) {
@@ -2674,7 +2728,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
               {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
               {uploading ? 'Uploading...' : 'Upload files'}
             </button>
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileUpload} />
+            {uploadError && (
+              <p className="text-[11px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>{uploadError}</p>
+            )}
+            <input ref={fileInputRef} type="file" multiple className="hidden"
+              onChange={e => { setUploadError(null); handleFileUpload(e) }} />
           </div>
         </div>
 

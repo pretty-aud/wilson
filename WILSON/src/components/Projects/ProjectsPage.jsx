@@ -24,9 +24,11 @@
 
 import { useState, useCallback } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
+import { LIGHT_INK } from '../lightSurface'
 
 function newFileId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -43,6 +45,13 @@ export default function ProjectsPage({ onNavigate }) {
   const updateProject = ctx?.updateProject
   const deleteProject = ctx?.deleteProject
   const setActiveProject = ctx?.setActiveProject
+
+  // Create/delete affordances (Session 6) — DB-side RLS is the real gate;
+  // cloud mode hides them below the matrix roles, local mode stays open.
+  const { can } = usePermissions()
+  const cloud = ctx?.adapterMode === 'supabase'
+  const canCreate = !cloud || can('project.create')
+  const canDelete = !cloud || can('project.delete')
 
   const projects = Object.values(projectsIndex).sort((a, b) => {
     const ad = a.updated_at ? new Date(a.updated_at).getTime() : 0
@@ -89,6 +98,13 @@ export default function ProjectsPage({ onNavigate }) {
     setActiveId(id)
     setActiveProject?.(id)
     setView('detail')
+    // Session 27: the cloud file rows are fetched per project rather than
+    // read from the provider bundle, because this page's selection and
+    // RabbitProvider's activeProjectId are separate state.
+    setCloudFiles([])
+    setFolders([])
+    loadCloudFiles(id)
+    loadFolders(id)
   }
 
   const handleDeleteProject = async (id) => {
@@ -115,11 +131,96 @@ export default function ProjectsPage({ onNavigate }) {
     }
   }, [activeId, updateProject])
 
+  // ── Cloud project files (Session 27) ──────────────────────
+  //
+  // The rows in `public.files` + the rabbit-files bucket, which is where a
+  // cloud project's files have actually lived since S14. This page never
+  // showed them: it only ever knew about the DOG-side documents/visualAssets
+  // arrays on the project row.
+  //
+  // 🚨 Read with the adapter DIRECTLY and an explicit project id, never
+  // through ctx.uploadFile / ctx.files. Those are scoped to RabbitProvider's
+  // activeProjectId, and this page has its OWN selection — opening a project
+  // here sets the active one, but the two are separate pieces of state and
+  // nothing guarantees they agree at the moment of a write. Uploading through
+  // the context would eventually file somebody's brief into whichever project
+  // RABBIT happened to have open.
+  const [cloudFiles, setCloudFiles] = useState([])
+  const [folders, setFolders] = useState([])
+  const [filesBusy, setFilesBusy] = useState(false)
+
+  // The folder tree (0041) for the selected project, so this page can show
+  // WHERE the project's files live and that the folder describes itself.
+  // Audrey, 2026-08-03: "these details of the project should also be seen in
+  // the project page in the resources section of wilson."
+  const loadFolders = useCallback(async (projectId) => {
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.listFolders || !projectId) { setFolders([]); return }
+    try {
+      setFolders(await adapter.listFolders(projectId) || [])
+    } catch {
+      setFolders([])
+    }
+  }, [ctx])
+
+  const loadCloudFiles = useCallback(async (projectId) => {
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.listFiles || !projectId) { setCloudFiles([]); return }
+    try {
+      const rows = await adapter.listFiles(projectId)
+      // Invoices are manager-only and have their own surface in the budget.
+      // RLS already hides them from anyone who cannot see them — this stops a
+      // manager finding them mixed in with the project's ordinary documents.
+      setCloudFiles((rows || []).filter(f => !f.deleted_at && !f.is_financial))
+    } catch {
+      // A backend that cannot list files is not an error on this page; the
+      // legacy arrays below still render.
+      setCloudFiles([])
+    }
+  }, [ctx])
+
   // ── Unified file handlers ─────────────────────────────────
 
   /** Upload files — auto-sorts into documents or visualAssets by MIME type */
-  const handleFileUpload = useCallback((fileList) => {
+  const handleFileUpload = useCallback(async (fileList) => {
     if (!activeProject) return
+
+    // 🚨 In CLOUD mode the legacy path below cannot work and has not since
+    // S12. documents/visualAssets have no columns on the cloud `projects`
+    // table, and the adapter REFUSES a create or update carrying them rather
+    // than dropping them silently (supabaseAdapter's ATTACHMENTS_MSG, added in
+    // S15 precisely so files could not vanish). So the drop zone on this page
+    // has been showing an honest error and going nowhere — the message even
+    // tells the user to go and do it in RABBIT instead.
+    //
+    // This is the other half of that fix, deferred at the time as MASTER_PLAN
+    // §6 #31: the cloud home for project files exists, so use it.
+    //
+    // Local Server is deliberately NOT rerouted. There the legacy arrays are a
+    // working store that persists in the JSON bundle, and D.O.G. reads them
+    // for deck context — switching that path would be a silent behaviour
+    // change to a tool this session is not otherwise touching.
+    if (cloud) {
+      const adapter = ctx?.getAdapter?.()
+      if (!adapter?.uploadFile) {
+        setSaveError('This backend cannot store files.')
+        return
+      }
+      setFilesBusy(true)
+      setSaveError('')
+      try {
+        for (const file of Array.from(fileList)) {
+          await adapter.uploadFile(activeProject.id, {}, file)
+        }
+        await loadCloudFiles(activeProject.id)
+      } catch (err) {
+        setSaveError(err.message || 'Upload failed.')
+      } finally {
+        setFilesBusy(false)
+      }
+      return
+    }
+
     const promises = Array.from(fileList).map(file => new Promise((resolve) => {
       const reader = new FileReader()
       reader.onload = () => {
@@ -150,11 +251,25 @@ export default function ProjectsPage({ onNavigate }) {
         visualAssets: [...existingAssets, ...imgFiles],
       })
     })
-  }, [activeProject, updateActive])
+  }, [activeProject, updateActive, cloud, ctx, loadCloudFiles])
 
   /** Update a file property (is_core_definer, description, document_kind, etc.) */
   const handleFileUpdate = useCallback((fileId, patch) => {
     if (!activeProject) return
+
+    // A cloud row is not in either legacy array, so it has to be recognised
+    // FIRST — otherwise both findIndex calls miss, the function returns
+    // silently, and marking a file as core appears to do nothing.
+    const cloudRow = cloudFiles.find(f => f.id === fileId)
+    if (cloudRow) {
+      const adapter = ctx?.getAdapter?.()
+      if (!adapter?.updateFile) return
+      setCloudFiles(prev => prev.map(f => (f.id === fileId ? { ...f, ...patch } : f)))
+      adapter.updateFile(fileId, { ...patch, project_id: activeProject.id })
+        .catch(err => setSaveError(err.message || 'Failed to update file.'))
+      return
+    }
+
     const docs   = Array.isArray(activeProject.documents)    ? [...activeProject.documents]    : []
     const assets = Array.isArray(activeProject.visualAssets) ? [...activeProject.visualAssets] : []
 
@@ -170,22 +285,38 @@ export default function ProjectsPage({ onNavigate }) {
       assets[assetIdx] = { ...assets[assetIdx], ...patch }
       updateActive({ visualAssets: assets })
     }
-  }, [activeProject, updateActive])
+  }, [activeProject, updateActive, cloudFiles, ctx])
 
-  /** Remove a file from either array */
+  /** Remove a file — a cloud row, or an entry in either legacy array */
   const handleFileDelete = useCallback((fileId) => {
     if (!activeProject) return
+
+    const cloudRow = cloudFiles.find(f => f.id === fileId)
+    if (cloudRow) {
+      const adapter = ctx?.getAdapter?.()
+      if (!adapter?.deleteFile) return
+      // Soft delete in cloud (0014): the row keeps deleted_at and the blob is
+      // deliberately left in place so a restore has something to restore.
+      setCloudFiles(prev => prev.filter(f => f.id !== fileId))
+      adapter.deleteFile(fileId, activeProject.id)
+        .catch(err => {
+          setSaveError(err.message || 'Failed to delete file.')
+          loadCloudFiles(activeProject.id)
+        })
+      return
+    }
+
     const docs   = (activeProject.documents    || []).filter(f => f.id !== fileId)
     const assets = (activeProject.visualAssets || []).filter(f => f.id !== fileId)
     updateActive({ documents: docs, visualAssets: assets })
-  }, [activeProject, updateActive])
+  }, [activeProject, updateActive, cloudFiles, ctx, loadCloudFiles])
 
   // ── Create prompt view ────────────────────────────────────
   if (view === 'create') {
     return (
       <div className="h-full flex items-center justify-center px-8">
         <div className="w-full max-w-md">
-          <h2 className="text-lg font-bold uppercase tracking-widest text-stone-300 mb-6 text-center">
+          <h2 className="text-lg font-bold uppercase tracking-widest mb-6 text-center" style={{ color: LIGHT_INK }}>
             Create New Project
           </h2>
           <input
@@ -245,7 +376,21 @@ export default function ProjectsPage({ onNavigate }) {
       visualAssets:    Array.isArray(activeProject.visualAssets) ? activeProject.visualAssets : [],
     }
 
-    // Merge documents + visualAssets into unified file list
+    // Merge documents + visualAssets + the cloud file rows into one list.
+    //
+    // Session 27: the third source is new. `public.files` is where a cloud
+    // project's files have actually lived since S14 and this page had never
+    // shown them, so a file uploaded from RABBIT was invisible here and a file
+    // "uploaded" here never existed at all.
+    //
+    // The two legacy arrays are still read. They hold real content on Local
+    // Server, and on cloud they may hold rows written before S12 stopped
+    // accepting them. Nothing writes them in cloud any more, so the list
+    // shrinks toward the single store on its own rather than by a migration
+    // nobody asked for.
+    //
+    // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a cloud
+    // row spells two of those differently, so it is mapped rather than spread.
     const allFiles = [
       ...normalized.documents.map(f => ({
         ...f,
@@ -254,6 +399,14 @@ export default function ProjectsPage({ onNavigate }) {
       ...normalized.visualAssets.map(f => ({
         ...f,
         is_image: f.is_image ?? true,
+      })),
+      ...cloudFiles.map(f => ({
+        ...f,
+        type:       f.mime_type || '',
+        size:       f.size_bytes ?? null,
+        is_image:   isMediaMime(f.mime_type),
+        created_at: f.uploaded_at || f.created_at || null,
+        storage:    'cloud',
       })),
     ]
 
@@ -265,9 +418,11 @@ export default function ProjectsPage({ onNavigate }) {
         onOpenInRabbit={() => onNavigate?.('rabbit')}
         onDelete={() => handleDeleteProject(activeProject.id)}
         deleteConfirm={deleteConfirm === activeProject.id}
-        onRequestDelete={() => setDeleteConfirm(activeProject.id)}
+        onRequestDelete={canDelete ? () => setDeleteConfirm(activeProject.id) : null}
         onCancelDelete={() => setDeleteConfirm(null)}
         allFiles={allFiles}
+        folders={folders}
+        filesBusy={filesBusy}
         onFileUpdate={handleFileUpdate}
         onFileDelete={handleFileDelete}
         onFileUpload={handleFileUpload}
@@ -281,11 +436,11 @@ export default function ProjectsPage({ onNavigate }) {
   return (
     <ProjectListPanel
       projects={projects}
-      onCreate={() => setView('create')}
+      onCreate={canCreate ? () => setView('create') : null}
       onOpen={handleOpen}
       onUpdateStatus={(id, status) => updateProject?.(id, { status })}
       deleteConfirm={deleteConfirm}
-      onRequestDelete={(id) => setDeleteConfirm(id)}
+      onRequestDelete={canDelete ? (id) => setDeleteConfirm(id) : null}
       onConfirmDelete={(id) => handleDeleteProject(id)}
       onCancelDelete={() => setDeleteConfirm(null)}
       saveError={saveError}

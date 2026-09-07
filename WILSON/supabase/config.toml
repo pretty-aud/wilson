@@ -1,0 +1,196 @@
+# Supabase project config — linked to wilson-dev by default.
+# Switch envs via `supabase link --project-ref <ref>` before running
+# `supabase db push` / `supabase functions deploy`.
+
+project_id = "wilson-dev"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 17
+
+[studio]
+enabled = true
+port = 54323
+
+[auth]
+enabled = true
+site_url = "http://localhost:5203"
+additional_redirect_urls = ["http://localhost:5203"]
+jwt_expiry = 3600
+# Admin-only user creation for WILSON; no self-signup.
+enable_signup = false
+
+[auth.email]
+enable_signup = false
+double_confirm_changes = true
+# We control email delivery end-to-end (Resend), so the built-in confirmation
+# workflow stays off — invites + password resets use custom flows.
+enable_confirmations = false
+
+# ── Email templates (Session 3) ──────────────────────────────────────────
+# Subject lines + HTML bodies. Supabase substitutes {{ .ConfirmationURL }},
+# {{ .Email }}, {{ .Data.foo }} etc. when rendering.
+#
+# `content_path` paths are resolved relative to supabase/ — i.e. the files
+# live at supabase/templates/*.html. On hosted projects (wilson-dev /
+# staging / prod) these templates are uploaded via the Dashboard → Auth →
+# Email Templates UI; this block configures local development and serves
+# as the canonical source-of-truth.
+[auth.email.template.invite]
+subject = "You're invited to {{ .Data.company_name }} on WILSON"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.recovery]
+subject = "Reset your WILSON password"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.email_change]
+subject = "Confirm your new email for WILSON"
+content_path = "./supabase/templates/email_change.html"
+
+# ── SMTP (Resend) ────────────────────────────────────────────────────────
+# Local development uses mailpit (default). For hosted environments the
+# SMTP creds are set in Dashboard → Auth → SMTP Settings using a Resend
+# SMTP token — see WILSON/src/tools/rabbit_v0.1.0/db/README.md §6 for the
+# step-by-step. This [auth.email.smtp] block only activates against hosted
+# if you run `supabase db push --linked`; for dev we intentionally leave
+# `enabled = false` so local development never touches real email.
+[auth.email.smtp]
+enabled = false
+host = "smtp.resend.com"
+port = 465
+user = "resend"
+# `pass` must be a Resend SMTP token (not an API key). Injected via the
+# SUPABASE_AUTH_SMTP_PASS secret when Supabase picks this up in hosted.
+pass = "env(SUPABASE_AUTH_SMTP_PASS)"
+admin_email = "wilson@mail.petalstudios.co"
+sender_name = "WILSON"
+
+# Custom Access Token hook — bakes workspace_id + app_role into JWT
+# app_metadata on every token issuance. This block is documentation only;
+# the hook must also be toggled on in Dashboard → Auth → Hooks →
+# Custom Access Token Hook (point at public.custom_access_token_hook).
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/custom_access_token_hook"
+
+# Per-function JWT verification. resolve-login is intentionally public
+# (it's the pre-auth lookup). issue-session validates the caller's JWT
+# inside the function via admin.auth.getUser(token) — the Edge gateway's
+# built-in verify_jwt only supports HS256 and rejects this project's
+# ES256-signed JWTs with UNAUTHORIZED_UNSUPPORTED_TOKEN_ALGORITHM before
+# the function even runs, so we opt out of infra-level verification and
+# rely on GoTrue (which handles ES256 correctly) to validate the token.
+[functions.resolve-login]
+verify_jwt = false
+
+[functions.issue-session]
+verify_jwt = false
+
+# Session 43: provision-workspace is GONE. It was the pre-auth, PUBLIC
+# self-serve company onboarding endpoint — anyone holding the anon key the web
+# app ships could create a workspace, an auth.users row and an admin
+# membership, three times an hour per IP (and the limiter was per-isolate, so
+# softer than it read). Audrey, 2026-08-10: "it needs to be invite only for
+# now." Its only caller in the repo was NewCompanyWizard, removed in the same
+# session; operator-workspaces' `create` action already does everything it did,
+# behind requirePlatformOperator.
+#
+# ⚠️ Removing it here and from the repo does NOT remove it from the three
+# hosted projects. It stays live until deleted per environment:
+#   supabase functions delete provision-workspace --project-ref <ref>
+# on wilson-dev, wilson-staging AND wilson-prod. See docs/OUTSTANDING.md.
+#
+# The provision_workspace_and_admin RPC (0009) and pgTAP suite 15 STAY —
+# operator-workspaces calls that RPC.
+
+# invite-member validates the caller's JWT in-function via
+# admin.auth.getUser(token) (same reason as issue-session — Edge gateway
+# can't validate ES256). Session 17: it now enforces app_role=admin, a live
+# workspace_members row AND the MFA step-up through _shared/adminGuard.ts —
+# it can mint an admin, so it must be gated like admin-create-user.
+[functions.invite-member]
+verify_jwt = false
+
+# Session 9 Admin Terminal functions: all validate the caller's ES256 JWT
+# in-function via admin.auth.getUser(token) + a LIVE workspace_members row
+# check + MFA step-up (see _shared/adminGuard.ts). Same gateway opt-out
+# rationale as issue-session.
+[functions.admin-create-user]
+verify_jwt = false
+
+[functions.admin-reset-password]
+verify_jwt = false
+
+[functions.admin-set-active]
+verify_jwt = false
+
+[functions.admin-user-security]
+verify_jwt = false
+
+# ai-proxy (Session 12, locked #21): the single Anthropic path for BOTH hosts.
+# Validates the caller's ES256 JWT in-function (same gateway opt-out as
+# issue-session) + a LIVE workspace_members row check via _shared/memberGuard.
+[functions.ai-proxy]
+verify_jwt = false
+
+# ai-files: the UPLOAD half of locked #21, added 2026-08-11 to fix the HTTP 546
+# outage that stopped D.O.G. generating anything. Documents go to Anthropic's
+# Files API once and are referenced by file_id thereafter, so ai-proxy relays a
+# few KB instead of a multi-megabyte base64 body — the body was what killed the
+# worker. Same gateway opt-out and same in-function memberGuard check as
+# ai-proxy. 🚨 It streams req.body through untouched; see its header before
+# adding anything that reads the request.
+[functions.ai-files]
+verify_jwt = false
+
+# storage-gc (Session 14, Block E): admin-invoked blob disposal with
+# certificates. Rides _shared/adminGuard.ts — same in-function validation as
+# the Session 9 admin set.
+[functions.storage-gc]
+verify_jwt = false
+
+# Session 15 Platform Operator Console (/wilsonadmin, locked #18). These are
+# the PLATFORM tier, not the company-admin tier: they ride
+# _shared/operatorGuard.ts, which checks a live public.platform_operators row
+# and requires MFA outright rather than only for enrolled users. Same gateway
+# opt-out as everything above — verify_jwt only speaks HS256.
+[functions.operator-workspaces]
+verify_jwt = false
+
+[functions.operator-ai-keys]
+verify_jwt = false
+
+# Session 20: the model control plane's write path. Same operatorGuard,
+# same gateway opt-out rationale.
+[functions.operator-models]
+verify_jwt = false
+
+# Session 41: the Petal-cloud storage plane's write path. Same operatorGuard,
+# same gateway opt-out rationale — the Edge gateway's built-in verify_jwt only
+# supports HS256 and rejects this project's ES256-signed JWTs BEFORE the
+# function body runs, so without this block the function 401s regardless of what
+# requirePlatformOperator would have decided.
+[functions.operator-storage-plans]
+verify_jwt = false
+
+# Session 37: S3-compatible storage (the first BYO provider). storage-presign
+# is the member-tier signing boundary (memberGuard + in-function project
+# predicate); storage-secret is the admin-tier secret store + config-time
+# probe (adminGuard). Same gateway opt-out — verify_jwt only speaks HS256.
+[functions.storage-presign]
+verify_jwt = false
+
+[functions.storage-secret]
+verify_jwt = false
+
+[analytics]
+enabled = false

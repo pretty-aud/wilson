@@ -36,6 +36,10 @@ import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { ListChecks, Settings as SettingsIcon, HelpCircle } from 'lucide-react'
 import { useRabbit } from './state/RabbitProvider'
 import { useAgent } from '../../agent'
+import { useRosterMembers } from '../../components/TeamMembers/useRosterMembers'
+import { usePermissions } from '../../permissions/usePermissions'
+import { canSeeProjectMoney } from '../../permissions/projectRoleMatrix'
+import { isOwnAvatarUrl } from '../../components/TeamMembers/useWorkspaceMembers'
 import ViewTabs from './components/ViewTabs'
 import ProjectContextBar from './components/ProjectContextBar'
 import IngestionToast from './components/IngestionToast'
@@ -55,17 +59,43 @@ import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
   const agent = useAgent()
+  const perms = usePermissions()
   const project = ctx?.project
   const [activeView, setActiveView] = useState('summary')
 
   // ── Dynamic tab visibility based on project toggle fields ──
+  //
+  // Session 24: Budget joins this list, but on PERMISSION rather than a
+  // project toggle. Audrey: "only managers should see anything relating to
+  // money … reviewers and team members should not see financial values
+  // anywhere." Migration 0037 already makes that true of the DATA — a
+  // non-manager reads zero rows from every money table — but they were still
+  // shown the tab and a page of zeroes, with nothing saying why.
+  //
+  // canSeeProjectMoney mirrors can_access_project_money(uuid) exactly, and
+  // fails CLOSED: see its comment for why the tab APPEARS late for a project
+  // manager rather than vanishing late for a reviewer.
+  const canSeeMoney = canSeeProjectMoney({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+  })
+
   const hiddenTabs = useMemo(() => {
     const hidden = new Set()
     if (!project?.scenes_enabled) hidden.add('scenes')
     if (!project?.levels_enabled) hidden.add('levels')
     if (!project?.experiences_enabled) hidden.add('experiences')
+    if (!canSeeMoney) hidden.add('budget')
     return hidden
-  }, [project?.scenes_enabled, project?.levels_enabled, project?.experiences_enabled])
+  }, [project?.scenes_enabled, project?.levels_enabled, project?.experiences_enabled, canSeeMoney])
+
+  // A hidden tab must not stay open. Without this, someone already sitting on
+  // Budget when their access resolves keeps the view mounted with only the
+  // button gone — and the same applies to toggling scenes/levels off while
+  // viewing them.
+  useEffect(() => {
+    if (hiddenTabs.has(activeView)) setActiveView('summary')
+  }, [hiddenTabs, activeView])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())
@@ -214,6 +244,11 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
       {/* ── Background ingestion toast ── */}
       <IngestionToast onJumpToReview={handleJumpToReview} />
 
+      {/* NOTE: the undo toast (soft-delete forgiveness window) is
+          mounted once at the App.jsx level, inside <RabbitProvider>,
+          so it stays visible when deletes fire from pages that keep
+          this shell display:none (e.g. ProjectsPage). */}
+
       {/* ── Adapter status dot ── */}
       {/* Replaces the old header adapter pill. A single 10px
           circle pinned to the bottom-right corner of the frame,
@@ -221,6 +256,12 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
           if one appears. Red = offline, green = online. Hovering
           reveals the adapter mode + status text. */}
       <AdapterStatusDot mode={adapterMode} status={adapterStatus} />
+
+      {/* ── Realtime presence strip (Session 7) ── */}
+      <RealtimePresenceStrip
+        realtimeStatus={ctx?.realtimeStatus}
+        users={ctx?.presentUsers}
+      />
     </div>
   )
 }
@@ -251,6 +292,85 @@ function AdapterStatusDot({ mode, status }) {
         zIndex: 50,
       }}
     />
+  )
+}
+
+// ─── Realtime presence strip ───
+// Sits beside the adapter dot: a LIVE/SYNC pill plus up to five
+// initial chips for who else has this project open (Session 7
+// presence, cloud mode only — hidden when realtime is off).
+function RealtimePresenceStrip({ realtimeStatus, users }) {
+  // Session 8: presence meta only carries { user_id, label } — join the
+  // roster so chips can show real avatars where members uploaded one.
+  // Hook order: called unconditionally, before the early return.
+  const { members: rosterMembers } = useRosterMembers()
+  const avatarByUserId = useMemo(() => {
+    const out = {}
+    for (const m of rosterMembers || []) {
+      if (m.avatar_url) out[m.id] = m.avatar_url
+    }
+    return out
+  }, [rosterMembers])
+  if (!realtimeStatus || realtimeStatus === 'off') return null
+  const pill = {
+    live:       { label: 'LIVE', color: '#fb923c' },
+    connecting: { label: 'SYNC', color: '#78716c' },
+    error:      { label: 'SYNC ERR', color: '#ef4444' },
+  }[realtimeStatus] || { label: realtimeStatus.toUpperCase(), color: '#78716c' }
+  const list = Array.isArray(users) ? users : []
+  const shown = list.slice(0, 5)
+  const overflow = list.length - shown.length
+  const initials = (label) => (label || '?')
+    .split(/\s+/).map(w => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase()
+  return (
+    <div
+      className="absolute flex items-center gap-1 pointer-events-auto"
+      style={{ left: 26, bottom: 13, zIndex: 50 }}
+    >
+      <span
+        className="text-[8.5px] font-mono uppercase tracking-wider font-bold px-1 py-px rounded-sm"
+        title={realtimeStatus === 'live'
+          ? 'Live sync connected — edits from teammates appear instantly'
+          : realtimeStatus === 'error'
+            ? 'Live sync error — changes still save; the view refreshes on reconnect'
+            : 'Connecting live sync…'}
+        style={{ color: pill.color, border: `1px solid ${pill.color}`, opacity: 0.85 }}
+      >
+        {pill.label}
+      </span>
+      {shown.map(u => {
+        const avatar = avatarByUserId[u.user_id]
+        return isOwnAvatarUrl(avatar) ? (
+          <img
+            key={u.user_id || u.label}
+            src={avatar}
+            alt=""
+            title={u.label || 'Member'}
+            className="rounded-full object-cover"
+            style={{ width: 16, height: 16, border: '1px solid #78716c' }}
+          />
+        ) : (
+          <span
+            key={u.user_id || u.label}
+            title={u.label || 'Member'}
+            className="flex items-center justify-center rounded-full text-[8px] font-mono font-bold"
+            style={{
+              width: 16, height: 16,
+              color: '#fff7ed',
+              backgroundColor: '#57534e',
+              border: '1px solid #78716c',
+            }}
+          >
+            {initials(u.label)}
+          </span>
+        )
+      })}
+      {overflow > 0 && (
+        <span className="text-[8.5px] font-mono" style={{ color: '#78716c' }}>
+          +{overflow}
+        </span>
+      )}
+    </div>
   )
 }
 

@@ -18,8 +18,11 @@ import {
   Gamepad2, Sparkles, Boxes, FolderOpen,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction from '../../../permissions/GatedAction'
 import FileManager from './FileManager'
 
 // ── Constants ──
@@ -65,15 +68,41 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const shots = ctx?.shots || []
   const levels = ctx?.levels || []
   const experiences = ctx?.experiences || []
-  const teamAssignments = ctx?.teamAssignments || []
 
-  const tm = useTeamMembers()
-  const memberById = useMemo(() => {
-    const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m
-  }, [tm.members])
-  const projectMembers = useMemo(() => {
-    return teamAssignments.map(a => memberById[a.member_id]).filter(Boolean)
-  }, [teamAssignments, memberById])
+  // Assignee/reviewer options come from the unified roster (Session 6) —
+  // auth users in cloud mode, team members locally. Selections write the
+  // canonical task.assignee_id / task.reviewer_id columns.
+  const { members: rosterMembers, mode: rosterMode } = useRosterMembers()
+
+  // In local_server mode the selects honor the documented TeamView
+  // contract — only PROJECT-ASSIGNED members are offered, not the whole
+  // workspace. Cloud mode stays on the full roster.
+  const assignableMembers = useMemo(() => {
+    if (rosterMode !== 'local_server') return rosterMembers
+    const assignedIds = new Set((ctx?.teamAssignments || []).map(a => a.member_id))
+    return rosterMembers.filter(m => assignedIds.has(m.id))
+  }, [rosterMode, rosterMembers, ctx?.teamAssignments])
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // governs the write affordances for staffed-project reviewers.
+  //
+  // 🚨 Session 29 fixed a real omission here: this call passed appRole,
+  // projectRole and isStaffed but NOT `ready`, and `ready` defaults to true
+  // inside canOnProject. So while the first getSession() was still in flight,
+  // `role` was null, a staffed project fell through to the seat check with no
+  // seat known, and the answer was FALSE — "still loading" silently rendering
+  // as "denied". That is the exact defect S23 fixed in ProjectTasksView and
+  // ProjectAssetsView (both of which do pass it); this file was missed, and it
+  // is why the flag is assembled in one place now.
+  const { role, ready: permsReady } = usePermissions()
+  const gateCtx = {
+    appRole: role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: permsReady,
+  }
+  const canWrite = canOnProject(gateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(gateCtx, 'project.entity.write')
 
   const rc = useRateCard()
   const roleEntries = useMemo(() => {
@@ -308,12 +337,26 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
               </div>
               <div>
                 <FieldLabel>Asset</FieldLabel>
-                <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={{ backgroundColor: '#1c1917', color: task.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
-                  <option value="">--</option>
-                  {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
-                </select>
+                {task.asset_id && !assets.some(a => a.id === task.asset_id) ? (
+                  // Current asset not in ctx.assets (the Dashboard's
+                  // cross-project reuse keeps the list empty so the
+                  // FileManager column can't mount): show the embedded name
+                  // read-only. A select here would render blank and its
+                  // only option would write asset_id = NULL into a
+                  // NOT NULL column (Session 8 review finding).
+                  <div className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded"
+                    style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', opacity: 0.85 }}
+                    title="Open the project in R.A.B.B.I.T. to re-link this task">
+                    {task.asset?.name || 'Linked asset'}
+                  </div>
+                ) : (
+                  <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
+                    className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    style={{ backgroundColor: '#1c1917', color: task.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                    <option value="">--</option>
+                    {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
+                  </select>
+                )}
               </div>
               <div>
                 <FieldLabel>Phase</FieldLabel>
@@ -381,7 +424,16 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
                   className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: task.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">--</option>
-                  {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <FieldLabel>Reviewer</FieldLabel>
+                <select value={task.reviewer_id || ''} onChange={e => handleUpdate({ reviewer_id: e.target.value || null })}
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  style={{ backgroundColor: '#1c1917', color: task.reviewer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
+                  <option value="">--</option>
+                  {assignableMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
               </div>
               <div>
@@ -505,12 +557,20 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
-          <button type="button"
-            onClick={() => { if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) { ctx?.deleteTask?.(task.id); onClose() } }}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
-            <Trash2 className="w-3.5 h-3.5" /> Delete task
-          </button>
+          {/* Session 29 — was `canWrite ? <button/> : <span/>`, i.e. the
+              control vanished with no explanation. Audrey: "keep button gray
+              and explain why." */}
+          <GatedAction allowed={canWrite} reason={writeReason}>
+            {/* Soft delete — no confirm in RABBIT; the shell-level undo toast
+                covers it. A ctx.deleteTask returning false means the caller
+                vetoed the delete (Dashboard's confirm) — keep the popup open. */}
+            <button type="button"
+              onClick={() => { if (ctx?.deleteTask?.(task.id) !== false) onClose() }}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono rounded hover:bg-stone-700 transition-colors"
+              style={{ color: '#fca5a5', border: '1px solid #44403c' }}>
+              <Trash2 className="w-3.5 h-3.5" /> Delete task
+            </button>
+          </GatedAction>
           <button type="button" onClick={onClose}
             className="px-4 py-1.5 text-[11px] font-mono rounded transition-colors"
             style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>

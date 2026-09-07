@@ -5,15 +5,42 @@ import { useAgent } from '../agent/AgentProvider'
 import CurrencyPicker from './settings/CurrencyPicker'
 import TaskTemplateManager from './TaskTemplates/TaskTemplateManager'
 import AgentSkillsSection from './settings/AgentSkillsSection'
+import ProfileSection from './settings/ProfileSection'
+import PasswordSection from './settings/PasswordSection'
+import SessionSection from './settings/SessionSection'
 import { defaultAgentSkillsState } from './settings/agentSkillRegistry'
 import { useRabbit } from '../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { useRateCard } from './RateCard/useRateCard'
 import { ADAPTER_MODES, adapterSupportsWrites } from '../tools/rabbit_v0.1.0/adapters'
+import { otterFetch } from '../tools/otter_v0.3.1/adapters'
+import { hasLocalServer, loadOtterSettings, saveOtterSettings, loadAgentSkills, saveAgentSkills } from '../lib/localData'
+import { pushSettingsToCloud } from '../lib/userState'
+import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
+import MigrationPanel from '../cloud/migrate/MigrationPanel'
+import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
+import { MfaSecuritySection } from '../cloud/auth/MfaSection'
+import VersionPanel from './settings/VersionPanel'
+import StorageConnections from './settings/StorageConnections'
+import UserModelsSection from './settings/UserModelsSection'
+import { usePermissions } from '../permissions'
+import GatedAction from '../permissions/GatedAction'
+// Session 43 §B — Settings is a light page (#f4a261). The two CONFIRM DIALOGS
+// near the bottom paint #1c1917 and keep their greys.
+import { LIGHT_INK, LIGHT_RULE } from './lightSurface'
+import { canCreateNewEgg } from '../lib/petLifecycle'
 
 
 export default function SettingsPage({
-  apiKey, onApiKeyChange,
   petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet,
+  // Phase 3 (2026-08-12): Create Egg reported nothing on this page. It set an
+  // error into App's `petSaveError`, whose only renderer is the companion chat
+  // panel — which navigateTo force-closes on every page change. So the button
+  // threw, the dialog shut, and Audrey saw "nothing happened".
+  //
+  // `newPetStatus` is this button's OWN channel: { ok, message }, success as
+  // well as failure. It is not `petSaveError`, which multiplexes four unrelated
+  // conditions and is cleared by any later successful save.
+  newPetStatus = null, newPetPending = false,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
   agentEnabled, onAgentEnabledChange,
   autoApprove, onAutoApproveChange,
@@ -21,10 +48,6 @@ export default function SettingsPage({
   agentSystemPrompt, onAgentSystemPromptChange,
 }) {
   const [activeTab, setActiveTab] = useState('general')
-  const [currentPassword, setCurrentPassword] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [confirmPassword, setConfirmPassword] = useState('')
-  const [passwordMessage, setPasswordMessage] = useState(null)
 
   // Pet danger zone confirmations
   const [petResetConfirm, setPetResetConfirm] = useState(false)
@@ -54,7 +77,22 @@ export default function SettingsPage({
     }).catch(() => setFilesRootLoaded(true))
   }, [])
 
+  // ── S34 (TPN-AUTH-009): who may repoint this machine's root ──────────────
+  // Signed into a workspace, the machine default is the fallback the whole
+  // resolution chain lands on (project folder_root → workspace root →
+  // THIS), so it follows Audrey's drive rule: admins only. With no workspace
+  // there is no team to break — a solo Local Server user keeps full control.
+  // Fails CLOSED while permissions load (the money-gate direction: a real
+  // admin sees the control a beat late rather than a member seeing it at
+  // all); the reason string tells the two states apart.
+  const perms = usePermissions()
+  const canEditMachineRoot = perms.ready && (!perms.workspaceId || perms.role === 'admin')
+  const machineRootReason = !perms.ready
+    ? 'Checking permissions…'
+    : 'Only a workspace admin can change this computer’s storage folder while signed in to a company workspace.'
+
   async function handlePickRootDir() {
+    if (!canEditMachineRoot) return
     const api = window.electronAPI?.rabbit
     if (!api?.pickDirectory) return
     const dir = await api.pickDirectory()
@@ -64,6 +102,7 @@ export default function SettingsPage({
   }
 
   async function handleClearRootDir() {
+    if (!canEditMachineRoot) return
     const api = window.electronAPI?.rabbit
     if (!api?.writeFilesConfig) return
     setFilesRootDir(null)
@@ -89,17 +128,21 @@ export default function SettingsPage({
   const [rabbitDefaultRateCardId, setRabbitDefaultRateCardId] = useState(null)
   const [adapterSwitching, setAdapterSwitching] = useState(false)
 
-  // Load software list for subject lock picker
+  // Load software list for subject lock picker. otterFetch (Session 12): the
+  // raw fetch always hit the local Express server, which meant local courses
+  // in cloud mode and a 404 on the web — the adapter routes it correctly on
+  // both hosts.
   useEffect(() => {
-    fetch('/api/software').then(r => r.json()).then(list => {
-      setSoftwareList(list || [])
+    otterFetch('/api/software').then(r => r.json()).then(list => {
+      setSoftwareList(Array.isArray(list) ? list : [])
     }).catch(() => {})
   }, [])
 
-  // Load Rabbit + agent-skills slices from otter-settings.json on mount.
+  // Load Rabbit + agent-skills slices from otter-settings on mount
+  // (localData: Express in Electron, localStorage on the web).
   useEffect(() => {
     let cancelled = false
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (cancelled) return
       if (data?.rabbit?.defaultCurrency) setRabbitDefaultCurrency(data.rabbit.defaultCurrency)
       if (data?.rabbit?.defaultRateCardId) setRabbitDefaultRateCardId(data.rabbit.defaultRateCardId)
@@ -108,10 +151,10 @@ export default function SettingsPage({
     return () => { cancelled = true }
   }, [])
 
-  // Load per-tool agent prompt overrides from agent-skills.json on mount.
+  // Load per-tool agent prompt overrides on mount.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/agent-skills').then(r => r.json()).then(data => {
+    loadAgentSkills().then(data => {
       if (cancelled) return
       if (data && typeof data === 'object') setAgentPromptOverrides(data)
     }).catch(() => {})
@@ -120,8 +163,7 @@ export default function SettingsPage({
 
   const persistOtterSettings = async (patch) => {
     try {
-      const res = await fetch('/api/otter-settings')
-      const data = await res.json().catch(() => ({}))
+      const data = await loadOtterSettings().catch(() => ({}))
       // Shallow-merge top-level keys, but for object-valued keys do a one-deep merge
       // so updating settings.rabbit.defaultCurrency doesn't blow away other rabbit fields.
       const next = { ...data }
@@ -132,11 +174,7 @@ export default function SettingsPage({
           next[k] = v
         }
       }
-      await fetch('/api/otter-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
+      await saveOtterSettings(next)
     } catch {
       /* best effort */
     }
@@ -178,11 +216,10 @@ export default function SettingsPage({
     }
     setAgentPromptOverrides(next)
     try {
-      await fetch('/api/agent-skills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(next),
-      })
+      await saveAgentSkills(next)
+      // S31: the only writer of the agent prompt overrides, which follow the
+      // PERSON between computers. No-ops when signed out.
+      await pushSettingsToCloud()
       // Tell the live AgentProvider to re-read its overrides so the
       // next sendAgentMessage uses the new prompt.
       agentCtx?.refreshPromptOverrides?.()
@@ -191,47 +228,11 @@ export default function SettingsPage({
     }
   }
 
-  const handleChangePassword = async () => {
-    if (newPassword.length === 0) {
-      setPasswordMessage({ type: 'error', text: 'New password cannot be empty' })
-      return
-    }
-    if (newPassword.length > 12) {
-      setPasswordMessage({ type: 'error', text: 'Password must be 12 characters or fewer' })
-      return
-    }
-    if (!/^[a-zA-Z0-9]+$/.test(newPassword)) {
-      setPasswordMessage({ type: 'error', text: 'Password must contain only letters and numbers' })
-      return
-    }
-    if (newPassword !== confirmPassword) {
-      setPasswordMessage({ type: 'error', text: 'New passwords do not match' })
-      return
-    }
-    try {
-      const res = await fetch('/api/auth/change', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ current: currentPassword, newPassword })
-      })
-      const data = await res.json()
-      if (data.ok) {
-        setPasswordMessage({ type: 'success', text: 'Password changed successfully' })
-        setCurrentPassword('')
-        setNewPassword('')
-        setConfirmPassword('')
-      } else {
-        setPasswordMessage({ type: 'error', text: data.error || 'Failed to change password' })
-      }
-    } catch {
-      setPasswordMessage({ type: 'error', text: 'Failed to save password' })
-    }
-  }
-
   const handleLoadSubjectsForSoftware = async (slug) => {
     try {
-      const res = await fetch(`/api/software/${slug}/subjects`)
+      const res = await otterFetch(`/api/software/${slug}/subjects`)
       const list = await res.json()
-      setSubjectList(list || [])
+      setSubjectList(Array.isArray(list) ? list : [])
     } catch {
       setSubjectList([])
     }
@@ -256,7 +257,13 @@ export default function SettingsPage({
 
   const form = petData?.form || 'egg'
   const breedLabel = PET_BREEDS[petData?.breed]?.label || (form === 'egg' ? 'Unknown' : 'Otter')
-  const isGhost = form === 'ghost' || form === 'corpse'
+  // 🚨 THE BUTTON AND THE ACTION MUST ASK THE SAME QUESTION. This read
+  // `form === 'ghost' || form === 'corpse'` while newPetEgg() demanded
+  // `form === 'ghost'` exactly — two hand-written copies of one rule that had
+  // silently drifted apart, so a pet sitting in 'corpse' was OFFERED a button
+  // that could only ever refuse. Importing the predicate is what stops that
+  // recurring; do not inline the form list here again.
+  const isGhost = canCreateNewEgg(petData)
 
   // ── Departments state ──
   const [departments, setDepartments] = useState([
@@ -265,10 +272,11 @@ export default function SettingsPage({
   ])
   const [newDeptName, setNewDeptName] = useState('')
 
-  // Load departments from otter-settings on mount
+  // Load departments from otter-settings on mount (localData: Express in
+  // Electron, localStorage on the web).
   useEffect(() => {
     let cancelled = false
-    fetch('/api/otter-settings').then(r => r.json()).then(data => {
+    loadOtterSettings().then(data => {
       if (cancelled) return
       if (data?.rabbit?.departments && Array.isArray(data.rabbit.departments)) {
         setDepartments(data.rabbit.departments)
@@ -299,9 +307,18 @@ export default function SettingsPage({
     persistDepartments(departments.map(d => d === oldName ? trimmed : d))
   }
 
+  // Session 20: Models is its own tab rather than a block inside General.
+  // 28 functions grouped by tool is a screenful, and burying the only place
+  // that answers "why is this function using that model?" under a scroll is
+  // how the last outage stayed invisible for 47 days.
   const tabs = [
     { key: 'general', label: 'General' },
-    { key: 'rabbit',  label: 'RABBIT' },
+    { key: 'profile', label: 'Profile' },
+    { key: 'models',  label: 'Models' },
+    // Session 22: labelled "Storage", not "RABBIT". The tab is about where
+    // data lives, and naming it after the tool told users nothing. The KEY
+    // stays 'rabbit' — it is the only thing the panel below switches on.
+    { key: 'rabbit',  label: 'Storage' },
     { key: 'teams',   label: 'Teams' },
     ...(onAgentEnabledChange ? [{ key: 'agent', label: 'Agent' }] : []),
     { key: 'skills', label: 'Agent Skills' },
@@ -320,7 +337,7 @@ export default function SettingsPage({
                 className="px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-t-sm transition-colors"
                 style={{
                   backgroundColor: activeTab === tab.key ? 'rgba(120, 70, 30, 0.55)' : 'transparent',
-                  color: activeTab === tab.key ? '#ffffff' : '#57534e',
+                  color: activeTab === tab.key ? '#ffffff' : LIGHT_INK,
                   borderBottom: activeTab === tab.key ? '2px solid #f97316' : '2px solid transparent',
                 }}
               >
@@ -332,41 +349,50 @@ export default function SettingsPage({
           <div className="space-y-8">
 
           {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  PROFILE TAB (Session 4 — same component the Session 8     */}
+          {/*  Dashboard mounts)                                         */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'profile' && (
+            <>
+              <ProfileSection />
+              {/* Session 9: TOTP management (locked #9 — required for
+                  admins, offered to everyone). */}
+              <MfaSecuritySection />
+              {/* Session 31: Sign out. Belongs on the identity tab, next to the
+                  password and 2FA. Ships with the pet teardown in App.jsx —
+                  see the header of SessionSection for why they are one change. */}
+              <SessionSection />
+            </>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/*  MODELS TAB (Session 20 — the user tier of the cascade)    */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'models' && <UserModelsSection />}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
           {/*  GENERAL TAB                                              */}
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'general' && (
             <>
-              {/* API Key Section */}
+              {/* Active workspace switcher — hidden unless the user belongs
+                  to more than one workspace. */}
+              <WorkspaceSwitcher />
+
+              {/* Session 9: version + auto-update surface. */}
+              <VersionPanel />
+
+              {/* AI access (Session 12, locked #21): no per-user key anymore.
+                  AI features authenticate with the signed-in session and the
+                  workspace's key lives server-side, managed by admins. */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Anthropic API Key
+                  AI Features
                 </h2>
                 <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Required for all AI features. Your key is stored in localStorage and never sent anywhere except the Anthropic API.
+                  AI features are included with your workspace sign-in — no API key
+                  needed. Access is managed by your workspace admins.
                 </p>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => onApiKeyChange(e.target.value)}
-                  placeholder="sk-ant-api03-..."
-                  className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                  style={inputStyle}
-                />
-                <div className="mt-2 flex items-center gap-3">
-                  {apiKey ? (
-                    <span className="text-xs text-stone-950">Key is set ({apiKey.length} characters)</span>
-                  ) : (
-                    <span className="text-xs text-red-700">No API key configured</span>
-                  )}
-                  {apiKey && (
-                    <button
-                      onClick={() => onApiKeyChange('')}
-                      className="text-xs text-stone-950 hover:text-red-700 transition-colors"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
               </div>
 
               {/* Companion Section */}
@@ -435,7 +461,7 @@ export default function SettingsPage({
                         className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
                         style={{
                           backgroundColor: petData.petMode ? '#f97316' : '#44403c',
-                          color: petData.petMode ? '#fff' : '#a8a29e',
+                          color: petData.petMode ? '#fff' : LIGHT_INK,
                         }}
                       >
                         {petData.petMode ? 'ON' : 'OFF'}
@@ -457,7 +483,7 @@ export default function SettingsPage({
                               className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                               style={{
                                 backgroundColor: petData.difficulty === d ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                                color: petData.difficulty === d ? '#fff' : '#a8a29e',
+                                color: petData.difficulty === d ? '#fff' : LIGHT_INK,
                               }}
                             >
                               {d}
@@ -496,10 +522,52 @@ export default function SettingsPage({
                             onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#f97316'; }}
                             onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
                           >
+                            {/* ⚠️ NO pending label or `disabled` here, deliberately.
+                                A first pass added both and they were DEAD CODE: the
+                                same batch that sets newPetPending also installs the
+                                egg, so `isGhost` goes false and this button unmounts
+                                before either can render. The pending state is shown
+                                by the status block below, which is outside that gate.
+                                Re-entrancy is guarded in handleNewPet itself. */}
                             New Pet
                           </button>
                         )}
                       </div>
+
+                      {/* 🚨 Phase 3: the outcome, ON THE PAGE THAT HOSTS THE
+                          BUTTON. Pressing Create Egg must never again be
+                          indistinguishable from pressing nothing.
+
+                          🚨 THE INK IS LIGHT_INK IN ALL THREE STATES, AND THAT
+                          IS NOT A STYLE PREFERENCE. This block has no opaque
+                          ancestor — SettingsPage's wrappers are transparent —
+                          so these translucent fills composite straight onto the
+                          page's #f4a261. A first pass used green-900 and
+                          red-900, which measure 4.00:1 and 4.33:1 at 10px:
+                          both UNDER AA, the same class as the white-on-#f4a261
+                          at 2.06:1 that shipped in S43. On the same fills
+                          LIGHT_INK measures 7.68:1 and 7.56:1.
+
+                          ⚠️ lightSurface.test.js only checks the EXPORTED
+                          tokens, so an inline colour here is invisible to the
+                          contrast suite. Classify by the SURFACE, not the file,
+                          and use the token. */}
+                      {(newPetPending || newPetStatus) && (
+                        <div
+                          role="status"
+                          aria-live="polite"
+                          className="mt-3 px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
+                          style={
+                            newPetPending
+                              ? { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
+                              : newPetStatus.ok
+                                ? { borderColor: '#14532d', color: LIGHT_INK, backgroundColor: 'rgba(21, 128, 61, 0.10)' }
+                                : { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
+                          }
+                        >
+                          {newPetPending ? 'Creating a new egg…' : newPetStatus.message}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -518,35 +586,39 @@ export default function SettingsPage({
                   {filesRootDir ? (
                     <div className="space-y-3">
                       <div>
-                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: '#78716c' }}>Current path</span>
+                        <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: LIGHT_INK }}>Current path</span>
                         <div className="mt-1 px-3 py-2 rounded-sm text-xs font-mono break-all" style={{ backgroundColor: 'rgba(0,0,0,0.1)', color: '#1c1917' }}>
                           {filesRootDir}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={handlePickRootDir}
-                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                        >
-                          Change
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleClearRootDir}
-                          className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
-                          style={{ color: '#dc2626', border: '1px solid #dc2626' }}
-                        >
-                          Clear
-                        </button>
+                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                          <button
+                            type="button"
+                            onClick={handlePickRootDir}
+                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                          >
+                            Change
+                          </button>
+                        </GatedAction>
+                        <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                          <button
+                            type="button"
+                            onClick={handleClearRootDir}
+                            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors hover:bg-red-50"
+                            style={{ color: '#dc2626', border: '1px solid #dc2626' }}
+                          >
+                            Clear
+                          </button>
+                        </GatedAction>
                         <button
                           type="button"
                           onClick={() => {
                             window.electronAPI?.rabbit?.openInExplorer?.({ filePath: filesRootDir })
                           }}
                           className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                          style={{ color: '#57534e', border: '1px solid #a8a29e' }}
+                          style={{ color: LIGHT_INK, border: `1px solid ${LIGHT_RULE}` }}
                         >
                           Open in Explorer
                         </button>
@@ -554,96 +626,37 @@ export default function SettingsPage({
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      <p className="text-xs italic" style={{ color: '#78716c' }}>
+                      <p className="text-xs italic" style={{ color: LIGHT_INK }}>
                         No default location set. Project files will not be managed until a root directory is chosen.
                       </p>
-                      <button
-                        type="button"
-                        onClick={handlePickRootDir}
-                        className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                        style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-                      >
-                        Select Root Directory
-                      </button>
+                      <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                        <button
+                          type="button"
+                          onClick={handlePickRootDir}
+                          className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                          style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                        >
+                          Select Root Directory
+                        </button>
+                      </GatedAction>
                     </div>
                   )}
                 </div>
               </div>
 
-              {/* Password Change Section */}
-              <div>
-                <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-                  Change Password
-                </h2>
-                <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-                  Update the login password. Letters and numbers only, up to 12 characters.
-                </p>
+              {/* Password. Session 15 deleted the legacy LOCAL password panel
+                  (MASTER_PLAN §6 #32): it drove /api/auth/change, which edited
+                  a plaintext credential in otter-data/wilson-auth.json that
+                  nothing has checked since the Supabase login landed in S2.
+                  Editing a credential that grants nothing is worse than having
+                  no panel — it implies a security control exists.
 
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      Current Password
-                    </label>
-                    <input
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => { setCurrentPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Enter current password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => { setNewPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Enter new password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-wider text-stone-950 mb-1">
-                      Retype New Password
-                    </label>
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(e) => { setConfirmPassword(e.target.value); setPasswordMessage(null); }}
-                      placeholder="Retype new password"
-                      className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
-                      style={inputStyle}
-                    />
-                  </div>
-
-                  <div className="flex items-center gap-4 pt-1">
-                    <button
-                      onClick={handleChangePassword}
-                      className="px-5 py-2 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                      style={{
-                        backgroundColor: '#1c1917',
-                        color: '#f4a261',
-                      }}
-                      onMouseEnter={(e) => { e.target.style.backgroundColor = '#292524'; }}
-                      onMouseLeave={(e) => { e.target.style.backgroundColor = '#1c1917'; }}
-                    >
-                      Update Password
-                    </button>
-
-                    {passwordMessage && (
-                      <span className={`text-xs ${passwordMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                        {passwordMessage.text}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
+                  Session 21 restores it against Supabase. The component keeps
+                  S15's copy verbatim for the no-session case, so local-only
+                  mode still says the one true thing rather than showing a form
+                  that cannot work. See PasswordSection.jsx for why there is no
+                  current-password field (it would downgrade an MFA session). */}
+              <PasswordSection />
             </>
           )}
 
@@ -666,19 +679,31 @@ export default function SettingsPage({
                   {ADAPTER_MODES.map(mode => {
                     const active = rabbitCtx?.adapterMode === mode
                     const writes = adapterSupportsWrites(mode)
+                    // Session 12: in a browser only Supabase can work — the
+                    // others need the desktop app's local server / Drive
+                    // bridge. Disabled with the reason shown, not hidden.
+                    const unavailableOnWeb = !hasLocalServer() && mode !== 'supabase'
                     const label =
                       mode === 'supabase'     ? 'Supabase'      :
                       mode === 'local_server' ? 'Local Server'  :
                       mode === 'google_drive' ? 'Google Drive'  : mode
-                    const hint =
-                      mode === 'supabase'     ? 'Postgres-backed multi-user (recommended for teams)'  :
-                      mode === 'local_server' ? 'In-app Express server (default — single user)'      :
-                      mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
+                    // Session 22: the copy, not the logic, was the bug. On the
+                    // web all three buttons are disabled BY CONSTRUCTION —
+                    // Supabase because it is `active`, the other two because
+                    // they are `unavailableOnWeb` — and three dead buttons
+                    // read as "storage is broken" when Supabase is working
+                    // perfectly. Nothing here changes which backend is used;
+                    // it changes what the panel says about it.
+                    const hint = unavailableOnWeb
+                      ? 'Desktop app only — needs the local server or Drive bridge'
+                      : mode === 'supabase'     ? "WILSON's own cloud backend. Already connected — no account to link and nothing to set up." :
+                        mode === 'local_server' ? 'In-app Express server (desktop only — single user)' :
+                        mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
                     return (
                       <button
                         key={mode}
                         type="button"
-                        disabled={adapterSwitching || active}
+                        disabled={adapterSwitching || active || unavailableOnWeb}
                         onClick={() => handleRabbitAdapterSwitch(mode)}
                         className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
                         style={{
@@ -696,6 +721,18 @@ export default function SettingsPage({
                         <div className="flex flex-col">
                           <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                             {label}
+                            {/* Session 22: an active backend is disabled because
+                                you are already on it, not because it failed.
+                                Say so — this badge is the whole difference
+                                between "connected" and "dead". */}
+                            {active && (
+                              <span
+                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
+                                style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #166534' }}
+                              >
+                                In use
+                              </span>
+                            )}
                             {!writes && (
                               <span
                                 className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
@@ -722,6 +759,17 @@ export default function SettingsPage({
                   </span>
                 </div>
               </div>
+
+              {/* Cloud migration tool — dry-run + migrate + archive local */}
+              {/* Session 9: per-provider connection details (locked #14). */}
+              <StorageConnections />
+
+              <MigrationPanel />
+
+              {/* Session 11: runOtterMigration.js shipped in S10 with no caller.
+                  Sits beside the RABBIT one so both migrations are found in the
+                  same place. */}
+              <OtterMigrationPanel />
 
               {/* Default currency */}
               <div>
@@ -843,7 +891,7 @@ export default function SettingsPage({
                     />
                   ))}
                   {departments.length === 0 && (
-                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: '#78716c' }}>
+                    <div className="text-xs font-mono italic py-4 text-center" style={{ color: LIGHT_INK }}>
                       No departments configured. Add one above.
                     </div>
                   )}
@@ -884,7 +932,7 @@ export default function SettingsPage({
                       className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
                       style={{
                         backgroundColor: agentEnabled ? '#f97316' : '#44403c',
-                        color: agentEnabled ? '#fff' : '#a8a29e',
+                        color: agentEnabled ? '#fff' : LIGHT_INK,
                       }}
                     >
                       {agentEnabled ? 'ON' : 'OFF'}
@@ -910,7 +958,7 @@ export default function SettingsPage({
                             className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
                             style={{
                               backgroundColor: autoApprove === opt.key ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                              color: autoApprove === opt.key ? '#fff' : '#a8a29e',
+                              color: autoApprove === opt.key ? '#fff' : LIGHT_INK,
                             }}
                           >
                             {opt.label}
@@ -968,7 +1016,7 @@ export default function SettingsPage({
                                   className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm transition-colors"
                                   style={{
                                     backgroundColor: isLocked ? '#ef4444' : 'rgba(120, 70, 30, 0.45)',
-                                    color: isLocked ? '#fff' : '#a8a29e',
+                                    color: isLocked ? '#fff' : LIGHT_INK,
                                   }}
                                 >
                                   {isLocked ? 'Unlock' : 'Lock'}
@@ -1007,14 +1055,14 @@ export default function SettingsPage({
                               <button
                                 onClick={() => setEditingAgentPrompt(false)}
                                 className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#a8a29e' }}
+                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
                               >
                                 Cancel
                               </button>
                               <button
                                 onClick={() => { setAgentPromptDraft(AGENT_SYSTEM_PROMPT); }}
                                 className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#a8a29e' }}
+                                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: LIGHT_INK }}
                               >
                                 Reset
                               </button>

@@ -32,11 +32,17 @@ import {
   Table as TableIcon, Columns3, ArrowUpDown, Layers, Diamond,
   ChevronDown, ChevronRight, Save, BookmarkPlus,
   GripVertical, MoreHorizontal, CheckSquare, Square, MinusSquare,
-  Clock, CalendarDays,
+  Clock, CalendarDays, History, Download,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction, { WriteReasonProvider, useWriteReason } from '../../../permissions/GatedAction'
 import TaskDetailPopup from '../components/TaskDetailPopup'
+import NewTaskPopup from '../components/NewTaskPopup'
+import EditHistoryDrawer from '../components/EditHistoryDrawer'
+import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 
 // ── Constants ──
 const TASK_STATUSES = [
@@ -127,7 +133,11 @@ function fmt(s) { return (s || '').replace(/_/g, ' ') }
 // ─────────────────────────────────────────────────────
 export default function ProjectTasksView() {
   const ctx = useRabbit()
-  const tm  = useTeamMembers()
+  // Assignee resolution goes through the unified roster (Session 6) —
+  // auth users in cloud mode, legacy team members locally. Mirrors
+  // TaskDetailPopup so the ids shown here match what it writes to
+  // task.assignee_id.
+  const { members: rosterMembers, mode: rosterMode } = useRosterMembers()
   const tasks   = ctx?.tasks   || []
   const assets  = ctx?.assets  || []
   const phases  = ctx?.phases  || []
@@ -145,12 +155,20 @@ export default function ProjectTasksView() {
   }, [phases])
 
   const memberById = useMemo(() => {
-    const m = {}; for (const mb of tm.members) m[mb.id] = mb; return m
-  }, [tm.members])
+    const m = {}; for (const mb of rosterMembers) m[mb.id] = mb; return m
+  }, [rosterMembers])
 
   const projectMembers = useMemo(() => {
+    if (rosterMode === 'supabase') {
+      // Cloud — project staffing lives in project_members (auth user_ids).
+      // Unstaffed projects fall back to the whole workspace roster.
+      if (!ctx?.projectIsStaffed) return rosterMembers
+      const staffedIds = new Set((ctx?.projectMembers || []).map(pm => pm.user_id))
+      return rosterMembers.filter(m => staffedIds.has(m.id))
+    }
+    // Local / drive — legacy RABBIT team assignments.
     return teamAssignments.map(a => memberById[a.member_id]).filter(Boolean)
-  }, [teamAssignments, memberById])
+  }, [rosterMode, rosterMembers, ctx?.projectIsStaffed, ctx?.projectMembers, teamAssignments, memberById])
 
   // ── View state ──
   const [viewMode, setViewMode] = useState('table') // table | kanban
@@ -175,6 +193,36 @@ export default function ProjectTasksView() {
 
   // Task detail popup
   const [detailTaskId, setDetailTaskId] = useState(null)
+  // Session 23: null = closed. An object = the popup is open, seeded with the
+  // defaults its trigger passed (group add-rows supply phase_id/asset_id/etc).
+  // Nothing is written until Confirm & Create.
+  const [newTaskDraft, setNewTaskDraft] = useState(null)
+
+  // Edit history (Session 5) — DB-side RLS is the real gate; this only
+  // hides the affordance below manager.
+  const { can, role, ready: permsReady } = usePermissions()
+  const canViewHistory = can('rabbit.history.view')
+  const [historyTaskId, setHistoryTaskId] = useState(null)
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // hides write affordances for staffed-project reviewers.
+  // `ready` matters: without it, a session read still in flight leaves `role`
+  // null and every New task affordance in this view — toolbar, add-rows,
+  // per-group rows, row menu, both kanban adds — silently disappears.
+  //
+  // Session 29 — these controls used to VANISH when canWrite was false. They
+  // now stay visible, greyed, and say why (Audrey, 2026-08-04: "keep button
+  // gray and explain why"), so this screen and the Timeline behave the same
+  // way. `writeReason` reaches the leaves through WriteReasonProvider below
+  // rather than eight more prop signatures.
+  const writeGateCtx = {
+    appRole: role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: permsReady,
+  }
+  const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -234,6 +282,29 @@ export default function ProjectTasksView() {
   }, [sortField, sortDir])
 
   const processed = useMemo(() => applySort(applyFilters(tasks)), [tasks, applyFilters, applySort])
+
+  // ── CSV export (Session 14, Block B) — exports the CURRENT view
+  // (filters + sort applied): what you see is what you get. Tasks carry
+  // no rate/budget data, so every project reader may export them; the
+  // rows themselves arrived through RLS-scoped reads.
+  const handleExportCsv = useCallback(() => {
+    const memberName = (id) => {
+      const m = memberById[id]
+      return m ? (m.display_name || m.name || m.username || '') : ''
+    }
+    const stem = (project?.title || 'project').replace(/[^\w.-]+/g, '_')
+    downloadCsv(`${stem}-tasks-${exportDateStamp()}.csv`, processed, [
+      { key: 'title',      header: 'Task' },
+      { key: 'status',     header: 'Status' },
+      { key: 'priority',   header: 'Priority' },
+      { key: 'assignee',   header: 'Assignee', map: t => memberName(t.assignee_id) },
+      { key: 'phase',      header: 'Phase',    map: t => phaseById[t.phase_id]?.name || '' },
+      { key: 'start_date', header: 'Start' },
+      { key: 'end_date',   header: 'End' },
+      { key: 'notes',      header: 'Notes' },
+      { key: 'created_at', header: 'Created' },
+    ])
+  }, [processed, memberById, phaseById, project?.title])
 
   // ── All milestones (user + project bounds) ──
   const allMilestones = useMemo(() => {
@@ -351,14 +422,20 @@ export default function ProjectTasksView() {
   }
 
   // ── Task creation ──
-  async function handleAddTask(defaults = {}) {
+  // Session 23: open a draft popup; write nothing until the user confirms.
+  // Audrey asked for this shape explicitly, matching New Asset — "nothing is
+  // saved until you confirm". The first cut created the row and then opened
+  // the detail popup on it, which left an untitled task behind whenever the
+  // popup was dismissed.
+  //
+  // Every add affordance routes through here — the toolbar, the table
+  // add-rows, the per-group rows and both kanban adds — so the group defaults
+  // those triggers pass (phase_id when grouped by phase, asset_id when grouped
+  // by asset, and so on) become the popup's seed values rather than being
+  // written blind.
+  function handleAddTask(defaults = {}) {
     if (!ctx?.addTask) return
-    await ctx.addTask({
-      title: '',
-      status: 'waiting_to_start',
-      priority: 'medium',
-      ...defaults,
-    })
+    setNewTaskDraft(defaults || {})
   }
 
   // ── Phase creation ──
@@ -449,6 +526,7 @@ export default function ProjectTasksView() {
   }
 
   return (
+    <WriteReasonProvider reason={writeReason}>
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
 
       {/* ── Summary cards (always visible) ── */}
@@ -551,25 +629,50 @@ export default function ProjectTasksView() {
             {processed.length}/{tasks.length}
           </span>
 
-          {/* Phase create */}
-          <button type="button" onClick={() => setShowPhaseCreate(true)}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
-            <Plus className="w-3.5 h-3.5" /> Phase
+          {/* Export the current view (Session 14) — one button beside the
+              existing toolbar, no new nav (session UI-restraint rule). */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={processed.length === 0}
+            title={processed.length === 0 ? 'Nothing to export in the current view' : 'Export the current view as CSV'}
+            className="flex items-center gap-1 px-2 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800 disabled:opacity-40"
+            style={{ color: '#78716c', border: '1px solid #44403c' }}
+          >
+            <Download className="w-3.5 h-3.5" /> Export
           </button>
 
-          {/* Key date create */}
-          <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
-            style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
-            <Diamond className="w-3.5 h-3.5" /> Key Date
-          </button>
+          {/* Session 29 — these three used to disappear together, leaving
+              Export sitting in New task's pixel position. That is the "the
+              button says export" sighting that opened the S23 investigation:
+              nothing had been relabelled, three controls had been removed from
+              a flex row. They now grey out in place, which removes the
+              illusion as well as the confusion. */}
+          <GatedAction allowed={canWrite}>
+            {/* Phase create */}
+            <button type="button" onClick={() => setShowPhaseCreate(true)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
+              <Plus className="w-3.5 h-3.5" /> Phase
+            </button>
+          </GatedAction>
 
-          <button type="button" onClick={() => handleAddTask()}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <Plus className="w-3.5 h-3.5" /> New task
-          </button>
+          <GatedAction allowed={canWrite}>
+            {/* Key date create */}
+            <button type="button" onClick={() => ctx?.addMilestone?.({ title: '', date: new Date().toISOString().slice(0, 10) })}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+              style={{ color: '#f59e0b', border: '1px solid #44403c' }}>
+              <Diamond className="w-3.5 h-3.5" /> Key Date
+            </button>
+          </GatedAction>
+
+          <GatedAction allowed={canWrite}>
+            <button type="button" onClick={() => handleAddTask()}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
+              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+              <Plus className="w-3.5 h-3.5" /> New task
+            </button>
+          </GatedAction>
         </div>
       </div>
 
@@ -603,8 +706,10 @@ export default function ProjectTasksView() {
             collapsedGroups={collapsedGroups}
             toggleGroup={toggleGroup}
             ctx={ctx}
+            canWrite={canWrite}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
+            onHistoryClick={canViewHistory ? (id) => setHistoryTaskId(id) : null}
             milestones={allMilestones}
             sortField={sortField}
             sortDir={sortDir}
@@ -620,6 +725,7 @@ export default function ProjectTasksView() {
             phaseById={phaseById}
             memberById={memberById}
             ctx={ctx}
+            canWrite={canWrite}
             onAddTask={handleAddTask}
             onDetailClick={(id) => setDetailTaskId(id)}
           />
@@ -674,6 +780,19 @@ export default function ProjectTasksView() {
         </>
       )}
 
+      {/* ── New task popup (Session 23) — drafts locally, commits on confirm ── */}
+      {newTaskDraft && (
+        <NewTaskPopup
+          ctx={ctx}
+          defaults={newTaskDraft}
+          phases={phases}
+          assets={assets}
+          members={projectMembers}
+          onCreated={() => setNewTaskDraft(null)}
+          onClose={() => setNewTaskDraft(null)}
+        />
+      )}
+
       {/* ── Task detail popup ── */}
       {detailTaskId && (
         <TaskDetailPopup
@@ -682,7 +801,18 @@ export default function ProjectTasksView() {
           onClose={() => setDetailTaskId(null)}
         />
       )}
+
+      {/* ── Edit history drawer ── */}
+      {historyTaskId && (
+        <EditHistoryDrawer
+          entityType="tasks"
+          entityId={historyTaskId}
+          entityLabel={tasks.find(t => t.id === historyTaskId)?.title}
+          onClose={() => setHistoryTaskId(null)}
+        />
+      )}
     </div>
+    </WriteReasonProvider>
   )
 }
 
@@ -817,7 +947,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW
 // ═════════════════════════════════════════════════════
-function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, onAddTask, onDetailClick, milestones = [], sortField, sortDir }) {
+function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById, phaseById, memberById, collapsedGroups, toggleGroup, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, milestones = [], sortField, sortDir }) {
   const columns = [
     { key: 'title',       label: 'Title',    flex: 3 },
     { key: 'status',      label: 'Status',   flex: 1.2 },
@@ -828,7 +958,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     { key: 'start_date',  label: 'Start',    flex: 1 },
     { key: 'end_date',    label: 'End',      flex: 1 },
     { key: 'bid_days',    label: 'Bid',      flex: 0.6 },
-    { key: '_actions',    label: '',         flex: 0.4 },
+    { key: '_actions',    label: '',         flex: onHistoryClick ? 0.7 : 0.4 },
   ]
 
   // ── Multi-select state ──
@@ -852,9 +982,12 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     for (const id of selected) ctx?.updateTask?.(id, patch)
     clearSelection()
   }
+  // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   function bulkDelete() {
     if (!window.confirm(`Delete ${selected.size} task${selected.size === 1 ? '' : 's'}?`)) return
-    for (const id of selected) ctx?.deleteTask?.(id)
+    // Batch deletes reject on partial failure — the provider already
+    // records the error in its state, so just swallow the rejection.
+    ctx?.deleteTasks?.([...selected])?.catch(() => {})
     clearSelection()
   }
 
@@ -879,17 +1012,24 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
             <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <BulkSelect label="Status" options={TASK_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <BulkSelect label="Priority" options={PRIORITIES} onPick={v => bulkUpdate({ priority: v })} />
-            <BulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
-            <BulkSelect label="Assignee" options={members.map(m => m.id)} labels={members.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ assignee_id: v || null })} allowEmpty />
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
-            </button>
+            {/* One wrapper for the whole bulk group rather than six. It must
+                generate a BOX (inline-flex, not `contents`) or the wrapper
+                carries neither the dimming nor the hover that shows the
+                reason. The parent row is `gap-3`, so the wrapper repeats that
+                gap internally to keep the spacing identical. */}
+            <GatedAction allowed={canWrite} style={{ gap: 12, alignItems: 'center' }}>
+              <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+              <BulkSelect label="Status" options={TASK_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+              <BulkSelect label="Priority" options={PRIORITIES} onPick={v => bulkUpdate({ priority: v })} />
+              <BulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+              <BulkSelect label="Assignee" options={members.map(m => m.id)} labels={members.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ assignee_id: v || null })} allowEmpty />
+              <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+              <button type="button" onClick={bulkDelete}
+                className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+                style={{ color: '#fca5a5' }}>
+                <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
+              </button>
+            </GatedAction>
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -924,7 +1064,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
             {milestones.length > 0 && (
               <div className="flex flex-col gap-1">
                 {milestones.map(ms => (
-                  <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                  <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} canWrite={canWrite} />
                 ))}
               </div>
             )}
@@ -933,7 +1073,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                 assets={assets} phases={phases} members={members}
                 assetById={assetById} phaseById={phaseById} memberById={memberById}
                 collapsed={collapsedGroups.has(g.key)} onToggle={() => toggleGroup(g.key)}
-                ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick}
+                ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} onHistoryClick={onHistoryClick}
                 selected={selected} toggleOne={toggleOne} />
             ))}
           </>
@@ -959,12 +1099,13 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
                 })
                 return merged.map(entry =>
                   entry.type === 'milestone' ? (
-                    <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} />
+                    <MilestoneRow key={`ms-${entry.item.id}`} milestone={entry.item} columns={columns} ctx={ctx} canWrite={canWrite} />
                   ) : (
                     <TaskRow key={entry.item.id} task={entry.item} columns={columns}
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
-                      ctx={ctx} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                      ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(entry.item.id)}
+                      onHistoryClick={onHistoryClick ? () => onHistoryClick(entry.item.id) : null}
                       isSelected={selected.has(entry.item.id)} onToggleSelect={() => toggleOne(entry.item.id)} />
                   )
                 )
@@ -973,19 +1114,22 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
               return (
                 <>
                   {milestones.map(ms => (
-                    <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} />
+                    <MilestoneRow key={`ms-${ms.id}`} milestone={ms} columns={columns} ctx={ctx} canWrite={canWrite} />
                   ))}
                   {tasks.map(t => (
                     <TaskRow key={t.id} task={t} columns={columns}
                       assets={assets} phases={phases} members={members}
                       assetById={assetById} phaseById={phaseById} memberById={memberById}
-                      ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+                      ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)}
+                      onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
                       isSelected={selected.has(t.id)} onToggleSelect={() => toggleOne(t.id)} />
                   ))}
                 </>
               )
             })()}
-            <AddRowButton onAdd={() => onAddTask()} />
+            <GatedAction allowed={canWrite} display="block">
+              <AddRowButton onAdd={() => onAddTask()} />
+            </GatedAction>
           </>
         )}
       </div>
@@ -1022,7 +1166,7 @@ function buildGroupPatch(groupBy, targetKey) {
 }
 
 // ── Task group with header + add-row + drop target ──
-function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, onAddTask, onDetailClick, selected, toggleOne }) {
+function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, selected, toggleOne }) {
   const [dragOver, setDragOver] = useState(false)
   const dragCountRef = useRef(0)
 
@@ -1044,6 +1188,9 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
     dragCountRef.current = 0
     setDragOver(false)
     const taskId = e.dataTransfer.getData('text/plain')
+    // Session 29 — dropping a task on another group commits a real update.
+    // The card's own draggable is gated below; this catches the drop itself.
+    if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(groupBy, group.key)
     ctx.updateTask(taskId, patch)
@@ -1079,10 +1226,14 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         {isPhaseGroup && phase ? (
           /* ── Editable phase header ── */
           <div className="flex items-center gap-3 flex-1 min-w-0">
+            {/* Session 29 — the phase header's name and both dates write
+                straight to ctx.updatePhase with no gate, same as the task row
+                cells did. */}
             <PhaseInlineEdit
               value={phase.name || ''}
-              onCommit={(name) => ctx?.updatePhase?.(phase.id, { name })}
+              onCommit={(name) => { if (canWrite) ctx?.updatePhase?.(phase.id, { name }) }}
               accent={groupAccent}
+              readOnly={!canWrite}
             />
             <div className="flex items-center gap-2 flex-shrink-0">
               <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Start</span>
@@ -1091,7 +1242,8 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 value={phase.start_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { start_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                readOnly={!canWrite} disabled={!canWrite}
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
               <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>End</span>
@@ -1099,6 +1251,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 type="date"
                 value={phase.end_date || ''}
                 onChange={e => ctx?.updatePhase?.(phase.id, { end_date: e.target.value || null })}
+                readOnly={!canWrite} disabled={!canWrite}
                 onClick={e => e.stopPropagation()}
                 className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
@@ -1129,10 +1282,13 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
             <TaskRow key={t.id} task={t} columns={columns}
               assets={assets} phases={phases} members={members}
               assetById={assetById} phaseById={phaseById} memberById={memberById}
-              ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)}
+              ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)}
+              onHistoryClick={onHistoryClick ? () => onHistoryClick(t.id) : null}
               isSelected={selected?.has(t.id)} onToggleSelect={() => toggleOne?.(t.id)} />
           ))}
-          <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
+          <GatedAction allowed={canWrite} display="block">
+            <AddRowButton onAdd={() => onAddTask(groupDefaults())} />
+          </GatedAction>
         </div>
       )}
     </div>
@@ -1140,13 +1296,21 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
 }
 
 // ── Inline phase name editor (for group headers) ──
-function PhaseInlineEdit({ value, onCommit, accent }) {
+function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+  if (readOnly) {
+    return (
+      <span className="text-[12.5px] font-mono uppercase tracking-wider font-bold truncate"
+        style={{ color: accent }}>
+        {value || 'Untitled phase'}
+      </span>
+    )
   }
   if (editing) {
     return (
@@ -1175,7 +1339,7 @@ function PhaseInlineEdit({ value, onCommit, accent }) {
 
 
 // ── Milestone row — visually distinct with diamond icon + amber accent ──
-function MilestoneRow({ milestone, columns, ctx }) {
+function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   const [hovered, setHovered] = useState(false)
   const [editTitle, setEditTitle] = useState(false)
   const [localTitle, setLocalTitle] = useState(milestone.title)
@@ -1195,10 +1359,14 @@ function MilestoneRow({ milestone, columns, ctx }) {
     }
     setEditDate(false)
   }
+  // Soft delete — no confirm; the shell-level undo toast covers it.
   function handleDelete() {
     if (isProjectBound) return
-    if (!confirm('Delete this milestone?')) return
-    ctx?.deleteMilestone?.(milestone.id)
+    // Milestones are hard-deleted with no undo path (local entity, not one of
+    // the 7 soft-delete tables) — the confirm stays until they get one.
+    if (window.confirm(`Delete milestone "${milestone.title || 'Untitled'}"?`)) {
+      ctx?.deleteMilestone?.(milestone.id)
+    }
   }
 
   return (
@@ -1276,7 +1444,7 @@ function MilestoneRow({ milestone, columns, ctx }) {
         if (c.key === '_actions') {
           return (
             <div key={c.key} className="flex items-center justify-center px-2" style={{ flex: c.flex, minWidth: 0 }}>
-              {!isProjectBound && hovered && (
+              {canWrite && !isProjectBound && hovered && (
                 <button type="button" onClick={handleDelete}
                   className="p-1 rounded hover:bg-red-900/40 transition-colors" style={{ color: '#78716c' }}>
                   <Trash2 className="w-3 h-3" />
@@ -1297,20 +1465,38 @@ function MilestoneRow({ milestone, columns, ctx }) {
 }
 
 // ── Single task row ──
-function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, onDetailClick, isSelected, onToggleSelect }) {
+function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
+  const writeReason = useWriteReason()
 
-  function handleUpdate(patch) { ctx?.updateTask?.(task.id, patch) }
+  // 🚨 Session 29 — this funnel was UNGATED, and it is not a create affordance
+  // so neither the S23 nor the S29 brief covered it. Every inline cell on this
+  // row (title, five dropdowns, both dates, bid days) commits through here, so
+  // a reviewer could retype a task title or change its status and receive the
+  // same raw `new row violates row-level security policy` string the Timeline
+  // was fixed for. The create button being gated while the ROW was not is why
+  // this screen read as "already gated".
+  //
+  // The controls below are individually disabled too — gating only this funnel
+  // would leave nine editable-looking cells that silently discard input.
+  function handleUpdate(patch) {
+    if (!canWrite) return
+    ctx?.updateTask?.(task.id, patch)
+  }
+  // Soft delete — no confirm; the shell-level undo toast covers it.
   function handleDelete() {
-    if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) {
-      ctx?.deleteTask?.(task.id)
-    }
+    if (!canWrite) return
+    ctx?.deleteTask?.(task.id)
   }
 
   // Borderless select — transparent until hover/focus
+  // ⚠️ `cursor` is set INLINE here, so it beats the `disabled:cursor-not-allowed`
+  // class on the selects below — Tailwind's variant cannot win against a style
+  // attribute. It has to be conditional at the source or a read-only row keeps
+  // promising, cursor-first, that its dropdowns are live.
   const flatSelect = {
     backgroundColor: 'transparent', border: '1px solid transparent',
-    outline: 'none', cursor: 'pointer',
+    outline: 'none', cursor: canWrite ? 'pointer' : 'not-allowed',
   }
 
   function renderCell(col) {
@@ -1319,7 +1505,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         return (
           <div className="flex items-center gap-1 w-full min-w-0">
             <div className="flex-1 min-w-0">
-              <CellInlineText value={task.title || ''} placeholder="Untitled task" onCommit={v => handleUpdate({ title: v })} />
+              <CellInlineText value={task.title || ''} placeholder="Untitled task" onCommit={v => handleUpdate({ title: v })} readOnly={!canWrite} />
             </div>
             <button type="button" onClick={onDetailClick}
               className="p-1 rounded hover:bg-stone-700 transition-colors flex-shrink-0"
@@ -1333,7 +1519,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         const sc = statusColor(task.status)
         return (
           <select value={task.status || 'waiting_to_start'} onChange={e => handleUpdate({ status: e.target.value })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            disabled={!canWrite}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: sc }}>
             {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
           </select>
@@ -1343,7 +1530,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         const pc = priorityColor(task.priority)
         return (
           <select value={task.priority || 'medium'} onChange={e => handleUpdate({ priority: e.target.value })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            disabled={!canWrite}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: pc }}>
             {PRIORITIES.map(p => <option key={p} value={p} style={{ color: priorityColor(p) }}>{fmt(p)}</option>)}
           </select>
@@ -1352,7 +1540,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'asset_id':
         return (
           <select value={task.asset_id || ''} onChange={e => handleUpdate({ asset_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            disabled={!canWrite}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.asset_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -1361,7 +1550,8 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'phase_id':
         return (
           <select value={task.phase_id || ''} onChange={e => handleUpdate({ phase_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            disabled={!canWrite}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1370,27 +1560,38 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
       case 'assignee_id':
         return (
           <select value={task.assignee_id || ''} onChange={e => handleUpdate({ assignee_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            disabled={!canWrite}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: task.assignee_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         )
       case 'start_date':
-        return <CellDateInput value={task.start_date || ''} onCommit={v => handleUpdate({ start_date: v || null })} />
+        return <CellDateInput value={task.start_date || ''} onCommit={v => handleUpdate({ start_date: v || null })} readOnly={!canWrite} />
       case 'end_date':
-        return <CellDateInput value={task.end_date || ''} onCommit={v => handleUpdate({ end_date: v || null })} />
+        return <CellDateInput value={task.end_date || ''} onCommit={v => handleUpdate({ end_date: v || null })} readOnly={!canWrite} />
       case 'bid_days':
-        return <CellNumberInput value={task.bid_days} onCommit={v => handleUpdate({ bid_days: v })} />
+        return <CellNumberInput value={task.bid_days} onCommit={v => handleUpdate({ bid_days: v })} readOnly={!canWrite} />
       case '_actions':
         return (
           <div className="flex items-center"
             style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
-            <button type="button" onClick={handleDelete}
-              className="p-1 rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {onHistoryClick && (
+              <button type="button" onClick={onHistoryClick}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                title="View edit history"
+                style={{ color: '#a8a29e' }}>
+                <History className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {canWrite && (
+              <button type="button" onClick={handleDelete}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#fca5a5' }}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )
       default:
@@ -1404,8 +1605,10 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   }
 
   return (
-    <div className={`flex cursor-grab active:cursor-grabbing${!isSelected && !hovered ? ' hover:bg-stone-800' : ''}`} draggable
+    <div className={`flex ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''}${!isSelected && !hovered ? ' hover:bg-stone-800' : ''}`}
+      draggable={canWrite}
       onDragStart={handleDragStart}
+      title={canWrite ? undefined : (writeReason || undefined)}
       style={{
         border: isSelected ? '1px solid #ea580c' : '1px solid #44403c',
         borderRadius: 4,
@@ -1457,20 +1660,20 @@ function AddRowButton({ onAdd }) {
 // • Prägnanz — clean cards with left accent bar, no excess decoration
 // • Fitts's Law — generous add-task targets, large enough card touch areas
 //
-function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, onAddTask, onDetailClick }) {
+function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   return (
     <div className="flex gap-4 p-5 h-full overflow-x-auto">
       {groups.map(g => (
         <KanbanColumn key={g.key} group={g} kanbanGroup={kanbanGroup}
           assets={assets} phases={phases} members={members}
           assetById={assetById} phaseById={phaseById} memberById={memberById}
-          ctx={ctx} onAddTask={onAddTask} onDetailClick={onDetailClick} />
+          ctx={ctx} canWrite={canWrite} onAddTask={onAddTask} onDetailClick={onDetailClick} />
       ))}
     </div>
   )
 }
 
-function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, onAddTask, onDetailClick }) {
+function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   const [addTitle, setAddTitle] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef(null)
@@ -1501,6 +1704,9 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
     dragCountRef.current = 0
     setDragOver(false)
     const taskId = e.dataTransfer.getData('text/plain')
+    // Session 29 — dropping a task on another group commits a real update.
+    // The card's own draggable is gated below; this catches the drop itself.
+    if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(kanbanGroup, group.key)
     ctx.updateTask(taskId, patch)
@@ -1537,10 +1743,12 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
             {group.tasks.length}
           </span>
         </div>
-        <button type="button" onClick={() => onAddTask(groupDefaults())}
-          className="p-1 rounded hover:bg-stone-600 transition-colors" style={{ color: '#a8a29e' }}>
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        <GatedAction allowed={canWrite}>
+          <button type="button" onClick={() => onAddTask(groupDefaults())}
+            className="p-1 rounded hover:bg-stone-600 transition-colors" style={{ color: '#a8a29e' }}>
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </GatedAction>
       </div>
 
       {/* ── Card list ── */}
@@ -1548,27 +1756,34 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
         {group.tasks.map(t => (
           <KanbanCard key={t.id} task={t}
             assetById={assetById} phaseById={phaseById} memberById={memberById}
-            ctx={ctx} onDetailClick={() => onDetailClick?.(t.id)} />
+            ctx={ctx} canWrite={canWrite} onDetailClick={() => onDetailClick?.(t.id)} />
         ))}
 
-        {/* Inline add — dashed border invites input */}
-        <input ref={inputRef} type="text" value={addTitle} onChange={e => setAddTitle(e.target.value)}
-          placeholder="+ Add task..."
-          onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
-          onBlur={commitAdd}
-          className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
-          style={{
-            color: '#a8a29e',
-            backgroundColor: 'transparent',
-            border: '1px dashed #44403c',
-            flexShrink: 0,
-          }} />
+        {/* Inline add — dashed border invites input.
+            🚨 This is the control from the S23 report: typing a task here and
+            pressing Enter made the text vanish, because commitAdd clears the
+            input unconditionally before the write resolves. Greyed, it cannot
+            be typed into at all, which is the honest version of the same
+            state. */}
+        <GatedAction allowed={canWrite} display="block">
+          <input ref={inputRef} type="text" value={addTitle} onChange={e => setAddTitle(e.target.value)}
+            placeholder="+ Add task..."
+            onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
+            onBlur={commitAdd}
+            className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
+            style={{
+              color: '#a8a29e',
+              backgroundColor: 'transparent',
+              border: '1px dashed #44403c',
+              flexShrink: 0,
+            }} />
+        </GatedAction>
       </div>
     </div>
   )
 }
 
-function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick }) {
+function KanbanCard({ task, assetById, phaseById, memberById, ctx, canWrite, onDetailClick }) {
   const [hovered, setHovered] = useState(false)
   const sc = statusColor(task.status)
   const pc = priorityColor(task.priority)
@@ -1581,8 +1796,8 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
   }
 
   return (
-    <div className="flex flex-col gap-1.5 cursor-grab active:cursor-grabbing"
-      draggable onDragStart={handleDragStart}
+    <div className={`flex flex-col gap-1.5 ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''}`}
+      draggable={canWrite} onDragStart={handleDragStart}
       style={{
         backgroundColor: '#1c1917',
         border: `1px solid ${hovered ? '#57534e' : '#44403c'}`,
@@ -1607,12 +1822,14 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
             style={{ color: '#fb923c' }}>
             <FileText className="w-3 h-3" />
           </button>
-          <button type="button" onClick={() => {
-            if (window.confirm(`Delete task "${task.title || 'Untitled'}"?`)) ctx?.deleteTask?.(task.id)
-          }} className="p-0.5 rounded hover:bg-stone-600 transition-colors"
-            style={{ color: '#ef4444' }}>
-            <Trash2 className="w-3 h-3" />
-          </button>
+          {canWrite && (
+            // Soft delete — no confirm; the shell-level undo toast covers it.
+            <button type="button" onClick={() => ctx?.deleteTask?.(task.id)}
+              className="p-0.5 rounded hover:bg-stone-600 transition-colors"
+              style={{ color: '#ef4444' }}>
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -1658,7 +1875,11 @@ function KanbanCard({ task, assetById, phaseById, memberById, ctx, onDetailClick
 // ═════════════════════════════════════════════════════
 // CELL EDITORS
 // ═════════════════════════════════════════════════════
-function CellInlineText({ value, placeholder, onCommit }) {
+// Session 29 — `readOnly` renders the value as plain text with no button, no
+// hover highlight and no way in. The alternative (leave the button, drop the
+// write) is the S23 defect: a control that looks live, accepts a click, and
+// discards what you typed.
+function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
 
@@ -1667,6 +1888,15 @@ function CellInlineText({ value, placeholder, onCommit }) {
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+
+  if (readOnly) {
+    return (
+      <span className="block text-[12.5px] font-mono text-left w-full truncate px-1.5 py-1"
+        style={{ color: value ? '#d6d3d1' : '#57534e' }}>
+        {value || placeholder || '—'}
+      </span>
+    )
   }
 
   if (editing) {
@@ -1687,22 +1917,24 @@ function CellInlineText({ value, placeholder, onCommit }) {
   )
 }
 
-function CellDateInput({ value, onCommit }) {
+function CellDateInput({ value, onCommit, readOnly = false }) {
   return (
     <input type="date" value={value || ''} onChange={e => onCommit(e.target.value)}
-      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+      readOnly={readOnly} disabled={readOnly}
+      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
       style={{ backgroundColor: 'transparent', color: value ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none', colorScheme: 'dark' }} />
   )
 }
 
-function CellNumberInput({ value, onCommit }) {
+function CellNumberInput({ value, onCommit, readOnly = false }) {
   const [draft, setDraft] = useState(value ?? '')
   useEffect(() => { setDraft(value ?? '') }, [value])
   return (
     <input type="number" value={draft} onChange={e => setDraft(e.target.value)}
       onBlur={() => { const n = parseFloat(draft); onCommit(isNaN(n) ? null : n) }}
       onKeyDown={e => { if (e.key === 'Enter') e.target.blur() }}
-      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+      readOnly={readOnly} disabled={readOnly}
+      className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
       style={{ backgroundColor: 'transparent', color: (value != null && value !== '') ? '#d6d3d1' : '#57534e', border: '1px solid transparent', outline: 'none' }}
       min={0} step={0.5} />
   )

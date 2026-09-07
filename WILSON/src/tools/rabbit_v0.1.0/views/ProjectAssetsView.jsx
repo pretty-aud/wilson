@@ -28,7 +28,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import {
   Boxes, Plus, Search, Filter, Trash2, AlertTriangle,
-  Table as TableIcon, LayoutGrid, X, FileText, ImagePlus, ImageOff,
+  Table as TableIcon, LayoutGrid, X, FileText, ImagePlus, ImageOff, History,
   Layers, ArrowUpDown, ChevronDown, ChevronRight,
   Save, BookmarkPlus, CheckSquare, Square, MinusSquare,
   Film, Clapperboard, Gamepad2, Sparkles,
@@ -36,7 +36,11 @@ import {
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
 import { useTaskTemplates } from '../../../components/TaskTemplates/useTaskTemplates'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
 import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
+import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
 import FileManager from '../components/FileManager'
 
@@ -178,6 +182,28 @@ export default function ProjectAssetsView() {
   const [warningAssetId, setWarningAssetId] = useState(null)
   const [detailAssetId, setDetailAssetId]   = useState(null)
   const [thumbRevision, setThumbRevision]   = useState(0)
+
+  // Edit history (Session 5) — DB-side RLS is the real gate; this only
+  // hides the affordance below manager.
+  const { can, role, ready: permsReady } = usePermissions()
+  const canViewHistory = can('rabbit.history.view')
+  const [historyAssetId, setHistoryAssetId] = useState(null)
+
+  // Entity writes (Session 6) — DB-side RLS is the real gate; this only
+  // hides write affordances for staffed-project reviewers.
+  // See ProjectTasksView — the New asset button is behind this same flag, so
+  // a session read still in flight would take it away too.
+  //
+  // Session 29 — visible-and-greyed instead of hidden, matching the Timeline
+  // and the Tasks tab. See GatedAction.
+  const writeGateCtx = {
+    appRole: role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: permsReady,
+  }
+  const canWrite = canOnProject(writeGateCtx, 'project.entity.write')
+  const writeReason = projectActionDeniedReason(writeGateCtx, 'project.entity.write')
 
   // Collapsed groups
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -355,6 +381,7 @@ export default function ProjectAssetsView() {
   }
 
   return (
+    <WriteReasonProvider reason={writeReason}>
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
       {/* ── Toolbar ── */}
       <div className="flex items-center gap-2 px-4 py-2 flex-wrap flex-shrink-0" style={{ borderBottom: '1px solid #44403c' }}>
@@ -465,11 +492,13 @@ export default function ProjectAssetsView() {
             {processed.length}/{assets.length}
           </span>
 
-          <button type="button" onClick={handleAddAsset}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-            style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-            <Plus className="w-3.5 h-3.5" /> New asset
-          </button>
+          <GatedAction allowed={canWrite}>
+            <button type="button" onClick={handleAddAsset}
+              className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+              <Plus className="w-3.5 h-3.5" /> New asset
+            </button>
+          </GatedAction>
         </div>
       </div>
 
@@ -496,6 +525,7 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            canWrite={canWrite}
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             collapsedGroups={collapsedGroups}
@@ -504,6 +534,7 @@ export default function ProjectAssetsView() {
             onThumbChanged={() => setThumbRevision(r => r + 1)}
             onWarningClick={(id) => setWarningAssetId(id)}
             onDetailClick={(id) => setDetailAssetId(id)}
+            onHistoryClick={canViewHistory ? (id) => setHistoryAssetId(id) : null}
           />
         ) : groups ? (
           // Gallery — grouped
@@ -528,6 +559,7 @@ export default function ProjectAssetsView() {
                   phaseById={phaseById}
                   taskCountByAsset={taskCountByAsset}
                   ctx={ctx}
+                  canWrite={canWrite}
                   thumbRevision={thumbRevision}
                   onThumbChanged={() => setThumbRevision(r => r + 1)}
                   onWarningClick={(id) => setWarningAssetId(id)}
@@ -543,6 +575,7 @@ export default function ProjectAssetsView() {
             phaseById={phaseById}
             taskCountByAsset={taskCountByAsset}
             ctx={ctx}
+            canWrite={canWrite}
             thumbRevision={thumbRevision}
             onThumbChanged={() => setThumbRevision(r => r + 1)}
             onWarningClick={(id) => setWarningAssetId(id)}
@@ -606,7 +639,17 @@ export default function ProjectAssetsView() {
         />
       )}
 
+      {historyAssetId && (
+        <EditHistoryDrawer
+          entityType="assets"
+          entityId={historyAssetId}
+          entityLabel={assets.find(a => a.id === historyAssetId)?.name}
+          onClose={() => setHistoryAssetId(null)}
+        />
+      )}
+
     </div>
+    </WriteReasonProvider>
   )
 }
 
@@ -739,7 +782,7 @@ function AssetSavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 // ═════════════════════════════════════════════════════
 // TABLE VIEW (flex-based, matching Tasks tab)
 // ═════════════════════════════════════════════════════
-function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick }) {
+function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAsset, ctx, canWrite, thumbSize, thumbRevision, collapsedGroups, toggleGroup, groupAccent, onThumbChanged, onWarningClick, onDetailClick, onHistoryClick }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
 
   // ── Multi-select state ──
@@ -763,9 +806,12 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
     for (const id of selected) ctx?.updateAsset?.(id, patch)
     clearSelection()
   }
+  // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   function bulkDelete() {
     if (!window.confirm(`Delete ${selected.size} asset${selected.size === 1 ? '' : 's'}?`)) return
-    for (const id of selected) ctx?.deleteAsset?.(id)
+    // Batch deletes reject on partial failure — the provider already
+    // records the error in its state, so just swallow the rejection.
+    ctx?.deleteAssets?.([...selected])?.catch(() => {})
     clearSelection()
   }
 
@@ -778,7 +824,7 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
     { key: 'due_date',    label: 'Due',         flex: 1 },
     { key: 'description', label: 'Description', flex: 1.5 },
     { key: 'tasks',       label: 'Tasks',       flex: 0.6 },
-    { key: '_actions',    label: '',            flex: 0.4 },
+    { key: '_actions',    label: '',            flex: onHistoryClick ? 0.7 : 0.4 },
   ]
 
   if (assets.length === 0 && (!groups || groups.length === 0)) {
@@ -802,16 +848,23 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             <span className="text-[11.5px] font-mono font-bold flex-shrink-0" style={{ color: '#fb923c' }}>
               {selected.size} selected
             </span>
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
-            <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
-            <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
-            <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
-            <button type="button" onClick={bulkDelete}
-              className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
-            </button>
+            {/* See ProjectTasksView's equivalent: one wrapper with the parent
+                row's own gap, so the group dims and explains itself without
+                six separate tooltips. */}
+            <GatedAction allowed={canWrite} style={{ gap: 12, alignItems: 'center' }}>
+              <>
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <AssetBulkSelect label="Status" options={ASSET_STATUSES} onPick={v => bulkUpdate({ status: v })} />
+                <AssetBulkSelect label="Type" options={ASSET_TYPES} onPick={v => bulkUpdate({ type: v })} />
+                <AssetBulkSelect label="Phase" options={phases.map(p => p.id)} labels={phases.reduce((m, p) => { m[p.id] = p.name; return m }, {})} onPick={v => bulkUpdate({ phase_id: v || null })} allowEmpty />
+                <div style={{ width: 1, height: 18, backgroundColor: '#44403c' }} />
+                <button type="button" onClick={bulkDelete}
+                  className="flex items-center gap-1 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+                  style={{ color: '#fca5a5' }}>
+                  <Trash2 className="w-3 h-3" /> <span className="text-[10.5px] font-mono uppercase">Delete</span>
+                </button>
+              </>
+            </GatedAction>
             <button type="button" onClick={clearSelection}
               className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#78716c' }}>
               <X className="w-3.5 h-3.5" />
@@ -873,9 +926,11 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
                   thumbSize={thumbSize}
                   thumbRevision={thumbRevision}
                   onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-                  onDelete={() => ctx.deleteAsset(a.id)}
+                  readOnly={!canWrite}
+                  onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
                   onWarningClick={() => onWarningClick?.(a.id)}
                   onDetailClick={() => onDetailClick?.(a.id)}
+                  onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
                   onThumbChanged={onThumbChanged}
                   isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
                 />
@@ -897,9 +952,11 @@ function AssetTable({ assets, groups, groupBy, phases, phaseById, taskCountByAss
             thumbSize={thumbSize}
             thumbRevision={thumbRevision}
             onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-            onDelete={() => ctx.deleteAsset(a.id)}
+            readOnly={!canWrite}
+            onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
             onWarningClick={() => onWarningClick?.(a.id)}
             onDetailClick={() => onDetailClick?.(a.id)}
+            onHistoryClick={onHistoryClick ? () => onHistoryClick(a.id) : null}
             onThumbChanged={onThumbChanged}
             isSelected={selected.has(a.id)} onToggleSelect={() => toggleOne(a.id)}
           />
@@ -927,7 +984,11 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
 
 
 // ── Single asset row (flex-based, matching task rows) ──
-function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, isSelected, onToggleSelect }) {
+// Session 29 — `readOnly` closes the same hole found in TaskRow: every inline
+// cell here commits through `onUpdate` → ctx.updateAsset, and none of it was
+// gated. The New asset button being gated while the ROW was not is why this
+// file read as "already gated".
+function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH, thumbSize, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onHistoryClick, onThumbChanged, isSelected, onToggleSelect, readOnly = false }) {
   const [hovered, setHovered] = useState(false)
   const hasThumbnail = !!asset.thumbnail_image
   const effectiveH = hasThumbnail ? rowH : BASE_ROW_H
@@ -952,9 +1013,11 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
   }, [asset.id, onUpdate, onThumbChanged])
 
   // Borderless select — transparent until hover/focus
+  // ⚠️ Inline `cursor` beats the `disabled:cursor-not-allowed` class on the
+  // selects below — see the twin in ProjectTasksView.
   const flatSelect = {
     backgroundColor: 'transparent', border: '1px solid transparent',
-    outline: 'none', cursor: 'pointer',
+    outline: 'none', cursor: readOnly ? 'not-allowed' : 'pointer',
   }
 
   function renderCell(col) {
@@ -963,7 +1026,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center gap-1 w-full min-w-0">
             <div className="flex-1 min-w-0">
-              <CellInlineText value={asset.name || ''} placeholder="Untitled" onCommit={v => onUpdate({ name: v })} />
+              <CellInlineText value={asset.name || ''} placeholder="Untitled" onCommit={v => onUpdate({ name: v })} readOnly={readOnly} />
             </div>
             <button type="button" onClick={onDetailClick}
               className="p-1 rounded hover:bg-stone-700 transition-colors flex-shrink-0"
@@ -977,7 +1040,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         const sc = statusColor(asset.type === 'other' ? '' : asset.status)
         return (
           <select value={asset.type || 'other'} onChange={e => onUpdate({ type: e.target.value })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            disabled={readOnly}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: '#d6d3d1' }}>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
           </select>
@@ -986,7 +1050,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
       case 'phase_id':
         return (
           <select value={asset.phase_id || ''} onChange={e => onUpdate({ phase_id: e.target.value || null })}
-            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors"
+            disabled={readOnly}
+            className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full truncate hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ ...flatSelect, color: asset.phase_id ? '#d6d3d1' : '#57534e' }}>
             <option value="">--</option>
             {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -997,7 +1062,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center gap-1 w-full min-w-0">
             <select value={asset.status || 'not_started'} onChange={e => onUpdate({ status: e.target.value })}
-              className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors"
+              disabled={readOnly}
+              className="px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 flex-1 hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
               style={{ ...flatSelect, color: sc }}>
               {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -1017,7 +1083,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             type="date"
             value={asset.start_date || ''}
             onChange={e => onUpdate({ start_date: e.target.value || null })}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            readOnly={readOnly} disabled={readOnly}
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.start_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1027,7 +1094,8 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             type="date"
             value={asset.due_date || ''}
             onChange={e => onUpdate({ due_date: e.target.value || null })}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors"
+            readOnly={readOnly} disabled={readOnly}
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.due_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1044,12 +1112,22 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
         return (
           <div className="flex items-center"
             style={{ opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
-            <button type="button"
-              onClick={() => { if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) onDelete() }}
-              className="p-1 rounded hover:bg-stone-700 transition-colors"
-              style={{ color: '#fca5a5' }}>
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            {onHistoryClick && (
+              <button type="button" onClick={onHistoryClick}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                title="View edit history"
+                style={{ color: '#a8a29e' }}>
+                <History className="w-3.5 h-3.5" />
+              </button>
+            )}
+            {onDelete && (
+              // Soft delete — no confirm; the shell-level undo toast covers it.
+              <button type="button" onClick={onDelete}
+                className="p-1 rounded hover:bg-stone-700 transition-colors"
+                style={{ color: '#fca5a5' }}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         )
       default:
@@ -1132,7 +1210,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
 // ═════════════════════════════════════════════════════
 // GALLERY VIEW
 // ═════════════════════════════════════════════════════
-function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
+function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, canWrite, thumbRevision, onThumbChanged, onWarningClick, onDetailClick }) {
   if (assets.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-3">
@@ -1152,7 +1230,8 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, thumbRevision,
           warning={ctx?.selectAssetStatusWarning?.(a)}
           thumbRevision={thumbRevision}
           onUpdate={(patch) => ctx.updateAsset(a.id, patch)}
-          onDelete={() => ctx.deleteAsset(a.id)}
+          readOnly={!canWrite}
+          onDelete={canWrite ? () => ctx.deleteAsset(a.id) : null}
           onWarningClick={() => onWarningClick?.(a.id)}
           onDetailClick={() => onDetailClick?.(a.id)}
           onThumbChanged={onThumbChanged}
@@ -1162,7 +1241,7 @@ function AssetGallery({ assets, phaseById, taskCountByAsset, ctx, thumbRevision,
   )
 }
 
-function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged }) {
+function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpdate, onDelete, onWarningClick, onDetailClick, onThumbChanged, readOnly = false }) {
   const [hovered, setHovered] = useState(false)
   const sc = statusColor(asset.status)
   const hasThumbnail = !!asset.thumbnail_image
@@ -1245,6 +1324,7 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
           value={asset.name || ''}
           onCommit={(name) => onUpdate({ name })}
           placeholder="Untitled"
+          readOnly={readOnly}
         />
         <div className="flex items-center justify-between text-[10.5px] font-mono uppercase tracking-wider" style={{ color: '#a8a29e' }}>
           <span>{fmt(asset.type || 'other')}</span>
@@ -1257,13 +1337,15 @@ function AssetCard({ asset, phaseLabel, taskCount, warning, thumbRevision, onUpd
         <span className="text-[10.5px] font-mono" style={{ color: '#a8a29e' }}>
           {taskCount} task{taskCount === 1 ? '' : 's'}
         </span>
-        <button type="button"
-          onClick={() => { if (window.confirm(`Delete asset "${asset.name}"? This cannot be undone.`)) onDelete() }}
-          className="p-0.5 rounded hover:bg-stone-700 transition-colors"
-          title="Delete asset"
-          style={{ color: '#fca5a5' }}>
-          <Trash2 className="w-3 h-3" />
-        </button>
+        {onDelete && (
+          // Soft delete — no confirm; the shell-level undo toast covers it.
+          <button type="button" onClick={onDelete}
+            className="p-0.5 rounded hover:bg-stone-700 transition-colors"
+            title="Delete asset"
+            style={{ color: '#fca5a5' }}>
+            <Trash2 className="w-3 h-3" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -1288,6 +1370,10 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
   })
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [creating, setCreating] = useState(false)
+  // Session 23: handleConfirm had try/finally with NO catch, so a rejected
+  // write left the button flashing "Creating…" and changed nothing on screen.
+  // That is the whole reason a total failure read as "nothing populated".
+  const [error, setError] = useState(null)
 
   // Load templates available to this project
   const [projectTemplates, setProjectTemplates] = useState([])
@@ -1308,6 +1394,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
   async function handleConfirm() {
     if (!ctx?.addAsset || !draft.name.trim()) return
     setCreating(true)
+    setError(null)
     try {
       // 1. Create the asset
       const created = await ctx.addAsset({
@@ -1318,7 +1405,12 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
         description: draft.description,
         start_date: draft.start_date || null,
         due_date: draft.due_date || null,
-        task_template_id: selectedTemplateId || null,
+        // Session 23: only send this when a template was actually picked.
+        // It is not a column on public.assets (the adapter allowlist drops
+        // it), and sending `null` unconditionally meant a warning on every
+        // single create for a dropdown that is permanently empty in cloud —
+        // listProjectTaskTemplates exists only on localServerAdapter.
+        ...(selectedTemplateId ? { task_template_id: selectedTemplateId } : {}),
       })
       if (!created?.id) return
 
@@ -1355,7 +1447,15 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             status: 'waiting_to_start',
             priority: 'medium',
             bid_days: tmplTask.bid_days || 0,
-            role_slug: tmplTask.role_slug || null,
+            // 🚨 Session 28: this said `role_slug`, which is NOT a column on
+            // `tasks` — the column is `assigned_role_slug`. Because `tasks`
+            // HAS a COLUMN_ALLOWLIST entry, toColumns dropped the key with a
+            // console warning instead of rejecting the request, so every task
+            // a template created arrived with no role on it and every bid
+            // built from those tasks priced at nothing. Quieter than the S23
+            // failure and, until 0044, unreachable: this branch only runs when
+            // a template exists, and none could.
+            assigned_role_slug: tmplTask.role_slug || null,
             start_date: taskStart,
             end_date: taskEnd,
           })
@@ -1367,6 +1467,10 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
       }
 
       onCreated(created.id)
+    } catch (err) {
+      // Say what went wrong instead of silently doing nothing. The dialog
+      // stays open with the user's input intact so they can retry.
+      setError(err?.message || String(err))
     } finally {
       setCreating(false)
     }
@@ -1529,6 +1633,18 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
           </div>
         </div>
 
+        {/* Session 23: a failed create must say so. Matches the Timeline task
+            dialog's error box — the only reason that surface's failures were
+            ever visible, while this one's were not. */}
+        {error && (
+          <div
+            className="mx-5 mb-3 px-3 py-2 text-[11.5px] font-mono rounded"
+            style={{ color: '#fecaca', backgroundColor: 'rgba(153,27,27,0.25)', border: '1px solid #991b1b' }}
+          >
+            {error}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-3" style={{ borderTop: '1px solid #44403c' }}>
           <span className="text-[10.5px] font-mono" style={{ color: '#57534e' }}>
@@ -1642,7 +1758,11 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
           status: 'waiting_to_start',
           priority: 'medium',
           bid_days: tmplTask.bid_days || 0,
-          role_slug: tmplTask.role_slug || null,
+          // Session 28 — the same wrong key as the create-with-template path
+          // above. The template's own field really is called `role_slug`
+          // (it is a key inside the jsonb array, not a column); the TASK
+          // column it maps onto is `assigned_role_slug`.
+          assigned_role_slug: tmplTask.role_slug || null,
           start_date: taskStart,
           end_date: taskEnd,
         })
@@ -2118,12 +2238,21 @@ function Td({ children }) {
 }
 
 // ── Inline editors ──
-function InlineText({ value, onCommit, placeholder }) {
+function InlineText({ value, onCommit, placeholder, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(value)
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+  // Session 29 — see CellInlineText. Gallery cards edit the asset name too.
+  if (readOnly) {
+    return (
+      <span className="block w-full px-1 py-0.5 text-xs font-mono truncate"
+        style={{ color: value ? '#e7e5e4' : '#57534e' }}>
+        {value || placeholder || '—'}
+      </span>
+    )
   }
   if (editing) {
     return (
@@ -2154,13 +2283,22 @@ function InlineText({ value, onCommit, placeholder }) {
 }
 
 // Cell-level inline text — used by the flex table rows (matches Tasks tab)
-function CellInlineText({ value, placeholder, onCommit }) {
+function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft]     = useState(value)
   useEffect(() => { setDraft(value) }, [value])
   function commit() {
     setEditing(false)
     if (draft !== value) onCommit(draft)
+  }
+  // Session 29 — plain text, no button, no hover. See the Tasks tab twin.
+  if (readOnly) {
+    return (
+      <span className="block text-[11.5px] font-mono text-left w-full truncate px-1.5 py-1"
+        style={{ color: value ? '#e7e5e4' : '#57534e' }}>
+        {value || placeholder || '—'}
+      </span>
+    )
   }
   if (editing) {
     return (

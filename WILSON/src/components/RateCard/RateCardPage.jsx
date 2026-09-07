@@ -21,13 +21,17 @@
 // The table adapts its columns and behavior based on cardType.
 
 import { useRef, useState, useMemo } from 'react'
-import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle } from 'lucide-react'
+import { DollarSign, Upload, AlertCircle, Loader2, Users, AlertTriangle, Lock, Download } from 'lucide-react'
+import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
 import { useRateCard } from './useRateCard'
-import { useTeamMembers } from '../TeamMembers/useTeamMembers'
+import { useRosterMembers } from '../TeamMembers/useRosterMembers'
+import { useRateCardAccess } from './useRateCardAccess'
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import RateCardTable from './RateCardTable'
 import ImportPreviewModal from './importers/ImportPreviewModal'
 import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
 import { importCsv } from './importers/csvImporter'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
 import { importXlsx } from './importers/xlsxImporter'
 import { importPdf } from './importers/pdfImporter'
 import { importGoogleSheet } from './importers/googleSheetImporter'
@@ -49,7 +53,19 @@ export default function RateCardPage() {
     makeSlug,
   } = useRateCard()
 
-  const { members: teamMembers, loading: teamLoading } = useTeamMembers()
+  // Session 6 identity seam: the roster hook resolves members per adapter
+  // mode — in cloud mode ids are auth user_ids, so internal-card entries
+  // written by the Team Members page (member_id = user_id) resolve here
+  // instead of orphaning.
+  const { members: teamMembers, mode: rosterMode, loading: teamLoading } = useRosterMembers()
+  const rabbit = useRabbit()
+
+  // 0020 matrix parity: role matrix OR per-user grants (view/edit), live off
+  // the workspace channel. Show a notice instead of letting the RLS-empty
+  // table masquerade as "no data"; a view-only grant renders read-only.
+  const access = useRateCardAccess(rabbit?.subscribeWorkspaceEvents)
+  const rateCardRestricted = rosterMode === 'supabase' && access.ready && !access.canView
+  const rateReadOnly = rosterMode === 'supabase' && access.ready && !access.canEdit
 
   // ─── Derive active card type ───
   const generalCard = rateCards.find(c => c.type === 'general') || null
@@ -57,15 +73,33 @@ export default function RateCardPage() {
   const activeCard = rateCards.find(c => c.id === activeRateCardId) || null
   const activeType = activeCard?.type || 'general'
 
+  // ─── Who belongs on the INTERNAL card ───
+  // Audrey, 2026-08-11: "the internal fulltime members are the only ones that
+  // should populate the internal rate card … for some projects a company may
+  // hire freelancers, for them the external rate card uses industry standard
+  // rates. the internal rate card is based on the salaries of the internal
+  // team members."
+  //
+  // So this is not a display filter — the two cards hold different KINDS of
+  // number, and a freelancer on the internal card would invite someone to
+  // enter a day rate where a salary-derived wage belongs.
+  const internalMembers = useMemo(
+    () => (teamMembers || []).filter(m => m.is_full_time),
+    [teamMembers],
+  )
+
   // ─── Team stats for internal tab ───
+  // Counts the internal population, not the whole roster: the "unrated" badge
+  // exists to say "someone on this card still has no wage", and freelancers
+  // are not on this card at all.
   const teamStats = useMemo(() => {
-    if (!teamMembers?.length) return { total: 0, rated: 0, unrated: 0 }
+    if (!internalMembers.length) return { total: 0, rated: 0, unrated: 0 }
     const entryMemberIds = new Set(
       entries.filter(e => e.member_id && e.wage != null).map(e => e.member_id)
     )
-    const rated = teamMembers.filter(m => entryMemberIds.has(m.id)).length
-    return { total: teamMembers.length, rated, unrated: teamMembers.length - rated }
-  }, [teamMembers, entries])
+    const rated = internalMembers.filter(m => entryMemberIds.has(m.id)).length
+    return { total: internalMembers.length, rated, unrated: internalMembers.length - rated }
+  }, [internalMembers, entries])
 
   // ─── Importer state ───
   const [previewOpen, setPreviewOpen] = useState(false)
@@ -165,16 +199,20 @@ export default function RateCardPage() {
   function tabStyle(type) {
     const isActive = activeType === type
     return {
-      backgroundColor: isActive ? '#fef3e8' : 'rgba(255,255,255,0.15)',
+      // Selected tab is the warm well, not a white pill. Unselected is bare
+      // page — the selection reads by fill + rule, not by a lighter ink.
+      backgroundColor: isActive ? LIGHT_WELL : 'transparent',
       color: isActive ? '#7c2d12' : '#451a03',
       border: isActive ? '1px solid #7c2d12' : '1px solid transparent',
-      borderBottom: isActive ? '1px solid #fef3e8' : '1px solid transparent',
+      borderBottom: isActive ? `1px solid ${LIGHT_WELL}` : '1px solid transparent',
       marginBottom: '-2px',
     }
   }
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ backgroundColor: '#fef3e8' }}>
+    // Was #fef3e8 — a near-white sheet over the whole orange page. The page IS
+    // the surface; panels group with wells and rules, not with a card.
+    <div className="h-full w-full flex flex-col" style={{ backgroundColor: 'transparent' }}>
       {/* ── Page header with tabs ── */}
       <div
         className="flex items-center justify-between px-6 py-3"
@@ -201,17 +239,28 @@ export default function RateCardPage() {
             >
               General
             </button>
+            {/* 🚨 This was `onClick={() => internalCard && setActive…}` — when
+                the internal card does not exist the click did NOTHING, with no
+                explanation. Audrey: "when i press internal i am not seeing the
+                internal one." The card is missing because its INSERT was
+                refused (see the softError banner above), so the honest
+                behaviour is to say so, not to swallow the click. `disabled`
+                also makes the dead state visible before it is clicked. */}
             <button
               type="button"
-              onClick={() => internalCard && setActiveRateCardId(internalCard.id)}
+              disabled={!internalCard}
+              title={internalCard ? undefined : 'The internal rate card could not be created — see the error above.'}
+              onClick={() => { if (internalCard) setActiveRateCardId(internalCard.id) }}
               className="px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors flex items-center gap-1.5"
-              style={tabStyle('internal')}
+              style={{ ...tabStyle('internal'), cursor: internalCard ? 'pointer' : 'not-allowed', opacity: internalCard ? 1 : 0.55 }}
             >
               Internal
-              {teamStats.unrated > 0 && (
+              {/* entries are RLS-empty when restricted — the badge would
+                  falsely flag every member as unrated */}
+              {!rateCardRestricted && teamStats.unrated > 0 && (
                 <span
                   className="px-1.5 py-0.5 text-[9px] rounded-full font-bold"
-                  style={{ backgroundColor: '#fbbf24', color: '#7c2d12' }}
+                  style={{ backgroundColor: '#c2410c', color: '#ffffff' }}
                 >
                   {teamStats.unrated}
                 </span>
@@ -223,6 +272,35 @@ export default function RateCardPage() {
         <div className="flex items-center gap-2">
           {(loading || teamLoading) && (
             <Loader2 className="w-4 h-4 animate-spin" style={{ color: '#7c2d12' }} />
+          )}
+          {/* Export (Session 14, Block B) — gated exactly like the page:
+              in cloud mode the entries themselves are RLS-scoped, and the
+              button only renders for users the 0020 matrix/grants let VIEW
+              the card. No entries → no button (the empty state explains). */}
+          {!rateCardRestricted && entries.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                const memberName = (id) => {
+                  const m = (teamMembers || []).find(tm => tm.id === id)
+                  return m ? (m.display_name || m.name || m.username || '') : ''
+                }
+                const cols = [
+                  { key: 'role_label', header: 'Role' },
+                  { key: 'role_slug',  header: 'Slug' },
+                  { key: 'department', header: 'Department' },
+                  { key: 'wage',       header: 'Wage', map: (e) => e.wage ?? e.day_rate ?? '' },
+                ]
+                if (activeType === 'internal') {
+                  cols.unshift({ key: 'member', header: 'Member', map: (e) => memberName(e.member_id) })
+                }
+                downloadCsv(`rate-card-${activeType}-${exportDateStamp()}.csv`, entries, cols)
+              }}
+              className="flex items-center gap-1.5 px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-sm transition-colors hover:brightness-110"
+              style={{ backgroundColor: LIGHT_INK, color: '#ffffff' }}
+            >
+              <Download className="w-3.5 h-3.5" /> Export CSV
+            </button>
           )}
         </div>
       </div>
@@ -240,12 +318,20 @@ export default function RateCardPage() {
         </div>
       )}
 
-      {/* ── Two-column body ── */}
+      {/* ── Two-column body (or the permission notice) ── */}
+      {rateCardRestricted ? (
+        <div className="flex-1 flex flex-col items-center justify-center gap-3">
+          <Lock className="w-6 h-6" style={{ color: '#f4a261' }} />
+          <span className="text-xs font-mono" style={{ color: '#7c2d12' }}>
+            Rate cards are visible to admins and managers.
+          </span>
+        </div>
+      ) : (
       <div className="flex-1 flex overflow-hidden">
         {/* ── Left panel ── */}
         <div
           className="flex flex-col w-72 flex-shrink-0"
-          style={{ borderRight: '2px solid #7c2d12', backgroundColor: '#fff7ed' }}
+          style={{ borderRight: `1px solid ${LIGHT_RULE}`, backgroundColor: LIGHT_WELL }}
         >
           <div
             className="px-4 py-2 text-[10px] font-mono uppercase tracking-widest"
@@ -260,7 +346,7 @@ export default function RateCardPage() {
                 {/* ── Team stats panel ── */}
                 <div
                   className="p-3 rounded-sm"
-                  style={{ backgroundColor: '#fef3e8', border: '2px solid #f4a261' }}
+                  style={{ backgroundColor: 'transparent', border: `1px solid ${LIGHT_RULE}` }}
                 >
                   <div className="flex items-center gap-2 mb-2">
                     <Users className="w-4 h-4" style={{ color: '#7c2d12' }} />
@@ -280,10 +366,10 @@ export default function RateCardPage() {
                     {teamStats.unrated > 0 && (
                       <div className="flex justify-between items-center">
                         <span className="flex items-center gap-1">
-                          <AlertTriangle className="w-3 h-3" style={{ color: '#d97706' }} />
+                          <AlertTriangle className="w-3 h-3" style={{ color: '#c2410c' }} />
                           Without rates
                         </span>
-                        <span className="font-bold" style={{ color: '#d97706' }}>{teamStats.unrated}</span>
+                        <span className="font-bold" style={{ color: '#c2410c' }}>{teamStats.unrated}</span>
                       </div>
                     )}
                   </div>
@@ -291,7 +377,7 @@ export default function RateCardPage() {
 
                 <div
                   className="p-3 rounded-sm text-[11px] font-mono leading-relaxed"
-                  style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                  style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
                 >
                   Internal rate card is auto-populated from team
                   members. Set individual wage, burden, and overhead
@@ -299,24 +385,36 @@ export default function RateCardPage() {
                   with a warning indicator.
                 </div>
 
-                {/* Import for internal card */}
-                <div className="pt-2 border-t" style={{ borderColor: '#f4a261' }}>
-                  <div
-                    className="text-[10px] font-mono uppercase tracking-widest mb-2"
-                    style={{ color: '#7c2d12' }}
-                  >
-                    Import rates
+                {/* Import for internal card (hidden on view-only grants) */}
+                {!rateReadOnly && (
+                  <div className="pt-2 border-t" style={{ borderColor: '#f4a261' }}>
+                    <div
+                      className="text-[10px] font-mono uppercase tracking-widest mb-2"
+                      style={{ color: '#7c2d12' }}
+                    >
+                      Import rates
+                    </div>
+                    <ImporterCard
+                      label="CSV / XLSX"
+                      note="Bulk-set member rates"
+                      onClick={() => { setImportError(null); sheetInputRef.current?.click() }}
+                    />
                   </div>
-                  <ImporterCard
-                    label="CSV / XLSX"
-                    note="Bulk-set member rates"
-                    onClick={() => { setImportError(null); sheetInputRef.current?.click() }}
-                  />
-                </div>
+                )}
               </>
             ) : (
               <>
-                {/* ── Import options for general card ── */}
+                {/* ── Import options for general card (hidden on view-only) ── */}
+                {rateReadOnly ? (
+                  <div
+                    className="p-3 rounded-sm text-[11px] font-mono leading-relaxed"
+                    style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
+                  >
+                    View-only access — rate edits and imports are
+                    limited to admins and edit-granted members.
+                  </div>
+                ) : (
+                <>
                 <ImporterCard
                   label="CSV / XLSX"
                   note="Click to pick a spreadsheet"
@@ -332,10 +430,12 @@ export default function RateCardPage() {
                   note="Paste a public sheet URL"
                   onClick={() => { setImportError(null); setGSheetPromptOpen(true) }}
                 />
+                </>
+                )}
 
                 <div
                   className="mt-4 p-3 rounded-sm text-[11px] font-mono leading-relaxed"
-                  style={{ backgroundColor: '#fef3e8', border: '1px dashed #7c2d12', color: '#7c2d12' }}
+                  style={{ backgroundColor: 'transparent', border: `1px dashed ${LIGHT_INK}`, color: LIGHT_INK }}
                 >
                   General rate card defines standard day rates
                   per role. Used for estimating before specific
@@ -349,18 +449,48 @@ export default function RateCardPage() {
 
         {/* ── Right: table ── */}
         <div className="flex-1 overflow-hidden">
-          {activeRateCardId ? (
+          {/* An internal card with nobody on it used to render as a blank grid
+              that explained nothing — the same "silently does nothing" shape as
+              the dead INTERNAL tab. There are three different reasons it can be
+              empty and the user can only act on two of them, so say which. */}
+          {activeRateCardId && activeType === 'internal' && internalMembers.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
+              <Users className="w-7 h-7" style={{ color: LIGHT_INK }} />
+              <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
+                {teamLoading
+                  ? 'Loading the team roster…'
+                  : teamMembers.length === 0
+                    ? 'The team roster is empty here, so there is nobody to rate.'
+                    : `No full-time members yet — ${teamMembers.length} on the roster, none marked full-time.`}
+              </span>
+              {!teamLoading && teamMembers.length > 0 && (
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
+                  Tick <strong>Full-time</strong> in Resources → Team Members. The internal card
+                  is salary-based, so only staff belong on it.
+                </span>
+              )}
+              {!teamLoading && teamMembers.length === 0 && (
+                <span className="text-[11px] font-mono" style={{ color: LIGHT_INK }}>
+                  Roster source: <strong>{rosterMode || 'unknown'}</strong>. If that is not
+                  “supabase” the page is reading the wrong backend.
+                </span>
+              )}
+            </div>
+          ) : activeRateCardId ? (
             <RateCardTable
               entries={entries}
               deptDefaults={deptDefaults}
               cardType={activeType}
-              teamMembers={teamMembers}
+              // Internal = salaried staff only. The general card never merges
+              // the roster, so passing the full list there is inert.
+              teamMembers={activeType === 'internal' ? internalMembers : teamMembers}
               loading={loading}
               addEntry={addEntry}
               updateEntry={updateEntry}
               deleteEntry={deleteEntry}
-              updateDeptDefault={updateDeptDefault}
+              updateDeptDefault={rateReadOnly ? undefined : updateDeptDefault}
               makeSlug={makeSlug}
+              readOnly={rateReadOnly}
             />
           ) : (
             <div className="h-full flex items-center justify-center">
@@ -371,6 +501,7 @@ export default function RateCardPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* ── Hidden file inputs ── */}
       <input
@@ -419,7 +550,7 @@ function ImporterCard({ label, note, onClick, disabled }) {
       disabled={disabled}
       className="w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed hover:bg-orange-100"
       style={{
-        backgroundColor: '#fef3e8',
+        backgroundColor: 'transparent',
         border: '2px solid #f4a261',
         color: '#7c2d12',
         opacity: disabled ? 0.6 : 1,

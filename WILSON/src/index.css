@@ -1,8 +1,60 @@
 @import "tailwindcss";
 
-@keyframes blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
+/* ═══════════════════════════════════════════════════════════════
+   PAGE CANVAS — Phase 4, 2026-08-12 (Audrey, on a MacBook):
+   "i am able to scroll beyond the pages sometimes. i am seeing after the bars
+    that its white. lets make sure the orange header and footer bars extend so
+    the user never sees white in the background"
+
+   The outcome she describes is right; the mechanism is not the bars. macOS
+   rubber-band scrolling drags the document past its own bounds, and what
+   shows through is the page canvas — a region OUTSIDE the app's layout
+   entirely, which no amount of stretching a bar can reach. Windows does not
+   rubber-band, which is why this only ever appeared on the Mac.
+
+   Two lines: paint the canvas, and stop the bounce.
+
+   🚨 #ea580c is the BAR colour, read from App.jsx's bars. It is NOT #f4a261 —
+   that is the light content panel and the page-transition overlay. A second
+   near-miss orange here would read as a rendering fault rather than an empty
+   region, which is worse than the white.
+
+   ⚠️ `overscroll-behavior` is on the document only. Nested scrollers — the
+   R.A.B.B.I.T. timeline, the O.T.T.E.R. lesson pane, Home's own column — still
+   scroll normally; all that changes is that hitting their end no longer chains
+   out to a document that cannot scroll anyway (#root is 100vh, overflow
+   hidden). No pull-to-refresh is lost because there is nothing to refresh.
+   ═══════════════════════════════════════════════════════════════ */
+html, body {
+  background-color: #ea580c;
+  overscroll-behavior: none;
+}
+
+/* Session 43: `@keyframes blink` was removed with its only consumer, the
+   decorative AuthCursor in AuthShell.jsx (§A6 — the phantom cursor). The
+   native caret does that job now. Do not re-add it without a caller. */
+
+/* Auth step entrance (Session 43 §A2). A step change on the login screen is a
+   CONTENT swap: the incoming step animates in, the outgoing one is simply
+   gone, and the shell's bars hold still throughout.
+
+   🚨 This is an ENTRANCE on a KEYED element, deliberately, not a fade on a
+   persistent wrapper. React commits the new step's markup before a passive
+   effect can run, so an effect-driven fade-out plays over the INCOMING
+   content — the first attempt blinked the new step and the static LOGIN title
+   to 0 and back on every step change.
+
+   200ms is the interactive-response band (160–240ms). Past that an interface
+   feels like it is thinking (Doherty Threshold). */
+@keyframes authStepIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.auth-step {
+  animation: authStepIn 200ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-step { animation: none; }
 }
 
 /* Light-page scrollbar (Settings, Project Manager, Home) — orange thumb only, no track */

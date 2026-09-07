@@ -55,7 +55,21 @@ import {
   Users, Film, Gamepad2, Sparkles, Diamond,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
-import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+// Session 23: useRosterMembers, NOT useTeamMembers. useTeamMembers early-returns
+// when `adapter.listTeamMembers` is missing, and that method exists ONLY on
+// localServerAdapter — so in cloud mode it silently yielded an empty roster and
+// the "Assigned to" dropdown here could never be populated. useRosterMembers is
+// the adapter-agnostic one: workspace_directory() in supabase mode, the legacy
+// registry in local_server. Same `{ members }` shape, so this is a drop-in.
+import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
+// Session 29 — this view had NO permission gate of any kind. It was the only
+// task-creating surface in R.A.B.B.I.T. without one, so a reviewer (or anyone
+// with no seat on a staffed project) was offered a dozen ways to create a task
+// and got `new row violates row-level security policy for table "tasks"` back.
+// useProjectAccess assembles the gate context — including `ready`, which must
+// never be omitted; see its header.
+import { useProjectAccess } from '../state/useProjectAccess'
+import GatedAction from '../../../permissions/GatedAction'
 import FileManager from '../components/FileManager'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../rabbitHelpContent.jsx'
@@ -176,7 +190,66 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   const milestones  = ctx?.milestones || []
   const teamAssignments = ctx?.teamAssignments || []
 
-  const tm = useTeamMembers()
+  const tm = useRosterMembers()
+
+  // ── Write gate (Session 29) ───────────────────────────────
+  // Mirrors ProjectTasksView.jsx:211-219 exactly — same action, same four
+  // fields. The DB is the authority (`tasks_insert` requires
+  // can_write_project(project_id), 0013); this exists so the user is TOLD
+  // rather than refused in Postgres' words.
+  //
+  // 🚨 canWrite is threaded into every sub-pane rather than each one deriving
+  // its own. The Timeline has ~12 create affordances funnelling through
+  // openNewTask, and gating only the funnel would leave all twelve visible and
+  // inert — which is precisely the S23 "the button does nothing" defect. The
+  // funnel and the affordances move together.
+  const { canWrite, writeReason } = useProjectAccess()
+
+  // ── Dependency-write failures (Phase 2 of the 2026-08-10 build pass) ──────
+  // Audrey, 2026-08-10: "i was able to grab the line from the dependency task
+  // but i could not attach it to another this is crucial to work."
+  //
+  // The three dependency gestures used to end in `.catch(() => {})`. The write
+  // was rejected by PostgREST, optimistic() rolled the arrow back, and the user
+  // saw a line appear and vanish with no explanation — the same "it just
+  // stopped working" shape the read-only strip below was written to prevent.
+  //
+  // 🚨 DELETING THE CATCH IS NOT ENOUGH ON ITS OWN. optimistic() does call
+  // setError and rethrow, and `error` IS exposed on the Rabbit context — but
+  // nothing in the repo reads it. Dropping the catch would convert a silent
+  // failure into an unhandled promise rejection: still silent. The handler has
+  // to be local, which is also the only mutation-failure idiom this tool has
+  // (TaskEditor.handleSave below, NewTaskPopup, ProjectAssetsView).
+  const [depError, setDepError] = useState(null)
+
+  // unwrap() throws `new Error('[supabase] ' + message)` and DROPS .code, so a
+  // schema mismatch and an RLS refusal are indistinguishable here. The raw text
+  // is internal vocabulary — "Could not find the 'kind' column of
+  // 'task_dependencies' in the schema cache" — so it goes in the tooltip and a
+  // plain sentence goes on the strip.
+  //
+  // The three call sites use `.then(undefined, onErr)` rather than `.catch`: a
+  // two-argument then handles a rejection of the mutation ONLY, so a throw
+  // inside a success path stays visible instead of being swallowed the way a
+  // trailing .catch would swallow it. That is the same mistake, one link
+  // further down the chain.
+  //
+  // 🚨 AND THERE IS DELIBERATELY NO setDepError(null) ON SUCCESS. The rewire
+  // gesture (beginDependencyRewire) fires onUnlinkDependency and then
+  // onLinkTasks/onLinkPhases without awaiting either, so the two settle in
+  // network order. Clearing on success meant a slow-but-successful UNLINK could
+  // land after a failed LINK and wipe its message — leaving the user with the
+  // original arrow genuinely deleted, no new arrow, and nothing on screen
+  // saying so. That is the silent failure this whole block exists to remove,
+  // reintroduced as a race. The banner is dismissible and any later failure
+  // replaces it, so letting it persist costs nothing; clearing it can cost the
+  // user a dependency.
+  const onDependencyError = useCallback((action) => (err) => {
+    setDepError({
+      message: `Could not ${action}. The change was not saved.`,
+      detail:  err?.message || String(err),
+    })
+  }, [])
 
   const [zoomId, setZoomId] = useState('week')
   const zoom = ZOOM_LEVELS.find(z => z.id === zoomId) || ZOOM_LEVELS[1]
@@ -250,25 +323,45 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // Shared task-detail popup (same component used in Tasks tab)
   const [detailTaskId, setDetailTaskId] = useState(null)
 
-  const openNewTask = (prefill = {}) => setEditor({
-    mode:   'task',
-    taskId: null,
-    draft:  emptyTaskDraft({
-      assetId: assets[0]?.id || '',
-      phaseId: phases[0]?.id || '',
-      ...prefill,
-    }),
-  })
-  const openNewPhase = (prefill = {}) => setEditor({
-    mode:    'phase',
-    phaseId: null,
-    draft:   emptyPhaseDraft(prefill),
-  })
-  const openNewMilestone = (prefill = {}) => setEditor({
-    mode:        'milestone',
-    milestoneId: null,
-    draft:       emptyMilestoneDraft(prefill),
-  })
+  // Session 29 — the three CREATE funnels refuse when the caller cannot write.
+  //
+  // 🚨 This alone would be the WRONG fix, and the brief for this session says so
+  // in capitals: every affordance would stay visible and do nothing, which is
+  // the S23 "the button does nothing" defect in a new place. It is here as the
+  // second half of a pair — the affordances are greyed with a reason (see
+  // DetailZoomToolbar, DetailPane's two drop-zone renderers, and the drag
+  // handlers), and these guards catch anything that is ever added without one.
+  //
+  // Unlike the edit funnels below, these do not fall back to a read-only view:
+  // a blank form nobody can save has nothing to read.
+  const openNewTask = (prefill = {}) => {
+    if (!canWrite) return
+    setEditor({
+      mode:   'task',
+      taskId: null,
+      draft:  emptyTaskDraft({
+        assetId: assets[0]?.id || '',
+        phaseId: phases[0]?.id || '',
+        ...prefill,
+      }),
+    })
+  }
+  const openNewPhase = (prefill = {}) => {
+    if (!canWrite) return
+    setEditor({
+      mode:    'phase',
+      phaseId: null,
+      draft:   emptyPhaseDraft(prefill),
+    })
+  }
+  const openNewMilestone = (prefill = {}) => {
+    if (!canWrite) return
+    setEditor({
+      mode:        'milestone',
+      milestoneId: null,
+      draft:       emptyMilestoneDraft(prefill),
+    })
+  }
   const openEditMilestone = (ms) => setEditor({
     mode:        'milestone',
     milestoneId: ms.id,
@@ -588,6 +681,50 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
   // ── render ───────────────────────────────────────────────
   return (
     <div className="h-full flex flex-col" style={{ backgroundColor: '#1c1917' }}>
+      {/* ── Read-only notice (Session 29) ───────────────────────────────────
+          Greying a control explains that control. It cannot explain a GESTURE:
+          "drag empty space to draw a task", "drag a bar to move it", "drag the
+          arrow head to rewire a dependency" have no rendered affordance to grey
+          out, and they are half of how this screen is used. Withdrawing them
+          silently would be the same "it just stopped working" complaint that
+          started this investigation, so the reason is stated once, here, where
+          it covers every gesture on the pane at once. */}
+      {!canWrite && writeReason && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-mono"
+          style={{ backgroundColor: '#292524', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
+        >
+          <Lock className="w-3 h-3 shrink-0" style={{ color: '#78716c' }} />
+          <span className="uppercase tracking-widest shrink-0" style={{ color: '#78716c' }}>Read only</span>
+          <span className="truncate" title={writeReason}>{writeReason}</span>
+        </div>
+      )}
+
+      {/* ── Dependency write failure (Phase 2) ──────────────────────────────
+          Same slot and the same reasoning as the read-only strip above: a drag
+          gesture has no rendered control to hang a message on, so the message
+          lives at pane level. Dismissible, because unlike the read-only state
+          this is a transient event rather than a property of the project. */}
+      {depError && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 text-[10.5px] font-mono"
+          style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #7f1d1d', color: '#fca5a5' }}
+        >
+          <AlertTriangle className="w-3 h-3 shrink-0" />
+          <span className="uppercase tracking-widest shrink-0">Not saved</span>
+          <span className="truncate" title={depError.detail}>{depError.message}</span>
+          <button
+            type="button"
+            onClick={() => setDepError(null)}
+            className="ml-auto shrink-0 opacity-70 hover:opacity-100"
+            title="Dismiss"
+            aria-label="Dismiss error"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* ── Summary + minimap controls (single consolidated row) ── */}
       <SummaryBand
         summary={summary}
@@ -629,6 +766,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         onUpdatePhase={(phaseId, patch) => ctx.updatePhase(phaseId, patch).catch(() => {})}
         onEditTask={openEditTask}
         onEditPhase={openEditPhase}
+        canWrite={canWrite}
+        writeReason={writeReason}
         milestones={allMilestones}
       />
 
@@ -646,6 +785,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         onNewPhase={() => openNewPhase()}
         onNewTask={() => openNewTask()}
         onNewMilestone={() => openNewMilestone()}
+        canWrite={canWrite}
+        writeReason={writeReason}
         groupBy={groupBy}
         onGroupByChange={handleGroupByChange}
         project={project}
@@ -728,9 +869,12 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           })
         }}
         onToggleCollapse={(phase) => toggleCollapsed(phase.id)}
-        onLinkTasks={(predId, succId) => ctx.linkTasks(predId, succId).catch(() => {})}
-        onLinkPhases={(predId, succId) => ctx.linkPhases(predId, succId).catch(() => {})}
-        onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).catch(() => {})}
+        onLinkTasks={(predId, succId) => ctx.linkTasks(predId, succId).then(
+          undefined, onDependencyError('link those tasks'))}
+        onLinkPhases={(predId, succId) => ctx.linkPhases(predId, succId).then(
+          undefined, onDependencyError('link those phases'))}
+        onUnlinkDependency={(depId) => ctx.unlinkDependency(depId).then(
+          undefined, onDependencyError('remove that dependency'))}
         onMoveTaskToPhase={(taskId, phaseId) => {
           // Drag-drop a task into another phase row in the label gutter.
           // We update the task's phase_id; the buildSchedule pass will
@@ -754,6 +898,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         onEditPhase={openEditPhase}
         onEditAsset={openEditAsset}
         onUpdateAsset={(assetId, patch) => ctx.updateAsset(assetId, patch).catch(() => {})}
+        canWrite={canWrite}
+        writeReason={writeReason}
         milestones={allMilestones}
         onEditMilestone={openEditMilestone}
       />
@@ -766,6 +912,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           phases={phases}
           ctx={ctx}
           onClose={closeEditor}
+          canWrite={canWrite}
+          writeReason={writeReason}
         />
       )}
 
@@ -796,6 +944,11 @@ const OverviewPane = forwardRef(function OverviewPane({
   onPanMinimap, onZoomMinimap,
   onUpdateTask, onUpdatePhase,
   onEditTask, onEditPhase,
+  // Session 29 — the minimap's bars are draggable too, and that drag commits
+  // real date changes (onUpdateTask / onUpdatePhase above). Gating only the
+  // detail pane would have left the whole defect reachable from the top half
+  // of the same screen.
+  canWrite = true, writeReason = null,
   milestones = [],
 }, forwardedRef) {
   // The minimap ALWAYS shows phases regardless of the active
@@ -1128,6 +1281,8 @@ const OverviewPane = forwardRef(function OverviewPane({
                     onUpdatePhase={onUpdatePhase}
                     onEditTask={onEditTask}
                     onEditPhase={onEditPhase}
+                    canWrite={canWrite}
+                    writeReason={writeReason}
                     onHoverEnter={(e) => {
                       if (r.kind === 'phase') {
                         setHoverPopup({ row: r, x: e.clientX, y: e.clientY })
@@ -1560,7 +1715,7 @@ function OverviewContainmentOverlay({ rows, rowLayouts, span, dayPx }) {
 // OverviewBar — compressed bar with squash/stretch + click
 // ============================================================
 
-function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase, onHoverEnter, onHoverMove, onHoverLeave }) {
+function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdatePhase, onEditTask, onEditPhase, canWrite = true, writeReason = null, onHoverEnter, onHoverMove, onHoverLeave }) {
   const offsetDays = daysBetween(span.start, row.start)
   const lengthDays = Math.max(0.5, daysBetween(row.start, row.end))
   const left  = offsetDays * dayPx
@@ -1592,6 +1747,9 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
     let moved = false
 
     function onMove(ev) {
+      // Session 29 — see DetailBar's equivalent guard. Click-to-view survives;
+      // drag-to-move does not.
+      if (!canWrite) return
       const dx = ev.clientX - startMouseX
       if (Math.abs(dx) > MIN_DRAG_PX) moved = true
       const ddays = Math.round(dx / dayPx)
@@ -1651,14 +1809,16 @@ function OverviewBar({ row, span, dayPx, rowH, critical, onUpdateTask, onUpdateP
         boxShadow: isPhase
           ? '0 1px 3px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.08)'
           : undefined,
-        cursor: 'grab',
+        cursor: canWrite ? 'grab' : 'pointer',
         // Lift bars above the visible-window frame (zIndex 5) so
         // hover/click still hit the bar even when it sits inside
         // the orange frame rectangle. The frame's empty whitespace
         // remains draggable because it still occupies the gaps.
         zIndex: 6,
       }}
-      title={`${row.label} · drag to move · drag edges to resize`}
+      title={canWrite
+        ? `${row.label} · drag to move · drag edges to resize`
+        : `${row.label} · click to view · ${writeReason || 'read only'}`}
     />
   )
 }
@@ -1680,6 +1840,11 @@ function DetailPane({
   onEditTask, onEditPhase,
   onEditAsset, onUpdateAsset,
   onNewTaskInPhase,
+  // Session 29 — every drag affordance in this pane writes directly
+  // (drag-to-draw creates a task, dragging a bar moves it, dragging a row
+  // reparents it). None of them was gated, so a reviewer's drag reached the
+  // database and came back as a raw RLS policy string.
+  canWrite = true, writeReason = null,
   milestones = [],
   onEditMilestone,
 }) {
@@ -1745,6 +1910,11 @@ function DetailPane({
   // { depId, kind, predId, origSuccId, curX, curY }
 
   function beginDependencyRewire({ dep, kind, predId, origSuccId }) {
+    // Session 29 — rewiring UNLINKS the old dependency and LINKS a new one, so
+    // it is a write on both halves. Dropping it on empty space deletes the
+    // dependency outright, which makes an ungated rewire the most destructive
+    // gesture on this screen.
+    if (!canWrite) return
     const containerEl = scrollRef.current
     if (!containerEl) return
     setDepRewire({
@@ -1803,7 +1973,12 @@ function DetailPane({
   // Dependency-drag handler — called by DetailBar's handle mousedown.
   // We resolve the target bar on mouseup via elementFromPoint and
   // walk up to find a data-row-key that matches the source kind.
+  //
+  // Session 29: the handle itself is withheld when !canWrite, so this is
+  // already unreachable — the guard inside is defence in depth for the same
+  // reason handleSave has one.
   function beginDependencyDrag({ fromKind, fromId, startX, startY }) {
+    if (!canWrite) return
     setDepDrag({ fromKind, fromId, startX, startY, curX: startX, curY: startY })
     function onMove(ev) {
       // Translate viewport coords → scroll-container coords.
@@ -1862,6 +2037,11 @@ function DetailPane({
   // exposes a phase/asset hint. Bar-level drags handle their
   // own mousedown and stopPropagation so they don't reach here.
   function makeBackgroundMouseDown(row) {
+    // Session 29 — a gesture, not a control. There is no button here to grey
+    // out, so the honest treatment is to stop offering it: the drag simply
+    // never starts, the row's `title` carries the reason on hover, and the
+    // read-only banner above the timeline states it once, prominently.
+    if (!canWrite) return undefined
     return function (e) {
       if (e.button !== 0) return
       const containerEl = e.currentTarget
@@ -2002,6 +2182,9 @@ function DetailPane({
   }
 
   function startTaskDrag(e, task) {
+    // Reparenting a task writes phase_id. Same reasoning as
+    // makeBackgroundMouseDown: a gesture cannot be greyed, so it is withdrawn.
+    if (!canWrite) return
     if (e.button !== 0) return
     // preventDefault here is CRITICAL: it blocks the browser's
     // default text-selection drag behavior so our mousemove
@@ -2117,7 +2300,7 @@ function DetailPane({
                 fontFamily: 'monospace',
               }}
             >
-              No phases yet — click + Phase
+              {canWrite ? 'No phases yet — click + Phase' : 'No phases yet'}
             </div>
           ) : rows.map((r) => {
             const depth = r.depth || 0
@@ -2137,32 +2320,57 @@ function DetailPane({
                     prev?.phaseId === dzPhaseId ? null : prev
                   )}
                   onClick={() => {
+                    if (!canWrite) return
                     if (suppressNextClickRef.current) return
                     // Label-gutter click: no cursor X, so open
                     // the editor with no preset dates.
                     onNewTaskInPhase?.(dzPhaseId, null, null)
                   }}
-                  className="relative flex items-center cursor-pointer transition-colors"
+                  className={`relative flex items-center transition-colors ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                   style={{
                     height: rowPx,
                     borderBottom: '1px solid transparent',
                     backgroundColor: isReparentHoverDz
                       ? '#7c2d12'
-                      : (isDzHover ? 'rgba(234, 88, 12, 0.06)' : 'transparent'),
+                      : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.06)' : 'transparent'),
                     paddingLeft: 8 + depth * INDENT_UNIT + 20,
                     paddingRight: 8,
                     outline: isReparentHoverDz ? '2px dashed #fb923c' : undefined,
-                    opacity: isDzHover || isReparentHoverDz ? 1 : 0.4,
+                    // Session 29: denied stays dimmed and never lights up on
+                    // hover, so it reads as unavailable rather than as
+                    // something that failed to respond.
+                    //
+                    // 🚨 Phase 2 (2026-08-10) — Audrey: "i am not seeing the
+                    // blank line below the existing tasks for a user to place a
+                    // new task." The row was never missing and was never gated
+                    // away: buildRows pushes it unconditionally and is not even
+                    // passed canWrite. It was INVISIBLE. #78716c at opacity 0.4
+                    // over the #1c1917 label column composites to #413c39 —
+                    // 1.61:1, under the 3:1 floor for a UI component and far
+                    // under 4.5:1 for text.
+                    //
+                    // Worse, BOTH branches of the old expression resolved to
+                    // 0.4 at rest, so the allowed and denied states were pixel
+                    // identical and the S29 "greyed with a reason" treatment
+                    // had no signal to carry. Allowed now rests at full opacity
+                    // (the colours below keep it faint, which is what she asked
+                    // for — "the faint + new task in the left side table"), and
+                    // denied keeps the dimming, so the two finally differ.
+                    opacity: canWrite ? 1 : 0.4,
                   }}
-                  title="Click to add a new task to this phase"
+                  aria-disabled={canWrite ? undefined : 'true'}
+                  title={canWrite ? 'Click to add a new task to this phase' : writeReason || undefined}
                 >
+                  {/* Icon stays stone-500 (3.65:1 — a glyph, so the 3:1 floor
+                      applies); the LABEL is stone-400 (6.8:1) because 4.5:1 is
+                      the floor for text. Both are existing palette values. */}
                   <Plus
                     className="w-3 h-3 mr-1.5"
-                    style={{ color: isDzHover ? '#fb923c' : '#78716c' }}
+                    style={{ color: isDzHover && canWrite ? '#fb923c' : '#78716c' }}
                   />
                   <span
                     className="text-[11.5px] font-mono italic"
-                    style={{ color: isDzHover ? '#fdba74' : '#78716c' }}
+                    style={{ color: isDzHover && canWrite ? '#fdba74' : '#a8a29e' }}
                   >
                     New task…
                   </span>
@@ -2185,7 +2393,7 @@ function DetailPane({
                 key={r.key}
                 data-phase-drop-target={dropTargetId || undefined}
                 draggable={false}
-                className={`relative flex items-center hover:bg-stone-800/50 transition-colors ${isTaskRow ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
+                className={`relative flex items-center hover:bg-stone-800/50 transition-colors ${isTaskRow && canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
                 style={{
                   height: rowPx,
                   borderBottom: r.kind === 'phase' ? '1px solid #292524' : '1px solid #1c1917',
@@ -2202,7 +2410,11 @@ function DetailPane({
                 }}
                 onMouseDown={isTaskRow ? (e) => startTaskDrag(e, r.task) : undefined}
                 onClick={() => handleRowClick(r)}
-                title={isTaskRow ? 'Click to edit · drag to move to another phase' : undefined}
+                title={isTaskRow
+                  ? (canWrite
+                      ? 'Click to edit · drag to move to another phase'
+                      : 'Click to view')
+                  : undefined}
               >
                 {/* Collapse chevron — always visible on phase rows
                     so the user can hide the "+ New task" drop-zone
@@ -2436,10 +2648,16 @@ function DetailPane({
             {/* Empty hint */}
             {rows.length === 0 && (
               <div
-                className="absolute inset-0 flex items-center justify-center"
+                className="absolute inset-0 flex items-center justify-center text-center px-6"
                 style={{ color: '#57534e', fontSize: 11, fontFamily: 'monospace', fontStyle: 'italic' }}
               >
-                Click + Phase or drag on the overview above to draw a task
+                {/* Session 29 — the empty state was instructions. Telling a
+                    read-only user to "drag on the overview to draw a task" and
+                    then not letting them is the same complaint that started
+                    this investigation, just phrased as help text. */}
+                {canWrite
+                  ? 'Click + Phase or drag on the overview above to draw a task'
+                  : (writeReason || 'Nothing scheduled on this project yet.')}
               </div>
             )}
 
@@ -2480,6 +2698,7 @@ function DetailPane({
                       prev?.phaseId === dzPhaseId ? null : prev
                     )}
                     onClick={(e) => {
+                      if (!canWrite) return
                       if (suppressNextClickRef.current) return
                       // Derive start date from the click X and
                       // propose a 7-day duration. The editor opens
@@ -2492,17 +2711,26 @@ function DetailPane({
                       const endDate   = addDays(startDate, 7)
                       onNewTaskInPhase?.(dzPhaseId, startDate, endDate)
                     }}
-                    className="absolute left-0 right-0 cursor-pointer"
+                    className={`absolute left-0 right-0 ${canWrite ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                     style={{
                       top: i * rowPx,
                       height: rowPx,
                       borderBottom: '1px dashed #44403c',
                       backgroundColor: isReparentHoverDz
                         ? 'rgba(124, 45, 18, 0.35)'
-                        : (isDzHover ? 'rgba(234, 88, 12, 0.05)' : 'transparent'),
+                        : (isDzHover && canWrite ? 'rgba(234, 88, 12, 0.05)' : 'transparent'),
                     }}
+                    aria-disabled={canWrite ? undefined : 'true'}
+                    title={canWrite ? undefined : writeReason || undefined}
                   >
-                    {(isDzHover || isReparentHoverDz) && (
+                    {/* Session 29 — the affordance here is a GHOST BAR that
+                        appears under the cursor, not a labelled control. There
+                        is nothing to grey out: a dimmed "+ New task" ghost
+                        following the mouse and then doing nothing on click is
+                        the S23 defect, not a fix for it. So when denied the
+                        ghost is simply not drawn and the row's title carries
+                        the reason. */}
+                    {(isDzHover || isReparentHoverDz) && canWrite && (
                       <div
                         className="absolute rounded-sm flex items-center justify-center pointer-events-none"
                         style={{
@@ -2581,6 +2809,8 @@ function DetailPane({
                       onEditAsset={onEditAsset}
                       onBeginDependencyDrag={r.isSubgroup ? null : beginDependencyDrag}
                       onPhaseDragChange={setPhaseDragPreview}
+                      canWrite={canWrite}
+                      writeReason={writeReason}
                     />
                   )}
                   {r.kind === 'task' && r.start && r.end && (
@@ -2602,6 +2832,8 @@ function DetailPane({
                       findPhaseIdAtPoint={findPhaseIdAtPoint}
                       onMoveTaskToPhase={onMoveTaskToPhase}
                       onTaskBarDragChange={setReparentTaskPreview}
+                      canWrite={canWrite}
+                      writeReason={writeReason}
                     />
                   )}
                 </div>
@@ -2713,8 +2945,9 @@ function DetailPane({
               chartH={Math.max(80, rows.length * rowPx)}
               depDrag={depDrag}
               depRewire={depRewire}
-              onUnlinkDependency={onUnlinkDependency}
-              onBeginDepRewire={beginDependencyRewire}
+              onUnlinkDependency={canWrite ? onUnlinkDependency : null}
+              onBeginDepRewire={canWrite ? beginDependencyRewire : null}
+              canWrite={canWrite}
               taskDragPreview={reparentTaskPreview}
               phaseDragPreview={phaseDragPreview}
               phaseDragAffectedIds={phaseDragAffectedIds}
@@ -2967,6 +3200,7 @@ function DependencyOverlay({
   visibleDeps, rows, span, dayPx, rowPx, dayToX, chartW, chartH,
   depDrag, depRewire,
   onUnlinkDependency, onBeginDepRewire,
+  canWrite = true,
   taskDragPreview, phaseDragPreview, phaseDragAffectedIds,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
@@ -3130,13 +3364,18 @@ function DependencyOverlay({
               strokeLinecap="round"
               strokeLinejoin="round"
               markerEnd={marker}
-              style={{ pointerEvents: 'stroke', cursor: 'pointer' }}
+              style={{ pointerEvents: 'stroke', cursor: canWrite ? 'pointer' : 'default' }}
               onClick={(ev) => {
                 ev.stopPropagation()
+                // Session 29 — the confirm() must be INSIDE the gate. Asking
+                // "Remove this dependency?", taking a yes, and then doing
+                // nothing is the S23 "the button does nothing" bug with an
+                // extra step.
+                if (!canWrite) return
                 if (confirm('Remove this dependency?')) onUnlinkDependency?.(e.id)
               }}
             >
-              <title>Click to remove dependency</title>
+              <title>{canWrite ? 'Click to remove dependency' : 'Dependency (read only)'}</title>
             </path>
 
             {/* Grab handle at the arrow head — draggable to rewire
@@ -3145,6 +3384,7 @@ function DependencyOverlay({
                 an invisible hit zone sitting on top so the user can
                 grab the colored arrow tip without us drawing an
                 extra ring around it. */}
+            {canWrite && (
             <circle
               cx={e.x2}
               cy={e.y2}
@@ -3165,6 +3405,7 @@ function DependencyOverlay({
             >
               <title>Drag to rewire — drop on empty space to disconnect</title>
             </circle>
+            )}
 
             {/* Animated pulse — skipped while this dep is being
                 rewired so the flowing dot doesn't chase the cursor
@@ -3253,6 +3494,7 @@ function DetailBar({
   // phase row (task reparent drag).
   onPhaseDragChange,
   onTaskBarDragChange,
+  canWrite = true, writeReason = null,
 }) {
   if (!dayToX) dayToX = (d) => d * dayPx
   // Live drag state — kept local so parent doesn't re-render
@@ -3366,6 +3608,12 @@ function DetailBar({
     }
 
     function onMove(ev) {
+      // Session 29 — a read-only caller may still CLICK a bar to open it for
+      // viewing, but may not drag it. Returning before `moved` is ever set
+      // leaves onUp on its click path, so click-to-view keeps working while
+      // move and resize simply never engage. Gating onMouseDown instead would
+      // have taken the read affordance away with the write one.
+      if (!canWrite) return
       const dx = ev.clientX - startMouseX
       if (Math.abs(dx) > MIN_DRAG_PX) moved = true
       const ddays = Math.round(dx / dayPx)
@@ -3527,7 +3775,7 @@ function DetailBar({
       onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
       onMouseLeave={scheduleHoverOff}
       data-row-bar={dataRowBar}
-      className="absolute flex items-center px-2 rounded-sm cursor-grab active:cursor-grabbing"
+      className={`absolute flex items-center px-2 rounded-sm ${canWrite ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
       style={{
         left, width,
         top: subgroupStyle ? 4 : (phaseStyle ? 3 : 5),
@@ -3537,11 +3785,14 @@ function DetailBar({
         boxShadow: subgroupStyle ? undefined : (phaseStyle ? '0 0 0 1px rgba(0,0,0,0.4)' : undefined),
         borderStyle: subgroupStyle ? 'dashed' : 'solid',
       }}
-      title={`${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`}
+      title={canWrite
+        ? `${label} · ${lengthDays.toFixed(1)}d · drag to move · drag edges to resize · click to edit · drag the right-edge dot to link a dependency`
+        : `${label} · ${lengthDays.toFixed(1)}d · click to view · ${writeReason || 'read only'}`}
     >
-      {/* Edge resize cursor hints */}
-      <div className="absolute left-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: 'ew-resize' }} />
-      <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: 'ew-resize' }} />
+      {/* Edge resize cursor hints — the ew-resize cursor is a promise that the
+          edge can be dragged, so it must not be shown to a read-only caller. */}
+      <div className="absolute left-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
+      <div className="absolute right-0 top-0 bottom-0" style={{ width: EDGE_GRAB_PX, cursor: canWrite ? 'ew-resize' : 'inherit' }} />
       {width > 32 && (
         <span
           className={`text-[10.5px] font-mono truncate pointer-events-none overflow-hidden ${
@@ -3557,7 +3808,24 @@ function DetailBar({
           grab zone at the bar's right edge. Color matches the kind
           of dependency it will create: orange for task→task, cyan
           for phase→phase. */}
-      {hover && (
+      {/* Session 29 — withheld from a read-only caller. This is a hover-revealed
+          GRIP, not a persistent control: a greyed dot that only materialises
+          when you hover and then refuses to drag teaches nothing, and the bar's
+          own title already carries the reason. Greying is for controls that are
+          visible at rest; this one is not. */}
+      {/* 🚨 Phase 2 (2026-08-10) — ...and withheld when there is no handler to
+          receive it. DetailPane passes `onBeginDependencyDrag={r.isSubgroup ?
+          null : beginDependencyDrag}`, and every non-phase grouping mode
+          (team, asset, scene, level, experience) pushes its grouping rows with
+          isSubgroup: true. The grip was gated only on `hover && canWrite`, so
+          in those modes it appeared on hover, said "Drag to link a dependency",
+          and did nothing at all — onDepHandleDown bails at `if
+          (!onBeginDependencyDrag) return`.
+          That is Audrey's exact reported symptom — "i was able to grab the line
+          from the dependency task but i could not attach it to another" — so
+          even though her report was the cloud write failure, a second live path
+          to the same experience is not something to leave standing. */}
+      {hover && canWrite && onBeginDependencyDrag && (
         <div
           onMouseDown={onDepHandleDown}
           onMouseEnter={() => { cancelHoverOff(); setHover(true) }}
@@ -3669,7 +3937,14 @@ function PhaseExtendModal({ pendingExtend, onCancel, onClampTask, onExtendPhase 
 // has a phase selector
 // ============================================================
 
-function TaskEditor({ editor, assets, phases, ctx, onClose }) {
+// Session 29 — `canWrite` false makes this a READ-ONLY viewer rather than
+// blocking it outright. A reviewer could always open a phase or key date to
+// read its dates, and taking that away would be a capability regression
+// dressed up as a permission fix. So the form still opens and still shows
+// everything; it is inert, it says why at the top, and Save/Delete are greyed
+// with the reason. The three CREATE funnels are refused earlier — a blank form
+// nobody can save has nothing to read.
+function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, writeReason = null }) {
   const [draft, setDraft] = useState(editor.draft)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
@@ -3682,18 +3957,36 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   const experiences = ctx?.experiences || []
 
   // Team members for the "Assigned To" dropdown
-  const tm = useTeamMembers()
+  const tm = useRosterMembers()
   const teamAssignments = ctx?.teamAssignments || []
   const memberById = useMemo(() => {
     const map = {}
     for (const m of tm.members) map[m.id] = m
     return map
   }, [tm.members])
+  // Session 23: mirrors ProjectTasksView's roster branch so "Assigned To"
+  // works in BOTH adapters — Audrey: "i should be able to do it in both".
+  //
+  // Swapping useTeamMembers for useRosterMembers above was necessary but NOT
+  // sufficient: this list was built purely from `teamAssignments`, which is
+  // the LEGACY local-mode shape. supabaseAdapter.loadProject never returns it,
+  // so in cloud it is always [] and the dropdown stayed empty no matter how
+  // well the roster loaded.
+  //
+  // Cloud: offer the project's staffed members, falling back to the whole
+  // workspace roster when the project has no roster yet (same contract as the
+  // Tasks tab and TaskDetailPopup — an unstaffed project is open to all).
+  // Local: the legacy team assignments, unchanged.
   const projectMembers = useMemo(() => {
+    if (tm.mode === 'supabase') {
+      if (!ctx?.projectIsStaffed) return tm.members
+      const staffedIds = new Set((ctx?.projectMembers || []).map(pm => pm.user_id))
+      return tm.members.filter(m => staffedIds.has(m.id))
+    }
     return teamAssignments
       .map(a => memberById[a.member_id])
       .filter(Boolean)
-  }, [teamAssignments, memberById])
+  }, [tm.mode, tm.members, ctx?.projectIsStaffed, ctx?.projectMembers, teamAssignments, memberById])
 
   const isTask = editor.mode === 'task'
   const isMilestone = editor.mode === 'milestone'
@@ -3705,6 +3998,12 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   }
 
   async function handleSave() {
+    // Defence in depth. The button above is inert when !canWrite, so this is
+    // unreachable by mouse — but it is also the single funnel every mode's
+    // write goes through, and a future affordance that forgets the gate should
+    // land here rather than at Postgres. Surfacing the REASON (not the policy
+    // string) is the whole point of the session.
+    if (!canWrite) { setError(writeReason); return }
     setSaving(true)
     setError(null)
     try {
@@ -3796,6 +4095,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
   }
 
   async function handleDelete() {
+    if (!canWrite) { setError(writeReason); return }
     setSaving(true)
     setError(null)
     try {
@@ -3872,7 +4172,20 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           </button>
         </div>
 
-        <div className="px-4 py-4 flex flex-col gap-3">
+        {!canWrite && writeReason && (
+          <div
+            className="flex items-start gap-2 px-4 py-2.5 text-[10.5px] font-mono leading-relaxed"
+            style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #44403c', color: '#a8a29e' }}
+          >
+            <Lock className="w-3 h-3 mt-0.5 shrink-0" style={{ color: '#78716c' }} />
+            <span>
+              <span className="uppercase tracking-wider" style={{ color: '#78716c' }}>Read only — </span>
+              {writeReason}
+            </span>
+          </div>
+        )}
+
+        <div className="px-4 py-4 flex flex-col gap-3" inert={!canWrite ? true : undefined}>
           {isMilestone ? (
             <>
               <Field label="Title">
@@ -4313,16 +4626,18 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
           style={{ borderTop: '1px solid #44403c', backgroundColor: '#1c1917' }}
         >
           {isEditingExisting && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={saving}
-              className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-              style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
-            >
-              <Trash2 className="w-3 h-3" />
-              Delete
-            </button>
+            <GatedAction allowed={canWrite} reason={writeReason}>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={saving}
+                className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+                style={{ color: '#fca5a5', backgroundColor: '#1c1917', border: '1px solid #7f1d1d' }}
+              >
+                <Trash2 className="w-3 h-3" />
+                Delete
+              </button>
+            </GatedAction>
           )}
           <div className="ml-auto flex items-center gap-2">
             <button
@@ -4332,18 +4647,20 @@ function TaskEditor({ editor, assets, phases, ctx, onClose }) {
               className="px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}
             >
-              Cancel
+              {canWrite ? 'Cancel' : 'Close'}
             </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
-            >
-              <Save className="w-3 h-3" />
-              {saving ? 'Saving…' : 'Save'}
-            </button>
+            <GatedAction allowed={canWrite} reason={writeReason}>
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1 px-3 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors disabled:opacity-30"
+                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+              >
+                <Save className="w-3 h-3" />
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </GatedAction>
           </div>
         </div>
       </div>
@@ -4496,6 +4813,7 @@ function DetailZoomToolbar({
   sortOrder = 'asc', onSortOrderChange,
   canUndo = false, canRedo = false, onUndo, onRedo,
   onNewPhase, onNewTask, onNewMilestone,
+  canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
 }) {
   return (
@@ -4629,34 +4947,40 @@ function DetailZoomToolbar({
       {/* + Phase / + Task */}
       <div className="ml-auto flex items-center gap-1.5">
         {groupBy === 'phase' && (
-        <button
-          type="button"
-          onClick={onNewPhase}
-          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-          style={{ color: '#78716c' }}
-        >
-          <Plus className="w-3 h-3" />
-          Phase
-        </button>
+        <GatedAction allowed={canWrite} reason={writeReason}>
+          <button
+            type="button"
+            onClick={onNewPhase}
+            className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+            style={{ color: '#78716c' }}
+          >
+            <Plus className="w-3 h-3" />
+            Phase
+          </button>
+        </GatedAction>
         )}
-        <button
-          type="button"
-          onClick={onNewMilestone}
-          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
-          style={{ color: '#f59e0b' }}
-        >
-          <Diamond className="w-3 h-3" />
-          Key Date
-        </button>
-        <button
-          type="button"
-          onClick={onNewTask}
-          className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
-          style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
-        >
-          <Plus className="w-3 h-3" />
-          Task
-        </button>
+        <GatedAction allowed={canWrite} reason={writeReason}>
+          <button
+            type="button"
+            onClick={onNewMilestone}
+            className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+            style={{ color: '#f59e0b' }}
+          >
+            <Diamond className="w-3 h-3" />
+            Key Date
+          </button>
+        </GatedAction>
+        <GatedAction allowed={canWrite} reason={writeReason}>
+          <button
+            type="button"
+            onClick={onNewTask}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors"
+            style={{ color: '#fff7ed', backgroundColor: '#ea580c' }}
+          >
+            <Plus className="w-3 h-3" />
+            Task
+          </button>
+        </GatedAction>
       </div>
     </div>
   )

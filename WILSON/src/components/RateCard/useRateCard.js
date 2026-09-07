@@ -32,6 +32,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 
 export function makeSlug(label) {
   return String(label || '')
@@ -89,10 +91,166 @@ export function computeEntryTotal(entry, deptDefaults = []) {
 }
 
 
+// ─── Shared auto-create guard (Session 21) ───────────────────────────────────
+//
+// There are EIGHT independent useRateCard() consumers — RateCardPage,
+// SettingsPage, TeamMembersPage, TaskDetailPopup, BudgetView, ScenesView,
+// LevelsView, ExperiencesView — and no provider or cache between them. Each
+// mount runs its own loadRateCards(), and the auto-create block below fires
+// whenever it observes zero cards. Two instances mounting together therefore
+// both observe zero and both create the pair.
+//
+// This is not hypothetical. The local Electron store, which has been
+// persisting `type` since April, holds FOUR 'Internal Rate Card' rows for one
+// workspace, created inside 53 ms of each other on 2026-04-11 — four mounts,
+// none of which saw the others. (The same workspace holds three 'general'
+// cards too, but those are older and from a different code path, so they are
+// not evidence of THIS race.)
+//
+// It has been invisible in cloud mode only because the create FAILED there:
+// `type` did not exist, so PostgREST rejected every insert with PGRST204.
+// Migration 0032 removes that accidental brake, so without this guard the fix
+// would trade "no rate cards" for "seven rate cards" — a fresh way for the
+// surface to lie.
+//
+// A shared in-flight promise per workspace collapses concurrent mounts onto
+// one load-and-create. It does not address two DEVICES racing; that needs a
+// uniqueness constraint the data cannot currently take (see 0032's header).
+const inFlightLoads = new Map()
+
+/** Test seam: concurrent-mount dedup is global, so tests must be able to clear it. */
+export function __resetRateCardLoadCache() {
+  inFlightLoads.clear()
+}
+
+/**
+ * List a workspace's rate cards, creating the General/Internal pair when the
+ * workspace has none and the adapter can write.
+ *
+ * @returns {Promise<{cards: Array, softError: string|null}>} softError is a
+ *   failure that must be SHOWN but must not discard the cards we did get — a
+ *   silently-missing internal card makes member-rate writes land on General.
+ */
+async function loadOrCreateRateCards(adapter, workspaceId) {
+  let cards = await adapter.listRateCards(workspaceId)
+  if (!Array.isArray(cards)) cards = []
+  let softError = null
+
+  // Auto-create General + Internal when none exist. Session 17 (§6 #49): only
+  // where the adapter can actually write. Google Drive is read-only in v0.1, so
+  // this branch used to call the throwing upsertRateCard stub and leave a
+  // permanent red banner — making the empty read look like a failure instead of
+  // an empty page.
+  if (cards.length === 0 && adapterSupportsWrites(adapter.mode)) {
+    try {
+      const generalCard = await adapter.upsertRateCard({
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: 'General Rate Card',
+        type: 'general',
+        is_default: true,
+      })
+      const internalCard = await adapter.upsertRateCard({
+        id: uuidv4(),
+        workspace_id: workspaceId,
+        name: 'Internal Rate Card',
+        type: 'internal',
+        is_default: false,
+      })
+      cards = [generalCard, internalCard].filter(Boolean)
+    } catch (err) {
+      softError = err.message || String(err)
+    }
+  } else {
+    // Ensure both types exist (migration from old single rate card)
+    const hasGeneral = cards.some(c => c.type === 'general')
+    const hasInternal = cards.some(c => c.type === 'internal')
+    // Tag untyped cards as general
+    if (!hasGeneral) {
+      for (const c of cards) {
+        if (!c.type) {
+          c.type = 'general'
+          try { await adapter.upsertRateCard(c) } catch { /* cosmetic */ }
+        }
+      }
+    }
+    if (!hasInternal && adapterSupportsWrites(adapter.mode)) {
+      try {
+        const internalCard = await adapter.upsertRateCard({
+          id: uuidv4(),
+          workspace_id: workspaceId,
+          name: 'Internal Rate Card',
+          type: 'internal',
+          is_default: false,
+        })
+        if (internalCard) cards.push(internalCard)
+      } catch (err) {
+        // Surface it — a silently-missing internal card makes member-rate
+        // writes land on the General card (see TeamMembersPage guard).
+        softError = err.message || String(err)
+      }
+    }
+  }
+  return { cards, softError }
+}
+
+/**
+ * loadOrCreateRateCards, deduplicated per workspace for the lifetime of one
+ * in-flight call. Every concurrent caller awaits the SAME promise, so the
+ * create runs once no matter how many hook instances mount together.
+ */
+export function sharedLoadRateCards(adapter, workspaceId) {
+  const existing = inFlightLoads.get(workspaceId)
+  if (existing) return existing
+  const p = loadOrCreateRateCards(adapter, workspaceId)
+    // Cleared on BOTH paths: a failed load that stayed cached would wedge every
+    // later mount onto the same rejection with no way to retry.
+    .finally(() => { inFlightLoads.delete(workspaceId) })
+  inFlightLoads.set(workspaceId, p)
+  return p
+}
+
 export function useRateCard() {
   const rabbit = useRabbit()
+  const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
-  const workspaceId = rabbit?.DEFAULT_WORKSPACE_ID
+  // 🚨 THIS LINE WAS `rabbit?.DEFAULT_WORKSPACE_ID` AND IT BROKE THE WHOLE
+  // SCREEN IN CLOUD MODE.
+  //
+  // DEFAULT_WORKSPACE_ID is '00000000-0000-0000-0000-000000000001' — the
+  // pre-multi-tenant seed constant. supabaseAdapter.js:799 already documents
+  // exactly this trap for projects: "harmless in local mode and fatal in
+  // cloud mode: projects_insert requires workspace_id = current_workspace_id(),
+  // so the insert was refused 42501 for EVERY workspace except the seed."
+  // The fix landed for projects and never reached the rate card.
+  //
+  // Measured on wilson-staging 2026-08-10: Audrey's workspace is Petal Studios
+  // (aaaaaaaa-…), so the card INSERT sent 00000000-… , rate_cards_insert's
+  // WITH CHECK compared it against her real claim, and refused — the exact
+  // "new row violates row-level security policy for table rate_cards" on her
+  // screen. The SELECT then filtered on the same wrong id, so the grid said
+  // "No rate card available", internalCard stayed null, and the INTERNAL tab
+  // click did nothing. One wrong constant, four symptoms.
+  //
+  // perms.workspaceId is the JWT's app_metadata.workspace_id and is null when
+  // there is no session, so LOCAL/desktop mode still falls through to the seed
+  // constant, where it is correct.
+  //
+  // 🚨 GATED ON `perms.ready`, AND THAT IS THE WHOLE FIX, NOT A REFINEMENT.
+  // usePermissions resolves the session ASYNCHRONOUSLY: on the first render
+  // `workspaceId` is null and `ready` is false. Without this gate the fallback
+  // fires immediately with the seed constant, so the create-on-first-visit
+  // runs against 00000000-… , is refused by RLS, and leaves the red banner —
+  // which is exactly what it did after the previous fix, because that fix
+  // corrected WHICH id is used and not WHEN it is read.
+  //
+  // `ready` flips true on BOTH branches of the session probe (resolved and
+  // failed), so a signed-out desktop session still reaches the seed constant.
+  // This is the "`ready` is the field everyone forgets" rule in
+  // docs — permission-gate rules; it has now cost two sessions.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 
@@ -103,8 +261,13 @@ export function useRateCard() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
+  // StrictMode-safe: the body must reset to true — setup → cleanup → setup
+  // reuses the same ref, and a cleanup-only effect strands it at false.
   const mountedRef = useRef(true)
-  useEffect(() => () => { mountedRef.current = false }, [])
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   // ── Load rate cards on mount + on adapter mode change ──
   const loadRateCards = useCallback(async () => {
@@ -114,56 +277,11 @@ export function useRateCard() {
     setLoading(true)
     setError(null)
     try {
-      let cards = await adapter.listRateCards(workspaceId)
-      if (!Array.isArray(cards)) cards = []
-      // Auto-create General + Internal rate cards if none exist.
-      if (cards.length === 0) {
-        try {
-          const generalCard = await adapter.upsertRateCard({
-            id: uuidv4(),
-            workspace_id: workspaceId,
-            name: 'General Rate Card',
-            type: 'general',
-            is_default: true,
-          })
-          const internalCard = await adapter.upsertRateCard({
-            id: uuidv4(),
-            workspace_id: workspaceId,
-            name: 'Internal Rate Card',
-            type: 'internal',
-            is_default: false,
-          })
-          cards = [generalCard, internalCard].filter(Boolean)
-        } catch (err) {
-          if (mountedRef.current) setError(err.message || String(err))
-        }
-      } else {
-        // Ensure both types exist (migration from old single rate card)
-        const hasGeneral = cards.some(c => c.type === 'general')
-        const hasInternal = cards.some(c => c.type === 'internal')
-        // Tag untyped cards as general
-        if (!hasGeneral) {
-          for (const c of cards) {
-            if (!c.type) {
-              c.type = 'general'
-              try { await adapter.upsertRateCard(c) } catch {}
-            }
-          }
-        }
-        if (!hasInternal) {
-          try {
-            const internalCard = await adapter.upsertRateCard({
-              id: uuidv4(),
-              workspace_id: workspaceId,
-              name: 'Internal Rate Card',
-              type: 'internal',
-              is_default: false,
-            })
-            if (internalCard) cards.push(internalCard)
-          } catch {}
-        }
-      }
+      // Shared per workspace: eight hook instances mounting together must not
+      // each create a card pair. See sharedLoadRateCards above.
+      const { cards, softError } = await sharedLoadRateCards(adapter, workspaceId)
       if (!mountedRef.current) return
+      if (softError) setError(softError)
       setRateCards(cards)
       // Pick the default (general) card, or the first one.
       const next = cards.find(c => c.is_default) || cards.find(c => c.type === 'general') || cards[0] || null
@@ -189,13 +307,18 @@ export function useRateCard() {
     const adapter = getAdapter()
     if (!adapter) return
     setLoading(true)
+    // Stale-response guard: the active card can change while a fetch is in
+    // flight (e.g. the Team Members page flips general → internal right
+    // after load). Without this, a slow response for the OLD card would
+    // overwrite the new card's entries/defaults.
+    let stale = false
     // Load entries and dept defaults in parallel
     Promise.all([
       adapter.listRateCardEntries(activeRateCardId),
       adapter.listDeptDefaults ? adapter.listDeptDefaults(activeRateCardId) : Promise.resolve([]),
     ])
       .then(([rows, defaults]) => {
-        if (!mountedRef.current) return
+        if (!mountedRef.current || stale) return
         // Migrate: entries with day_rate but no wage → set wage = day_rate
         const migrated = (Array.isArray(rows) ? rows : []).map(e => {
           if (e.wage == null && e.day_rate != null) return { ...e, wage: e.day_rate }
@@ -205,11 +328,12 @@ export function useRateCard() {
         setDeptDefaults(Array.isArray(defaults) ? defaults : [])
       })
       .catch(err => {
-        if (mountedRef.current) setError(err.message || String(err))
+        if (mountedRef.current && !stale) setError(err.message || String(err))
       })
       .finally(() => {
-        if (mountedRef.current) setLoading(false)
+        if (mountedRef.current && !stale) setLoading(false)
       })
+    return () => { stale = true }
   }, [activeRateCardId, getAdapter])
 
   // ── Compute day_rate (total) for each entry for backward compat ──

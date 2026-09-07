@@ -14,20 +14,70 @@
 // not mutate the bundle — clicking through to a different tab
 // is how the user takes action on what they see here.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ListChecks, AlertTriangle, Clock, DollarSign,
   Layers, Boxes, ChevronRight, ChevronDown, FileText, Folder, Check, LayoutGrid,
   FolderOpen, Settings, LayoutDashboard, Calendar, Tag, Building2,
-  Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus,
+  Globe, Film, Sparkles, Upload, Trash2, Gamepad2, Plus, FolderSearch,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
 import { useTeamMembers } from '../../../components/TeamMembers/useTeamMembers'
+import { usePermissions } from '../../../permissions/usePermissions'
+import { canSeeProjectMoney, canOnProject, canSetProjectFolder, projectFolderDeniedReason } from '../../../permissions/projectRoleMatrix'
+import GatedAction from '../../../permissions/GatedAction'
+import { formatShotCode } from '../entityNaming'
 import { loadRabbitSettings, DEFAULT_PROJECT_TYPE_TEMPLATES } from './TimelineView'
 import ProjectFilesTable from '../components/ProjectFilesTable'
+import RelinkDialog from '../components/RelinkDialog'
+import FileAuditDrawer from '../components/FileAuditDrawer'
 
 const PRIORITY_RANK = { crit: 4, critical: 4, high: 3, med: 2, medium: 2, low: 1 }
 const RISK_STATES = new Set(['blocked', 'on_hold'])
+
+// Session 35: the ONE pick-and-set flow behind both "Change" folder buttons
+// (the summary header's and the Control Panel's Files & Storage field —
+// they diverged only by accident before). Desktop-only: it needs the OS
+// directory picker, which is why both call sites render the button only when
+// the bridge is present (design §5f — folder management is a desktop feature).
+//
+// 🚨 WRITE FIRST, then create the directory (S35 review). The authoritative
+// refusal is the write itself — folderRootRefusal on the local Express route,
+// or fn_project_folder_root_guard (0049) in cloud, which can refuse on the
+// SEAT or on "no byos drive" for reasons the local IPC preflight cannot see.
+// Creating the folder before the write left a stray empty directory whenever
+// the local rule and the cloud rule diverged. So: write, and only on success
+// materialise the directory (ensureProjectFolder re-runs the containment in
+// depth and is idempotent). Returns { ok, cancelled?, error? }.
+async function pickAndSetProjectFolder(ctx, project) {
+  const api = window.electronAPI?.rabbit
+  if (!api?.pickDirectory) return { ok: true, cancelled: true }
+  const dir = await api.pickDirectory()
+  if (!dir) return { ok: true, cancelled: true }
+  const projectSlug = project?.folder_slug
+    || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-')
+    || 'Untitled'
+  // Strip any trailing separator on the picked dir before joining — a drive
+  // root ('E:\') would otherwise produce 'E:\\Slug', a doubled separator the
+  // 0049 canonical-form check refuses.
+  const folderRoot = String(dir).replace(/[\\/]+$/, '') + '\\' + projectSlug
+  try {
+    // Authoritative write. The local route re-canonicalises and stores; the
+    // cloud guard refuses on seat / containment / no-drive. A refusal rejects
+    // here and NOTHING is created on disk.
+    await ctx?.updateProject?.(project.id, { folder_root: folderRoot })
+    // The write landed → create the directory. Same refusal again (depth),
+    // idempotent, and its non-throwing { ok:false } is surfaced too.
+    const ensured = await api.ensureProjectFolder?.({ rootDir: dir, projectSlug })
+    if (ensured && ensured.ok === false) return { ok: false, error: ensured.error }
+    return { ok: true }
+  } catch (err) {
+    // The refusal sentence from the Express 400 (local) or the 0049 guard
+    // (cloud) arrives here — surfacing it is the point. A swallowed refusal
+    // is the S30 green-tick-over-a-write-that-never-happened shape.
+    return { ok: false, error: err?.message || String(err) }
+  }
+}
 
 export default function ProjectSummaryView() {
   const ctx = useRabbit()
@@ -41,8 +91,68 @@ export default function ProjectSummaryView() {
   const setActiveProject = ctx?.setActiveProject
   const createProject    = ctx?.createProject
   const tm = useTeamMembers()
+  const perms = usePermissions()
   const [showSettings, setShowSettings] = useState(false)
   const [creating, setCreating] = useState(false)
+
+  // Session 25. Audrey, 2026-08-04: "the producer manager should be the only
+  // one to see the budget section. the rest is fine." So the Project Control
+  // Panel stays reachable by everyone who can open the project, and only the
+  // Budget Variables block inside it is gated.
+  //
+  // Same predicate as the Budget TAB (Rabbit.jsx:78) and the same one that
+  // mirrors can_access_project_money() in SQL, so the client and the database
+  // agree about who money belongs to. It fails CLOSED: the block appears a
+  // beat late for a manager rather than being shown to a member and snatched
+  // back. RLS is still the authority — this only stops showing a control that
+  // would write a value the database will refuse.
+  const canSeeMoney = canSeeProjectMoney({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+  })
+
+  // Session 25. Audrey, 2026-08-04: "managers and reviewers should be able to
+  // see and press the button and open the control panel … basic team members
+  // do not need access to the panel at all."
+  //
+  // Gated in TWO places below, not one: the button that opens it AND the
+  // branch that renders it. She asked for no ACCESS, not a missing link — and
+  // `setShowSettings(true)` has a second caller (handleNewProject, :124), so
+  // gating only the button would still let the panel open by another route.
+  //
+  // `ready` is passed so a session still resolving reads as "not yet known"
+  // rather than "denied" — otherwise a manager whose getSession() hangs loses
+  // the control panel permanently, which is the exact failure shape behind the
+  // vanishing-create-button investigation.
+  const canOpenControlPanel = canOnProject({
+    appRole: perms?.role,
+    projectRole: ctx?.myProjectRole,
+    isStaffed: ctx?.projectIsStaffed,
+    ready: perms?.ready,
+  }, 'project.settings.open')
+
+  // A panel that is open when access is lost must not stay open — the same
+  // rule Rabbit.jsx:96-98 applies to hidden tabs. Without this, someone
+  // already inside the panel when their seat resolves keeps the whole screen
+  // mounted with only the button gone.
+  useEffect(() => {
+    if (!canOpenControlPanel && showSettings) setShowSettings(false)
+  }, [canOpenControlPanel, showSettings])
+
+  // Session 35 — Audrey's folder half: "managers can set folders within set
+  // drive." In CLOUD mode, workspace admin/manager only (the 0049 seat); in
+  // local/solo mode (no workspaceId) the route contains and the seat does not
+  // apply. Greyed-with-reason, never hidden (S29 rule), and the handler
+  // refuses independently of the rendering. The Change button itself renders
+  // only on desktop (the OS picker is desktop-only, §5f).
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  // A refusal names the project whose pick was rejected — clear it on switch,
+  // or it renders under a different project's folder row (S35 review).
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
 
   const allProjects = useMemo(() => {
     return Object.values(projectsIndex).sort((a, b) => {
@@ -155,7 +265,7 @@ export default function ProjectSummaryView() {
     <div className="h-full overflow-auto" style={{ backgroundColor: '#1c1917' }}>
       <div className="p-6 flex flex-col gap-4">
 
-        {showSettings ? (<>
+        {showSettings && canOpenControlPanel ? (<>
           {/* ── Back to dashboard bar ── */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -173,7 +283,7 @@ export default function ProjectSummaryView() {
               <LayoutDashboard className="w-3 h-3" /> Dashboard
             </button>
           </div>
-          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} />
+          <ProjectSettingsPanel project={project} ctx={ctx} teamMembers={tm.members || []} canSeeMoney={canSeeMoney} />
         </>) : (<>
 
         {/* ── All projects gallery strip ── */}
@@ -294,14 +404,16 @@ export default function ProjectSummaryView() {
                 </div>
               )}
             </div>
-            <button
-              type="button"
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
-              style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              <Settings className="w-3 h-3" /> Control Panel
-            </button>
+            {canOpenControlPanel && (
+              <button
+                type="button"
+                onClick={() => setShowSettings(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm text-[11px] font-mono uppercase tracking-wider transition-colors hover:brightness-110 flex-shrink-0"
+                style={{ backgroundColor: '#292524', color: '#a8a29e', border: '1px solid #44403c' }}
+              >
+                <Settings className="w-3 h-3" /> Control Panel
+              </button>
+            )}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
             <Stat icon={Layers} label="Phases" value={phases.length} />
@@ -336,24 +448,29 @@ export default function ProjectSummaryView() {
                 Using default location
               </span>
             )}
-            <button
-              type="button"
-              onClick={async () => {
-                const api = window.electronAPI?.rabbit
-                if (!api?.pickDirectory) return
-                const dir = await api.pickDirectory()
-                if (!dir) return
-                const projectSlug = project.folder_slug || project.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-                const folderRoot = dir + '\\' + projectSlug
-                await api.ensureProjectFolder({ rootDir: dir, projectSlug })
-                ctx?.updateProject?.(project.id, { folder_root: folderRoot })
-              }}
-              className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
-              style={{ color: '#a8a29e', border: '1px solid #44403c' }}
-            >
-              Change
-            </button>
+            {canPickFolder && (
+              <GatedAction allowed={canSetFolder} reason={folderReason}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!canSetFolder) return
+                    setFolderMsg(null)
+                    const res = await pickAndSetProjectFolder(ctx, project)
+                    if (!res.ok && res.error) setFolderMsg(res.error)
+                  }}
+                  className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-sm hover:bg-stone-700 flex-shrink-0"
+                  style={{ color: '#a8a29e', border: '1px solid #44403c' }}
+                >
+                  Change
+                </button>
+              </GatedAction>
+            )}
           </div>
+          {folderMsg && (
+            <p className="text-[10px] font-mono mt-1.5" style={{ color: '#f87171' }}>
+              {folderMsg}
+            </p>
+          )}
         </Card>
 
         {/* ── Project files ── */}
@@ -517,7 +634,7 @@ const ACTUALS_MODE_OPTIONS = ['fortnightly', 'weekly', 'count']
 
 const SECTION_ACCENT = '#fb923c'
 
-function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
+function ProjectSettingsPanel({ project, ctx, teamMembers = [], canSeeMoney = false }) {
   const update = useCallback((field, value) => {
     ctx?.updateProject?.(project.id, { [field]: value })
   }, [ctx, project?.id])
@@ -631,10 +748,15 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
         </div>
       </div>
 
-      {/* ── Two-column grid: Budget + Files & Storage ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* ── Budget + Files & Storage ──
+          Session 25: the Budget block is manager/admin only. When it is
+          hidden the grid collapses to one column rather than leaving a blank
+          half — an empty column reads as a broken layout, which is how a
+          permission boundary gets reported as a bug. */}
+      <div className={canSeeMoney ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : 'grid grid-cols-1 gap-6'}>
 
-        {/* LEFT: Budget */}
+        {/* LEFT: Budget — money is manager-only (Audrey, 2026-08-04) */}
+        {canSeeMoney && (
         <SettingsSection title="Budget Variables" icon={DollarSign} accent={SECTION_ACCENT}>
           <div className="grid grid-cols-2 gap-3">
             <SettingsField label="Currency">
@@ -681,6 +803,7 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
             </SettingsField>
           </div>
         </SettingsSection>
+        )}
 
         {/* RIGHT: Files & Storage */}
         <ProjectFilesSection files={files} managedFiles={managedFiles} ctx={ctx} project={project} update={update} />
@@ -724,11 +847,16 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
               <div className="flex items-center gap-2 px-3 py-2 rounded-md" style={{ backgroundColor: '#0c0a09', border: '1px solid #44403c' }}>
                 <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>Preview:</span>
                 <span className="text-[11px] font-mono font-bold tracking-wide" style={{ color: '#fb923c' }}>
-                  {(project.project_code || 'PROJ')
-                    + (project.scene_separator || '_')
-                    + 'SC' + String(project.scene_start_number ?? 1).padStart(project.scene_digits ?? 3, '0')
-                    + (project.scene_separator || '_')
-                    + 'SH' + String(project.scene_start_number ?? 1).padStart(project.shot_digits ?? 4, '0')}
+                  {/* Session 25: built by the SAME function the Scenes view
+                      names with (../entityNaming), so the preview cannot
+                      drift from what the New Shot button actually produces.
+                      It previews the first shot of the first scene, hence
+                      the start number in both positions. */}
+                  {formatShotCode(
+                    project,
+                    project.scene_start_number ?? 1,
+                    project.scene_start_number ?? 1,
+                  )}
                 </span>
               </div>
 
@@ -841,17 +969,64 @@ function ProjectSettingsPanel({ project, ctx, teamMembers = [] }) {
 
 function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
   const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState(null)
   const fileInputRef = useRef(null)
+
+  // Session 35: same seat as the summary header's Change button — the two
+  // writers must not diverge (they are one column, one flow).
+  const perms = usePermissions()
+  const folderGateCtx = { appRole: perms?.role, workspaceId: perms?.workspaceId, ready: perms?.ready }
+  const canSetFolder = canSetProjectFolder(folderGateCtx)
+  const folderReason = projectFolderDeniedReason(folderGateCtx)
+  const canPickFolder = !!(typeof window !== 'undefined' && window.electronAPI?.rabbit?.pickDirectory)
+  const [folderMsg, setFolderMsg] = useState(null)
+  useEffect(() => { setFolderMsg(null) }, [project?.id])
+
+  // ── Session 14: storage relink + per-file activity ──
+  // Relink is local_server-only — the provider where folders actually move
+  // (supabase bucket paths don't drift, so no false affordance there).
+  // getAdapter is the provider's STABLE useCallback — depending on the
+  // whole ctx object would re-fire this census on every provider render
+  // (each scan is a full server-side existsSync sweep; adversarial
+  // review, S14). The seq ref drops out-of-order responses so a slow scan
+  // can never overwrite a fresh post-apply count.
+  const getAdapter = ctx?.getAdapter
+  const relinkSupported = typeof getAdapter?.()?.relinkScan === 'function'
+  const [missingCount, setMissingCount] = useState(0)
+  const [relinkOpen, setRelinkOpen] = useState(false)
+  const [auditFile, setAuditFile] = useState(null)
+  const censusSeqRef = useRef(0)
+
+  const refreshMissing = useCallback(async () => {
+    if (!relinkSupported || !project?.id) return
+    const seq = ++censusSeqRef.current
+    try {
+      const res = await getAdapter().relinkScan(project.id)
+      if (seq === censusSeqRef.current) setMissingCount(res?.missing?.length ?? 0)
+    } catch { /* census only — the dialog surfaces real errors */ }
+  }, [relinkSupported, getAdapter, project?.id])
+
+  useEffect(() => { refreshMissing() }, [refreshMissing])
 
   async function handleUpload(e) {
     const picked = Array.from(e.target.files || [])
     if (picked.length === 0) return
     setUploading(true)
+    setUploadError(null)
     try {
       for (const file of picked) {
         await ctx?.uploadFile?.(file, { type: 'project' })
       }
-    } catch (err) { console.error('Upload failed', err) }
+    } catch (err) {
+      // 🚨 A REFUSAL MUST BE READ, NOT LOGGED — see the same fix in
+      // BudgetView. Session 37's storage refusals (a workspace on its own
+      // server has no cloud upload route; an unreadable storage choice; a
+      // bucket the browser was blocked from reaching) each arrive here as a
+      // thrown sentence, and this catch used to end their journey in the
+      // devtools console where nobody was looking.
+      console.error('Upload failed', err)
+      setUploadError(err?.message || 'Upload failed.')
+    }
     finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
@@ -886,23 +1061,52 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
               Open
             </button>
           )}
-          <button type="button"
-            onClick={async () => {
-              const api = window.electronAPI?.rabbit
-              if (!api?.pickDirectory) return
-              const dir = await api.pickDirectory()
-              if (!dir) return
-              const slug = project?.folder_slug || project?.title?.trim().replace(/[^a-zA-Z0-9\s]+/g, ' ').split(/\s+/).filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join('-') || 'Untitled'
-              const folderRoot = dir + '\\' + slug
-              await api.ensureProjectFolder?.({ rootDir: dir, projectSlug: slug })
-              update?.('folder_root', folderRoot)
-            }}
-            className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
-            style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
-            Change
-          </button>
+          {canPickFolder && (
+            <GatedAction allowed={canSetFolder} reason={folderReason}>
+              <button type="button"
+                onClick={async () => {
+                  if (!canSetFolder) return
+                  setFolderMsg(null)
+                  const res = await pickAndSetProjectFolder(ctx, project)
+                  if (!res.ok && res.error) setFolderMsg(res.error)
+                }}
+                className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+                style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+                Change
+              </button>
+            </GatedAction>
+          )}
         </div>
+        {folderMsg && (
+          <p className="text-[10px] font-mono mt-1.5" style={{ color: '#f87171' }}>
+            {folderMsg}
+          </p>
+        )}
       </SettingsField>
+
+      {/* Session 14: a relink can move the files home off folder_root —
+          surface it (nothing else shows files_dir) with a reset control,
+          so a mis-picked folder is recoverable from the app. */}
+      {project?.files_dir && (
+        <SettingsField label="Files folder (set by relink)">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 px-3 py-2 rounded-md min-w-0"
+              style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              <FolderSearch className="w-3 h-3 flex-shrink-0" style={{ color: '#57534e' }} />
+              <span className="text-[10px] font-mono truncate" style={{ color: '#a8a29e' }} title={project.files_dir}>
+                {project.files_dir}
+              </span>
+            </div>
+            <button type="button"
+              onClick={() => { update?.('files_dir', null); refreshMissing() }}
+              title="Files resolve from the project folder again; relink afterwards if they moved"
+              className="text-[9px] font-mono uppercase px-2.5 py-2 rounded-md hover:brightness-125 flex-shrink-0 transition-all"
+              style={{ color: '#a8a29e', backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
+              Reset
+            </button>
+          </div>
+        </SettingsField>
+      )}
 
       {/* ── Divider ── */}
       <div style={{ borderTop: '1px solid #44403c' }} />
@@ -925,6 +1129,30 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
         </div>
       </div>
 
+      {uploadError && (
+        <p className="text-[10px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>
+          {uploadError}
+        </p>
+      )}
+
+      {/* Session 14: missing-files banner → the relink flow. Rendered above
+          the table so a broken state is impossible to miss (Selective
+          Attention); the action sits inside the banner (Fitts's Law). */}
+      {relinkSupported && missingCount > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md"
+          style={{ backgroundColor: 'rgba(146,64,14,0.15)', border: '1px solid #92400e' }}>
+          <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#fbbf24' }} />
+          <span className="flex-1 text-[10.5px] font-mono" style={{ color: '#fbbf24' }}>
+            {missingCount} file{missingCount === 1 ? '' : 's'} can't be found on disk — the folder may have moved.
+          </span>
+          <button type="button" onClick={() => setRelinkOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[9.5px] font-mono uppercase tracking-wider transition-all hover:brightness-125 flex-shrink-0"
+            style={{ backgroundColor: '#ea580c', color: '#fff7ed', border: '1px solid #c2410c' }}>
+            <FolderSearch className="w-3 h-3" /> Relink…
+          </button>
+        </div>
+      )}
+
       {allFiles.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-6 rounded-md"
           style={{ border: `2px dashed ${SECTION_ACCENT}30`, backgroundColor: '#1c191780' }}>
@@ -936,7 +1164,27 @@ function ProjectFilesSection({ files, managedFiles, ctx, project, update }) {
           files={allFiles}
           onUpdate={(id, patch) => ctx?.patchFile?.(id, patch)}
           onDelete={(id) => handleDelete(allFiles.find(f => f.id === id))}
+          onAudit={(f) => setAuditFile(f)}
           maxHeight={300}
+        />
+      )}
+
+      {/* After an apply, in-memory rows keep a stale storage_path until the
+          next project load — harmless: local download/delete resolve by row
+          id on the server. The census re-scan is what drives the banner. */}
+      {relinkOpen && (
+        <RelinkDialog
+          projectId={project.id}
+          onClose={() => setRelinkOpen(false)}
+          onApplied={() => refreshMissing()}
+        />
+      )}
+      {auditFile && (
+        <FileAuditDrawer
+          fileId={auditFile.id}
+          projectId={project.id}
+          fileName={auditFile.name}
+          onClose={() => setAuditFile(null)}
         />
       )}
     </SettingsSection>

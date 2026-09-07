@@ -21,6 +21,8 @@ import {
 } from 'lucide-react'
 import { useTaskTemplates } from './useTaskTemplates'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
+import { canWriteTaskTemplate } from '../../permissions/projectRoleMatrix'
 
 const DEFAULT_ROLES = [
   'modeler', 'rigger', 'animator', 'texture_artist', 'lighter',
@@ -38,6 +40,37 @@ export default function TaskTemplateManager({ onClose }) {
   const tt = useTaskTemplates()
   const rabbit = useRabbit()
   const projects = rabbit?.projects || []
+  const { role: appRole } = usePermissions()
+
+  // ── Session 28: who may write (Audrey, 2026-08-04) ──
+  //
+  // Before 0044 this whole surface was ungated, which was harmless only
+  // because Local Server has no roles. Against a real database an ordinary
+  // member pressing New Template gets an RLS refusal, and useTaskTemplates
+  // rolls the optimistic row back — so without this the control invites a
+  // failure that reaches the screen as a row appearing and vanishing.
+  //
+  // `myProjectRole` is the caller's seat on the project currently OPEN, which
+  // is why the per-row helper only credits it to templates pinned to that same
+  // project. See canWriteTaskTemplate's note on the deliberate fail-closed
+  // mismatch this leaves.
+  const openProjectId = rabbit?.project?.id || null
+  const myProjectRole = rabbit?.myProjectRole || null
+  const isWorkspaceWriter = appRole === 'admin' || appRole === 'manager'
+
+  // A project manager may create — but only a template PINNED to their own
+  // project, because can_write_task_template(NULL) admits nobody below
+  // workspace manager. Creating a global one and watching it bounce off RLS
+  // would be the same silent failure in a new costume.
+  const newTemplateProjectId = isWorkspaceWriter ? null : openProjectId
+  const canCreate = isWorkspaceWriter || (myProjectRole === 'manager' && !!openProjectId)
+
+  const canWriteRow = useCallback((tmpl) => canWriteTaskTemplate({
+    appRole,
+    projectRole: tmpl?.project_id && tmpl.project_id === openProjectId
+      ? myProjectRole
+      : null,
+  }), [appRole, openProjectId, myProjectRole])
 
   const [editingId, setEditingId] = useState(null)
   const [confirmDelete, setConfirmDelete] = useState(null)
@@ -47,7 +80,7 @@ export default function TaskTemplateManager({ onClose }) {
     const created = await tt.addTemplate({
       name: 'New Template',
       description: '',
-      project_id: null,
+      project_id: newTemplateProjectId,
       tasks: [],
     })
     if (created?.id) setEditingId(created.id)
@@ -77,7 +110,10 @@ export default function TaskTemplateManager({ onClose }) {
     await tt.addTemplate({
       name: `${template.name} (copy)`,
       description: template.description || '',
-      project_id: template.project_id || null,
+      // A project manager duplicating a GLOBAL template cannot produce another
+      // global one — the copy lands pinned to their project, which is the only
+      // thing they are allowed to create.
+      project_id: isWorkspaceWriter ? (template.project_id || null) : newTemplateProjectId,
       tasks: newTasks,
     })
   }
@@ -111,16 +147,40 @@ export default function TaskTemplateManager({ onClose }) {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button type="button" onClick={handleCreate}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-              <Plus className="w-3.5 h-3.5" /> New Template
-            </button>
+            {canCreate && (
+              <button type="button" onClick={handleCreate}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-mono uppercase tracking-wider rounded transition-colors"
+                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}
+                title={newTemplateProjectId
+                  ? 'Creates a template pinned to the project you have open'
+                  : 'Creates a template available to every project'}>
+                <Plus className="w-3.5 h-3.5" />
+                {newTemplateProjectId ? 'New Project Template' : 'New Template'}
+              </button>
+            )}
             <button type="button" onClick={onClose} className="p-1 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}>
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
+
+        {/* Session 28: say why, rather than nothing. An RLS refusal used to
+            reach the screen as a row appearing and disappearing — the hook has
+            always set `error` and nothing has ever rendered it. */}
+        {tt.error && (
+          <div className="px-5 py-2 flex items-start gap-2" style={{ backgroundColor: 'rgba(220, 38, 38, 0.12)', borderBottom: '1px solid #7f1d1d' }}>
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-px" style={{ color: '#fca5a5' }} />
+            <span className="text-[11px] font-mono" style={{ color: '#fca5a5' }}>{tt.error}</span>
+          </div>
+        )}
+        {!canCreate && (
+          <div className="px-5 py-2" style={{ backgroundColor: '#1c1917', borderBottom: '1px solid #292524' }}>
+            <span className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
+              Read-only. Task templates are managed by workspace admins and managers,
+              or by a project manager for their own project&rsquo;s templates.
+            </span>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-auto">
@@ -151,6 +211,7 @@ export default function TaskTemplateManager({ onClose }) {
                 {tt.templates.map(tmpl => {
                   const stats = tt.getTemplateStats(tmpl)
                   const isEditing = editingId === tmpl.id
+                  const rowWritable = canWriteRow(tmpl)
                   return (
                     <tr key={tmpl.id}
                       style={{
@@ -159,12 +220,14 @@ export default function TaskTemplateManager({ onClose }) {
                       }}
                       className="hover:bg-stone-800/40 transition-colors">
                       <Td>
-                        <TemplateName template={tmpl} onUpdate={(name) => tt.updateTemplate(tmpl.id, { name })} />
+                        <TemplateName template={tmpl} readOnly={!rowWritable}
+                          onUpdate={(name) => tt.updateTemplate(tmpl.id, { name })} />
                       </Td>
                       <Td>
                         <TemplateScope
                           template={tmpl}
                           projects={projects}
+                          readOnly={!rowWritable}
                           onUpdate={(patch) => tt.updateTemplate(tmpl.id, patch)}
                         />
                       </Td>
@@ -193,18 +256,26 @@ export default function TaskTemplateManager({ onClose }) {
                               backgroundColor: isEditing ? '#ea580c' : 'transparent',
                               border: '1px solid #44403c',
                             }}>
-                            {isEditing ? 'Close' : 'Edit'}
+                            {isEditing ? 'Close' : (rowWritable ? 'Edit' : 'View')}
                           </button>
-                          <button type="button" onClick={() => handleDuplicate(tmpl)}
-                            className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}
-                            title="Duplicate template">
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                          <button type="button" onClick={() => setConfirmDelete(tmpl.id)}
-                            className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
-                            title="Delete template">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          {/* Duplicate WRITES a new template, so it needs the
+                              create right, not the row's — a member could
+                              otherwise duplicate a template they may not
+                              create. */}
+                          {canCreate && (
+                            <button type="button" onClick={() => handleDuplicate(tmpl)}
+                              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e' }}
+                              title="Duplicate template">
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {rowWritable && (
+                            <button type="button" onClick={() => setConfirmDelete(tmpl.id)}
+                              className="p-1 rounded hover:bg-stone-700 transition-colors" style={{ color: '#fca5a5' }}
+                              title="Delete template">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </Td>
                     </tr>
@@ -229,6 +300,7 @@ export default function TaskTemplateManager({ onClose }) {
       {editingTemplate && (
         <TemplateEditor
           template={editingTemplate}
+          readOnly={!canWriteRow(editingTemplate)}
           onUpdate={(patch) => tt.updateTemplate(editingTemplate.id, patch)}
           onClose={() => setEditingId(null)}
         />
@@ -249,7 +321,7 @@ export default function TaskTemplateManager({ onClose }) {
 // ────────────────────���─────────────────���──────────────
 // TEMPLATE EDITOR (slide-in panel)
 // ─────────────────────────────────────────────────────
-function TemplateEditor({ template, onUpdate, onClose }) {
+function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
   const [descDraft, setDescDraft] = useState(template.description || '')
   const [editingDesc, setEditingDesc] = useState(false)
 
@@ -316,7 +388,7 @@ function TemplateEditor({ template, onUpdate, onClose }) {
         <div className="flex items-center justify-between px-5 py-3" style={{ borderBottom: '2px solid #44403c' }}>
           <div className="flex items-center gap-2">
             <span className="text-[13px] font-mono font-bold uppercase tracking-wider" style={{ color: '#fb923c' }}>
-              Edit Template
+              {readOnly ? 'View Template' : 'Edit Template'}
             </span>
             <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>
               {template.name}
@@ -330,7 +402,7 @@ function TemplateEditor({ template, onUpdate, onClose }) {
         {/* Description */}
         <div className="px-5 py-3" style={{ borderBottom: '1px solid #292524' }}>
           <div className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: '#78716c' }}>Description</div>
-          {editingDesc ? (
+          {editingDesc && !readOnly ? (
             <textarea
               autoFocus
               value={descDraft}
@@ -345,11 +417,11 @@ function TemplateEditor({ template, onUpdate, onClose }) {
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             />
           ) : (
-            <button type="button"
+            <button type="button" disabled={readOnly}
               onClick={() => { setDescDraft(template.description || ''); setEditingDesc(true) }}
               className="text-xs font-mono text-left w-full hover:bg-stone-800 px-2 py-1 rounded min-h-[28px]"
-              style={{ color: template.description ? '#d6d3d1' : '#78716c' }}>
-              {template.description || 'Click to add description...'}
+              style={{ color: template.description ? '#d6d3d1' : '#78716c', cursor: readOnly ? 'default' : 'pointer' }}>
+              {template.description || (readOnly ? '—' : 'Click to add description...')}
             </button>
           )}
         </div>
@@ -360,16 +432,20 @@ function TemplateEditor({ template, onUpdate, onClose }) {
             <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#fb923c' }}>
               Tasks ({localTasks.length})
             </span>
-            <button type="button" onClick={handleAddTask}
-              className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider rounded transition-colors"
-              style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
-              <Plus className="w-3 h-3" /> Add Task
-            </button>
+            {!readOnly && (
+              <button type="button" onClick={handleAddTask}
+                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider rounded transition-colors"
+                style={{ color: '#fff7ed', backgroundColor: '#ea580c', border: '1px solid #c2410c' }}>
+                <Plus className="w-3 h-3" /> Add Task
+              </button>
+            )}
           </div>
 
           {localTasks.length === 0 ? (
             <div className="text-[11px] font-mono italic py-6 text-center" style={{ color: '#78716c' }}>
-              No tasks in this template. Add one to get started.
+              {readOnly
+                ? 'This template has no tasks.'
+                : 'No tasks in this template. Add one to get started.'}
             </div>
           ) : (
             <div>
@@ -389,6 +465,7 @@ function TemplateEditor({ template, onUpdate, onClose }) {
                   task={task}
                   allTasks={localTasks}
                   taskById={taskById}
+                  readOnly={readOnly}
                   onUpdate={(patch) => handleUpdateTask(task.id, patch)}
                   onDelete={() => handleDeleteTask(task.id)}
                 />
@@ -419,7 +496,7 @@ function TemplateEditor({ template, onUpdate, onClose }) {
 // ───────────────��───────────────────────────��─────────
 // TEMPLATE TASK ROW
 // ─────────────────────────────────────────────────────
-function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
+function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnly = false }) {
   const [hovered, setHovered] = useState(false)
 
   // Dependency selector
@@ -448,6 +525,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
         <EditableText
           value={task.name || ''}
           placeholder="Task name..."
+          readOnly={readOnly}
           onCommit={(name) => onUpdate({ name })}
         />
       </div>
@@ -456,6 +534,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
       <div style={{ flex: 1.5 }}>
         <select
           value={task.role_slug || ''}
+          disabled={readOnly}
           onChange={e => onUpdate({ role_slug: e.target.value || '' })}
           className="w-full px-1 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
           style={{ backgroundColor: 'transparent', color: task.role_slug ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
@@ -471,6 +550,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
           min={0}
           step={0.5}
           value={task.bid_days ?? ''}
+          disabled={readOnly}
           onChange={e => onUpdate({ bid_days: parseFloat(e.target.value) || 0 })}
           className="w-full px-1 py-0.5 text-[11px] font-mono text-center rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#f4a261', border: '1px solid transparent' }}
@@ -483,17 +563,20 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
           currentDeps={currentDeps}
           availableDeps={availableDeps}
           taskById={taskById}
+          readOnly={readOnly}
           onToggle={toggleDep}
         />
       </div>
 
       {/* Delete */}
       <div style={{ width: 28 }}>
-        <button type="button" onClick={onDelete}
-          className="p-1 rounded hover:bg-stone-700 transition-colors"
-          style={{ color: '#fca5a5', opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        {!readOnly && (
+          <button type="button" onClick={onDelete}
+            className="p-1 rounded hover:bg-stone-700 transition-colors"
+            style={{ color: '#fca5a5', opacity: hovered ? 1 : 0, pointerEvents: hovered ? 'auto' : 'none', transition: 'opacity 150ms ease' }}>
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     </div>
   )
@@ -503,7 +586,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete }) {
 // ────────────────��────────────────────────────────────
 // DEPENDENCY PICKER — multi-select dropdown
 // ─────────────────────────────────────────────────────
-function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle }) {
+function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle, readOnly = false }) {
   const [open, setOpen] = useState(false)
 
   if (availableDeps.length === 0) {
@@ -512,7 +595,7 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle }) {
 
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen(!open)}
+      <button type="button" disabled={readOnly} onClick={() => setOpen(!open)}
         className="flex items-center gap-1 w-full px-1 py-0.5 text-[11px] font-mono rounded hover:bg-stone-700/40 transition-colors text-left"
         style={{ color: currentDeps.length ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
         {currentDeps.length === 0 ? (
@@ -569,12 +652,12 @@ function DependencyPicker({ currentDeps, availableDeps, taskById, onToggle }) {
 // ─────────────────────────────────────────────────────
 // TEMPLATE SCOPE (global vs project-specific)
 // ─────────────────────────────────────────────────────
-function TemplateScope({ template, projects, onUpdate }) {
+function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
   const isProjectSpecific = !!template.project_id
 
   return (
     <div className="flex items-center gap-1.5">
-      <button type="button"
+      <button type="button" disabled={readOnly}
         onClick={() => onUpdate({ project_id: isProjectSpecific ? null : (projects[0]?.id || null) })}
         className="w-3 h-3 rounded-sm flex items-center justify-center flex-shrink-0"
         style={{
@@ -587,6 +670,7 @@ function TemplateScope({ template, projects, onUpdate }) {
       {isProjectSpecific ? (
         <select
           value={template.project_id || ''}
+          disabled={readOnly}
           onChange={e => onUpdate({ project_id: e.target.value || null })}
           className="px-1 py-0.5 text-[10px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: 120 }}>
@@ -604,7 +688,7 @@ function TemplateScope({ template, projects, onUpdate }) {
 // ──────────────��───────────────────────────────��──────
 // TEMPLATE NAME (inline edit)
 // ─────────────────────────────────────────────────────
-function TemplateName({ template, onUpdate }) {
+function TemplateName({ template, onUpdate, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(template.name || '')
 
@@ -615,7 +699,7 @@ function TemplateName({ template, onUpdate }) {
     if (draft !== template.name) onUpdate(draft)
   }
 
-  if (editing) {
+  if (editing && !readOnly) {
     return (
       <input autoFocus value={draft}
         onChange={e => setDraft(e.target.value)}
@@ -627,9 +711,10 @@ function TemplateName({ template, onUpdate }) {
     )
   }
   return (
-    <button type="button" onClick={() => { setDraft(template.name || ''); setEditing(true) }}
+    <button type="button" disabled={readOnly}
+      onClick={() => { setDraft(template.name || ''); setEditing(true) }}
       className="text-[11px] font-mono font-bold text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
-      style={{ color: '#e7e5e4' }}>
+      style={{ color: '#e7e5e4', cursor: readOnly ? 'default' : 'pointer' }}>
       {template.name || 'Untitled'}
     </button>
   )
@@ -639,7 +724,7 @@ function TemplateName({ template, onUpdate }) {
 // ───────────────────────────────────────────────���─────
 // EDITABLE TEXT (generic inline editor)
 // ─────────────────────────────────────────────────────
-function EditableText({ value, placeholder, onCommit }) {
+function EditableText({ value, placeholder, onCommit, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
   useEffect(() => { setDraft(value) }, [value])
@@ -647,7 +732,7 @@ function EditableText({ value, placeholder, onCommit }) {
     setEditing(false)
     if (draft !== value) onCommit(draft)
   }
-  if (editing) {
+  if (editing && !readOnly) {
     return (
       <input autoFocus value={draft}
         onChange={e => setDraft(e.target.value)}
@@ -659,10 +744,11 @@ function EditableText({ value, placeholder, onCommit }) {
     )
   }
   return (
-    <button type="button" onClick={() => { setDraft(value); setEditing(true) }}
+    <button type="button" disabled={readOnly}
+      onClick={() => { setDraft(value); setEditing(true) }}
       className="text-[11px] font-mono text-left w-full truncate hover:bg-stone-700/40 px-1.5 py-0.5 rounded transition-colors"
-      style={{ color: value ? '#e7e5e4' : '#57534e' }}>
-      {value || placeholder || '\u2014'}
+      style={{ color: value ? '#e7e5e4' : '#57534e', cursor: readOnly ? 'default' : 'pointer' }}>
+      {value || (readOnly ? '\u2014' : placeholder || '\u2014')}
     </button>
   )
 }

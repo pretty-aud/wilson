@@ -214,12 +214,26 @@ export function googleDriveAdapter() {
         shots:         bundle.shots || [],
         levels:        bundle.levels || [],
         experiences:   bundle.experiences || [],
+        // Session 26. Drive is read-only, so the tree is whatever the bundle
+        // was exported with — it renders, it is not built here.
+        folders:       bundle.folders || [],
+        // Session 17 (§6 #47): same omission as localServerAdapter — see the
+        // comment there. Milestones reverted to [] on every reload.
+        milestones:    bundle.milestones || [],
       };
     },
 
     async listFiles(projectId) {
       const bundle = await this.loadProject(projectId);
       return bundle.files || [];
+    },
+
+    // Session 26. Reads the exported bundle, exactly as listFiles does — not
+    // a `() => []` stub, which would make an exported tree invisible while
+    // loadProject was returning it, i.e. two answers to the same question.
+    async listFolders(projectId) {
+      const bundle = await this.loadProject(projectId);
+      return bundle.folders || [];
     },
 
     async downloadFile(file) {
@@ -233,15 +247,19 @@ export function googleDriveAdapter() {
     createProject:        readOnly('createProject'),
     updateProject:        readOnly('updateProject'),
     deleteProject:        readOnly('deleteProject'),
+    restoreProject:       readOnly('restoreProject'),
     listPhases:           readOnly('listPhases'),
     upsertPhase:          readOnly('upsertPhase'),
     deletePhase:          readOnly('deletePhase'),
+    restorePhase:         readOnly('restorePhase'),
     listAssets:           readOnly('listAssets'),
     upsertAsset:          readOnly('upsertAsset'),
     deleteAsset:          readOnly('deleteAsset'),
+    restoreAsset:         readOnly('restoreAsset'),
     listTasks:            readOnly('listTasks'),
     upsertTask:           readOnly('upsertTask'),
     deleteTask:           readOnly('deleteTask'),
+    restoreTask:          readOnly('restoreTask'),
     upsertDependency:     readOnly('upsertDependency'),
     deleteDependency:     readOnly('deleteDependency'),
     upsertTaskLink:       readOnly('upsertTaskLink'),
@@ -249,20 +267,31 @@ export function googleDriveAdapter() {
     uploadFile:           readOnly('uploadFile'),
     updateFile:           readOnly('updateFile'),
     deleteFile:           readOnly('deleteFile'),
+    restoreFile:          readOnly('restoreFile'),
     upsertAssetVersion:   readOnly('upsertAssetVersion'),
     listAssetVersions:    readOnly('listAssetVersions'),
     createComment:        readOnly('createComment'),
     listComments:         readOnly('listComments'),
+    listEditHistory:      async () => [],  // no capture in drive mode
+    listProjectMembers:   async () => [],  // no roster in drive mode
+    upsertProjectMember:  readOnly('upsertProjectMember'),
+    removeProjectMember:  readOnly('removeProjectMember'),
     deleteComment:        readOnly('deleteComment'),
+    restoreComment:       readOnly('restoreComment'),
     createIngestionRun:   readOnly('createIngestionRun'),
     updateIngestionRun:   readOnly('updateIngestionRun'),
     listIngestionChunks:  readOnly('listIngestionChunks'),
     upsertIngestionChunk: readOnly('upsertIngestionChunk'),
     updateChunk:          readOnly('updateChunk'),
-    listRateCards:        readOnly('listRateCards'),
+    // Session 17 (§6 #49): READS return empty rather than throwing. The
+    // rate-card hook calls listRateCards unconditionally on mount, so a
+    // throw stub put a permanent red banner on every RABBIT view that
+    // mounts it. Writes stay readOnly() — silencing those would be worse.
+    listRateCards:        async () => [],  // no rate cards in drive mode
     upsertRateCard:       readOnly('upsertRateCard'),
     deleteRateCard:       readOnly('deleteRateCard'),
-    listRateCardEntries:  readOnly('listRateCardEntries'),
+    restoreRateCard:      readOnly('restoreRateCard'),
+    listRateCardEntries:  async () => [],  // no rate cards in drive mode
     upsertRateCardEntry:  readOnly('upsertRateCardEntry'),
     deleteRateCardEntry:  readOnly('deleteRateCardEntry'),
     upsertScene:          readOnly('upsertScene'),
@@ -275,6 +304,14 @@ export function googleDriveAdapter() {
     deleteExperience:     readOnly('deleteExperience'),
     upsertMilestone:      readOnly('upsertMilestone'),
     deleteMilestone:      readOnly('deleteMilestone'),
+    // Session 26 — folders. The READ is implemented above, beside listFiles.
+    // These three are writes and stay loud: a silent no-op would report a
+    // folder as created when nothing exists anywhere.
+    ensureProjectFolders: readOnly('ensureProjectFolders'),
+    ensureEntityFolder:   readOnly('ensureEntityFolder'),
+    deleteFolder:         readOnly('deleteFolder'),
+    writeProjectManifest: readOnly('writeProjectManifest'),
+    writeProjectRates:    readOnly('writeProjectRates'),
 
     // No realtime on Drive.
     subscribeProjectChanges: () => () => {},

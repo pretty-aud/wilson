@@ -1,7 +1,7 @@
 {
   "name": "wilson",
   "private": true,
-  "version": "0.6.3",
+  "version": "1.0.0",
   "description": "WILSON - AI-powered creative production & learning platform",
   "toolVersions": {
     "deck-outline-generator": "0.514",
@@ -11,21 +11,44 @@
   "author": "Petal Studios",
   "type": "module",
   "main": "electron/main.cjs",
+  "_comment:build": "Session 40, and it lives at the ROOT rather than inside `build` ON PURPOSE: electron-builder validates the `build` object against a JSON schema and REJECTS unknown properties, so a `_comment:` key in there fails `npm run dist` outright. 🚨 `build` IS THE PACKAGER THAT SHIPS. electron-BUILDER (npm run dist) produces the nsis installer users receive; electron-FORGE (npm run package/make, forge.config.cjs) does not ship, and its packagerConfig.extraResource does NOTHING for the shipped build — the two also have OPPOSITE asar defaults. extraResources copies OUTSIDE the asar by construction, which is what an executable needs: a binary inside an archive cannot be exec'd. Verify with `npm run dist` and look in release/win-unpacked/resources/ffmpeg/, never with `npm run package`. resources/ffmpeg/ is committed (README + .gitignore) so the glob always resolves; the binary itself is gitignored because the repo is PUBLIC.",
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "build": "vite build",
+    "build:dev": "vite build --mode development",
+    "build:web": "vite build --base=/wilson/ --outDir dist-web",
+    "build:vercel": "vite build --base=/wilson/ --outDir dist-vercel/wilson --emptyOutDir",
+    "build:vercel:admin": "vite build --mode admin --base=/wilsonadmin/ --outDir dist-vercel/wilsonadmin --emptyOutDir",
+    "build:admin": "vite build --mode admin --base=/wilsonadmin/ --outDir dist-web-admin",
+    "_comment:dev:admin": "Serves BOTH entries. Open /admin.html for the operator console — / still serves the product app, but built with __WILSON_SURFACE__='admin', so its session key is the operator one. Do not sign in at / under this mode.",
+    "dev:admin": "vite --mode admin",
     "preview": "vite preview",
-    "electron:dev": "npm run build && electron .",
+    "preview:web": "node scripts/serve-web.mjs",
+    "electron:dev": "npm run build:dev && electron .",
     "electron:start": "electron .",
     "package": "npm run build && electron-forge package",
-    "make": "npm run build && electron-forge make"
+    "make": "npm run build && electron-forge make",
+    "dist": "npm run build && electron-builder --win nsis",
+    "dist:publish": "npm run build && electron-builder --win nsis --publish always"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
+    "@sentry/electron": "^5.8.0",
     "@supabase/supabase-js": "^2.101.1",
+    "@tiptap/core": "^3.29.2",
+    "@tiptap/extension-collaboration": "^3.29.2",
+    "@tiptap/pm": "^3.29.2",
+    "@tiptap/react": "^3.29.2",
+    "@tiptap/starter-kit": "^3.29.2",
+    "@tiptap/y-tiptap": "^3.0.8",
     "cors": "^2.8.6",
     "electron-squirrel-startup": "^1.0.1",
+    "electron-updater": "^6.3.9",
     "express": "^5.2.1",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.469.0",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
@@ -35,18 +58,65 @@
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
     "sharp": "^0.34.5",
+    "tus-js-client": "^4.3.1",
     "uuid": "^13.0.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "^0.18.5",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.31"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.0.0",
     "@electron-forge/maker-squirrel": "^7.0.0",
+    "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
     "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
     "tailwindcss": "^4.0.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "vitest": "^4.1.10"
+  },
+  "build": {
+    "appId": "co.petalstudios.wilson",
+    "productName": "WILSON",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "public/extensions/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/ffmpeg",
+        "to": "ffmpeg",
+        "filter": [
+          "**/*",
+          "!README.md",
+          "!.gitignore"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "public/logo.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.petalstudios.co/wilson"
+      }
+    ]
   }
 }

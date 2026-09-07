@@ -72,10 +72,10 @@ export function OtterHelpContent({ helpPage, theme }) {
         <h3 className={T.sectionTitle}>Getting Started</h3>
         <div className="space-y-3">
           <div className={T.card}>
-            <h4 className={T.cardTitle}>Step 1: Set Your API Key</h4>
+            <h4 className={T.cardTitle}>Step 1: Sign In</h4>
             <p className={T.listItem}>
-              Make sure your Anthropic API key is set in <span className={T.listBold}>System Settings</span>.
-              O.T.T.E.R. uses the same shared API key as D.O.G.
+              AI features are included with your workspace sign-in — no API key
+              to configure. If generation fails, check with your workspace admin.
             </p>
           </div>
           <div className={T.card}>

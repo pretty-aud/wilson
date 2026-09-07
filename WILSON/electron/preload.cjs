@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
+// ── Cloud session bridge ──
+// Persists the Supabase session via main process safeStorage (Electron's
+// OS-native keychain wrapper). Renderer never sees the encryption key.
+contextBridge.exposeInMainWorld('wilsonSession', {
+  save:  (session) => ipcRenderer.invoke('wilson:session-save', session),
+  load:  ()        => ipcRenderer.invoke('wilson:session-load'),
+  clear: ()        => ipcRenderer.invoke('wilson:session-clear'),
+});
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  sentryTest: () => ipcRenderer.invoke('wilson:sentry-test'),
   minimize: () => ipcRenderer.invoke('window-minimize'),
   maximize: () => ipcRenderer.invoke('window-maximize'),
   close: () => ipcRenderer.invoke('window-close'),
@@ -18,14 +28,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('zoom-reset-notify', handler);
     return () => ipcRenderer.removeListener('zoom-reset-notify', handler);
   },
+  // Session 9 auto-update (electron/updater.cjs). Status events:
+  // { state, info?, progress?, error? } — see updater.cjs header.
+  updates: {
+    getState: () => ipcRenderer.invoke('wilson:update-state'),
+    check: () => ipcRenderer.invoke('wilson:update-check'),
+    download: () => ipcRenderer.invoke('wilson:update-download'),
+    install: () => ipcRenderer.invoke('wilson:update-install'),
+    onStatus: (callback) => {
+      const handler = (_event, status) => callback(status);
+      ipcRenderer.on('wilson:update-status', handler);
+      return () => ipcRenderer.removeListener('wilson:update-status', handler);
+    },
+  },
 
   // ── RABBIT config bridge ──
-  // Used by the Supabase adapter to read/write credentials stored
-  // at {userData}/rabbit-data/supabase.json.
+  // Supabase credentials are centralised: the shared client in
+  // src/cloud/auth/supabaseClient.js is configured by VITE_SUPABASE_URL
+  // + VITE_SUPABASE_ANON_KEY at build time, and receives its session via
+  // the safeStorage-backed session IPC (contextBridge `wilsonSession`).
+  // The Session 1 per-project supabase.json fallback was removed in
+  // Session 2; the read/write/clear handlers were deleted from main.cjs.
   rabbit: {
-    readSupabaseConfig:  ()    => ipcRenderer.invoke('rabbit:read-supabase-config'),
-    writeSupabaseConfig: (cfg) => ipcRenderer.invoke('rabbit:write-supabase-config', cfg),
-    clearSupabaseConfig: ()    => ipcRenderer.invoke('rabbit:clear-supabase-config'),
     readGdriveConfig:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-config'),
     writeGdriveConfig:   (cfg) => ipcRenderer.invoke('rabbit:write-gdrive-config', cfg),
     readGdriveTokens:    ()    => ipcRenderer.invoke('rabbit:read-gdrive-tokens'),
@@ -33,8 +57,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearGdrive:         ()    => ipcRenderer.invoke('rabbit:clear-gdrive'),
 
     // ── File management ──
+    archiveLocalData:     ()    => ipcRenderer.invoke('rabbit:archive-local-data'),
     readFilesConfig:      ()    => ipcRenderer.invoke('rabbit:read-files-config'),
     writeFilesConfig:     (cfg) => ipcRenderer.invoke('rabbit:write-files-config', cfg),
+    // Session 34: the workspace storage root. App.jsx pushes the byos root
+    // after loading workspace_storage (and null on sign-out); the Admin
+    // Terminal's Storage section probes a candidate before saving it.
+    setWorkspaceRoot:     (opts) => ipcRenderer.invoke('rabbit:set-workspace-root', opts),
+    probeStorageRoot:     (opts) => ipcRenderer.invoke('rabbit:probe-storage-root', opts),
     pickDirectory:        ()    => ipcRenderer.invoke('rabbit:pick-directory'),
     pickFiles:            ()    => ipcRenderer.invoke('rabbit:pick-files'),
     copyFile:             (opts) => ipcRenderer.invoke('rabbit:copy-file', opts),

@@ -23,6 +23,7 @@ import { Trash2, Copy, Plus, ChevronDown, ChevronRight, AlertTriangle } from 'lu
 import { CURRENCIES } from '../settings/CurrencyPicker'
 import { DEFAULT_DEPARTMENTS } from '../TeamMembers/useTeamMembers'
 import { computeEntryTotal, BUDGET_TIERS } from './useRateCard'
+import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL, LIGHT_SURFACE_SOLID } from '../lightSurface'
 
 const DEPT_ORDER = Object.fromEntries(DEFAULT_DEPARTMENTS.map((d, i) => [d, i]))
 
@@ -93,7 +94,7 @@ function EditCell({
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
         className={`w-full px-2 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
-        style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: align }}
+        style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: align }}
       />
     )
   }
@@ -102,8 +103,8 @@ function EditCell({
     <button
       type="button"
       onClick={start}
-      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-50'} ${mono ? 'font-mono' : ''}`}
-      style={{ color: readOnly ? '#78716c' : '#1c1917', textAlign: align, minHeight: '28px' }}
+      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-900/10'} ${mono ? 'font-mono' : ''}`}
+      style={{ color: LIGHT_INK, textAlign: align, minHeight: '28px' }}
     >
       {display || <span style={{ color: '#7c2d12', opacity: 0.4 }}>{placeholder || '—'}</span>}
     </button>
@@ -113,7 +114,7 @@ function EditCell({
 // ─── Burden / Overhead cell ───
 // Shows value + type toggle (% / $) + computed amount.
 // When null and dept default exists, shows the default indicator.
-function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType, currency, deptPct }) {
+function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType, currency, deptPct, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const ref = useRef(null)
@@ -127,6 +128,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
   const usingDeptDefault = !hasValue && deptPct != null
 
   function start() {
+    if (readOnly) return
     setDraft(value != null ? String(value) : '')
     setEditing(true)
   }
@@ -153,13 +155,13 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
           className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: 'right' }}
+          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
         <button
           type="button"
           onClick={e => { e.stopPropagation(); onToggleType() }}
           className="px-1.5 py-1 text-[10px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
-          style={{ color: '#7c2d12', border: '1px solid #d6d3d1' }}
+          style={{ color: '#7c2d12', border: `1px solid ${LIGHT_RULE}` }}
         >
           {isPercent ? '%' : '$'}
         </button>
@@ -173,8 +175,8 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         <button
           type="button"
           onClick={start}
-          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-50 transition-colors text-right"
-          style={{ color: hasValue ? '#1c1917' : '#78716c' }}
+          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-900/10 transition-colors text-right"
+          style={{ color: LIGHT_INK }}
         >
           {hasValue
             ? (isPercent ? `${value}%` : formatCurrency(value, currency))
@@ -195,7 +197,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         </button>
       </div>
       {computedAmount > 0 && (
-        <span className="text-[9px] font-mono pr-5" style={{ color: '#78716c' }}>
+        <span className="text-[9px] font-mono pr-5" style={{ color: LIGHT_INK }}>
           = {formatCurrency(computedAmount, currency)}
         </span>
       )}
@@ -204,7 +206,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
 }
 
 // ─── Inline currency dropdown ───
-function CurrencyCell({ value, onCommit }) {
+function CurrencyCell({ value, onCommit, readOnly = false }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
   const wrapRef = useRef(null)
@@ -229,8 +231,8 @@ function CurrencyCell({ value, onCommit }) {
     <div className="relative" ref={wrapRef}>
       <button
         type="button"
-        onClick={() => setOpen(o => !o)}
-        className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-50 transition-colors flex items-center justify-center gap-0.5"
+        onClick={() => { if (!readOnly) setOpen(o => !o) }}
+        className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-900/10 transition-colors flex items-center justify-center gap-0.5"
         style={{ color: '#1c1917', minHeight: '28px' }}
       >
         <span style={{ color: '#7c2d12' }}>{current.symbol}</span>
@@ -239,7 +241,8 @@ function CurrencyCell({ value, onCommit }) {
       {open && (
         <div
           className="absolute z-50 mt-1 right-0 w-48 max-h-64 overflow-auto rounded-sm shadow-xl"
-          style={{ backgroundColor: '#fff', border: '2px solid #ea580c' }}
+          // Floating dropdown — must be OPAQUE or the grid shows through it.
+        style={{ backgroundColor: LIGHT_SURFACE_SOLID, border: `2px solid ${LIGHT_INK}` }}
         >
           <input
             type="text"
@@ -255,7 +258,7 @@ function CurrencyCell({ value, onCommit }) {
               key={c.code}
               type="button"
               onClick={() => { onCommit(c.code); setOpen(false) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-50 transition-colors"
+              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-900/10 transition-colors"
               style={{ color: c.code === current.code ? '#ea580c' : '#1c1917' }}
             >
               <span className="w-6" style={{ color: '#7c2d12' }}>{c.symbol}</span>
@@ -276,7 +279,7 @@ function CurrencyCell({ value, onCommit }) {
 function DepartmentSelect({ value, onChange, readOnly = false }) {
   if (readOnly) {
     return (
-      <span className="block px-2 py-1.5 text-xs truncate" style={{ color: '#78716c' }}>
+      <span className="block px-2 py-1.5 text-xs truncate" style={{ color: LIGHT_INK }}>
         {value || '—'}
       </span>
     )
@@ -285,7 +288,7 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
     <select
       value={value || ''}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-50 cursor-pointer"
+      className="w-full px-1 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -295,12 +298,13 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
 }
 
 // ─── Budget tier select ───
-function TierSelect({ value, onChange }) {
+function TierSelect({ value, onChange, readOnly = false }) {
   return (
     <select
       value={value || ''}
+      disabled={readOnly}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-50 cursor-pointer"
+      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -345,20 +349,22 @@ function DeptDefaultInput({ label, value, onChange }) {
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
           className="w-14 px-1 py-0.5 text-[10px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: '#fff', color: '#1c1917', border: '1px solid #ea580c', textAlign: 'right' }}
+          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
       </div>
     )
   }
 
   return (
+    // These sit ON the department bar, which is now #c2410c — white, not the
+    // brown that was chosen against the old amber fill.
     <button
       type="button"
       onClick={start}
-      className="flex items-center gap-1 hover:bg-amber-200/40 rounded-sm px-1.5 py-0.5 transition-colors"
+      className="flex items-center gap-1 hover:bg-black/10 rounded-sm px-1.5 py-0.5 transition-colors"
     >
-      <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#7c2d12' }}>{label}:</span>
-      <span className="text-[10px] font-mono font-bold" style={{ color: '#1c1917' }}>
+      <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#ffffff' }}>{label}:</span>
+      <span className="text-[10px] font-mono font-bold" style={{ color: '#ffffff' }}>
         {value != null ? `${value}%` : '—'}
       </span>
     </button>
@@ -393,9 +399,19 @@ function RowActions({ onDuplicate, onDelete }) {
 
 // ─── Column widths ───
 const COL = {
-  name: '19%', dept: '10%', wage: '11%', burden: '13%', overhead: '13%',
-  total: '10%', curr: '6%', region: '6%', tier: '7%', actions: '5%',
+  name: '17%', dept: '9%', hourly: '10%', wage: '10%', burden: '12%', overhead: '12%',
+  total: '9%', curr: '5%', region: '6%', tier: '6%', actions: '4%',
 }
+
+// Hours in a standard working day. `wage` is stored per DAY — it is the only
+// rate persisted — so the hourly column is DERIVED from it and editing hourly
+// writes the day rate back. One stored number means the two boxes can never
+// disagree, which two independent columns would allow within a week.
+//
+// ⚠️ 8 is an assumption, and it is visible in the column header rather than
+// buried here, so it can be argued with. If a studio bills 10-hour days this
+// wants to become a workspace setting, which is a schema change, not a tweak.
+const HOURS_PER_DAY = 8
 
 // ─── Main table ───
 export default function RateCardTable({
@@ -409,6 +425,9 @@ export default function RateCardTable({
   deleteEntry,
   updateDeptDefault,
   makeSlug,
+  // Session 9: per-user grants can confer VIEW without EDIT — RLS would
+  // reject the writes anyway; this keeps the UI honest about it.
+  readOnly = false,
 }) {
   const isInternal = cardType === 'internal'
 
@@ -497,7 +516,7 @@ export default function RateCardTable({
   }
 
   async function commitDraft() {
-    if (!draft.role_label?.trim()) return
+    if (readOnly || !draft.role_label?.trim()) return
     const toCreate = { ...draft }
     setDraft(emptyDraft)
     try { await addEntry(toCreate) } catch { /* surfaced via hook */ }
@@ -505,6 +524,7 @@ export default function RateCardTable({
 
   // ── Handlers ──
   async function handleUpdate(row, patch) {
+    if (readOnly) return
     // Ghost rows (internal card, no entry yet) — create on first edit
     if (row._hasEntry === false && row.id?.startsWith('_ghost_')) {
       const full = { ...row, ...patch }
@@ -518,7 +538,7 @@ export default function RateCardTable({
   }
 
   async function handleDuplicate(row) {
-    if (row._hasEntry === false) return
+    if (readOnly || row._hasEntry === false) return
     const copy = { ...row }
     delete copy.id; delete copy._member; delete copy._hasEntry
     copy.role_label = `${row.role_label || ''} (copy)`
@@ -527,7 +547,7 @@ export default function RateCardTable({
   }
 
   async function handleDelete(row) {
-    if (row._hasEntry === false) return
+    if (readOnly || row._hasEntry === false) return
     try { await deleteEntry(row.id) } catch { /* surfaced via hook */ }
   }
 
@@ -564,11 +584,11 @@ export default function RateCardTable({
     <div className="w-full h-full flex flex-col overflow-hidden">
       {/* ── Department defaults panel ── */}
       {updateDeptDefault && (
-        <div style={{ backgroundColor: '#fff7ed', borderBottom: '2px solid #d97706', flexShrink: 0 }}>
+        <div style={{ backgroundColor: LIGHT_WELL, borderBottom: `1px solid ${LIGHT_RULE}`, flexShrink: 0 }}>
           <button
             type="button"
             onClick={() => setDefaultsOpen(o => !o)}
-            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-orange-50 transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-orange-900/10 transition-colors"
           >
             {defaultsOpen
               ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
@@ -585,7 +605,7 @@ export default function RateCardTable({
                   <div
                     key={dept}
                     className="flex flex-col gap-1 p-2 rounded-sm"
-                    style={{ backgroundColor: '#fef3e8', border: '1px solid #f4a261' }}
+                    style={{ backgroundColor: 'transparent', border: `1px solid ${LIGHT_RULE}` }}
                   >
                     <span className="text-[9px] font-mono font-bold uppercase tracking-wider truncate" style={{ color: '#7c2d12' }}>
                       {dept}
@@ -610,13 +630,14 @@ export default function RateCardTable({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: '#fef3e8' }}>
+      <div className="flex-1 overflow-auto" style={{ backgroundColor: 'transparent' }}>
         <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
           <thead>
             <tr>
               <th style={{ ...th, width: COL.name }}>{isInternal ? 'Member' : 'Role'}</th>
               <th style={{ ...th, width: COL.dept }}>Dept</th>
-              <th style={{ ...th, width: COL.wage, textAlign: 'right' }}>Wage</th>
+              <th style={{ ...th, width: COL.hourly, textAlign: 'right' }}>Hourly</th>
+              <th style={{ ...th, width: COL.wage, textAlign: 'right' }}>Day</th>
               <th style={{ ...th, width: COL.burden, textAlign: 'right' }}>Burden</th>
               <th style={{ ...th, width: COL.overhead, textAlign: 'right' }}>Overhead</th>
               <th style={{ ...th, width: COL.total, textAlign: 'right' }}>Total</th>
@@ -636,10 +657,16 @@ export default function RateCardTable({
                 <Fragment key={dept}>
                   {/* ── Department group header ── */}
                   <tr>
-                    <td colSpan={10} style={{ padding: 0, borderBottom: '2px solid #d97706' }}>
+                    {/* Audrey, 2026-08-10: "make the yellow team bars in the
+                        internal page a dark orange … stick to our color
+                        palette." #fde68a/#d97706 were amber — outside the
+                        three-ink palette entirely. #c2410c is the same dark
+                        orange as the primary button, and carries white at
+                        5.18:1. */}
+                    <td colSpan={11} style={{ padding: 0, borderBottom: `1px solid ${LIGHT_INK}` }}>
                       <div
                         className="flex items-center gap-3 px-3 py-1.5"
-                        style={{ backgroundColor: '#fde68a' }}
+                        style={{ backgroundColor: '#c2410c' }}
                       >
                         <button
                           type="button"
@@ -647,15 +674,15 @@ export default function RateCardTable({
                           className="flex items-center gap-1.5 hover:opacity-80"
                         >
                           {isOpen
-                            ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
-                            : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />}
+                            ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />
+                            : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />}
                           <span
                             className="text-xs font-mono font-bold uppercase tracking-wider"
-                            style={{ color: '#7c2d12' }}
+                            style={{ color: '#ffffff' }}
                           >
                             {dept}
                           </span>
-                          <span className="text-[10px] font-mono" style={{ color: '#92400e' }}>
+                          <span className="text-[10px] font-mono" style={{ color: '#ffffff' }}>
                             ({rows.length})
                           </span>
                         </button>
@@ -686,8 +713,8 @@ export default function RateCardTable({
                     return (
                       <tr
                         key={row.id}
-                        className="hover:bg-orange-50 transition-colors"
-                        style={isGhost ? { backgroundColor: '#fff7ed' } : undefined}
+                        className="hover:bg-orange-900/10 transition-colors"
+                        style={isGhost ? { backgroundColor: LIGHT_WELL } : undefined}
                       >
                         {/* Role / Member name */}
                         <td style={td}>
@@ -697,14 +724,14 @@ export default function RateCardTable({
                                 {row._member.name}
                               </span>
                               {row._member.title && (
-                                <span className="text-[10px] truncate" style={{ color: '#78716c' }}>
+                                <span className="text-[10px] truncate" style={{ color: LIGHT_INK }}>
                                   {row._member.title}
                                 </span>
                               )}
                               {isGhost && (
                                 <AlertTriangle
                                   className="w-3 h-3 flex-shrink-0"
-                                  style={{ color: '#d97706' }}
+                                  style={{ color: '#c2410c' }}
                                   title="No rate set"
                                 />
                               )}
@@ -714,6 +741,7 @@ export default function RateCardTable({
                               value={row.role_label}
                               onCommit={v => handleUpdate(row, { role_label: v, role_slug: makeSlug(v) })}
                               placeholder={isInternal ? 'Title...' : 'Role...'}
+                              readOnly={readOnly}
                             />
                           )}
                         </td>
@@ -723,11 +751,31 @@ export default function RateCardTable({
                           <DepartmentSelect
                             value={row.department}
                             onChange={v => handleUpdate(row, { department: v })}
-                            readOnly={isInternal && !!row._member}
+                            readOnly={readOnly || (isInternal && !!row._member)}
                           />
                         </td>
 
-                        {/* Wage */}
+                        {/* Hourly — derived from the day rate, and editable.
+                            Committing here multiplies back up so `wage`
+                            stays the single stored number. */}
+                        <td style={td}>
+                          <EditCell
+                            value={row.wage == null || row.wage === '' ? null
+                              : Math.round((Number(row.wage) / HOURS_PER_DAY) * 100) / 100}
+                            numeric
+                            currency={row.currency}
+                            onCommit={v => handleUpdate(row, {
+                              wage: v == null || v === '' ? null
+                                : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100,
+                            })}
+                            placeholder="—"
+                            align="right"
+                            mono
+                            readOnly={readOnly}
+                          />
+                        </td>
+
+                        {/* Day rate — the stored `wage` */}
                         <td style={td}>
                           <EditCell
                             value={row.wage}
@@ -737,6 +785,7 @@ export default function RateCardTable({
                             placeholder="—"
                             align="right"
                             mono
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -752,6 +801,7 @@ export default function RateCardTable({
                             })}
                             currency={row.currency}
                             deptPct={dd.burden_pct}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -767,6 +817,7 @@ export default function RateCardTable({
                             })}
                             currency={row.currency}
                             deptPct={dd.overhead_pct}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -775,8 +826,7 @@ export default function RateCardTable({
                           <span
                             className="block px-2 py-1.5 text-xs font-mono text-right font-bold"
                             style={{
-                              color: computed.total > 0 ? '#166534' : '#78716c',
-                              opacity: computed.total > 0 ? 1 : 0.4,
+                              color: computed.total > 0 ? '#166534' : LIGHT_INK,
                             }}
                           >
                             {computed.total > 0 ? formatCurrency(computed.total, row.currency) : '—'}
@@ -788,6 +838,7 @@ export default function RateCardTable({
                           <CurrencyCell
                             value={row.currency}
                             onCommit={v => handleUpdate(row, { currency: v })}
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -797,6 +848,7 @@ export default function RateCardTable({
                             value={row.region}
                             onCommit={v => handleUpdate(row, { region: v || null })}
                             placeholder="—"
+                            readOnly={readOnly}
                           />
                         </td>
 
@@ -805,12 +857,13 @@ export default function RateCardTable({
                           <TierSelect
                             value={row.project_size}
                             onChange={v => handleUpdate(row, { project_size: v })}
+                            readOnly={readOnly}
                           />
                         </td>
 
                         {/* Actions */}
                         <td style={{ ...td, paddingRight: 6 }}>
-                          {!isGhost ? (
+                          {!isGhost && !readOnly ? (
                             <RowActions
                               onDuplicate={() => handleDuplicate(row)}
                               onDelete={() => handleDelete(row)}
@@ -825,8 +878,8 @@ export default function RateCardTable({
             })}
 
             {/* ── Draft row (general card only) ── */}
-            {!isInternal && (
-              <tr style={{ backgroundColor: '#fff7ed' }}>
+            {!isInternal && !readOnly && (
+              <tr style={{ backgroundColor: LIGHT_WELL }}>
                 <td style={td}>
                   <EditCell
                     value={draft.role_label}
@@ -840,6 +893,20 @@ export default function RateCardTable({
                 <td style={td}>
                   <DepartmentSelect value={draft.department} onChange={v => patchDraft('department', v)} />
                 </td>
+                {/* Hourly on the draft row, same derivation as a live row. */}
+                <td style={td}>
+                  <EditCell
+                    value={draft.wage == null || draft.wage === '' ? null
+                      : Math.round((Number(draft.wage) / HOURS_PER_DAY) * 100) / 100}
+                    numeric
+                    currency={draft.currency}
+                    onCommit={v => patchDraft('wage', v == null || v === '' ? null
+                      : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100)}
+                    placeholder="—"
+                    align="right"
+                    mono
+                  />
+                </td>
                 <td style={td}>
                   <EditCell
                     value={draft.wage}
@@ -852,12 +919,12 @@ export default function RateCardTable({
                   />
                 </td>
                 <td style={td} colSpan={2}>
-                  <span className="block px-2 py-1.5 text-[10px] font-mono text-center" style={{ color: '#78716c' }}>
+                  <span className="block px-2 py-1.5 text-[10px] font-mono text-center italic" style={{ color: LIGHT_INK }}>
                     editable after adding
                   </span>
                 </td>
                 <td style={td}>
-                  <span className="block px-2 py-1.5 text-xs font-mono text-right" style={{ color: '#78716c', opacity: 0.4 }}>
+                  <span className="block px-2 py-1.5 text-xs font-mono text-right italic" style={{ color: LIGHT_INK }}>
                     —
                   </span>
                 </td>
@@ -888,7 +955,7 @@ export default function RateCardTable({
             {/* ── Empty state ── */}
             {displayRows.length === 0 && !loading && (
               <tr>
-                <td colSpan={10} className="text-center text-xs font-mono py-8" style={{ color: '#7c2d12', opacity: 0.7 }}>
+                <td colSpan={11} className="text-center text-xs font-mono py-8 italic" style={{ color: LIGHT_INK }}>
                   {isInternal
                     ? 'No team members found — add team members in the Team Members page.'
                     : 'No rate card entries yet — add one above or import from a file.'}

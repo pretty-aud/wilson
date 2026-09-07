@@ -1,4 +1,9 @@
 import { createContext, useContext, useState, useCallback, useRef, useMemo, useEffect } from 'react'
+import { callAI, isRetryableAIError } from '../cloud/aiProxy'
+import { textFromMessage } from '../cloud/anthropicStream'
+import { loadAgentSkills } from '../lib/localData'
+import { modelFor } from '../lib/activeModel'
+import { otterFetch } from '../tools/otter_v0.3.1/adapters'
 import DiffView from './DiffView'
 import LessonOutlinePopup from './LessonOutlinePopup'
 import { AGENT_SYSTEM_PROMPT, AGENT_EDIT_CONTEXT } from './agentPrompts'
@@ -44,7 +49,7 @@ function AgentToast({ message, onDone }) {
  * unchanged because (a) Otter passes 'otter' as the first arg now and
  * (b) lockedSubjects is a backward-compat alias for lockedEntities.otter.
  */
-export default function AgentProvider({ children, apiKey }) {
+export default function AgentProvider({ children }) {
   // Agent mode state
   const [agentEnabled, setAgentEnabled] = useState(true)
   const [agentMode, setAgentMode] = useState(false) // false = chat, true = agent/work
@@ -64,8 +69,9 @@ export default function AgentProvider({ children, apiKey }) {
 
   const refreshPromptOverrides = useCallback(async () => {
     try {
-      const res = await fetch('/api/agent-skills')
-      const data = await res.json().catch(() => ({}))
+      // localData routes to the local server in Electron and localStorage on
+      // the web (Session 12 — the raw fetch 404'd in a browser).
+      const data = await loadAgentSkills()
       if (data && typeof data === 'object') setPromptOverrides(data)
     } catch {
       /* best effort */
@@ -249,7 +255,9 @@ export default function AgentProvider({ children, apiKey }) {
   // Send message to agent
   const sendAgentMessage = useCallback(async (overrideInput) => {
     const currentInput = overrideInput || agentInputRef.current
-    if (!currentInput.trim() || !apiKey) return
+    // AI rides the authenticated ai-proxy (locked #21) — callAI surfaces a
+    // friendly "sign in" error below if there is no session.
+    if (!currentInput.trim()) return
 
     const userMsg = { role: 'user', content: currentInput }
     const newMessages = [...agentMessages, userMsg]
@@ -364,37 +372,24 @@ export default function AgentProvider({ children, apiKey }) {
       for (let attempt = 0; attempt < 3; attempt++) {
         if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt))
         try {
-          const res = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'anthropic-version': '2023-06-01',
-              'anthropic-dangerous-direct-browser-access': 'true',
-            },
-            body: JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
-              max_tokens: 4096,
-              system: systemPrompt,
-              messages: trimmedMessages,
-            }),
+          data = await callAI({
+            model: modelFor('agent.chat'),
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: trimmedMessages,
+            tool: 'agent',
           })
-          data = await res.json()
-          if (data.error) {
-            const errMsg = data.error?.message || JSON.stringify(data.error)
-            const isRetryable = res.status === 429 || res.status === 529 || res.status === 503 || /overloaded|rate.?limit|capacity/i.test(errMsg)
-            if (isRetryable && attempt < 2) { lastError = errMsg; continue }
-            throw new Error(errMsg)
-          }
           break
         } catch (fetchErr) {
           lastError = fetchErr.message || 'Network error'
-          if (attempt < 2 && !/invalid|auth|key|permission/i.test(lastError)) continue
+          const authish = /invalid|auth|key|permission|sign in/i.test(lastError) && !isRetryableAIError(fetchErr)
+          if (attempt < 2 && !authish) continue
           throw fetchErr
         }
       }
 
-      const replyText = data.content?.[0]?.text || 'Sorry, I had trouble processing that.'
+      // S30: a thinking block can occupy content[0]; find the text block.
+      const replyText = textFromMessage(data) || 'Sorry, I had trouble processing that.'
       const parsed = parseAgentResponse(replyText)
 
       // Show the message part in chat
@@ -411,7 +406,7 @@ export default function AgentProvider({ children, apiKey }) {
     } finally {
       setAgentLoading(false)
     }
-  }, [agentMessages, apiKey, agentSystemPrompt, promptOverrides, lockedEntities, activeTool, handleAgentAction])
+  }, [agentMessages, agentSystemPrompt, promptOverrides, lockedEntities, activeTool, handleAgentAction])
 
   // Undo last edit (Otter scope — RABBIT will own its own undo path).
   const undoLastEdit = useCallback(async () => {
@@ -421,8 +416,10 @@ export default function AgentProvider({ children, apiKey }) {
 
     const last = undoStack[undoStack.length - 1]
     try {
-      // Re-save the previous subject data
-      await fetch(`/api/software/${tool.currentContext.activeSoftwareSlug}/subjects`, {
+      // Re-save the previous subject data — through the adapter seam, so the
+      // write lands in Supabase in cloud mode / on the web (Session 12; the
+      // raw fetch silently 404'd outside Electron-local).
+      await otterFetch(`/api/software/${tool.currentContext.activeSoftwareSlug}/subjects`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(last.previousData),

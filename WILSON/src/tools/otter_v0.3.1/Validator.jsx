@@ -5,57 +5,63 @@ import {
   ArrowRight, RefreshCw
 } from 'lucide-react';
 import { VALIDATION_PROMPT, FIX_PROMPT } from './validatorPrompts.js';
+// Session 10: content routes go through the adapter seam (see adapters/index.js).
+import { otterFetch } from './adapters';
+// Session 12 (locked #21): Anthropic access rides the ai-proxy Edge Function.
+import { callAI } from '../../cloud/aiProxy';
+import { modelFor } from '../../lib/activeModel';
 
 // ── API helper (model-agnostic) ──────────────────────────────────────────────
-async function callValidatorAPI({ apiKey, model, systemPrompt, messages, tools, signal }) {
+// Both call sites below omit `model`, so the fallback is what actually runs.
+// It is kept as a parameter rather than removed because the continuation
+// below passes it back through.
+// Bounds the pause_turn continuation below. The previous version recursed with
+// no ceiling at all.
+const MAX_CONTINUATIONS = 3;
+
+async function callValidatorAPI({ model, systemPrompt, messages, tools, signal, depth = 0 }) {
   const body = {
-    model: model || 'claude-sonnet-4-20250514',
+    model: model || modelFor('otter.validator'),
     max_tokens: 8096,
     system: systemPrompt,
     messages,
+    tool: 'validator',
   };
   if (tools) body.tools = tools;
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
-
-  const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  const data = await callAI(body, { signal });
 
   // Extract text from response — may contain tool_use blocks from web search
   const textBlock = data.content.find(b => b.type === 'text');
   if (textBlock) return textBlock.text;
 
-  // If stop_reason is 'tool_use', we need to continue the conversation
-  // so the model can use web search results and produce a final answer
-  if (data.stop_reason === 'tool_use') {
-    // Collect all tool_use blocks and create tool_result messages
-    const toolUses = data.content.filter(b => b.type === 'tool_use');
-    // For server-side tools like web_search, the results are handled automatically
-    // We need to send another request with the assistant's response to continue
-    const continuedMessages = [
-      ...messages,
-      { role: 'assistant', content: data.content },
-    ];
-
-    // Recurse to get the final text response
+  // Continue a server-side tool run that hit its iteration limit.
+  //
+  // S19 measured the old shape of this branch against claude-sonnet-5 and it
+  // returns 400: "This model does not support assistant message prefill. The
+  // conversation must end with a user message." It branched on
+  // `stop_reason === 'tool_use'`, which is the signal for a CLIENT tool — and
+  // the Validator declares none. The only tool here is server-side web search,
+  // whose real signal is `pause_turn`. So the branch was both unreachable in
+  // practice and invalid if it ever were reached.
+  //
+  // `pause_turn` is resumed by re-sending with the assistant turn appended and
+  // NO trailing user turn — the API recognises the trailing server_tool_use
+  // block and continues. That is the documented shape; it is not the same as
+  // the text prefill that was measured failing.
+  if (data.stop_reason === 'pause_turn' && depth < MAX_CONTINUATIONS) {
     return callValidatorAPI({
-      apiKey, model, systemPrompt,
-      messages: continuedMessages,
+      model, systemPrompt,
+      messages: [...messages, { role: 'assistant', content: data.content }],
       tools, signal,
+      depth: depth + 1,
     });
   }
 
-  throw new Error('No text response from API');
+  if (data.stop_reason === 'pause_turn') {
+    throw new Error(`Validator stopped after ${MAX_CONTINUATIONS} continuations without a final answer.`);
+  }
+  throw new Error(`No text response from API (stop_reason: ${data.stop_reason ?? 'unknown'}).`);
 }
 
 // ── Parse JSON from AI response ──────────────────────────────────────────────
@@ -99,7 +105,7 @@ function verdictIcon(verdict) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VALIDATOR COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
-export default function Validator({ apiKey, softwareList, activeSoftwareSlug, softwareCacheRef, subjectCacheRef }) {
+export default function Validator({ softwareList, activeSoftwareSlug, softwareCacheRef, subjectCacheRef }) {
 
   // ── Phase: 'setup' = full-page lesson picker, 'results' = sidebar+detail ──
   const [phase, setPhase] = useState('setup');
@@ -118,8 +124,31 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
 
   // ── Fix state ──────────────────────────────────────────────────────────────
   const [fixLoading, setFixLoading] = useState(false);
-  const [acceptedFixes, setAcceptedFixes] = useState(new Set());
-  const [declinedFixes, setDeclinedFixes] = useState(new Set());
+  // Session 30: keyed BY AUDIT.
+  //
+  // This was two flat Sets of fix INDICES shared across every audit in the run.
+  // An index carries no identity of its own, so the obvious hazard is one
+  // lesson's outcomes showing up on another's — and that was NOT reachable,
+  // because selecting an audit in the sidebar cleared both Sets (the reset that
+  // used to sit in that onClick). The defect was the cure: outcomes were
+  // DISCARDED on every audit switch. Accept a fix on lesson A, look at lesson
+  // B, come back — A's fix reads unhandled and invites a second Accept, which
+  // then cannot match `fix.original` because the first one already replaced it.
+  // Silently, under the old code.
+  //
+  // Keying by audit keeps each lesson's outcomes across navigation and removes
+  // the need for the reset, so the hazard cannot come back either.
+  //
+  //   { [auditId]: { [fixIndex]: { status: 'accepted' | 'declined' | 'failed',
+  //                                error?: string } } }
+  const [fixState, setFixState] = useState({});
+
+  const setFixOutcome = useCallback((auditId, index, outcome) => {
+    setFixState(prev => ({
+      ...prev,
+      [auditId]: { ...(prev[auditId] ?? {}), [index]: outcome },
+    }));
+  }, []);
 
   // ── Refs ────────────────────────────────────────────────────────────────────
   const abortRef = useRef(null);
@@ -129,6 +158,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
   const [cacheVersion, setCacheVersion] = useState(0);
 
   const selectedAudit = auditResults.find(a => a.id === selectedAuditId) || null;
+  const auditFixState = fixState[selectedAuditId] ?? {};
 
   // ── Fetch ALL subjects across ALL software into cache ────────────────────
   const [loadingSubjects, setLoadingSubjects] = useState(false);
@@ -147,7 +177,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
           const cacheKey = `${sw.slug}/${sub.slug}`;
           if (!subjectCacheRef.current[cacheKey]) {
             try {
-              const fullSub = await fetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
+              const fullSub = await otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`).then(r => r.json());
               if (!cancelled) {
                 subjectCacheRef.current[cacheKey] = fullSub;
                 fetched = true;
@@ -293,7 +323,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
         const cacheKey = `${next.softwareSlug}/${next.subjectSlug}`;
         let fullSub = subjectCacheRef.current[cacheKey];
         if (!fullSub) {
-          fullSub = await fetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
+          fullSub = await otterFetch(`/api/software/${next.softwareSlug}/subjects/${next.subjectSlug}`).then(r => r.json());
           subjectCacheRef.current[cacheKey] = fullSub;
         }
 
@@ -308,7 +338,6 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
         const userMessage = `Validate the following lesson:\n\nTitle: ${lesson.title}\n\nContent:\n${lesson.content}\n\nKey Takeaways:\n${(lesson.key_takeaways || []).map((t, i) => `${i + 1}. ${t}`).join('\n')}\n\nPractice Prompt:\n${lesson.practice_prompt || 'N/A'}`;
 
         const responseText = await callValidatorAPI({
-          apiKey,
           systemPrompt: VALIDATION_PROMPT,
           messages: [{ role: 'user', content: userMessage }],
           tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
@@ -342,9 +371,16 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
         ));
       } catch (err) {
         if (err.name === 'AbortError') return;
+        // S30: keep the REASON. A red dot with the message in the console is
+        // the same defect as the green tick over a failed save — the screen
+        // shows a state and withholds the only thing that explains it. Audrey
+        // hit this on her first real audit: three lessons validated, one went
+        // red, and nothing on the page said why.
         console.error('Validation error:', err);
         setValidationQueue(prev => prev.map(q =>
-          q.id === next.id ? { ...q, status: 'failed' } : q
+          q.id === next.id
+            ? { ...q, status: 'failed', error: err?.message || 'Validation failed.' }
+            : q
         ));
       }
     })();
@@ -352,7 +388,7 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     return () => {
       // Don't abort on cleanup — let background processing continue
     };
-  }, [validationQueue, isProcessing, apiKey, subjectCacheRef]);
+  }, [validationQueue, isProcessing, subjectCacheRef]);
 
   // ── Stop validation ────────────────────────────────────────────────────────
   const stopValidation = () => {
@@ -360,7 +396,9 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     setIsProcessing(false);
     processingRef.current = false;
     setValidationQueue(prev => prev.map(q =>
-      q.status === 'queued' || q.status === 'in-progress' ? { ...q, status: 'failed' } : q
+      q.status === 'queued' || q.status === 'in-progress'
+        ? { ...q, status: 'failed', error: 'Stopped before this lesson finished.' }
+        : q
     ));
   };
 
@@ -372,14 +410,15 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     if (inaccurate.length === 0) return;
 
     setFixLoading(true);
-    setAcceptedFixes(new Set());
-    setDeclinedFixes(new Set());
+    // Only THIS audit's outcomes are cleared. Wiping the whole map would
+    // re-introduce the cross-audit bleed from the other direction.
+    setFixState(prev => ({ ...prev, [selectedAudit.id]: {} }));
 
     try {
       const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
       let fullSub = subjectCacheRef.current[cacheKey];
       if (!fullSub) {
-        fullSub = await fetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
+        fullSub = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`).then(r => r.json());
         subjectCacheRef.current[cacheKey] = fullSub;
       }
 
@@ -393,7 +432,6 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
       const userMessage = `Here is the lesson content:\n\n${lesson.content}\n\nHere are the inaccurate findings that need to be fixed:\n\n${JSON.stringify(inaccurate, null, 2)}`;
 
       const responseText = await callValidatorAPI({
-        apiKey,
         systemPrompt: FIX_PROMPT,
         messages: [{ role: 'user', content: userMessage }],
       });
@@ -408,15 +446,40 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     } finally {
       setFixLoading(false);
     }
-  }, [selectedAudit, apiKey, subjectCacheRef]);
+  }, [selectedAudit, subjectCacheRef]);
 
   // ── Apply a single fix ─────────────────────────────────────────────────────
+  //
+  // 🚨 THE DEFECT THIS SESSION EXISTS TO FIX. Every failure path below used to
+  // end in a bare `return` or a console.error, and the ONLY path that reported
+  // anything to the user was the success one — which ran whether or not the
+  // save had happened. `otterFetch` resolves for every HTTP status (it is
+  // fetch's contract, and in cloud mode it manufactures the Response itself,
+  // adapters/index.js:127), so `await otterFetch(...)` succeeded on a 404 and on
+  // a 403 alike and the fix was ticked green. Against Local Server, where all
+  // of Audrey's courses live, there was no PUT route at all — so EVERY accepted
+  // fix 404ed and every one of them displayed as applied.
+  //
+  // The same trap is already recorded one file away, about a different write:
+  // supabaseOtterAdapter.js:253-255, "because no O.T.T.E.R. call site checks
+  // res.ok the UI would have reported every generated subject as saved while
+  // nothing at all was written."
+  //
+  // Returns true only when the corrected lesson is actually stored, so
+  // acceptAllFixes can stop instead of stacking identical refusals.
   const applyFix = useCallback(async (fix, fixIndex) => {
-    if (!selectedAudit) return;
+    if (!selectedAudit) return false;
+    const auditId = selectedAudit.id;
+    const fail = (error) => {
+      setFixOutcome(auditId, fixIndex, { status: 'failed', error });
+      return false;
+    };
 
     const cacheKey = `${selectedAudit.softwareSlug}/${selectedAudit.subjectSlug}`;
-    let fullSub = subjectCacheRef.current[cacheKey];
-    if (!fullSub) return;
+    const fullSub = subjectCacheRef.current[cacheKey];
+    if (!fullSub) {
+      return fail('This lesson is no longer loaded. Reopen the audit and try again.');
+    }
 
     // Deep clone the subject
     const updated = JSON.parse(JSON.stringify(fullSub));
@@ -432,32 +495,49 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
     }
 
     if (!applied) {
-      console.warn('Could not find original text to replace');
-      return;
+      return fail('The original wording is no longer in this lesson — it may have been edited, or this fix may already have been applied.');
     }
 
+    let res;
     try {
-      await fetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
+      res = await otterFetch(`/api/software/${selectedAudit.softwareSlug}/subjects/${selectedAudit.subjectSlug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updated),
       });
-      subjectCacheRef.current[cacheKey] = updated;
-      setAcceptedFixes(prev => new Set([...prev, fixIndex]));
     } catch (err) {
-      console.error('Failed to apply fix:', err);
+      return fail(err?.message || 'The correction could not be sent.');
     }
-  }, [selectedAudit, subjectCacheRef]);
+
+    if (!res.ok) {
+      // Both backends answer JSON on refusal — cloud through otterFetch's error
+      // shape, local through the Express handlers — but a bare 404 from Express
+      // is HTML, so the parse has to be allowed to fail.
+      const detail = await res.json().then(b => b?.error).catch(() => null);
+      return fail(detail || `The correction was refused (HTTP ${res.status}) and has NOT been saved.`);
+    }
+
+    subjectCacheRef.current[cacheKey] = updated;
+    setFixOutcome(auditId, fixIndex, { status: 'accepted' });
+    return true;
+  }, [selectedAudit, subjectCacheRef, setFixOutcome]);
 
   // ── Accept all fixes ───────────────────────────────────────────────────────
   const acceptAllFixes = useCallback(async () => {
     if (!selectedAudit?.fixes) return;
+    const current = fixState[selectedAudit.id] ?? {};
 
     for (let i = 0; i < selectedAudit.fixes.length; i++) {
-      if (acceptedFixes.has(i) || declinedFixes.has(i)) continue;
-      await applyFix(selectedAudit.fixes[i], i);
+      const status = current[i]?.status;
+      if (status === 'accepted' || status === 'declined') continue;
+      const saved = await applyFix(selectedAudit.fixes[i], i);
+      // Stop at the first refusal. Every fix here writes the SAME subject
+      // through the same route, so whatever refused one refuses all of them;
+      // carrying on would stack identical errors and spend the round trips to
+      // earn them.
+      if (!saved) break;
     }
-  }, [selectedAudit, acceptedFixes, declinedFixes, applyFix]);
+  }, [selectedAudit, fixState, applyFix]);
 
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -468,7 +548,12 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
   const activeItem = validationQueue.find(q => q.status === 'in-progress');
   const completedQueue = validationQueue.filter(q => q.status === 'completed' || q.status === 'failed');
   const inaccurateCount = selectedAudit?.findings?.filter(f => f.verdict === 'inaccurate').length || 0;
-  const hasUnhandledFixes = selectedAudit?.fixes?.some((_, i) => !acceptedFixes.has(i) && !declinedFixes.has(i));
+  // 'failed' deliberately counts as UNHANDLED, so "Accept All Fixes" stays
+  // available to retry a refusal once the cause is dealt with.
+  const hasUnhandledFixes = selectedAudit?.fixes?.some((_, i) => {
+    const status = auditFixState[i]?.status;
+    return status !== 'accepted' && status !== 'declined';
+  });
 
   // ── Toggle lessons by group (software / subject / section) ───────────────
   const toggleSoftwareLessons = (sw) => {
@@ -746,15 +831,24 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
             {validationQueue.map(item => (
               <div
                 key={item.id}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs border-b border-stone-700/50"
+                className="px-3 py-1.5 text-xs border-b border-stone-700/50"
               >
-                {item.status === 'queued' && <div className="w-3 h-3 rounded-full bg-stone-600 shrink-0" />}
-                {item.status === 'in-progress' && <Loader2 className="w-3 h-3 text-orange-400 animate-spin shrink-0" />}
-                {item.status === 'completed' && <Check className="w-3 h-3 text-green-400 shrink-0" />}
-                {item.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />}
-                <span className={`truncate ${item.status === 'in-progress' ? 'text-orange-300' : 'text-stone-400'}`}>
-                  {item.lessonTitle}
-                </span>
+                <div className="flex items-center gap-2">
+                  {item.status === 'queued' && <div className="w-3 h-3 rounded-full bg-stone-600 shrink-0" />}
+                  {item.status === 'in-progress' && <Loader2 className="w-3 h-3 text-orange-400 animate-spin shrink-0" />}
+                  {item.status === 'completed' && <Check className="w-3 h-3 text-green-400 shrink-0" />}
+                  {item.status === 'failed' && <AlertCircle className="w-3 h-3 text-red-400 shrink-0" />}
+                  <span className={`truncate ${item.status === 'in-progress' ? 'text-orange-300' : 'text-stone-400'}`}>
+                    {item.lessonTitle}
+                  </span>
+                </div>
+                {/* S30: the reason, on the row that failed. It used to go to
+                    the console only, so a red dot was the whole explanation. */}
+                {item.status === 'failed' && item.error && (
+                  <div className="text-red-300/80 leading-relaxed mt-0.5 ml-5">
+                    {item.error}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -774,14 +868,13 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
           ) : (
             auditResults.map(audit => {
               const gc = gradeColor(audit.grade);
+              // Selecting an audit no longer resets the accepted/declined
+              // state: fixState is keyed by audit id, so switching lessons
+              // keeps what you already decided rather than throwing it away.
               return (
                 <button
                   key={audit.id}
-                  onClick={() => {
-                    setSelectedAuditId(audit.id);
-                    setAcceptedFixes(new Set());
-                    setDeclinedFixes(new Set());
-                  }}
+                  onClick={() => setSelectedAuditId(audit.id)}
                   className={`w-full flex items-center gap-2 px-3 py-2 text-left border-b border-stone-700/50 transition-colors ${
                     selectedAuditId === audit.id ? 'bg-stone-700' : 'hover:bg-stone-700/50'
                   }`}
@@ -881,10 +974,9 @@ export default function Validator({ apiKey, softwareList, activeSoftwareSlug, so
                         key={fi}
                         fix={fix}
                         index={fi}
-                        accepted={acceptedFixes.has(fi)}
-                        declined={declinedFixes.has(fi)}
+                        outcome={auditFixState[fi]}
                         onAccept={() => applyFix(fix, fi)}
-                        onDecline={() => setDeclinedFixes(prev => new Set([...prev, fi]))}
+                        onDecline={() => setFixOutcome(selectedAudit.id, fi, { status: 'declined' })}
                       />
                     ))}
                   </div>
@@ -943,7 +1035,11 @@ function FindingCard({ finding }) {
 
 
 // ── Fix Card ─────────────────────────────────────────────────────────────────
-function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
+function FixCard({ fix, index, outcome, onAccept, onDecline }) {
+  const accepted = outcome?.status === 'accepted';
+  const declined = outcome?.status === 'declined';
+  const failed   = outcome?.status === 'failed';
+
   if (accepted) {
     return (
       <div className="border border-green-700/50 bg-green-950/20 rounded-sm p-3 flex items-center gap-2">
@@ -984,6 +1080,17 @@ function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
           </div>
         </div>
       </div>
+      {/* Session 30: a refused save says so, here, next to the fix it refused.
+          Before this the same click produced a green "Fix #n applied" whether
+          the correction reached the course or not. */}
+      {failed && (
+        <div className="px-3 py-2 bg-red-950/30 border-t border-red-800/50 flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
+          <span className="text-xs text-red-300 leading-relaxed">
+            <span className="font-bold">Not saved.</span> {outcome.error}
+          </span>
+        </div>
+      )}
       <div className="px-3 py-2 bg-stone-800 border-t border-stone-700 flex items-center gap-2 justify-end">
         <button
           onClick={onDecline}
@@ -995,7 +1102,7 @@ function FixCard({ fix, index, accepted, declined, onAccept, onDecline }) {
           onClick={onAccept}
           className="px-3 py-1 text-xs font-bold text-white bg-green-700 rounded-sm hover:bg-green-600 transition-colors"
         >
-          Accept Fix
+          {failed ? 'Try Again' : 'Accept Fix'}
         </button>
       </div>
     </div>

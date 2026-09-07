@@ -14,11 +14,22 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { usePermissions } from '../../permissions/usePermissions'
 
 export function useTaskTemplates() {
   const rabbit = useRabbit()
+  const perms = usePermissions()
   const getAdapter = rabbit?.getAdapter
-  const workspaceId = rabbit?.DEFAULT_WORKSPACE_ID
+  // Same trap as useRateCard — see the long note there. DEFAULT_WORKSPACE_ID
+  // is the pre-multi-tenant seed constant and is refused by every
+  // workspace-scoped RLS policy in cloud mode. Null claim -> local mode ->
+  // the seed constant, which is correct there.
+  // Gated on `ready` — see the long note in useRateCard. Reading
+  // perms.workspaceId before the session resolves yields the seed constant and
+  // every workspace-scoped write is refused.
+  const workspaceId = perms?.ready
+    ? (perms.workspaceId || rabbit?.DEFAULT_WORKSPACE_ID)
+    : null
   const adapterMode = rabbit?.adapterMode
   const adapterStatus = rabbit?.adapterStatus
 

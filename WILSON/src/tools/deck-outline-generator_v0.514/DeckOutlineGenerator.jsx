@@ -1,6 +1,10 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Upload, FileText, Sparkles, Copy, Check, ChevronDown, ChevronRight, X, Loader2, Layers, Trash2, Download, Eye, Code, FolderUp, Plus, Image, Settings, HelpCircle, Lock, Unlock, RefreshCw, Undo2, Redo2, Scissors, ClipboardList, Bold, List, ListOrdered } from 'lucide-react';
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider';
+import { callAI } from '../../cloud/aiProxy';
+import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
+import { modelFor, tuningFor } from '../../lib/activeModel';
+import ModelPicker from '../../components/settings/ModelPicker';
 import { DOG_HELP_SIDEBAR_ITEMS, DogHelpContent } from '../../data/dogHelpContent';
 import { getLuminance, getContrastRatio, ensureContrast } from './colorUtils';
 import { PRESET_THEMES, SLIDE_LAYOUTS } from './constants';
@@ -14,7 +18,7 @@ import LayoutVisualizer from './LayoutVisualizer';
 import DuplicateResolverModal from './modals/DuplicateResolverModal';
 import HistoryModal from './modals/HistoryModal';
 
-export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
+export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggleNavMenu, openSettingsTrigger, zoomLevel = 0 }) {
   // Detect OS for keyboard shortcut labels
   const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
   const modKey = isMac ? '⌘' : 'Ctrl+';
@@ -92,6 +96,11 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const refreshProjectsIndex = rabbitCtx?.refreshProjectsIndex;
   const createUnifiedProject = rabbitCtx?.createProject;
   const updateUnifiedProject = rabbitCtx?.updateProject;
+  // Session 12: cloud projects carry no documents/visualAssets (locked #17 —
+  // D.O.G. gets no content model; cloud-readable file blobs are S14 work).
+  // The attachment affordances degrade visibly in cloud mode instead of
+  // silently losing files at the adapter.
+  const cloudProjects = rabbitCtx?.adapterMode === 'supabase';
 
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [showNewProjectModal, setShowNewProjectModal] = useState(false);
@@ -316,9 +325,6 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     }
   }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal]);
 
-  // API Key — provided by container via props
-  const anthropicApiKey = apiKey || '';
-
   // Editable System Prompts
   const [singlePageSystemPrompt, setSinglePageSystemPrompt] = useState(DEFAULT_SINGLE_PAGE_SYSTEM);
   const [fullDeckSystemPrompt, setFullDeckSystemPrompt] = useState(DEFAULT_FULL_DECK_SYSTEM);
@@ -356,6 +362,11 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
   const [themeIndex, setThemeIndex] = useState(0); // current index in theme list
   const [enableThemeGen, setEnableThemeGen] = useState(true); // checkbox: AI generation vs presets
   const [isGeneratingTheme, setIsGeneratingTheme] = useState(false);
+  // The theme generator had a spinner and no failure state, so every way it
+  // could fail looked exactly like success-with-no-themes. Rendered in <main>
+  // beside the deck error — a message set into state nothing reads is the same
+  // silence wearing a hat.
+  const [themeError, setThemeError] = useState('');
   const [deckVisualDesc, setDeckVisualDesc] = useState(''); // generated deck visual description
   const [includeVisInExport, setIncludeVisInExport] = useState(false); // export checkbox for VIS format
   const [themeColorPrompt, setThemeColorPrompt] = useState(DEFAULT_THEME_COLOR_PROMPT);
@@ -425,7 +436,8 @@ export default function DeckOutlineGenerator({ apiKey, onNavigate, showNavMenu, 
     if (isGeneratingThemeRef.current) return null;
     isGeneratingThemeRef.current = true;
     setIsGeneratingTheme(true);
-    
+    setThemeError('');
+
     try {
       const historyToUse = overrideHistory || history;
       const contextSnippet = (systemPrompt || '').substring(0, 800);
@@ -445,23 +457,13 @@ ${textSnippets ? `Content excerpt:\n${textSnippets}` : ''}
 Generate 3 color themes for this deck.`;
 
       console.log('Theme gen: calling Haiku API...');
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 500,
-          system: themeColorPrompt,
-          messages: [{ role: 'user', content: userMsg }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.themes'),
+        max_tokens: 500,
+        system: themeColorPrompt,
+        messages: [{ role: 'user', content: userMsg }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Theme gen API error:', response.status, errText);
-        throw new Error(`API ${response.status}`);
-      }
-      const data = await response.json();
       const text = data.content.map(i => i.text || '').join('').trim();
       console.log('Theme gen response:', text.substring(0, 200));
       const jsonStart = text.indexOf('[');
@@ -486,15 +488,27 @@ Generate 3 color themes for this deck.`;
           return validThemes;
         }
       }
+      // Reached the model, got a reply, but nothing usable came out of it —
+      // every theme was missing its `colors` array or had the wrong count.
+      // That is a failure, and it used to be indistinguishable from success.
+      setThemeError('The colour theme generator replied, but none of the themes it suggested were usable. Your deck is fine — the preset colours are still applied. Try the refresh button to run it again.');
       return null;
     } catch (err) {
       console.error('Theme generation error:', err);
+      // Returns null rather than rethrowing, deliberately: generateFullDeck
+      // awaits this and falls back to a preset theme on null. Throwing here
+      // would abort a deck that had already generated successfully.
+      setThemeError(
+        err?.status === 546
+          ? 'The colour theme generator was cut off before it finished. Your deck is fine — the preset colours are still applied.'
+          : `Could not generate colour themes: ${err?.message || 'the request failed'}. Your deck is fine — the preset colours are still applied.`
+      );
       return null;
     } finally {
       isGeneratingThemeRef.current = false;
       setIsGeneratingTheme(false);
     }
-  }, [systemPrompt, history, uploadedFiles, themeColorPrompt, anthropicApiKey]);
+  }, [systemPrompt, history, uploadedFiles, themeColorPrompt]);
 
   // Cycle to previous/next theme in allThemes list
   const cycleTheme = useCallback((direction) => {
@@ -873,6 +887,112 @@ ${alreadyPlacedContext}`;
     return { instructions, assetList, rules };
   }, []);
 
+  // ── Source documents go to Anthropic once, then travel as file_id ──────────
+  // Measured 2026-08-11: inlining documents as base64 is what killed the deck.
+  // A real deck carries ~232k input tokens of source material, and ai-proxy's
+  // Edge worker was being killed (HTTP 546) parsing and re-serialising that
+  // body before the request ever reached Anthropic. `effort` and `max_tokens`
+  // cannot reach an input-side failure — the body itself had to get smaller.
+  //
+  // Uploading does NOT reduce input tokens: the document is still billed as
+  // input on every call that references it. What it bounds is the body WILSON
+  // relays, which is the thing that was failing.
+  //
+  // Cached per file so a re-generation, and every call of the continuation
+  // loop, reuse the same id instead of re-uploading. Keyed on a content
+  // fingerprint rather than the record's `id` because project documents and
+  // picker uploads mint ids differently, and `allFiles` is rebuilt by useMemo
+  // on every render — an identity-keyed cache would miss constantly.
+  const aiFileIdCache = useRef(new Map());
+
+  const fileFingerprint = useCallback((fileData) => {
+    const c = String(fileData.content || '');
+    // Length plus both ends. Cheap (no hashing megabytes) and collision-proof
+    // for real documents — two different files would have to match in size AND
+    // first 48 AND last 48 characters.
+    return `${fileData.type}:${fileData.mediaType || ''}:${c.length}:${c.slice(0, 48)}:${c.slice(-48)}`;
+  }, []);
+
+  const ensureAIFileId = useCallback(async (fileData) => {
+    const key = fileFingerprint(fileData);
+    const cached = aiFileIdCache.current.get(key);
+    if (cached) return cached;
+
+    // Text is read with readAsText, so its `content` is plain text; pdf/image
+    // are read with readAsDataURL and hold base64. Getting this backwards
+    // produces a file Anthropic accepts and cannot read, so it is explicit.
+    const isText = fileData.type === 'text';
+    const mediaType = fileData.mediaType || (isText ? 'text/plain' : 'application/octet-stream');
+    const data = isText
+      ? new Blob([String(fileData.content || '')], { type: mediaType })
+      : fileData.content;
+
+    const uploaded = await uploadAIFile({
+      data,
+      filename: fileData.file?.name || 'document',
+      mediaType,
+    });
+    aiFileIdCache.current.set(key, uploaded.id);
+    return uploaded.id;
+  }, [fileFingerprint]);
+
+  /**
+   * The source documents, as content blocks plus whatever text stayed inline.
+   *
+   * ONE definition for all three generators — full deck, single page, and
+   * regenerate — because all three sent the same base64 payload and all three
+   * had the same HTTP 546 exposure. Fixing only the one Audrey reported would
+   * have left "Make a page" broken in exactly the same way, for the same
+   * reason, with the same unreadable error.
+   *
+   * Throws on upload failure; every caller catches and clears its own busy flag.
+   */
+  const buildSourceParts = useCallback(async () => {
+    // Text small enough to stay in the prompt does, so a normal deck sends
+    // byte-for-byte what it always did and its output cannot drift. Only text
+    // large enough to threaten the request body is diverted to an upload.
+    // This is a change of TRANSPORT, never a cap: nothing is truncated and no
+    // file is refused at any size.
+    const INLINE_TEXT_LIMIT = 256 * 1024;
+
+    const contentParts = [];
+    const inlineTextParts = [];
+    let usedFileRefs = false;
+
+    for (const fileData of allFiles) {
+      if (fileData.type === 'pdf' || fileData.type === 'image') {
+        const fileId = await ensureAIFileId(fileData);
+        usedFileRefs = true;
+        contentParts.push({
+          // The block type must match the file's MIME type — a PDF sent as an
+          // `image` block is a 400 that names neither the file nor why.
+          type: fileData.type === 'pdf' ? 'document' : 'image',
+          source: { type: 'file', file_id: fileId },
+        });
+      } else if (fileData.type === 'text') {
+        const body = String(fileData.content || '');
+        if (body.length > INLINE_TEXT_LIMIT) {
+          const fileId = await ensureAIFileId(fileData);
+          usedFileRefs = true;
+          contentParts.push({ type: 'document', source: { type: 'file', file_id: fileId } });
+        } else {
+          inlineTextParts.push(`--- ${fileData.file?.name || 'document'} ---\n${body}`);
+        }
+      }
+      // `video` is deliberately not sent to the model — videos are placement
+      // assets, and that was true before this change too.
+    }
+
+    return { contentParts, textContents: inlineTextParts.join('\n\n'), usedFileRefs };
+  }, [allFiles, ensureAIFileId]);
+
+  /** Turn an upload failure into something true and readable. */
+  const sourceUploadMessage = useCallback((err) => (
+    err?.status === 546
+      ? 'WILSON could not pass your source documents through to the AI. This is a limit in WILSON’s AI relay, not in your work.'
+      : `Could not prepare your source documents: ${err?.message || 'the upload failed'}`
+  ), []);
+
   const generatePageOutline = useCallback(async () => {
     if (!hasFileContent || !pagePrompt || !selectedLayout) {
       setError('Please upload a document, select a layout, and enter a page request');
@@ -1005,39 +1125,17 @@ RULES:
 28. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
 Generate the outline now:`;
     
-    // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData, index) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      } else {
-        // Text content - will be included in the text prompt
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    // Same exposure as the full deck: this path sent the same base64 payload.
+    let contentParts, textContents, usedFileRefs;
+    try {
+      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsGenerating(false);
+      return;
+    }
 
     // Build the text prompt
     const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
@@ -1086,27 +1184,16 @@ ${outputInstructions}${placementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
+      const data = await callAI({
+        model: modelFor('dog.pageOutline'),
+        // Required on every request that REFERENCES a file_id, not just the
+        // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
+        ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
       const output = data.content
         .filter(item => item.type === 'text')
         .map(item => item.text)
@@ -1180,7 +1267,7 @@ ${outputInstructions}${placementPrompt.rules}`;
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, uploadedFiles, allFiles, projectContext, pagePrompt, selectedLayout, systemPrompt, pageNumber, parseOutputToPages, singlePageSystemPrompt, deckThemeColors, history, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
 
   // Regenerate page with revisions
   const regeneratePage = useCallback(async () => {
@@ -1300,36 +1387,17 @@ RULES:
 Generate the revised outline now:`;
     
     // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    // Same exposure as the full deck: this path sent the same base64 payload.
+    let contentParts, textContents, usedFileRefs;
+    try {
+      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsRegenerating(false);
+      return;
+    }
 
     // Build the text prompt
     const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
@@ -1376,27 +1444,16 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4096,
-          system: singlePageSystemPrompt,
-          messages: messages
-        })
+      const data = await callAI({
+        model: modelFor('dog.regeneratePage'),
+        // Required on every request that REFERENCES a file_id, not just the
+        // upload. ai-proxy forwards `betas` verbatim — see the full-deck call.
+        ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+        max_tokens: 4096,
+        system: singlePageSystemPrompt,
+        messages: messages,
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        throw new Error('API request failed');
-      }
-
-      const data = await response.json();
       const output = data.content
         .filter(item => item.type === 'text')
         .map(item => item.text)
@@ -1445,7 +1502,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     } finally {
       setIsRegenerating(false);
     }
-  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [activeTab, hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, revisionPrompt, regenerateLayout, singlePageSystemPrompt, parseOutputToPages, history, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
 
   // Undo regeneration
   const undoRegeneration = useCallback(() => {
@@ -1537,6 +1594,7 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
     });
   }, [activeTab, redoContent]);
 
+
   const generateFullDeck = useCallback(async () => {
     console.log('generateFullDeck called', { hasFileContent, uploadedFiles: uploadedFiles.length });
     
@@ -1547,7 +1605,12 @@ ${outputInstructions}${regenPlacementPrompt.rules}`;
 
     setIsGenerating(true);
     setError('');
-    
+    // generateAIThemes clears this itself when it runs, which covers every case
+    // except the one that matters here: a rerun with the Theme Generator
+    // checkbox OFF never calls it, and last run's amber banner would sit there
+    // describing a failure that is no longer happening.
+    setThemeError('');
+
     const outputInstructions = `Generate a complete deck outline with multiple slides.
 
 CRITICAL: Output ONLY the structured format below. No explanations, no commentary, no "Based on..." or "Here is..." text.
@@ -1716,37 +1779,16 @@ RULES:
 31. COMPONENT GEOMETRY: Every slide MUST end with ▸ COMPONENT GEOMETRY containing a JSON code block. Canvas is 720×405pt. Use 36pt left/right margins, 30pt top, 35pt bottom, 15pt gutters. Calculate x/y/width/height for every text area and asset frame based on your LAYOUT STRUCTURE. Include "type", "description", "x", "y", "width", "height" for each frame. Image/video/infograph/timeline frames also need "aspect_ratio". Use background_image type (0,0,720,405) for [Image Background] assets.
 Generate the complete deck now:`;
     
-    // Build message content array with all files (uploaded + project)
-    const contentParts = [];
-
-    // Add all files (uploaded + project)
-    allFiles.forEach((fileData, index) => {
-      if (fileData.type === 'pdf') {
-        contentParts.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: fileData.content
-          }
-        });
-      } else if (fileData.type === 'image') {
-        contentParts.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: fileData.mediaType,
-            data: fileData.content
-          }
-        });
-      }
-    });
-
-    // Collect all text content (uploaded + project)
-    const textContents = allFiles
-      .filter(f => f.type === 'text')
-      .map(f => `--- ${f.file.name} ---\n${f.content}`)
-      .join('\n\n');
+    // Source documents travel as file_id references — see buildSourceParts.
+    let contentParts, textContents, usedFileRefs;
+    try {
+      ({ contentParts, textContents, usedFileRefs } = await buildSourceParts());
+    } catch (err) {
+      console.error('Source document upload failed:', err);
+      setError(sourceUploadMessage(err));
+      setIsGenerating(false);
+      return;
+    }
 
     // Build the text prompt
     const fileDescriptions = allFiles.map((f, i) => `${i + 1}. ${f.file.name} (${f.type})`).join('\n');
@@ -1770,36 +1812,54 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
     const messages = [{ role: 'user', content: contentParts }];
 
     try {
-      // Initial API call with high token limit for large decks
+      // ── Do NOT lower this to dodge the 546. It is the wrong stage ─────────
+      // MEASURED 2026-08-11 from app_events (WIL-6001/6002) on staging:
+      //
+      //   2026-08-02  S19 probe deck   input  14513  -> succeeded x5
+      //   2026-08-03  a REAL deck      input 232275  -> succeeded, once
+      //   2026-08-10  Audrey's deck            —     -> NO ROW AT ALL
+      //   2026-08-11  Audrey's deck            —     -> NO ROW AT ALL
+      //
+      // ai-proxy calls logUsage on the upstream-error path AND from the
+      // stream's cancel(), so a worker killed DURING generation still leaves a
+      // WIL-6002 row. Audrey's failures leave none. The worker therefore dies
+      // before `fetch(ANTHROPIC_URL)` returns — while it is doing `req.json()`
+      // on a multi-megabyte body and `JSON.stringify()`ing it back out.
+      //
+      // That is input-side, and `max_tokens` governs OUTPUT. Shrinking it
+      // cannot help, and it hurts twice over: more continuations, each
+      // resending the whole ~232k-token payload (~$0.70 a call), and each one
+      // another chance to trip the same worker limit. This was tried on
+      // 2026-08-11 and reverted for exactly that reason.
+      //
+      // Also note the deadline this was reasoned against is not real: the
+      // response is an SSE stream whose first byte arrives at once, so the
+      // ~150s "must emit a response" rule is satisfied immediately and only
+      // the 400s wall clock governs (see ai-proxy/index.ts, header).
       let fullOutput = '';
       let currentMessages = messages;
       let continuationAttempts = 0;
       const MAX_CONTINUATIONS = 3; // Allow up to 3 continuation calls
 
       while (continuationAttempts <= MAX_CONTINUATIONS) {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': anthropicApiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-direct-browser-access': 'true',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 16384,
-            system: fullDeckSystemPrompt,
-            messages: currentMessages
-          })
+        const data = await callAI({
+          model: modelFor('dog.fullDeck'),
+          // Caps how hard the model thinks. Measured, not guessed — the
+          // rationale and the numbers are on the REGISTRY entry. Without it
+          // this call runs ~138s against ai-proxy's ~150s Edge deadline.
+          ...tuningFor('dog.fullDeck'),
+          // Anthropic requires the Files beta on every request that REFERENCES
+          // a file_id, not just on the upload. ai-proxy forwards `betas`
+          // verbatim into the anthropic-beta header (it has always had that
+          // passthrough), so nothing about ai-proxy changes for this to work.
+          // Sent only when a file block is actually present — an unnecessary
+          // beta header is a needless difference between requests.
+          ...(usedFileRefs ? { betas: FILES_BETA } : {}),
+          max_tokens: 16384,
+          system: fullDeckSystemPrompt,
+          messages: currentMessages,
+          tool: 'dog',
         });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('API Error:', response.status, errorText);
-          throw new Error(`API request failed: ${response.status}`);
-        }
-
-        const data = await response.json();
         console.log(`API Response (attempt ${continuationAttempts}):`, data);
 
         const chunkOutput = data.content
@@ -1813,10 +1873,37 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         if (data.stop_reason === 'max_tokens') {
           console.log(`[WILSON] Output truncated at attempt ${continuationAttempts}, continuing...`);
           continuationAttempts++;
+
+          // ── Two ways this continuation is a 400, both now reachable ───────
+          // Smaller per-call budgets make this loop ROUTINE rather than rare,
+          // so both guards below are load-bearing, not hardening. Neither
+          // failure would arrive as itself: the API rejects the request we
+          // build, and the user sees "try again" for a malformed retry.
+          //
+          // 1. Empty assistant turn. `chunkOutput` keeps only `type: 'text'`
+          //    blocks, so a response that spent its whole budget thinking and
+          //    emitted no text leaves fullOutput ''. An assistant turn with
+          //    empty content is a 400 ("text content blocks must be
+          //    non-empty"). Bail with something true instead.
+          // 2. Trailing whitespace. Blocks are joined with '\n', so fullOutput
+          //    routinely ends in a newline, and a final assistant turn that
+          //    ends in whitespace is also a 400.
+          const carryOver = fullOutput.trimEnd();
+          if (!carryOver) {
+            const bail = new Error(
+              'The AI spent its whole response budget thinking and did not write any slides. Nothing was lost — run the generation again.'
+            );
+            // Marks a message written FOR Audrey, so the catch below can show
+            // it verbatim instead of replacing it with "please try again".
+            // Raw JS errors carry no such flag and stay behind the generic.
+            bail.userFacing = true;
+            throw bail;
+          }
+
           // Build continuation messages: original user message + assistant partial response + user continuation request
           currentMessages = [
             ...messages,
-            { role: 'assistant', content: fullOutput },
+            { role: 'assistant', content: carryOver },
             { role: 'user', content: 'Continue generating the remaining slides from exactly where you left off. Do not repeat any slides already generated. Continue with the same format.' }
           ];
         } else {
@@ -1875,12 +1962,26 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
       }
       
     } catch (err) {
-      setError('Error generating full deck outline. Please try again.');
+      // 546 is the Supabase Edge Runtime killing the worker for exceeding its
+      // resource ceiling — not an Anthropic error, so ai-proxy has no upstream
+      // message to forward. On 2026-08-10 that reached Audrey as a bare "please
+      // try again", which invited the one action guaranteed to fail identically.
+      //
+      // Checked here on STATUS as well as in aiProxy.js's FRIENDLY map on code:
+      // the Edge runtime does not reliably send a JSON body, so `code` is only
+      // `http_546` when it sends nothing parseable. The status is always right.
+      if (err?.status === 546) {
+        setError('WILSON could not pass your source documents through to the AI — the request was stopped before it got there. This is a limit in WILSON’s AI relay, not in your deck. Generating with fewer documents attached will get through in the meantime.');
+      } else if (err?.userFacing) {
+        setError(err.message);
+      } else {
+        setError('Error generating full deck outline. Please try again.');
+      }
       console.error(err);
     } finally {
       setIsGenerating(false);
     }
-  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, anthropicApiKey, assetPlacementActive, placementAssets, buildAssetPlacementPrompt]);
+  }, [hasFileContent, uploadedFiles, allFiles, projectContext, systemPrompt, parseOutputToPages, fullDeckSystemPrompt, enableThemeGen, generateAIThemes, assetPlacementActive, placementAssets, buildAssetPlacementPrompt, buildSourceParts, sourceUploadMessage]);
 
   const copyToClipboard = useCallback(() => {
     if (!activeTab) return;
@@ -2923,26 +3024,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
         if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
       }
 
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 1000,
-          system: rewritePrompts[mode],
-          messages: [{ role: 'user', content: userContent }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.rewrite'),
+        max_tokens: 1000,
+        system: rewritePrompts[mode],
+        messages: [{ role: 'user', content: userContent }],
+        tool: 'dog',
       });
-
-      if (!response.ok) throw new Error(`API ${response.status}`);
-      const data = await response.json();
       const rewrittenText = data.content.map(i => i.text || '').join('').trim();
       setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
     } catch (err) {
       console.error('Rewrite error:', err);
       setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
     }
-  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey, closeContextMenu]);
+  }, [contextMenu, activeTab, systemPrompt, uploadedFiles, closeContextMenu]);
 
   // Redo rewrite with same mode
   const handleRewriteRedo = useCallback(() => {
@@ -3006,26 +3101,20 @@ ${textContents ? `TEXT CONTENT:\n${textContents}\n\n` : ''}${allFiles.some(f => 
           if (docSnippets) userContent += `\n\nSource document excerpts:\n${docSnippets}`;
         }
 
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 1000,
-            system: rewritePrompts[mode],
-            messages: [{ role: 'user', content: userContent }]
-          })
+        const data = await callAI({
+          model: modelFor('dog.rewriteRedo'),
+          max_tokens: 1000,
+          system: rewritePrompts[mode],
+          messages: [{ role: 'user', content: userContent }],
+          tool: 'dog',
         });
-
-        if (!response.ok) throw new Error(`API ${response.status}`);
-        const data = await response.json();
         const rewrittenText = data.content.map(i => i.text || '').join('').trim();
         setRewritePreview(prev => ({ ...prev, text: rewrittenText, isLoading: false }));
       } catch (err) {
         setRewritePreview(prev => ({ ...prev, text: `Error: ${err.message}`, isLoading: false }));
       }
     })();
-  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles, anthropicApiKey]);
+  }, [rewritePreview.mode, contextMenu, activeTab, systemPrompt, uploadedFiles]);
 
   // Replace selected text with rewrite - preserve formatting, bullets, bold, line breaks
   const handleRewriteReplace = useCallback(() => {
@@ -3313,29 +3402,13 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
       const combinedSystem = `${imgPromptApiSystem}\n\n${modelSpecificPrompt}\n\n${imgPromptSharedSystem}`;
 
       // 5. API call
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': anthropicApiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true',
-        },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 8192,
-          system: combinedSystem,
-          messages: [{ role: 'user', content: userMessage }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.imagePrompts'),
+        max_tokens: 8192,
+        system: combinedSystem,
+        messages: [{ role: 'user', content: userMessage }],
+        tool: 'dog',
       });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        console.error('Image prompt API error:', response.status, errText);
-        throw new Error(`API error ${response.status}`);
-      }
-
-      const data = await response.json();
       const rawOutput = data.content.map(i => i.text || '').join('').trim();
 
       // 6. Parse output lines
@@ -3388,7 +3461,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     } finally {
       setIsGeneratingImgPrompts(false);
     }
-  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, anthropicApiKey, uploadedFiles, assetPlacementActive, exportDirHandle]);
+  }, [systemPrompt, deckVisualDesc, imgPromptModel, imgPromptSharedSystem, imgPromptMidjourneySystem, imgPromptFluxSystem, imgPromptNanoBananaSystem, imgPromptChatGPTSystem, imgPromptApiSystem, uploadedFiles, assetPlacementActive, exportDirHandle]);
 
   // Export folder picker
   const pickExportFolder = useCallback(async () => {
@@ -3601,24 +3674,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
     try {
       const titles = history.map(h => h.title).join(', ');
       const context = (systemPrompt || '').substring(0, 400);
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicApiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 200,
-          system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
-          messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }]
-        })
+      const data = await callAI({
+        model: modelFor('dog.visualDesc'),
+        max_tokens: 200,
+        system: 'Write exactly 3-4 short sentences describing the recommended visual look/style for a presentation deck. Focus on mood, typography, texture, lighting. Use language suitable as a visual generation prompt. No color references. Be concise.',
+        messages: [{ role: 'user', content: `Deck context: ${context}\nSlide titles: ${titles}\nDescribe the visual style.` }],
+        tool: 'dog',
       });
-      if (!response.ok) return;
-      const data = await response.json();
       const desc = data.content.map(i => i.text || '').join('').trim();
       setDeckVisualDesc(desc);
     } catch (err) {
       console.error('Deck desc generation error:', err);
     }
-  }, [history, systemPrompt, anthropicApiKey]);
+  }, [history, systemPrompt]);
 
   // Auto-generate visual desc when enableThemeGen is on and we generate themes for first time
   useEffect(() => {
@@ -3766,6 +3834,22 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
             </div>
           )}
 
+          {/* Amber, not red: the deck itself survived and the preset colours
+              are applied, so this is a partial failure and should not read as
+              a dead generation. Dismissable because it is non-blocking. */}
+          {themeError && (
+            <div className="p-3 bg-amber-900/50 border-2 border-amber-600 rounded-sm text-amber-200 font-medium text-sm flex items-start justify-between gap-3">
+              <span>{themeError}</span>
+              <button
+                onClick={() => setThemeError('')}
+                className="shrink-0 text-amber-300 hover:text-amber-100"
+                aria-label="Dismiss theme generator message"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
           {/* Section 1: Document & Context Input */}
           <section className="bg-stone-800 border-2 border-stone-700 rounded-sm shadow-[3px_3px_0px_0px_rgba(0,0,0,0.3)]">
             <div 
@@ -3821,11 +3905,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     {selectedProject.description && (
                       <p className="text-[10px] text-stone-400 mb-0.5">{selectedProject.description}</p>
                     )}
+                    {cloudProjects ? (
+                      <p className="text-[10px] text-stone-500 mb-1.5">
+                        Cloud project — the title and description above feed generation.
+                        File attachments on cloud projects arrive with the storage work;
+                        until then, upload files below to include them.
+                      </p>
+                    ) : (
                     <p className="text-[10px] text-stone-500 mb-1.5">
                       {(selectedProject.documents || []).length} document{(selectedProject.documents || []).length !== 1 ? 's' : ''}
                       {' · '}
                       {(selectedProject.visualAssets || []).length} visual asset{(selectedProject.visualAssets || []).length !== 1 ? 's' : ''}
                     </p>
+                    )}
 
                     {/* CORE / REFERENCE classifier — tells the AI which files
                         actually define the project concept vs. which are just
@@ -4063,9 +4155,6 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   )}
                 </button>
               )}
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
-              )}
             </div>
             )}
           </section>
@@ -4184,9 +4273,6 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </>
                 )}
               </button>
-              {!anthropicApiKey && (
-                <p className="text-[10px] text-red-400 mt-1 text-center">API key required — set it in Settings (gear icon)</p>
-              )}
             </div>
             )}
           </section>
@@ -4703,6 +4789,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.sp_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.pageOutline" disabled={promptsTabLocked} />
                         <textarea value={singlePageSystemPrompt} onChange={(e) => setSinglePageSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setSinglePageSystemPrompt(DEFAULT_SINGLE_PAGE_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4737,6 +4824,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.fd_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.fullDeck" disabled={promptsTabLocked} />
                         <textarea value={fullDeckSystemPrompt} onChange={(e) => setFullDeckSystemPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setFullDeckSystemPrompt(DEFAULT_FULL_DECK_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4776,6 +4864,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.theme_prompt && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.themes" disabled={promptsTabLocked} />
                         <textarea value={themeColorPrompt} onChange={(e) => setThemeColorPrompt(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setThemeColorPrompt(DEFAULT_THEME_COLOR_PROMPT)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -4878,6 +4967,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </button>
                     {!settingsCollapsed.img_api_sys && (
                       <div className="px-3 pb-3 pt-2">
+                        <ModelPicker registryKey="dog.imagePrompts" disabled={promptsTabLocked} />
                         <textarea value={imgPromptApiSystem} onChange={(e) => setImgPromptApiSystem(e.target.value)} disabled={promptsTabLocked} className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                         <button onClick={() => setImgPromptApiSystem(DEFAULT_IMG_PROMPT_API_SYSTEM)} disabled={promptsTabLocked} className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                       </div>
@@ -5214,7 +5304,16 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                 </div>
               </div>
 
-              {/* Documents Upload */}
+              {/* Documents Upload — cloud projects have no attachment home
+                  yet (locked #17 / S14 storage work), so the pickers degrade
+                  to an explanation rather than losing files silently. */}
+              {cloudProjects ? (
+                <p className="text-[10px] text-stone-500 border border-stone-700 rounded-sm px-2 py-2 bg-stone-900/50">
+                  File attachments on cloud projects arrive with the storage
+                  work. Create the project here, then upload files in the
+                  generator panel to include them in generation.
+                </p>
+              ) : (<>
               <div>
                 <label className="text-[10px] font-bold uppercase tracking-widest text-stone-400 mb-1 block">Documents</label>
                 <div
@@ -5282,6 +5381,7 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                   </div>
                 )}
               </div>
+              </>)}
             </div>
 
             {/* Buttons */}

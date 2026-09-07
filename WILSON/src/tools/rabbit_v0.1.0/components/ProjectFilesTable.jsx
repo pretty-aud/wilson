@@ -12,7 +12,7 @@
 //   'warm'  — warm brown palette, for Projects / light pages
 
 import { useState, useEffect } from 'react'
-import { FileText, Trash2, Image as ImageIcon } from 'lucide-react'
+import { FileText, Trash2, Image as ImageIcon, FileClock } from 'lucide-react'
 
 export const DOCUMENT_KINDS = [
   'script', 'treatment', 'gdd', 'brief', 'pitch_bible',
@@ -81,6 +81,9 @@ export default function ProjectFilesTable({
   files = [],
   onUpdate,          // (id, patch) => void — enables editing
   onDelete,          // (id) => void — shows delete button
+  onAudit,           // (file) => void — Session 14: opens the file-activity
+                     // drawer. Shown only for adapter files rows (they carry
+                     // storage_path); managed-file rows have no event stream.
   readOnly = false,
   maxHeight,
   variant = 'dark',  // 'dark' | 'warm'
@@ -104,8 +107,8 @@ export default function ProjectFilesTable({
     whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   }
   const cols = w
-    ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 96px${onDelete ? ' 40px' : ''}`
-    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 80px${onDelete ? ' 32px' : ''}`
+    ? `48px minmax(180px,1fr) 100px 60px 76px minmax(140px,1fr) 96px${onAudit ? ' 40px' : ''}${onDelete ? ' 40px' : ''}`
+    : `44px minmax(140px,1fr) 90px 52px 64px minmax(100px,1fr) 80px${onAudit ? ' 32px' : ''}${onDelete ? ' 32px' : ''}`
 
   const mutedColor = w ? '#6b4423' : '#78716c'
   const iconSz = w ? 15 : 13
@@ -130,6 +133,7 @@ export default function ProjectFilesTable({
         <div style={hdr}>Size</div>
         <div style={hdr}>Description</div>
         <div style={hdr}>Created</div>
+        {onAudit && <div style={hdr} />}
         {onDelete && <div style={hdr} />}
       </div>
 
@@ -207,6 +211,23 @@ export default function ProjectFilesTable({
 
           {/* Date */}
           <div style={{ ...cell, color: mutedColor }}>{fmtDate(f.created_at || f.uploaded_at)}</div>
+
+          {/* File activity (Session 14) */}
+          {onAudit && (
+            <div style={{ ...cell, display: 'flex', justifyContent: 'center' }}>
+              {f.storage_path ? (
+                <button onClick={() => onAudit(f)} title="File activity"
+                  style={{
+                    color: w ? '#9a6438' : '#78716c', padding: 2, borderRadius: 3,
+                    border: 'none', background: 'none', cursor: 'pointer',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.color = w ? '#ea580c' : '#fb923c'}
+                  onMouseLeave={e => e.currentTarget.style.color = w ? '#9a6438' : '#78716c'}>
+                  <FileClock size={iconSz} />
+                </button>
+              ) : null}
+            </div>
+          )}
 
           {/* Delete */}
           {onDelete && (
