@@ -194,6 +194,8 @@ function ReportTable({ r }) {
           <Row label="phases"   bucket={r.phases} />
           <Row label="assets"   bucket={r.assets} />
           <Row label="tasks"    bucket={r.tasks} />
+          <Row label="task links"  bucket={r.taskLinks} />
+          <Row label="phase links" bucket={r.phaseLinks} />
           <Row label="files"    bucket={r.files} />
         </tbody>
       </table>
