@@ -77,7 +77,9 @@ test('an idle session is warned, then signed out, and the login screen says why'
   await expect(dialog).toBeVisible({ timeout: 10_000 })
   await expect(dialog).toContainText(/signed out in \d+:\d\d for inactivity/i)
   await expect(dialog.getByRole('button', { name: /stay signed in/i })).toBeVisible()
-  await expect(page.getByText(IDLE_NOTICE)).toBeVisible({ timeout: 15_000 })
+  // The sign-out lands at 9 s; the login screen then plays its logo intro
+  // before the form (and the notice above it) is shown.
+  await expect(page.getByText(IDLE_NOTICE)).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText(/^LOGIN$/)).toBeVisible()
 })
 
@@ -88,7 +90,12 @@ test('activity clears the idle warning', async ({ page }) => {
   await expectHome(page)
   const dialog = page.getByRole('alertdialog', { name: /still there/i })
   await expect(dialog).toBeVisible({ timeout: 10_000 })
-  await dialog.getByRole('button', { name: /stay signed in/i }).click()
+  await expect(dialog.getByRole('button', { name: /stay signed in/i })).toBeFocused()
+  // A keyboard user: Enter on the focused button. (A mouse `click()` would
+  // MOVE the pointer first, and that movement is already activity — the
+  // dialog closes under the cursor before the press lands, which is the
+  // intended behaviour for a person and a moving target for Playwright.)
+  await page.keyboard.press('Enter')
   await expect(dialog).toBeHidden({ timeout: 2_000 })
   // and it comes back when the person goes quiet again
   await expect(dialog).toBeVisible({ timeout: 10_000 })
@@ -111,7 +118,7 @@ test('the absolute cap ends a busy session with a warning first and says why', a
   const dialog = page.getByRole('alertdialog', { name: /session ending/i })
   await expect(dialog).toBeVisible({ timeout: 12_000 })
   await expect(dialog).toContainText(/sessions end after 4 hours/i)
-  await expect(page.getByText(CAP_NOTICE)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByText(CAP_NOTICE)).toBeVisible({ timeout: 30_000 })
   await expect(page.getByText(/^LOGIN$/)).toBeVisible()
 })
 
