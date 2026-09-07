@@ -158,8 +158,16 @@ export function createSessionTimeouts(opts) {
 
   function lastActivity() {
     // Another tab of the same surface may be the busy one.
+    //
+    // R2: clamped to now. A stored timestamp in the FUTURE — an OS clock
+    // correction backwards, after this or another tab wrote under the old
+    // clock — otherwise makes `idleFor` negative and suppresses the idle
+    // timeout for as long as the skew lasts. A clock that moved is not
+    // activity; the worst this can do is expire a session early, which is
+    // the safe direction for a security control.
+    const t = now()
     const stored = readNumber(storage, activityKey)
-    return Math.max(memActivity ?? 0, stored ?? 0) || memActivity || 0
+    return Math.min(Math.max(memActivity ?? 0, stored ?? 0), t)
   }
 
   function stopTicker() {
@@ -171,8 +179,15 @@ export function createSessionTimeouts(opts) {
     expired = true
     running = false
     stopTicker()
-    remove(storage, activityKey)
-    remove(storage, startKey)
+    // 🚨 R2: the two keys are deliberately NOT removed here. `onExpire`
+    // starts a sign-out that is network work — it can hang, and the tab can
+    // be closed inside it. Deleting `.start` first meant that a sign-out
+    // which never finished left the persisted session in place AND no start
+    // time, so the next boot of that same session read "no clock for this
+    // session id" and handed out a FRESH four hours. Keeping it makes the
+    // restart expire again at once (`start()` ends in `evaluate()`), which
+    // is the safe direction. Nothing leaks: `.start` is keyed by session id,
+    // and `start()` overwrites both keys for any new one.
     setState({ phase: 'expired', deadline: null, reason, startedAt, lastActivity: memActivity })
     onExpire(reason)
     return state
@@ -287,7 +302,12 @@ function safeLocalStorage() {
 export const DEV_OVERRIDES_KEY = 'wilson.session.timeouts.debug'
 const OVERRIDABLE = ['idleWarnMs', 'idleSignOutMs', 'capMs', 'capWarnMs', 'tickMs']
 export function readDevOverrides(storage = safeLocalStorage()) {
-  if (!import.meta.env?.DEV) return {}
+  // R2: the EXACT `import.meta.env.DEV`, not `import.meta.env?.DEV`. Vite
+  // replaces this expression by key at build time, so the production bundle
+  // folds the branch to `if (true) return {}` and never reads the key at all.
+  // The optional chain happens to be matched today; relying on that is
+  // relying on a bundler's pattern matching for a dev-only switch.
+  if (!import.meta.env.DEV) return {}
   const raw = readJson(storage, DEV_OVERRIDES_KEY)
   if (!raw || typeof raw !== 'object') return {}
   const out = {}

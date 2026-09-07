@@ -58,22 +58,38 @@ export default function SessionWarning({ phase, deadline, onStay, capHours = 4, 
   const remaining = mmss(deadline - now)
   const idle = phase === 'idle-warning'
 
+  // R2: the cap notice is NON-MODAL, and deliberately. It fires on a session
+  // that is by definition busy — the whole point is "save your work" — so a
+  // full-screen backdrop that eats every click, plus an autoFocus that pulls
+  // the caret out of whatever is being typed, would cost the person the very
+  // work the notice is telling them to save. It sits in the corner, takes no
+  // pointer events except on the card itself, and does not steal focus.
+  // The idle dialog stays modal: nobody is typing, and it is 5 minutes from
+  // signing them out.
   return (
     <div
       role="alertdialog"
       aria-live="assertive"
       aria-label={idle ? 'Still there?' : 'Session ending'}
-      style={{
-        position: 'fixed', inset: 0, zIndex,
-        backgroundColor: 'rgba(28, 25, 23, 0.72)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
+      style={idle
+        ? {
+            position: 'fixed', inset: 0, zIndex,
+            backgroundColor: 'rgba(28, 25, 23, 0.72)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }
+        : {
+            position: 'fixed', inset: 0, zIndex,
+            display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end',
+            padding: '24px',
+            pointerEvents: 'none',
+          }}
     >
       <div
         className="flex flex-col gap-4 p-6"
         style={{
           backgroundColor: '#1c1917', border: '2px solid #ea580c',
           borderRadius: '6px', width: 380, maxWidth: '90vw',
+          ...(idle ? null : { pointerEvents: 'auto', boxShadow: '0 8px 24px rgba(0,0,0,0.45)' }),
         }}
       >
         <div className="text-sm font-bold uppercase tracking-widest" style={{ color: '#f4a261' }}>
@@ -86,6 +102,14 @@ export default function SessionWarning({ phase, deadline, onStay, capHours = 4, 
         </div>
         <div className="flex items-center justify-end gap-2">
           {idle ? (
+            // R2: any pointer or key event clears the warning through the
+            // activity listeners before a click on this button can land —
+            // which is what the copy above promises ("Move the mouse or
+            // press a key"). The button is here for the person who reads
+            // first and reaches for something to press; autoFocus makes it
+            // the Enter target, and Enter is itself activity. Either way the
+            // session stays. Do not "fix" it by narrowing the activity
+            // events: the promise in the copy is the behaviour.
             <button
               type="button"
               autoFocus
@@ -98,7 +122,6 @@ export default function SessionWarning({ phase, deadline, onStay, capHours = 4, 
           ) : (
             <button
               type="button"
-              autoFocus
               onClick={() => setDismissedDeadline(deadline)}
               className="text-xs font-mono px-3 py-2 rounded-sm"
               style={{ color: '#a8a29e', backgroundColor: 'transparent', border: '1px solid #44403c' }}

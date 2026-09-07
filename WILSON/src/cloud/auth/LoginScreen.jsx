@@ -276,8 +276,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword, notice 
       // over a screen AuthShell has already torn down (it returns null once
       // its phase reaches 'done'), which renders as a bare orange window.
       // The animation is 1s; 4s of grace, then complete it ourselves.
-      // onAuthenticated is idempotent in App.jsx (it sets state), so a double
-      // call is harmless — a stranded session is not.
+      // 🚨 B2 part 2: `completedRef` is what makes this safe, NOT idempotence.
+      // It used to be true that a double `onAuthenticated` merely set state
+      // twice; App.jsx's `handleAuth` now also writes a `sign_in` row to
+      // auth_events, so a second call would be a second row. Exactly one of
+      // the two paths below completes, and the ref is the reason.
       if (revealFallbackRef.current) clearTimeout(revealFallbackRef.current)
       revealFallbackRef.current = setTimeout(() => {
         if (!completedRef.current) {

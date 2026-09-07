@@ -87,10 +87,28 @@ describe('idle timeout', () => {
     expect(ctl.getState().phase).toBe('expired')
     expect(ctl.getState().reason).toBe('idle_timeout')
     expect(events.filter(e => e[0] === 'expire')).toEqual([['expire', 'idle_timeout']])
-    // the clocks are cleared for the next sign-in
-    expect(st.map.has('wilson.dev.session.activity')).toBe(false)
-    expect(st.map.has('wilson.dev.session.start')).toBe(false)
     expect(h.tickerCount()).toBe(0)
+
+    // R2: the cap clock SURVIVES the expiry (the cap test below proves what
+    // that is for). A restart after an IDLE expiry is a person who came
+    // back, so their idle window starts again — only the four hours carry.
+    expect(st.map.has('wilson.dev.session.start')).toBe(true)
+    const again = make(h, st)
+    again.ctl.start()
+    expect(again.ctl.getState().phase).toBe('active')
+    expect(again.ctl.getState().startedAt).toBe(1_000_000)
+  })
+
+  it('a stored activity timestamp in the future cannot suppress the timeout', () => {
+    // An OS clock correction backwards: the value was written under the old
+    // clock and now reads as two hours ahead.
+    const h = harness(); const st = memoryStorage()
+    st.setItem('wilson.dev.session.activity', String(1_000_000 + 2 * HOUR))
+    const { ctl } = make(h, st)
+    ctl.start()
+    h.advance(31 * MIN)
+    expect(ctl.getState().phase).toBe('expired')
+    expect(ctl.getState().reason).toBe('idle_timeout')
   })
 
   it('activity resets the idle clock', () => {
@@ -155,6 +173,17 @@ describe('absolute cap', () => {
     expect(ctl.getState().phase).toBe('expired')
     expect(ctl.getState().reason).toBe('session_cap')
     expect(events.filter(e => e[0] === 'expire')).toEqual([['expire', 'session_cap']])
+
+    // 🚨 R2: the cap clock survives the expiry ON PURPOSE. `onExpire` starts
+    // a sign-out that is network work; if it hangs, or the tab is closed
+    // inside it, the persisted session is still there and this same session
+    // comes back at the next boot. Deleting `.start` here handed it a fresh
+    // four hours. Keeping it expires it again at once.
+    expect(st.map.has('wilson.dev.session.start')).toBe(true)
+    const again = make(h, st)
+    again.ctl.start()
+    expect(again.ctl.getState().phase).toBe('expired')
+    expect(again.ctl.getState().reason).toBe('session_cap')
   })
 
   it('an idle warning outranks a cap warning when both apply', () => {

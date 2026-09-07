@@ -58,12 +58,23 @@ test('a sign-in writes the app’s own sign_in row and Logs → Sign-ins shows i
   await signInHere(page)
   await page.getByRole('button', { name: /^logs$/i }).click({ timeout: 20_000 })
   await page.getByRole('button', { name: /^sign-ins$/i }).click()
-  // The row the client wrote seconds ago: "Signed in", written by the app,
-  // with the address the stamp trigger copied from auth.sessions.
-  const row = page.getByRole('row').filter({ hasText: /signed in/i }).filter({ hasText: /^(?!.*sign-in server).*$/s }).first()
+  // The row the client wrote seconds ago: "Signed in", written by the app
+  // (Where = app, never "sign-in server"), with the address the stamp
+  // trigger copied from auth.sessions.
+  //
+  // 🚨 Assert on CELLS, never on the row's text. A row's concatenated text
+  // has no separators — the first run of this scenario read
+  // "just nowSigned inSmoke Adminapp52.161.82.87--" and `\bapp\b` cannot
+  // match there, because "Admin" runs straight into "app". The row was
+  // correct and the assertion was not.
+  const row = page.getByRole('row')
+    .filter({ hasText: /signed in/i })
+    .filter({ has: page.getByRole('cell', { name: 'app', exact: true }) })
+    .first()
   await expect(row).toBeVisible({ timeout: 20_000 })
-  await expect(row).toContainText(/\bapp\b/)
-  await expect(row).toContainText(/\d{1,3}(\.\d{1,3}){3}|[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}/i)
+  const cells = row.getByRole('cell')           // Time, Event, Person, Where, Address, Factor
+  await expect(cells.nth(3)).toHaveText('app')
+  await expect(cells.nth(4)).toHaveText(/^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f]{0,4}(:[0-9a-f]{0,4}){2,7}$/i)
   await expect(page.getByText(/addresses are recorded on the app/i)).toBeVisible()
 })
 

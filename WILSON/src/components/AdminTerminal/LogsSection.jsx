@@ -176,13 +176,20 @@ export default function LogsSection({ isActive, workspaceId, wm }) {
     setSignInsLoading(true)
     setSignInsError(null)
     try {
-      // No .eq('workspace_id'): the sign-in server's rows carry none, and
-      // RLS is the scope. The view narrows below to this company's client
-      // rows plus the server's rows, so a member of two companies does not
-      // show their other company's sign-ins here.
+      // Not .eq('workspace_id'): the sign-in server's rows carry none, so
+      // the scope is "no company, or this one" — RLS decides which of those
+      // the caller may actually see.
+      //
+      // R2: the filter is SERVER-side. The policy's `user_id = auth.uid()`
+      // arm also returns the admin's OWN rows for their other companies, and
+      // filtering those out after `.limit(200)` spent the budget on rows the
+      // tab then dropped — an admin busy in a second company could lose this
+      // company's older sign-ins off the bottom. The client-side pass below
+      // stays as belt and braces.
       const { data, error } = await supabase
         .from('auth_events')
         .select(AUTH_EVENT_COLUMNS)
+        .or(`workspace_id.is.null,workspace_id.eq.${workspaceId}`)
         .order('created_at', { ascending: false })
         .limit(200)
       if (!mountedRef.current || seq !== signInsSeqRef.current) return

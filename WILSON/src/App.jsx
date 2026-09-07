@@ -47,7 +47,7 @@ import { withTimeout } from './cloud/auth/withTimeout'
 // B2 part 2 (Track B): the session block's own pieces — the auth_events
 // emitter, the idle/cap timeouts, their notice, the connection-lost banner
 // and the WIL-1002 reporter.
-import { recordAuthEvent } from './cloud/auth/authEvents'
+import { recordAuthEvent, AUTH_EVENT_TIMEOUT_MS } from './cloud/auth/authEvents'
 import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from './cloud/auth/sessionTimeouts'
 import SessionWarning, { describeSessionExpiry } from './cloud/auth/SessionWarning'
 import ConnectionLostBanner from './cloud/ConnectionLostBanner'
@@ -377,6 +377,7 @@ export default function App() {
   // has already been persisted by LoginScreen via sessionStorage.saveSession,
   // so we only need to flip the gate here.
   const handleAuth = useCallback((session) => {
+    signingOutRef.current = null;   // a new session may be signed out again
     setSessionId(sessionIdOf(session));
     setSignedOutNotice('');
     setAuthed(true);
@@ -507,8 +508,22 @@ export default function App() {
   // until now (TPN-LOG-005) — and sets the one-line reason the login screen
   // shows. Both writes are bounded and best-effort and run side by side, so
   // leaving never waits more than one ceiling on a dead network.
+  //
+  // R2: ONE sign-out at a time, and the persisted session goes FIRST. The
+  // timeouts and the Settings button can both fire in the window the log
+  // writes take, which wrote two rows and clobbered the reason; `signingOut`
+  // makes the second caller await the first. And `clearSession()` runs
+  // before any network call, because `supabase.auth.signOut()` awaits
+  // `getSession()` internally and can hang forever on the silent-network
+  // failure this bundle's banner exists for — leaving the encrypted session
+  // on disk. The in-memory JWT still serves the two log writes.
+  const signingOutRef = useRef(null);
   const signOutLocal = useCallback(async ({ event = 'sign_out' } = {}) => {
+    if (signingOutRef.current) return signingOutRef.current;
+    const run = (async () => {
     const expiry = EXPIRE_REASONS.includes(event) ? event : null;
+    setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
+    await clearSession();
     const writes = [];
     if (event) writes.push(recordAuthEvent(event));
     if (expiry) {
@@ -518,9 +533,9 @@ export default function App() {
       }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
     }
     if (writes.length) await Promise.all(writes);
-    setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
-    try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* swallow */ }
-    await clearSession();
+    try {
+      await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+    } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
     setSessionId(null);
     // 🚨 Belt and braces with the perms.userId teardown effect: this runs
     // even if the permissions channel is slow to notice, so the next person
@@ -538,6 +553,12 @@ export default function App() {
     // Arm the welcome again — signing back in during the same session is a
     // new arrival, and a once-per-page-load ref would silently skip it.
     welcomePlayedRef.current = false;
+    })();
+    signingOutRef.current = run;
+    // Released on the next sign-in (handleAuth), not here: everything after
+    // this point is signed out, and a second call in that state should be
+    // the no-op the guard makes it.
+    return run;
   }, []);
   useEffect(() => {
     window.wilsonSignOut = signOutLocal;
