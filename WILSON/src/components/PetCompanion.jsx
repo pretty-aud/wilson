@@ -36,6 +36,10 @@ export default function PetCompanion({
   // still on screen, still correct-looking, and only a reload reveals that the
   // state went nowhere. Cleared by the next save that works.
   petSaveError = null,
+  // R1 of A3: whether the extra sentence below is TRUE. petSaveError
+  // multiplexes load, sync, save and egg failures; the sentence describes a
+  // SAVE by a signed-in person, and read anything else it is simply wrong.
+  petIsCloudBacked = false,
   // Agent props
   agentEnabled = false,
   agentMode = false,
@@ -146,7 +150,10 @@ export default function PetCompanion({
                     pet is stored in the account and nowhere else, so "not being
                     saved" means "not saved anywhere", not "saved locally for
                     now" — and the recovery is a connection, not a retry. */}
-                <span><strong>{name} isn’t being saved.</strong> {petSaveError} {name} lives in your account, so this change is not stored anywhere until the connection comes back.</span>
+                <span>
+                  <strong>{name} isn’t being saved.</strong> {petSaveError}
+                  {petIsCloudBacked && ` ${name} lives in your account, so nothing is stored until the connection comes back.`}
+                </span>
               </div>
             )}
             {aiUnavailable && !isEgg && (

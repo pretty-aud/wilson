@@ -324,8 +324,38 @@ describe('🚨 A3(b) — Pet Mode OFF protects the pet while the app is closed',
   it('does not resurrect a pet that starved before Pet Mode was turned off', () => {
     // hunger was already 0 at the anchor; the guard pauses decay, it does not
     // rewrite history. (The stored form is what the live tick left.)
+    //
+    // 🚨 R1: `hunger === 0` ALONE COULD NOT FAIL. With the gate removed the
+    // function decays, kills the pet and still returns hunger 0 — the
+    // assertion was true either way. The form and the happiness are what
+    // distinguish "paused" from "ran and killed it".
     const out = applyOfflineDecay(adult(360, { petMode: false, hunger: 0 }))
     expect(out.hunger).toBe(0)
+    expect(out.form).toBe('adult')
+    expect(out.happiness).toBe(100)
+    expect(out.diedAt).toBeNull()
+  })
+
+  it('🚨 R1: Pet Mode off pauses SLEEP-END too, not just decay', () => {
+    // The commit states (b) as three properties and only one was asserted.
+    // Moving the sleep block above the gate would have been green.
+    const before = adult(30, { petMode: false, sleepingSince: iso(20 * MIN) })
+    const out = applyOfflineDecay(before)
+    expect(out.sleepingSince).toBe(before.sleepingSince)
+    expect(out.lastSleptAt).toBe(before.lastSleptAt)
+    expect(out.lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('🚨 R1: and EVOLUTION, so a baby cannot grow up while paused', () => {
+    const before = {
+      form: 'baby', breed: 'otter', difficulty: 'medium', petMode: false,
+      hunger: 100, happiness: 100, bornAt: iso(EVOLVE_TIMES.medium + 5 * MIN),
+      sleepingSince: null, lastSleptAt: iso(30 * MIN), interactionCount: 0,
+      diedAt: null, evolvedAt: null, lastUpdatedAt: iso(MIN),
+    }
+    const out = applyOfflineDecay(before)
+    expect(out.form).toBe('baby')
+    expect(out.evolvedAt).toBeNull()
   })
 })
 
@@ -433,6 +463,31 @@ describe('🚨 A3 — the anchor moves with the values, and only with them', () 
   it('🚨 leaves it alone for a ghost — Audrey\'s own pet is one', () => {
     const before = adult(120, { form: 'ghost', hunger: 0, diedAt: iso(120 * MIN) })
     expect(applyOfflineDecay(before).lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('🚨 R1: an offline death stamps a COMPUTED instant, not `now`', () => {
+    // lastSleptAt and evolvedAt were deterministic and diedAt was not, so each
+    // cold start on the same stored row produced a different diedAt until
+    // something happened to save — the one branch that broke the idempotence
+    // the "prime, do not save" rule depends on.
+    //
+    // Hunger 10 at medium (0.67/min) reaches zero 14.9 minutes after the
+    // anchor; the anchor here is two hours old, so the death is far in the
+    // past and nothing stamped with `now` can land there.
+    const before = adult(120, { hunger: 10, happiness: 10 })
+    const out = applyOfflineDecay(before)
+    expect(out.form).toBe('ghost')
+    const anchorMs = new Date(before.lastUpdatedAt).getTime()
+    const expected = anchorMs + (10 / DECAY_RATES.medium.hunger) * MIN
+    expect(new Date(out.diedAt).getTime()).toBeCloseTo(expected, -3)
+    expect(new Date(out.diedAt).getTime()).toBeLessThan(Date.now() - 60 * MIN)
+    // And it is stable across two cold starts from the same stored row.
+    expect(applyOfflineDecay(before).diedAt).toBe(out.diedAt)
+  })
+
+  it('an existing diedAt is never overwritten', () => {
+    const before = adult(120, { hunger: 0, diedAt: iso(90 * MIN) })
+    expect(applyOfflineDecay(before).diedAt).toBe(before.diedAt)
   })
 
   it('never mutates its input', () => {

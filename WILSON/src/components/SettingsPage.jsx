@@ -43,8 +43,13 @@ export default function SettingsPage({
   newPetStatus = null, newPetPending = false,
   // A3 (2026-09-07): the pet's cross-device notices — today, "Your pet changed
   // on another device — refreshed" after migration 0068 refuses this window's
-  // stale copy. The same object drives the app-level <PetNotice> toast; this
-  // card is the surface that is still there once the toast has gone.
+  // stale copy.
+  //
+  // 🚨 R1 of A3: this is App's STICKY notice, a different state from the one
+  // the <PetNotice> toast renders. They were one state, so dismissing the
+  // toast erased this at the same instant and the claim that "the toast goes
+  // away, this does not" was false. App clears this one on sign-out and on a
+  // later successful save, and nowhere else.
   // null | { kind: 'info' | 'error', message }
   petNotice = null,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
@@ -401,6 +406,35 @@ export default function SettingsPage({
                 </p>
               </div>
 
+              {/* 🚨 R1 of A3: THE NOTICE IS ABOVE THE `petData` GATE, AND THAT
+                  IS THE WHOLE POINT OF IT.
+
+                  It was inside the Companion section, which is
+                  `{petData && (…)}`. So on the one condition this surface was
+                  credited with closing — a failed pet LOAD, where `petData`
+                  stays null and the companion is never mounted — it rendered
+                  nothing, and the OUTSTANDING entry would have been closed by
+                  a surface that is absent in exactly its own case.
+
+                  LIGHT_INK in both states for the contrast reason the Create
+                  Egg status block below spells out: this composites straight
+                  onto the page's #f4a261, and green-900/red-900 measure under
+                  AA there. */}
+              {petNotice && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
+                  style={
+                    petNotice.kind === 'error'
+                      ? { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
+                      : { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
+                  }
+                >
+                  {petNotice.message}
+                </div>
+              )}
+
               {/* Companion Section */}
               {petData && (
                 <div>
@@ -425,28 +459,6 @@ export default function SettingsPage({
                   </p>
 
                   <div className="space-y-4">
-                    {/* 🚨 A3: the cross-device notice, on the page that
-                        describes the pet. The app-level toast auto-dismisses
-                        after ten seconds; a person who was looking elsewhere
-                        when their pet was refreshed underneath them finds the
-                        explanation here. LIGHT_INK for the same contrast reason
-                        the Create Egg status block below spells out — this
-                        block composites onto the page's #f4a261. */}
-                    {petNotice && (
-                      <div
-                        role="status"
-                        aria-live="polite"
-                        className="px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
-                        style={
-                          petNotice.kind === 'error'
-                            ? { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
-                            : { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
-                        }
-                      >
-                        {petNotice.message}
-                      </div>
-                    )}
-
                     {/* Pet info card */}
                     <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)' }}>
                       <div className="flex items-center justify-between mb-3">

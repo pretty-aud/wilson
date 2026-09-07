@@ -20,7 +20,8 @@ import { canCreateNewEgg, mintEggFrom,
 import { createCoalescingSave } from './lib/coalescingSave'
 import { PAGE_BARS } from './layout/pageBars'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache, fetchCloudPet, isStalePetWrite,
-         resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
+         resolveUserSettings, mirrorSettingsToCache, setUserStateOwner,
+         getUserStateOwner } from './lib/userState'
 import PetNotice from './components/PetNotice'
 import Home from './components/Home'
 import SettingsPage from './components/SettingsPage'
@@ -499,6 +500,12 @@ export default function App() {
       // somebody else's session.
       setPetSaveError(null);
       setNewPetStatus(null);
+      // R1 of A3: and the notice, which is a third channel with the same
+      // defect the two lines above exist to fix. An error notice never
+      // auto-dismisses, so person A's "could not be synced from your account"
+      // sat on person B's screen until B clicked the X.
+      setPetNotice(null);
+      setPetNoticeSticky(null);
       setAuthed(false);
       setShowOverlay(true);
       // Arm the welcome again — signing back in during the same session is a
@@ -604,6 +611,33 @@ export default function App() {
   // outside every `{petData && …}` gate.
   // null | { kind: 'info' | 'error', message }
   const [petNotice, setPetNotice] = useState(null);
+  // 🚨 R1 OF A3: TWO LIFETIMES, NOT ONE STATE RENDERED TWICE.
+  //
+  // The first version passed `petNotice` to BOTH the toast and Settings' pet
+  // card, and the comment on the Settings prop claimed "the toast goes away,
+  // this does not". It was false: dismissing the toast — by its X or by its
+  // ten-second timer — called setPetNotice(null) and removed the Settings copy
+  // at the same instant, so the durable surface the brief asked for did not
+  // exist. This one is cleared only by a sign-out or by a later successful
+  // save, so somebody who was looking elsewhere can still find out what
+  // happened.
+  const [petNoticeSticky, setPetNoticeSticky] = useState(null);
+
+  // Say it in both places at once. Stable identity: it goes into savePet's
+  // closure and must not change performPetSave's identity.
+  const announcePetNotice = useCallback((notice) => {
+    setPetNotice(notice);
+    setPetNoticeSticky(notice);
+  }, []);
+
+  // 🚨 R1 OF A3: STABLE, and the reason is measured. PetNotice's dismissal
+  // timer lists onDismiss in its dependency array; App passing a fresh arrow
+  // restarted that timer on EVERY App render, and with a live pet the
+  // dream-cloud effect re-renders App every 3s then 8–15s — so the documented
+  // ten-second dismissal only landed when a gap happened to exceed ten
+  // seconds. The comment in PetNotice claiming it is "keyed on the message,
+  // not the object" was true of the message and untrue of the handler.
+  const dismissPetNotice = useCallback(() => setPetNotice(null), []);
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
   const petUserIdRef = useRef(null);
@@ -733,10 +767,33 @@ export default function App() {
         // under the OWNER's key, so the next person at this computer cannot be
         // handed this pet.
         await mirrorPetToCache(next, owner);
+      } else if (getUserStateOwner()) {
+        // 🚨 R1 OF A3: SIGNED IN, BUT THE PET'S ROUTING IS NOT ESTABLISHED.
+        //
+        // This is the failed-cloud-read state: the effect below deliberately
+        // leaves petUserIdRef null so a blip cannot re-point writes at an
+        // account. The first version then fell through to the local branch and
+        // called savePetData(next, null) — writing the UNATTRIBUTED store,
+        // which the account arm of loadPet never reads again — and returned
+        // TRUE. The change was discarded on the next launch and reported as
+        // saved, on a shared computer it was left for the next signed-out
+        // launcher to see, and clearPetCache refuses by design to remove it.
+        // It also contradicted the copy shipped in the same commit: "There is
+        // no offline copy."
+        //
+        // Failing loudly is the honest answer, and it is what that copy
+        // promises.
+        throw new Error(
+          'Your pet could not be reached in your account, so this change was not saved. It will save once the connection comes back.');
       } else {
         await savePetData(next, owner);
       }
       setPetSaveError(null);
+      // A later success clears a standing ERROR notice; an 'info' one
+      // ("refreshed") describes something that happened and lives out its own
+      // ten seconds.
+      setPetNoticeSticky(n => (n && n.kind === 'error' ? null : n));
+      setPetNotice(n => (n && n.kind === 'error' ? null : n));
       return true;
     } catch (err) {
       // ── A3: 0068's refusal is not a save failure ──────────────────────────
@@ -748,7 +805,7 @@ export default function App() {
       // stale window gets a refresh notice.
       if (isStalePetWrite(err)) {
         setPetSaveError(null);
-        setPetNotice({
+        announcePetNotice({
           kind: 'info',
           message: 'Your pet changed on another device — refreshed.',
         });
@@ -875,7 +932,25 @@ export default function App() {
     // real state change and clears the routing immediately (writes fall back to
     // this machine's cache, which is harmless), and only a read that SUCCEEDS
     // installs the new owner.
-    if (petUserIdRef.current !== userId) petUserIdRef.current = null;
+    if (petUserIdRef.current !== userId) {
+      // 🚨 R1 OF A3: AND THE PET GOES WITH IT, on a REAL switch.
+      //
+      // petData is only blanked when userId is falsy, so an identity change
+      // A → B with no intervening signed-out state left A's pet on screen
+      // while the routing moved to B — and any interaction, or a decay tick
+      // reaching sleep, evolution or death, would then write A's pet into B's
+      // row. The account-scoped cache closes the ADOPTION route into another
+      // account; this closes the write route.
+      //
+      // ⚠️ Only when the ref already held somebody. On a cold start it is null
+      // and the mount effect has just rendered this person's cached pet —
+      // blanking there would replace an instant render with a blank screen
+      // until the cloud answers, which is the thing that effect exists to
+      // prevent.
+      const previousOwner = petUserIdRef.current;
+      petUserIdRef.current = null;
+      if (previousOwner) setPetData(null);
+    }
     // The settings writers live in other components and must know too. They are
     // a different store with a different failure mode — a settings write that
     // lands in the wrong account is recoverable, a pet write is not — so this
@@ -902,8 +977,11 @@ export default function App() {
     (async () => {
       try {
         const { pet, adopted } = await resolveUserPet(userId);
-        // The read landed: from here on, saves belong to this account.
-        if (!cancelled) petUserIdRef.current = userId;
+        // The read landed AND produced a pet: from here on, saves belong to
+        // this account. R1: gated on `pet` as well, so a resolve that somehow
+        // yields nothing cannot re-point writes at an account whose pet is not
+        // on screen.
+        if (!cancelled && pet) petUserIdRef.current = userId;
         // 🚨 Phase 3: this NO LONGER `return`s when the epoch has moved. It
         // only skips INSTALLING the pet, then falls through to the settings
         // half below. Returning here meant that creating an egg while the
@@ -947,7 +1025,7 @@ export default function App() {
           // 🚨 A3: and SAY it somewhere that exists when the pet does not. When
           // this is a cold start the catch leaves petData null, so the
           // companion — the only renderer of petSaveError — is never mounted.
-          setPetNotice({ kind: 'error', message });
+          announcePetNotice({ kind: 'error', message });
         }
       }
     })();
@@ -1024,7 +1102,13 @@ export default function App() {
       setPetData(prev => {
         if (!prev) return prev;
         if (prev.form === 'egg' || prev.form === 'corpse' || prev.form === 'ghost') return prev;
-        if (!prev.petMode) return prev;
+        // R1 of A3: `=== false`, not falsy, so this genuinely mirrors
+        // applyOfflineDecay. They disagreed for `petMode: undefined` — frozen
+        // while the app was open, decaying while it was closed — and the
+        // commit claimed they were the same. Unreachable today (fromPetRow
+        // always yields a boolean and defaultPet sets true); made true anyway,
+        // because the claim is what the next reader will rely on.
+        if (prev.petMode === false) return prev;
 
         const next = { ...prev };
         const rates = DECAY_RATES[next.difficulty] || DECAY_RATES.medium;
@@ -1527,6 +1611,24 @@ export default function App() {
     setPetData(prev => {
       if (!prev) return prev;
       const next = { ...prev, petMode: enabled };
+      // 🚨 R1 OF A3: TURNING PET MODE BACK ON IS A DECAY-CLOCK EVENT.
+      //
+      // While Pet Mode is off nothing advances the anchor — the live tick
+      // returns `prev` and applyOfflineDecay skips — so the row keeps the
+      // anchor from the moment it was switched off. Without this stamp, the
+      // first launch after switching it back on measures elapsed time across
+      // the ENTIRE paused period and applies it in one go. Measured against
+      // the shipped applyOfflineDecay: Pet Mode off for six hours, flipped on,
+      // reopened → hunger 0, form 'ghost'. The switch that implements ruling 6
+      // was defeating it.
+      //
+      // The rule at performPetSave therefore reads: the anchor moves when
+      // hunger or happiness move, OR when the decay clock is paused or
+      // resumed. Only the resume needs it — pausing leaves the anchor as the
+      // last instant the numbers were true, which is what it means.
+      if (enabled && prev.petMode === false) {
+        next.lastUpdatedAt = new Date().toISOString();
+      }
       next.state = derivePetState(next);
       savePet(next);
       return next;
@@ -1934,9 +2036,11 @@ export default function App() {
           // own outcome, success as well as failure.
           newPetStatus={newPetStatus}
           newPetPending={newPetPending}
-          // A3: the same notice the app-level toast shows, on the page that
-          // describes the pet — the toast goes away, this does not.
-          petNotice={petNotice}
+          // A3: the pet's cross-device notice on the page that describes the
+          // pet. R1: this is the STICKY copy, not the toast's — they were one
+          // state, so dismissing the toast erased the durable surface at the
+          // same instant and the claim below it was false.
+          petNotice={petNoticeSticky}
         />
       </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
@@ -2269,6 +2373,12 @@ export default function App() {
               currentPage={currentPage}
               petData={petData}
               petSaveError={petSaveError}
+              // R1 of A3: the cloud-only sentence is only TRUE for a save made
+              // by a signed-in person. petSaveError multiplexes load, sync,
+              // save and egg failures, so on a failed SYNC it said "this
+              // change is not stored" when there was no change, and signed out
+              // the pet genuinely is local.
+              petIsCloudBacked={!!perms.userId}
               companionOpen={companionOpen}
               onCompanionToggle={setCompanionOpen}
               chatMessages={chatMessages}
@@ -2455,7 +2565,7 @@ export default function App() {
         The stale-copy refresh from migration 0068, and a failed pet LOAD —
         which had nowhere to show itself at all, because the failure unmounts
         the only thing that rendered it. */}
-    <PetNotice notice={petNotice} onDismiss={() => setPetNotice(null)} />
+    <PetNotice notice={petNotice} onDismiss={dismissPetNotice} />
     </RabbitProvider>
     </AgentProvider>
   );

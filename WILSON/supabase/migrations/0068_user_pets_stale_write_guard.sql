@@ -51,13 +51,31 @@
 -- Two timestamps cannot order two writers that have both legitimately moved
 -- forward. A second window showing a LIVE pet with Pet Mode on advances its
 -- own anchor every 30 seconds from its own decay tick, so its anchor is
--- genuinely newer and its write is accepted. What is caught is every window
--- whose pet has not decayed since it loaded — an egg, a corpse, a ghost, or
--- Pet Mode off, which are exactly the four cases where App.jsx's decay reducer
--- returns the identical object — plus every non-decay save from any window.
--- Audrey's reported case (create an egg on PC A while PC B sits on the old
--- ghost) is in the caught set. Closing the rest needs a revision counter or
--- live sync, and neither was chosen.
+-- genuinely newer and its write is accepted.
+--
+-- 🚨 CORRECTED BY R1 OF A3 — the first version of this paragraph claimed the
+-- caught set was "every window whose pet has not decayed since it loaded — an
+-- egg, a corpse, a ghost, or Pet Mode off". That is too strong, and Audrey's
+-- own pet is a ghost, so it matters. What is caught is a write whose anchor is
+-- OLDER than the stored one, which needs the WINNING writer to have advanced
+-- the anchor. Two windows both sitting on a non-decaying pet both hold the
+-- SAME anchor, equal is allowed, and the second still overwrites the first.
+--
+-- So, precisely: caught when the other machine has moved the pet on —
+-- creating an egg, feeding, petting, hatching, waking, a decay tick, or
+-- resuming Pet Mode, all of which move the anchor. Not caught when neither
+-- machine has. Audrey's reported case (create an egg on PC A while PC B sits
+-- on the old ghost) is in the caught set, because creating an egg mints a
+-- fresh anchor. Closing the rest needs a revision counter or live sync, and
+-- neither was chosen.
+--
+-- 🚨 AND IT IS CLOCK-SENSITIVE, because `last_updated_at` is client-supplied.
+-- A machine whose clock runs fast always wins; one whose clock runs slow is
+-- refused, sees the refresh notice, adopts the account's anchor from the
+-- re-read, and can then write — so a skewed clock degrades the guard rather
+-- than trapping anybody, but it degrades it silently. A server-side clamp
+-- would trade that for a decay anchor that is not the instant the numbers were
+-- true, which is the one thing 0046 says this column must be.
 --
 --
 -- 🚨 EQUAL IS ALLOWED, AND THAT IS LOAD-BEARING

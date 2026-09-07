@@ -514,12 +514,23 @@ describe('A3 — resolveUserPet reads only THIS account\'s cache', () => {
     expect(upsert).toHaveBeenCalled()
   })
 
-  it('nothing cached for this account → no adoption, and no throw', async () => {
-    stubTable({ selectRow: null })
+  it('🚨 R1: nothing anywhere → a fresh egg, MINTED but NOT uploaded', async () => {
+    // This probe used to assert `out.pet` was null, which PINNED the
+    // regression instead of catching it. Keying the cache by account made the
+    // account arm answer null for every first sign-in, and nothing replaced
+    // the mint the unattributed store used to provide — so a brand-new
+    // account got `{ pet: null }`, App renders the companion as
+    // `{petData && …}`, and the pet was simply absent with no error.
+    const { upsert } = stubTable({ selectRow: null })
     loadPet.mockResolvedValue(null)
     const out = await resolveUserPet(UID)
     expect(out.adopted).toBe(false)
-    expect(out.pet).toBeNull()
+    expect(out.source).toBe('new')
+    expect(out.pet).toBeTruthy()
+    expect(out.pet.form).toBe('egg')
+    // 🚨 AND NOT UPLOADED — Phase 3's rule. Seeding a blank row bought
+    // nothing and created one more not-real pet for isRealPet to misread.
+    expect(upsert).not.toHaveBeenCalled()
   })
 
   it('🚨 a 0068 refusal DURING adoption is an answer, not a sign-in error', async () => {

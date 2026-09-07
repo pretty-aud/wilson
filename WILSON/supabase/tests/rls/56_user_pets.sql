@@ -28,7 +28,7 @@
 
 BEGIN;
 
-SELECT plan(37);
+SELECT plan(39);
 
 SELECT * FROM tests.rls_setup();
 
@@ -336,6 +336,31 @@ SELECT is(
       AND happiness = 41
       AND last_updated_at > now()),
   1, 'and the newer anchor is what is stored');
+
+-- ── 🚨 THE SHAPE THE CLIENT ACTUALLY SENDS ─────────────────────────────────
+--
+-- Every probe above is a bare UPDATE. `saveCloudPet` issues PostgREST's upsert,
+-- `INSERT … ON CONFLICT (user_id) DO UPDATE`, and that is the ONLY statement
+-- production ever takes against this table. A BEFORE UPDATE trigger does fire
+-- for the conflicting row — but "does" was a reading of the manual rather than
+-- a measurement, and a guard bypassed by the one path that matters would have
+-- been invisible to every other probe in this file.
+--
+-- The row's anchor is now() + 1 hour after the probe above, so now() is older.
+SELECT throws_ok(
+  $$INSERT INTO public.user_pets (name, last_updated_at)
+    VALUES ('Upserted', now())
+    ON CONFLICT (user_id) DO UPDATE
+      SET name = EXCLUDED.name, last_updated_at = EXCLUDED.last_updated_at$$,
+  'WP001',
+  NULL,
+  '0068: the guard fires on the UPSERT the client actually sends, not only on a bare UPDATE');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.user_pets
+    WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      AND name = 'Dee-equal'),
+  1, 'and the refused upsert left the row alone');
 
 -- ── the feedback size cap — 0046 asserted this in a comment and never tested it
 --

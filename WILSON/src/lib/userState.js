@@ -45,6 +45,7 @@
 // =============================================================================
 
 import { supabase } from '../cloud/auth/supabaseClient'
+import { defaultPet } from './petLifecycle'
 import { loadPet as loadLocalPet, savePetData as saveLocalPetData,
          loadOtterSettings, saveOtterSettings,
          loadAgentSkills, saveAgentSkills } from './localData'
@@ -345,7 +346,24 @@ export async function resolveUserPet(userId = null) {
   // for a not-real pet to be mistaken for the account's own state.
   if (local) return { pet: local, source: 'local', adopted: false }
 
-  return { pet: null, source: 'none', adopted: false }
+  // 🚨 R1 OF A3: A NEW ACCOUNT HAS TO GET A PET, AND FOR ONE COMMIT IT DID NOT.
+  //
+  // Before A3 this line was unreachable: `loadLocalPet()` read the
+  // unattributed store, which ALWAYS minted, so `local` was always truthy.
+  // Keying the cache by account made the account arm answer null for a machine
+  // that has never held this account's pet — which is every first sign-in —
+  // and nothing replaced the mint. The result was `{ pet: null }`, so
+  // `petData` stayed null, App renders the companion as `{petData && …}`,
+  // SettingsPage gates its whole Companion card the same way, and
+  // `handleNewPet` refuses with "A new egg can only be created once your pet
+  // has died." The pet was simply absent, on every launch, with no error.
+  //
+  // ⚠️ MINTED BUT NOT UPLOADED, which is Phase 3's rule and is why this is not
+  // simply `saveCloudPet(defaultPet())`. Seeding blank rows bought nothing —
+  // saveCloudPet upserts, so the row appears on the first real save — and
+  // every blank row created was one more not-real pet for isRealPet to
+  // misread. `source: 'new'` so a caller can tell a mint from a cache read.
+  return { pet: defaultPet(), source: 'new', adopted: false }
 }
 
 /**

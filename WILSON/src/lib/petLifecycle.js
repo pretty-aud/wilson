@@ -320,7 +320,26 @@ export function applyOfflineDecay(input) {
       // corpse stage exists so the live tick can play a ten-second animation,
       // and there is nobody watching an app that is shut.
       pet.form = 'ghost'
-      pet.diedAt = pet.diedAt || new Date(now).toISOString()
+      // 🚨 R1 OF A3: THE DEATH INSTANT IS COMPUTED, NOT STAMPED WITH `now`.
+      //
+      // lastSleptAt and evolvedAt already use deterministic instants, for the
+      // idempotence the "prime, do not save" rule depends on — the stored row
+      // keeps the old anchor, so this runs again on the next launch from the
+      // same input and must produce the same pet. `diedAt` was the one branch
+      // that broke that rule, drifting later on every cold start until
+      // something happened to save.
+      //
+      // Hunger falls linearly from the anchor, so the moment it reached zero
+      // is recoverable from the anchor, the rate and how much hunger there
+      // was. Guarded for a zero rate, which no DECAY_RATES entry has but a
+      // future one might.
+      if (!pet.diedAt) {
+        const rate = (DECAY_RATES[pet.difficulty] || DECAY_RATES.medium).hunger
+                     * (input.form === 'baby' ? 2 : 1)
+        const minutesToZero = rate > 0 ? (input.hunger || 0) / rate : 0
+        const diedAtMs = Math.min(now, anchor + minutesToZero * 60000)
+        pet.diedAt = new Date(Number.isFinite(diedAtMs) ? diedAtMs : now).toISOString()
+      }
       pet.hunger = 0
       moved = true
     }

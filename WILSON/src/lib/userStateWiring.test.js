@@ -167,11 +167,27 @@ describe('A3 — the anchor travels with the values it describes', () => {
     // Counted, not merely present: feeding, hatching, waking and petting are
     // four separate object literals and one of them losing the field is exactly
     // the kind of edit a `toMatch` cannot see.
-    const stamps = app.match(/lastUpdatedAt: new Date\(\)\.toISOString\(\)/g) || []
-    expect(stamps.length).toBeGreaterThanOrEqual(4)
-    expect(app).toMatch(/hunger: Math\.min\(100, prev\.hunger \+ 25\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
-    expect(app).toMatch(/happiness: Math\.min\(100, prev\.happiness \+ 20\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
-    expect(app).toMatch(/sleepingSince: null[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    //
+    // 🚨 R1: THE COUNT WAS BLIND TO THE ONE SITE IT NAMED. It matched the
+    // colon form only, so hatching — which is an ASSIGNMENT,
+    // `next.lastUpdatedAt = …` — was never counted, and two of the five
+    // matches were a comment and performPetSave's fallback arm. Deleting the
+    // hatch stamp left every assertion in this block green (measured). Comment
+    // lines are stripped, both forms are counted, and hatching gets its own
+    // anchored assertion like the other three.
+    const live = app
+      .split('\n')
+      .filter(l => !l.trimStart().startsWith('//') && !l.trimStart().startsWith('*'))
+      .join('\n')
+    const stamps = live.match(/lastUpdatedAt(:| =) new Date\(\)\.toISOString\(\)/g) || []
+    expect(stamps.length).toBeGreaterThanOrEqual(6)
+    expect(live).toMatch(/hunger: Math\.min\(100, prev\.hunger \+ 25\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    expect(live).toMatch(/happiness: Math\.min\(100, prev\.happiness \+ 20\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    expect(live).toMatch(/sleepingSince: null[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    // Hatching: the site the count could not see.
+    expect(live).toMatch(/next\.hunger = 80;[\s\S]{0,300}next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
+    // And the resume transition, which R1 found defeats ruling 6 without it.
+    expect(live).toMatch(/if\s*\(enabled\s*&&\s*prev\.petMode\s*===\s*false\)\s*\{\s*\n\s*next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
   })
 
   it('🚨 a thumbs-DOWN does not move the anchor', () => {
@@ -179,7 +195,19 @@ describe('A3 — the anchor travels with the values it describes', () => {
     // holds and 0068 accepts it as an equal. Stamping there would let a rating
     // from a stale window count as "this copy is newer" — the clobber wearing a
     // different hat.
-    expect(app).toMatch(/next\.happiness = Math\.min\(100, next\.happiness \+ 5\);\s*\n[\s\S]{0,400}next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
+    //
+    // 🚨 R1: "within 400 characters AFTER the +5 line" is not "inside the
+    // block". Moving the stamp OUT of the `if (rating === 'up' …)` arm — the
+    // exact defect this names — left the assertion true (measured). The
+    // property is containment, so the block is sliced out and asserted on.
+    const from = app.indexOf("if (rating === 'up' && prev.petMode")
+    expect(from).toBeGreaterThan(-1)
+    const rest = app.slice(from)
+    const block = rest.slice(0, rest.indexOf('\n      }') + 8)
+    expect(block).toMatch(/next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
+    // ...and the statement immediately after the block is not one.
+    expect(rest.slice(block.length, block.length + 200))
+      .not.toMatch(/next\.lastUpdatedAt = new Date\(\)/)
   })
 })
 
@@ -203,7 +231,7 @@ describe('A3 — 0068\'s refusal is a re-read, never a retry', () => {
     // renders PetCompanion as `{petData && …}` — so it is invisible in exactly
     // the two cases that need it: a stale copy being replaced, and a failed
     // LOAD, which unmounts the only renderer of its own error message.
-    expect(app).toMatch(/setPetNotice\(\{\s*\n?\s*kind: 'info'/)
+    expect(app).toMatch(/announcePetNotice\(\{\s*\n?\s*kind: 'info'/)
     expect(app).toMatch(/<PetNotice\s+notice=\{petNotice\}/)
     // Mounted OUTSIDE every petData gate — beside UndoToast at the root.
     expect(app).toMatch(/<UndoToast \/>[\s\S]{0,600}<PetNotice/)
@@ -211,7 +239,7 @@ describe('A3 — 0068\'s refusal is a re-read, never a retry', () => {
   })
 
   it('the load failure reaches it too — the entry that had nowhere to show itself', () => {
-    expect(app).toMatch(/setPetNotice\(\{ kind: 'error', message \}\)/)
+    expect(app).toMatch(/announcePetNotice\(\{ kind: 'error', message \}\)/)
   })
 })
 
@@ -223,14 +251,90 @@ describe('A3 — a failed cloud read must not re-point the writes', () => {
     // interaction wrote that stale pet over the account row, with no adoption
     // decision and no staleness check. A transient Supabase blip on the second
     // computer was enough to overwrite the first computer's pet.
-    expect(app).toMatch(/if\s*\(petUserIdRef\.current\s*!==\s*userId\)\s*petUserIdRef\.current\s*=\s*null;/)
+    expect(app).toMatch(/if\s*\(petUserIdRef\.current\s*!==\s*userId\)\s*\{/)
+    expect(app).toMatch(/const\s+previousOwner\s*=\s*petUserIdRef\.current;\s*\n\s*petUserIdRef\.current\s*=\s*null;/)
     // The failing control: the unconditional assignment must be gone from the
     // effect's synchronous head.
     expect(app).not.toMatch(/const userId = perms\.userId \|\| null;\s*\n\s*petUserIdRef\.current = userId;/)
   })
 
   it('🚨 and is SET only after the read has landed', () => {
-    expect(app).toMatch(/await\s+resolveUserPet\(userId\);[\s\S]{0,200}petUserIdRef\.current\s*=\s*userId;/)
+    // R1: gated on `pet` as well, so a resolve that yields nothing cannot
+    // re-point writes at an account whose pet is not on screen.
+    expect(app).toMatch(/await\s+resolveUserPet\(userId\);[\s\S]{0,300}if\s*\(!cancelled\s*&&\s*pet\)\s*petUserIdRef\.current\s*=\s*userId;/)
+  })
+})
+
+describe('A3/R1 — the corrections round 1 found', () => {
+  it('🚨 a signed-in user is never told a save landed when it went nowhere', () => {
+    // The failed-cloud-read state leaves petUserIdRef null on purpose. The
+    // first version then fell through to savePetData(next, null), writing the
+    // UNATTRIBUTED store — which the account arm of loadPet never reads again
+    // — and returned true. Silently discarded, reported as saved, and left on
+    // a shared computer for the next signed-out launcher.
+    expect(app).toMatch(/\}\s*else if\s*\(getUserStateOwner\(\)\)\s*\{/)
+    expect(app).toMatch(/import\s*\{[^}]*getUserStateOwner[^}]*\}\s*from\s*'\.\/lib\/userState'/)
+    // The local branch survives for the genuinely signed-out case.
+    expect(app).toMatch(/\}\s*else\s*\{\s*\n\s*await savePetData\(next, owner\);/)
+  })
+
+  it('🚨 an identity change clears the PET, not only the routing', () => {
+    // petData was blanked only when userId was falsy, so an A → B switch with
+    // no signed-out state in between left A's pet on screen with B's routing.
+    expect(app).toMatch(/if\s*\(previousOwner\)\s*setPetData\(null\);/)
+  })
+
+  it('🚨 the sticky Settings notice is a SECOND state, not the toast\'s', () => {
+    // One state rendered twice meant dismissing the toast erased the durable
+    // surface at the same instant, and the prop comment said the opposite.
+    expect(app).toMatch(/const \[petNoticeSticky, setPetNoticeSticky\] = useState\(null\)/)
+    expect(app).toMatch(/petNotice=\{petNoticeSticky\}/)
+    expect(app).toMatch(/<PetNotice notice=\{petNotice\}/)
+    // Cleared on sign-out and on a later successful save, and nowhere else.
+    expect(app).toMatch(/setPetNoticeSticky\(null\);/)
+    expect(app).toMatch(/setPetNoticeSticky\(n => \(n && n\.kind === 'error' \? null : n\)\)/)
+  })
+
+  it('🚨 the notice is cleared on sign-out, like the two channels beside it', () => {
+    const signOut = app.slice(app.indexOf('window.wilsonSignOut = async'))
+    const body = signOut.slice(0, signOut.indexOf('welcomePlayedRef.current = false'))
+    expect(body).toMatch(/setPetNotice\(null\);/)
+    expect(body).toMatch(/setPetNoticeSticky\(null\);/)
+  })
+
+  it('🚨 the toast\'s dismiss handler is STABLE across renders', () => {
+    // PetNotice lists onDismiss in its timer's dependency array. A fresh arrow
+    // restarted the ten-second timer on every App render, and the dream-cloud
+    // effect re-renders App every few seconds — so the documented dismissal
+    // only landed when a gap happened to exceed ten seconds.
+    expect(app).toMatch(/const dismissPetNotice = useCallback\(\(\) => setPetNotice\(null\), \[\]\)/)
+    expect(app).not.toMatch(/onDismiss=\{\(\) => setPetNotice\(null\)\}/)
+  })
+
+  it('🚨 the live tick and applyOfflineDecay read petMode the SAME way', () => {
+    // `!prev.petMode` vs `pet.petMode === false` disagree for undefined: frozen
+    // while the app is open, decaying while it is closed. The commit claimed
+    // they mirrored each other.
+    expect(app).toMatch(/if\s*\(prev\.petMode === false\) return prev;/)
+    expect(app).not.toMatch(/if\s*\(!prev\.petMode\) return prev;/)
+  })
+
+  it('🚨 the Settings notice renders OUTSIDE the petData gate', () => {
+    // It sat inside `{petData && (`, so on a failed LOAD — the one condition
+    // this surface is credited with closing — it rendered nothing at all.
+    const noticeAt = settingsPage.indexOf('{petNotice && (')
+    const gateAt = settingsPage.indexOf('{/* Companion Section */}')
+    expect(noticeAt).toBeGreaterThan(-1)
+    expect(gateAt).toBeGreaterThan(-1)
+    expect(noticeAt).toBeLessThan(gateAt)
+  })
+
+  it('🚨 a new account gets a pet — minted in userState, not by the cache', () => {
+    // Keying the cache by account made the account arm answer null for every
+    // first sign-in, and for one commit nothing replaced the mint the
+    // unattributed store used to provide.
+    expect(userState).toMatch(/import\s*\{\s*defaultPet\s*\}\s*from\s*'\.\/petLifecycle'/)
+    expect(userState).toMatch(/return \{ pet: defaultPet\(\), source: 'new', adopted: false \}/)
   })
 })
 
