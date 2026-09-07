@@ -213,3 +213,130 @@ Walkthrough 06 — timeline (A2 session 1) — date:
 19 real run done: Y/N   inserted counts:
 Anything odd (exact text):
 ```
+
+---
+
+# Part 2 — milestones (key dates): cloud, trash and undo
+
+**What this checks.** Track A bundle A2, **session 2** (`4f65d63`, `d5baa0b`;
+2026-09-07), your rulings 26 (*build cloud milestones*) and 38 (*trash and
+undo for milestones*). Three things:
+
+5. **Key dates exist in the cloud at all.** They were desktop-only: on the
+   beta, creating one raised "milestones table not yet created" and the
+   timeline drew none. Migration `0067` built the table; it is applied on dev
+   and staging, so the beta has it.
+6. **Deleting a key date is undoable.** A toast appears with `Undo`, the way
+   deleting an asset or a phase already does.
+7. **Recently deleted.** A deleted key date goes to a list you can restore it
+   from later — on the beta *and* on the desktop.
+
+In the app a milestone is called a **key date**: the toolbar button is
+`Key Date` and the deleted list is `Recently deleted key dates`.
+
+**Where and who.** The same throwaway project as Part 1.
+
+- **The beta**, signed in as a member who can write. Steps 20–27.
+- **The desktop app on Local Server.** Steps 28–31.
+- **Optional, needs a second account:** step 32.
+
+## Steps
+
+### On the beta
+
+20. **Create one.** `Timeline` tab. In the toolbar between the minimap and the
+    Gantt, press `Key Date`. Fill in a title (`Lock picture`), pick a date
+    inside the project's range, leave `Phase` empty, and save.
+    - **Expect:** it saves with no error, and a diamond appears on the
+      timeline at that date, in both the minimap and the detail pane.
+    - **If instead** you see a message about a table not existing, or the save
+      spins and nothing appears: copy the exact text. That would mean 0067 is
+      not on staging and everything below will fail the same way.
+21. **A key date with no phase is a real one.** Reload the page. The diamond
+    from step 20 must still be there.
+    - This is the single most important check in Part 2. The database rule
+      that decides whether a key date is visible deliberately looks at the
+      PROJECT and never at the phase, because you are allowed to leave `Phase`
+      empty. If that were wrong, the save would appear to succeed and the key
+      date would vanish on reload with no error anywhere.
+22. **A key date ON a phase.** Create a second one (`Delivery`), and this time
+    choose a phase in the `Phase` field. Save, reload, confirm it is still
+    there.
+23. **Edit it.** Click the `Delivery` diamond, change its title and colour,
+    save, reload.
+    - **Expect:** both changes stuck.
+    - **If instead** the edit appears to save and reverts on reload: that is
+      the failure worth reporting in full — which field, and what it reverted
+      to.
+24. **Delete, then Undo.** Delete `Delivery`.
+    - **Expect:** a toast at the bottom saying "Deleted key date" and the
+      title in quotes, with an `Undo` control. Press `Undo`.
+    - **Expect:** the diamond comes back, in the same place, with the title
+      and colour from step 23. Reload and confirm it is still back.
+25. **Delete, then leave it.** Delete `Delivery` again and let the toast go
+    (or dismiss it). The diamond stays gone.
+26. **Recently deleted.** Press `Deleted` in the same toolbar.
+    - **Expect:** a panel titled `Recently deleted key dates` listing
+      `Delivery`, with the date you deleted it and a line saying when it is
+      removed for good. Press `Restore`.
+    - **Expect:** the panel updates, the diamond returns to the timeline, and
+      it survives a reload.
+    - **If instead** the panel is empty, or says it could not read the list:
+      copy the exact text. An empty list and a failed read are different
+      answers and the panel is written to distinguish them.
+27. **A reviewer cannot restore.** *Only if you have a second account on the
+    project as a reviewer.* Sign in as that account, open the same project's
+    `Timeline`, press `Deleted`.
+    - **Expect:** the list is readable, and `Restore` is refused with the same
+      "you do not have permission" style message the other write controls
+      give — not a raw database error.
+
+### On the desktop (Local Server)
+
+28. **Create one.** Settings → `Storage` → `Storage Backend` → `Local Server`.
+    Open the same kind of project, `Timeline`, `Key Date`, save one.
+29. **Delete and Undo.** Delete it and press `Undo` on the toast. It comes
+    back. **Close the app and reopen it**, then check it is still there — the
+    desktop writes to disk, so a reload is not the same test as a restart.
+30. **Recently deleted on the desktop.** Delete it again, press `Deleted`,
+    and `Restore` it from the panel. Restart the app and confirm it stayed.
+    - **Expect:** the panel does NOT show a "removed for good in N days"
+      countdown here. Nothing purges on Local Server, so promising a deadline
+      would be a lie. If you DO see a countdown on the desktop, say so.
+31. **A deleted key date does not come back by itself.** Delete one, leave it
+    deleted, restart the app.
+    - **Expect:** it is still gone from the timeline, and still listed under
+      `Deleted`.
+    - **If instead** it reappears on the timeline: that is the bug this whole
+      change exists to avoid — record it.
+
+### Optional
+
+32. **Two windows.** Open the same project on the beta in two browser windows.
+    Delete a key date in one, then RELOAD the other.
+    - **Expect:** it is gone in the second window after the reload.
+    - **Known limit, not a bug:** key dates do not live-sync. The second
+      window will NOT update on its own — it needs the reload. That is the
+      same limit scenes and levels have had since they were built; say if it
+      bothers you and it becomes its own piece of work.
+
+## Report — Part 2 (paste back)
+
+```
+Walkthrough 06 Part 2 — key dates (A2 session 2) — date:
+20 created on the beta, diamond appeared: Y/N   exact error if not:
+21 no-phase key date survived a reload: Y/N        <-- the important one
+22 key date on a phase survived a reload: Y/N
+23 edit stuck after reload: Y/N    if it reverted, which field:
+24 delete toast appeared with Undo / Undo restored it / survived reload: Y/N Y/N Y/N
+25 dismissed toast left it deleted: Y/N
+26 Deleted panel listed it / Restore worked / survived reload: Y/N Y/N Y/N
+    countdown line shown on the beta: Y/N
+27 reviewer refused with a readable message (skip if no 2nd account): Y/N
+28 desktop create: Y/N
+29 desktop Undo survived an app RESTART: Y/N
+30 desktop Restore survived a restart: Y/N   countdown shown (should be N): Y/N
+31 deleted key date stayed deleted after a restart: Y/N
+32 second window after reload (optional): Y/N
+Anything odd (exact text):
+```

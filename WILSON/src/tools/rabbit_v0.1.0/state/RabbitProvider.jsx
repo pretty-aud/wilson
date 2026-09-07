@@ -1866,7 +1866,7 @@ export function RabbitProvider({ children }) {
       // with nothing but a confirm dialog in front of it (MASTER_PLAN §6 #10).
       if (token != null) {
         showUndoToast(
-          `Deleted milestone "${oldMilestone.title || 'Untitled'}"`,
+          `Deleted key date "${oldMilestone.title || 'Untitled'}"`,
           () => undoHistoryEntry(token),
         );
       }

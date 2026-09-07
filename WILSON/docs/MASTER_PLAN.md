@@ -784,8 +784,13 @@ read doubles as the final audit (code findings → §6 gaps for S17).
    be recreated.
 4. Restoring a child under a trashed parent leaves trash early (error surfaced;
    parent purge cascades it anyway).
-5. Milestones / scenes / levels / experiences have no cloud tables yet (S2
-   deferral) — not broadcast, not history-captured.
+5. ~~Milestones / scenes / levels / experiences have no cloud tables yet (S2
+   deferral)~~ — **TABLES CLOSED**: scenes/shots/levels/experiences by 0040
+   (S25), milestones by **0067** (Track A A2 session 2, 2026-09-07, ruling 26;
+   applied and verified by query on dev and staging, suite 71 green on both).
+   **Still open, unchanged, for all four:** they are not broadcast (0016) and
+   not edit-history captured (0012), so a second window sees a change on its
+   next project load.
 6. ~~Storage blob GC — file rows soft-delete but blobs persist~~ — **CLOSED
    S14**: trg_files_gc_enqueue + storage_gc_queue + the admin-invoked
    `storage-gc` Edge Function (queue drain, orphan scan, avatar sweep, all
@@ -796,7 +801,12 @@ read doubles as the final audit (code findings → §6 gaps for S17).
    Budget/Intake views.
 9. ~~`public.users` drop + `schema.sql` retirement~~ — **CLOSED S10** (0023;
    Audrey confirmed standalone RABBIT is no longer supported).
-10. Milestones have no undo path (kept confirm dialog).
+10. ~~Milestones have no undo path (kept confirm dialog).~~ — **CLOSED** by
+    ruling 38 (Track A A2 session 2, `4f65d63` + `d5baa0b`): a deleted key date
+    goes to the trash on BOTH backends, an undo toast appears on delete, and a
+    "Recently deleted key dates" panel restores one later. Cloud rides 0014's
+    soft_delete_row / restore_soft_deleted, whose allowlist 0067 extends;
+    desktop rides a softDelete opt on the shared sub-entity route factory.
 11. pgTAP 20/23's realtime probes are lenient in CI by design (no realtime
     service in the CI stack); hosted coverage = live probes.
 12. **NEW (S8):** Notes have no cross-device LIVE list refresh (deliberate —
@@ -1268,12 +1278,12 @@ undecided gap at a release is a decision nobody made.
 | 2 | **ACCEPTED** | Token-refresh-while-trashed can miss one restore event; catches up on next open. Documented in the 0016 header. |
 | 3 | **ACCEPTED** | Revert covers projects/phases/assets/tasks only. A hard-deleted project cannot be recreated at its original id, and a fresh id would orphan the whole subtree — that is a correctness limit, not an omission. |
 | 4 | **ACCEPTED** | Restoring a child under a trashed parent leaves trash early; the error is surfaced and the parent purge cascades it anyway. |
-| 5 | **RE-OWNED** | Milestones / scenes / levels / experiences have no cloud tables. This is a migration plus five adapter surfaces, not a release fix. **S17 did fix the data loss inside local mode (#47).** |
+| 5 | **CLOSED** (S25 `183b4c2` + A2s2 `4f65d63`/`d5baa0b`) | All four have cloud tables: 0040 built scenes/shots/levels/experiences, 0067 built milestones. The broadcast and edit-history gap is unchanged and still stated in §6 #5. **S17 had already fixed the data loss inside local mode (#47).** |
 | 6 | **CLOSED S14** | `trg_files_gc_enqueue` + `storage_gc_queue` + the admin-invoked `storage-gc` function. |
 | 7 | **ACCEPTED** | `project_members` changes are not edit-history captured. Roster changes are visible in the UI and the workspace channel; the audit gap that mattered — *workspace* privilege changes — is #42, closed below. |
 | 8 / 19 | **RE-OWNED** | Legacy `useTeamMembers` still backs six views. Migrating a live data source across Timeline / Scenes / Levels / Experiences / Budget / Intake is exactly the kind of refactor this session was told not to attempt. |
 | 9 | **CLOSED S10** | `public.users` dropped (0023). |
-| 10 | **ACCEPTED** | Milestones have no undo path; the confirm dialog stands in. |
+| 10 | **CLOSED** (A2s2 `4f65d63` + `d5baa0b`, ruling 38) | Milestones have trash and undo on both backends: an undo toast on delete and a "Recently deleted key dates" panel with Restore. |
 | 11 | **ACCEPTED** | pgTAP realtime probes are lenient in CI by design — there is no realtime service in the CI stack. Hosted coverage comes from live probes. |
 | 12 | **ACCEPTED** | Notes have no cross-device live list refresh. Deliberate: notes ride no channel, and the version guard already makes concurrent edits lossless. |
 | 13 | **CLOSED S9** | Roster liveness + assigned-projects column. |

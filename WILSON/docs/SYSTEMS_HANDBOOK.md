@@ -2491,8 +2491,20 @@ cloud tables**, so they now work identically on both adapters — the toggles
 that reveal them (`projects.scenes_enabled` / `levels_enabled` /
 `experiences_enabled`) became columns in the same migration, because the tabs
 gate on them and adding the flags first would have unhidden views whose every
-write threw. **`milestones` remains local-only** and its Supabase adapter
-methods still throw with a stated reason.
+write threw. **Track A bundle A2 session 2 (migration 0067) did the same for
+`milestones`** — the last entity without a cloud table — so both adapters now
+behave identically for every entity. `phase_id` is nullable and
+`milestones_select` hops to the PROJECT, never the phase: a key date drawn on
+the timeline by its date alone is a real state, and a phase hop would let the
+insert land and the read deny it (the S23 trap). **A deleted key date now goes
+to the trash on both backends** (ruling 38): cloud through 0014's
+`soft_delete_row` / `restore_soft_deleted`, whose eight-table allowlist 0067
+extends, read back through the SECURITY DEFINER `milestones_trash_index`
+because the SELECT policy hides trashed rows by design; desktop through a
+`softDelete` opt on the shared sub-entity route factory plus a restore route.
+**Stated limit, unchanged:** milestones are still not broadcast (0016) and not
+edit-history captured (0012) — the same limit the four 0040 entities carry, so
+a second window sees a change on its next project load.
 
 **Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
 toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.
