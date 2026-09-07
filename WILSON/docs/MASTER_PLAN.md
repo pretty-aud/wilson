@@ -885,13 +885,28 @@ read doubles as the final audit (code findings → §6 gaps for S17).
     the proposer's course (#27), a reviewer compares two courses by eye. A real
     subject-level diff view is the obvious follow-on and is deliberately NOT in
     the S13 scope — flagged so it is a choice rather than an oversight.
-29. **NEW (S11): the apply RPC handles SUBJECTS only.** The five per-course
-    reference documents (`hotkeys`, `functions`, `nodes`, `reference_urls`,
-    `corrections`) have merge semantics that live in client JS
-    (`otterRoutes.js`'s `mergeHotkeys`/`mergeFunctions`/`mergeNodes`).
-    Reimplementing them in plpgsql would duplicate load-bearing logic, and
-    overwriting them would violate the additive-only rule. So an approval moves
-    lesson content and not hotkey tables. State it in the approve dialog.
+29. ~~**NEW (S11): the apply RPC handles SUBJECTS only.**~~ — **NARROWED
+    2026-09-07 (Track A, A4, `dfe666e`), by Audrey's decision 37.** Four of the
+    five documents now move on approval: `hotkeys`, `functions`, `nodes` and
+    `reference_urls`.
+    **This entry's OBJECTION still stands and is why the fix is shaped the way it
+    is:** the merge semantics stay in client JS and were NOT reimplemented in
+    plpgsql. `CR_DOC_MERGE` in `otterRoutes.js` adapts a STORED document into the
+    shape each existing merger wants (they were written for the generator's
+    output, and for `nodes` the two differ), and `cr.approve` reads the fork's
+    documents BEFORE the RPC — the consented review window closes on decision
+    — and writes AFTER it, so `otter_fork_course`'s snapshot keeps the OLD
+    documents. `mergeReferenceUrls` is new; there had never been one.
+    Additive-only is preserved: a document entry deleted on the fork survives on
+    the standard.
+    **`corrections` still do not move, and that is now a stated choice rather
+    than a limitation.** `otter_fork_course` blanks them when making a fork
+    (*"the original author's agent memory, not content"*), so a fork never
+    inherits them and publishing a proposer's to the company standard would
+    contradict that rule. Audrey is asked to confirm in walkthrough `08_otter.md`;
+    it is one line in `CR_DOC_MERGE` if she wants all five.
+    The approve dialog and the result banner state all of this, and the banner
+    names any document that could not be written.
 24. ~~**the S9 backup workflow could never have run**~~ — **CLOSED 2026-07-29.**
     `chore/enable-db-backups` merged to `main`; B2 configured (SSE-B2 +
     Object Lock on, 90-day lifecycle); both prod and staging jobs run green
