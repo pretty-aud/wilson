@@ -68,7 +68,18 @@ directory, `link` there, `db query --linked --workdir <dir>`; put
 `inet_server_addr()` and a workspace count in every query).
 
 If a hand-off file names a branch that already exists (a continuation), check
-it out instead of renaming: `git checkout track-a-product`.
+it out instead of renaming: `git checkout track-a-product`. If git refuses
+because the branch is still checked out in the previous session's stale
+worktree, use `git checkout --ignore-other-worktrees track-a-product`; do
+not try to detach or remove the other worktree (the classifier blocks it,
+and it is not yours).
+
+**`RLS_TABLES` entries land with their suite.** The coverage guard runs on
+the branch being tested and demands the `*_<table>.sql` file there, so each
+track adds its own table names to `RLS_TABLES` in the same commit as the
+suite, on its own branch. Track C's ownership of that list means it resolves
+the (adjacent-line) conflicts when branches meet, not that it makes every
+addition.
 
 🚨 **Staging is behind a permission wall in spawned sessions.** The desktop
 app's classifier allows `supabase link` and `functions deploy` against dev
@@ -144,6 +155,14 @@ this (2026-09-04); the chip is her click.
 
 Then close out in the chat as the briefs say: remaining bundles, plain
 English, fixed / diagnosed / hers to do.
+
+**Model, from 2026-09-07 (Audrey's instruction): every NEW session runs on
+Opus 5 (`claude-opus-5`).** Sessions already running finish on the model they
+started with. The user-level default in `~/.claude/settings.json` says
+`"model": "claude-opus-5"`; the desktop app's own model picker can override
+it, so **the first line of every new session's chat states the model it is
+running on**, and if that is not Opus 5 the session stops and tells Audrey
+before doing any work. Review subagents pass `model: "opus"`.
 
 ## 6. Merging, in tandem
 
