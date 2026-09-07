@@ -8,7 +8,10 @@
    is not done now shows a warning that names the unfinished dependencies and
    lets you continue. It never blocks, and it fires on every place a task or
    phase status is written (your rulings 9 and the 2026-08-12 "warn dont
-   block. do both phases and tasks").
+   block. do both phases and tasks"). ⚠️ **Changed on 2026-09-07, by your
+   ruling:** `Continue anyway` is now the ONLY thing that saves. The X and a
+   click outside the warning both CANCEL, the same as `Go back`. Session 1
+   shipped the opposite and step 4 below is rewritten for it.
 2. **The re-wire confirm** — dragging a dependency arrow onto a different bar
    now asks before it replaces the link (ruling 7; it does not make the two
    writes atomic, and the modal says so).
@@ -63,20 +66,31 @@ its default (tasks *Waiting to start*, phases *Not started*).
    - **If instead** there is no modal and Prod just saves: record it. **This
      is the failure that matters most in this whole walkthrough** — silence
      means a surface was missed. Say which screen.
-4. **Go back keeps the change unsaved; closing the warning saves it.** Open
-   Prod's editor again, set `Status` back to `Active`, `Save` (no warning —
-   Active is not a done status). Set it to `Completed` again, `Save`, and this
-   time click `Go back`.
-   - **Expect:** the modal closes, the editor is still open with Completed
-     still selected, and nothing was saved (close the editor, reopen: Active).
-   - Now `Save` once more and close the warning with its X (or click outside
-     it) instead of choosing a button.
-   - **Expect:** that counts as `Continue anyway` — the editor closes and Prod
-     is Completed. A dismissed warning is never a silent cancel; only
-     `Go back` is. Then put Prod back to `Active` (`Save`, no warning) so
-     step 5 starts clean.
-   - **If instead** the editor closed on Go back, or the X left the status
-     unchanged: record which.
+4. **Only `Continue anyway` saves. Every other way out cancels.**
+   ⚠️ **This is the behaviour you changed on 2026-09-07, and it is the
+   REVERSE of what the build you tested in September did.** If you already ran
+   this step once, the answer you got then was the old one; run it again.
+   Three closings, all of which must leave the change unsaved.
+   Open Prod's editor again, set `Status` back to `Active`, `Save` (no warning
+   — Active is not a done status). Then:
+   - **a. `Go back`.** Set `Status` to `Completed`, `Save`, and click
+     `Go back`.
+     **Expect:** the warning closes, the editor is still open with Completed
+     still showing, and nothing was saved — close the editor and reopen it:
+     Active.
+   - **b. The X.** `Save` again and close the warning with the small **X** in
+     its top-right corner instead of choosing a button.
+     **Expect:** nothing is saved. Reopen the editor: still Active.
+   - **c. Outside the card.** `Save` again and click the dark area **outside**
+     the warning panel.
+     **Expect:** nothing is saved. Reopen the editor: still Active.
+   - The warning says so on screen; the last line inside it reads
+     `A warning, not a block — but only Continue anyway saves it. Closing this
+     leaves the change unsaved.`
+   - Leave Prod on `Active` so step 5 starts clean.
+   - **If instead** any of a, b or c left Prod on Completed: record WHICH one.
+     They are three different code paths and only one of them may have been
+     missed.
 5. **The no-warning control.** Open Pre's editor, set `Status` → `Completed`,
    `Save` (Pre depends on nothing, so no modal). Now open Prod, `Completed`,
    `Save`.
@@ -198,7 +212,7 @@ its default (tasks *Waiting to start*, phases *Not started*).
 Walkthrough 06 — timeline (A2 session 1) — date:
 1 task arrows drawn: Y/N          2 phase arrow drawn: Y/N
 3 phase editor warned, named Pre, Continue landed: Y/N
-4 Go back kept the editor open and saved nothing / X counted as Continue: Y/N Y/N
+4a Go back saved nothing / 4b the X saved nothing / 4c click-outside saved nothing: Y/N Y/N Y/N
 5 no warning once Pre was Completed: Y/N
 6 inline dropdown warned: Y/N     7 task popup warned: Y/N
 8 bulk: ONE summary, selection kept on Go back: Y/N
@@ -310,9 +324,16 @@ In the app a milestone is called a **key date**: the toolbar button is
       "are you sure" dialog. That dialog used to stand in for the missing undo
       path and was removed when the undo path arrived.
     - **Expect:** `Undo` on the toast brings it back.
-    - **Note:** the `Deleted` panel lives on the `Timeline` toolbar only. A key
-      date deleted from the Tasks tab is restored from there. Say if you expect
-      it on this tab too.
+    - **Now restore it without leaving this tab.** ⚠️ **New on 2026-09-07:**
+      you asked for the Recently Deleted panel on the Tasks tab as well as the
+      Timeline, and the toolbar here now has its own button. It is labelled
+      `Deleted Key Dates`, not the Timeline's bare `Deleted` — this screen is
+      about tasks, and "Deleted" alone would read as a list of deleted tasks,
+      which is not a thing the product has. Press it and press `Restore`.
+    - **Expect:** the same `Recently deleted key dates` panel, the same list
+      the Timeline shows, and the row returns to BOTH tabs.
+    - **If instead** the button is missing, or the panel is empty while the
+      Timeline's shows the same key date: record which.
     - **If instead** you still get a confirmation dialog: record it.
 
 ### On the desktop (Local Server)
@@ -334,15 +355,53 @@ In the app a milestone is called a **key date**: the toolbar button is
     - **If instead** it reappears on the timeline: that is the bug this whole
       change exists to avoid — record it.
 
-### Optional
+### Live sync between two windows — NEW, 2026-09-07 (migration 0077)
 
-32. **Two windows.** Open the same project on the beta in two browser windows.
-    Delete a key date in one, then RELOAD the other.
-    - **Expect:** it is gone in the second window after the reload.
-    - **Known limit, not a bug:** key dates do not live-sync. The second
-      window will NOT update on its own — it needs the reload. That is the
-      same limit scenes and levels have had since they were built; say if it
-      bothers you and it becomes its own piece of work.
+**What changed, and what deliberately did not.** Step 32 used to tell you that
+key dates do NOT live-sync and that you would need to reload the second
+window. You read that and asked for the sync. Migration `0077` puts key dates
+on the same live channel tasks are already on, so a change in one window shows
+up in the other on its own.
+
+🚨 **Scenes, shots, levels and experiences deliberately did NOT get this.**
+That was your explicit choice — key dates only — and it is written down as a
+conscious difference rather than an oversight (the handbook, §4.5 and §13.3).
+Step 34 checks that it stayed a difference.
+
+**This needs two windows on the beta, side by side, both signed in and both
+with the same project open.** Leave both open the whole time — the point is
+that neither is reloaded.
+
+32. **Add, move, delete, restore — all without a reload.** Both windows on
+    `Timeline`.
+    - **a.** In window A press `Key Date`, title it "Live", pick a date inside
+      the project, save.
+      **Expect:** the diamond appears in window B on its own, within a second
+      or two.
+    - **b.** In window A click the "Live" diamond, change its date, save.
+      **Expect:** window B moves it on its own.
+    - **c.** In window A delete "Live" and let the toast go.
+      **Expect:** it disappears from window B on its own.
+    - **d.** In window A press `Deleted`, then `Restore` on "Live".
+      **Expect:** it comes back in window B on its own.
+    - **If instead** any of the four needed a reload in window B: say WHICH,
+      and confirm window B had been open the whole time and had not been left
+      on another tab of the app.
+33. **It lands in the right PLACE, not just on the screen.** Switch window B
+    to the `Tasks` tab, where key dates are rows among the tasks. In window A
+    create a key date dated EARLIER than every other key date in the project.
+    - **Expect:** in window B it appears **in date order** — above the others,
+      where a reload would have put it.
+    - **If instead** it lands at the bottom of the key-date rows and only
+      sorts itself once you reload: record it. That is a real defect and this
+      step is the only place it shows.
+34. **The difference you asked for is still there.** If the project has
+    `Scenes` (or `Levels`, or `Experiences`) turned on, open that tab in both
+    windows and add one in window A.
+    - **Expect:** window B does **not** show it until you reload. That is
+      correct, and it is your decision, not a bug.
+    - **If you have changed your mind** and want those four to live-sync too,
+      say so here — it is its own piece of work, not a tweak.
 
 ## Report — Part 2 (paste back)
 
@@ -359,10 +418,13 @@ Walkthrough 06 Part 2 — key dates (A2 session 2) — date:
 24b redo worked / undone CREATE left nothing in Deleted: Y/N Y/N
 27 reviewer: list readable Y/N, Restore refused readably (not a raw error) Y/N
 27b Tasks tab: deleted with no dialog / toast Undo worked: Y/N Y/N
+27b Deleted Key Dates button present on Tasks / Restore from it worked: Y/N Y/N
 28 desktop create: Y/N
 29 desktop Undo survived an app RESTART: Y/N
 30 desktop Restore survived a restart: Y/N   countdown shown (should be N): Y/N
 31 deleted key date stayed deleted after a restart: Y/N
-32 second window after reload (optional): Y/N
+32 live sync, NO reload -- a add / b date move / c delete / d restore: Y/N Y/N Y/N Y/N
+33 the new key date landed in DATE ORDER on the Tasks tab: Y/N
+34 scenes/levels still need a reload (should be Y): Y/N   changed your mind: Y/N
 Anything odd (exact text):
 ```

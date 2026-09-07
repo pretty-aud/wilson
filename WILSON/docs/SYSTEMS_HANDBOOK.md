@@ -656,7 +656,7 @@ WILSON uses **broadcast-from-database**, never `postgres_changes`.
 | Migration | 0016 | 0018 |
 | Topic | `rabbit:project:{project_id}` | `rabbit:workspace:{workspace_id}` |
 | Join authz | `can_read_project_topic()` — INVOKER, ≡ `projects_select` | `can_read_workspace_topic()` — workspace match + active membership |
-| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
+| Feeds | projects, phases, assets, tasks, files, comments, task_dependencies, phase_dependencies (0061), task_links, asset_versions, project_members, **milestones (0077)** | projects, workspace_members, tasks (only when assignee/reviewer set), assets (only trash/restore or name/phase change), project_members |
 
 Both triggers skip cleanly when `realtime.broadcast_changes` is absent (CI's
 database-only stack) and never abort a write. `fn_try_uuid()` guards the
@@ -665,6 +665,18 @@ topic-suffix cast so a hand-crafted topic string cannot error a policy.
 Deliberately **never broadcast**: `otter_*` (personal content — the workspace
 channel hands full row payloads to every subscriber) and `notes` /
 `note_subjects` (private).
+
+🚨 **`scenes`, `shots`, `levels` and `experiences` are off the channel BY
+CHOICE, not by omission.** Audrey ruled on 2026-09-07 that key dates get live
+sync "like tasks" and that those four keep the reload limit: a second window
+sees a change to them on its next project load. 0077 therefore added exactly
+one arm. The choice is machine-checked in `72_milestone_realtime.sql` probes
+11-14 (matched by FUNCTION, not by trigger name) rather than only written
+down, because "we meant to" and "we forgot" look identical in a schema. To
+change it, change the ruling, the trigger, `TABLE_TO_COLLECTION` in
+`state/realtimeMerge.js` and those probes together — the client merge standing
+ready for events the database never sends is worse than the limit, because it
+reads as working live sync.
 
 *Operational gotcha:* on a hosted project whose Realtime tenant has never been
 active, `realtime.messages` has no partitions and `realtime.send()` silently
@@ -2502,9 +2514,26 @@ to the trash on both backends** (ruling 38): cloud through 0014's
 extends, read back through the SECURITY DEFINER `milestones_trash_index`
 because the SELECT policy hides trashed rows by design; desktop through a
 `softDelete` opt on the shared sub-entity route factory plus a restore route.
-**Stated limit, unchanged:** milestones are still not broadcast (0016) and not
-edit-history captured (0012) — the same limit the four 0040 entities carry, so
-a second window sees a change on its next project load.
+**Live sync, and the limit that stayed (0077, 2026-09-07).** Key dates ARE
+broadcast now, on the project topic with everything else — add, retitle, move
+the date, trash and restore all reach a second window without a reload, and
+`state/realtimeMerge.js` splices the row in **in date order** rather than
+appending it, because the Tasks tab renders milestone rows in array order and
+both adapters load them `ORDER BY date, id`. The comparator lives in
+`state/milestoneOrder.js` and is the single definition the two adapters and
+the merge layer all use.
+
+The four 0040 entities (scenes, shots, levels, experiences) keep the reload
+limit — Audrey's explicit choice, a conscious difference rather than an
+oversight; see §4.5. **Still not edit-history captured** (0012): that half of
+0067's stated limit is unchanged, for milestones and for those four.
+
+**Recently deleted key dates** is mounted on the `Timeline` toolbar (button:
+`Deleted`) and, since 2026-09-07, on the `Tasks` toolbar as well (button:
+`Deleted Key Dates` — longer on purpose, because a bare "Deleted" on a screen
+full of tasks would promise a list of deleted tasks, which does not exist).
+Both mounts pass identical props and `desktopMilestoneTrash.test.js` compares
+the two elements to keep it that way.
 
 **Views**: Intake, Summary, Team, Tasks, Timeline, Budget, Assets, and the
 toggleable Scenes / Levels / Experiences — plus the shared Task Detail popup.

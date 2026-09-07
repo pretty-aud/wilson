@@ -28,6 +28,8 @@
 // provider executes (refetches, roster refresh, project teardown).
 // =============================================================================
 
+import { byMilestoneDate } from './milestoneOrder'
+
 // Bundle collection per broadcast table. project_members and projects are
 // handled specially (roster slice / index + bundle.project).
 export const TABLE_TO_COLLECTION = {
@@ -41,6 +43,15 @@ export const TABLE_TO_COLLECTION = {
   phase_dependencies: 'dependencies',
   task_links:         'taskLinks',
   asset_versions:     'assetVersions',
+  // 0077: key dates, and KEY DATES ONLY. Audrey ruled on 2026-09-07 that
+  // milestones live-sync between windows the way tasks do, and that scenes,
+  // shots, levels and experiences deliberately KEEP the reload limit — a
+  // conscious difference, not an oversight, recorded as one in
+  // SYSTEMS_HANDBOOK §4.5 and §13.3. Adding any of those four here without
+  // its arm in the broadcast trigger would be worse than the limit it
+  // replaced: the merge would stand ready for events the database never
+  // sends, and nothing would ever say so.
+  milestones:         'milestones',
 }
 
 // 0061: `kind` is not a column on either edge table — it is implied by WHICH
@@ -63,17 +74,26 @@ export function stampKindFromTable(table, row) {
   return kind && row ? { ...row, kind } : row
 }
 
-// Collections whose render order comes from sort_order at load time
-// (adapter list* calls ORDER BY sort_order) — keep that invariant after
-// live inserts/updates.
-const SORTED_COLLECTIONS = new Set(['phases', 'assets'])
+// Collections whose render order is an invariant of the LOAD, each with the
+// comparator that produces it — so a live insert or update lands where a
+// reload would have put it.
+//
+// 🚨 This was a Set of names and one hardcoded sort_order comparator until
+// 0077. Key dates order by DATE, not by sort_order (they carry the column and
+// ignore it), so adding 'milestones' to the old Set would have re-sorted every
+// live key date into the wrong place — a defect visible only on the OTHER
+// window, and only until its next reload. ProjectTasksView renders milestone
+// rows in array order, so this is a real position on a real screen.
+const bySortOrder = (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)
+
+const COLLECTION_ORDER = {
+  phases:     bySortOrder,
+  assets:     bySortOrder,
+  milestones: byMilestoneDate,
+}
 
 function isTrashed(row) {
   return row != null && row.deleted_at != null
-}
-
-function sortByOrder(rows) {
-  return rows.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 }
 
 /**
@@ -107,7 +127,7 @@ export function mergeRow(current, incoming, pendingFields) {
   return next
 }
 
-function upsertInto(rows, incoming, pendingFields, sorted) {
+function upsertInto(rows, incoming, pendingFields, compare) {
   const idx = rows.findIndex(r => r.id === incoming.id)
   let next
   if (idx === -1) {
@@ -118,7 +138,9 @@ function upsertInto(rows, incoming, pendingFields, sorted) {
     next = rows.slice()
     next[idx] = merged
   }
-  return sorted ? sortByOrder(next) : next
+  // An UPDATE re-sorts as well as an INSERT: moving a key date's date, or a
+  // phase's sort_order, moves its row.
+  return compare ? next.slice().sort(compare) : next
 }
 
 /**
@@ -219,12 +241,12 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
 
   const col = TABLE_TO_COLLECTION[table]
   if (!col) return noop
-  const sorted = SORTED_COLLECTIONS.has(col)
+  const compare = COLLECTION_ORDER[col] || null
   const rows = bundle[col] || []
 
   if (op === 'INSERT') {
     if (!record?.id || isTrashed(record)) return noop
-    return { bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), sorted) }, effects: [] }
+    return { bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) }, effects: [] }
   }
 
   if (op === 'DELETE') {
@@ -246,11 +268,11 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
       // asset, dependency edges under a restored task) need a refetch —
       // they were never trashed in the DB, only hidden transitively.
       return {
-        bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), sorted) },
+        bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) },
         effects: [{ type: 'refetch' }],
       }
     }
-    const next = upsertInto(rows, record, pending(table, record.id), sorted)
+    const next = upsertInto(rows, record, pending(table, record.id), compare)
     if (next === rows) return noop
     return { bundle: { ...bundle, [col]: next }, effects: [] }
   }

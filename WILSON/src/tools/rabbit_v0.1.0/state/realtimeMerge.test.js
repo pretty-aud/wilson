@@ -269,13 +269,155 @@ describe('applyRealtimeEvent — robustness', () => {
     expect(applyRealtimeEvent(bundle, { table: 'assets', op: 'UPDATE', record: null }, {}).bundle).toBe(bundle)
   })
   it('covers every broadcast table with a collection or special-case', () => {
-    // 0016 broadcast 10 tables; 0061 added phase_dependencies as an 11th.
-    // projects + project_members are handled specially, the other 9 map
-    // through TABLE_TO_COLLECTION.
+    // 0016 broadcast 10 tables; 0061 added phase_dependencies as an 11th and
+    // 0077 milestones as a 12th. projects + project_members are handled
+    // specially, the other 10 map through TABLE_TO_COLLECTION.
+    //
+    // 🚨 AN EXACT LIST, AND IT IS THE RULING'S OTHER HALF. Audrey chose live
+    // sync for KEY DATES ONLY on 2026-09-07: scenes, shots, levels and
+    // experiences keep the reload limit on purpose. Adding one of them here
+    // is not a small widening — it is a client standing ready for events the
+    // trigger in 0016/0077 never sends, which reads as live sync and is not.
+    // Whoever adds one has to change this list, the trigger and the handbook
+    // together.
     expect(Object.keys(TABLE_TO_COLLECTION).sort()).toEqual([
-      'asset_versions', 'assets', 'comments', 'files',
+      'asset_versions', 'assets', 'comments', 'files', 'milestones',
       'phase_dependencies', 'phases', 'task_dependencies', 'task_links', 'tasks',
     ])
+  })
+})
+
+// ── 0077: key dates live-sync between windows ───────────────────────────────
+//
+// Audrey, 2026-09-07: key dates get live sync like tasks; scenes, shots,
+// levels and experiences keep the reload limit. Migration 0077 adds the
+// `milestones` arm to fn_realtime_broadcast and attaches the trigger; suite 72
+// pins the database half. This block is the client half.
+describe('key-date live sync (0077)', () => {
+  const MS = (over = {}) => ({
+    id: 'm2', project_id: 'p1', title: 'Delivery',
+    date: '2026-06-15', updated_at: T1, deleted_at: null, ...over,
+  })
+
+  // Two key dates already on screen, in the order both adapters load them
+  // (ORDER BY date, then id).
+  const withMilestones = () => makeBundle({
+    milestones: [
+      { id: 'm1', project_id: 'p1', title: 'Kickoff', date: '2026-01-10', updated_at: T0 },
+      { id: 'm3', project_id: 'p1', title: 'Wrap',    date: '2026-12-01', updated_at: T0 },
+    ],
+  })
+
+  it('🚨 an INSERT lands IN DATE ORDER, not at the end', () => {
+    // The whole point of the sort work in this change. Appending would put a
+    // collaborator's new key date at the bottom of the Tasks tab's milestone
+    // block until that window reloaded, and then it would jump.
+    const { bundle } = applyRealtimeEvent(
+      withMilestones(), { table: 'milestones', op: 'INSERT', record: MS() },
+      { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1', 'm2', 'm3'])
+  })
+
+  it('ties on the same date break on id, as both adapters do', () => {
+    const { bundle } = applyRealtimeEvent(
+      makeBundle({ milestones: [{ id: 'm-b', date: '2026-05-01', updated_at: T0 }] }),
+      { table: 'milestones', op: 'INSERT', record: MS({ id: 'm-a', date: '2026-05-01' }) },
+      { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m-a', 'm-b'])
+  })
+
+  it('moving a key date to a new date moves its row', () => {
+    // An UPDATE re-sorts too: a date is not a name.
+    const start = makeBundle({ milestones: [
+      { id: 'm1', date: '2026-01-10', title: 'Kickoff', updated_at: T0 },
+      { id: 'm3', date: '2026-12-01', title: 'Wrap',    updated_at: T0 },
+    ] })
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'UPDATE',
+      record: { id: 'm1', date: '2026-12-31', title: 'Kickoff', updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', title: 'Kickoff', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m3', 'm1'])
+  })
+
+  it('a soft delete in another window removes it here', () => {
+    const { bundle, effects } = applyRealtimeEvent(withMilestones(), {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', deleted_at: T2, updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', deleted_at: null, updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m3'])
+    expect(effects).toEqual([])
+  })
+
+  it('a restore brings it back in its place, and asks for a refetch', () => {
+    // The refetch is the generic restore contract (hidden children come back
+    // through it). A key date HAS no children, so the refetch is belt and
+    // braces here rather than load-bearing — stated so the next reader does
+    // not take it for a special case, and left in place because a restore is
+    // rare and consistency across the eight soft-delete tables is worth more
+    // than one saved round trip.
+    const trashed = makeBundle({ milestones: [
+      { id: 'm3', date: '2026-12-01', updated_at: T0 },
+    ] })
+    const { bundle, effects } = applyRealtimeEvent(trashed, {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', deleted_at: null, updated_at: T2 },
+      oldRecord: { id: 'm1', date: '2026-01-10', deleted_at: T1,   updated_at: T1 },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1', 'm3'])
+    expect(effects).toEqual([{ type: 'refetch' }])
+  })
+
+  it('a hard DELETE removes it and touches nothing else', () => {
+    const start = withMilestones()
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'DELETE',
+      oldRecord: { id: 'm3', date: '2026-12-01' },
+    }, { pendingFields: noPending })
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m1'])
+    // FAILING CONTROL: no other collection may move. removeWithMirror has
+    // per-table arms for assets, tasks and phases; milestones must fall to the
+    // default arm and prune only themselves.
+    expect(bundle.tasks).toBe(start.tasks)
+    expect(bundle.assets).toBe(start.assets)
+    expect(bundle.dependencies).toBe(start.dependencies)
+  })
+
+  it('an in-flight local edit of a field survives the incoming row', () => {
+    // LWW per field, the same contract every other table gets: my half-typed
+    // title is not overwritten by the broadcast of someone else's date change.
+    const { bundle } = applyRealtimeEvent(withMilestones(), {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', title: 'Theirs', date: '2026-01-10', updated_at: T2 },
+      oldRecord: { id: 'm1', title: 'Kickoff', date: '2026-01-10', updated_at: T0 },
+    }, { pendingFields: (table, id) => (table === 'milestones' && id === 'm1' ? new Set(['title']) : null) })
+    expect(bundle.milestones.find(m => m.id === 'm1').title).toBe('Kickoff')
+  })
+
+  it('an out-of-order event older than the local row is dropped', () => {
+    const start = makeBundle({ milestones: [
+      { id: 'm1', date: '2026-01-10', title: 'Newer', updated_at: T2 },
+    ] })
+    const { bundle } = applyRealtimeEvent(start, {
+      table: 'milestones', op: 'UPDATE',
+      record:    { id: 'm1', date: '2026-01-10', title: 'Older', updated_at: T0 },
+      oldRecord: { id: 'm1', date: '2026-01-10', title: 'Older', updated_at: T0 },
+    }, { pendingFields: noPending })
+    expect(bundle).toBe(start)
+  })
+
+  it('the four 0040 entities are NOT live-synced, on purpose', () => {
+    // Audrey's ruling, asserted rather than trusted to a comment. Each of
+    // these arrives as an unknown table and leaves the bundle identical.
+    const start = makeBundle({ scenes: [], shots: [], levels: [], experiences: [] })
+    for (const table of ['scenes', 'shots', 'levels', 'experiences']) {
+      const { bundle, effects } = applyRealtimeEvent(
+        start, { table, op: 'INSERT', record: { id: 'x1', project_id: 'p1' } },
+        { pendingFields: noPending })
+      expect(bundle, table + ' must not merge — it is not broadcast').toBe(start)
+      expect(effects).toEqual([])
+    }
   })
 })
 

@@ -11,6 +11,8 @@
 // limit is the upper bound; larger files should be added in v0.2
 // when streaming uploads are wired.
 
+import { byMilestoneDate } from '../state/milestoneOrder';
+
 const BASE = '/api/rabbit';
 
 let lastError  = null;
@@ -73,21 +75,11 @@ function sortByPath(rows) {
 //     '2026-01-15' where Postgres orders them Jan 5 then Jan 15. `<input
 //     type="date">` always emits padded ISO, so this needs a hand-edited or
 //     imported bundle to reach — but comparing as dates costs nothing.
-function milestoneDateKey(value) {
-  if (!value) return null
-  const t = Date.parse(value)
-  return Number.isFinite(t) ? t : null
-}
-
-function byMilestoneDate(a, b) {
-  const x = milestoneDateKey(a?.date)
-  const y = milestoneDateKey(b?.date)
-  if (x === null && y === null) return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
-  if (x === null) return 1
-  if (y === null) return -1
-  if (x !== y) return x < y ? -1 : 1
-  return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
-}
+// byMilestoneDate moved to state/milestoneOrder.js when key dates gained live
+// sync (0077): realtimeMerge needs the same order, and a comparator defined in
+// two places is A2 session 1's "done was defined twice" finding waiting to
+// happen again. The tests in loadProjectBundle.test.js still drive it through
+// listMilestones, so they cover the move as well as the order.
 
 export function localServerAdapter() {
   return {
