@@ -49,7 +49,7 @@ file corrects and adds rather than repeating.
 | suite 72 on dev | **20/20.** Probe 20's real status **measured**: `landed`, with 4 milestone broadcast rows (insert, date move, trash, restore) and 1 assets control row | `tap-all.mjs 72`, plus a hand-run of the probe's own SQL |
 | vitest | **1967 / 79 files** (was 1938 / 79 at session start): +29 tests, no new file | `npx vitest run` |
 | `npx vite build` | clean every time, 8–18 s, only the pre-existing chunk-size warning | on every commit touching a view |
-| CI | **not yet observed for this session's heads** — the push happens with this commit. Check `track-a-product`'s newest run before trusting anything here | — |
+| CI | **green on the pushed head `1c29a39`, all four jobs** — Vitest, pgTAP, issue-session smoke and Playwright auth. Run [34160354368](https://github.com/pretty-aud/wilson/actions/runs/34160354368). The pgTAP job rebuilds Postgres from every migration in order, so it also proves **0077 applies to a virgin database** and suite 72 passes there (in its catalog-only form — CI starts the stack with `--exclude realtime`, so probe 20 answers `no-schema`/`no-partition` there and the behavioural measurement is the hand run on dev) | GitHub REST by FULL SHA, unauthenticated (`gh` is not logged in here; `curl` works) |
 | CLI link | `supabase/.temp/project-ref` and `linked-project.json` both wilson-dev, re-read after every staging attempt | — |
 
 ---
