@@ -48,6 +48,9 @@ import lookbookChunker from './chunkers/lookbook'
 
 import { PERSONAS, buildPersonaBlock } from './personas'
 import reducers from './reducers'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../../lib/localServerFetch.js'
 
 // ─────────────────────────────────────────────────────────────
 // Constants
@@ -164,7 +167,7 @@ async function extractTextFromFile(file) {
         return ''
       }
       const dataUrl = file?.dataUrl || (await blobToDataUrl(await asBlob(file)))
-      const res = await fetch('/api/extract-pdf', {
+      const res = await localFetch('/api/extract-pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: file?.name || 'upload.pdf', dataUrl }),

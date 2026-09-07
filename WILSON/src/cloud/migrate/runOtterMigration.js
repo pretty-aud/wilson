@@ -34,13 +34,25 @@
 // =============================================================================
 
 import { supabase } from '../auth/supabaseClient'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../lib/localServerFetch.js'
 
 const OTTER_BASE = '/api/software'
 
-/** Raw fetch — see note 1 in the header. Never swap this for otterFetch. */
+/**
+ * Raw fetch — see note 1 in the header. Never swap this for otterFetch.
+ *
+ * 🚨 B3 (Track B): `localFetch` is NOT otterFetch. It is `fetch` plus the
+ * per-launch loopback token, so this stays the raw local read it has to be —
+ * but it stops silently returning `fallback` for every course. This function
+ * swallows a non-ok status by design (a missing `_nodes.json` is normal), and
+ * without the token every one of these reads would be a 401, so the migration
+ * would report a clean run having copied nothing at all.
+ */
 async function getLocal(path, fallback = null) {
   try {
-    const res = await fetch(path)
+    const res = await localFetch(path)
     if (!res.ok) return fallback
     return await res.json()
   } catch {

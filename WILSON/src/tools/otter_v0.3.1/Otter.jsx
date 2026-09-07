@@ -53,6 +53,9 @@ import {
   courseMatchesFilter, canWriteCourse, canReadCourse, findStandardByName,
   VISIBILITY_META, filtersFor,
 } from './components/otterSharing.js';
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../lib/localServerFetch.js';
 
 // ═══════════════════════════════════════════════════════════════════
 //  NODE TYPE BADGE (defined outside component to avoid re-creation)
@@ -737,7 +740,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   // Session 12 (gap #21): loadSoftwareList() must not depend on the settings
   // fetch. In a browser there is no in-app Express server, so the old
-  // fetch('/api/otter-settings') chain rejected, the catch swallowed it, and
+  // localFetch('/api/otter-settings') chain rejected, the catch swallowed it, and
   // the library never loaded at all. localData routes settings to Express in
   // Electron (unchanged order: settings → legacy migration → list) and to
   // localStorage on the web; the list load now runs in every case.
@@ -759,10 +762,10 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
         // where the local server does.
         if (hasLocalServer()) {
           try {
-            const migRes = await fetch('/api/migration-needed');
+            const migRes = await localFetch('/api/migration-needed');
             const migData = await migRes.json();
             if (migData.needed) {
-              await fetch('/api/migrate', { method: 'POST' });
+              await localFetch('/api/migrate', { method: 'POST' });
             }
           } catch { /* ignore */ }
         }
@@ -955,7 +958,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       if (!hasLocalServer()) {
         throw new Error('Reference text can only be fetched in the desktop app — the URL is saved without its content.');
       }
-      const res = await fetch('/api/fetch-url', {
+      const res = await localFetch('/api/fetch-url', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: fullUrl })
       });

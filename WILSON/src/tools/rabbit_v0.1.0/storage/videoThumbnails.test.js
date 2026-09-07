@@ -1305,9 +1305,12 @@ describe('review fixes — S40', () => {
     // ⚠️ The window runs from `managed` to the effect body, because the guard
     // that was wrong sat BETWEEN them. A comment cannot be a slice marker here
     // — executable() has already stripped them.
+    // B3 (Track B): the call is `localFetch` now — `fetch` plus the per-launch
+    // loopback token, which the desktop server requires on every /api route.
+    // The pattern still ends in `fetch(` so it keeps catching a plain one.
     const eff = sliceBetween(manager, 'const managed = ctx?.supportsManagedFiles', 'const parentType =')
     expect(eff).toBeTruthy()
-    expect(eff).toMatch(/fetch\('\/api\/rabbit\/video-support'\)/)
+    expect(eff).toMatch(/localFetch\('\/api\/rabbit\/video-support'\)/)
     expect(eff).not.toMatch(/if \(!managed\) return/)
   })
 

@@ -17,6 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "_comment:test:lock": "Bundle B3 — the desktop loopback lock over a real socket (401 without the per-launch token, 200 with header or cookie), plus a control that must fail. Pass --show-control to watch it go red.",
+    "test:lock": "node scripts/local-server-lock-harness.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "build:web": "vite build --base=/wilson/ --outDir dist-web",

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage, session } = require('electron');
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -8,6 +8,14 @@ const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
 const { resolveContainedFilePath, isPathInside, checkFolderRootShape } = require('./pathContainment.cjs');
+// Bundle B3 (Track B): the per-launch token every /api request must carry, and
+// the CORS allowlist that replaces `cors()`'s `Access-Control-Allow-Origin: *`.
+// The module's header explains both arms and what is deliberately NOT guarded.
+const {
+  TOKEN_COOKIE,
+  mintLaunchToken,
+  applyLocalServerLock,
+} = require('./localToken.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -15,6 +23,22 @@ const ffmpeg = require('./ffmpeg.cjs');
 
 // Handle Squirrel.Windows startup events (install, update, uninstall)
 if (require('electron-squirrel-startup')) app.quit();
+
+// ── Single instance (Bundle B3; Audrey's decision 30: "only one copy at a
+// time") ────────────────────────────────────────────────────────────────────
+// Two copies shared one `userData` directory, so two Express servers wrote the
+// same otter-data/ and rabbit-data/ JSON files with last-writer-wins and no
+// lock — the §6 accepted limit this closes. Nostalgia TV learned the same
+// lesson the hard way.
+//
+// 🚨 MUST come after the Squirrel guard: an installer run is a legitimate
+// second process, and taking the lock before Squirrel has had its say would
+// have the update handshake fight the running app for it.
+//
+// `app.quit()` starts the shutdown but does NOT stop this module evaluating, so
+// the flag is read again at whenReady rather than trusted to have taken effect.
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
 
 // Load env BEFORE anything reads process.env. In dev this reads
 // .env.development from the repo root; packaged builds read
@@ -323,7 +347,28 @@ function defaultPet() {
 function startLocalServer(distPath) {
   return new Promise((resolve, reject) => {
     const expressApp = express();
-    expressApp.use(cors());
+
+    // ── Bundle B3: the lock, ahead of every route ──────────────────────────
+    // One token per launch, one middleware, 94 routes. `applyLocalServerLock`
+    // mounts the narrowed cors() and then the guard; electron/localToken.cjs
+    // documents both arms (header for renderer fetches, httpOnly cookie for
+    // <img>/<video>), why only `/api` is refused, and what the guard leaks
+    // (nothing — a bare 401 with no body).
+    //
+    // 🚨 BEFORE express.json: otherwise an unauthenticated caller makes the
+    // main process buffer up to 50 MB before we refuse it.
+    //
+    // The origin is not known until listen(0) has bound a port, so both the
+    // token and the origin are read through closures rather than passed by
+    // value.
+    const launchToken = mintLaunchToken();
+    let rendererOrigin = null;
+    applyLocalServerLock(expressApp, {
+      cors,
+      getToken: () => launchToken,
+      getOrigin: () => rendererOrigin,
+    });
+
     expressApp.use(express.json({ limit: '50mb' }));
 
     // ── Pet endpoints ──
@@ -3375,7 +3420,11 @@ function startLocalServer(distPath) {
 
     const server = expressApp.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
-      resolve({ server, port });
+      // The one origin the renderer will ever have — see localToken.cjs on why
+      // packaged and dev modes share it. Set before resolve(), so the first
+      // request the window makes already has an allowlist to match.
+      rendererOrigin = `http://127.0.0.1:${port}`;
+      resolve({ server, port, token: launchToken, origin: rendererOrigin });
     });
 
     server.on('error', reject);
@@ -3388,11 +3437,74 @@ function startLocalServer(distPath) {
 let mainWindow;
 let localServer;
 
+// Bundle B3: the launch token, for the preload bridge to hand the renderer.
+// Module-scoped because the IPC channel below is registered once, at load, and
+// must read whatever the current launch minted.
+let localServerToken = null;
+
+// 🚨 SYNCHRONOUS on purpose. The renderer needs the token at its very first
+// fetch, and every alternative (an async getter the callers await, a cached
+// promise) turns "attach a header" into a plumbing change at ~150 call sites.
+// One sendSync during preload — before the page has painted, once per window —
+// is what this channel exists for. The value is minted before the BrowserWindow
+// is constructed, so it is always there by the time preload asks.
+ipcMain.on('wilson:local-server-token', (event) => {
+  event.returnValue = localServerToken;
+});
+
+// Second copy launched: focus the one that already exists. Registered
+// unconditionally — it only ever fires in the process that HOLDS the lock.
+//
+// MEASURED: `setAsDefaultProtocolClient` appears nowhere in electron/, and
+// neither forge nor builder registers a URL scheme, so WILSON has no deep links
+// today and there is nothing to forward. `commandLine` is the argument vector
+// of the second copy; when a scheme is added, this handler is where it lands.
+app.on('second-instance', () => {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  if (!mainWindow.isVisible()) mainWindow.show();
+  mainWindow.focus();
+});
+
 async function createWindow() {
   const distPath = path.join(__dirname, '..', 'dist');
 
-  const { server, port } = await startLocalServer(distPath);
+  const { server, port, token, origin } = await startLocalServer(distPath);
   localServer = server;
+  localServerToken = token;
+
+  // ── The cookie arm of the lock (Bundle B3) ────────────────────────────────
+  // This is what carries FileThumbnail's <img src>, VideoPreview's <video src>
+  // and the hidden <video> videoThumbnails.js decodes frames from — element
+  // loads that cannot set a header. Measured in Chromium: an httpOnly cookie
+  // rides on all of those same-origin, and on `crossOrigin="anonymous"` ones
+  // too.
+  //
+  // 🚨 AWAITED, AND BEFORE loadURL. A cookie that lands after the first request
+  // would 401 the app's own boot fetches.
+  //
+  // No expirationDate ⇒ a session cookie, gone when the app quits, which is
+  // exactly "per launch". A stale one from a previous launch carries a token
+  // that no longer matches and fails closed.
+  //
+  // ⚠️ Cookies are scoped by HOST, not by port, so this one is offered to
+  // anything else listening on 127.0.0.1 that this renderer contacts. It
+  // contacts nothing else — Supabase and the Anthropic API are https hosts —
+  // and a rogue local server learns only a token that is useless without our
+  // port. Recorded rather than mitigated.
+  try {
+    await session.defaultSession.cookies.set({
+      url: origin,
+      name: TOKEN_COOKIE,
+      value: token,
+      httpOnly: true,
+      sameSite: 'lax',
+    });
+  } catch (err) {
+    // Not fatal: the header arm still serves every fetch, and the static shell
+    // is not guarded, so the app boots and only element-loaded previews fail.
+    console.error('[wilson] local server cookie failed to set:', err?.message ?? err);
+  }
 
   const iconPath = path.join(__dirname, '..', 'public', 'logo.ico');
   const hasIcon = fs.existsSync(iconPath);
@@ -3915,6 +4027,10 @@ ipcMain.handle('zoom-reset', () => { if (mainWindow) { mainWindow.webContents.se
 ipcMain.handle('zoom-get', () => { if (mainWindow) return mainWindow.webContents.getZoomLevel(); return 0; });
 
 app.whenReady().then(() => {
+  // Bundle B3: the second copy quits instead of booting a second Express server
+  // onto the same userData directory. Checked here as well as at the top
+  // because app.quit() only STARTS the shutdown — whenReady can still resolve.
+  if (!hasSingleInstanceLock) return;
   cleanupLegacySupabaseConfig();
   cleanupLegacyAuthFile();
   createWindow();

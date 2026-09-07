@@ -44,6 +44,9 @@ import { activeWorkspaceProvider } from '../storage'
 import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
+// B3 (Track B): the desktop loopback API refuses /api without the per-launch
+// token; localFetch attaches it (same-origin URLs only).
+import { localFetch } from '../../../lib/localServerFetch.js'
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return '0 B'
@@ -147,7 +150,7 @@ export default function FileManager({
   // for a surface that cannot ask.
   useEffect(() => {
     let cancelled = false
-    fetch('/api/rabbit/video-support')
+    localFetch('/api/rabbit/video-support')
       // 🚨 fetch RESOLVES for every status. An unchecked `.json()` here would
       // read a 404's body as junk and leave `ffmpeg` undefined — which is
       // falsy, so a missing ROUTE would report as a missing DECODER, and the

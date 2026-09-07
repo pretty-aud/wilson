@@ -397,6 +397,14 @@ jobs:
       - name: Run Vitest
         run: npm test
 
+      # Bundle B3 (Track B): the desktop loopback lock. vitest only includes
+      # src/**, and this exercises electron/localToken.cjs over a real socket —
+      # 401 without the token, 200 with the header, 200 with the cookie, 401
+      # with a wrong one — plus a control that must fail. Runs in the unit job
+      # rather than a job of its own: no database, no secrets, ~1 second.
+      - name: Run desktop loopback lock harness
+        run: node scripts/local-server-lock-harness.mjs
+
   # ---------------------------------------------------------------------------
   # e2e-auth — Playwright auth flows against wilson-dev (Session 4).
   #
