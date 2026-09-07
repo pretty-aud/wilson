@@ -3641,6 +3641,30 @@ of a session — this section is limits by design, that file is faults.
   checking — shipped for one S43 commit and signed people into the wrong
   company; she chose the oracle with the trade-off on the table. Recorded as
   `TPN-AUTH-009` in `TPN_AUDIT/FINDINGS.md`.
+- **Authentication events are logged server-side since 0070 (Track B bundle
+  B2, part 1) — and the hooks that feed them are a per-project dashboard
+  switch.** Measured before building: hosted GoTrue writes NOTHING to
+  `auth.audit_log_entries` (0 rows on dev beside 1,101 sessions; 0 on staging
+  beside 26) and `auth.mfa_challenges` is empty too, so the brief's reader had
+  nothing to read. `public.auth_events` (FORCE RLS) takes `sign_in` and
+  `mfa_verify` success/failure rows from `hook_password_verification_attempt`
+  and `hook_mfa_verification_attempt` (SECURITY DEFINER, executable by
+  `supabase_auth_admin` only, always `{"decision":"continue"}` — logging
+  hooks, never lockout hooks), and `sign_in` / `sign_out` / `idle_timeout` /
+  `session_cap` rows the CLIENT inserts, stamped by `trg_auth_events_stamp`
+  from the JWT and `auth.sessions` (user, company, session id, address, user
+  agent) so the body can name nobody but the caller. Reads: an operator sees
+  everything, a person their own rows, a workspace admin their company's rows
+  plus the hook rows of its members. Residuals, on purpose: hook rows carry no
+  address (GoTrue passes none; the client's own `sign_in` row is where the
+  address lives); a person in two companies has their hook rows visible to
+  the admins of both (GoTrue does not know which company a password check was
+  for); an unknown username never reaches GoTrue and lives in
+  `auth_attempt_log` instead. Until the two hooks are enabled in each
+  project's dashboard (OWED_AUDREY §14) the functions are inert and only
+  client rows flow. Suite 74 pins all of it; part 2 — the views, the client
+  emitters, the idle timeout and cap, the reload banner — is the next Track B
+  session.
 
 **Correctness**
 

@@ -1323,6 +1323,8 @@ opened: 2026-07-30
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
 
+**Not in this class — Track B bundle B2, part 1 (2026-09-06, migration 0070).** 0070's new audit writers are Postgres functions, not supabase-js calls: the two GoTrue hooks (`hook_password_verification_attempt`, `hook_mfa_verification_attempt`) catch their own insert failure, `RAISE WARNING` the reason into the Postgres log and still answer `continue`, so a lost row is visible in the database logs and never costs a sign-in; the client's own `auth_events` rows go through RLS, and a refused insert is an error the client receives. The finding stands for the supabase-js writers it names.
+
 ---
 
 ## TPN-LOG-007 — Platform Operator Console access — the highest-privilege surface in the system — is entirely unlogged, and platform_audit cannot express a session event
@@ -1347,6 +1349,8 @@ opened: 2026-07-30
 ```
 
 **Opened by the 2026-07-30 re-audit.** This finding did not exist at the 2026-04-15 baseline — it is either new code or newly reachable code.
+
+**Partly addressed — Track B bundle B2, part 1 (2026-09-06, migration 0070, suite 74).** Measured first, on wilson-dev AND wilson-staging: `auth.audit_log_entries` holds 0 rows beside 1,101 / 26 live `auth.sessions`, and `auth.mfa_challenges` is empty beside an enrolled factor — hosted GoTrue keeps no audit stream in the database, so the brief's reader had nothing to read. 0070 adds `public.auth_events` (FORCE RLS) and two Supabase Auth hooks that log every password check and every MFA challenge — success and failure, user id, factor type — for every GoTrue user, operators included, because the operator console signs in through the same GoTrue; both hooks always answer `continue`. Operators read every row (`is_platform_operator()`); a workspace admin reads their own company's. Still open for part 2: the hooks must be enabled per project in the dashboard (OWED_AUDREY §14) before a row is written; the operator-console mirror and the Admin Terminal "Sign-ins" view are not built; guard refusals are still unlogged; `platform_audit` still cannot express a session event, and no longer needs to; client-side sign-out, idle-timeout and cap rows have a write path (RLS + stamp trigger) but nothing in the app emits them yet.
 
 ---
 

@@ -1173,3 +1173,41 @@ browses. That is correct for media storage and it is what keeps the cost down,
 but the UI must never imply "sync my existing Drive folder". If that turns out
 to be what a customer actually wants, it is a different (and much more
 expensive) product.
+
+## 14. 🔐 Turn on the two sign-in logging hooks (Track B bundle B2, 2026-09-06)
+
+Migration 0070 (`auth_events`) is applied on wilson-dev and wilson-staging,
+and suite 74 proves it — but the two Postgres functions that feed it are only
+called if each project's Auth is told to call them, and that switch lives in
+the dashboard, not in a migration (`supabase config push` is banned, so the
+CLI route is closed on purpose). Until you flip it, sign-ins and MFA
+challenges write nothing; sign-outs and timeouts (part 2 of B2) will still
+flow.
+
+Per project — wilson-dev first, then wilson-staging; prod when the release
+session applies 0070 there:
+
+1. Dashboard → Authentication → Hooks (Beta) → **Add hook** →
+   *Password verification attempt*. Hook type **Postgres**, schema `public`,
+   function `hook_password_verification_attempt`. Enable.
+2. Same page → **Add hook** → *MFA verification attempt*. Postgres, `public`,
+   `hook_mfa_verification_attempt`. Enable.
+3. Prove it: sign in to that project's app once with a WRONG password, then
+   correctly, then complete two-factor. Then, from `WILSON/` with the CLI
+   linked to that project, run the one-line query in
+   `scripts/probes/auth-events-recent.sql` (`supabase db query --linked
+   --file scripts/probes/auth-events-recent.sql`) — expect a `sign_in /
+   failure`, a `sign_in / success` and an `mfa_verify / success` row with the
+   times you just made. If a row is missing, the hook is not enabled; the
+   function itself was exercised by suite 74 on both projects.
+
+Nothing here can lock anyone out: both functions answer "continue" on every
+path, including when their own insert fails (that failure is a WARNING in
+the Postgres logs, not a refusal).
+
+Also yours, from the same brief (fix plan answer 23): the dashboard's session
+controls — Authentication → Sessions → *time-box user sessions* and
+*inactivity timeout* — are per project and in no migration. B2 part 2 ships
+the client's 25 / 30-minute idle warning and sign-out and an absolute cap;
+set the dashboard figures to match, or looser, so the server never signs
+someone out with nothing on screen explaining it.
