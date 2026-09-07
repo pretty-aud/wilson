@@ -471,6 +471,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // courses on screen, and its detail fetches repopulate softwareCacheRef AFTER
   // invalidateCache() has run. Bumped by the mode effect below; a load whose
   // generation is stale installs nothing.
+  //
+  // ⚠️ SCOPE, STATED HONESTLY: this guards THIS FUNCTION ONLY. `selectSoftware`
+  // and `selectSubject` run their own fan-outs and write the same two refs
+  // unguarded, so a course opened just before a flip can still land its detail
+  // fetches afterwards. What closes the reachable path is the return value
+  // below: the four callers that `await` this and then call selectSoftware()
+  // now stop when the load was discarded, so nothing re-selects a slug from the
+  // library you just left. The residual is a same-generation overlap between
+  // two ordinary callers, which is last-writer-wins and predates all of this.
+  //
+  // 🚨 IT RETURNS WHETHER IT INSTALLED. Four callers `await` it and then call
+  // selectSoftware(slug, true) on a slug from the library they were in. Without
+  // a return value a discarded load is indistinguishable from a successful one,
+  // so the switch would leave the NEW library's list on screen with the OLD
+  // library's course selected into it — which looks plausible, and is therefore
+  // less likely to be reported than the wholly wrong screen it replaced.
   const listGenerationRef = useRef(0);
 
   const loadSoftwareList = useCallback(async () => {
@@ -479,7 +495,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     try {
       const res = await otterFetch('/api/software');
       const data = await res.json();
-      if (!current()) return;
+      if (!current()) return false;
       setSoftwareList(data);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
@@ -506,7 +522,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           }).catch(() => {});
         }
       }
+      return true;
     } catch { /* ignore */ }
+    return false;
   }, []);
 
   const selectSoftware = useCallback((slug, forceReload = false) => {
@@ -799,7 +817,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Could not copy this course');
-      await loadSoftwareList();
+      // Only follow up if the list we just loaded is the one on screen; see
+      // loadSoftwareList's header.
+      if (!(await loadSoftwareList())) return;
       selectSoftware(data.slug, true);
       setCourseFilter('all');
       setCurrentView('library');
@@ -1224,7 +1244,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       setSoftwareNameInput('');
       setReferenceUrls([]);
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
     } catch (e) {
@@ -2121,7 +2141,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       }
 
       invalidateCache(slug);
-      await loadSoftwareList();
+      if (!(await loadSoftwareList())) return;
       selectSoftware(slug, true);
       setCurrentView('library');
       return slug;
@@ -3155,7 +3175,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   // mount — without this the jump lands on a library that
                   // doesn't show it (same rule as the wilson:open-otter-course
                   // handler above).
-                  await loadSoftwareList();
+                  if (!(await loadSoftwareList())) return;
                   navigateTo('library');
                   selectSoftware(slug, true);
                 }}

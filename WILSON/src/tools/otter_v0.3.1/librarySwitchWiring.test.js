@@ -61,21 +61,44 @@ describe('Otter.jsx reaches the adapter seam', () => {
 })
 
 describe('switching libraries throws away the other library state', () => {
-  // 🚨 SLICED BY EXPLICIT MARKERS, and both are asserted to exist. The first
-  // version of this block built its slice from a nested indexOf of the effect's
-  // DEPENDENCY ARRAY text; adding one dependency made that lookup return -1, the
-  // slice collapsed to 39 characters, and the assertions were suddenly checking
-  // almost nothing. A slice whose bounds are not checked is not a slice.
+  // 🚨 SLICED BY MARKERS THAT ARE CHECKED AT MODULE SCOPE, SO A BAD SLICE KILLS
+  // EVERY TEST IN THIS BLOCK AT ONCE.
+  //
+  // Version 1 built the bounds from a nested indexOf of the DEPENDENCY ARRAY
+  // text; adding one dependency made it -1 and the slice collapsed to 39 chars.
+  // That failed CLOSED — everything went red, which is how it was noticed.
+  //
+  // Version 2 (the 'fix') kept `slice(from, to)` with an unchecked `to`, and
+  // String.slice(from, -1) does NOT return empty — it returns everything to the
+  // last character of the file. Measured: reordering the deps gave a 281,223-
+  // character slice in which SEVEN assertions passed vacuously against unrelated
+  // source. The repair failed OPEN, which is worse than the bug it replaced.
+  //
+  // A `throw` here, not an `expect`, because a throw at module scope in the
+  // describe callback takes the whole block down loudly instead of leaving the
+  // other tests to run on garbage.
   const START = 'const lastLibraryModeRef'
-  const END = '  }, [libraryMode, invalidateCache'
+  const END = '  }, [libraryMode, invalidateCache, loadSoftwareList]);'
   const from = otterCode.indexOf(START)
   const to = otterCode.indexOf(END, from)
-  const effect = otterCode.slice(from, to)
+  if (from < 0 || to <= from) {
+    throw new Error(
+      'librarySwitchWiring: the mode effect could not be located (from=' + from +
+      ', to=' + to + '). The markers moved; fix them rather than the assertions.')
+  }
+  // END is now the FULL dependency line, so the slice covers the whole effect
+  // INCLUDING its deps — which is what lets the dependency assertion below be
+  // made against the region instead of against all 310 KB of the file.
+  const effect = otterCode.slice(from, to + END.length)
+  if (effect.length > 4000) {
+    throw new Error('librarySwitchWiring: the effect slice is ' + effect.length +
+      ' chars — that is not one effect, the end marker matched too far away.')
+  }
 
-  it('the effect can be located at all', () => {
-    expect(from, 'start marker missing').toBeGreaterThan(-1)
-    expect(to, 'end marker missing').toBeGreaterThan(from)
+  it('the effect is bounded, and the bounds are real', () => {
+    expect(effect).toContain('useEffect')
     expect(effect.length).toBeGreaterThan(200)
+    expect(effect.length).toBeLessThan(4000)
   })
 
   it('🚨 invalidates the per-course caches — the two libraries do not share a slug space', () => {
@@ -96,8 +119,9 @@ describe('switching libraries throws away the other library state', () => {
     // inside a handler or the mount effect — so the switch left the OTHER
     // library's courses on screen and the whole feature looked broken.
     expect(effect).toContain('loadSoftwareList();')
-    // …and it must be a DEPENDENCY, or the effect closes over a stale one.
-    expect(otterCode).toContain('}, [libraryMode, invalidateCache, loadSoftwareList]);')
+    // …and it must be a DEPENDENCY, asserted against the SLICE. A whole-file
+    // toContain here is the exact failure mode this file's header names.
+    expect(effect).toContain('}, [libraryMode, invalidateCache, loadSoftwareList]);')
   })
 
   it('🚨 guards the FIRST run — a mount must not look like a switch', () => {
@@ -123,6 +147,28 @@ describe('switching libraries throws away the other library state', () => {
     expect(loader).toContain('const generation = listGenerationRef.current')
     expect((loader.match(/if \(!current\(\)\) return/g) || []).length,
       'expected the guard before the list write and the cache write').toBe(2)
+    // 🚨 COUNTING THEM IS NOT ENOUGH — POSITION IS THE WHOLE POINT. R2 proved
+    // this by moving each guard BELOW the write it protects, restoring the exact
+    // bug, and watching the count assertion stay green.
+    // The two guards return DIFFERENT things — the list one reports the discard
+    // to the caller (`return false`), the cache one is inside a .then and just
+    // bails — so each is located by its own exact text. Searching for the shared
+    // prefix found the wrong one the moment they diverged, which is how this
+    // assertion caught its own author.
+    const listGuard = loader.indexOf('if (!current()) return false;')
+    const listWrite = loader.indexOf('setSoftwareList(data);')
+    expect(listGuard, 'list guard not found').toBeGreaterThan(-1)
+    expect(listGuard, 'the guard must come BEFORE setSoftwareList').toBeLessThan(listWrite)
+    const cacheGuard = loader.indexOf('if (!current()) return;')
+    const cacheWrite = loader.indexOf('softwareCacheRef.current[sw.slug] =')
+    expect(cacheGuard, 'cache guard not found').toBeGreaterThan(-1)
+    expect(cacheGuard, 'the guard must come BEFORE the cache write').toBeLessThan(cacheWrite)
+    // 🚨 And the DISCARD must be observable by the callers, or four awaited
+    // follow-ups run selectSoftware() on a slug from the other library.
+    expect(loader).toContain('return true;')
+    expect(loader).toContain('return false;')
+    expect((otterCode.match(/if \(!\(await loadSoftwareList\(\)\)\) return;/g) || []).length,
+      'every awaited caller must gate its follow-up on the return value').toBe(4)
     expect(loader).toContain('if (current()) subjectCacheRef.current[cacheKey] = fullSub;')
   })
 

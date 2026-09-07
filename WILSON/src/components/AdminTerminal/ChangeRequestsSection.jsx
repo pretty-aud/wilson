@@ -167,6 +167,7 @@ export default function ChangeRequestsSection({ isActive }) {
         // failures to the banner rather than dropping them — a silent partial
         // apply is the one outcome nobody would notice.
         docsFailed: data?.documents?.failed ?? [],
+        docsMerged: data?.documents?.merged ?? [],
       })
       setDecide(null)
       setDiff(null)
@@ -278,9 +279,23 @@ export default function ChangeRequestsSection({ isActive }) {
           <span className="text-[11px] font-mono" style={{ color: '#166534' }}>
             Applied to “{applied.name}”
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
-            {(applied.docsFailed?.length ?? 0) === 0
+            {/* Positive evidence only. `failed.length === 0` is also true when the
+                server sent no `documents` key at all — an older client, a 501, a
+                future shape change — and printing "merged in as well" from missing
+                data is the same defect the adapter refuses two files away. */}
+            {/* THREE states, not two. `failed.length === 0` is ALSO true when the
+                server sent no `documents` key at all (an older client, a 501, a
+                future shape change), and both an affirmative claim and a
+                'could NOT be updated ' + nothing are wrong for that case. Say
+                something only when there is evidence either way.
+                The reason is taken from the failure itself: since the null-row
+                guards there is more than one way a document write can fail, and
+                naming only the permission one would be wrong for the others. */}
+            {(applied.docsMerged?.length ?? 0) === 4
               ? ' Their hotkeys, functions, nodes and reference links were merged in as well.'
-              : ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated — you may not have permission to edit this standard's documents.`}
+              : (applied.docsFailed?.length ?? 0) > 0
+                ? ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated (${applied.docsFailed[0].message}).`
+                : ''}
             {' '}A pre-change archive was kept in your O.T.T.E.R. library.
           </span>
           <button type="button" onClick={() => setApplied(null)} className="ml-auto flex-shrink-0" aria-label="Dismiss">

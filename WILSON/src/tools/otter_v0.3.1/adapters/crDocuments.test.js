@@ -154,25 +154,59 @@ describe('CR_DOC_MERGE — stored document in, stored document out', () => {
         read: out => out.urls,
       },
     }
+    // Collected, not thrown: `read()` dereferences two levels, so a merge that
+    // returns an unexpected shape would raise a TypeError and the authored
+    // message would never print — and inside a bare loop only the FIRST
+    // failing document would ever be reported.
+    const lost = []
     for (const [doc, { target, read }] of Object.entries(cases)) {
       const { empty } = COURSE_DOCS[doc]
-      const survivors = read(CR_DOC_MERGE[doc](target, empty))
-      expect(survivors, doc + ' lost its own content when the fork was empty')
-        .toHaveLength(1)
+      let survivors
+      try { survivors = read(CR_DOC_MERGE[doc](target, empty)) }
+      catch (err) { lost.push(doc + ' (merge returned an unexpected shape: ' + err.message + ')'); continue }
+      if (!Array.isArray(survivors) || survivors.length !== 1) {
+        lost.push(doc + ' (kept ' + JSON.stringify(survivors) + ')')
+      }
     }
+    expect(lost, 'documents that lost their own content when the fork was empty')
+      .toEqual([])
   })
 
-  it('🚨 …and additive means the FORK cannot delete either', () => {
-    // The same property from the other side: the fork has a DIFFERENT entry, and
-    // the standard's own must still be there afterwards. An overwriting merge
-    // passes the empty-fork test above and fails this one.
-    const out = CR_DOC_MERGE.hotkeys(
-      { categories: [{ category: 'Keep', shortcuts: [{ keys: 'K', action: 'keep' }] }] },
-      { categories: [{ category: 'Other', shortcuts: [{ keys: 'O', action: 'other' }] }] })
-    const kept = out.categories.find(c => c.category === 'Keep')
-    expect(kept, 'the standard category vanished').toBeTruthy()
-    expect(kept.shortcuts).toHaveLength(1)
-    expect(out.categories.map(c => c.category)).toEqual(['Keep', 'Other'])
+  it('🚨 …and additive means the FORK cannot delete either — all four', () => {
+    // The same property from the other side: the fork carries a DIFFERENT entry,
+    // and the standard's own must survive. An overwriting merge passes the
+    // empty-fork test above and fails this one. Previously this covered hotkeys
+    // alone; the other three had only the empty-fork arm.
+    const cases = {
+      hotkeys: [
+        { categories: [{ category: 'Keep', shortcuts: [{ keys: 'K', action: 'keep' }] }] },
+        { categories: [{ category: 'Other', shortcuts: [{ keys: 'O', action: 'other' }] }] },
+        out => out.categories.map(c => c.category),
+        ['Keep', 'Other'],
+      ],
+      functions: [
+        { categories: [{ name: 'Keep', functions: [{ name: 'keep' }] }] },
+        { categories: [{ name: 'Other', functions: [{ name: 'other' }] }] },
+        out => out.categories.map(c => c.name),
+        ['Keep', 'Other'],
+      ],
+      nodes: [
+        { systems: [{ system: 'S', categories: [{ category: 'C', nodes: [{ name: 'keep' }] }] }] },
+        { systems: [{ system: 'S', categories: [{ category: 'C', nodes: [{ name: 'other' }] }] }] },
+        out => out.systems[0].categories[0].nodes.map(n => n.name),
+        ['keep', 'other'],
+      ],
+      references: [
+        { urls: [{ url: 'https://keep' }] },
+        { urls: [{ url: 'https://other' }] },
+        out => out.urls.map(u => u.url),
+        ['https://keep', 'https://other'],
+      ],
+    }
+    for (const [doc, [target, fork, read, expected]] of Object.entries(cases)) {
+      expect(read(CR_DOC_MERGE[doc](target, fork)), doc + ' did not keep both')
+        .toEqual(expected)
+    }
   })
 
   it('🚨 `corrections` is NOT in the map, and that is deliberate', () => {
@@ -193,6 +227,7 @@ let rpcError = null
 let updateReturnsRow = true
 let forkReadError = null
 let nullRowFor = null       // 'fork-1' | 'target-1'
+let crStatus = 'open'
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   supabase: {
@@ -214,6 +249,7 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
           }
           calls.push({ kind: 'read', table, cols: api.__sel, id: api.__id })
           if (table === 'otter_change_requests') {
+            if (api.__sel === 'status') return { data: { status: crStatus }, error: null }
             return { data: { id: 'cr-1', source_course_id: 'fork-1', target_course_id: 'target-1' }, error: null }
           }
           // Both courses answer with a document; the values differ so a merge
@@ -245,7 +281,7 @@ const { supabaseOtterAdapter } = await import('./supabaseOtterAdapter.js')
 
 beforeEach(() => {
   calls.length = 0; rpcError = null; updateReturnsRow = true
-  forkReadError = null; nullRowFor = null
+  forkReadError = null; nullRowFor = null; crStatus = 'open'
 })
 
 describe('cr.approve — reads before the RPC, writes after', () => {
@@ -321,7 +357,20 @@ describe('cr.approve — reads before the RPC, writes after', () => {
     expect(out.archive_course_id).toBe('archive-1')
   })
 
-  it('🚨 an INVISIBLE fork is refused, not read as an empty document', async () => {
+  it('🚨 an ALREADY-DECIDED request says so, not "could not read"', async () => {
+    // The review window closes on decision, so when a second reviewer gets there
+    // first the fork goes invisible BEFORE the RPC is reached. Refusing is right;
+    // blaming permissions is not, and it sends the approver hunting an access
+    // fault that does not exist.
+    nullRowFor = 'fork-1'
+    crStatus = 'approved'
+    await expect(supabaseOtterAdapter['cr.approve']({ id: 'cr-1' }))
+      .rejects.toThrow('already approved')
+    expect(calls.filter(c => c.kind === 'rpc')).toEqual([])
+    expect(calls.filter(c => c.kind === 'update')).toEqual([])
+  })
+
+  it('🚨 an INVISIBLE fork on a STILL-OPEN request is refused as unreadable', async () => {
     // `row?.[column] ?? empty` alone cannot tell "I cannot see the fork" from
     // "the fork has no hotkeys". The first merges nothing into all four columns
     // while every write succeeds and the banner reports a clean merge.

@@ -251,11 +251,12 @@ and I would rather you saw the refusal than trusted my description of it.
 
 25. **Approve it as MEMBER.**
     - **Expect:** the subjects move, AND the green banner says *“Their subjects moved,
-      but hotkeys, functions, nodes, reference links could NOT be updated — only an
-      admin can edit a company standard course's documents.”* **That message is the
+      but hotkeys, functions, nodes, reference links could NOT be updated (not
+      allowed to edit the standard course).”* **That message is the
       correct outcome here, not a bug.** Only an admin may write a company standard
       course’s documents, and the alternative would be telling you it worked when it
-      did not.
+      did not. The wording in brackets is the reason the SERVER gave, so if you
+      see a different reason there, copy it out — that is new information.
     - **If instead** it shows a plain green “Applied” with no mention of documents:
       **record it.** That is exactly the defect the second review found, back again.
     - **Then have an ADMIN approve the next one** and confirm the documents do move.

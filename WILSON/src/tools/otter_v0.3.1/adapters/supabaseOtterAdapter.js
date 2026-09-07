@@ -724,6 +724,20 @@ export const supabaseOtterAdapter = {
       // succeeds and the banner reports a clean merge — the same silent success the
       // read-before-RPC ordering exists to prevent, reached by a different door.
       if (!row) {
+        // WHY it is invisible decides what to say. The review window is open
+        // only while the request is (otter_has_open_review_access, 0025), so the
+        // commonest cause by far is that a second reviewer decided it first — an
+        // ordinary lost race, not a permissions problem. Saying "could not read"
+        // there sends the approver looking for an access fault that is not real,
+        // so re-read the status and name what actually happened. One extra query,
+        // on a path that is already failing.
+        const settled = await supabase.from('otter_change_requests')
+          .select('status').eq('id', id).maybeSingle()
+        const status = settled?.data?.status
+        if (status && status !== 'open' && status !== 'changes_requested') {
+          throw new OtterCloudError(
+            'this request is already ' + status + ' — someone else decided it first', 409)
+        }
         throw new OtterCloudError(
           'could not read the proposer' + String.fromCharCode(39) + 's course — nothing has been changed', 403)
       }
