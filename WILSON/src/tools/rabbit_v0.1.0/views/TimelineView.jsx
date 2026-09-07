@@ -939,6 +939,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         // the panel must not promise a deadline the Local Server will never
         // meet.
         purgeScheduled={ctx?.adapterMode !== 'local_server'}
+        adapterMode={ctx?.adapterMode}
       />
 
       {/* ── Shared task detail popup (same component as Tasks tab) ── */}

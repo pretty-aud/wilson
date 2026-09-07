@@ -58,6 +58,19 @@ function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
 
+// Mirrors the supabase adapter's `.order('date')` for milestones. Postgres
+// sorts NULLs LAST on an ascending order by default, so an undated key date
+// goes to the end here too — the editor refuses to save one, but a row written
+// before that check existed can still carry a null.
+function byMilestoneDate(a, b) {
+  const x = a?.date
+  const y = b?.date
+  if (!x && !y) return 0
+  if (!x) return 1
+  if (!y) return -1
+  return String(x).localeCompare(String(y))
+}
+
 export function localServerAdapter() {
   return {
     mode: 'local_server',
@@ -124,7 +137,9 @@ export function localServerAdapter() {
         // milestones_select's `deleted_at IS NULL` arm in 0067 — the two
         // backends must hide the same rows or the same project looks
         // different depending on where it is stored.
-        milestones:      (bundle.milestones || []).filter(m => !m.deleted_at),
+        milestones:      (bundle.milestones || [])
+          .filter(m => !m.deleted_at)
+          .sort(byMilestoneDate),
       };
     },
 
@@ -547,9 +562,17 @@ export function localServerAdapter() {
     // mirror the supabase adapter's restoreMilestone / listTrashedMilestones
     // so RabbitProvider needs no per-adapter branch beyond the capability
     // check it already does for phases (`typeof adapter.restorePhase`).
+    // Sorted by date to match the supabase adapter's `.order('date')`. The
+    // bundle is an array and therefore in INSERTION order, so without this the
+    // two backends return the same project's key dates in different orders —
+    // invisible on the Gantt, which draws by date, but visible in
+    // ProjectTasksView's milestone rows, which render array order. R1 caught
+    // the "both adapters agree" claim being false. Same trap S25 called out
+    // for scenes and S26 for folders.
     listMilestones: async (projectId) =>
       ((await jfetch(`${BASE}/projects/${projectId}`)).milestones || [])
-        .filter(m => !m.deleted_at),
+        .filter(m => !m.deleted_at)
+        .sort(byMilestoneDate),
     upsertMilestone: (milestone) => jfetch(`${BASE}/projects/${milestone.project_id}/milestones`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -557,6 +580,10 @@ export function localServerAdapter() {
     }),
     deleteMilestone: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/milestones/${id}`, { method: 'DELETE' }),
+    // The HARD delete — `?purge=1` on the same route. One caller: the undo of
+    // a CREATE, which must leave no row and no trash entry.
+    destroyMilestone: async (id, projectId) =>
+      jfetch(`${BASE}/projects/${projectId}/milestones/${id}?purge=1`, { method: 'DELETE' }),
     // Answers the same boolean the cloud RPC does: false = already live.
     restoreMilestone: async (id, projectId) =>
       !!(await jfetch(`${BASE}/projects/${projectId}/milestones/${id}/restore`, {

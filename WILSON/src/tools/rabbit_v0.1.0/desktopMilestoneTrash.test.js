@@ -97,7 +97,7 @@ function harness(bundle) {
   return { routes, writes, register }
 }
 
-function call(routes, verb, pattern, params, body = {}) {
+function call(routes, verb, pattern, params, body = {}, query = {}) {
   const handler = routes.get(`${verb} ${pattern}`)
   if (!handler) throw new Error(`no route registered for ${verb} ${pattern}`)
   const res = {
@@ -105,7 +105,7 @@ function call(routes, verb, pattern, params, body = {}) {
     status(c) { this.code = c; return this },
     json(b) { this.body = b; return this },
   }
-  handler({ params, body }, res)
+  handler({ params, body, query }, res)
   return res
 }
 
@@ -268,5 +268,101 @@ describe('main.cjs registers milestones with the opt', () => {
     // A milestone is not a dependency endpoint; sweeping would be a no-op that
     // implies otherwise.
     expect(line).not.toMatch(/sweepDependencies/)
+  })
+})
+
+
+// ── R1 correction: ?purge=1 is the hard delete ──────────────────────────────
+//
+// Undoing a CREATE must leave no row and no trash entry. Reusing the soft
+// delete for it broke two things at once (see RabbitProvider.addMilestone's
+// comment): the redo upserted an id that still existed with deleted_at set,
+// and every undone create accumulated in "Recently deleted" forever, because
+// nothing purges on Local Server.
+
+describe('?purge=1 hard-deletes, and only with the flag', () => {
+  it('purge=1 removes the row outright', () => {
+    const bundle = fixture()
+    const h = harness(bundle)
+    registerLikeMain(h)
+
+    const res = call(h.routes, 'DELETE', DEL_MS, { projectId: 'p1', id: 'm-lock' }, {}, { purge: '1' })
+
+    expect(res.code).toBe(200)
+    expect(res.body).toEqual({ ok: true, swept: 0 })
+    expect(ids(bundle.milestones)).toEqual(['m-wrap', 'm-gone'])
+  })
+
+  it('purge=1 can remove an ALREADY-TRASHED row', () => {
+    // The soft path 404s on a trashed row by design, so without this the trash
+    // would be a one-way door on the desktop.
+    const bundle = fixture()
+    const h = harness(bundle)
+    registerLikeMain(h)
+
+    const res = call(h.routes, 'DELETE', DEL_MS, { projectId: 'p1', id: 'm-gone' }, {}, { purge: '1' })
+
+    expect(res.code).toBe(200)
+    expect(ids(bundle.milestones)).toEqual(['m-lock', 'm-wrap'])
+  })
+
+  it('🚨 FAILING CONTROL: any other query value still SOFT deletes', () => {
+    // A truthiness check (`req.query.purge`) rather than an equality check
+    // would make `?purge=0` destroy the row. The flag is exact.
+    const bundle = fixture()
+    const h = harness(bundle)
+    registerLikeMain(h)
+
+    const res = call(h.routes, 'DELETE', DEL_MS, { projectId: 'p1', id: 'm-lock' }, {}, { purge: '0' })
+
+    expect(res.body).toEqual({ ok: true, swept: 0, softDeleted: true })
+    expect(ids(bundle.milestones)).toEqual(['m-lock', 'm-wrap', 'm-gone'])
+    expect(bundle.milestones.find(m => m.id === 'm-lock').deleted_at).toBeTruthy()
+  })
+
+  it('a missing query object does not throw — Express always supplies one, tests may not', () => {
+    const bundle = fixture()
+    const h = harness(bundle)
+    registerLikeMain(h)
+    const handler = h.routes.get(`DELETE ${DEL_MS}`)
+    const res = { code: 200, body: null, status(c) { this.code = c; return this }, json(b) { this.body = b; return this } }
+    expect(() => handler({ params: { projectId: 'p1', id: 'm-lock' }, body: {} }, res)).not.toThrow()
+    expect(res.body.softDeleted).toBe(true)
+  })
+
+  it('an entity WITHOUT the opt ignores purge entirely', () => {
+    const bundle = fixture()
+    const h = harness(bundle)
+    registerLikeMain(h)
+    const res = call(h.routes, 'DELETE', DEL_SCENE, { projectId: 'p1', id: 'sc-1' }, {}, { purge: '1' })
+    expect(res.body).toEqual({ ok: true, swept: 0 })
+    expect(bundle.scenes).toEqual([])
+  })
+})
+
+
+// ── R1 correction: the Tasks tab's stale confirm is gone ────────────────────
+
+describe('ProjectTasksView no longer confirms a milestone delete', () => {
+  it('handleDelete calls deleteMilestone with no window.confirm', () => {
+    // The confirm was the stand-in for a missing undo path (MASTER_PLAN §6
+    // #10). Ruling 38 supplied the undo path, and 4aafbe8 struck that item as
+    // CLOSED — while the dialog was still in the tree, so one gesture on this
+    // tab raised a modal AND a toast. A source pin, because no test in this
+    // repo mounts React.
+    const SRC = readFileSync(
+      new URL('./views/ProjectTasksView.jsx', import.meta.url), 'utf-8')
+    // Sliced by index rather than matched by a regex literal: the tooling
+    // that wrote this file collapses backslash escapes, so a pattern with
+    // one in it cannot be trusted to arrive intact.
+    const NL = String.fromCharCode(10)
+    const anchor = SRC.indexOf('if (isProjectBound) return')
+    expect(anchor, 'the milestone row handleDelete moved or was renamed')
+      .toBeGreaterThan(-1)
+    const close = SRC.indexOf(NL + '  }', anchor)
+    expect(close).toBeGreaterThan(anchor)
+    const body = SRC.slice(anchor, close)
+    expect(body).toContain('deleteMilestone')
+    expect(body).not.toContain('window.confirm')
   })
 })

@@ -1867,7 +1867,12 @@ function startLocalServer(distPath) {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
-        if (softDelete) {
+        // `?purge=1` is the HARD delete, and it exists for exactly one caller:
+        // the renderer's undo of a CREATE. Undoing a create must leave no row
+        // and no trash entry — otherwise every undone create accumulates in
+        // "Recently deleted" forever, because nothing purges on Local Server.
+        // Deleting a row the user actually made still trashes it.
+        if (softDelete && req.query?.purge !== '1') {
           const arr = bundle[bundleKey];
           const idx = arr.findIndex(x => x.id === req.params.id && !x.deleted_at);
           // !deleted_at above, matching the read path: deleting an already

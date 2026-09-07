@@ -30,7 +30,7 @@
 -- =========================================================================
 BEGIN;
 
-SELECT plan(23);
+SELECT plan(30);
 
 SELECT * FROM tests.rls_setup();
 
@@ -341,6 +341,165 @@ SELECT ok(
   ),
   'anon holds no privilege on milestones or its trash index'
 );
+
+
+-- ── 24-25: the trash index's OWN gate (R1 finding 7) ─────────────────────
+--
+-- 🚨 THESE ARE THE PROBES THE FIRST VERSION OF THIS FILE DID NOT HAVE.
+-- milestones_trash_index is the one SECURITY DEFINER surface 0067 adds — it
+-- reads public.milestones with RLS bypassed — and the suite exercised only its
+-- happy path, as the workspace admin. Its gate was therefore unproven in BOTH
+-- directions, and it was wrong: gated on can_write_project, a reviewer (who
+-- fails that check, probes 19-21) got a raised exception where the panel could
+-- only show a raw Postgres string. The gate is now the READ predicate.
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- A reviewer can READ the trash. Restore is refused elsewhere: client-side by
+-- GatedAction, server-side by fn_trash_authz (probe 21).
+SELECT lives_ok(
+  $$SELECT * FROM public.milestones_trash_index('aaaa1111-0000-0000-0000-000000000001')$$,
+  'a project reviewer can READ the trash index — it is gated on read, not on write');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '22222222-2222-2222-2222-222222222222',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+-- A SECURITY DEFINER function bypasses RLS, so the workspace boundary here is
+-- code rather than policy — which is exactly why it needs a probe.
+SELECT throws_ok(
+  $$SELECT * FROM public.milestones_trash_index('aaaa1111-0000-0000-0000-000000000001')$$,
+  'not allowed to read this project''s trash',
+  'an admin of ANOTHER workspace cannot read this project''s trash');
+
+
+-- ── 26-27: cross-workspace isolation for the table itself ────────────────
+-- Still acting as workspace B's admin. Every other access arm of the new
+-- policy set had a probe; the workspace arm did not (R1 finding 11).
+
+SELECT is(
+  (SELECT count(*)::int FROM public.milestones
+    WHERE project_id = 'aaaa1111-0000-0000-0000-000000000001'),
+  0, 'an admin of another workspace reads NO milestones from this project');
+
+SELECT throws_ok(
+  $$INSERT INTO public.milestones (project_id, title, date)
+    VALUES ('aaaa1111-0000-0000-0000-000000000001', 'cross-tenant', '2026-10-31')$$,
+  'new row violates row-level security policy for table "milestones"',
+  'an admin of another workspace cannot write a milestone into this project');
+
+
+-- ── Back to the workspace admin for the last three ───────────────────────
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+
+-- ── 28: phase_id ON DELETE SET NULL, on a HARD delete (R1 finding 9) ─────
+--
+-- The header asserts this as a design invariant — "a hard-deleted phase must
+-- not silently take a dated milestone with it" — and probe 10 only SOFT-deletes
+-- a phase, which exercises the SELECT policy and never the FK action. Both
+-- purge_soft_deleted and the desktop's phase route hard-delete, so this path
+-- is real. Two lines stand between it and a silently-changed FK action.
+
+-- 🚨 A FRESH, LIVE PHASE — not the one probe 10 soft-deleted. PostgreSQL
+-- applies the SELECT policy to the rows a DELETE reads through its WHERE
+-- clause, so a trashed phase is invisible and `DELETE FROM phases WHERE id=…`
+-- matches ZERO rows: the first version of this probe deleted nothing and read
+-- the FK action as broken. (Which is itself worth knowing: once a phase is in
+-- the trash, only purge_soft_deleted — service_role — can hard-delete it.)
+INSERT INTO public.phases (id, project_id, name, sort_order)
+VALUES ('88880000-0000-0000-0000-0000000000b2',
+        'aaaa1111-0000-0000-0000-000000000001', 'Delivery phase', 2);
+
+INSERT INTO public.milestones (id, project_id, phase_id, title, date)
+VALUES ('77770000-0000-0000-0000-0000000000b2',
+        'aaaa1111-0000-0000-0000-000000000001',
+        '88880000-0000-0000-0000-0000000000b2', 'Ship', '2026-12-01');
+
+DELETE FROM public.phases WHERE id = '88880000-0000-0000-0000-0000000000b2';
+
+SELECT is(
+  (SELECT count(*)::int FROM public.milestones
+    WHERE id = '77770000-0000-0000-0000-0000000000b2' AND phase_id IS NULL),
+  1,
+  'hard-deleting a phase SETS NULL on its milestones and KEEPS the row');
+
+
+-- ── 29: purge_soft_deleted actually sweeps milestones (R1 finding 10) ────
+--
+-- 0067 adds one name to that function's array, and the migration's
+-- post-condition only proves the LITERAL is in the source. This proves the
+-- sweep reaches the table. The 33_file_lifecycle.sql idiom: a negative
+-- interval makes everything already-trashed expired.
+
+INSERT INTO public.milestones (id, project_id, title, date)
+VALUES ('77770000-0000-0000-0000-0000000000f1',
+        'aaaa1111-0000-0000-0000-000000000001', 'Purge me', '2026-07-01');
+SELECT public.soft_delete_row('milestones', '77770000-0000-0000-0000-0000000000f1');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT public.purge_soft_deleted(INTERVAL '-1 second');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.milestones
+    WHERE id = '77770000-0000-0000-0000-0000000000f1'),
+  0,
+  'purge_soft_deleted hard-deletes an expired trashed milestone');
+
+
+-- ── 30: a trashed PROJECT hides its trash too ────────────────────────────
+--
+-- LAST, because soft-deleting the project hides everything under it. Restoring
+-- a milestone beneath a trashed project is authorized by fn_trash_authz and
+-- then immediately re-hidden by milestones_select, so the index refuses the
+-- whole call rather than listing rows whose Restore would be a no-op.
+
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT public.soft_delete_row('projects', 'aaaa1111-0000-0000-0000-000000000001');
+
+SELECT throws_ok(
+  $$SELECT * FROM public.milestones_trash_index('aaaa1111-0000-0000-0000-000000000001')$$,
+  'not allowed to read this project''s trash',
+  'the trash index refuses a project that is itself in the trash');
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

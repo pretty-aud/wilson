@@ -53,15 +53,24 @@ export default function MilestoneTrashModal({
   canWrite = true,
   writeReason = null,
   purgeScheduled = true,
+  adapterMode = null,
 }) {
-  const [rows, setRows]       = useState(null)   // null = still loading
+  // Three states, not two. `undefined` = still loading; `null` = this storage
+  // backend does not keep deleted key dates (googleDriveAdapter implements none
+  // of the milestone methods); an array = a real answer, possibly empty. R1 of
+  // this session found the first version collapsing the middle case into "the
+  // trash is empty", which is the mistake unwrapOptionalTable's own comment
+  // condemns — a backend that was never asked and a backend with nothing to
+  // report gave the same answer.
+  const [rows, setRows]       = useState(undefined)
   const [error, setError]     = useState(null)
   const [busyId, setBusyId]   = useState(null)
 
   const load = useCallback(async () => {
     setError(null)
     try {
-      setRows((await onList?.()) || [])
+      const got = await onList?.()
+      setRows(got === null || got === undefined ? null : got)
     } catch (err) {
       // A failed trash read must not read as an empty trash: "nothing here"
       // and "we could not look" are different answers and the second one is
@@ -71,7 +80,7 @@ export default function MilestoneTrashModal({
     }
   }, [onList])
 
-  useEffect(() => { if (open) { setRows(null); load() } }, [open, load])
+  useEffect(() => { if (open) { setRows(undefined); load() } }, [open, load])
 
   if (!open) return null
 
@@ -128,17 +137,25 @@ export default function MilestoneTrashModal({
         </div>
 
         <div className="px-4 py-3 overflow-y-auto flex flex-col gap-2 text-[11.5px] font-mono">
-          {rows === null && (
+          {rows === undefined && (
             <p style={{ color: '#78716c' }}>Loading…</p>
           )}
 
-          {rows !== null && rows.length === 0 && !error && (
+          {rows === null && (
+            // Named, the way EditHistoryDrawer and FileAuditDrawer name theirs.
+            <p style={{ color: '#78716c' }}>
+              This storage backend does not keep deleted key dates
+              {adapterMode ? ` (${adapterMode})` : ''}.
+            </p>
+          )}
+
+          {Array.isArray(rows) && rows.length === 0 && !error && (
             <p style={{ color: '#78716c' }}>
               Nothing here. Deleted key dates appear in this list.
             </p>
           )}
 
-          {rows !== null && rows.map(row => {
+          {Array.isArray(rows) && rows.map(row => {
             const left = daysLeft(row)
             return (
               <div

@@ -371,15 +371,31 @@ COMMENT ON FUNCTION public.purge_soft_deleted IS
 -- back on the timeline through every `select('*')` in the adapter.
 --
 -- So the listing is a function, on 0024's otter_trash_index() pattern:
--- SECURITY DEFINER, STABLE, one project, and gated by exactly the check
--- fn_trash_authz will apply when Restore is pressed — otherwise the list
--- would offer controls that then refuse, which 0024's course arm calls a
--- dead control and excludes for the same reason.
+-- SECURITY DEFINER, STABLE, one project.
 --
--- The project must be LIVE. Restoring a milestone under a soft-deleted project
--- is authorized by fn_trash_authz but immediately re-hidden by
--- milestones_select's parent hop, so listing it would be the same dead
--- control (0024's subject arm, verbatim reasoning).
+-- 🚨 THE GATE IS A READ GATE, NOT can_write_project. This was the other way
+-- round in the first version of this file and R1 caught what that implied: a
+-- REVIEWER fails can_write_project (suite 71 probes 19-21 prove it), so
+-- pressing "Deleted" answered a raised exception, which the panel could only
+-- surface as a raw Postgres string. Reading which key dates were deleted is
+-- the same class of information as reading the live ones, and a reviewer can
+-- already read those. The gate is therefore the READ predicate — active
+-- membership plus a live project in the caller's own workspace, which is
+-- exactly projects_select (measured on wilson-dev 2026-09-07:
+-- `deleted_at IS NULL AND workspace_id = current_workspace_id() AND
+-- has_active_membership(workspace_id)`).
+--
+-- That does not create a dead control. Restore is gated CLIENT-side by
+-- GatedAction on the same canWrite the rest of the timeline uses, so a
+-- reviewer sees the list and a refusal in the app's own words; and if one
+-- reached the RPC anyway, fn_trash_authz still refuses it. 0024's "dead
+-- control" reasoning excluded rows a caller could never restore AND never
+-- otherwise see; a reviewer here can see the project all day.
+--
+-- The project must still be LIVE, and that arm is unchanged: restoring a
+-- milestone under a soft-deleted project is authorized by fn_trash_authz but
+-- immediately re-hidden by milestones_select's parent hop (0024's subject arm,
+-- verbatim reasoning).
 
 DROP FUNCTION IF EXISTS public.milestones_trash_index(UUID);
 
@@ -412,8 +428,15 @@ BEGIN
   IF v_ws IS NULL OR NOT public.has_active_membership(v_ws) THEN
     RAISE EXCEPTION 'not_a_workspace_member';
   END IF;
-  -- The same gate fn_trash_authz applies to the Restore that follows.
-  IF NOT COALESCE(public.can_write_project(p_project_id), false) THEN
+  -- The READ gate: the project must be one this caller can see. Spelled out
+  -- rather than delegated, because this function is SECURITY DEFINER and
+  -- therefore does NOT get projects_select applied for it.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.projects p
+     WHERE p.id = p_project_id
+       AND p.workspace_id = v_ws
+       AND p.deleted_at IS NULL
+  ) THEN
     RAISE EXCEPTION 'not allowed to read this project''s trash';
   END IF;
 
@@ -435,10 +458,11 @@ BEGIN
    WHERE m.project_id   = p_project_id
      AND m.workspace_id = v_ws
      AND m.deleted_at IS NOT NULL
-     -- Parent must be live; restoring under a trashed project is authorized
-     -- but immediately re-hidden by milestones_select.
-     AND EXISTS (SELECT 1 FROM public.projects p
-                  WHERE p.id = m.project_id AND p.deleted_at IS NULL)
+   -- No per-row parent check: every row here shares p_project_id, and the
+   -- gate above already proved that project is live and in this workspace.
+   -- Restoring under a trashed project is authorized by fn_trash_authz but
+   -- immediately re-hidden by milestones_select, so the gate refusing the
+   -- whole call is the same answer, one statement earlier.
    ORDER BY m.deleted_at DESC;
 END;
 $$;
@@ -448,16 +472,17 @@ GRANT  EXECUTE ON FUNCTION public.milestones_trash_index(UUID)
   TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.milestones_trash_index IS
-  'Trashed milestones for one live project, newest first, with a purges_at countdown. SECURITY DEFINER because milestones_select hides trashed rows by design; gated by can_write_project, the same check restore_soft_deleted will apply, so the list never offers a Restore that refuses (0067, ruling 38).';
+  'Trashed milestones for one live project, newest first, with a purges_at countdown. SECURITY DEFINER because milestones_select hides trashed rows by design. Gated on READ (active membership + a live project in the caller''s workspace, i.e. projects_select), NOT on can_write_project: a reviewer can read the project''s live key dates and may read its deleted ones. Restore is gated separately, client-side by GatedAction and server-side by fn_trash_authz (0067, ruling 38).';
 
 
 -- ── 7. Post-conditions ───────────────────────────────────────────────────
 
 DO $$
 DECLARE
-  n   INTEGER;
-  def TEXT;
-  t   TEXT;
+  n     INTEGER;
+  def   TEXT;
+  allow TEXT;
+  t     TEXT;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_tables
                   WHERE schemaname = 'public' AND tablename = 'milestones') THEN
@@ -534,14 +559,32 @@ BEGIN
   -- 🚨 THE CREATE OR REPLACE GUARD (0059's escalation, 0064's answer).
   -- Every one of 0014's seven tables must still be in both lists, and the
   -- comments/rate_cards special cases must still be there.
+  --
+  -- 🚨 THE ALLOWLIST IS EXTRACTED, NOT SUBSTRING-SEARCHED. A plain
+  -- `def LIKE '%''projects''%'` is VACUOUS for four of these eight names,
+  -- because 'projects', 'phases', 'comments' and 'rate_cards' each occur a
+  -- SECOND time inside this function's CASE arms — so dropping one from the
+  -- IN-list would still have passed the guard while every soft-delete and
+  -- restore for that entity died with "not a soft-delete table". Found by the
+  -- R1 review of this file: a guard against 0059 that half of 0059's shape
+  -- could walk straight through. Pull the IN-list out and compare it as a set.
   def := pg_get_functiondef('public.fn_trash_authz(text,uuid)'::regprocedure);
+  allow := substring(def from 'p_table NOT IN \(([^)]*)\)');
+  IF allow IS NULL THEN
+    RAISE EXCEPTION '0067 post-condition failed: fn_trash_authz has no p_table allowlist at all';
+  END IF;
   FOREACH t IN ARRAY ARRAY['projects','phases','assets','tasks','files',
                            'comments','rate_cards','milestones']
   LOOP
-    IF def NOT LIKE '%''' || t || '''%' THEN
+    IF allow NOT LIKE '%''' || t || '''%' THEN
       RAISE EXCEPTION '0067 post-condition failed: % dropped from fn_trash_authz''s allowlist', t;
     END IF;
   END LOOP;
+  -- Exactly eight, so a name cannot be swapped for another without notice.
+  IF array_length(string_to_array(allow, ','), 1) <> 8 THEN
+    RAISE EXCEPTION '0067 post-condition failed: fn_trash_authz''s allowlist holds % entries, expected 8',
+      array_length(string_to_array(allow, ','), 1);
+  END IF;
   IF def NOT LIKE '%can_comment_project%' THEN
     RAISE EXCEPTION '0067 post-condition failed: the comments gate was dropped from fn_trash_authz';
   END IF;

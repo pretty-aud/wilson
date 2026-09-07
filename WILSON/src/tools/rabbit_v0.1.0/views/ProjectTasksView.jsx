@@ -1379,13 +1379,24 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
     setEditDate(false)
   }
   // Soft delete — no confirm; the shell-level undo toast covers it.
+  //
+  // 🚨 THE CONFIRM IS GONE, AND ITS REMOVAL IS THE POINT. This function used to
+  // carry a `window.confirm` under a comment reading "milestones are
+  // hard-deleted with no undo path (local entity, not one of the 7 soft-delete
+  // tables) — the confirm stays until they get one". Both halves stopped being
+  // true in A2 session 2: 0067 made milestones the EIGHTH soft-delete table and
+  // put them on 0014's trash RPCs, and ruling 38 gave them an undo toast and a
+  // "Recently deleted key dates" panel. Leaving the confirm would have meant a
+  // modal AND a toast for one gesture on this tab while the Timeline had only
+  // the toast, and MASTER_PLAN §6 #10 — struck as CLOSED partly on this
+  // function's account — still naming a dialog that was in the tree. R1 of this
+  // session found the contradiction.
+  //
+  // The "Deleted" panel lives on the Timeline toolbar only; a key date deleted
+  // from this tab is restored from there. Stated rather than silently implied.
   function handleDelete() {
     if (isProjectBound) return
-    // Milestones are hard-deleted with no undo path (local entity, not one of
-    // the 7 soft-delete tables) — the confirm stays until they get one.
-    if (window.confirm(`Delete milestone "${milestone.title || 'Untitled'}"?`)) {
-      ctx?.deleteMilestone?.(milestone.id)
-    }
+    ctx?.deleteMilestone?.(milestone.id)
   }
 
   return (

@@ -2479,6 +2479,15 @@ export function supabaseAdapter() {
     // `_projectId` is unused here (the id is a UUID primary key and RLS scopes
     // it), but the local adapter needs it to address its bundle, so both take
     // it and the provider has ONE call shape — the deleteScene precedent.
+    // The HARD delete, used by exactly one caller: RabbitProvider's undo of a
+    // CREATE. Undoing a create must leave no trace — no row, no trash entry —
+    // whereas deleting an existing key date must be recoverable. Both are
+    // policed by milestones_delete, which the ordinary delete never reaches
+    // because it goes through the trash RPC instead.
+    async destroyMilestone(id, _projectId) {
+      const client = await requireClient();
+      unwrap(await client.from('milestones').delete().eq('id', id));
+    },
     async restoreMilestone(id, _projectId) {
       const client = await requireClient();
       // Returns the RPC's boolean: false = the row was already live (someone
@@ -2492,11 +2501,24 @@ export function supabaseAdapter() {
     // is the read path, and it carries purges_at for the 30-day countdown.
     async listTrashedMilestones(projectId) {
       const client = await requireClient();
-      // unwrapOptionalTable so a client deployed ahead of 0067 shows an empty
-      // trash instead of failing the whole panel; see the helper for why only
-      // 42P01/PGRST205 are absorbed.
-      return unwrapOptionalTable(
-        await client.rpc('milestones_trash_index', { p_project_id: projectId }));
+      // 🚨 THIS IS AN RPC, NOT A TABLE READ, so unwrapOptionalTable is the
+      // wrong helper: it absorbs 42P01 / PGRST205, which are a missing
+      // RELATION, and PostgREST answers a missing FUNCTION with PGRST202
+      // (42883 from Postgres itself). The first version of this method used it
+      // and carried a comment claiming a client deployed ahead of 0067 would
+      // see an empty trash; it would in fact have seen an error. R1 caught the
+      // comment being false rather than the code being subtle.
+      //
+      // Absorbed narrowly, and ONLY the missing-function codes: a permission
+      // failure or a network fault must still reach the panel, which
+      // distinguishes "could not look" from "nothing here".
+      const { data, error } = await client.rpc(
+        'milestones_trash_index', { p_project_id: projectId });
+      if (error) {
+        if (error.code === 'PGRST202' || error.code === '42883') return [];
+        throw new Error(`[supabase] ${error.message || String(error)}`);
+      }
+      return data || [];
     },
 
     // ── Realtime (Session 7, migration 0016) ──────────────────

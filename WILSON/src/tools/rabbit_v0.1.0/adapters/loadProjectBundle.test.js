@@ -142,3 +142,60 @@ describe('localServerAdapter — trashed milestones', () => {
     expect(await localServerAdapter().restoreMilestone('m1', 'p1')).toBe(true)
   })
 })
+
+
+// ── R1 corrections (A2 session 2) ───────────────────────────────────────────
+
+describe('localServerAdapter — R1 corrections', () => {
+  const MAR = { id: 'm-mar', title: 'March',    date: '2026-03-01' }
+  const JAN = { id: 'm-jan', title: 'January',  date: '2026-01-01' }
+  const FEB = { id: 'm-feb', title: 'February', date: '2026-02-01' }
+  const NODATE = { id: 'm-none', title: 'Undated' }
+
+  it('orders milestones by date, matching the cloud order(date) the adapter sends', async () => {
+    // R1: the commit claimed "both adapters agree" on order while this one
+    // returned bundle INSERTION order. Invisible on the Gantt, which draws by
+    // date; visible in ProjectTasksView's milestone rows, which render array
+    // order.
+    stubFetch({ project: { id: 'p1' }, milestones: [MAR, JAN, FEB] })
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.milestones.map(m => m.id)).toEqual(['m-jan', 'm-feb', 'm-mar'])
+  })
+
+  it('sorts listMilestones the same way', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [MAR, JAN, FEB] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-jan', 'm-feb', 'm-mar'])
+  })
+
+  it('puts an undated milestone LAST, as Postgres puts NULLs last ascending', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [NODATE, FEB] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-feb', 'm-none'])
+  })
+
+  it('destroyMilestone asks for a HARD delete, not the trash', async () => {
+    // Undoing a CREATE must leave no row and no trash entry: on Local Server
+    // nothing purges, so an undone create would otherwise sit in "Recently
+    // deleted" forever with no way to remove it.
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true }) }
+    })
+    await localServerAdapter().destroyMilestone('m1', 'p1')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].method).toBe('DELETE')
+    expect(calls[0].url).toContain('/milestones/m1?purge=1')
+  })
+
+  it('deleteMilestone does NOT ask for a purge', async () => {
+    const calls = []
+    globalThis.fetch = vi.fn(async (url, init) => {
+      calls.push({ url: String(url), method: init?.method })
+      return { ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => ({ ok: true }) }
+    })
+    await localServerAdapter().deleteMilestone('m1', 'p1')
+    expect(calls[0].url).not.toContain('purge')
+  })
+})

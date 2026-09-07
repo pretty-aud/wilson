@@ -314,3 +314,78 @@ describe('milestones ride the same load', () => {
     await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow(/permission denied/)
   })
 })
+
+
+// ── R1 corrections (A2 session 2) ───────────────────────────────────────────
+
+describe('listTrashedMilestones degrades on a MISSING FUNCTION, not a missing table', () => {
+  function clientWithRpc(result) {
+    const c = makeClient({ projects: { data: { id: 'p1' }, error: null } })
+    c.rpc = async () => result
+    return c
+  }
+
+  it('absorbs PGRST202 — the code PostgREST returns for a missing function', async () => {
+    // R1: the first version ran the RPC through unwrapOptionalTable, which
+    // absorbs 42P01/PGRST205 — a missing RELATION. An RPC against a client
+    // deployed ahead of 0067 answers PGRST202, so the panel threw where its
+    // own comment promised an empty trash.
+    globalThis.__testSupabase = clientWithRpc({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function public.milestones_trash_index' },
+    })
+    resetSupabaseAdapter()
+    expect(await supabaseAdapter().listTrashedMilestones('p1')).toEqual([])
+  })
+
+  it('absorbs 42883, the Postgres-side undefined_function', async () => {
+    globalThis.__testSupabase = clientWithRpc({
+      data: null, error: { code: '42883', message: 'function does not exist' },
+    })
+    resetSupabaseAdapter()
+    expect(await supabaseAdapter().listTrashedMilestones('p1')).toEqual([])
+  })
+
+  it('does NOT absorb a permission failure — "could not look" must reach the panel', async () => {
+    globalThis.__testSupabase = clientWithRpc({
+      data: null, error: { code: '42501', message: 'permission denied' },
+    })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().listTrashedMilestones('p1')).rejects.toThrow(/permission denied/)
+  })
+
+  it('returns the rows when the function is there', async () => {
+    globalThis.__testSupabase = clientWithRpc({
+      data: [{ id: 'm1', title: 'Wrap', deleted_at: '2026-09-07T00:00:00Z' }], error: null,
+    })
+    resetSupabaseAdapter()
+    expect(await supabaseAdapter().listTrashedMilestones('p1')).toHaveLength(1)
+  })
+})
+
+describe('destroyMilestone is a HARD delete, deleteMilestone is not', () => {
+  it('destroyMilestone deletes the row; deleteMilestone calls the trash RPC', async () => {
+    // The two must not converge: undoing a CREATE has to leave no trash entry,
+    // while deleting a key date the user made has to be recoverable.
+    const seen = { deleted: null, rpc: null }
+    const c = makeClient({ projects: { data: { id: 'p1' }, error: null } })
+    c.from = () => {
+      const b = {
+        delete: () => { seen.deleted = 'delete'; return b },
+        eq: () => b,
+        then: (res, rej) => Promise.resolve({ data: null, error: null }).then(res, rej),
+      }
+      return b
+    }
+    c.rpc = async (name, args) => { seen.rpc = { name, args }; return { data: true, error: null } }
+    globalThis.__testSupabase = c
+    resetSupabaseAdapter()
+
+    await supabaseAdapter().destroyMilestone('m1', 'p1')
+    expect(seen.deleted).toBe('delete')
+    expect(seen.rpc).toBeNull()
+
+    await supabaseAdapter().deleteMilestone('m2', 'p1')
+    expect(seen.rpc).toEqual({ name: 'soft_delete_row', args: { p_table: 'milestones', p_id: 'm2' } })
+  })
+})

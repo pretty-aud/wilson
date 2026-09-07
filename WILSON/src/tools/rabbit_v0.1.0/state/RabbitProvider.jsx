@@ -1806,13 +1806,45 @@ export function RabbitProvider({ children }) {
     };
     const created = await adapterRef.current.upsertMilestone(row);
     const finalRow = created || row;
-    setBundle(prev => ({ ...prev, milestones: [...prev.milestones, finalRow] }));
+    // Dedupe rather than append blind: a refetch can land between an undo and
+    // the redo that replays this, and two rows with one id break every
+    // keyed render downstream.
+    setBundle(prev => ({
+      ...prev,
+      milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow],
+    }));
+    // 🚨 UNDOING A CREATE DESTROYS; DELETING AN EXISTING ROW TRASHES. R1 of
+    // this session caught the difference being lost.
+    //
+    // deleteMilestone is now a SOFT delete on both backends (0067 in cloud,
+    // the softDelete opt on the desktop). Reusing it here broke undo/redo in
+    // two ways at once. (1) Redo: `addMilestone(finalRow)` upserted an id that
+    // still existed with deleted_at set — `deleted_at` is deliberately not in
+    // MILESTONE_COLUMNS, so the stamp survived the upsert, the RETURNING read
+    // was then filtered out by milestones_select, `.single()` answered
+    // PGRST116, and `redo` SWALLOWS errors, so pressing Redo did nothing at
+    // all, silently. On the desktop the row came back on screen carrying its
+    // stamp and vanished on the next reload. (2) The trash: undoing a create
+    // filed the row under "Recently deleted" as something the user had chosen
+    // to delete, and on Local Server nothing purges, so every undone create
+    // accumulated there forever with no way to remove it.
+    //
+    // So the undo of a create uses `destroyMilestone` — a hard delete — which
+    // makes the redo's plain insert correct again and leaves no trash entry.
+    // An adapter without it (a future one) falls back to the soft delete,
+    // which is worse but not broken.
+    const canDestroy = typeof adapterRef.current?.destroyMilestone === 'function';
     pushHistory({
-      undoOps: [() => mutationsRef.current.deleteMilestone(finalRow.id)],
+      undoOps: [() => optimistic(
+        prev => ({ ...prev, milestones: prev.milestones.filter(m => m.id !== finalRow.id) }),
+        () => (canDestroy
+          ? adapterRef.current.destroyMilestone(finalRow.id, activeProjectId)
+          : adapterRef.current.deleteMilestone(finalRow.id, activeProjectId)),
+      )],
       redoOps: [() => mutationsRef.current.addMilestone(finalRow)],
     });
     return finalRow;
-  }, [activeProjectId]);
+  }, [activeProjectId, optimistic]);
 
   const updateMilestone = useCallback(async (id, patch) => {
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
@@ -1856,7 +1888,15 @@ export function RabbitProvider({ children }) {
         undoOps: canRestore
           ? [async () => {
               await adapterRef.current.restoreMilestone(id, activeProjectId);
-              setBundle(prev => ({ ...prev, milestones: [...prev.milestones, oldMilestone] }));
+              // Dedupe, and reinstate rather than append. The adapter answers
+              // false when the row was already live — someone else restored it
+              // first, or a refetch landed between the delete and this click —
+              // and a blind append would then put TWO rows with one id in the
+              // bundle until the next load.
+              setBundle(prev => ({
+                ...prev,
+                milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone],
+              }));
             }]
           : [() => mutationsRef.current.addMilestone(oldMilestone)],
         redoOps: [() => mutationsRef.current.deleteMilestone(id)],
@@ -1878,9 +1918,17 @@ export function RabbitProvider({ children }) {
   // directly rather than the bundle: in cloud the trashed rows are invisible
   // to every table read by design (milestones_select filters deleted_at), so
   // they can only come from 0067's SECURITY DEFINER index.
+  // 🚨 null means "this storage backend does not keep deleted key dates", and
+  // [] means "the trash is empty". Returning [] for both is the mistake
+  // unwrapOptionalTable's own comment condemns and that useRosterMembers makes,
+  // where a broken read and an empty result are indistinguishable at every call
+  // site — R1 of this session found the same shape here. googleDriveAdapter is
+  // read-only and implements none of the milestone methods, so on Drive the
+  // panel would otherwise have claimed an empty trash it never looked in. The
+  // EditHistoryDrawer / FileAuditDrawer precedent is to name the adapter.
   const listTrashedMilestones = useCallback(async () => {
-    if (!adapterRef.current || !activeProjectId) return [];
-    if (typeof adapterRef.current.listTrashedMilestones !== 'function') return [];
+    if (!adapterRef.current || !activeProjectId) return null;
+    if (typeof adapterRef.current.listTrashedMilestones !== 'function') return null;
     return (await adapterRef.current.listTrashedMilestones(activeProjectId)) || [];
   }, [activeProjectId]);
 
