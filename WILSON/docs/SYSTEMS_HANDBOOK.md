@@ -1616,8 +1616,9 @@ per-file audit drawer never shows one; the workspace takeout and the
 withdrew it; suite 66 probe 27 now asserts the term and the writer land
 together.
 
-Written **only** by `trg_files_lifecycle` → `fn_file_events_capture()`
-(SECURITY DEFINER). INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
+Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
+DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
+for `upload_abandoned` only; nothing else writes the table. INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
 `deleted_at` transition and/or `moved` on a `storage_path` change (one UPDATE
 can emit both); DELETE → `purged` with a JSONB snapshot whose `mime_type` is
 truncated to 256 characters, specifically so a client-writable oversized value
@@ -1638,7 +1639,7 @@ churn.
 
 `trg_files_gc_enqueue` fires `AFTER DELETE ON files WHEN storage_provider =
 'supabase'` and inserts a `storage_gc_queue` row. The `storage-gc` Edge
-Function (adminGuard, workspace-scoped) then does three jobs:
+Function (adminGuard, workspace-scoped) then does four jobs:
 
 1. **Queue drain** — up to 500 pending rows, re-checking that no `files` row
    (live *or* trashed) still references the path before removing it, so a
@@ -3353,13 +3354,17 @@ of a session — this section is limits by design, that file is faults.
   exceed the quota is refused at START, with the standing over-quota sentence
   (HTTP 402 through PostgREST, SQLSTATE `PT402`). 0057's attempt metered a
   table TUS never writes; suites 66/13 and 77/48 both assert that meter still
-  does not move. **Two things that had to be true at once:** the policy now
+  does not move (live on the hosted projects; CI's stack starts without
+  storage-api, so there both inserts are skipped and the probes are controls
+  only). **Two things that had to be true at once:** the policy now
   passes the object's own key (`rabbit_petal_storage_ok(project, incoming,
   path)`) so an upload's own reservation is never weighed against it, at the
   tus trial insert or at completion; and the reservation arm EXCLUDES any
   reservation whose object has landed, so object and reservation are never both
   in `used` for the same instant, whatever the client does next — suite 77
-  probes 23–27, proven by breakers. **Limits, both directions:** only the
+  probes 23–27 (23–25 failed by breakers B2/B3 before 0073 touched dev; 20,
+  26–27 and 30 by the review round's breakers against dev and staging — the second C1
+  hand-off has the table). **Limits, both directions:** only the
   resumable path (bodies over 50 MiB) reserves — a standard PUT lands in one
   request and is weighed as it lands; a reservation lasts 24 h (Supabase's own
   TUS URL expiry, past which the upload cannot complete anyway) and a lapsed
@@ -3370,7 +3375,30 @@ of a session — this section is limits by design, that file is faults.
   console) with the policy still gating at commit — exactly the pre-0073
   behaviour, never a refusal. An abandoned upload's reservation expires and is
   certified `upload_abandoned` by the sweep (§12.4): the certificate names the
-  abandonment, not the disposal of bytes, which SQL cannot see.
+  abandonment, not the disposal of bytes, which SQL cannot see. **Two more
+  limits, found by the review (2026-09-06):** a resumable upload that FAILS with
+  an error (tus gave up after its retries — the network dropped, a 5xx) releases
+  its reservation on the way out, so it is *not* certified; only an upload that
+  never reached the client's own release — a closed tab, a crash, the app
+  quit mid-upload — is. The partial a failed upload leaves is still reaped by
+  Supabase's 24 h expiry, and its `upload_reservations` row stays queryable
+  (`outcome = 'released'`, no object at the path), but it carries no
+  certificate — whether such a failure should be certified at once is a ruling
+  owed by Audrey (hand-off C1 §6). And both "landed" tests — the meter's
+  exclusion arm and the sweep's classification — key on the object's CURRENT
+  name (`storage.objects.name`, then `files.storage_path`): nothing renames a
+  Petal object today (a move is a `folder_id` change), but a future rename
+  inside a reservation's 24 h would make an unreleased row count again and let
+  the sweep certify a completed upload as abandoned; the durable alternative,
+  if renames ever ship, is the `uploaded` `file_events` row, which snapshots the
+  path at upload time. The client's courtesy check (`classifyUpload`) reads the
+  same `usedBytes` and so refuses the second of two concurrent clips FIRST,
+  with the same "uploads in progress" sentence — the server's refusal is the
+  one a direct REST caller meets. And the reservation is written by the
+  CLIENT: an older desktop build, a stale web bundle or a direct call to the
+  storage REST API uploads unreserved and is gated only at commit, exactly as
+  before — the policy is the enforcement; the reservation is the early answer,
+  and it protects everyone else's uploads from the one that wrote it.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious

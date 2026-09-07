@@ -700,7 +700,17 @@ export default function StorageSection({ isActive, workspaceId }) {
                     rabbit-files + rabbit-thumbnails), so saying "files" alone
                     would leave an admin unable to reconcile the number with
                     what the file manager shows. */}
-                <span style={{ color: LIGHT_INK }}> — files and their previews.</span>
+                <span style={{ color: LIGHT_INK }}> — files, their previews, and uploads in progress.</span>
+              </p>
+              {/* Track C / 0073: workspace_storage_usage() also adds the space
+                  RESERVED by resumable uploads in progress (above 50 MB), so
+                  this number can exceed what the file manager shows while a
+                  clip is uploading — or for up to 24 hours after a tab was
+                  closed mid-upload. Said here so an admin can reconcile the
+                  figure rather than suspect the meter. */}
+              <p className="text-[11px] leading-relaxed mb-2" style={{ color: LIGHT_INK }}>
+                Uploads in progress count as used until they finish — or, if one is
+                abandoned, until its 24-hour reservation expires.
               </p>
 
               {/* The bar renders ONLY on a known quota. quotaKnown is false for

@@ -428,9 +428,15 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
   // ASSIGNS the cap (an executable `file_size_limit = N` or a bucket VALUES
   // row), never because it merely mentions the column.
   const executableSql = (src) => executable(src).replace(/--[^\n]*/g, '')
+  // Review round 1 (2026-09-06): the VALUES form names the bucket. A bare
+  // `VALUES (..., <4+ digits>)` admitted 0053's thumbnails-bucket row as an
+  // "assignment of the rabbit-files cap" (0027's own bucket row IS one), so any future
+  // migration that mentioned rabbit-files and inserted a row with a number
+  // would have become "the last migration that sets the cap" — a false red
+  // rather than a false green, but the same class of trap.
   const capAssignments = (sql) =>
     [...sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
-      .concat([...sql.matchAll(/VALUES\s*\([^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
+      .concat([...sql.matchAll(/VALUES\s*\(\s*'rabbit-files'[^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
 
   it('🚨 mirrors the LAST migration that sets rabbit-files file_size_limit', () => {
     const dir = join(REPO, 'supabase', 'migrations')

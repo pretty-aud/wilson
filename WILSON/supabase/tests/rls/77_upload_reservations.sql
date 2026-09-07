@@ -70,11 +70,17 @@ SELECT is(
       AND cmd <> 'SELECT'),
   0, 'zero write policies and no FOR ALL — writes go through the RPCs');     -- 3
 
-SELECT is(
-  (SELECT count(*)::int FROM information_schema.role_table_grants
-    WHERE table_schema = 'public' AND table_name = 'upload_reservations'
-      AND grantee IN ('anon', 'PUBLIC')),
-  0, 'anon and PUBLIC hold nothing on upload_reservations');                 -- 4
+-- Review round 1: information_schema.role_table_grants OMITS grants made to
+-- PUBLIC (the docs say so — table_privileges is the view that shows them), so
+-- `grantee IN ('anon', 'PUBLIC')` could never see a PUBLIC grant. anon INHERITS
+-- PUBLIC, so asking what anon can do covers both, for every privilege.
+SELECT ok(
+  NOT has_table_privilege('anon', 'public.upload_reservations', 'SELECT')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'INSERT')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'UPDATE')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'DELETE'),
+  'anon — and so PUBLIC, which anon inherits — holds nothing on upload_reservations');
+                                                                            -- 4
 
 SELECT is(
   (SELECT count(*)::int FROM information_schema.role_table_grants
@@ -242,10 +248,14 @@ SELECT is(public.workspace_petal_bytes('11111111-1111-1111-1111-111111111111'),
 SELECT is(public.workspace_upload_reserved_bytes('11111111-1111-1111-1111-111111111111', NULL),
   6000000::bigint, 'only the still-in-flight reservation is reserved');       -- 25
 
+-- ...and the row the RPC wrote carries the 24 h default the brief names (the
+-- only place the DEFAULT is read: every sweep fixture below sets expires_at by
+-- hand, so a changed interval would otherwise leave every probe green).
 SELECT ok(
-  (SELECT released_at IS NULL FROM public.upload_reservations
+  (SELECT released_at IS NULL AND expires_at - created_at = INTERVAL '24 hours'
+     FROM public.upload_reservations
     WHERE storage_path = 'projects/aaaa1111-0000-0000-0000-000000000001/ASSETS/a1/1-r1.mov'),
-  'the landed upload''s row is still OPEN — the exclusion is by the object''s presence, not by a release');
+  'the landed upload''s row is still OPEN, and it expires 24 h after it was written — the exclusion is by the object''s presence, not by a release');
                                                                             -- 26
 
 SELECT set_config('request.jwt.claims', jsonb_build_object(
@@ -416,17 +426,14 @@ SELECT ok(
   '''upload_abandoned'' is in the vocabulary again — and this time it has a writer');
                                                                             -- 44
 
+-- Review round 1: ALL seven prior terms, not a sample of three.
 SELECT ok(
-  (SELECT pg_get_constraintdef(oid) FROM pg_constraint
-    WHERE conname = 'file_events_event_check')
-    LIKE '%downloaded%'
-  AND (SELECT pg_get_constraintdef(oid) FROM pg_constraint
-        WHERE conname = 'file_events_event_check')
-    LIKE '%purged%'
-  AND (SELECT pg_get_constraintdef(oid) FROM pg_constraint
-        WHERE conname = 'file_events_event_check')
-    LIKE '%relinked%',
-  'the widening kept 0027''s and 0047''s terms');                            -- 45
+  (SELECT bool_and(pg_get_constraintdef(c.oid) LIKE '%''' || t.term || '''%')
+     FROM pg_constraint c
+     CROSS JOIN unnest(ARRAY['uploaded', 'downloaded', 'moved', 'relinked',
+                             'trashed', 'restored', 'purged']) AS t(term)
+    WHERE c.conname = 'file_events_event_check'),
+  'the widening kept every one of 0027''s and 0047''s seven terms');         -- 45
 
 SELECT is(
   (SELECT count(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -476,12 +483,21 @@ SELECT ok(
   AND NOT has_function_privilege('anon', 'public.release_upload_reservation(text)', 'EXECUTE'),
   'reserve and release: authenticated may call them, anon may not');        -- 49
 
+-- Review round 1: "service_role only" is two claims — the client roles cannot,
+-- AND service_role still can (storage-gc's sweep and workspace_storage_usage()
+-- die quietly if a stray REVOKE ever takes the second half away).
 SELECT ok(
   NOT has_function_privilege('authenticated', 'public.sweep_abandoned_uploads(uuid)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.workspace_upload_reserved_bytes(uuid,text)', 'EXECUTE')
   AND NOT has_function_privilege('authenticated', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
-  AND NOT has_function_privilege('authenticated', 'public.workspace_petal_bytes(uuid)', 'EXECUTE'),
-  'the sweep and the unfiltered aggregates are service_role only');          -- 50
+  AND NOT has_function_privilege('authenticated', 'public.workspace_petal_bytes(uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.sweep_abandoned_uploads(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.sweep_abandoned_uploads(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.workspace_upload_reserved_bytes(uuid,text)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.workspace_petal_committed_bytes(uuid)', 'EXECUTE')
+  AND has_function_privilege('service_role', 'public.workspace_petal_bytes(uuid)', 'EXECUTE'),
+  'the sweep and the unfiltered aggregates are service_role only — and service_role CAN still call them');
+                                                                            -- 50
 
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',

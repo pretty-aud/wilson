@@ -162,7 +162,8 @@ export function classifyUpload(file, {
       // files, or contact Petal" — offers a remedy that CANNOT WORK, which is
       // worse than offering none. A cloud delete is SOFT (0014): the `files` row
       // is trashed and the object stays in the bucket, and storage-gc refuses to
-      // drain a trashed row for 30 days. The meter reads storage.objects, so
+      // drain a trashed row for 30 days. The meter reads storage.objects (plus,
+      // since 0073, the space reserved by resumable uploads in progress), so
       // deleting everything in the project changes the number by zero and the
       // uploads stay refused. Someone following that advice would delete real
       // work and still be stuck. Found by this session's own review.
@@ -178,18 +179,27 @@ export function classifyUpload(file, {
       // `too_large` does, so each one is listed — which is what the user needs
       // in order to know which files to leave out.
       const remaining = Math.max(0, quota - used)
+      // Track C / 0073 (review round 1): `usedBytes` comes from
+      // workspace_storage_usage(), which since 0073 ADDS the space reserved by
+      // resumable uploads in progress — so this courtesy check is the one that
+      // refuses the second of two clips dropped while the first is still
+      // uploading, before reserve_upload_bytes ever hears about it. It must say
+      // so in the SAME words as the server's PT402 sentence, or the same refusal
+      // reads two different ways depending on which layer answered (walkthrough
+      // 13 Part A asks for the phrase).
       return {
         blocked: true,
         code: 'over_quota',
         message: used >= quota
-          ? `This company has used all ${formatBytes(quota)} of its Petal cloud storage. ` +
-            'Contact Petal to raise the plan — deleting files does not free space ' +
-            'straight away, because deleted files stay recoverable for 30 days.'
+          ? `This company has used all ${formatBytes(quota)} of its Petal cloud storage ` +
+            '(uploads in progress count). Contact Petal to raise the plan — deleting ' +
+            'files does not free space straight away, because deleted files stay ' +
+            'recoverable for 30 days.'
           : `"${file?.name || 'This file'}" is ${formatBytes(size)}, but only ` +
             `${formatBytes(remaining)} of this company's ${formatBytes(quota)} Petal ` +
-            'cloud storage is left. Add a smaller file, or contact Petal to raise ' +
-            'the plan — deleting files does not free space straight away, because ' +
-            'deleted files stay recoverable for 30 days.',
+            'cloud storage is left once uploads already in progress are counted. Add a ' +
+            'smaller file, or contact Petal to raise the plan — deleting files does not ' +
+            'free space straight away, because deleted files stay recoverable for 30 days.',
         notes,
       }
     }

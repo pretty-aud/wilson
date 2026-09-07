@@ -113,6 +113,13 @@ export default function StorageCleanupCard() {
             {counts.skipped_foreign_or_unknown > 0 && <> Left {counts.skipped_foreign_or_unknown} folder(s) that could not be tied to this workspace.</>}
             {counts.certify_failed > 0 && <> {counts.certify_failed} ledger write(s) FAILED — counts above are still accurate.</>}
             {counts.truncated && <> Large bucket — the scan was capped this run.</>}
+            {/* Track C / 0073: the abandoned-upload sweep (TPN-CONT-017) rides on
+                this run and its counts are on the same WIL-3003 line; said here
+                too, so a click that certified something says so, and a database
+                without 0073 does not pass for "nothing to certify". */}
+            {counts.reservations_abandoned > 0 && <> {counts.reservations_abandoned} abandoned upload(s) certified.</>}
+            {counts.reservations_completed > 0 && <> {counts.reservations_completed} finished upload(s) closed.</>}
+            {counts.reservation_sweep_failed && <> The abandoned-upload sweep did NOT run (migration 0073 is not applied on this database).</>}
           </span>
         </div>
       )}

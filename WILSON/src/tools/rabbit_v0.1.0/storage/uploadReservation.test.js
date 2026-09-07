@@ -25,7 +25,7 @@ vi.mock('./resumableUpload.js', async (importOriginal) => {
 import { putResumable, RESUMABLE_THRESHOLD_BYTES } from './resumableUpload.js'
 import { createSupabaseStorageProvider } from './supabaseProvider.js'
 import {
-  reserveUpload, releaseUpload, isFunctionMissing, RESERVATION_UNAVAILABLE,
+  reserveUpload, releaseUpload, isFunctionMissing, nameTheFile, RESERVATION_UNAVAILABLE,
 } from './uploadReservation.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -100,6 +100,38 @@ describe('reserveUpload', () => {
     client.rpc = vi.fn(async () => { throw new TypeError('Failed to fetch') })
     await expect(reserveUpload(client, KEY, BIG.size)).rejects.toThrow(/Failed to fetch/)
   })
+
+  // Review round 1: the server names the minted key's leaf ("1-master.mov" here;
+  // "1725664000000-My_Clip_1_.mov" in the product). The person dropped a file
+  // with a name they know, and that is the name the sentence shows them.
+  it('a refusal names the file the person dropped, not the minted key leaf', async () => {
+    const client = fakeClient({ reserve: REFUSED })
+    await expect(reserveUpload(client, KEY, BIG.size, { displayName: 'My Clip (1).mov' }))
+      .rejects.toThrow(/Not enough Petal cloud storage for "My Clip \(1\)\.mov": it needs 6144 MB/)
+    // ...and the name is presentation only: the RPC still receives the key.
+    expect(client.calls).toEqual([['reserve_upload_bytes', { p_path: KEY, p_bytes: BIG.size }]])
+  })
+
+  it('without a display name the server sentence is shown verbatim', async () => {
+    await expect(reserveUpload(fakeClient({ reserve: REFUSED }), KEY, BIG.size))
+      .rejects.toThrow(/for "1-master.mov": it needs 6144 MB/)
+  })
+})
+
+describe('nameTheFile', () => {
+  it('replaces only the quoted key leaf', () => {
+    expect(nameTheFile('storage for "1-master.mov": it needs 6144 MB', KEY, 'clip.mov'))
+      .toBe('storage for "clip.mov": it needs 6144 MB')
+  })
+  it('leaves a sentence that does not quote the leaf alone (the "used all" form)', () => {
+    const full = 'This company has used all 10 GB of its Petal cloud storage (uploads in progress count).'
+    expect(nameTheFile(full, KEY, 'clip.mov')).toBe(full)
+  })
+  it('is a no-op without a usable name', () => {
+    expect(nameTheFile('for "1-master.mov"', KEY, '')).toBe('for "1-master.mov"')
+    expect(nameTheFile('for "1-master.mov"', KEY, undefined)).toBe('for "1-master.mov"')
+    expect(nameTheFile(null, KEY, 'x')).toBe('')
+  })
 })
 
 describe('releaseUpload', () => {
@@ -146,6 +178,14 @@ describe('the provider: reserve → start → release', () => {
     await expect(p.put(KEY, BIG)).rejects.toThrow(/upload refused: Not enough Petal cloud storage/)
     expect(putResumable).not.toHaveBeenCalled()
     expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes'])
+  })
+
+  it('the refusal names the File the person dropped (its .name), not the key leaf', async () => {
+    const client = fakeClient({ reserve: REFUSED })
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, { ...BIG, name: 'My Clip (1).mov' }))
+      .rejects.toThrow(/for "My Clip \(1\)\.mov": it needs 6144 MB/)
+    expect(client.calls[0]).toEqual(['reserve_upload_bytes', { p_path: KEY, p_bytes: BIG.size }])
   })
 
   it('reserves BEFORE starting and releases AFTER success, in that order', async () => {
@@ -208,7 +248,7 @@ describe('source pins — the call sites exist and sit in the right order', () =
   )
 
   it('the provider reserves before it starts the resumable upload', () => {
-    const reserveAt = provider.indexOf('await reserveUpload(client, key, body?.size)')
+    const reserveAt = provider.indexOf('await reserveUpload(client, key, body?.size, { displayName: body?.name })')
     const startAt   = provider.indexOf('return await putResumable({')
     expect(reserveAt).toBeGreaterThan(-1)
     expect(startAt).toBeGreaterThan(reserveAt)

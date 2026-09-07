@@ -88,9 +88,12 @@ type Counts = {
   queue_s3_drained: number
   // Track C / 0073 (TPN-CONT-017): expired upload reservations this run
   // classified — certified abandoned (one file_events row each) or closed as
-  // completed. `reservation_sweep_failed` is true when the RPC itself failed
-  // (before 0073 is applied it does not exist) — said rather than hidden, so a
-  // certificate never reads 0/0 for a sweep that did not run.
+  // completed. `reservation_sweep_failed` is true unless the sweep RAN AND
+  // ANSWERED: it STARTS true and is cleared only on a successful RPC, because
+  // the WIL-3004 failure certificate carries these same counts, and a run that
+  // died in step 1 must not read "sweep ran, 0/0" there (review round 1,
+  // 2026-09-06 — the initialiser used to say false). Before 0073 is applied the
+  // RPC does not exist (PGRST202) and the flag stays true — said, not hidden.
   reservations_abandoned: number
   reservations_completed: number
   reservation_sweep_failed: boolean
@@ -178,7 +181,8 @@ Deno.serve(async (req) => {
     orphans_deleted: 0, avatar_orphans_deleted: 0,
     skipped_recent: 0, skipped_foreign_or_unknown: 0, skipped_reserved: 0,
     queue_s3_drained: 0,
-    reservations_abandoned: 0, reservations_completed: 0, reservation_sweep_failed: false,
+    // 🚨 true until the sweep answers — see the Counts comment.
+    reservations_abandoned: 0, reservations_completed: 0, reservation_sweep_failed: true,
     certify_failed: 0, truncated: false,
   }
 
@@ -508,6 +512,7 @@ Deno.serve(async (req) => {
     } else {
       const row = (Array.isArray(swept) ? swept[0] : swept) as
         { abandoned?: number; completed?: number } | null | undefined
+      counts.reservation_sweep_failed = false
       counts.reservations_abandoned = Number(row?.abandoned ?? 0)
       counts.reservations_completed = Number(row?.completed ?? 0)
     }

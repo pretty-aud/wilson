@@ -3,7 +3,10 @@
 //
 // "Who touched this file, when": renders the file lifecycle stream —
 // uploaded / downloaded / moved / relinked / trashed / restored / purged —
-// from adapter.listFileEvents(). In cloud mode that is the trigger-fed
+// from adapter.listFileEvents(). (The eighth term, upload_abandoned - 0073,
+// Track C - is written under a SURROGATE file_id and so never appears in this
+// per-file drawer; FILE_EVENT_META carries its label for the surfaces that do
+// render it.) In cloud mode that is the trigger-fed
 // file_events table (migration 0027, readable by every project reader,
 // not just admins — unlike edit_history); in local_server mode it is the
 // bundle.fileEvents log the Express routes append to. This is

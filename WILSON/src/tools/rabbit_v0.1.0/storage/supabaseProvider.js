@@ -100,7 +100,9 @@ export function createSupabaseStorageProvider(requireClient) {
         // counting a reservation the instant its object lands (0073's
         // NOT EXISTS arm): release timing cannot double-count. An unreleased
         // row after a crash expires at 24 h and is certified by the sweep.
-        const reservation = await reserveUpload(client, key, body?.size)
+        // The file's own name rides along for the refusal sentence only (the
+        // server sees the minted key and would otherwise name its leaf).
+        const reservation = await reserveUpload(client, key, body?.size, { displayName: body?.name })
         try {
           return await putResumable({
             bucket: BUCKET,

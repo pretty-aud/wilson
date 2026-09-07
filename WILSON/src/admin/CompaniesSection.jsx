@@ -752,6 +752,10 @@ function CompanyPanel({ row, plan, onDone, onTornDown }) {
             <p className="text-[10px] mb-2 leading-relaxed" style={{ color: '#78716c' }}>
               <strong style={{ color: '#1c1917' }}>{formatBytes(usedBytes)}</strong> of{' '}
               <strong style={{ color: '#1c1917' }}>{formatBytes(quotaBytes)}</strong> used
+              {/* Track C / 0073: operator_storage_plan_summary() reads
+                  workspace_petal_bytes(), which now adds the space reserved by
+                  resumable uploads in progress. */}
+              {' (uploads in progress count)'}
               {usedPct !== null && <> · {usedPct}%</>}
               {' · '}
               {/* The resolved figure is already printed by formatBytes above,

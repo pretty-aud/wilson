@@ -15,23 +15,35 @@ Where things are: the Petal cloud plan for a company is set from the
 **operator console** (Storage column → the company's plan panel); the
 company's own view of it is the **Admin Terminal → Storage** card.
 
+⚠️ **Do not start until you are told the bundle is on the beta.** Staging's
+database already carries migration 0073 and the new `storage-gc`; the app
+side arrives with the merge into `feat/multi-user-v1`, which deploys the beta.
+On the beta before that merge, uploads simply behave as they did.
+
 ---
 
 ## Part A — a second upload that would not fit is refused at START
 
 1. In the operator console, give your test company a small Petal plan: set
    `quota` to a number just larger than ONE of your two files but smaller
-   than both together (e.g. two 200 MB clips → a 300 MB quota). Status
-   `active`.
+   than both together. The field takes **gigabytes** and accepts decimals, so
+   two 200 MB clips → type `0.3`. Status `active`.
 2. Sign in to the beta as an admin of that company. Open a project, then
    **Files**. Confirm the Admin Terminal → Storage card shows the new quota.
 3. Add the first clip. While it is uploading (you will see the progress bar),
-   add the second clip.
+   add the second clip **from a second browser tab**: open the same project's
+   Files in another tab and use Add files there. (In the tab that is
+   uploading, the Add files button is disabled until the upload finishes, and
+   files chosen together upload one after the other — so a second tab is the
+   only way to have two uploads in flight from one machine. That is exactly
+   the two-people-uploading-at-once situation this bundle exists for.)
 
    **Expected:** the second clip is refused **immediately**, with a sentence
    that names the file, says how much space is left "once uploads already in
    progress are counted", and says that deleting files does not free space
-   straight away. The first upload continues and completes.
+   straight away. The first upload continues and completes. (The refusal may
+   come from the app's own pre-check rather than the server; both say the
+   same sentence, and both count the upload in progress.)
 
    **Before this bundle** both would have started and both would have landed,
    because the quota could only see files that had finished.
@@ -42,8 +54,11 @@ company's own view of it is the **Admin Terminal → Storage** card.
 
 4. Add the second clip again now that the first has finished.
 
-   **Expected:** refused again — this time because the company is genuinely
-   full ("has used all …"). That is the ordinary quota working, unchanged.
+   **Expected:** refused again — this time by the ordinary quota, unchanged:
+   with 200 MB landed of a 0.3 GB plan the sentence is the same shape as before
+   ("… is 200 MB, but only 107 MB of this company's 307 MB Petal cloud storage
+   is left …"). The "has used all …" wording appears only once a plan is
+   completely full, which two 200 MB clips against 0.3 GB never reach.
 
 5. Open Admin Terminal → Storage while an upload is in progress (start a third
    one if you need to — it will be refused, that is fine; instead, raise the
@@ -59,22 +74,33 @@ company's own view of it is the **Admin Terminal → Storage** card.
 1. Raise the quota so a clip fits. Start uploading one clip and, while the
    progress bar is moving, **close the browser tab** (or the desktop app).
    Do not come back to it.
+
+   ⚠️ Close the tab; do not pull the network cable. An upload that *fails*
+   with an error releases its reservation on the way out and is not certified
+   (a stated limit — see the Systems Handbook §17); only an upload the app
+   never got to finish is. There is no cancel button on an upload in
+   progress, so closing the tab is the abandonment this test needs.
 2. Wait **24 hours** — the reservation lasts exactly as long as Supabase keeps
    an unfinished upload, and it cannot be called abandoned before then.
-3. Next day, as the company admin: Admin Terminal → run **Storage cleanup**
-   (or simply wait — the same sweep runs on its own every hour at :39).
+3. Next day, as the company admin, look for the certificate. The sweep runs
+   on its own every hour at :39 across every company, so by the time you look
+   it has almost certainly already done the work — and a reservation is
+   certified ONCE.
 
-   **Expected:** the cleanup certificate (the `WIL-3003` line in the audit)
-   shows `reservations_abandoned: 1`. The workspace takeout's `file_events`
-   contains one `upload_abandoned` row naming the clip's intended path and
-   size. The Files grid shows NOTHING for it — nothing ever landed.
+   **Expected:** the workspace takeout's `file_events` contains one
+   `upload_abandoned` row naming the clip's intended path and size — that row
+   IS the certificate, whichever run wrote it. If you also run Admin Terminal
+   → **Storage cleanup**, its green banner and its `WIL-3003` audit line
+   report `reservations_abandoned`: `1` only if your click beat the hourly job
+   to it, otherwise `0`, which is correct (nothing was left to certify). The
+   Files grid shows NOTHING for it — nothing ever landed.
 
    ⚠️ **Stated limit:** the per-file audit drawer will not show this row
    (there is no file to open it from). The certificate records that the
    upload was *abandoned*; the partial bytes are disposed of by Supabase
    itself after 24 hours, which WILSON cannot see and does not claim.
 
-   ☐ `reservations_abandoned: 1` on the certificate: yes / no
+   ☐ One `upload_abandoned` row in the takeout's `file_events`: yes / no
    ☐ Nothing appeared in the Files grid: yes / no
 
 ## Part C — nothing else changed

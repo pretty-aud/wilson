@@ -49,6 +49,22 @@ export function isFunctionMissing(error) {
 }
 
 /**
+ * The server's refusal names the object KEY's leaf — `<Date.now()>-<safe name>`,
+ * the unique key uploadFile mints per attempt — because that is all
+ * reserve_upload_bytes can see. The person reading it dropped "My Clip (1).mov",
+ * not "1725664000000-My_Clip_1_.mov", so the sentence they are shown names the
+ * file they know. Only the quoted leaf is touched; every other word is the
+ * server's, verbatim (review round 1, 2026-09-06).
+ */
+export function nameTheFile(message, key, displayName) {
+  const text = String(message || '')
+  const name = typeof displayName === 'string' ? displayName.trim() : ''
+  const leaf = String(key || '').split('/').pop()
+  if (!name || !leaf || name === leaf) return text
+  return text.split(`"${leaf}"`).join(`"${name}"`)
+}
+
+/**
  * Reserve `bytes` of Petal quota for a resumable upload to `key`.
  *
  * Resolves { reserved: true, id } when a reservation was written;
@@ -61,8 +77,10 @@ export function isFunctionMissing(error) {
  * @param {object} client an authed supabase-js client (rpc + auth)
  * @param {string} key    row-shaped storage_path inside rabbit-files
  * @param {number} bytes  the body's size
+ * @param {{displayName?: string}} [opts] the file's own name, for the refusal
+ *   sentence only — it is never sent to the server
  */
-export async function reserveUpload(client, key, bytes) {
+export async function reserveUpload(client, key, bytes, { displayName } = {}) {
   const size = Math.floor(Number(bytes))
   if (!Number.isFinite(size) || size <= 0) return { reserved: false, reason: 'no-size' }
 
@@ -77,7 +95,9 @@ export async function reserveUpload(client, key, bytes) {
       )
       return { reserved: false, reason: RESERVATION_UNAVAILABLE }
     }
-    throw new Error(`[supabase] upload refused: ${res.error.message || 'the reservation was refused'}`)
+    throw new Error(
+      `[supabase] upload refused: ${nameTheFile(res.error.message, key, displayName) || 'the reservation was refused'}`,
+    )
   }
   // NULL = the path is quota-exempt; nothing was written and there is nothing
   // to release.
