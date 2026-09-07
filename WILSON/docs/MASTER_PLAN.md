@@ -1132,7 +1132,11 @@ The first four are **release-gating**; S17's prompt carries the triage.
     the thumbnail GET builds its path the same uncontained way (`:1724`).
     Reachable by anything that can reach the loopback port, which mounts bare
     `cors()` and has no auth (TPN-NET-001). Fix is symmetric with the `files`
-    routes. Distinct from TPN-CONT-006, which covers the *missing certificate*
+    routes. ⚠️ **That reachability clause is out of date — Track B bundle B3
+    (2026-09-07):** TPN-NET-001 is fixed, so this route is behind the
+    per-launch token and answers 401 to a caller that does not hold one. The
+    traversal itself is unchanged and this gap's own verdict is untouched.
+    Fix is symmetric with the `files` routes. Distinct from TPN-CONT-006, which covers the *missing certificate*
     on the same route, not the traversal.
 46. **NEW (S16): `invite-member` performs no MFA step-up and can mint an
     admin.** The function reimplements its own claims + live-row check inline

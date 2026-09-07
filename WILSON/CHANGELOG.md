@@ -200,7 +200,7 @@ The user-facing subset, with each item marked blocking or note, is **`docs/RELEA
 - **The Agent Skills checkboxes gate nothing.** `isSkillEnabled` has zero call sites repo-wide, for O.T.T.E.R. as well as R.A.B.B.I.T.; the state is loaded, persisted, rendered and read by nothing. Only the misleading copy was fixed in this release.
 - **The Attach button in Budget → Crew and Talent appears to do nothing.** The invoice-folder call's `res.ok` is unchecked, so a 400 becomes a swallowed error with no message.
 - **The Summary view's Budget tile is structurally zero** — the estimate rollup is called with no role rates.
-- **No single-instance lock** on the desktop app; two copies can run against one data directory. Web multi-tab is last-writer-wins on companion, O.T.T.E.R. settings and agent skills.
+- ~~**No single-instance lock** on the desktop app; two copies can run against one data directory.~~ **Fixed (Track B, bundle B3):** a second launch quits and brings the running window to the front. Web multi-tab is still last-writer-wins on companion, O.T.T.E.R. settings and agent skills.
 
 ---
 

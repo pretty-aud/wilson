@@ -1304,37 +1304,6 @@ next to the media.
 
 ---
 
-### 🚨 The loopback server has no authentication, and since S40 it serves ORIGINAL media
-
-**MEASURED (S40 adversarial review, 2026-08-09).** `expressApp.listen(0,
-'127.0.0.1')` with `expressApp.use(cors())` — no token, no origin allowlist, no
-session check, `Access-Control-Allow-Origin: *` on every one of ~94 routes. That
-is pre-existing and documented. What S40 changed is **what an unauthenticated
-caller can obtain**: the new `managed-files/:id/stream` route returns the
-original, full-resolution bytes of the customer's media, with Range support.
-Before it, the worst this server disclosed was manifests and 256px derivatives.
-
-Everything needed to address it is served by equally open routes:
-`GET /api/rabbit/projects` lists project ids and
-`GET .../managed-files` lists every file id. So any other process on the machine
-that can reach the port — a malicious postinstall in an unrelated repo, a
-browser extension with localhost access — can enumerate and stream pre-release
-footage while WILSON is open.
-
-**Three things S40 DID fix, so this entry is narrower than it looks:** the
-containment base is no longer client-controlled (see below), the response can no
-longer be served as `text/html` on WILSON's own origin (`safeMediaContentType` +
-`nosniff`), and a soft-deleted row is refused.
-
-→ The remaining fix is authentication on the local server — a per-launch bearer
-token minted in `startLocalServer` and handed to the renderer through preload,
-checked by middleware. That is its own session: **every** `fetch` in the RABBIT
-renderer and every adapter call would have to carry it. **Not scheduled.**
-⚠️ Note this is the same class as the pre-existing entry for `file_events`
-metadata — the difference is only what leaks.
-
----
-
 ### ⚠️ Professional codecs have no preview until an ffmpeg binary is installed
 
 **MEASURED (S40).** `resources/ffmpeg/` ships with a README and a `.gitignore`
@@ -1492,6 +1461,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Track B — B3 (2026-09-07, branch `track-b-auth`) | **nothing.** Nothing regressed and nothing new is known broken. 🚨 **The measurement of the bundle is that the brief's own premise was wrong, and checking it made the design simpler:** the brief said to measure the renderer's origin in packaged AND dev modes "because they differ", and they do not. `main.cjs` does `mainWindow.loadURL('http://127.0.0.1:' + port)` with no `app.isPackaged` branch, and `electron:dev` is `vite build --mode development && electron .` — it builds to `dist/` and loads the same way; Vite's dev server (:5203) is the WEB path and has no Express server at all. So **the renderer is served BY the server it calls**, every renderer request is same-origin, and there is exactly one allowed origin, computed at listen time. ⭐ **Second measurement, taken in Chromium before any code was written rather than assumed:** an httpOnly cookie IS sent on a same-origin `fetch()`, on `fetch(mode:'cors')`, on a plain `<img>`, on `<img crossOrigin="anonymous">`, on `<video crossOrigin="anonymous">` and on the document — and `<img crossOrigin="anonymous">` alone sends an `Origin` header. That last detail is load-bearing: the entity thumbnails in ScenesView / ProjectAssetsView / LevelsView / ExperiencesView are exactly that shape, so a cors() allowlist that refused the renderer's own origin would have broken them while every test still passed. ⚠️ **Third, the trap that would have shipped silently:** `runOtterMigration`'s `getLocal` swallows a non-ok status by design (a missing `_nodes.json` is normal), so leaving it on raw `fetch` would have made every read a 401 and the local→cloud migration report a clean run having copied nothing at all — "fetch resolves for every status" at its worst. ⚠️ **Fourth, a harness lesson:** `process.exit()` while Node's global fetch still holds keep-alive sockets aborts libuv on Windows (`UV_HANDLE_CLOSING`) and exits **127** — a fully green harness reporting failure to CI. `server.closeAllConnections()` + `process.exitCode`. | **one entry: *the loopback server has no authentication, and since S40 it serves ORIGINAL media*.** Closed by the per-launch token (`electron/localToken.cjs`), the header/cookie pair and the cors() allowlist. Verified **by running the app**, not only by tests: from a process outside Electron, `GET /api/rabbit/projects` returned the project list before and returns 401 with an empty body after; with the header or the cookie it returns 200. The `no single-instance lock` limit in handbook §17 and `RELEASE_TESTING.md` Known #9 is closed too — a second launch exits 0 and brings the running window to the front. |
 | Track B — B2 part 2 (2026-09-06, branch `track-b-auth`) | **nothing.** One finding, fixed in the same bundle: **0070's admin read arm on `auth_events` admitted a shared member's client rows for their OTHER company** — the `OR is_member_of_current_workspace(user_id)` clause was written for hook rows and applied to every row, address included. Found by building the Sign-ins view; fixed by **0071** (the clause is confined to rows without a `workspace_id`), suite 74 33 → 35 with a breaker run red under 0070, applied and verified by query on **staging** (suite 74 there 35/35). The classifier refused the same DDL against **dev**, so dev waits on Audrey (OWED §14) and dev's suite 74 is red on two assertions until then. Everything else shipped: the client's `sign_in` / `sign_out` / `idle_timeout` / `session_cap` rows, the 25/30-minute idle warning and sign-out, the 4-hour cap, `WIL-1002` wired, the Sign-ins tab and the operator mirror, the connection-lost banner with its reproduction (`scripts/probes/connection-hang.mjs`). No real sign-in was possible from the spawned session (three classifier refusals: the API keys, a probe member by SQL, the dev DDL); CI's Playwright lane runs the five new session scenarios against dev. | **the hung-`getSession()` entry narrowed** to "reconnect deferred, banner shipped" — the pin is reproduced and surfaced, not unpinned. |
 | Track B — B2 part 1 (2026-09-06, branch `track-b-auth`) | **nothing.** One measurement worth the row: **hosted GoTrue keeps no audit stream in the database** — `auth.audit_log_entries` is empty on dev (0 rows beside 1,101 sessions) and on staging (0 beside 26), and `auth.mfa_challenges` is empty beside an enrolled factor — so the brief's "reader over the GoTrue stream" was unbuildable and B2 built the writer instead: 0070 `auth_events` + two Supabase Auth hooks, applied and recorded on dev and staging by query, suite 74 (33 assertions) green against both, with a breaker run that went red. The hooks stay inert until enabled per project in the dashboard (OWED_AUDREY §14). B1's two review rounds ran first (`60b801c`, `6178e98`): one HIGH found and fixed before anything merged — see the B1 row. B1 is still unmerged, waiting on the walkthrough 10 report. | nothing — the hung-`getSession()` entry narrows when the banner ships (B2 part 2). |
 | Track B — B1 (2026-09-06, branch `track-b-auth`) | **nothing.** Nothing regressed and nothing new is known broken. The session's finding is not an entry because it was fixed before it reached anything that mattered: **"take the LAST X-Forwarded-For hop" — the remedy TPN-NET-004 prescribed and the old `provision-workspace` carried — is wrong on this platform.** The last hop is Supabase's own relay and varies per request, so for eleven minutes on wilson-dev (`resolve-login` v7) the new durable limiter counted each request under a different subject and refused nothing. Caught by the burst probe the brief's "harness with a failing control" rule demanded, measured with a throwaway header-echo function (a caller-supplied `x-forwarded-for` is stripped; a spoofed `cf-connecting-ip` gets a Cloudflare 403), fixed in v8 (`cf-connecting-ip`; the 21st check in a minute answers 429). No migration; migrations stay 0000–0066 and pgTAP stays 70 suites. **Review round R1 (same day, the next session) found one more, also fixed before anything merged:** a `*` typed at the company step was a prefix search — PostgREST aliases `*` to `%` in an `ilike` pattern, so `smo*` resolved the smoke workspace and returned its slug (measured on dev v8; staging v10 carried the same code). The resolver now folds `*` to a one-character `_` and re-checks the returned names for equality (dev v9, staging v11; R2 then strengthened both controls to the display name minus its last character plus `*`, the only input that reaches the re-check — dev v10, staging v12). | **`useRosterMembers` cannot tell a broken roster from an empty one** — the hook returns `error`, `RateCardPage` shows it, `useRosterMembers.test.js` goes red if it is swallowed again. **`ResetPasswordWizard` still performs a global sign-out** — decided by Audrey (answer 12): it stays global, `scope: 'global'` is now explicit, and the screen says `YOU WILL BE SIGNED OUT ON EVERY DEVICE.` before and "signed out on every device" after. Both in the B1 commit. |

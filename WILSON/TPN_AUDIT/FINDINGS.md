@@ -667,6 +667,52 @@ What DID change, and why it does not resolve the finding: (a) the server binds l
 
 Residual exposure is still HIGH because ~80 unauthenticated routes remain and several are content-bearing or destructive: file download `/api/rabbit/projects/:projectId/files/:id/download` (main.cjs:1341), file delete (:1368), project delete (:1078), managed-file import-folder (:1806), relink-apply (:1500), full `/api/export-all` (:553). Because ACAO is `*`, a page the user visits can READ every response, which makes port discovery a straightforward loop over the ephemeral range rather than a blind write — the wildcard is what turns the random port from a secret into a speed bump. The S14 authors themselves rely on this being true: main.cjs:929 reasons about relink safety with the words "the Express server answers any local origin (cors())".
 
+
+**✅ FIXED — Track B bundle B3 (2026-09-07).** Both halves of the gap are closed,
+and the token — not the CORS change — is the control.
+
+* **Default-deny on the API boundary.** `electron/localToken.cjs` mints 32
+  random bytes per launch and mounts ONE middleware ahead of every route (and
+  ahead of `express.json`, so an unauthenticated caller cannot make the main
+  process buffer 50 MB before being refused). Every one of the ~94 `/api`
+  routes — including all six this finding named as content-bearing or
+  destructive — answers **401 with an empty body** without it. Accepted from a
+  header (`x-wilson-local-token`, attached by `src/lib/localServerFetch.js` from
+  the preload bridge) or from an httpOnly cookie set on the loopback origin
+  (which is what carries `<img>` and `<video>` loads, which cannot set a
+  header). Constant-time compare.
+* **The wildcard is gone.** `cors()` now answers only the renderer's own
+  origin, with `credentials: true`. 🚨 Recorded plainly because this finding's
+  own framing invites the opposite conclusion: **CORS is defence in depth here,
+  not the gate.** A non-browser caller — the "malicious postinstall" case —
+  ignores every CORS header, so narrowing ACAO alone would have left the
+  finding open. What it does close is precisely the vector the gap describes: a
+  page the user visits can no longer READ a response, so the ephemeral port
+  stops being merely "a speed bump".
+* `main.cjs`'s S14 relink comments that reasoned from *"the Express server
+  answers any local origin (cors())"* are no longer true of the `/api` surface.
+
+**Deliberately still open, and it is a scope decision, not an oversight:** the
+static bundle (`express.static(dist)`) and the SPA fallback are NOT guarded.
+They serve the app's own built code, byte-identical on every machine and
+already present in the installer on disk; the content this domain protects is
+all under `/api`. Guarding them would make a failed `cookies.set()` a white
+window rather than a degraded feature. A local process that loads the shell
+gets a UI whose every call answers 401.
+
+**Verification** — `scripts/local-server-lock-harness.mjs` (16 checks over a
+real socket, plus a control that must fail; runs in CI's Vitest job), and by
+running the desktop app: from a process outside Electron, `GET
+/api/rabbit/projects` returned the project list before and returns 401 with an
+empty body after; with the header or the cookie it returns 200.
+
+**LEARNINGS.md re-audit checklist item 6** (`rg -n "expressApp\.use\(cors\(\)\)"`
+should return zero): no live code matches. ⚠️ Read the one hit it does return
+before concluding anything — it is the header comment in
+`electron/localToken.cjs` describing the state this annotation closes, not a
+call. `rg -n "use\(cors\(" electron/` returns two lines: that same comment,
+and the only actual call — `expressApp.use(cors(localCorsOptions(getOrigin)))`.
+
 ---
 
 ## TPN-NET-002 — Open URL proxies (`/api/fetch-url`, `/api/fetch-raw`) with no allow-list
@@ -711,6 +757,8 @@ Unchanged, and slightly worse than the baseline described. Both handlers still t
 Two aggravators visible in the current code that the baseline did not record: (1) `/api/fetch-raw` accepts a client-controlled `redirect` mode (`const { url, redirect = 'follow' } = req.body`, :678) which it forwards to fetch, so even a future host allow-list applied to the initial URL would be bypassable by a 302 unless it is re-checked on `response.url`; (2) the advertised 5 MB cap is enforced AFTER the whole body is buffered (`const buf = await response.arrayBuffer()` at :696, size check at :697), so it bounds the response to the renderer but not main-process memory.
 
 Callers confirmed live: src/tools/otter_v0.3.1/Otter.jsx:880 (/api/fetch-url) and src/components/RateCard/importers/googleSheetImporter.js:91 (/api/fetch-raw). Combined with TPN-NET-001 still open, the baseline's stated chain — hostile web page -> WILSON -> user's private network -> data back to the page — is intact end to end.
+
+**Narrowed — Track B bundle B3 (2026-09-07), NOT fixed.** The allow-list is still absent, so this finding stands. What changed is the chain's first hop: both proxies are `/api` routes and now require the per-launch token (TPN-NET-001), so a hostile web page can no longer reach them — the stated end-to-end chain is broken at WILSON's door. The SSRF reachable by anything that DOES hold the token, including WILSON's own renderer following a URL a document handed it, is untouched.
 
 ---
 
@@ -1496,6 +1544,8 @@ Severity revised to **HIGH**.
 
 CLOUD ARM RESOLVED BY A DIFFERENT MECHANISM: there are no download links at all. `grep -rn 'createSignedUrl|getPublicUrl'` over src/supabase/electron returns exactly two hits, both for user-avatars — zero for project content. supabaseAdapter.js:452-457 `downloadFile` calls `client.storage.from('rabbit-files').download(file.storage_path)` — an authenticated fetch carrying a live JWT, gated by the rabbit_files_select policy (0027_file_lifecycle.sql:301-311). The bucket is PRIVATE (0027:287-291, `public=false`), post-condition-asserted at 0027:404-408 and pgTAP-pinned at supabase/tests/rls/33_file_lifecycle.sql:279-280. A URL that cannot be bookmarked or copied needs no expiry, so AS-3.7's link-expiration requirement is satisfied more strongly than the plan prescribed. LOCAL EXPRESS ARM STILL OPEN, AND WEAKER THAN AT BASELINE: electron/main.cjs:1341-1352 is byte-for-byte the same stable resource path (`/api/rabbit/projects/:projectId/files/:id/download` -> `res.sendFile(diskPath)`); the baseline's 'requires only a valid session' no longer holds because S15 deleted the only auth code in the server (main.cjs:612-637 is now a tombstone comment) — the route now requires NOTHING. `expressApp.use(cors())` at main.cjs:143 is still bare (LEARNINGS.md re-audit checklist item 6 expects zero hits; it has one), so any origin can read the response body cross-origin. The only remaining mitigation is the ephemeral loopback bind at main.cjs:2079 (`expressApp.listen(0, '127.0.0.1')`), which is port-scan-defeatable from JS. Neither arm has a per-user-per-asset download cap. Severity held at HIGH.
 
+**Local Express arm — updated by Track B bundle B3 (2026-09-07).** "The route now requires NOTHING" and "any origin can read the response body cross-origin" are both false as of this bundle: `/api/rabbit/projects/:projectId/files/:id/download` is an `/api` route, so it demands the **per-launch token** (header or httpOnly cookie) and answers 401 with an empty body without it, and `cors()` now answers only the renderer's own origin. The path is still a stable resource path with no expiry and no per-asset scope — which is what this finding is actually about — so it does NOT close; a token-holding caller can still replay a URL indefinitely, and there is still no per-user-per-asset download cap. What changed is who can be a caller at all: the ephemeral loopback bind is no longer "the only remaining mitigation", and port-scanning from JS no longer reaches it.
+
 ---
 
 ## TPN-CONT-002 — No content lifecycle state machine or certified disposal
@@ -2059,6 +2109,8 @@ Current location: `C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/elec
 Severity revised to **LOW**.
 
 The exact pattern survives, at three sites, re-resolved: electron/main.cjs:668 `res.status(500).json({ error: e.message || 'Failed to fetch URL' });` (/api/fetch-url), electron/main.cjs:703 the identical line in /api/fetch-raw, and a third the baseline did not have, electron/main.cjs:2069 `res.status(500).json({ error: err.message || 'extract-pdf failed' });`. Partly improved: the three thumbnail routes now return a fixed string and keep the detail server-side (electron/main.cjs:1731-1732, :1765-1766, :1799-1800 log `err.message` to console and reply `{ error: 'thumbnail generation failed' }`). Downgraded MEDIUM->LOW on exposure, not on code: the baseline's escalation trigger was 'becomes HIGH once any of these routes are exposed off-machine', and that has NOT fired - electron/main.cjs:2079 now binds `expressApp.listen(0, '127.0.0.1', ...)`, i.e. loopback-only on an OS-assigned ephemeral port, and the network-facing Edge Functions on the unauthenticated path return opaque codes instead (supabase/functions/issue-session/index.ts:54,:67,:113 -> 'unauthorized'/'update_failed'; resolve-login/index.ts:103,:127,:148,:163,:171 -> a uniform `{ exists:false, email:null }` that does not even distinguish failure modes). Caveat carried, not re-filed: `expressApp.use(cors())` is still unparameterized at electron/main.cjs:143, which is TPN-NET-001's territory - if that is fixed the residual reachability here is nil, and if it is not, these three lines are the payload.
+
+**✅ That caveat has now fired the good way — Track B bundle B3 (2026-09-07).** TPN-NET-001 is fixed: `cors()` is parameterized to the renderer's own origin AND every `/api` route requires the per-launch token, so all three of these routes answer 401 to a caller that does not hold it. By this finding's own wording the residual reachability of the leaked `err.message` is now nil for an outside caller. The three lines were not changed; the boundary in front of them was.
 
 ---
 

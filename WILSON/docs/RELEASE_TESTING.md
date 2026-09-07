@@ -546,7 +546,15 @@ early-return as no-ops. That is by design, not a failure; do not run §L there.
 - `Download update` → percentage → `Restart & install`: needs a newer published release on the
   feed, which you cannot manufacture. Verify on a real release or waive. `[NOTE]`
 - With no update feed reachable → a graceful message, not a crash. `[NOTE]`
-- Two copies of the desktop app share one userData directory. Known #9. `[NOTE]`
+- Launch the app a SECOND time from the Start Menu while it is already running: the
+  running window must come to the front and no second copy appear. Closed by Track B
+  bundle B3. `[BLOCKING]`
+- 🚨 **Local Server mode, desktop:** open a project's files and see thumbnails, play a
+  video, attach and re-open an invoice, open O.T.T.E.R. locally. Every one of these
+  crosses the loopback API, which since B3 refuses a request without the per-launch
+  token — so a blank thumbnail grid or an empty course list here is an auth failure,
+  not a missing file. `docs/walkthroughs/12_desktop_local_mode.md` is the script.
+  `[BLOCKING]`
 
 ## §O. Web build (on beta = staging)
 
@@ -583,7 +591,8 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
    Closed by S43 + Track B bundle B1: sign-in is company-first and usernames are unique per
    company.
 8. Google Drive is read-only in v0.1; every write throws.
-9. No single-instance lock — two desktop copies share one userData directory.
+9. ~~No single-instance lock — two desktop copies share one userData directory.~~
+   Closed by Track B bundle B3: a second launch quits and focuses the running window.
 10. Web multi-tab is last-writer-wins on pet / otter-settings / agent-skills.
 11. Managed-file thumbnails resolve only for `ASSETS/`; `SCENES/` and `SHOTS/` always 410.
 12. The RABBIT Summary Budget tile is structurally always zero (rollup called with no rates).
