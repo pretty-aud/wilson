@@ -24,8 +24,10 @@
 
 import { useState, useCallback } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
+import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
 import { LIGHT_INK } from '../lightSurface'
@@ -50,6 +52,14 @@ export default function ProjectsPage({ onNavigate }) {
   // cloud mode hides them below the matrix roles, local mode stays open.
   const { can } = usePermissions()
   const cloud = ctx?.adapterMode === 'supabase'
+  // 🚨 §6 #31 trap (f): gate on the adapter MODE, never on
+  // `typeof adapter.uploadFile`. Every adapter HAS an uploadFile — the Google
+  // Drive one is `readOnly('uploadFile')`, a function that throws — so a
+  // typeof check reads as "this backend can store files" for the one backend
+  // that cannot. adapterSupportsWrites is the existing answer to exactly this
+  // question ('supabase' or 'local_server') and is what RabbitProvider itself
+  // uses before writing folders.
+  const canStoreFiles = adapterSupportsWrites(ctx?.adapterMode)
   const canCreate = !cloud || can('project.create')
   const canDelete = !cloud || can('project.delete')
 
@@ -101,9 +111,9 @@ export default function ProjectsPage({ onNavigate }) {
     // Session 27: the cloud file rows are fetched per project rather than
     // read from the provider bundle, because this page's selection and
     // RabbitProvider's activeProjectId are separate state.
-    setCloudFiles([])
+    setFileRows([])
     setFolders([])
-    loadCloudFiles(id)
+    loadFileRows(id)
     loadFolders(id)
   }
 
@@ -131,12 +141,17 @@ export default function ProjectsPage({ onNavigate }) {
     }
   }, [activeId, updateProject])
 
-  // ── Cloud project files (Session 27) ──────────────────────
+  // ── The project's file rows (Session 27; both backends since C3) ──
   //
-  // The rows in `public.files` + the rabbit-files bucket, which is where a
-  // cloud project's files have actually lived since S14. This page never
-  // showed them: it only ever knew about the DOG-side documents/visualAssets
+  // `public.files` + the rabbit-files bucket in cloud mode, `bundle.files` +
+  // the project's files directory on Local Server. This page never showed
+  // either: it only ever knew about the DOG-side documents/visualAssets
   // arrays on the project row.
+  //
+  // ⚠️ NAMED `fileRows`, NOT `cloudFiles`. S27 called it cloudFiles because it
+  // only ever held cloud rows; C3's reroute makes Local Server fill the same
+  // state, and a name that says "cloud" would have been read as "this branch
+  // is cloud-only" by the next person the way it was by this one.
   //
   // 🚨 Read with the adapter DIRECTLY and an explicit project id, never
   // through ctx.uploadFile / ctx.files. Those are scoped to RabbitProvider's
@@ -145,7 +160,7 @@ export default function ProjectsPage({ onNavigate }) {
   // nothing guarantees they agree at the moment of a write. Uploading through
   // the context would eventually file somebody's brief into whichever project
   // RABBIT happened to have open.
-  const [cloudFiles, setCloudFiles] = useState([])
+  const [fileRows, setFileRows] = useState([])
   const [folders, setFolders] = useState([])
   const [filesBusy, setFilesBusy] = useState(false)
 
@@ -163,108 +178,121 @@ export default function ProjectsPage({ onNavigate }) {
     }
   }, [ctx])
 
-  const loadCloudFiles = useCallback(async (projectId) => {
+  const loadFileRows = useCallback(async (projectId) => {
     const adapter = ctx?.getAdapter?.()
-    if (!adapter?.listFiles || !projectId) { setCloudFiles([]); return }
+    if (!adapter?.listFiles || !projectId) { setFileRows([]); return }
     try {
       const rows = await adapter.listFiles(projectId)
       // Invoices are manager-only and have their own surface in the budget.
       // RLS already hides them from anyone who cannot see them — this stops a
       // manager finding them mixed in with the project's ordinary documents.
-      setCloudFiles((rows || []).filter(f => !f.deleted_at && !f.is_financial))
+      // Local Server mirrors is_financial on its own rows (0038's twin in
+      // electron/main.cjs), so the one filter is right on both backends.
+      setFileRows((rows || []).filter(f => !f.deleted_at && !f.is_financial))
     } catch {
       // A backend that cannot list files is not an error on this page; the
       // legacy arrays below still render.
-      setCloudFiles([])
+      setFileRows([])
     }
   }, [ctx])
 
   // ── Unified file handlers ─────────────────────────────────
 
-  /** Upload files — auto-sorts into documents or visualAssets by MIME type */
+  /**
+   * Upload files into the project's ONE file store, on every backend that has
+   * one.
+   *
+   * 🚨 SESSION 27 REROUTED CLOUD; C3 REROUTES LOCAL SERVER, AND THAT IS THE
+   * WHOLE POINT OF MASTER_PLAN §6 #31. S27's note here said Local Server was
+   * "deliberately NOT rerouted" because switching it would be a silent
+   * behaviour change to a tool this session is not otherwise touching. C3 IS
+   * that session. Leaving it split is what breaks Audrey's parity rule
+   * (2026-08-10, "all functionality should be the same in both versions of the
+   * app"): the same drop zone wrote base64 into a project-row array on the
+   * desktop and a real files row in the cloud, so a project's attachments
+   * meant two different things and D.O.G. could only ever read one of them.
+   *
+   * Both write-capable backends now take the same path: adapter.uploadFile →
+   * a row in public.files (cloud) or bundle.files (Local Server) → the body in
+   * rabbit-files or the project's files directory. uploadFile has worked on
+   * the web, the desktop, Supabase and Local Server since S24's
+   * InvoiceAttachment rode it, so the parity is free rather than built.
+   *
+   * 🚨 §6 #31 trap (e) — LOCAL MODE STAYS READABLE. Nothing here touches the
+   * legacy documents/visualAssets arrays, and the detail panel below still
+   * merges them into the list. An old project's attachments keep rendering and
+   * keep feeding D.O.G. exactly as before; only NEW files go to the store. The
+   * one-time move is Settings → Migration (runAttachmentMigration), on her
+   * command and with a dry run, never as a side effect of opening a page.
+   */
   const handleFileUpload = useCallback(async (fileList) => {
     if (!activeProject) return
-
-    // 🚨 In CLOUD mode the legacy path below cannot work and has not since
-    // S12. documents/visualAssets have no columns on the cloud `projects`
-    // table, and the adapter REFUSES a create or update carrying them rather
-    // than dropping them silently (supabaseAdapter's ATTACHMENTS_MSG, added in
-    // S15 precisely so files could not vanish). So the drop zone on this page
-    // has been showing an honest error and going nowhere — the message even
-    // tells the user to go and do it in RABBIT instead.
-    //
-    // This is the other half of that fix, deferred at the time as MASTER_PLAN
-    // §6 #31: the cloud home for project files exists, so use it.
-    //
-    // Local Server is deliberately NOT rerouted. There the legacy arrays are a
-    // working store that persists in the JSON bundle, and D.O.G. reads them
-    // for deck context — switching that path would be a silent behaviour
-    // change to a tool this session is not otherwise touching.
-    if (cloud) {
-      const adapter = ctx?.getAdapter?.()
-      if (!adapter?.uploadFile) {
-        setSaveError('This backend cannot store files.')
-        return
-      }
-      setFilesBusy(true)
-      setSaveError('')
-      try {
-        for (const file of Array.from(fileList)) {
-          await adapter.uploadFile(activeProject.id, {}, file)
-        }
-        await loadCloudFiles(activeProject.id)
-      } catch (err) {
-        setSaveError(err.message || 'Upload failed.')
-      } finally {
-        setFilesBusy(false)
-      }
+    if (!canStoreFiles) {
+      // Drive: readOnly('uploadFile') would throw a less useful sentence.
+      setSaveError('This backend is read-only — files cannot be uploaded to it.')
       return
     }
-
-    const promises = Array.from(fileList).map(file => new Promise((resolve) => {
-      const reader = new FileReader()
-      reader.onload = () => {
-        const isImg = isMediaMime(file.type)
-        resolve({
-          id:              newFileId(),
-          name:            file.name,
-          content:         reader.result,
-          type:            file.type,
-          size:            file.size,
-          is_image:        isImg,
-          is_core_definer: false,
-          document_kind:   isImg ? null : (detectDocumentKind(file.name) || null),
-          description:     '',
-          created_at:      new Date().toISOString(),
-        })
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.uploadFile) {
+      setSaveError('This backend cannot store files.')
+      return
+    }
+    setFilesBusy(true)
+    setSaveError('')
+    try {
+      for (const file of Array.from(fileList)) {
+        await adapter.uploadFile(activeProject.id, {
+          // 0075's column. NULL for media — an image is not a document and
+          // must not claim a kind (suite 79 probe 4 is why the column allows
+          // it) — and the detected kind or 'other' for anything else.
+          //
+          // 🚨 NOT `detectDocumentKind(name) || null`, which is what the legacy
+          // writer on this page did. D.O.G. finds a project's attachments in
+          // `files` by `document_kind IS NOT NULL OR mime is image/video`, and
+          // detectDocumentKind returns null for a PDF whose name matches none
+          // of its heuristics — so "Nightjar_v3.pdf" would upload, list in the
+          // grid, and be invisible to generation. §6 #31 trap (c), measured on
+          // `legacy.pdf` by this bundle's round-trip diff.
+          documentKind: documentKindFor(file.type, file.name, detectDocumentKind),
+          // 🚨 §6 #31 trap (b), THE POLARITY. Written EXPLICITLY false, which
+          // is what the legacy writer on this page already wrote
+          // (is_core_definer: false) — so a file dropped here means the same
+          // thing before and after C3. It is NOT the same as D.O.G.'s legacy
+          // `isCore` default of TRUE, and the two are deliberately not
+          // unified: unifying them would silently promote or demote every
+          // existing file. New files start as reference and are promoted with
+          // the Core checkbox; legacy rows keep their own default where they
+          // are read. runAttachmentMigration is the one place the two meet,
+          // and it carries `isCore !== false` across rather than defaulting.
+          isCoreDefiner: false,
+        }, file)
       }
-      reader.readAsDataURL(file)
-    }))
-
-    Promise.all(promises).then(newFiles => {
-      const docFiles = newFiles.filter(f => !f.is_image)
-      const imgFiles = newFiles.filter(f => f.is_image)
-      const existingDocs   = Array.isArray(activeProject.documents)    ? activeProject.documents    : []
-      const existingAssets = Array.isArray(activeProject.visualAssets) ? activeProject.visualAssets : []
-      updateActive({
-        documents:    [...existingDocs, ...docFiles],
-        visualAssets: [...existingAssets, ...imgFiles],
-      })
-    })
-  }, [activeProject, updateActive, cloud, ctx, loadCloudFiles])
+      await loadFileRows(activeProject.id)
+    } catch (err) {
+      setSaveError(err.message || 'Upload failed.')
+    } finally {
+      setFilesBusy(false)
+    }
+  }, [activeProject, canStoreFiles, ctx, loadFileRows])
 
   /** Update a file property (is_core_definer, description, document_kind, etc.) */
   const handleFileUpdate = useCallback((fileId, patch) => {
     if (!activeProject) return
 
-    // A cloud row is not in either legacy array, so it has to be recognised
+    // A stored row is not in either legacy array, so it has to be recognised
     // FIRST — otherwise both findIndex calls miss, the function returns
     // silently, and marking a file as core appears to do nothing.
-    const cloudRow = cloudFiles.find(f => f.id === fileId)
-    if (cloudRow) {
+    //
+    // ⚠️ Until 0075 this optimistic setState was the ONLY thing that happened
+    // to document_kind and description on a cloud row: neither was a column,
+    // so toColumns stripped both and the PATCH was a no-op the local state
+    // hid until the next listFiles(). The write is real now — FILE_COLUMNS
+    // carries both names and columnAllowlist.test.js pins them.
+    const storedRow = fileRows.find(f => f.id === fileId)
+    if (storedRow) {
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.updateFile) return
-      setCloudFiles(prev => prev.map(f => (f.id === fileId ? { ...f, ...patch } : f)))
+      setFileRows(prev => prev.map(f => (f.id === fileId ? { ...f, ...patch } : f)))
       adapter.updateFile(fileId, { ...patch, project_id: activeProject.id })
         .catch(err => setSaveError(err.message || 'Failed to update file.'))
       return
@@ -285,23 +313,29 @@ export default function ProjectsPage({ onNavigate }) {
       assets[assetIdx] = { ...assets[assetIdx], ...patch }
       updateActive({ visualAssets: assets })
     }
-  }, [activeProject, updateActive, cloudFiles, ctx])
+  }, [activeProject, updateActive, fileRows, ctx])
 
-  /** Remove a file — a cloud row, or an entry in either legacy array */
+  /** Remove a file — a stored row, or an entry in either legacy array */
   const handleFileDelete = useCallback((fileId) => {
     if (!activeProject) return
 
-    const cloudRow = cloudFiles.find(f => f.id === fileId)
-    if (cloudRow) {
+    const storedRow = fileRows.find(f => f.id === fileId)
+    if (storedRow) {
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.deleteFile) return
-      // Soft delete in cloud (0014): the row keeps deleted_at and the blob is
-      // deliberately left in place so a restore has something to restore.
-      setCloudFiles(prev => prev.filter(f => f.id !== fileId))
+      // 🚨 §6 #31 trap (g), AND IT IS TWO DIFFERENT THINGS. In CLOUD mode
+      // deleteFile is a soft delete (0014): the row keeps deleted_at, the blob
+      // stays where it is so a restore has something to restore, and the space
+      // is held for the 30-day window. On LOCAL SERVER the same call is
+      // PERMANENT — electron/main.cjs unlinks the body and certificates it as
+      // 'purged', because there is no local trash. One button, two meanings,
+      // so the panel is told which one it is (deletesAreSoft) and says so
+      // above the table rather than promising "removed" in both.
+      setFileRows(prev => prev.filter(f => f.id !== fileId))
       adapter.deleteFile(fileId, activeProject.id)
         .catch(err => {
           setSaveError(err.message || 'Failed to delete file.')
-          loadCloudFiles(activeProject.id)
+          loadFileRows(activeProject.id)
         })
       return
     }
@@ -309,7 +343,7 @@ export default function ProjectsPage({ onNavigate }) {
     const docs   = (activeProject.documents    || []).filter(f => f.id !== fileId)
     const assets = (activeProject.visualAssets || []).filter(f => f.id !== fileId)
     updateActive({ documents: docs, visualAssets: assets })
-  }, [activeProject, updateActive, cloudFiles, ctx, loadCloudFiles])
+  }, [activeProject, updateActive, fileRows, ctx, loadFileRows])
 
   // ── Create prompt view ────────────────────────────────────
   if (view === 'create') {
@@ -378,19 +412,21 @@ export default function ProjectsPage({ onNavigate }) {
 
     // Merge documents + visualAssets + the cloud file rows into one list.
     //
-    // Session 27: the third source is new. `public.files` is where a cloud
-    // project's files have actually lived since S14 and this page had never
-    // shown them, so a file uploaded from RABBIT was invisible here and a file
-    // "uploaded" here never existed at all.
+    // Session 27 added the third source; C3 made it the one every backend
+    // writes to. `public.files` (cloud) and `bundle.files` (Local Server) are
+    // where a project's files actually live, and this page had never shown
+    // either — so a file uploaded from RABBIT was invisible here and a file
+    // "uploaded" here in cloud mode never existed at all.
     //
-    // The two legacy arrays are still read. They hold real content on Local
-    // Server, and on cloud they may hold rows written before S12 stopped
-    // accepting them. Nothing writes them in cloud any more, so the list
-    // shrinks toward the single store on its own rather than by a migration
-    // nobody asked for.
+    // 🚨 §6 #31 trap (e): THE TWO LEGACY ARRAYS ARE STILL READ, on every
+    // backend. They hold real content on Local Server for every project that
+    // predates C3, and on cloud they may hold rows written before S12 stopped
+    // accepting them. Nothing writes them any more, so the list shrinks toward
+    // the single store as Audrey runs the migration — never underneath her.
     //
-    // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a cloud
-    // row spells two of those differently, so it is mapped rather than spread.
+    // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a
+    // stored row spells two of those differently, so it is mapped rather than
+    // spread.
     const allFiles = [
       ...normalized.documents.map(f => ({
         ...f,
@@ -400,13 +436,13 @@ export default function ProjectsPage({ onNavigate }) {
         ...f,
         is_image: f.is_image ?? true,
       })),
-      ...cloudFiles.map(f => ({
+      ...fileRows.map(f => ({
         ...f,
         type:       f.mime_type || '',
         size:       f.size_bytes ?? null,
         is_image:   isMediaMime(f.mime_type),
         created_at: f.uploaded_at || f.created_at || null,
-        storage:    'cloud',
+        storage:    'stored',
       })),
     ]
 
@@ -426,6 +462,11 @@ export default function ProjectsPage({ onNavigate }) {
         onFileUpdate={handleFileUpdate}
         onFileDelete={handleFileDelete}
         onFileUpload={handleFileUpload}
+        canUpload={canStoreFiles}
+        // §6 #31 trap (g). Cloud deletes are soft and hold quota for 30 days;
+        // Local Server deletes unlink the body there and then. The panel says
+        // which, because "Delete" alone means the wrong one half the time.
+        deletesAreSoft={cloud}
         saveError={saveError}
         storageWarning={false}
       />

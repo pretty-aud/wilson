@@ -2342,7 +2342,18 @@ function startLocalServer(distPath) {
         storage_provider: 'local_server',
         storage_path:     diskName,
         kind:             scope.kind || 'source',
+        // 🚨 The polarity flag travels EXPLICITLY, exactly as it does in
+        // supabaseAdapter.uploadFile — see the long note there. §6 #31 (b).
         is_core_definer:  !!scope.isCoreDefiner,
+        // 0075's two columns, mirrored here so the desktop bundle and the
+        // cloud row have the same shape. Audrey's parity rule (2026-08-10):
+        // "all functionality should be the same in both versions of the app."
+        // Before C3 this route stored neither, while the PATCH route below
+        // spread them in from req.body — so a kind set on the desktop
+        // persisted and the same gesture in cloud mode was silently dropped.
+        // The two halves now agree at BOTH ends.
+        document_kind:    scope.documentKind || null,
+        description:      scope.description  || null,
         // Mirrors public.files.is_financial (0038). On Local Server it also
         // decides which directory the body resolves against.
         is_financial:     isFinancial,

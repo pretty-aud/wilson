@@ -83,6 +83,15 @@ export default function ProjectDetailPanel({
   onFileUpdate,
   onFileDelete,
   onFileUpload,
+  // C3. Drive is read-only (adapterSupportsWrites is false for it), so the
+  // drop zone would only ever produce a thrown sentence — it says so instead.
+  canUpload = true,
+  // C3, §6 #31 trap (g). TRUE in cloud mode, where deleteFile is 0014's soft
+  // delete: the row keeps deleted_at, the blob stays, and the space is held
+  // for 30 days. FALSE on Local Server, where the same button unlinks the
+  // body immediately and certificates it as 'purged'. The copy below is the
+  // only place a person is told which one they are about to do.
+  deletesAreSoft = true,
   saveError,
   storageWarning,
 }) {
@@ -93,6 +102,7 @@ export default function ProjectDetailPanel({
   const handleDrop = (e) => {
     e.preventDefault()
     setIsDragging(false)
+    if (!canUpload) return
     if (e.dataTransfer.files.length > 0) onFileUpload?.(e.dataTransfer.files)
   }
 
@@ -341,7 +351,15 @@ export default function ProjectDetailPanel({
         </h3>
 
         <p style={{ fontSize: 13, color: '#6b4423', marginBottom: 16 }}>
-          Upload documents, images, and media. Mark core project files with the checkbox.
+          Upload documents, images, and media. Mark core project files with the
+          checkbox — D.O.G. treats those as the sources that define the project
+          and everything else as reference.
+          {' '}
+          {deletesAreSoft
+            ? 'Deleting moves a file to the trash and keeps it for 30 days; it '
+              + 'holds storage until then.'
+            : 'Deleting removes the file from this computer immediately — there '
+              + 'is no trash in Local Server mode.'}
         </p>
 
         {/* Drop zone */}
@@ -349,13 +367,14 @@ export default function ProjectDetailPanel({
           onDrop={handleDrop}
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
           onDragLeave={() => setIsDragging(false)}
-          onClick={() => inputRef.current?.click()}
+          onClick={() => { if (canUpload) inputRef.current?.click() }}
           style={{
             border: `2px dashed ${isDragging ? '#ea580c' : 'rgba(120, 70, 30, 0.45)'}`,
             borderRadius: 4,
             padding: fileCount > 0 ? '12px 24px' : '24px 32px',
             textAlign: 'center',
-            cursor: 'pointer',
+            cursor: canUpload ? 'pointer' : 'not-allowed',
+            opacity: canUpload ? 1 : 0.55,
             marginBottom: fileCount > 0 ? 16 : 0,
             backgroundColor: isDragging ? 'rgba(234, 88, 12, 0.08)' : 'transparent',
             transition: 'all 0.15s ease',
@@ -366,9 +385,11 @@ export default function ProjectDetailPanel({
             style={{ margin: '0 auto 6px', color: isDragging ? '#ea580c' : '#9a6438' }}
           />
           <p style={{ fontSize: 13, color: isDragging ? '#ea580c' : '#7c4f1f' }}>
-            {filesBusy
-              ? 'Uploading…'
-              : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
+            {!canUpload
+              ? 'This backend is read-only — files cannot be uploaded to it'
+              : filesBusy
+                ? 'Uploading…'
+                : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
           </p>
           <input
             ref={inputRef}

@@ -18,6 +18,7 @@ import { pushSettingsToCloud } from '../lib/userState'
 import WorkspaceSwitcher from '../cloud/auth/WorkspaceSwitcher'
 import MigrationPanel from '../cloud/migrate/MigrationPanel'
 import OtterMigrationPanel from '../cloud/migrate/OtterMigrationPanel'
+import AttachmentMigrationPanel from '../cloud/migrate/AttachmentMigrationPanel'
 import { MfaSecuritySection } from '../cloud/auth/MfaSection'
 import VersionPanel from './settings/VersionPanel'
 import StorageConnections from './settings/StorageConnections'
@@ -770,6 +771,11 @@ export default function SettingsPage({
                   Sits beside the RABBIT one so both migrations are found in the
                   same place. */}
               <OtterMigrationPanel />
+
+              {/* Track C, C3 (MASTER_PLAN §6 #31): the one-time move of
+                  D.O.G.'s legacy attachment arrays into the project's file
+                  store. Third in the same place, for the same reason. */}
+              <AttachmentMigrationPanel />
 
               {/* Default currency */}
               <div>

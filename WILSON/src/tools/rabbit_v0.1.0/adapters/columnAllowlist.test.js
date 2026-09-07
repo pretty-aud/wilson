@@ -57,6 +57,31 @@ describe('every client-written table has an allowlist entry', () => {
       'task_templates has no COLUMN_ALLOWLIST entry').toBeDefined()
   })
 
+  // ── Track C, bundle C3 (migration 0075) ───────────────────────────────────
+  it('files carries document_kind and description — 0075, §6 #31 trap (a)', () => {
+    // 🚨 THE FAILURE THIS PINS IS SILENT IN BOTH DIRECTIONS. ProjectFilesTable's
+    // Kind select and Description cell have written these two on every gesture
+    // since S27; `files` had neither column, so toColumns stripped them and the
+    // PATCH became a 200 no-op that the optimistic setState hid until the next
+    // listFiles(). 0075 adds the columns; without these two names the write is
+    // still dropped, and with the names but no columns every PATCH carrying
+    // one dies as PGRST204. The migration and the allowlist are ONE change,
+    // and this is the half a test can hold.
+    expect(COLUMN_ALLOWLIST.files.has('document_kind'),
+      'files allowlist is missing document_kind (0075)').toBe(true)
+    expect(COLUMN_ALLOWLIST.files.has('description'),
+      'files allowlist is missing description (0075)').toBe(true)
+    expect(toColumns('files', { id: 'x', document_kind: 'brief', description: 'note' }))
+      .toEqual({ id: 'x', document_kind: 'brief', description: 'note' })
+  })
+
+  it('files still carries is_core_definer — the §6 #31 (b) polarity flag', () => {
+    // The flag D.O.G.'s CORE/REF split reads. If it ever left the allowlist,
+    // the Core checkbox would go quiet exactly as document_kind did.
+    expect(COLUMN_ALLOWLIST.files.has('is_core_definer')).toBe(true)
+    expect(toColumns('files', { is_core_definer: true })).toEqual({ is_core_definer: true })
+  })
+
   it('covers both dependency tables — the last two writers on the raw denylist', () => {
     // upsertDependency called sanitize(dep, []) — a denylist with an EMPTY drop
     // list — right through S23, S24 and S27, which added entries for every
