@@ -245,7 +245,7 @@ In the app a milestone is called a **key date**: the toolbar button is
 ### On the beta
 
 20. **Create one.** `Timeline` tab. In the toolbar between the minimap and the
-    Gantt, press `Key Date`. Fill in a title (`Lock picture`), pick a date
+    Gantt, press `Key Date`. Fill in a title ("Lock picture"), pick a date
     inside the project's range, leave `Phase` empty, and save.
     - **Expect:** it saves with no error, and a diamond appears on the
       timeline at that date, in both the minimap and the detail pane.
@@ -259,25 +259,38 @@ In the app a milestone is called a **key date**: the toolbar button is
       PROJECT and never at the phase, because you are allowed to leave `Phase`
       empty. If that were wrong, the save would appear to succeed and the key
       date would vanish on reload with no error anywhere.
-22. **A key date ON a phase.** Create a second one (`Delivery`), and this time
+22. **A key date ON a phase.** Create a second one ("Delivery"), and this time
     choose a phase in the `Phase` field. Save, reload, confirm it is still
     there.
-23. **Edit it.** Click the `Delivery` diamond, change its title and colour,
+23. **Edit it.** Click the "Delivery" diamond, change its title and colour,
     save, reload.
     - **Expect:** both changes stuck.
     - **If instead** the edit appears to save and reverts on reload: that is
       the failure worth reporting in full — which field, and what it reverted
       to.
-24. **Delete, then Undo.** Delete `Delivery`.
+24. **Delete, then Undo.** Delete "Delivery".
     - **Expect:** a toast at the bottom saying "Deleted key date" and the
       title in quotes, with an `Undo` control. Press `Undo`.
     - **Expect:** the diamond comes back, in the same place, with the title
       and colour from step 23. Reload and confirm it is still back.
-25. **Delete, then leave it.** Delete `Delivery` again and let the toast go
+24b. **Then Redo, and then Undo a CREATE.** This one matters more than it
+    looks: it is the gesture that was broken and is now fixed.
+    - With "Delivery" restored by step 24, press the redo arrow in the same
+      toolbar. **Expect:** it disappears again.
+    - Now make a NEW key date ("Scratch"), press Undo, then press Redo, then
+      Undo once more. **Expect:** it toggles away and back cleanly every time,
+      and after the final Undo it is gone.
+    - **Then open `Deleted`.** **Expect:** "Scratch" is NOT in the list. Undoing
+      something you just created is not the same as deleting it, and it should
+      leave no trace.
+    - **If instead** Redo does nothing at all, or "Scratch" appears in the
+      deleted list: record which, exactly.
+
+25. **Delete, then leave it.** Delete "Delivery" again and let the toast go
     (or dismiss it). The diamond stays gone.
 26. **Recently deleted.** Press `Deleted` in the same toolbar.
     - **Expect:** a panel titled `Recently deleted key dates` listing
-      `Delivery`, with the date you deleted it and a line saying when it is
+      "Delivery", with the date you deleted it and a line saying when it is
       removed for good. Press `Restore`.
     - **Expect:** the panel updates, the diamond returns to the timeline, and
       it survives a reload.
@@ -290,6 +303,17 @@ In the app a milestone is called a **key date**: the toolbar button is
     - **Expect:** the list is readable, and `Restore` is refused with the same
       "you do not have permission" style message the other write controls
       give — not a raw database error.
+
+27b. **The Tasks tab has key dates too.** Open the `Tasks` tab. Key dates
+    appear as their own rows among the tasks. Delete one from there.
+    - **Expect:** it goes straight away with the same undo toast, and NO
+      "are you sure" dialog. That dialog used to stand in for the missing undo
+      path and was removed when the undo path arrived.
+    - **Expect:** `Undo` on the toast brings it back.
+    - **Note:** the `Deleted` panel lives on the `Timeline` toolbar only. A key
+      date deleted from the Tasks tab is restored from there. Say if you expect
+      it on this tab too.
+    - **If instead** you still get a confirmation dialog: record it.
 
 ### On the desktop (Local Server)
 
@@ -332,7 +356,9 @@ Walkthrough 06 Part 2 — key dates (A2 session 2) — date:
 25 dismissed toast left it deleted: Y/N
 26 Deleted panel listed it / Restore worked / survived reload: Y/N Y/N Y/N
     countdown line shown on the beta: Y/N
-27 reviewer refused with a readable message (skip if no 2nd account): Y/N
+24b redo worked / undone CREATE left nothing in Deleted: Y/N Y/N
+27 reviewer: list readable Y/N, Restore refused readably (not a raw error) Y/N
+27b Tasks tab: deleted with no dialog / toast Undo worked: Y/N Y/N
 28 desktop create: Y/N
 29 desktop Undo survived an app RESTART: Y/N
 30 desktop Restore survived a restart: Y/N   countdown shown (should be N): Y/N
