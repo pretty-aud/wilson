@@ -92,6 +92,20 @@ const COLLECTION_ORDER = {
   milestones: byMilestoneDate,
 }
 
+// Collections whose rows can hide NOTHING when they are trashed, so a remote
+// RESTORE of one needs no refetch. MEASURED, not assumed: on 2026-09-07
+// `pg_constraint` on dev reported no foreign key anywhere in the schema whose
+// confrelid is public.milestones, so a key date has no children to bring back.
+//
+// Only milestones are listed. Files, comments and the link tables are probably
+// leaves too, but "probably" is not a measurement and the refetch they get is
+// pre-existing behaviour this change has no business altering. R1 raised the
+// cost: without this, pressing Restore in the trash panel reloads the WHOLE
+// project in every open window — twice in the window that pressed it, since
+// restoreMilestone already re-lists — on a routine gesture that the live-sync
+// work exists to make cheap.
+const LEAF_COLLECTIONS = new Set(['milestones'])
+
 function isTrashed(row) {
   return row != null && row.deleted_at != null
 }
@@ -266,10 +280,12 @@ export function applyRealtimeEvent(bundle, evt, opts = {}) {
     if (wasTrashed) {
       // Restore: the row returns; hidden children (tasks under a restored
       // asset, dependency edges under a restored task) need a refetch —
-      // they were never trashed in the DB, only hidden transitively.
+      // they were never trashed in the DB, only hidden transitively. A leaf
+      // has none, so it takes the row back and nothing else (see
+      // LEAF_COLLECTIONS).
       return {
         bundle: { ...bundle, [col]: upsertInto(rows, record, pending(table, record.id), compare) },
-        effects: [{ type: 'refetch' }],
+        effects: LEAF_COLLECTIONS.has(col) ? [] : [{ type: 'refetch' }],
       }
     }
     const next = upsertInto(rows, record, pending(table, record.id), compare)

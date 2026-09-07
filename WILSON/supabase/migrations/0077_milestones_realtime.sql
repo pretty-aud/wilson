@@ -185,6 +185,8 @@ DO $$
 DECLARE
   t         TEXT;
   v_def     TEXT;
+  v_body    TEXT;
+  v_hits    INT;
   v_tgtype  SMALLINT;
 BEGIN
   -- 3a. The new trigger exists, on the right table, running the right
@@ -225,29 +227,65 @@ BEGIN
   --     milestone is: v_project resolves to NULL, the function returns early,
   --     and NOTHING is broadcast, with no error anywhere. That is precisely
   --     the failure this whole file is one line of defence against.
+  --
+  --     🚨 COMMENTS ARE STRIPPED FIRST. pg_get_functiondef returns the source
+  --     INCLUDING its comments, so a line reading
+  --     `-- WHEN 'project_members', 'milestones' THEN` satisfied the first
+  --     version of this check with the arm deleted (R1). Everything below
+  --     tests v_body, never v_def.
   SELECT pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
     INTO v_def;
+  v_body := regexp_replace(v_def, '--[^' || chr(10) || ']*', '', 'g');
 
-  IF v_def NOT LIKE '%''project_members'', ''milestones''%' THEN
+  IF v_body NOT LIKE '%''project_members'', ''milestones''%' THEN
     RAISE EXCEPTION
       '0077: fn_realtime_broadcast has no milestones arm in the project_id branch — the trigger would fire and resolve no project';
   END IF;
 
-  -- 3d. 🚨 EVERY OTHER TRIGGER SURVIVED THE CREATE OR REPLACE. Eleven tables
-  --     shared this function before today. 0059 dropped arms during a
-  --     CREATE OR REPLACE and became a live privilege escalation; the same
-  --     mistake here is silent in a different way — a collaborator simply
-  --     stops seeing other people's work appear, on a table nobody edited.
+  --     ...and it appears EXACTLY ONCE. PL/pgSQL CASE takes the FIRST matching
+  --     arm, so an earlier `WHEN ''milestones'' THEN v_project := NULL` would
+  --     shadow the real one while the LIKE above still matched (R1).
+  v_hits := (length(v_body) - length(replace(v_body, '''milestones''', '')))
+            / length('''milestones''');
+  IF v_hits <> 1 THEN
+    RAISE EXCEPTION
+      '0077: ''milestones'' appears % times in fn_realtime_broadcast; exactly one arm may name it, or an earlier arm shadows the real one', v_hits;
+  END IF;
+
+  -- 3d. 🚨 EVERY OTHER ARM SURVIVED THE RETYPED BODY.
+  --
+  --     The first version of this block looped over the eleven triggers and
+  --     said it was guarding against 0059's dropped arms. R1 pointed out that
+  --     it cannot: pg_trigger holds the function's OID, and CREATE OR REPLACE
+  --     does not change the OID, so replacing a body can never detach a
+  --     trigger. The check named the right risk and then measured something
+  --     else — which is the shape of a reassuring instrument.
+  --
+  --     The risk when a shared body is RETYPED from another migration is that
+  --     one of the eleven other WHEN arms is lost. Every trigger stays
+  --     attached, v_project comes back NULL for that table, the function
+  --     RETURNs before broadcasting, and a collaborator simply stops seeing
+  --     other people's work appear — on a table nobody edited, with nothing
+  --     raised anywhere. So each table name is checked in the BODY.
+  --
+  --     The trigger loop is kept underneath it: cheap, and it does catch the
+  --     different failure of a fresh environment where a migration was
+  --     skipped.
   FOREACH t IN ARRAY ARRAY['projects','phases','assets','tasks','files',
                            'comments','task_dependencies','phase_dependencies',
                            'task_links','asset_versions','project_members']
   LOOP
+    IF v_body NOT LIKE '%''' || t || '''%' THEN
+      RAISE EXCEPTION
+        '0077: fn_realtime_broadcast no longer names % — an arm was lost while the body was retyped', t;
+    END IF;
+
     IF NOT EXISTS (
       SELECT 1 FROM pg_trigger
        WHERE tgrelid = ('public.' || quote_ident(t))::regclass
          AND tgname  = 'trg_' || t || '_realtime'
     ) THEN
-      RAISE EXCEPTION '0077: trg_%_realtime is missing after the body swap', t;
+      RAISE EXCEPTION '0077: trg_%_realtime is not attached', t;
     END IF;
   END LOOP;
 

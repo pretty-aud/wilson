@@ -74,8 +74,16 @@ BEGIN
     RETURN 'no-schema';
   END IF;
 
-  PERFORM realtime.send('{"probe":true}'::jsonb, 'PGTAP-PROBE',
-                        'rabbit:pgtap:milestone-partition-probe', true);
+  -- Guarded (R1): realtime.send swallows a missing partition on the images
+  -- seen here, but that is a property of one version's internals, not a
+  -- contract. If it ever raises, this must answer 'no-partition' rather than
+  -- abort the whole suite file.
+  BEGIN
+    PERFORM realtime.send('{"probe":true}'::jsonb, 'PGTAP-PROBE',
+                          'rabbit:pgtap:milestone-partition-probe', true);
+  EXCEPTION WHEN OTHERS THEN
+    RETURN 'no-partition';
+  END;
   EXECUTE 'SELECT count(*) FROM realtime.messages
             WHERE topic = ''rabbit:pgtap:milestone-partition-probe'''
     INTO n;
@@ -159,24 +167,35 @@ SELECT is(
 
 -- The arm, in the branch that resolves through project_id. Attached-but-
 -- ignorant is the silent failure 0077 §3c also guards.
+--
+-- 🚨 COMMENTS STRIPPED FIRST, and the arm COUNTED. pg_get_functiondef returns
+-- the source with its comments, so a `-- WHEN 'project_members', 'milestones'`
+-- line satisfied the first version of this probe with the arm deleted; and
+-- PL/pgSQL CASE takes the first match, so an earlier `WHEN 'milestones' THEN
+-- v_project := NULL` would shadow the real arm while the LIKE still matched.
+-- Both were R1's.
 SELECT ok(
-  pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
+  regexp_replace(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure),
+                 '--[^' || chr(10) || ']*', '', 'g')
     LIKE '%''project_members'', ''milestones''%',
-  'the project_id branch of fn_realtime_broadcast names milestones');
+  'the project_id branch of fn_realtime_broadcast names milestones (comments stripped)');
 
 
--- ── probe 10: the CREATE OR REPLACE did not drop anyone else's arm ────────
--- 0059 became a live privilege escalation by dropping arms during a
--- CREATE OR REPLACE. Here the same mistake is silent in a different way: a
--- collaborator simply stops seeing changes on a table nobody edited.
+-- ── probe 10: the trigger is on the twelve tables it should be on ────────
+-- 🚨 A SET, NOT A COUNT. The first version asserted `count(*) = 12`, which R1
+-- pointed out cannot see a trigger MOVED to the wrong table: detach
+-- trg_files_realtime, attach one to some other table, and the count is still
+-- 12. Naming the tables costs nothing and says what is actually meant.
 SELECT is(
-  (SELECT count(*)::int
+  (SELECT string_agg(c.relname::text, ',' ORDER BY c.relname::text)
      FROM pg_trigger tg
-     JOIN pg_proc p ON p.oid = tg.tgfoid
+     JOIN pg_proc  p ON p.oid = tg.tgfoid
+     JOIN pg_class c ON c.oid = tg.tgrelid
     WHERE p.proname = 'fn_realtime_broadcast'
       AND NOT tg.tgisinternal),
-  12,
-  'all 12 project-scoped tables still carry the broadcast trigger');
+  'asset_versions,assets,comments,files,milestones,phase_dependencies,phases,'
+  || 'project_members,projects,task_dependencies,task_links,tasks',
+  'the broadcast trigger is on exactly the twelve project-scoped tables');
 
 
 -- ── probes 11-14: KEY DATES ONLY — Audrey's ruling, machine-checked ───────
@@ -246,10 +265,19 @@ SELECT lives_ok(
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 
+-- 🚨 THE STATUS LEADS THE DESCRIPTION so it is greppable in any log, and so a
+-- reader cannot mistake a tolerated skip for a measurement. `no-schema` and
+-- `no-partition` both mean UNMEASURED, and in CI one of them is the answer
+-- every time: rls.yml starts the stack with `--exclude realtime`, so this
+-- probe is a catalog check there and nothing more. The behavioural
+-- measurement is a HAND RUN against dev, and the session that adds an arm
+-- here is the one that has to do it — 0077's was `landed`, four milestone
+-- rows (insert, date move, trash, restore) plus the one assets control, on
+-- 2026-09-07.
 SELECT ok(
   pg_temp.milestone_broadcast_status() IN ('landed', 'no-schema', 'no-partition'),
-  'milestone writes land on rabbit:project:{id} where realtime is present — '
-  || 'status: ' || pg_temp.milestone_broadcast_status());
+  'broadcast status=' || pg_temp.milestone_broadcast_status()
+  || ' — milestone writes land on rabbit:project:{id} wherever realtime is present');
 
 SELECT * FROM finish();
 ROLLBACK;

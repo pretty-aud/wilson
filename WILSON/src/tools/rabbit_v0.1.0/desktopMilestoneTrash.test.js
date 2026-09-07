@@ -397,6 +397,10 @@ function readView(name) {
  * No regex literal anywhere in here: the tooling that writes this file
  * collapses backslash escapes, so a pattern carrying one cannot be trusted to
  * arrive intact (the same reason the test above slices by index).
+ *
+ * R1: the JSX `{'{'}/* ... *{'/'}{'}'}` form was NOT stripped, so rewriting one
+ * mount's in-attribute `//` comment into that form turned this red for no
+ * reason at all. Both forms go now.
  */
 function mountOf(source, tag) {
   const at = source.indexOf('<' + tag)
@@ -404,13 +408,37 @@ function mountOf(source, tag) {
   const end = source.indexOf('/>', at)
   if (end === -1) return null
   const kept = []
+  let inBlock = false
   for (const raw of source.slice(at, end).split(NL2)) {
-    const line = raw.trim()
+    let line = raw.trim()
+    if (inBlock) {
+      const close = line.indexOf('*' + '/')
+      if (close === -1) continue
+      inBlock = false
+      line = line.slice(close + 2).trim()
+    }
+    // one-line JSX comments, then an unterminated opener
+    for (;;) {
+      const open = line.indexOf('{' + '/' + '*')
+      if (open === -1) break
+      const close = line.indexOf('*' + '/' + '}', open)
+      if (close === -1) { inBlock = true; line = line.slice(0, open).trim(); break }
+      line = (line.slice(0, open) + ' ' + line.slice(close + 3)).trim()
+    }
     if (line.length === 0 || line.startsWith('//')) continue
     kept.push(line)
   }
   return kept.join(' ')
 }
+
+// Every prop the panel needs to answer identically on both screens. Named
+// explicitly because `expect(tasks).toBe(timeline)` alone is a SAMENESS check:
+// R1 removed `purgeScheduled` from BOTH files and it stayed green, so the very
+// defect its comment claims to catch survived a copy-paste edit.
+const REQUIRED_TRASH_PROPS = [
+  'open', 'onClose', 'onList', 'onRestore',
+  'canWrite', 'writeReason', 'purgeScheduled', 'adapterMode',
+]
 
 describe('MilestoneTrashModal is mounted on the Tasks tab too', () => {
   const TASKS    = readView('ProjectTasksView.jsx')
@@ -436,6 +464,12 @@ describe('MilestoneTrashModal is mounted on the Tasks tab too', () => {
     expect(tasks, 'no MilestoneTrashModal element in ProjectTasksView').not.toBeNull()
     expect(timeline, 'no MilestoneTrashModal element in TimelineView').not.toBeNull()
     expect(tasks).toBe(timeline)
+    // ...and both really carry every prop, so dropping one from BOTH mounts
+    // (which the equality above cannot see) fails here.
+    for (const prop of REQUIRED_TRASH_PROPS) {
+      expect(tasks, 'the Tasks mount is missing ' + prop).toContain(prop + '={')
+      expect(timeline, 'the Timeline mount is missing ' + prop).toContain(prop + '={')
+    }
   })
 
   it('the button says which Deleted it means', () => {
@@ -451,10 +485,23 @@ describe('MilestoneTrashModal is mounted on the Tasks tab too', () => {
     // Same call as the Timeline's: the Restore button inside carries its own
     // gate, and hiding the LIST from a reviewer would hide the fact that a key
     // date was deleted at all.
+    //
+    // R1: this used to look back an arbitrary 220 characters, which lands
+    // inside the comment block above the button — a <GatedAction> separated by
+    // any commentary, or one wrapped around the whole toolbar row, was
+    // invisible to it. It now walks OUT from the button to the nearest
+    // enclosing tag, which is what "is it gated" actually means.
     const at = TASKS.indexOf('onClick={() => setTrashOpen(true)}')
     expect(at).toBeGreaterThan(-1)
     const open = TASKS.lastIndexOf('<button', at)
-    const before = TASKS.slice(open - 220, open)
-    expect(before).not.toContain('<GatedAction')
+    expect(open).toBeGreaterThan(-1)
+    // Everything from the previous CLOSING tag up to this button: if a
+    // GatedAction opened anywhere in that span and has not closed, this button
+    // is inside it.
+    const head = TASKS.slice(0, open)
+    const lastGateOpen  = head.lastIndexOf('<GatedAction')
+    const lastGateClose = head.lastIndexOf('</GatedAction>')
+    expect(lastGateOpen, 'the Deleted Key Dates button is inside an open <GatedAction>')
+      .toBeLessThan(lastGateClose)
   })
 })

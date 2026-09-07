@@ -241,15 +241,37 @@ describe('"done" is defined in exactly one place', () => {
 // handlers do the other -- which is exactly what shipped in A2 session 1 and
 // what Audrey reversed on 2026-09-07. A claim in a comment must not be able to
 // satisfy a pin, and a comment must not be able to inflate a count.
-// Only WHOLE-LINE `//` comments are dropped, so a `//` inside a string literal
-// is never touched; block comments (including the one-line JSX `{/* ... */}`
-// form) go first.
+//
+// 🚨 THE FIRST VERSION OF THIS DROPPED ONLY WHOLE-LINE `//` COMMENTS, AND R1
+// DEFEATED IT FOUR TIMES. A TRAILING comment satisfied every toContain pin, so
+// `if (wholeClickOnBackdrop) { onContinue?.() } // if (wholeClickOnBackdrop)
+// onCancel?.()` -- which restores the behaviour Audrey reversed -- was green,
+// and so was deleting the on-screen caption and restating it in a comment.
+// Trailing comments are stripped now, tracked through quotes and template
+// literals so a `//` inside a string (a URL, a path) is never mistaken for
+// one. Block comments, including the one-line JSX `{/* ... */}` form, go
+// first. `stripComments.test`-style controls live in the breakers, and two of
+// them are in this file's own describe as the green cases.
 function stripComments(source) {
-  return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .split('\n')
-    .filter(line => !line.trim().startsWith('//'))
-    .join('\n')
+  const noBlocks = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const out = []
+  for (const line of noBlocks.split('\n')) {
+    let quote = null
+    let cut = -1
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i]
+      if (quote) {
+        if (c === '\\\\') { i++; continue }
+        if (c === quote) quote = null
+        continue
+      }
+      if (c === '"' || c === "'" || c === '`') { quote = c; continue }
+      if (c === '/' && line[i + 1] === '/') { cut = i; break }
+    }
+    const kept = cut === -1 ? line : line.slice(0, cut)
+    if (kept.trim().length > 0) out.push(kept)
+  }
+  return out.join('\n')
 }
 
 /**
@@ -276,6 +298,12 @@ function buttonAround(code, needle) {
 
 const countOf = (code, pattern) => (code.match(pattern) || []).length
 
+// ANY JSX handler prop whose value mentions onContinue -- `onClick={onContinue}`,
+// `onDoubleClick={onContinue}`, `onKeyDown={() => onContinue()}`, `onMouseUp`,
+// a form's `onSubmit`. The first version of the count pinned the literal
+// string `onClick={onContinue}` and R1 walked past it three different ways.
+const WRITING_HANDLER = /on[A-Z]\w*=\{[^}]*onContinue/g
+
 describe('the warning modal writes ONLY when Continue anyway is pressed', () => {
   // 🚨 Audrey, 2026-09-07: closing the warning by its X or by a click outside
   // it CANCELS the status change. This reverses A2 session 1, whose modal
@@ -285,11 +313,14 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
   const GUARD = readSrc('tools/rabbit_v0.1.0/components/DependencyStatusGuard.jsx')
   const CODE  = stripComments(GUARD)
 
-  it('the X cancels', () => {
+  it('the X cancels, and carries no other handler that would write', () => {
     const x = buttonAround(CODE, 'aria-label="Close without saving"')
     expect(x).not.toBeNull()
     expect(x).toContain('onClick={onCancel}')
-    expect(x).not.toContain('onClick={onContinue}')
+    // Not `not.toContain('onClick={onContinue}')`: R1 added
+    // `onDoubleClick={onContinue}` to this very button and the old assertion
+    // stayed green. Nothing on the X may reach onContinue by any binding.
+    expect(countOf(x, WRITING_HANDLER)).toBe(0)
   })
 
   it('a click outside the card cancels', () => {
@@ -298,9 +329,10 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
   })
 
   it('exactly one control writes, and it is Continue anyway', () => {
-    // An EXACT count, not a floor: the whole point of the ruling is that the
-    // set of controls that write has one member.
-    expect(countOf(CODE, /onClick=\{onContinue\}/g)).toBe(1)
+    // An EXACT count over ANY handler binding, not a floor and not one
+    // spelling: the whole point of the ruling is that the set of controls that
+    // write has exactly one member.
+    expect(countOf(CODE, WRITING_HANDLER)).toBe(1)
     // Anchored on each footer button's own icon, which appears nowhere else
     // in the file -- the words themselves also appear in the caption.
     const go = buttonAround(CODE, '<Check className="w-3 h-3" />')
@@ -320,6 +352,23 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
     // caption that argued the opposite of the ruling; a pin here means the
     // screen and the script cannot drift apart silently.
     expect(CODE).toContain('only Continue anyway saves it. Closing this leaves the change unsaved.')
+  })
+
+  it('Escape cancels too', () => {
+    // R1: the header claimed to enumerate "every other way out" and Escape was
+    // not on the list -- it did nothing at all. Under a ruling that makes
+    // closing the cancel gesture, a modal that ignores Escape reads as frozen.
+    // Capture phase, because the editors underneath have their own Escape
+    // handlers and a modal warning owns the key while it is up.
+    expect(CODE).toContain("if (e.key !== 'Escape') return")
+    expect(CODE).toContain('onCancel?.()')
+    expect(CODE).toContain("document.addEventListener('keydown', onKey, true)")
+    expect(CODE).toContain("document.removeEventListener('keydown', onKey, true)")
+    // The listener must not be able to WRITE, whatever else it does.
+    const effect = CODE.slice(CODE.indexOf('useEffect(() => {'), CODE.indexOf('if (!warning) return null'))
+    expect(effect.length).toBeGreaterThan(0)
+    expect(countOf(effect, WRITING_HANDLER)).toBe(0)
+    expect(effect).not.toContain('onContinue')
   })
 
   // A2's R2 finding, still load-bearing with its meaning inverted: a click

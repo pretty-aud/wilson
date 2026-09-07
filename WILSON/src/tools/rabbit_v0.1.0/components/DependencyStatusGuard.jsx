@@ -13,8 +13,12 @@
 // predecessor. Otherwise it parks the write, shows the modal, and runs it when
 // the person chooses "Continue anyway".
 //
-// 🚨 EVERY OTHER WAY OUT CANCELS: "Go back", the X, and a click outside the
-// card all drop the parked write, and nothing is saved. **Audrey ruled this on
+// 🚨 EVERY OTHER WAY OUT CANCELS: "Go back", the X, a click outside the
+// card and the Escape key all drop the parked write, and nothing is saved.
+// (R1 checked that list against the code and Escape was NOT on it — it did
+// nothing at all, which under this ruling is the one gesture most likely to be
+// tried and the one whose silence would read as a frozen modal. It cancels
+// now.) **Audrey ruled this on
 // 2026-09-07 and it REVERSES what A2 session 1 shipped.** That session read the
 // Phase 7 brief's "dismissible" as "dismissing still lands the change", said so
 // here at length, and named the two handlers marked DISMISS below as the whole
@@ -62,7 +66,7 @@
 // silently covered.
 // =============================================================================
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, X, ArrowLeft, Check } from 'lucide-react'
 import { statusWarning, itemLabel, humanStatus } from '../state/dependencyStatus'
@@ -123,6 +127,30 @@ function StatusChip({ status }) {
 export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) {
   // Where the last mousedown landed — read by the backdrop's onClick below.
   const downOnBackdrop = useRef(false)
+
+  // Escape cancels, with the X and the backdrop (R1).
+  //
+  // 🚨 DECLARED ABOVE THE `if (!warning) return null` BELOW, and that is not
+  // style: a hook after an early return is a rules-of-hooks violation, and
+  // this component genuinely renders both ways. The effect does its own
+  // `if (!warning)` instead.
+  //
+  // CAPTURE PHASE, deliberately. The surfaces underneath this modal have their
+  // own Escape handlers (every inline cell editor in ProjectTasksView, the
+  // description and notes fields in TaskDetailPopup). While a modal warning is
+  // up, Escape belongs to the warning and to nothing else, so it is taken on
+  // the way down and stopped there.
+  useEffect(() => {
+    if (!warning) return undefined
+    function onKey(e) {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      onCancel?.()
+    }
+    document.addEventListener('keydown', onKey, true)
+    return () => document.removeEventListener('keydown', onKey, true)
+  }, [warning, onCancel])
+
   if (!warning) return null
   const { kind, toStatus, total, offenders } = warning
   const noun = kind === 'phase' ? 'phase' : 'task'
@@ -155,6 +183,17 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       <div
         className="w-full max-w-md rounded-sm overflow-hidden flex flex-col"
         style={{ backgroundColor: '#292524', border: '1px solid #44403c' }}
+        // Announced as a dialog so a screen reader says what has appeared.
+        // ⚠️ STATED LIMIT: there is no focus trap and focus is not moved here,
+        // so the control that raised this warning keeps focus and can still be
+        // operated behind the backdrop — press Save again and a SECOND warning
+        // replaces the first, dropping the first parked write with no message.
+        // That is pre-existing (the hook has always held one `pending`), it is
+        // not what this ruling was about, and a real trap is a bigger change
+        // than it deserves — so it is written down rather than half-built.
+        role="dialog"
+        aria-modal="true"
+        aria-label="Unfinished dependencies"
       >
         {/* Header */}
         <div

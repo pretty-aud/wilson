@@ -790,7 +790,7 @@ read doubles as the final audit (code findings → §6 gaps for S17).
    applied and verified by query on dev and staging, suite 71 green on both).
    **Still open, unchanged, for all four:** they are not broadcast (0016) and
    not edit-history captured (0012), so a second window sees a change on its
-   next project load.
+   next project load. ⚠️ **2026-09-07, Audrey's ruling:** `milestones` LEFT this group for broadcast — migration **0077** puts key dates on the project topic — and the four 0040 entities keep the reload limit **by her explicit choice**, recorded as a conscious difference in `SYSTEMS_HANDBOOK` §4.5 and §13.3 and pinned by `72_milestone_realtime.sql` probes 11-14. Edit-history capture is still open for all five.
 6. ~~Storage blob GC — file rows soft-delete but blobs persist~~ — **CLOSED
    S14**: trg_files_gc_enqueue + storage_gc_queue + the admin-invoked
    `storage-gc` Edge Function (queue drain, orphan scan, avatar sweep, all
@@ -1281,7 +1281,7 @@ undecided gap at a release is a decision nobody made.
 | 2 | **ACCEPTED** | Token-refresh-while-trashed can miss one restore event; catches up on next open. Documented in the 0016 header. |
 | 3 | **ACCEPTED** | Revert covers projects/phases/assets/tasks only. A hard-deleted project cannot be recreated at its original id, and a fresh id would orphan the whole subtree — that is a correctness limit, not an omission. |
 | 4 | **ACCEPTED** | Restoring a child under a trashed parent leaves trash early; the error is surfaced and the parent purge cascades it anyway. |
-| 5 | **CLOSED** (S25 `183b4c2` + A2s2 `4f65d63`/`d5baa0b`) | All four have cloud tables: 0040 built scenes/shots/levels/experiences, 0067 built milestones. The broadcast and edit-history gap is unchanged and still stated in §6 #5. **S17 had already fixed the data loss inside local mode (#47).** |
+| 5 | **CLOSED** (S25 `183b4c2` + A2s2 `4f65d63`/`d5baa0b`) | All four have cloud tables: 0040 built scenes/shots/levels/experiences, 0067 built milestones. The broadcast and edit-history gap is unchanged and still stated in §6 #5 — except for `milestones`, which gained broadcast in 0077 (2026-09-07); see the note there. **S17 had already fixed the data loss inside local mode (#47).** |
 | 6 | **CLOSED S14** | `trg_files_gc_enqueue` + `storage_gc_queue` + the admin-invoked `storage-gc` function. |
 | 7 | **ACCEPTED** | `project_members` changes are not edit-history captured. Roster changes are visible in the UI and the workspace channel; the audit gap that mattered — *workspace* privilege changes — is #42, closed below. |
 | 8 / 19 | **RE-OWNED** | Legacy `useTeamMembers` still backs six views. Migrating a live data source across Timeline / Scenes / Levels / Experiences / Budget / Intake is exactly the kind of refactor this session was told not to attempt. |

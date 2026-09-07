@@ -1421,6 +1421,29 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   const [localDate, setLocalDate] = useState(milestone.date || '')
   const isProjectBound = milestone.isProjectBound
 
+  // 🚨 RE-SEED FROM PROPS, AND 0077 IS WHY IT IS NOW LOAD-BEARING.
+  //
+  // These two held their first value for the life of the row: useState's
+  // argument is an INITIAL value, the row is keyed `ms-<id>` so its instance
+  // survives every bundle update, and nothing re-seeded them. CellInlineText,
+  // twenty lines below, has had `useEffect(() => setDraft(value), [value])`
+  // since it was written; this row was simply missing it.
+  //
+  // Before key dates were broadcast the stale value could only be reached
+  // through undo/redo, which is rare. Live sync makes it routine and turns it
+  // into a WRITE: window A renames "Alpha" to "Beta"; the broadcast lands in
+  // window B and the row now displays "Beta"; someone in B clicks the title
+  // and clicks away; commitTitle compares its stale 'Alpha' with 'Beta',
+  // finds them different, and SAVES 'Alpha' over A's rename — no typing, no
+  // Save, no warning, and then re-broadcast to everyone. R1 found it.
+  //
+  // Guarded on the edit flags so an incoming event cannot yank text out from
+  // under someone who is actually typing: while a field is open its draft is
+  // theirs, and the merge layer's own pending-field protection covers the
+  // in-flight write (see updateMilestone in RabbitProvider).
+  useEffect(() => { if (!editTitle) setLocalTitle(milestone.title) }, [milestone.title, editTitle])
+  useEffect(() => { if (!editDate) setLocalDate(milestone.date || '') }, [milestone.date, editDate])
+
   function commitTitle() {
     if (localTitle !== milestone.title && !isProjectBound) {
       ctx?.updateMilestone?.(milestone.id, { title: localTitle })
@@ -1447,8 +1470,10 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   // function's account — still naming a dialog that was in the tree. R1 of this
   // session found the contradiction.
   //
-  // The "Deleted" panel lives on the Timeline toolbar only; a key date deleted
-  // from this tab is restored from there. Stated rather than silently implied.
+  // The "Recently deleted key dates" panel is reachable from THIS toolbar too,
+  // as `Deleted Key Dates` (Audrey, 2026-09-07). It used to be on the Timeline
+  // only and this comment used to say so; R1 caught it still saying so, 743
+  // lines below the button the same commit added to this file.
   function handleDelete() {
     if (isProjectBound) return
     ctx?.deleteMilestone?.(milestone.id)

@@ -148,20 +148,151 @@ describe('undoing a CREATE destroys; deleting an existing key date trashes', () 
 })
 
 describe('neither history op can leave two rows with one id', () => {
-  it('addMilestone filters the id before appending', () => {
+  it('addMilestone filters the id before appending, and sorts', () => {
     // A refetch can land between an undo and the redo that replays this.
     // The WHOLE assignment, not just the filter: the same filter expression
     // also appears in this function's undo op, so a looser pin stayed green
     // when the dedupe was removed — measured, by the breaker for this line.
+    //
+    // The `.sort` half is R1's (2026-09-07). Both adapters load key dates
+    // ORDER BY date, id and realtimeMerge splices incoming ones into that
+    // order — but this is the path that runs on LOCAL SERVER, where no
+    // broadcast ever arrives, so without the sort a new key date sat at the
+    // bottom of the Tasks tab's key-date block until the next reload.
     expect(addMilestone).toContain(
-      'milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow],')
+      'milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow]')
+    expect(addMilestone).toContain('.sort(byMilestoneDate)')
   })
 
-  it('the delete-undo filters the id before reinstating', () => {
+  it('the delete-undo filters the id before reinstating, and sorts', () => {
     // Same trap as above: the delete's own optimistic op filters on the same
     // expression, so the pin has to name the reinstating assignment.
     expect(deleteMilestone).toContain(
-      'milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone],')
+      'milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone]')
+    expect(deleteMilestone).toContain('.sort(byMilestoneDate)')
+  })
+})
+
+// ── R1 of Audrey's A2 decisions (2026-09-07): what live sync made necessary ──
+//
+// Two defects that were harmless while key dates received no remote events and
+// became real the moment 0077 sent them one. Source pins, for the reason the
+// header of this file gives: nothing here mounts the provider.
+
+const updateMilestone = extractCallback(PROVIDER, 'updateMilestone')
+
+describe('updateMilestone is ready for a remote event landing mid-write', () => {
+  it('the extractor got the right function', () => {
+    // The control this file's own header insists on: an extractor that
+    // silently carried the NEXT declaration made every pin below meaningless
+    // in the reassuring direction once already.
+    expect(updateMilestone.startsWith('const updateMilestone = useCallback(')).toBe(true)
+    expect(updateMilestone).toContain('upsertMilestone')
+    expect(updateMilestone).not.toContain('const deleteMilestone')
+    expect(updateMilestone).not.toContain('destroyMilestone')
+  })
+
+  it('🚨 registers pending fields, like every other broadcast table', () => {
+    // R1: milestones were the ONE broadcast table whose mutator called
+    // neither helper, so pendingFieldsFor('milestones', …) returned null
+    // forever and per-field LWW never engaged. realtimeMerge.test.js's
+    // pending-field probe was testing a path production could not reach.
+    expect(updateMilestone).toContain("notePendingFields('milestones', id, fields)")
+    expect(updateMilestone).toContain("clearPendingFields('milestones', id, fields)")
+  })
+
+  it('clears them in a finally, so a throwing adapter cannot pin a field', () => {
+    // Without this a failed write leaves the field pinned for the life of the
+    // session and that row silently stops accepting remote updates. Copied
+    // from updateTask, which has carried the same try/finally since S7.
+    const tryAt = updateMilestone.indexOf('try {')
+    const finallyAt = updateMilestone.indexOf('} finally {')
+    expect(tryAt).toBeGreaterThan(-1)
+    expect(finallyAt).toBeGreaterThan(tryAt)
+    expect(updateMilestone.slice(finallyAt)).toContain('clearPendingFields')
+  })
+
+  it('re-sorts, because a date change is a change of position', () => {
+    expect(updateMilestone).toContain('.sort(byMilestoneDate)')
+  })
+})
+
+describe('the provider imports the one comparator rather than growing another', () => {
+  it('byMilestoneDate comes from state/milestoneOrder', () => {
+    expect(PROVIDER).toContain("import { byMilestoneDate } from './milestoneOrder';")
+    // ...and nowhere in the provider is there a second definition of it.
+    expect(PROVIDER).not.toContain('function byMilestoneDate')
+  })
+})
+
+
+// ── the Tasks tab's key-date row, which live sync turned into a writer ──────
+
+const TASKS_VIEW = readFileSync(
+  new URL('./views/ProjectTasksView.jsx', import.meta.url), 'utf-8')
+  .split(String.fromCharCode(13) + NL).join(NL)
+
+/** The body of `function <name>(` by brace matching, params skipped first. */
+function functionBody(source, name) {
+  const start = source.indexOf('function ' + name + '(')
+  if (start < 0) throw new Error(name + ' is gone from ProjectTasksView')
+  let i = source.indexOf('(', start)
+  let pd = 0
+  for (; i < source.length; i++) {
+    if (source[i] === '(') pd++
+    else if (source[i] === ')') { pd--; if (pd === 0) break }
+  }
+  const open = source.indexOf('{', i)
+  let depth = 0
+  for (let j = open; j < source.length; j++) {
+    if (source[j] === '{') depth++
+    else if (source[j] === '}') { depth--; if (depth === 0) return source.slice(start, j + 1) }
+  }
+  throw new Error('unbalanced braces extracting ' + name)
+}
+
+const MILESTONE_ROW = functionBody(TASKS_VIEW, 'MilestoneRow')
+
+describe('MilestoneRow re-seeds its drafts from props', () => {
+  it('the slice really is MilestoneRow', () => {
+    // Scoped by brace matching, not grepped over a 2,000-line file: a
+    // useEffect belonging to CellInlineText twenty lines below would otherwise
+    // satisfy every assertion here.
+    expect(MILESTONE_ROW).toContain('const [localTitle, setLocalTitle]')
+    expect(MILESTONE_ROW).toContain('function commitTitle()')
+    expect(MILESTONE_ROW).not.toContain('function CellInlineText')
+  })
+
+  it('🚨 a remote rename cannot be reverted by a bare click', () => {
+    // R1's HIGH. useState's argument is an INITIAL value and this row is keyed
+    // `ms-<id>`, so its instance survives every bundle update: localTitle held
+    // its first value forever. Before 0077 that was only reachable through
+    // undo/redo. With key dates broadcast it is routine, and it is a WRITE —
+    // window A renames "Alpha" to "Beta"; B's row displays "Beta" while
+    // localTitle is still "Alpha"; someone in B clicks the title and clicks
+    // away; commitTitle sees 'Alpha' !== 'Beta' and SAVES 'Alpha' over the
+    // rename. No typing, no Save, no warning.
+    expect(MILESTONE_ROW).toContain(
+      'useEffect(() => { if (!editTitle) setLocalTitle(milestone.title) }, [milestone.title, editTitle])')
+    expect(MILESTONE_ROW).toContain(
+      "useEffect(() => { if (!editDate) setLocalDate(milestone.date || '') }, [milestone.date, editDate])")
+  })
+
+  it('...but cannot yank text out from under someone typing', () => {
+    // The guard is half the fix. An unguarded re-seed would overwrite an open
+    // draft on every incoming event, which is the same bug pointed the other
+    // way. Asserted as the CONDITION, so deleting it fails even though the
+    // effect survives.
+    expect(MILESTONE_ROW).toContain('if (!editTitle) setLocalTitle')
+    expect(MILESTONE_ROW).toContain('if (!editDate) setLocalDate')
+  })
+
+  it('commitTitle/commitDate still compare against the prop, not a snapshot', () => {
+    // The re-seed is what makes these comparisons safe; if a later change made
+    // them compare against something else, the fix above would stop mattering
+    // without failing anything.
+    expect(MILESTONE_ROW).toContain('if (localTitle !== milestone.title')
+    expect(MILESTONE_ROW).toContain('if (localDate !== milestone.date')
   })
 })
 

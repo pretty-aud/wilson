@@ -49,6 +49,7 @@ import {
   selectVarianceForProject,
 } from './selectors';
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
+import { byMilestoneDate } from './milestoneOrder';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
 
@@ -1809,9 +1810,17 @@ export function RabbitProvider({ children }) {
     // Dedupe rather than append blind: a refetch can land between an undo and
     // the redo that replays this, and two rows with one id break every
     // keyed render downstream.
+    // Sorted, not appended. Both adapters load key dates ORDER BY date, id and
+    // the merge layer splices incoming ones into that order — but THIS is the
+    // path that runs on Local Server, where there is no broadcast at all, so
+    // without it a new key date sat at the bottom of the Tasks tab's key-date
+    // block until the next reload. In cloud it merely looked right, because
+    // the author's own broadcast echo re-sorted it a moment later — an
+    // accidental dependency on live sync, not a design. R1.
     setBundle(prev => ({
       ...prev,
-      milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow],
+      milestones: [...prev.milestones.filter(m => m.id !== finalRow.id), finalRow]
+        .sort(byMilestoneDate),
     }));
     // 🚨 UNDOING A CREATE DESTROYS; DELETING AN EXISTING ROW TRASHES. R1 of
     // this session caught the difference being lost.
@@ -1852,10 +1861,35 @@ export function RabbitProvider({ children }) {
     if (oldMilestone) {
       for (const k of Object.keys(patch)) oldValues[k] = oldMilestone[k];
     }
-    const result = await optimistic(
-      prev => ({ ...prev, milestones: prev.milestones.map(m => m.id === id ? { ...m, ...patch } : m) }),
-      () => adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id }),
-    );
+    // LWW per field — see updatePhase. 🚨 ADDED WITH 0077 AND REQUIRED BY IT.
+    // Before key dates were broadcast, milestones were the one table where
+    // this was dead weight: no remote event for them could ever arrive. Now
+    // one can, and without this the window between the optimistic apply and
+    // the server's answer is a window in which a collaborator's broadcast
+    // overwrites what this person just changed. It also means realtimeMerge's
+    // pending-field probe tests something production actually reaches — R1
+    // found it testing a mechanism that never engaged.
+    const fields = Object.keys(patch);
+    notePendingFields('milestones', id, fields);
+    let result;
+    try {
+      result = await optimistic(
+        // Re-sorted, because a date is not a name: moving a key date's date
+        // moves its row, and on Local Server nothing else would ever do it.
+        prev => ({
+          ...prev,
+          milestones: prev.milestones
+            .map(m => m.id === id ? { ...m, ...patch } : m)
+            .sort(byMilestoneDate),
+        }),
+        () => adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id }),
+      );
+    } finally {
+      // try/finally, copied from updateTask: a throwing adapter must not leave
+      // the field pinned, or that row stops accepting remote updates for the
+      // rest of the session.
+      clearPendingFields('milestones', id, fields);
+    }
     if (oldMilestone) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateMilestone(id, oldValues)],
@@ -1863,7 +1897,7 @@ export function RabbitProvider({ children }) {
       });
     }
     return result;
-  }, [optimistic]);
+  }, [optimistic, notePendingFields, clearPendingFields]);
 
   const deleteMilestone = useCallback(async (id) => {
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
@@ -1895,7 +1929,8 @@ export function RabbitProvider({ children }) {
               // bundle until the next load.
               setBundle(prev => ({
                 ...prev,
-                milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone],
+                milestones: [...prev.milestones.filter(m => m.id !== id), oldMilestone]
+                  .sort(byMilestoneDate),
               }));
             }]
           : [() => mutationsRef.current.addMilestone(oldMilestone)],

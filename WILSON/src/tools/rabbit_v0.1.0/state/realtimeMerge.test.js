@@ -350,13 +350,21 @@ describe('key-date live sync (0077)', () => {
     expect(effects).toEqual([])
   })
 
-  it('a restore brings it back in its place, and asks for a refetch', () => {
-    // The refetch is the generic restore contract (hidden children come back
-    // through it). A key date HAS no children, so the refetch is belt and
-    // braces here rather than load-bearing — stated so the next reader does
-    // not take it for a special case, and left in place because a restore is
-    // rare and consistency across the eight soft-delete tables is worth more
-    // than one saved round trip.
+  it('a restore brings it back in its place, and asks for NO refetch', () => {
+    // 🚨 THIS EXPECTATION IS THE REVERSE OF THE ONE FIRST COMMITTED, and R1 is
+    // why. The generic restore contract asks for a refetch because a restored
+    // parent's children were never trashed in the database, only hidden
+    // transitively — a restored asset brings back tasks, a restored task
+    // brings back edges. A key date has no children: measured on dev on
+    // 2026-09-07, `pg_constraint` reports NO foreign key anywhere whose
+    // confrelid is public.milestones. So the refetch brought back nothing and
+    // cost a whole-project reload in every open window — twice in the window
+    // that pressed Restore, since restoreMilestone already re-lists — on a
+    // routine gesture that this whole change exists to make cheap.
+    //
+    // The first version of this test asserted the refetch and CALLED IT belt
+    // and braces, which is how a cost gets waved through: a reasoned-about
+    // cost is still a cost.
     const trashed = makeBundle({ milestones: [
       { id: 'm3', date: '2026-12-01', updated_at: T0 },
     ] })
@@ -366,6 +374,20 @@ describe('key-date live sync (0077)', () => {
       oldRecord: { id: 'm1', date: '2026-01-10', deleted_at: T1,   updated_at: T1 },
     }, { pendingFields: noPending })
     expect(bundle.milestones.map(m => m.id)).toEqual(['m1', 'm3'])
+    expect(effects).toEqual([])
+  })
+
+  it('...while a restored ASSET still refetches, because it has children', () => {
+    // The failing control for the test above. If LEAF_COLLECTIONS ever grew to
+    // swallow the non-leaf tables, the assertion above would still pass and
+    // every remote restore in the product would silently stop bringing back
+    // the rows it hides.
+    const start = makeBundle()
+    const { effects } = applyRealtimeEvent(start, {
+      table: 'assets', op: 'UPDATE',
+      record:    { id: 'a3', project_id: 'p1', name: 'Back', sort_order: 2, deleted_at: null, updated_at: T2 },
+      oldRecord: { id: 'a3', project_id: 'p1', name: 'Back', sort_order: 2, deleted_at: T1,   updated_at: T1 },
+    }, { pendingFields: noPending })
     expect(effects).toEqual([{ type: 'refetch' }])
   })
 
@@ -407,15 +429,26 @@ describe('key-date live sync (0077)', () => {
     expect(bundle).toBe(start)
   })
 
-  it('the four 0040 entities are NOT live-synced, on purpose', () => {
-    // Audrey's ruling, asserted rather than trusted to a comment. Each of
-    // these arrives as an unknown table and leaves the bundle identical.
+  it('an event for a table outside the map changes nothing', () => {
+    // ⚠️ WHAT THIS DOES AND DOES NOT PROVE. R1 was right that the first
+    // version of this overclaimed: it was titled "the four 0040 entities are
+    // NOT live-synced, on purpose" and presented as Audrey's ruling asserted
+    // in code, but applyRealtimeEvent returns the identity for ANY table
+    // absent from TABLE_TO_COLLECTION, so it passed identically for
+    // 'nonsense_table' and was fully subsumed by the exact-key-list assertion
+    // above. It is a test of the MECHANISM, and the nonsense table is included
+    // to say so out loud.
+    //
+    // The ruling's real machine-check is in the database, where the thing that
+    // could actually be lost lives: 72_milestone_realtime.sql probes 11-14
+    // assert that scenes, shots, levels and experiences carry no trigger
+    // running fn_realtime_broadcast — matched by FUNCTION, not by name.
     const start = makeBundle({ scenes: [], shots: [], levels: [], experiences: [] })
-    for (const table of ['scenes', 'shots', 'levels', 'experiences']) {
+    for (const table of ['scenes', 'shots', 'levels', 'experiences', 'nonsense_table']) {
       const { bundle, effects } = applyRealtimeEvent(
         start, { table, op: 'INSERT', record: { id: 'x1', project_id: 'p1' } },
         { pendingFields: noPending })
-      expect(bundle, table + ' must not merge — it is not broadcast').toBe(start)
+      expect(bundle, table + ' is not in the map, so nothing may merge').toBe(start)
       expect(effects).toEqual([])
     }
   })

@@ -348,6 +348,15 @@ In the app a milestone is called a **key date**: the toolbar button is
     - **Expect:** the panel does NOT show a "removed for good in N days"
       countdown here. Nothing purges on Local Server, so promising a deadline
       would be a lie. If you DO see a countdown on the desktop, say so.
+30b. **The Tasks tab's own button, on the desktop.** Still on Local Server,
+    open the `Tasks` tab, delete a key date from its row, then press
+    `Deleted Key Dates` in that toolbar and `Restore` it.
+    - **Expect:** the same list the Timeline's `Deleted` shows, the row comes
+      back, and — as in step 30 — **no** "removed for good in N days"
+      countdown, because nothing purges on Local Server.
+    - **If instead** you see a countdown here but not on the Timeline (or the
+      other way round): record which screen. The two panels are supposed to be
+      the same panel.
 31. **A deleted key date does not come back by itself.** Delete one, leave it
     deleted, restart the app.
     - **Expect:** it is still gone from the timeline, and still listed under
@@ -418,10 +427,11 @@ Walkthrough 06 Part 2 — key dates (A2 session 2) — date:
 24b redo worked / undone CREATE left nothing in Deleted: Y/N Y/N
 27 reviewer: list readable Y/N, Restore refused readably (not a raw error) Y/N
 27b Tasks tab: deleted with no dialog / toast Undo worked: Y/N Y/N
-27b Deleted Key Dates button present on Tasks / Restore from it worked: Y/N Y/N
+27c Deleted Key Dates button present on Tasks / Restore from it worked: Y/N Y/N
 28 desktop create: Y/N
 29 desktop Undo survived an app RESTART: Y/N
 30 desktop Restore survived a restart: Y/N   countdown shown (should be N): Y/N
+30b desktop Tasks tab: Deleted Key Dates listed it / Restore worked / no countdown: Y/N Y/N Y/N
 31 deleted key date stayed deleted after a restart: Y/N
 32 live sync, NO reload -- a add / b date move / c delete / d restore: Y/N Y/N Y/N Y/N
 33 the new key date landed in DATE ORDER on the Tasks tab: Y/N
