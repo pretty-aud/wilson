@@ -5,7 +5,8 @@ ready to test now. The second half (previews and long video on a company's own
 S3 bucket) waits until your S3-compatible test bucket exists as a workspace on
 dev, and will be appended here when that half ships.
 
-What you need: the beta (staging-backed), a company you can sign into as an
+What you need: the app run from the `track-c-storage` branch (see the box
+below; the beta only once this has merged), a company you can sign into as an
 **admin**, and two files bigger than **50 MB** each (only uploads above 50 MB
 take the resumable path that reserves space — a 30 MB file will not exercise
 any of this). A screen recording of a few minutes is plenty; two ~200 MB video
@@ -15,10 +16,13 @@ Where things are: the Petal cloud plan for a company is set from the
 **operator console** (Storage column → the company's plan panel); the
 company's own view of it is the **Admin Terminal → Storage** card.
 
-⚠️ **Do not start until you are told the bundle is on the beta.** Staging's
-database already carries migration 0073 and the new `storage-gc`; the app
-side arrives with the merge into `feat/multi-user-v1`, which deploys the beta.
-On the beta before that merge, uploads simply behave as they did.
+⚠️ **Where to run it.** Dev's database and staging's both carry migration
+0073 and the new `storage-gc` already; the APP side is on the
+`track-c-storage` branch and reaches the beta only with the merge that
+follows your report. So run it from the branch: in `WILSON/`,
+`git checkout track-c-storage`, `npm install`, `npm run dev`, and sign in as
+usual (your `.env.local` decides whether that is dev or staging — either
+works). On the beta before the merge, uploads simply behave as they did.
 
 ---
 
@@ -28,8 +32,8 @@ On the beta before that merge, uploads simply behave as they did.
    `quota` to a number just larger than ONE of your two files but smaller
    than both together. The field takes **gigabytes** and accepts decimals, so
    two 200 MB clips → type `0.3`. Status `active`.
-2. Sign in to the beta as an admin of that company. Open a project, then
-   **Files**. Confirm the Admin Terminal → Storage card shows the new quota.
+2. Sign in as an admin of that company. Open a project, then **Files**.
+   Confirm the Admin Terminal → Storage card shows the new quota.
 3. Add the first clip. While it is uploading (you will see the progress bar),
    add the second clip **from a second browser tab**: open the same project's
    Files in another tab and use Add files there. (In the tab that is
@@ -55,14 +59,17 @@ On the beta before that merge, uploads simply behave as they did.
 4. Add the second clip again now that the first has finished.
 
    **Expected:** refused again — this time by the ordinary quota, unchanged:
-   with 200 MB landed of a 0.3 GB plan the sentence is the same shape as before
-   ("… is 200 MB, but only 107 MB of this company's 307 MB Petal cloud storage
-   is left …"). The "has used all …" wording appears only once a plan is
-   completely full, which two 200 MB clips against 0.3 GB never reach.
+   with one clip landed of a 0.3 GB plan the sentence is the not-enough-space
+   one: "Not enough Petal cloud storage for "clip.mov": it needs 200 MB, but
+   only 107 MB of this company's 307 MB is left once uploads already in
+   progress are counted …" (the figures follow your clip's real size; those
+   are for a clip of exactly 200 MiB). The "has used all …" wording appears
+   only once a plan is completely full, which two 200 MB clips against 0.3 GB
+   never reach.
 
-5. Open Admin Terminal → Storage while an upload is in progress (start a third
-   one if you need to — it will be refused, that is fine; instead, raise the
-   quota first if you want to watch this).
+5. Open Admin Terminal → Storage while an upload is in progress. (If nothing
+   fits any more, raise the quota first so a clip fits, start it, and look at
+   the card while the progress bar is moving.)
 
    **Expected:** the "used" figure INCLUDES the upload in progress. Reserved
    space shows as used space until the upload lands, is released, or expires.
@@ -75,11 +82,13 @@ On the beta before that merge, uploads simply behave as they did.
    progress bar is moving, **close the browser tab** (or the desktop app).
    Do not come back to it.
 
-   ⚠️ Close the tab; do not pull the network cable. An upload that *fails*
-   with an error releases its reservation on the way out and is not certified
-   (a stated limit — see the Systems Handbook §17); only an upload the app
-   never got to finish is. There is no cancel button on an upload in
-   progress, so closing the tab is the abandonment this test needs.
+   ⚠️ Close the tab (pulling the network cable also works — the app then
+   cannot reach the server to release the reservation either). What is NOT
+   certified is an upload the SERVER refused mid-way (a storage error, an
+   expired session): the app releases that reservation on the way out, a
+   stated limit — see the Systems Handbook §17. There is no cancel button on
+   an upload in progress, so closing the tab is the abandonment this test
+   needs.
 2. Wait **24 hours** — the reservation lasts exactly as long as Supabase keeps
    an unfinished upload, and it cannot be called abandoned before then.
 3. Next day, as the company admin, look for the certificate. The sweep runs

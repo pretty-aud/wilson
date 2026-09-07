@@ -376,10 +376,12 @@ should state partial-upload disposal as the platform's control (AS-3.15,
 chain-of-custody satisfied for receipt-through-abandonment; disposal
 inherited). The same reservation row is what closes the concurrency hole in
 the quota gate (`petal_storage_quota_insert` now weighs active reservations).
-**Coverage limit (review round 1, 2026-09-06):** the certificate covers uploads
-that never reached the client's release — a closed tab, a crash, the app quit
-mid-upload — not an upload that failed with an error and released on the way
-out; those rows stay queryable (`upload_reservations.outcome = 'released'` with
+**Coverage limit (review rounds 1–2, 2026-09-06):** the certificate covers
+uploads that never reached the client's release — a closed tab, a crash, the
+app quit mid-upload, and a network drop (the release RPC rides the same
+network) — not an upload that failed while the client could still reach the
+server (a storage 5xx, an expired session) and so released on the way out;
+those rows stay queryable (`upload_reservations.outcome = 'released'` with
 no object at the path) but carry no certificate. Whether a failed upload should
 be certified at once is a ruling owed by Audrey (hand-off C1 §6); the pack
 should describe the certificate's scope as "abandoned by the client without

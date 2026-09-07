@@ -74,12 +74,17 @@ SELECT is(
 -- PUBLIC (the docs say so — table_privileges is the view that shows them), so
 -- `grantee IN ('anon', 'PUBLIC')` could never see a PUBLIC grant. anon INHERITS
 -- PUBLIC, so asking what anon can do covers both, for every privilege.
+-- All SEVEN table privileges (round 2: naming four had let a TRUNCATE grant —
+-- which bypasses RLS, and which 0073 explicitly revokes — pass as "nothing").
 SELECT ok(
   NOT has_table_privilege('anon', 'public.upload_reservations', 'SELECT')
   AND NOT has_table_privilege('anon', 'public.upload_reservations', 'INSERT')
   AND NOT has_table_privilege('anon', 'public.upload_reservations', 'UPDATE')
-  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'DELETE'),
-  'anon — and so PUBLIC, which anon inherits — holds nothing on upload_reservations');
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'DELETE')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'TRUNCATE')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'REFERENCES')
+  AND NOT has_table_privilege('anon', 'public.upload_reservations', 'TRIGGER'),
+  'anon — and so PUBLIC, which anon inherits — holds none of the seven privileges on upload_reservations');
                                                                             -- 4
 
 SELECT is(

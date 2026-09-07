@@ -119,7 +119,7 @@ export default function StorageCleanupCard() {
                 without 0073 does not pass for "nothing to certify". */}
             {counts.reservations_abandoned > 0 && <> {counts.reservations_abandoned} abandoned upload(s) certified.</>}
             {counts.reservations_completed > 0 && <> {counts.reservations_completed} finished upload(s) closed.</>}
-            {counts.reservation_sweep_failed && <> The abandoned-upload sweep did NOT run (migration 0073 is not applied on this database).</>}
+            {counts.reservation_sweep_failed && <> The abandoned-upload sweep did NOT answer, so the counts above do not cover it — usually a database without migration 0073; otherwise the RPC failed (see Logs).</>}
           </span>
         </div>
       )}

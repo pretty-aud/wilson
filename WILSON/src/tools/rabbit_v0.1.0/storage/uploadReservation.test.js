@@ -115,6 +115,9 @@ describe('reserveUpload', () => {
   it('without a display name the server sentence is shown verbatim', async () => {
     await expect(reserveUpload(fakeClient({ reserve: REFUSED }), KEY, BIG.size))
       .rejects.toThrow(/for "1-master.mov": it needs 6144 MB/)
+    // ...and a null options argument is an absent one, not a TypeError.
+    await expect(reserveUpload(fakeClient({ reserve: REFUSED }), KEY, BIG.size, null))
+      .rejects.toThrow(/for "1-master.mov": it needs 6144 MB/)
   })
 })
 

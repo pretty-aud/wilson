@@ -80,7 +80,8 @@ export function nameTheFile(message, key, displayName) {
  * @param {{displayName?: string}} [opts] the file's own name, for the refusal
  *   sentence only — it is never sent to the server
  */
-export async function reserveUpload(client, key, bytes, { displayName } = {}) {
+export async function reserveUpload(client, key, bytes, opts) {
+  const displayName = opts?.displayName
   const size = Math.floor(Number(bytes))
   if (!Number.isFinite(size) || size <= 0) return { reserved: false, reason: 'no-size' }
 

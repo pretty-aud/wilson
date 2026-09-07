@@ -428,14 +428,18 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
   // ASSIGNS the cap (an executable `file_size_limit = N` or a bucket VALUES
   // row), never because it merely mentions the column.
   const executableSql = (src) => executable(src).replace(/--[^\n]*/g, '')
-  // Review round 1 (2026-09-06): the VALUES form names the bucket. A bare
-  // `VALUES (..., <4+ digits>)` admitted 0053's thumbnails-bucket row as an
-  // "assignment of the rabbit-files cap" (0027's own bucket row IS one), so any future
-  // migration that mentioned rabbit-files and inserted a row with a number
-  // would have become "the last migration that sets the cap" — a false red
-  // rather than a false green, but the same class of trap.
+  // Review rounds 1–2 (2026-09-06): an ASSIGNMENT is `SET … file_size_limit = N`
+  // (an UPDATE, or the DO UPDATE arm of an upsert) or a bucket VALUES row that
+  // names 'rabbit-files'. A bare `file_size_limit = N` also matched the WHERE
+  // comparisons in 0053's and 0057's post-conditions (`AND file_size_limit =
+  // 262144` — another bucket's cap being READ), which made 0053 a candidate
+  // and let 0057's reads ride along in its assigned list. Round 1 tightened
+  // only the VALUES arm and changed nothing measurable; round 2 measured that
+  // and fixed the arm that mattered. A future migration whose post-condition
+  // merely compares a cap can no longer become "the last migration that sets
+  // it".
   const capAssignments = (sql) =>
-    [...sql.matchAll(/file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
+    [...sql.matchAll(/\bSET\s+(?:[^;]*?,\s*)?file_size_limit\s*=\s*(\d+)/g)].map(m => m[1])
       .concat([...sql.matchAll(/VALUES\s*\(\s*'rabbit-files'[^)]*?,\s*(\d{4,})\s*\)/g)].map(m => m[1]))
 
   it('🚨 mirrors the LAST migration that sets rabbit-files file_size_limit', () => {
@@ -462,6 +466,16 @@ describe('uploadNotices — provider-keyed, and only one case blocks', () => {
     const readOnly = executableSql(readFileSync(join(dir, '0073_upload_reservations.sql'), 'utf-8'))
     expect(/file_size_limit/.test(readOnly)).toBe(true)
     expect(capAssignments(readOnly)).toEqual([])
+    // ...nor is one whose post-condition COMPARES another bucket's cap (0053's
+    // `AND file_size_limit = 262144`) — the round-2 breaker: the bare
+    // `file_size_limit = N` arm admitted it.
+    const compares = executableSql(readFileSync(join(dir, '0053_thumbnails_bucket.sql'), 'utf-8'))
+    expect(/file_size_limit\s*=\s*\d+/.test(compares)).toBe(true)
+    expect(capAssignments(compares)).toEqual([])
+    // ...and the migration that DOES assign it yields exactly its assignment,
+    // never its own post-condition reads.
+    const assigns = executableSql(readFileSync(join(dir, '0057_cloud_multi_gb.sql'), 'utf-8'))
+    expect(capAssignments(assigns)).toEqual(['53687091200'])
   })
 
   // ...and the constant is the 50 GiB Audrey chose, stated once so a typo in the

@@ -195,11 +195,13 @@ export function classifyUpload(file, {
             '(uploads in progress count). Contact Petal to raise the plan — deleting ' +
             'files does not free space straight away, because deleted files stay ' +
             'recoverable for 30 days.'
-          : `"${file?.name || 'This file'}" is ${formatBytes(size)}, but only ` +
-            `${formatBytes(remaining)} of this company's ${formatBytes(quota)} Petal ` +
-            'cloud storage is left once uploads already in progress are counted. Add a ' +
-            'smaller file, or contact Petal to raise the plan — deleting files does not ' +
-            'free space straight away, because deleted files stay recoverable for 30 days.',
+          // Byte for byte the sentence reserve_upload_bytes raises (0073), so a
+          // tester answered by either layer reads one sentence (review round 2).
+          : `Not enough Petal cloud storage for "${file?.name || 'this file'}": it needs ` +
+            `${formatBytes(size)}, but only ${formatBytes(remaining)} of this company's ` +
+            `${formatBytes(quota)} is left once uploads already in progress are counted. ` +
+            'Add a smaller file, or contact Petal to raise the plan — deleting files does ' +
+            'not free space straight away, because deleted files stay recoverable for 30 days.',
         notes,
       }
     }

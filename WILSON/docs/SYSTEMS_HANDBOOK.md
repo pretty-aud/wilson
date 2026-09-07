@@ -1659,8 +1659,12 @@ Function (adminGuard, workspace-scoped) then does four jobs:
    object landed, or a `files` row names the path) or `abandoned` (one
    `file_events` `upload_abandoned` row, TPN-CONT-017). The counts land on the
    certificate as `reservations_abandoned` / `reservations_completed`, and
-   `reservation_sweep_failed: true` says the RPC itself failed — a database
-   without 0073 — rather than letting 0/0 claim a sweep that never ran. It
+   `reservation_sweep_failed: true` says the sweep did not run to completion
+   — the RPC is missing (a database without 0073), it raised, or the run died
+   before step 4: the flag STARTS true and is cleared only when the RPC
+   answers, so the `WIL-3004` failure certificate, which carries the same
+   counts, can never claim a sweep that never ran (review round 1) — rather
+   than letting 0/0 claim one. It
    destroys nothing (the partial is reaped by Supabase's own 24 h TUS expiry,
    which nothing here can see), so TS-1.5's dual-authorisation argument does
    not bind it and the same function also runs **hourly under pg_cron**
@@ -3376,11 +3380,13 @@ of a session — this section is limits by design, that file is faults.
   behaviour, never a refusal. An abandoned upload's reservation expires and is
   certified `upload_abandoned` by the sweep (§12.4): the certificate names the
   abandonment, not the disposal of bytes, which SQL cannot see. **Two more
-  limits, found by the review (2026-09-06):** a resumable upload that FAILS with
-  an error (tus gave up after its retries — the network dropped, a 5xx) releases
-  its reservation on the way out, so it is *not* certified; only an upload that
-  never reached the client's own release — a closed tab, a crash, the app
-  quit mid-upload — is. The partial a failed upload leaves is still reaped by
+  limits, found by the review (2026-09-06):** a resumable upload that FAILS
+  while the client can still reach the server (storage answered a 5xx, the
+  session expired mid-way) releases its reservation on the way out, so it is
+  *not* certified; an upload that fails because the NETWORK dropped cannot
+  release either — that RPC rides the same network and swallows its own
+  failure — so it, like a closed tab, a crash or the app quit mid-upload,
+  leaves the row to expire and IS certified. The partial a failed upload leaves is still reaped by
   Supabase's 24 h expiry, and its `upload_reservations` row stays queryable
   (`outcome = 'released'`, no object at the path), but it carries no
   certificate — whether such a failure should be certified at once is a ruling
