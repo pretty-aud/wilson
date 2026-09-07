@@ -85,4 +85,29 @@ describe('no container segment can reach the money-gated namespace', () => {
       expect(seg).toMatch(/^[a-z]+$/)
     }
   })
+
+  // ── Track C, bundle C3 (MASTER_PLAN §6 #31) ─────────────────────────────
+  it('a D.O.G. deck attachment cannot be money-gated', () => {
+    // The brief's own requirement: "attachments count toward the Petal meter
+    // and are never money-gated unless someone puts them under a reserved
+    // segment — assert they cannot be."
+    //
+    // This is the EXACT scope ProjectsPage.handleFileUpload and D.O.G.'s
+    // new-project modal pass. Neither sets `financial`, and neither sets any
+    // container id, so the container is the project itself and the third path
+    // segment is the literal 'project' — which rabbit_money_segment() does not
+    // match in any case. The check above covers every scope shape; this one
+    // covers the caller, because a future edit is far more likely to change
+    // what the drop zone PASSES than to change uploadContainerFor.
+    const attachmentScope = { documentKind: 'brief', isCoreDefiner: false }
+    const c = uploadContainerFor(attachmentScope, 'p1')
+    expect(c.seg).toBe('project')
+    expect(c.id).toBe('p1')
+    expect(['INVOICES', RATES_SEGMENT.toUpperCase()]).not.toContain(c.seg.toUpperCase())
+    // And nothing in that scope is truthy under the name uploadFile reads for
+    // the money branch — `scope.financial`. An attachment reaching the
+    // INVOICES segment would be readable only by managers, so the person who
+    // uploaded it could not read their own brief back.
+    expect(attachmentScope.financial).toBeUndefined()
+  })
 })
