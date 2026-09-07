@@ -63,6 +63,7 @@ jobs:
             project_members
             notes note_subjects
             app_events
+            auth_events
             otter_courses otter_subjects otter_progress
             otter_course_editors otter_change_requests
             otter_course_nominations
