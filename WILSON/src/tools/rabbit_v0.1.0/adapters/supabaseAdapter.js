@@ -336,6 +336,28 @@ const LEVEL_COLUMNS = new Set([
 
 const EXPERIENCE_COLUMNS = new Set(LEVEL_COLUMNS);
 
+// ── 0067: milestones ─────────────────────────────────────────────────────
+// The columns TimelineView's editor actually writes for mode 'milestone'
+// ({ title, date, color, description, phase_id }) plus the id/project spine
+// and the workspace/audit columns every RABBIT row carries.
+//
+// `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
+// provider re-sends whole rows on update. `deleted_at` / `deleted_by` are NOT:
+// a client never writes them — the two trash RPCs do, as definer — and
+// admitting them would let a plain upsert set deleted_at, which
+// milestones_update would then refuse with an RLS violation rather than a
+// message anyone can read.
+//
+// `isProjectBound` is not a column and is not meant to be: TimelineView
+// synthesizes project-start/end markers with that flag and refuses to open the
+// editor on them, so one can never reach a write. toColumns drops it if a
+// future affordance ever does.
+const MILESTONE_COLUMNS = new Set([
+  'id', 'project_id', 'workspace_id', 'phase_id',
+  'title', 'date', 'color', 'description', 'sort_order',
+  'created_at', 'created_by', 'updated_at', 'updated_by',
+]);
+
 // ── 0041: the folder tree ────────────────────────────────────────────────
 // `workspace_id` is here for the same reason it is on SCENE_COLUMNS: the
 // provider re-sends whole rows on update and PATCH_DROP strips it first.
@@ -493,6 +515,7 @@ export const COLUMN_ALLOWLIST = {
   experiences: EXPERIENCE_COLUMNS,
   folders: FOLDER_COLUMNS,
   task_templates: TASK_TEMPLATE_COLUMNS,
+  milestones: MILESTONE_COLUMNS,
 };
 
 /**
@@ -536,7 +559,10 @@ export function uploadContainerFor(scope = {}, projectId = null) {
 // column and takes the whole request with it. `x || null` is not enough on
 // its own here (that was the S23 lesson about the KEY still being emitted);
 // the value has to become a real NULL.
-const DATE_FIELDS = new Set(['purchase_date', 'start_date', 'end_date', 'due_date', 'locked_at']);
+// `date` is milestones' own column (0067) and the only bare `date` in the
+// schema. It is here for the same reason as the others: a DATE column refuses
+// an empty string with 22007, and an editor that clears a field sends ''.
+const DATE_FIELDS = new Set(['purchase_date', 'start_date', 'end_date', 'due_date', 'locked_at', 'date']);
 
 function blankDatesToNull(row) {
   if (!row || typeof row !== 'object') return row;
@@ -863,7 +889,14 @@ export function supabaseAdapter() {
       // Session 26: `folders` joins for the third time for the same reason.
       // Ordered by path so the tree renders depth-first without a client-side
       // sort, and so both adapters return it in the same order.
-      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders] =
+      //
+      // A2 session 2: `milestones` joins for the fourth time for the same
+      // reason — and this key is the one with a proven cost. S17 found that
+      // localServerAdapter omitted it (§6 #47) and every milestone was reset
+      // to [] on each load, project switch and realtime refetch: real data
+      // loss, found by reading rather than by a test. Ordered by date, which
+      // is how the timeline draws them and what makes both adapters agree.
+      const [project, phases, assets, tasks, dependencies, taskLinks, files, assetVersions, comments, ingestionRuns, budgetVersions, expenses, projectMembers, scenes, shots, levels, experiences, folders, milestones] =
         await Promise.all([
           client.from('projects').select('*').eq('id', projectId).single().then(unwrap),
           client.from('phases').select('*').eq('project_id', projectId).order('sort_order').then(unwrap),
@@ -905,11 +938,13 @@ export function supabaseAdapter() {
             .order('sort_order').then(unwrapOptionalTable),
           client.from('folders').select('*').eq('project_id', projectId)
             .order('path').then(unwrapOptionalTable),
+          client.from('milestones').select('*').eq('project_id', projectId)
+            .order('date').then(unwrapOptionalTable),
         ]);
       return {
         project, phases, assets, tasks, dependencies, taskLinks, files,
         assetVersions, comments, ingestionRuns, budgetVersions, expenses,
-        scenes, shots, levels, experiences, folders,
+        scenes, shots, levels, experiences, folders, milestones,
         teamAssignments: (projectMembers || []).map(m => ({
           project_id: m.project_id,
           member_id: m.user_id,
@@ -2404,9 +2439,65 @@ export function supabaseAdapter() {
       unwrap(await client.from('folders').delete().eq('id', id));
     },
 
-    // ── Milestones (tables pending — Phase 2) ───────────────
-    async upsertMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
-    async deleteMilestone() { throw new Error('[supabase] milestones table not yet created — use local_server adapter'); },
+    // ── Milestones (0067) ─────────────────────────────────────
+    //
+    // Session A2s2 — ruling 26 ("build cloud milestones like scenes and levels
+    // got") and ruling 38 (trash + undo). These two methods threw "table not
+    // yet created" until 0067; there was no list method and no `milestones`
+    // key in loadProject, so the cloud timeline drew none and every create
+    // raised.
+    //
+    // Shape matches localServerAdapter exactly: list(projectId), upsert(row),
+    // delete(id, projectId). The projectId on delete is unused here — the id
+    // is a UUID primary key and RLS already scopes it to the caller's
+    // workspace — but it is in the signature for interface parity, as
+    // deleteScene's is.
+    //
+    // Every upsert runs toColumns: RabbitProvider.updateMilestone re-sends the
+    // WHOLE existing row merged with the patch, so any key the row picked up
+    // elsewhere would PGRST204 the entire write without it. That is exactly
+    // how task creation broke in S23.
+    async listMilestones(projectId) {
+      const client = await requireClient();
+      return unwrapOptionalTable(await client.from('milestones').select('*')
+        .eq('project_id', projectId).order('date'));
+    },
+    async upsertMilestone(milestone) {
+      const client = await requireClient();
+      const row = toColumns('milestones', blankDatesToNull(milestone));
+      return unwrap(await client.from('milestones').upsert(row).select().single());
+    },
+    // 🚨 SOFT delete, unlike deleteScene's hard one. Ruling 38 asks for trash
+    // and undo, and 0067 gave milestones deleted_at from day one. The RPC is
+    // the only path in: a plain UPDATE setting deleted_at is refused, because
+    // Postgres applies milestones_select to the NEW row and the new row is
+    // trashed and therefore invisible (0014 measured that live on wilson-dev).
+    async deleteMilestone(id, _projectId) {
+      const client = await requireClient();
+      return unwrap(await client.rpc('soft_delete_row', { p_table: 'milestones', p_id: id }));
+    },
+    // `_projectId` is unused here (the id is a UUID primary key and RLS scopes
+    // it), but the local adapter needs it to address its bundle, so both take
+    // it and the provider has ONE call shape — the deleteScene precedent.
+    async restoreMilestone(id, _projectId) {
+      const client = await requireClient();
+      // Returns the RPC's boolean: false = the row was already live (someone
+      // else restored it first) — callers must not treat that as a fresh
+      // restore. Same contract as restoreAsset (Session 7 review finding).
+      return unwrap(await client.rpc('restore_soft_deleted', { p_table: 'milestones', p_id: id }));
+    },
+    // "Recently deleted". NOT a table read: milestones_select filters
+    // deleted_at, so a trashed row is invisible through the table by design —
+    // which is what keeps it off the timeline. 0067's SECURITY DEFINER index
+    // is the read path, and it carries purges_at for the 30-day countdown.
+    async listTrashedMilestones(projectId) {
+      const client = await requireClient();
+      // unwrapOptionalTable so a client deployed ahead of 0067 shows an empty
+      // trash instead of failing the whole panel; see the helper for why only
+      // 42P01/PGRST205 are absorbed.
+      return unwrapOptionalTable(
+        await client.rpc('milestones_trash_index', { p_project_id: projectId }));
+    },
 
     // ── Realtime (Session 7, migration 0016) ──────────────────
     // Joins the private broadcast channel `rabbit:project:{id}` fed by the

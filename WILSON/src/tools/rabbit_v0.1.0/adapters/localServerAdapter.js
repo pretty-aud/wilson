@@ -115,7 +115,16 @@ export function localServerAdapter() {
         // setActiveProject does setBundle({...EMPTY_BUNDLE, ...next}), so a
         // missing key reset the array — real data loss on every reload,
         // project switch and realtime refetch.
-        milestones:      bundle.milestones || [],
+        //
+        // A2 session 2, ruling 38: trashed milestones are FILTERED OUT here,
+        // not deleted on the server. The desktop DELETE now stamps deleted_at
+        // (main.cjs, the softDelete opt) and the row stays in the bundle so
+        // Undo and "Recently deleted" have something to restore. This filter
+        // is what keeps it off the timeline, and it is the local mirror of
+        // milestones_select's `deleted_at IS NULL` arm in 0067 — the two
+        // backends must hide the same rows or the same project looks
+        // different depending on where it is stored.
+        milestones:      (bundle.milestones || []).filter(m => !m.deleted_at),
       };
     },
 
@@ -531,8 +540,16 @@ export function localServerAdapter() {
       }),
 
     // ── Milestones ────────────────────────────────────────────
+    //
+    // A2 session 2, ruling 38: trash and undo, on BOTH backends. The DELETE
+    // below is unchanged as a call — the SERVER now stamps deleted_at rather
+    // than splicing (main.cjs, the softDelete opt) — and the two new methods
+    // mirror the supabase adapter's restoreMilestone / listTrashedMilestones
+    // so RabbitProvider needs no per-adapter branch beyond the capability
+    // check it already does for phases (`typeof adapter.restorePhase`).
     listMilestones: async (projectId) =>
-      (await jfetch(`${BASE}/projects/${projectId}`)).milestones || [],
+      ((await jfetch(`${BASE}/projects/${projectId}`)).milestones || [])
+        .filter(m => !m.deleted_at),
     upsertMilestone: (milestone) => jfetch(`${BASE}/projects/${milestone.project_id}/milestones`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -540,6 +557,19 @@ export function localServerAdapter() {
     }),
     deleteMilestone: async (id, projectId) =>
       jfetch(`${BASE}/projects/${projectId}/milestones/${id}`, { method: 'DELETE' }),
+    // Answers the same boolean the cloud RPC does: false = already live.
+    restoreMilestone: async (id, projectId) =>
+      !!(await jfetch(`${BASE}/projects/${projectId}/milestones/${id}/restore`, {
+        method: 'POST',
+      })).restored,
+    // "Recently deleted", newest first — the same order 0067's
+    // milestones_trash_index returns. The trashed rows are already in the
+    // bundle here (loadProject filters them out for the timeline), so this
+    // needs no route of its own.
+    listTrashedMilestones: async (projectId) =>
+      ((await jfetch(`${BASE}/projects/${projectId}`)).milestones || [])
+        .filter(m => m.deleted_at)
+        .sort((a, b) => String(b.deleted_at).localeCompare(String(a.deleted_at))),
 
     // ── Task templates ──────────────────────────────────────────
     listTaskTemplates: (workspaceId) => jfetch(`${BASE}/workspaces/${workspaceId}/task-templates`),

@@ -76,6 +76,7 @@ import TaskDetailPopup from '../components/TaskDetailPopup'
 // editor (ruling 9), and the confirm before a dependency re-wire (ruling 7).
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import DependencyRewireModal from '../components/DependencyRewireModal'
+import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { resolveRewireDrop, describeRewire } from './dependencyRewire'
 import { RABBIT_HELP_SIDEBAR_ITEMS, RabbitHelpContent } from '../rabbitHelpContent.jsx'
 import TaskTemplateManager from '../../../components/TaskTemplates/TaskTemplateManager'
@@ -323,6 +324,8 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
 
   // ── editor ───────────────────────────────────────────────
   const [editor, setEditor] = useState(null)
+  // Ruling 38's "Recently deleted" panel for key dates.
+  const [trashOpen, setTrashOpen] = useState(false)
   const closeEditor = () => setEditor(null)
 
   // Shared task-detail popup (same component used in Tasks tab)
@@ -790,6 +793,7 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
         onNewPhase={() => openNewPhase()}
         onNewTask={() => openNewTask()}
         onNewMilestone={() => openNewMilestone()}
+        onOpenMilestoneTrash={() => setTrashOpen(true)}
         canWrite={canWrite}
         writeReason={writeReason}
         groupBy={groupBy}
@@ -921,6 +925,21 @@ export default function TimelineView({ settings, patchSettings, holidays }) {
           writeReason={writeReason}
         />
       )}
+
+      {/* ── Recently deleted key dates (ruling 38) ── */}
+      <MilestoneTrashModal
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onList={ctx?.listTrashedMilestones}
+        onRestore={ctx?.restoreMilestone}
+        canWrite={canWrite}
+        writeReason={writeReason}
+        // The 30-day countdown is a cloud fact: purge_soft_deleted runs on a
+        // pg_cron job there (0014 §4) and nothing purges on the desktop, so
+        // the panel must not promise a deadline the Local Server will never
+        // meet.
+        purgeScheduled={ctx?.adapterMode !== 'local_server'}
+      />
 
       {/* ── Shared task detail popup (same component as Tasks tab) ── */}
       {detailTaskId && (
@@ -4851,7 +4870,7 @@ function DetailZoomToolbar({
   zoomId, onChange, onCenterToday,
   sortOrder = 'asc', onSortOrderChange,
   canUndo = false, canRedo = false, onUndo, onRedo,
-  onNewPhase, onNewTask, onNewMilestone,
+  onNewPhase, onNewTask, onNewMilestone, onOpenMilestoneTrash,
   canWrite = true, writeReason = null,
   groupBy, onGroupByChange, project,
 }) {
@@ -5009,6 +5028,21 @@ function DetailZoomToolbar({
             Key Date
           </button>
         </GatedAction>
+        {/* Ruling 38: the slow path back from a deleted key date. The undo
+            toast covers the moment after a delete; this covers yesterday,
+            another session, and someone else's delete. Not gated — reading
+            the trash is a read, and the Restore button inside it carries its
+            own gate. */}
+        <button
+          type="button"
+          onClick={onOpenMilestoneTrash}
+          className="flex items-center gap-1 px-2.5 py-1 text-[10.5px] font-mono uppercase tracking-wider rounded-sm transition-colors hover:bg-stone-800"
+          style={{ color: '#a8a29e' }}
+          title="Recently deleted key dates"
+        >
+          <Trash2 className="w-3 h-3" />
+          Deleted
+        </button>
         <GatedAction allowed={canWrite} reason={writeReason}>
           <button
             type="button"

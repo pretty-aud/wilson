@@ -1821,6 +1821,12 @@ function startLocalServer(distPath) {
     // breaks them.
     function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null, opts) {
       const sweepDependencies = !!(opts && opts.sweepDependencies);
+      // A2 session 2, ruling 38: milestones trash instead of vanishing. The
+      // cloud got this from 0014's machinery via 0067; the desktop has no
+      // such machinery, so DELETE stamps deleted_at on the row and a restore
+      // route clears it. The bundle keeps the row either way — that is what
+      // makes "Recently deleted" and Undo work here at all.
+      const softDelete = !!(opts && opts.softDelete);
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -1861,12 +1867,47 @@ function startLocalServer(distPath) {
         const bundle = readRabbitBundle(req.params.projectId);
         if (!bundle) return rabbitNotFound(res);
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
+        if (softDelete) {
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && !x.deleted_at);
+          // !deleted_at above, matching the read path: deleting an already
+          // trashed row is a 404, not a second stamp that would move its
+          // purge countdown. Same shape as the managed-file soft delete.
+          if (idx < 0) return rabbitNotFound(res, entityName);
+          arr[idx] = { ...arr[idx], deleted_at: new Date().toISOString() };
+          writeRabbitBundle(req.params.projectId, bundle);
+          return res.json({ ok: true, swept: 0, softDeleted: true });
+        }
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
         const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
         writeRabbitBundle(req.params.projectId, bundle);
         res.json({ ok: true, swept });
       });
+      // RESTORE — registered only for soft-delete entities, so a hard-delete
+      // entity has no route that could half-work.
+      if (softDelete) {
+        expressApp.post(`/api/rabbit/projects/:projectId/${entityName}/:id/restore`, (req, res) => {
+          const bundle = readRabbitBundle(req.params.projectId);
+          if (!bundle) return rabbitNotFound(res);
+          if (!bundle[bundleKey]) bundle[bundleKey] = [];
+          const arr = bundle[bundleKey];
+          const idx = arr.findIndex(x => x.id === req.params.id && x.deleted_at);
+          // A row that is already live answers `restored: false` rather than
+          // 404: the cloud's restore_soft_deleted returns false in exactly
+          // that case (someone else restored it first) and the caller must
+          // read the two backends the same way.
+          if (idx < 0) {
+            const live = arr.some(x => x.id === req.params.id);
+            if (!live) return rabbitNotFound(res, entityName);
+            return res.json({ ok: true, restored: false });
+          }
+          const { deleted_at: _dropped, ...rest } = arr[idx];
+          arr[idx] = rest;
+          writeRabbitBundle(req.params.projectId, bundle);
+          res.json({ ok: true, restored: true });
+        });
+      }
     }
 
     rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true });
@@ -2064,7 +2105,9 @@ function startLocalServer(distPath) {
     rabbitSubentityRoutes('shots',           'shots',       'shot');
     rabbitSubentityRoutes('levels',          'levels',      'level');
     rabbitSubentityRoutes('experiences',     'experiences', 'experience');
-    rabbitSubentityRoutes('milestones',      'milestones');
+    // Ruling 38: a deleted milestone goes to the trash, on BOTH backends.
+    // Not a dependency endpoint, so no sweep — a milestone has no edges.
+    rabbitSubentityRoutes('milestones',      'milestones',      null, { softDelete: true });
 
     // ── Folder tree routes (Session 26) ───────────────────────────
     //

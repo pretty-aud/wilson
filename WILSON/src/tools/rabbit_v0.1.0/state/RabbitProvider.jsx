@@ -1835,18 +1835,69 @@ export function RabbitProvider({ children }) {
 
   const deleteMilestone = useCallback(async (id) => {
     const oldMilestone = bundleRef.current.milestones.find(m => m.id === id);
+    // A2 session 2, rulings 26 and 38. Both backends now TRASH a milestone
+    // rather than destroying it — cloud through 0014's soft_delete_row (0067
+    // put milestones on its allowlist), desktop through main.cjs's softDelete
+    // opt — so undo RESTORES the row it deleted instead of inserting a new
+    // one. Re-inserting would work on neither backend now: the id still
+    // exists, trashed, and an upsert would resurrect it with deleted_at
+    // intact on the desktop and be refused by milestones_update in cloud.
+    //
+    // The capability check mirrors deletePhase's: an adapter without a
+    // restore method (a future one, or a stub) keeps the old re-insert path
+    // rather than losing undo altogether.
+    const canRestore = typeof adapterRef.current?.restoreMilestone === 'function';
     const result = await optimistic(
       prev => ({ ...prev, milestones: prev.milestones.filter(m => m.id !== id) }),
       () => adapterRef.current.deleteMilestone(id, activeProjectId),
     );
     if (oldMilestone) {
-      pushHistory({
-        undoOps: [() => mutationsRef.current.addMilestone(oldMilestone)],
+      const token = pushHistory({
+        undoOps: canRestore
+          ? [async () => {
+              await adapterRef.current.restoreMilestone(id, activeProjectId);
+              setBundle(prev => ({ ...prev, milestones: [...prev.milestones, oldMilestone] }));
+            }]
+          : [() => mutationsRef.current.addMilestone(oldMilestone)],
         redoOps: [() => mutationsRef.current.deleteMilestone(id)],
       });
+      // Ruling 38's undo toast. Assets have had one since S6 (OWED_AUDREY §3)
+      // and phases since A2 session 1; a milestone delete used to be final
+      // with nothing but a confirm dialog in front of it (MASTER_PLAN §6 #10).
+      if (token != null) {
+        showUndoToast(
+          `Deleted milestone "${oldMilestone.title || 'Untitled'}"`,
+          () => undoHistoryEntry(token),
+        );
+      }
     }
     return result;
-  }, [optimistic, activeProjectId]);
+  }, [optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  // "Recently deleted" for the timeline's trash panel. Reads the adapter
+  // directly rather than the bundle: in cloud the trashed rows are invisible
+  // to every table read by design (milestones_select filters deleted_at), so
+  // they can only come from 0067's SECURITY DEFINER index.
+  const listTrashedMilestones = useCallback(async () => {
+    if (!adapterRef.current || !activeProjectId) return [];
+    if (typeof adapterRef.current.listTrashedMilestones !== 'function') return [];
+    return (await adapterRef.current.listTrashedMilestones(activeProjectId)) || [];
+  }, [activeProjectId]);
+
+  // Restore from that panel. Unlike undo this is not a history operation —
+  // the row may have been trashed in another session entirely — so it
+  // refetches rather than replaying a captured row, and answers the adapter's
+  // boolean: false means someone else restored it first.
+  const restoreMilestone = useCallback(async (id) => {
+    if (!adapterRef.current || !activeProjectId) return false;
+    if (typeof adapterRef.current.restoreMilestone !== 'function') return false;
+    const restored = await adapterRef.current.restoreMilestone(id, activeProjectId);
+    const rows = typeof adapterRef.current.listMilestones === 'function'
+      ? await adapterRef.current.listMilestones(activeProjectId)
+      : null;
+    if (rows) setBundle(prev => ({ ...prev, milestones: rows }));
+    return restored;
+  }, [activeProjectId]);
 
   const reorderAssets = useCallback((orderedIds) => optimistic(
     prev => ({
@@ -2823,6 +2874,7 @@ export function RabbitProvider({ children }) {
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
+    listTrashedMilestones, restoreMilestone,
 
     // folders (Session 26). Exposed so S27's Files view can rebuild the
     // tree for a project that predates 0041 without inventing its own
@@ -2862,6 +2914,7 @@ export function RabbitProvider({ children }) {
     addLevel, updateLevel, deleteLevel,
     addExperience, updateExperience, deleteExperience,
     addMilestone, updateMilestone, deleteMilestone,
+    listTrashedMilestones, restoreMilestone,
     ensureProjectFoldersFor, ensureEntityFolderFor,
     undo, redo, runBatch, clearHistory, canUndo, canRedo,
     memoSelectors,

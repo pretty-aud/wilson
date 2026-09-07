@@ -97,3 +97,48 @@ describe('localServerAdapter.loadProject — bundle key coverage', () => {
     expect(bundle.project).toEqual({ id: 'p1', title: 'Project One' })
   })
 })
+
+
+// ── Milestone trash (A2 session 2, ruling 38) ───────────────────────────────
+//
+// The desktop DELETE now stamps deleted_at instead of splicing the row out
+// (electron/main.cjs, the softDelete opt), so the bundle CONTAINS trashed
+// milestones and the adapter is what keeps them off the timeline. That filter
+// is the local mirror of milestones_select's `deleted_at IS NULL` arm in 0067:
+// if the two backends disagree, the same project looks different depending on
+// where it is stored, which is the parity Audrey's Phase 3 exists to enforce.
+
+describe('localServerAdapter — trashed milestones', () => {
+  const LIVE    = { id: 'm-live',    title: 'Lock picture' }
+  const TRASHED = { id: 'm-trashed', title: 'Wrap', deleted_at: '2026-09-07T10:00:00Z' }
+  const OLDER   = { id: 'm-older',   title: 'Scout', deleted_at: '2026-09-01T10:00:00Z' }
+
+  it('loadProject hides trashed milestones and keeps live ones', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [LIVE, TRASHED] })
+    const bundle = await localServerAdapter().loadProject('p1')
+    expect(bundle.milestones).toEqual([LIVE])
+  })
+
+  it('listMilestones hides them too — the timeline reads both paths', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [LIVE, TRASHED] })
+    expect(await localServerAdapter().listMilestones('p1')).toEqual([LIVE])
+  })
+
+  it('listTrashedMilestones returns only the trashed ones, newest first', async () => {
+    // Newest first matches milestones_trash_index's ORDER BY deleted_at DESC,
+    // so the panel lists them the same way on both backends.
+    stubFetch({ project: { id: 'p1' }, milestones: [OLDER, LIVE, TRASHED] })
+    const rows = await localServerAdapter().listTrashedMilestones('p1')
+    expect(rows.map(r => r.id)).toEqual(['m-trashed', 'm-older'])
+  })
+
+  it('restoreMilestone reports the server answer as a boolean', async () => {
+    // The cloud RPC returns false when the row was already live (someone else
+    // restored it first). The desktop route answers { restored: false } in the
+    // same case, and callers must be able to read both the same way.
+    stubFetch({ ok: true, restored: false })
+    expect(await localServerAdapter().restoreMilestone('m1', 'p1')).toBe(false)
+    stubFetch({ ok: true, restored: true })
+    expect(await localServerAdapter().restoreMilestone('m1', 'p1')).toBe(true)
+  })
+})

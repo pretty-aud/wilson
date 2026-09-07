@@ -78,6 +78,11 @@ const CLOUD_BUNDLE_KEYS = [
   'teamAssignments',
   'scenes', 'shots', 'levels', 'experiences',
   'folders',
+  // 0067. The key with the proven cost: S17 found the LOCAL adapter
+  // omitting it and every milestone being reset to [] on each load — real
+  // data loss, found by reading. The cloud adapter could not omit it
+  // before now only because its two milestone methods threw outright.
+  'milestones',
 ]
 
 describe('supabaseAdapter.loadProject — bundle key coverage', () => {
@@ -254,5 +259,58 @@ describe('a client deployed ahead of migration 0040', () => {
 
     await expect(supabaseAdapter().loadProject('p1'))
       .rejects.toThrow(/permission denied/)
+  })
+})
+
+
+// ── Milestones (0067, rulings 26 and 38) ────────────────────────────────────
+
+describe('milestones ride the same load', () => {
+  it('carries milestones through with their rows', async () => {
+    globalThis.__testSupabase = makeClient({
+      projects:   { data: { id: 'p1', title: 'Project One' }, error: null },
+      milestones: { data: [
+        { id: 'm1', title: 'Lock picture', date: '2026-10-01', phase_id: null },
+        { id: 'm2', title: 'Delivery',     date: '2026-11-15', phase_id: 'ph1' },
+      ], error: null },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.milestones).toHaveLength(2)
+    expect(bundle.milestones[0].title).toBe('Lock picture')
+    // An unparented milestone survives the load. 0067's SELECT policy hops to
+    // the project, never the phase, so this is a real row and not an artefact
+    // of the stub — see pgTAP 71 probes 8-9 for the database half.
+    expect(bundle.milestones[0].phase_id).toBeNull()
+  })
+
+  it('degrades to an empty list on a client deployed ahead of 0067', async () => {
+    // `feat/multi-user-v1` auto-deploys the staging-backed beta on push, so a
+    // client can reach a database without public.milestones. No key dates must
+    // not become no project — the same contract folders and the 0040 entities
+    // have.
+    globalThis.__testSupabase = makeClient({
+      projects:   { data: { id: 'p1', title: 'Project One' }, error: null },
+      milestones: { data: null, error: { code: '42P01', message: 'relation "public.milestones" does not exist' } },
+    })
+    resetSupabaseAdapter()
+
+    const bundle = await supabaseAdapter().loadProject('p1')
+    expect(bundle.project).toEqual({ id: 'p1', title: 'Project One' })
+    expect(bundle.milestones).toEqual([])
+  })
+
+  it('a real error is NOT swallowed — only a missing table is', async () => {
+    // unwrapOptionalTable absorbs 42P01/PGRST205 and nothing else. A
+    // permission failure or a network fault must still fail the load rather
+    // than quietly drawing a timeline with no key dates on it.
+    globalThis.__testSupabase = makeClient({
+      projects:   { data: { id: 'p1', title: 'Project One' }, error: null },
+      milestones: { data: null, error: { code: '42501', message: 'permission denied for table milestones' } },
+    })
+    resetSupabaseAdapter()
+
+    await expect(supabaseAdapter().loadProject('p1')).rejects.toThrow(/permission denied/)
   })
 })
