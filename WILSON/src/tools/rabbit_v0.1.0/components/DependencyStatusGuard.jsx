@@ -140,11 +140,17 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
   // description and notes fields in TaskDetailPopup). While a modal warning is
   // up, Escape belongs to the warning and to nothing else, so it is taken on
   // the way down and stopped there.
+  //
+  // stopIMMEDIATEPropagation, not stopPropagation (R2): the plain form leaves
+  // other listeners ON THE SAME NODE running, and two guards can be pending at
+  // once — there is no focus trap, so the control behind the backdrop stays
+  // operable and can raise a second warning. Both listeners sit on `document`,
+  // and one Escape must not silently drop two parked writes.
   useEffect(() => {
     if (!warning) return undefined
     function onKey(e) {
       if (e.key !== 'Escape') return
-      e.stopPropagation()
+      e.stopImmediatePropagation()
       onCancel?.()
     }
     document.addEventListener('keydown', onKey, true)

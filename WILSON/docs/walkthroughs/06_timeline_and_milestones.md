@@ -324,7 +324,9 @@ In the app a milestone is called a **key date**: the toolbar button is
       "are you sure" dialog. That dialog used to stand in for the missing undo
       path and was removed when the undo path arrived.
     - **Expect:** `Undo` on the toast brings it back.
-    - **Now restore it without leaving this tab.** ⚠️ **New on 2026-09-07:**
+    - **If instead** you still get a confirmation dialog: record it.
+
+27c. **Restore it without leaving the Tasks tab.** ⚠️ **New on 2026-09-07:**
       you asked for the Recently Deleted panel on the Tasks tab as well as the
       Timeline, and the toolbar here now has its own button. It is labelled
       `Deleted Key Dates`, not the Timeline's bare `Deleted` — this screen is
@@ -334,7 +336,6 @@ In the app a milestone is called a **key date**: the toolbar button is
       the Timeline shows, and the row returns to BOTH tabs.
     - **If instead** the button is missing, or the panel is empty while the
       Timeline's shows the same key date: record which.
-    - **If instead** you still get a confirmation dialog: record it.
 
 ### On the desktop (Local Server)
 

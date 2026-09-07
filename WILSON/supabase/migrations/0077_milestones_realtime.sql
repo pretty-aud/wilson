@@ -235,7 +235,12 @@ BEGIN
   --     tests v_body, never v_def.
   SELECT pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure)
     INTO v_def;
-  v_body := regexp_replace(v_def, '--[^' || chr(10) || ']*', '', 'g');
+  -- BOTH comment forms. R2 deleted a real arm on dev, left a /* … */ naming
+  -- it, and this block did not raise: pg_get_functiondef returns block
+  -- comments as well as line comments, and the first version stripped only
+  -- `--`. Block comments go first, then line comments, then the checks.
+  v_body := regexp_replace(v_def,  '/\*.*?\*/', '', 'gs');
+  v_body := regexp_replace(v_body, '--[^' || chr(10) || ']*', '', 'g');
 
   IF v_body NOT LIKE '%''project_members'', ''milestones''%' THEN
     RAISE EXCEPTION
@@ -245,12 +250,10 @@ BEGIN
   --     ...and it appears EXACTLY ONCE. PL/pgSQL CASE takes the FIRST matching
   --     arm, so an earlier `WHEN ''milestones'' THEN v_project := NULL` would
   --     shadow the real one while the LIKE above still matched (R1).
-  v_hits := (length(v_body) - length(replace(v_body, '''milestones''', '')))
-            / length('''milestones''');
-  IF v_hits <> 1 THEN
-    RAISE EXCEPTION
-      '0077: ''milestones'' appears % times in fn_realtime_broadcast; exactly one arm may name it, or an earlier arm shadows the real one', v_hits;
-  END IF;
+  --     ...and it appears EXACTLY ONCE, which is checked for EVERY table in
+  --     §3d below rather than for milestones alone (R2: an earlier
+  --     `WHEN ''tasks'' THEN v_project := NULL` would shadow the real tasks
+  --     arm and satisfy a presence-only check just as well).
 
   -- 3d. 🚨 EVERY OTHER ARM SURVIVED THE RETYPED BODY.
   --
@@ -273,11 +276,18 @@ BEGIN
   --     skipped.
   FOREACH t IN ARRAY ARRAY['projects','phases','assets','tasks','files',
                            'comments','task_dependencies','phase_dependencies',
-                           'task_links','asset_versions','project_members']
+                           'task_links','asset_versions','project_members',
+                           'milestones']
   LOOP
-    IF v_body NOT LIKE '%''' || t || '''%' THEN
+    v_hits := (length(v_body) - length(replace(v_body, '''' || t || '''', '')))
+              / length('''' || t || '''');
+    IF v_hits = 0 THEN
       RAISE EXCEPTION
         '0077: fn_realtime_broadcast no longer names % — an arm was lost while the body was retyped', t;
+    END IF;
+    IF v_hits > 1 THEN
+      RAISE EXCEPTION
+        '0077: % is named % times in fn_realtime_broadcast; a duplicate WHEN arm shadows the real one, because CASE takes the first match', t, v_hits;
     END IF;
 
     IF NOT EXISTS (

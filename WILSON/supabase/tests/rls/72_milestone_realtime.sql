@@ -168,15 +168,17 @@ SELECT is(
 -- The arm, in the branch that resolves through project_id. Attached-but-
 -- ignorant is the silent failure 0077 §3c also guards.
 --
--- 🚨 COMMENTS STRIPPED FIRST, and the arm COUNTED. pg_get_functiondef returns
--- the source with its comments, so a `-- WHEN 'project_members', 'milestones'`
--- line satisfied the first version of this probe with the arm deleted; and
--- PL/pgSQL CASE takes the first match, so an earlier `WHEN 'milestones' THEN
--- v_project := NULL` would shadow the real arm while the LIKE still matched.
--- Both were R1's.
+-- 🚨 BOTH COMMENT FORMS STRIPPED FIRST. pg_get_functiondef returns the source
+-- with its comments, so a commented-out arm satisfied this probe with the real
+-- one deleted — R1 found the `--` case, and R2 found that the fix for it still
+-- fell to `/* … */`, deleting two real arms on dev with this green. The
+-- shadowing case (PL/pgSQL CASE takes the first match) is counted in 0077 §3d,
+-- for every table rather than for milestones alone.
 SELECT ok(
-  regexp_replace(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure),
-                 '--[^' || chr(10) || ']*', '', 'g')
+  regexp_replace(
+    regexp_replace(pg_get_functiondef('public.fn_realtime_broadcast()'::regprocedure),
+                   '/\*.*?\*/', '', 'gs'),
+    '--[^' || chr(10) || ']*', '', 'g')
     LIKE '%''project_members'', ''milestones''%',
   'the project_id branch of fn_realtime_broadcast names milestones (comments stripped)');
 

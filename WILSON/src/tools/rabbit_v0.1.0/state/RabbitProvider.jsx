@@ -1882,7 +1882,12 @@ export function RabbitProvider({ children }) {
             .map(m => m.id === id ? { ...m, ...patch } : m)
             .sort(byMilestoneDate),
         }),
-        () => adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id }),
+        // patchMilestone when the adapter has one (cloud), so two people
+        // editing different fields of the same key date do not overwrite each
+        // other — the same preference updateTask expresses for patchTask.
+        () => (typeof adapterRef.current.patchMilestone === 'function'
+          ? adapterRef.current.patchMilestone(id, patch)
+          : adapterRef.current.upsertMilestone({ ...bundleRef.current.milestones.find(m => m.id === id), ...patch, id })),
       );
     } finally {
       // try/finally, copied from updateTask: a throwing adapter must not leave

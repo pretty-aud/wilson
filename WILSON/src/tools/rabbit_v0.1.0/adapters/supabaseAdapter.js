@@ -2472,6 +2472,19 @@ export function supabaseAdapter() {
       const row = toColumns('milestones', blankDatesToNull(milestone));
       return unwrap(await client.from('milestones').upsert(row).select().single());
     },
+    // 🚨 THE OTHER HALF OF LWW, and 0077 is why it is needed (R2).
+    // realtimeMerge's header states the contract in two parts: the pending-set
+    // protects the local bundle from an incoming row, and per-field PATCHes
+    // keep the DB row itself a per-field merge. Milestones had only ever been
+    // written as whole-row upserts, which was harmless while nothing else could
+    // be writing them at the same moment. With key dates live, A renaming one
+    // while B moves its date meant B's upsert shipped B's stale copy of `title`
+    // and reverted the rename — last-ROW-wins, not last-FIELD-wins. The
+    // provider prefers this method when present, exactly as it does patchTask;
+    // localServerAdapter deliberately keeps the upsert, because its PATCH route
+    // would have to live in electron/main.cjs (Track B's file) and the desktop
+    // has no broadcast to race with in the first place.
+    async patchMilestone(id, patch) { return patchRow('milestones', id, patch); },
     // 🚨 SOFT delete, unlike deleteScene's hard one. Ruling 38 asks for trash
     // and undo, and 0067 gave milestones deleted_at from day one. The RPC is
     // the only path in: a plain UPDATE setting deleted_at is refused, because

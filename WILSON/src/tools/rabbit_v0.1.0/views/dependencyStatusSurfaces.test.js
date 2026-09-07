@@ -242,36 +242,73 @@ describe('"done" is defined in exactly one place', () => {
 // what Audrey reversed on 2026-09-07. A claim in a comment must not be able to
 // satisfy a pin, and a comment must not be able to inflate a count.
 //
-// 🚨 THE FIRST VERSION OF THIS DROPPED ONLY WHOLE-LINE `//` COMMENTS, AND R1
-// DEFEATED IT FOUR TIMES. A TRAILING comment satisfied every toContain pin, so
-// `if (wholeClickOnBackdrop) { onContinue?.() } // if (wholeClickOnBackdrop)
-// onCancel?.()` -- which restores the behaviour Audrey reversed -- was green,
-// and so was deleting the on-screen caption and restating it in a comment.
-// Trailing comments are stripped now, tracked through quotes and template
-// literals so a `//` inside a string (a URL, a path) is never mistaken for
-// one. Block comments, including the one-line JSX `{/* ... */}` form, go
-// first. `stripComments.test`-style controls live in the breakers, and two of
-// them are in this file's own describe as the green cases.
+// 🚨 THIS SCANNER HAS BEEN WRONG TWICE AND THE SECOND TIME IT DELETED CODE.
+//   R1: it dropped only WHOLE-LINE comments, so a trailing one satisfied every
+//       toContain pin -- including one that restored the reversed behaviour.
+//   R2: the rewrite compared `c` against a FOUR-CHARACTER string where a
+//       single backslash was meant (Python escaping ate it on the way in --
+//       the trap three hand-offs in a row have recorded). With the escape
+//       branch dead, an escaped apostrophe inverted the quote tracker: in one
+//       direction a comment survived, in the other everything after a `//`
+//       INSIDE a string literal was deleted, real handlers included, before
+//       the count ran. Four mutations were green.
+//
+// Hence: no backslash literal and no regex literal anywhere below. Every
+// character that an escaping layer could mangle is written by code point, the
+// way milestoneHistoryOps.test.js already does. Template literals carry across
+// lines; a line that ends inside a '' or "" string THROWS, because a scanner
+// that has lost track must fail loudly rather than mis-strip silently.
+const NL = String.fromCharCode(10)
+const CH_SLASH = String.fromCharCode(47)
+const CH_BACKSLASH = String.fromCharCode(92)
+const CH_DQUOTE = String.fromCharCode(34)
+const CH_SQUOTE = String.fromCharCode(39)
+const CH_BACKTICK = String.fromCharCode(96)
+const CH_STAR = String.fromCharCode(42)
+
+/** Block comments, including the one-line JSX `{...}` form. No regex. */
+function stripBlockComments(source) {
+  const open = CH_SLASH + CH_STAR
+  const close = CH_STAR + CH_SLASH
+  let out = ''
+  let i = 0
+  for (;;) {
+    const a = source.indexOf(open, i)
+    if (a === -1) return out + source.slice(i)
+    const b = source.indexOf(close, a + 2)
+    out += source.slice(i, a)
+    if (b === -1) return out
+    i = b + 2
+  }
+}
+
 function stripComments(source) {
-  const noBlocks = source.replace(/\/\*[\s\S]*?\*\//g, '')
+  const noBlocks = stripBlockComments(source)
   const out = []
-  for (const line of noBlocks.split('\n')) {
-    let quote = null
+  let inTemplate = false
+  for (const line of noBlocks.split(NL)) {
+    let quote = inTemplate ? CH_BACKTICK : null
     let cut = -1
     for (let i = 0; i < line.length; i++) {
       const c = line[i]
       if (quote) {
-        if (c === '\\\\') { i++; continue }
+        if (c === CH_BACKSLASH) { i++; continue }
         if (c === quote) quote = null
         continue
       }
-      if (c === '"' || c === "'" || c === '`') { quote = c; continue }
-      if (c === '/' && line[i + 1] === '/') { cut = i; break }
+      if (c === CH_DQUOTE || c === CH_SQUOTE || c === CH_BACKTICK) { quote = c; continue }
+      if (c === CH_SLASH && line[i + 1] === CH_SLASH) { cut = i; break }
     }
+    if (quote === CH_DQUOTE || quote === CH_SQUOTE) {
+      throw new Error(
+        'stripComments lost track of a string literal, so every assertion in '
+        + 'this block would be unreliable. Line: ' + line.trim().slice(0, 90))
+    }
+    inTemplate = quote === CH_BACKTICK
     const kept = cut === -1 ? line : line.slice(0, cut)
     if (kept.trim().length > 0) out.push(kept)
   }
-  return out.join('\n')
+  return out.join(NL)
 }
 
 /**
@@ -298,11 +335,35 @@ function buttonAround(code, needle) {
 
 const countOf = (code, pattern) => (code.match(pattern) || []).length
 
-// ANY JSX handler prop whose value mentions onContinue -- `onClick={onContinue}`,
-// `onDoubleClick={onContinue}`, `onKeyDown={() => onContinue()}`, `onMouseUp`,
-// a form's `onSubmit`. The first version of the count pinned the literal
-// string `onClick={onContinue}` and R1 walked past it three different ways.
-const WRITING_HANDLER = /on[A-Z]\w*=\{[^}]*onContinue/g
+const isWordChar = (ch) => ch !== undefined && ch !== '' && /[A-Za-z0-9_$]/.test(ch)
+
+/** Occurrences of `name` as a whole identifier. No regex over the haystack. */
+function countIdentifier(code, name) {
+  let n = 0
+  let i = 0
+  for (;;) {
+    const at = code.indexOf(name, i)
+    if (at === -1) return n
+    if (!isWordChar(code[at - 1]) && !isWordChar(code[at + name.length])) n++
+    i = at + name.length
+  }
+}
+
+// 🚨 THE COUNT IS OVER THE IDENTIFIER, NOT OVER A HANDLER PATTERN.
+// R1 pinned the literal `onClick={onContinue}`; R2 walked past the replacement
+// `/on[A-Z]\w*=\{[^}]*onContinue/` three ways — `{...{ onDoubleClick:
+// onContinue }}`, `const go = onContinue`, and a handler body with nested
+// braces, since `[^}]*` cannot cross a `}`. Every one of those still MENTIONS
+// onContinue, so counting the identifier catches all of them and needs no
+// guesses about JSX syntax. It also goes red on a legitimate edit that adds a
+// reference, which is correct: this is a ruling, and moving it should require
+// updating the count on purpose.
+//
+// THREE, and here is each one — if this number changes, name the new site:
+//   1. the hook's `onContinue={() => { … }}` wiring of the modal
+//   2. the component's own parameter list
+//   3. `onClick={onContinue}` on the Continue anyway button
+const ONCONTINUE_SITES = 3
 
 describe('the warning modal writes ONLY when Continue anyway is pressed', () => {
   // 🚨 Audrey, 2026-09-07: closing the warning by its X or by a click outside
@@ -317,10 +378,11 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
     const x = buttonAround(CODE, 'aria-label="Close without saving"')
     expect(x).not.toBeNull()
     expect(x).toContain('onClick={onCancel}')
-    // Not `not.toContain('onClick={onContinue}')`: R1 added
-    // `onDoubleClick={onContinue}` to this very button and the old assertion
-    // stayed green. Nothing on the X may reach onContinue by any binding.
-    expect(countOf(x, WRITING_HANDLER)).toBe(0)
+    // Nothing on the X may MENTION onContinue, by any binding at all: R1 added
+    // `onDoubleClick={onContinue}` here and R2 added a spread and a
+    // nested-brace body, and every one of them was green against a pattern
+    // that guessed at JSX shapes.
+    expect(countIdentifier(x, 'onContinue')).toBe(0)
   })
 
   it('a click outside the card cancels', () => {
@@ -329,10 +391,10 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
   })
 
   it('exactly one control writes, and it is Continue anyway', () => {
-    // An EXACT count over ANY handler binding, not a floor and not one
-    // spelling: the whole point of the ruling is that the set of controls that
-    // write has exactly one member.
-    expect(countOf(CODE, WRITING_HANDLER)).toBe(1)
+    // An EXACT count of every mention of the identifier, not a floor and not a
+    // guess at which JSX shapes can bind it: the whole point of the ruling is
+    // that the set of things able to reach onContinue is closed.
+    expect(countIdentifier(CODE, 'onContinue')).toBe(ONCONTINUE_SITES)
     // Anchored on each footer button's own icon, which appears nowhere else
     // in the file -- the words themselves also appear in the caption.
     const go = buttonAround(CODE, '<Check className="w-3 h-3" />')
@@ -354,21 +416,33 @@ describe('the warning modal writes ONLY when Continue anyway is pressed', () => 
     expect(CODE).toContain('only Continue anyway saves it. Closing this leaves the change unsaved.')
   })
 
-  it('Escape cancels too', () => {
+  it('Escape cancels too — and the pin is inside the handler', () => {
     // R1: the header claimed to enumerate "every other way out" and Escape was
     // not on the list -- it did nothing at all. Under a ruling that makes
     // closing the cancel gesture, a modal that ignores Escape reads as frozen.
     // Capture phase, because the editors underneath have their own Escape
     // handlers and a modal warning owns the key while it is up.
-    expect(CODE).toContain("if (e.key !== 'Escape') return")
-    expect(CODE).toContain('onCancel?.()')
-    expect(CODE).toContain("document.addEventListener('keydown', onKey, true)")
-    expect(CODE).toContain("document.removeEventListener('keydown', onKey, true)")
-    // The listener must not be able to WRITE, whatever else it does.
-    const effect = CODE.slice(CODE.indexOf('useEffect(() => {'), CODE.indexOf('if (!warning) return null'))
+    //
+    // 🚨 R2: the first version of this asserted `CODE` contains 'onCancel?.()'
+    // — which the BACKDROP handler already satisfies. Deleting the cancel from
+    // the Escape handler left the key stopped dead at document capture with
+    // nothing happening anywhere, and the test was green. That state is worse
+    // than the silence the fix replaced, which is why every assertion below is
+    // now scoped to the effect body.
+    const effect = CODE.slice(CODE.indexOf('useEffect(() => {'),
+                              CODE.indexOf('if (!warning) return null'))
     expect(effect.length).toBeGreaterThan(0)
-    expect(countOf(effect, WRITING_HANDLER)).toBe(0)
-    expect(effect).not.toContain('onContinue')
+    expect(effect).toContain("if (e.key !== 'Escape') return")
+    expect(effect).toContain('onCancel?.()')
+    expect(effect).toContain("document.addEventListener('keydown', onKey, true)")
+    expect(effect).toContain("document.removeEventListener('keydown', onKey, true)")
+    // Swallowing the key without cancelling is the failure above; writing on
+    // it is the failure the ruling forbids. Neither is allowed.
+    expect(countIdentifier(effect, 'onContinue')).toBe(0)
+    // stopImmediatePropagation, not stopPropagation: two guards can be pending
+    // at once (there is no focus trap), both listeners sit on document, and
+    // one Escape must not quietly drop two parked writes.
+    expect(effect).toContain('e.stopImmediatePropagation()')
   })
 
   // A2's R2 finding, still load-bearing with its meaning inverted: a click

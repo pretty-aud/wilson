@@ -287,12 +287,40 @@ describe('MilestoneRow re-seeds its drafts from props', () => {
     expect(MILESTONE_ROW).toContain('if (!editDate) setLocalDate')
   })
 
-  it('commitTitle/commitDate still compare against the prop, not a snapshot', () => {
-    // The re-seed is what makes these comparisons safe; if a later change made
-    // them compare against something else, the fix above would stop mattering
-    // without failing anything.
-    expect(MILESTONE_ROW).toContain('if (localTitle !== milestone.title')
-    expect(MILESTONE_ROW).toContain('if (localDate !== milestone.date')
+  it('🚨 commit compares against the BASELINE, not the live prop', () => {
+    // R1 pinned the opposite of this and R2 showed why the opposite is wrong.
+    //
+    // The guarded re-seed above deliberately leaves a draft alone while its
+    // field is OPEN, so that an incoming event cannot yank text from a live
+    // typist. That leaves the original defect intact inside that window:
+    // click the title, a collaborator's rename lands, click away — and a
+    // comparison against the live prop finds 'Alpha' !== 'Beta' and writes
+    // the untouched draft over the rename. Narrower than "forever", the same
+    // bug.
+    //
+    // Comparing against what the field held WHEN IT OPENED asks the right
+    // question — "did this person change anything?" — so an untouched draft
+    // writes nothing no matter what arrived meanwhile, and a draft they did
+    // change still wins, which is correct: they typed it.
+    expect(MILESTONE_ROW).toContain('if (localTitle !== titleBaseRef.current')
+    expect(MILESTONE_ROW).toContain('if (localDate !== dateBaseRef.current')
+    expect(MILESTONE_ROW).not.toContain('if (localTitle !== milestone.title')
+    expect(MILESTONE_ROW).not.toContain('if (localDate !== milestone.date')
+  })
+
+  it('the baseline is captured when the field OPENS, or it is not a baseline', () => {
+    // A ref that is only initialised at mount would hold the value from the
+    // first render for the life of the row — the same staleness one level
+    // down. Both editors are opened through a function that stamps it.
+    expect(MILESTONE_ROW).toContain('function openTitleEditor()')
+    expect(MILESTONE_ROW).toContain('titleBaseRef.current = milestone.title')
+    expect(MILESTONE_ROW).toContain('function openDateEditor()')
+    expect(MILESTONE_ROW).toContain("dateBaseRef.current = milestone.date || ''")
+    // ...and nothing opens an editor any other way, or that path skips the stamp.
+    expect(MILESTONE_ROW).toContain('onClick={openTitleEditor}')
+    expect(MILESTONE_ROW).toContain('onClick={openDateEditor}')
+    expect(MILESTONE_ROW).not.toContain('setEditTitle(true)}')
+    expect(MILESTONE_ROW).not.toContain('setEditDate(true)}')
   })
 })
 

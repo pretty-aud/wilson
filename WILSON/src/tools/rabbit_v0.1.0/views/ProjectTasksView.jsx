@@ -1444,14 +1444,46 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
   useEffect(() => { if (!editTitle) setLocalTitle(milestone.title) }, [milestone.title, editTitle])
   useEffect(() => { if (!editDate) setLocalDate(milestone.date || '') }, [milestone.date, editDate])
 
+  // 🚨 ...AND THE RE-SEED ALONE ONLY NARROWS THE WINDOW; THESE CLOSE IT (R2).
+  //
+  // The effects above are guarded on the edit flags so an incoming event
+  // cannot yank text out from under a live typist — which means that while a
+  // field IS open the draft still goes stale, and the original defect walks
+  // straight back in: click the title, a collaborator's rename lands, click
+  // away, and commit compares its stale draft with the new prop, finds them
+  // different, and writes the stale one over the rename. Narrower than
+  // "forever", but the same bug.
+  //
+  // So commit on what the PERSON did, not on what happens to differ from the
+  // current prop: the baseline is captured when the field opens, and a draft
+  // the person never touched writes nothing no matter what arrived meanwhile.
+  // A draft they DID touch still wins, which is correct — they typed it.
+  const titleBaseRef = useRef(milestone.title)
+  const dateBaseRef  = useRef(milestone.date || '')
+
+  function openTitleEditor() {
+    if (isProjectBound) return
+    titleBaseRef.current = milestone.title
+    setLocalTitle(milestone.title)
+    setEditTitle(true)
+  }
+  function openDateEditor() {
+    if (isProjectBound) return
+    dateBaseRef.current = milestone.date || ''
+    setLocalDate(milestone.date || '')
+    setEditDate(true)
+  }
+
+  // Against the BASELINE (what the field held when it opened), not against the
+  // live prop — see the refs above. Untouched draft, no write.
   function commitTitle() {
-    if (localTitle !== milestone.title && !isProjectBound) {
+    if (localTitle !== titleBaseRef.current && !isProjectBound) {
       ctx?.updateMilestone?.(milestone.id, { title: localTitle })
     }
     setEditTitle(false)
   }
   function commitDate() {
-    if (localDate !== milestone.date && !isProjectBound) {
+    if (localDate !== dateBaseRef.current && !isProjectBound) {
       ctx?.updateMilestone?.(milestone.id, { date: localDate })
     }
     setEditDate(false)
@@ -1512,7 +1544,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                 <span
                   className="text-[12.5px] font-mono font-semibold truncate cursor-pointer"
                   style={{ color: '#f59e0b' }}
-                  onClick={() => !isProjectBound && setEditTitle(true)}
+                  onClick={openTitleEditor}
                   title={milestone.description || milestone.title}
                 >
                   {milestone.title}
@@ -1540,7 +1572,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                   <span
                     className="text-[11.5px] font-mono cursor-pointer"
                     style={{ color: '#f59e0b' }}
-                    onClick={() => !isProjectBound && setEditDate(true)}
+                    onClick={openDateEditor}
                   >
                     {milestone.date || '—'}
                   </span>
