@@ -157,6 +157,7 @@ describe('CR_DOC_MERGE — stored document in, stored document out', () => {
 const calls = []
 let rpcError = null
 let updateReturnsRow = true
+let forkReadError = null
 
 vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
   supabase: {
@@ -183,6 +184,7 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
           // Both courses answer with a document; the values differ so a merge
           // that read the wrong course is visible in the patch.
           const isFork = api.__id === 'fork-1'
+          if (isFork && forkReadError) return { data: null, error: forkReadError }
           const col = api.__sel
           const doc = {
             hotkeys: { categories: [{ category: isFork ? 'ForkKeys' : 'StdKeys', shortcuts: [] }] },
@@ -205,7 +207,9 @@ vi.mock('../../../cloud/auth/supabaseClient.js', () => ({
 
 const { supabaseOtterAdapter } = await import('./supabaseOtterAdapter.js')
 
-beforeEach(() => { calls.length = 0; rpcError = null; updateReturnsRow = true })
+beforeEach(() => {
+  calls.length = 0; rpcError = null; updateReturnsRow = true; forkReadError = null
+})
 
 describe('cr.approve — reads before the RPC, writes after', () => {
   it('🚨 EVERY fork document is read BEFORE otter_cr_apply is called', async () => {
@@ -278,6 +282,17 @@ describe('cr.approve — reads before the RPC, writes after', () => {
     expect(out.documents.failed).toEqual([])
     expect(out.documents.merged.sort()).toEqual(['functions', 'hotkeys', 'nodes', 'references'])
     expect(out.archive_course_id).toBe('archive-1')
+  })
+
+  it('🚨 a failed fork READ aborts BEFORE the RPC — fail closed', async () => {
+    // After the RPC the review window is shut and these documents can never be
+    // read again. Approving first and discovering the read failed second would
+    // lose them permanently, so `unwrap` is allowed to throw here and the whole
+    // approval is refused. The approver can simply try again.
+    forkReadError = { message: 'network', code: 'XX000' }
+    await expect(supabaseOtterAdapter['cr.approve']({ id: 'cr-1' })).rejects.toThrow()
+    expect(calls.filter(c => c.kind === 'rpc'), 'the RPC ran anyway').toEqual([])
+    expect(calls.filter(c => c.kind === 'update')).toEqual([])
   })
 
   it('🚨 an RPC refusal writes NOTHING — no half-applied documents', async () => {

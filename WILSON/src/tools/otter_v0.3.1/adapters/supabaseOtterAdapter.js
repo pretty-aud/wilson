@@ -707,6 +707,12 @@ export const supabaseOtterAdapter = {
       .select('id, source_course_id, target_course_id').eq('id', id).maybeSingle())
     if (!cr) throw new OtterCloudError('that change request is no longer visible', 404)
 
+    // FAIL CLOSED, and deliberately. `unwrap` THROWS on a read error, so a
+    // transient failure here aborts the approval BEFORE the RPC runs and nothing
+    // is written at all. That is the right way round: after the RPC the review
+    // window is closed and these documents can never be read again, so approving
+    // first and discovering the read failed second would lose them permanently.
+    // The approver can simply try again.
     const forkDocs = {}
     for (const doc of Object.keys(CR_DOC_MERGE)) {
       const { column, empty } = COURSE_DOCS[doc]
