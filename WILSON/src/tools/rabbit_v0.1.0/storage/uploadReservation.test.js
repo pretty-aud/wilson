@@ -26,6 +26,7 @@ import { putResumable, RESUMABLE_THRESHOLD_BYTES } from './resumableUpload.js'
 import { createSupabaseStorageProvider } from './supabaseProvider.js'
 import {
   reserveUpload, releaseUpload, isFunctionMissing, nameTheFile, RESERVATION_UNAVAILABLE,
+  abandonUpload, releaseStaleUploads, inFlightKeys, ABANDON_REASON_MAX,
 } from './uploadReservation.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -39,8 +40,11 @@ const EXEMPT    = { data: null, error: null }
 const MISSING   = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.reserve_upload_bytes(p_bytes, p_path) in the schema cache' } }
 const REFUSED   = { data: null, error: { code: 'PT402', message: 'Not enough Petal cloud storage for "1-master.mov": it needs 6144 MB, but only 2048 MB of this company\'s 10 GB is left once uploads already in progress are counted. Add a smaller file, or contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.' } }
 const RELEASED  = { data: true, error: null }
+const ABANDONED = { data: true, error: null }
+const STALE     = { data: 2,    error: null }
+const NO_0074   = { data: null, error: { code: 'PGRST202', message: 'Could not find the function public.abandon_upload_reservation(p_path, p_reason) in the schema cache' } }
 
-function fakeClient({ reserve = OK, release = RELEASED } = {}) {
+function fakeClient({ reserve = OK, release = RELEASED, abandon = ABANDONED, stale = STALE } = {}) {
   const calls = []
   const answer = (which, args) => (typeof which === 'function' ? which(args) : which)
   return {
@@ -49,6 +53,8 @@ function fakeClient({ reserve = OK, release = RELEASED } = {}) {
       calls.push([name, args])
       if (name === 'reserve_upload_bytes') return answer(reserve, args)
       if (name === 'release_upload_reservation') return answer(release, args)
+      if (name === 'abandon_upload_reservation') return answer(abandon, args)
+      if (name === 'release_stale_upload_reservations') return answer(stale, args)
       return { data: null, error: { message: `unknown rpc ${name}` } }
     }),
     auth: { getSession: async () => ({ data: { session: { access_token: 'tok' } } }) },
@@ -58,6 +64,7 @@ function fakeClient({ reserve = OK, release = RELEASED } = {}) {
 
 let warn
 beforeEach(() => {
+  inFlightKeys.clear()
   putResumable.mockClear()
   putResumable.mockImplementation(async ({ key }) => ({ key }))
   warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
@@ -203,14 +210,38 @@ describe('the provider: reserve → start → release', () => {
     expect(seq).toEqual(['reserve', 'start', 'release'])
     expect(client.calls[0]).toEqual(['reserve_upload_bytes', { p_path: KEY, p_bytes: BIG.size }])
     expect(client.calls[1]).toEqual(['release_upload_reservation', { p_path: KEY }])
+    expect(client.calls.map(c => c[0])).not.toContain('abandon_upload_reservation')
+    expect(inFlightKeys.has(KEY)).toBe(false)
   })
 
-  it('releases on failure too, and the failure still propagates', async () => {
+  it('🚨 ABANDONS on failure — the certificate carries the error — and the failure still propagates (ruling 1)', async () => {
     const client = fakeClient()
     putResumable.mockRejectedValueOnce(new Error('[supabase] resumable upload failed (500): storage-api'))
     const p = createSupabaseStorageProvider(async () => client)
     await expect(p.put(KEY, BIG)).rejects.toThrow(/resumable upload failed \(500\)/)
-    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes', 'release_upload_reservation'])
+    expect(client.calls.map(c => c[0])).toEqual(['reserve_upload_bytes', 'abandon_upload_reservation'])
+    expect(client.calls[1]).toEqual(['abandon_upload_reservation', {
+      p_path: KEY, p_reason: '[supabase] resumable upload failed (500): storage-api',
+    }])
+    expect(inFlightKeys.has(KEY)).toBe(false)
+  })
+
+  it('a thrown non-Error still abandons, with a reason that is never empty', async () => {
+    const client = fakeClient()
+    putResumable.mockRejectedValueOnce('tus gave up')
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).rejects.toBe('tus gave up')
+    expect(client.calls[1]).toEqual(['abandon_upload_reservation', { p_path: KEY, p_reason: 'tus gave up' }])
+  })
+
+  it('a failure against a database without 0074 falls back to release (the pre-0074 behaviour)', async () => {
+    const client = fakeClient({ abandon: NO_0074 })
+    putResumable.mockRejectedValueOnce(new Error('[supabase] resumable upload failed (502): gateway'))
+    const p = createSupabaseStorageProvider(async () => client)
+    await expect(p.put(KEY, BIG)).rejects.toThrow(/\(502\)/)
+    expect(client.calls.map(c => c[0])).toEqual([
+      'reserve_upload_bytes', 'abandon_upload_reservation', 'release_upload_reservation',
+    ])
   })
 
   it('a database without 0073 uploads unreserved and never calls release', async () => {
@@ -244,21 +275,146 @@ describe('the provider: reserve → start → release', () => {
   })
 })
 
+describe('abandonUpload (0074, ruling 1)', () => {
+  it('calls the RPC with the key and the reason, bounded to ABANDON_REASON_MAX', async () => {
+    const client = fakeClient()
+    const long = 'x'.repeat(ABANDON_REASON_MAX + 50)
+    await expect(abandonUpload(client, KEY, long)).resolves.toBe(true)
+    expect(client.calls[0][0]).toBe('abandon_upload_reservation')
+    expect(client.calls[0][1].p_path).toBe(KEY)
+    expect(client.calls[0][1].p_reason).toHaveLength(ABANDON_REASON_MAX)
+  })
+
+  it('an empty reason travels as null, never as ""', async () => {
+    const client = fakeClient()
+    await abandonUpload(client, KEY, '')
+    expect(client.calls[0][1].p_reason).toBeNull()
+  })
+
+  it('PGRST202 (no 0074 here) falls back to release and says so', async () => {
+    const client = fakeClient({ abandon: NO_0074 })
+    await expect(abandonUpload(client, KEY, 'x')).resolves.toBe(true)
+    expect(client.calls.map(c => c[0])).toEqual(['abandon_upload_reservation', 'release_upload_reservation'])
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a server error is reported as false and warned, never thrown', async () => {
+    const client = fakeClient({ abandon: { data: null, error: { message: 'pooler reset' } } })
+    await expect(abandonUpload(client, KEY, 'x')).resolves.toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a thrown network error is reported as false and warned, never thrown', async () => {
+    const client = fakeClient({ abandon: () => { throw new TypeError('Failed to fetch') } })
+    await expect(abandonUpload(client, KEY, 'x')).resolves.toBe(false)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('"nothing to close" is false, not an error', async () => {
+    const client = fakeClient({ abandon: { data: false, error: null } })
+    await expect(abandonUpload(client, KEY, 'x')).resolves.toBe(false)
+    expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('releaseStaleUploads (0074, ruling 2)', () => {
+  it('tells the server to KEEP the keys this tab is still uploading, and reports the count', async () => {
+    const client = fakeClient()
+    await reserveUpload(client, KEY, 1000)
+    await expect(releaseStaleUploads(client)).resolves.toBe(2)
+    expect(client.calls[1]).toEqual(['release_stale_upload_reservations', { p_keep: [KEY] }])
+  })
+
+  it('with nothing in flight the keep list is empty', async () => {
+    const client = fakeClient()
+    await releaseStaleUploads(client)
+    expect(client.calls[0]).toEqual(['release_stale_upload_reservations', { p_keep: [] }])
+  })
+
+  it('PGRST202 (no 0074 here) is 0 with NO warning — nothing is wrong', async () => {
+    const client = fakeClient({ stale: NO_0074 })
+    await expect(releaseStaleUploads(client)).resolves.toBe(0)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('a server error is 0 and warned, never thrown', async () => {
+    const client = fakeClient({ stale: { data: null, error: { message: 'pooler reset' } } })
+    await expect(releaseStaleUploads(client)).resolves.toBe(0)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+
+  it('a thrown network error is 0 and warned, never thrown', async () => {
+    const client = fakeClient({ stale: () => { throw new TypeError('Failed to fetch') } })
+    await expect(releaseStaleUploads(client)).resolves.toBe(0)
+    expect(warn).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('inFlightKeys — what this tab is uploading', () => {
+  it('a reservation adds the key; release and abandon remove it; exempt and unavailable add nothing', async () => {
+    const client = fakeClient()
+    await reserveUpload(client, KEY, 1000)
+    expect(inFlightKeys.has(KEY)).toBe(true)
+    await releaseUpload(client, KEY)
+    expect(inFlightKeys.has(KEY)).toBe(false)
+    await reserveUpload(client, KEY, 1000)
+    await abandonUpload(client, KEY, 'x')
+    expect(inFlightKeys.has(KEY)).toBe(false)
+    await reserveUpload(fakeClient({ reserve: EXEMPT }), 'projects/p/INVOICES/1-a.pdf', 1000)
+    await reserveUpload(fakeClient({ reserve: MISSING }), 'projects/p/ASSETS/1-b.mov', 1000)
+    expect(inFlightKeys.size).toBe(0)
+  })
+})
+
 describe('source pins — the call sites exist and sit in the right order', () => {
-  const provider = readFileSync(join(__dirname, 'supabaseProvider.js'), 'utf8')
-  const gc = readFileSync(
-    join(__dirname, '..', '..', '..', '..', 'supabase', 'functions', 'storage-gc', 'index.ts'), 'utf8',
-  )
+  // Normalised: the working tree is CRLF under core.autocrlf and CI's is LF;
+  // a multi-line pin must read the same in both.
+  const read = (...p) => readFileSync(join(__dirname, ...p), 'utf8').replace(/\r\n/g, '\n')
+  const provider = read('supabaseProvider.js')
+  const gc = read('..', '..', '..', '..', 'supabase', 'functions', 'storage-gc', 'index.ts')
+  const teardown = read('..', '..', '..', '..', 'supabase', 'functions', 'operator-workspaces', 'index.ts')
+  const fileManager = read('..', 'components', 'FileManager.jsx')
+  const storageApi = read('..', '..', '..', 'cloud', 'storageApi.js')
 
   it('the provider reserves before it starts the resumable upload', () => {
     const reserveAt = provider.indexOf('await reserveUpload(client, key, body?.size, { displayName: body?.name })')
-    const startAt   = provider.indexOf('return await putResumable({')
+    const startAt   = provider.indexOf('const out = await putResumable({')
     expect(reserveAt).toBeGreaterThan(-1)
     expect(startAt).toBeGreaterThan(reserveAt)
   })
 
-  it('the provider releases in a finally, gated on a reservation having been made', () => {
-    expect(provider).toMatch(/finally \{\s*if \(reservation\.reserved\) await releaseUpload\(client, key\)/)
+  it('the provider closes in a finally, gated on a reservation: release when landed, abandon otherwise', () => {
+    expect(provider).toMatch(
+      /finally \{\s*if \(reservation\.reserved\) \{\s*if \(landed\) await releaseUpload\(client, key\)\s*else await abandonUpload\(client, key, /,
+    )
+  })
+
+  it('FileManager releases stale reservations when Files opens on the Supabase backend (ruling 2)', () => {
+    const at = fileManager.indexOf("if (ctx?.adapterMode !== 'supabase') return\n    releaseStaleUploadReservations().catch(() => {})")
+    expect(at).toBeGreaterThan(-1)
+    expect(fileManager.slice(0, at)).toMatch(/useEffect\(\(\) => \{\s*$/)
+    expect(fileManager).toContain("import { releaseStaleUploadReservations } from '../../../cloud/storageApi'")
+    expect(storageApi).toContain('export function releaseStaleUploadReservations()')
+    expect(storageApi).toContain('return releaseStaleUploads(supabase)')
+  })
+
+  it('teardown sweeps open reservations and lists avatars BEFORE the CASCADE, and certifies both', () => {
+    const sweepAt   = teardown.indexOf(".rpc('sweep_open_uploads', { p_workspace_id: workspaceId })")
+    const avatarsAt = teardown.indexOf('await collectAvatarPaths(ctx, workspaceId)')
+    const removeAt  = teardown.indexOf('ctx.admin.storage.from(AVATAR_BUCKET).remove(batch)')
+    const cascadeAt = teardown.indexOf(".from('workspaces')\n      .delete()")
+    expect(sweepAt).toBeGreaterThan(-1)
+    expect(avatarsAt).toBeGreaterThan(-1)
+    expect(removeAt).toBeGreaterThan(avatarsAt)
+    expect(cascadeAt).toBeGreaterThan(Math.max(sweepAt, removeAt))
+    expect(teardown).toContain("const AVATAR_BUCKET = 'user-avatars'")
+    // The flag starts true and only an answer clears it (storage-gc's lesson).
+    expect(teardown).toContain('let reservationSweepFailed = true')
+    for (const field of [
+      'avatars_found', 'avatars_removed', 'avatars_failed', 'avatars_truncated',
+      'reservations_abandoned', 'reservations_completed', 'reservation_sweep_failed', 'thumbnails_note',
+    ]) expect(teardown).toContain(`${field}:`)
+    expect(teardown).toContain("code: 'WIL-7009'")
   })
 
   it('storage-gc drives the sweep per workspace and reports a failed RPC rather than hiding it', () => {

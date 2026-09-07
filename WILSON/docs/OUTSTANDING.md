@@ -1182,55 +1182,6 @@ fix — `NewCompanyWizard` held the other three), and the native caret is back
 on. Confirmed in the running DOM: no element on the auth surfaces carries a
 `blink` animation.
 
-### `file_events` has no money arm — invoice lifecycle metadata is readable by every project reader
-**MEASURED (2026-08-07, S33 adversarial review; pre-existing since 0027).**
-`file_events_select` (`0027_file_lifecycle.sql:113-127`) admits any project
-reader — workspace match + active membership + `can_read_project_topic` — with
-**no `is_financial` arm**, and the capture trigger snapshots every event
-unfiltered. So a plain member who cannot see an invoice's `files` row (0038's
-`files_select` money arm hides it) can still read its **name, path and size**
-from the invoice's `uploaded`/`moved`/`trashed` events over PostgREST, plus
-any `downloaded` events money-privileged users generate. S33's RPC refuses to
-*mint* new events for such callers (the 0047 money gate), which contains the
-S33 surface — this entry is the pre-existing read side.
-
-**Why S33 did not patch it:** the fix is entangled with deletion certificates.
-A purged invoice's `file_events` row is the only surviving record and carries
-no `is_financial` (the `files` row is gone; the `details` snapshot doesn't
-include it), so a policy arm cannot classify certificates without either
-snapshotting `is_financial` into future events (leaves history unclassifiable)
-or accepting that certificates stay reader-visible (maybe correct — proof of
-deletion is arguably not a money fact). That is a design decision for Audrey /
-the TPN re-audit, not a patch.
-→ Candidate shape: snapshot `is_financial` into `file_events` at capture time
-(0047-style migration), add the arm for non-certificate events only.
-
-### Abandoned-upload certification (TPN-CONT-017) has two uncovered cases: a FAILED upload, and teardown
-
-**Filed by Track C's second C1 session (2026-09-06), from review round 1 of
-0073.** The certificate 0073 introduced (`upload_abandoned`, written only by
-`sweep_abandoned_uploads()`) covers a reservation that EXPIRED UNRELEASED — a
-closed tab, a crash, the app quit mid-upload. Two partial-upload cases have no
-certificate: **(a) a resumable upload that FAILS with an error** (tus gave up
-after its retries — the network dropped, a 5xx) releases its reservation in
-`supabaseProvider.put()`'s `finally`, so the row closes as `released` with no
-object at the path and the sweep never looks at it — queryable, never
-certified; **(b) `operator-workspaces` teardown CASCADEs `upload_reservations`
-away with the workspace**, so a tenant torn down with an open reservation is
-certified "torn down" with that partial unrecorded. Neither is a disposal gap
-(Supabase's 24 h TUS expiry reaps both); both are certification gaps, and the
-handbook §17 and `TPN_AUDIT/DESIGN_REVIEW_network_storage.md` state (a). Two
-adjacent limits from the same review: a closed tab holds its reserved bytes
-for 24 h with no control to release them (a retry on a small plan is refused
-for a day), and `reserve_upload_bytes` has no per-member cap on active
-reservations (a member who can write one project can reserve the whole quota
-under fabricated keys for 24 h).
-→ Rulings owed by Audrey (hand-off `track-c-C1-2026-09-06-part2.md` §6).
-Candidate shape for C2's migration 0074: `abandon_upload_reservation(path)`
-(closes the row as `abandoned` and writes the certificate; the client calls it
-on failure instead of release), a sweep of the workspace's open reservations
-before the teardown CASCADE, and a cap on active reservations per user.
-
 ### A BYO workspace's thumbnails have no browser preview — deliberate, deferred to its own session
 
 **The compliance half is FIXED (S44, migration 0054).** A thumbnail is now
@@ -1291,46 +1242,24 @@ GET expiry, and `getUrl` moving into `REQUIRED` once both providers can honour i
 
 ---
 
-### 🚨 `user-avatars` survives workspace teardown, uncounted and permanently undrainable
-
-There are **three** buckets (`rabbit-files`, `rabbit-thumbnails`, `user-avatars`)
-and teardown touches **two**. Avatar objects live at `user-avatars/{workspaceId}/
-{userId}/…`, and after teardown `workspaces` is gone and `workspace_members` has
-CASCADEd — so `storage-gc`'s avatar arm can **never run for that tenant again**.
-
-This is gap #34 one bucket over, and it is the exact argument
-`operator-workspaces` uses to justify its own existence: *"A SECOND BUCKET IS A
-SECOND WAY FOR THE CERTIFICATE TO LIE."* That reasoning was applied to bucket
-two (S39) and not to bucket three. **Avatars are photographs of identifiable
-people**, so `WIL-7005` reading *"Tore down workspace X"* with them still
-resident is a personal-data statement, not a disk-space one.
-
-Pre-existing (S39 era), **not introduced by S44** — found by S44's review, which
-re-audited this certificate.
-
-→ Fix is bounded: recursive `list('user-avatars', workspaceId)` → `remove()` →
-its own certificate line, mirroring the existing thumbnails block.
-
----
-
-### The teardown sweep is row-derived, so a stranded object is neither removed nor counted
+### The teardown sweep of `rabbit-files` and `rabbit-thumbnails` is row-derived, so a stranded object is neither removed nor counted
 
 `uploadFile` can leave an object with no `files` row: body put succeeds,
 thumbnail put succeeds, the row insert is refused, and **both** compensating
 deletes are best-effort. The orphan scan deliberately walks neither thumbnail
 location, so such an object is invisible to `files`, to the queue, and to the
-scan — and after the CASCADE, invisible forever, while `WIL-7005` affirms
-complete disposal.
+teardown scan — and after the CASCADE, invisible forever.
 
-This is documented as a limit (§12.7b, §17) but **has no field on the
-certificate**, which is the specific failure this repo names: *a stated coverage
-limit that is only true in one direction.* `byo_bodies_left` /
-`byo_thumbnails_left` exist precisely so a deliberate omission is legible; the
-Petal-side omission has no equivalent.
-
-→ Minimum fix: a `thumbnails_note` field stating the sweep is row-derived, or a
-`list()` of `rabbit-thumbnails/projects/{id}` per owned project (the project ids
-are already enumerated).
+**Narrowed by Track C / C2 (2026-09-07):** the omission is now LEGIBLE on the
+certificate — `WIL-7005` carries `thumbnails_note`, a sentence stating that
+`blobs_*` and `thumbnails_*` are row-derived and that a stranded body or preview
+is neither removed nor counted — so the certificate no longer affirms a complete
+disposal of those two buckets. (`user-avatars` is the exception: C2 LISTS it by
+prefix, so a stranded avatar IS removed and counted.) What remains is the
+omission itself: a `list()` of `projects/{id}` per owned project in both buckets
+would find and remove the strays, and was not built because a tenant with many
+projects would spend the Edge deadline on listings — a design choice, not an
+oversight. Until then the sentence on the certificate is the whole fix.
 
 ---
 

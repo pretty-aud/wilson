@@ -1031,6 +1031,19 @@ to understand why it cannot be simplified:
    workspace. They are built from `reservedProjectObjectPaths()` over the
    project ids the sweep already proved this workspace owns, so they inherit
    its tenancy check, and deduped against the row-derived set.
+   **Also in the collect step, since Track C / C2:** (3b) the **avatars** —
+   `user-avatars/{workspace_id}/…` LISTED by prefix, because no row names an
+   avatar object (`avatar_url` names the current one only) and the prefix is
+   the tenancy proof (0009's INSERT policy pins it); bounded at 5000 objects,
+   past which the scan stops and `avatars_truncated: true` says so. A listing
+   that fails refuses the teardown like any other scan. And (3c) the **open
+   upload reservations** — `sweep_open_uploads(workspace_id)` (0074) closes
+   every open `upload_reservations` row of the tenant, expired or not
+   (`completed` where the object landed, `abandoned` with a certificate
+   otherwise), BEFORE the CASCADE would take both that table and the tenant's
+   `file_events` away uncertified. The failure flag starts true and only an
+   answer clears it: a database without 0074 reads
+   `reservation_sweep_failed: true`, never 0/0.
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -1049,13 +1062,26 @@ to understand why it cannot be simplified:
    `reserved_failed`): the inputs are two *candidates* per project, most of
    which will not exist, so folding them into `blobs_missing` would make the
    certificate read as a far larger failed purge than it was.
+   **Then, since Track C / C2:** (6b) the **avatars**, in `user-avatars`, own
+   pass, own counters (`avatars_found` / `_removed` / `_failed` /
+   `_truncated`), certificate per 40 paths (`WIL-7006` with `avatars: true`),
+   `avatars_removed` counted from `remove()`'s returned array like every other
+   count here; and (6c) the **abandoned uploads** — one `WIL-7009` per 40 paths
+   naming the reservations step 3c closed as abandoned. Nothing was destroyed
+   in 6c (the partials expire at 24 h in Supabase Storage, which nothing on
+   the platform can see), so it is "certified abandoned", never "purged".
 7. **Delete the workspace row.** This fires the CASCADE.
 8. **Drop the queue rows — *after* the cascade, not before.** The `files`
    CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
    would leave those undrainable.
 9. **Write the final `workspace.teardown` certificate** (`WIL-7005`, severity
    critical) with found/removed/missing/failed/rejected counts, plus the
-   reserved-object counts.
+   reserved-object counts — and, since Track C / C2, the `avatars_*` counts,
+   `reservations_abandoned` / `reservations_completed` /
+   `reservation_sweep_failed`, and `thumbnails_note`, a sentence stating that
+   `blobs_*` and `thumbnails_*` are ROW-DERIVED (an object whose row never
+   landed is neither removed nor counted), so that limit is on the certificate
+   itself and not only in §17.
 
 The reason the collection must happen *first*: after the CASCADE there is no way
 to discover which blobs belonged to the tenant, and `storage-gc`'s orphan scan
@@ -1618,16 +1644,33 @@ together.
 
 Written by `trg_files_lifecycle` → `fn_file_events_capture()` (SECURITY
 DEFINER) — and, since 0073, by `sweep_abandoned_uploads()` (SECURITY DEFINER)
-for `upload_abandoned` only; nothing else writes the table. INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
+for `upload_abandoned` only, joined in 0074 (Track C / C2) by
+`abandon_upload_reservation()` (the client's failure path: a resumable upload
+that FAILED with an error the server answered is certified at once, with the
+client's reason in `details.reason`) and `sweep_open_uploads()` (teardown: every
+open reservation of the tenant, `details.closed_by = 'teardown'`), both for
+`upload_abandoned` only; nothing else writes the table. INSERT → `uploaded`; UPDATE → `trashed`/`restored` on the
 `deleted_at` transition and/or `moved` on a `storage_path` change (one UPDATE
 can emit both); DELETE → `purged` with a JSONB snapshot whose `mime_type` is
 truncated to 256 characters, specifically so a client-writable oversized value
 can never trip the `details` CHECK and void the certificate.
 
 Read policy: project readers **plus** a workspace-admin arm, so proof of
-deletion stays readable after the project itself is gone. There are no FKs on
-`file_id` / `project_id` — deliberately, so the certificate outlives its
-subject. Append-only is enforced three ways: zero write policies, revoked
+deletion stays readable after the project itself is gone — **and, since 0074
+(Track C / C2, Audrey's ruling 22), a money arm.** Every row carries
+`is_financial`, snapshotted at capture by ONE definition,
+`file_event_is_financial()`: the `files` row's `is_financial` flag OR a
+row-shaped key under a money segment (`INVOICES/`, `FINANCE/` — 0042's
+`rabbit_money_segment`). A non-money reader sees a flagged row **only when
+`event = 'purged'`** (deletion records stay visible to everyone who could read
+the project); every other event of an invoice — upload, move, trash, restore,
+download — is for workspace admins and project managers
+(`can_access_project_money`, 0037). One policy, every arm restated (a replay of
+0027 would drop the money arm; 0074's post-condition 3 is the tripwire).
+Limit: the flag is a snapshot — a file that becomes financial LATER keeps its
+earlier events unflagged (§17). Suite 78 pins it; 33 pins the rest. There are
+no FKs on `file_id` / `project_id` — deliberately, so the certificate outlives
+its subject. Append-only is enforced three ways: zero write policies, revoked
 grants, and migration post-conditions.
 
 **The `purged` rows are deletion certificates** (TPN-CONT-002). That is why the
@@ -3379,18 +3422,32 @@ of a session — this section is limits by design, that file is faults.
   console) with the policy still gating at commit — exactly the pre-0073
   behaviour, never a refusal. An abandoned upload's reservation expires and is
   certified `upload_abandoned` by the sweep (§12.4): the certificate names the
-  abandonment, not the disposal of bytes, which SQL cannot see. **Two more
-  limits, found by the review (2026-09-06):** a resumable upload that FAILS
-  while the client can still reach the server (storage answered a 5xx, the
-  session expired mid-way) releases its reservation on the way out, so it is
-  *not* certified; an upload that fails because the NETWORK dropped cannot
-  release either — that RPC rides the same network and swallows its own
-  failure — so it, like a closed tab, a crash or the app quit mid-upload,
-  leaves the row to expire and IS certified. The partial a failed upload leaves is still reaped by
-  Supabase's 24 h expiry, and its `upload_reservations` row stays queryable
-  (`outcome = 'released'`, no object at the path), but it carries no
-  certificate — whether such a failure should be certified at once is a ruling
-  owed by Audrey (hand-off C1 §6). And both "landed" tests — the meter's
+  abandonment, not the disposal of bytes, which SQL cannot see. **How a
+  reservation closes (0074, Track C / C2, Audrey's rulings of 2026-09-07):**
+  the upload lands → `release_upload_reservation` (`released`; the meter had
+  already stopped counting it). The upload FAILS with an error the server
+  answered (a 5xx, the session expired mid-way) → the client calls
+  `abandon_upload_reservation(path, reason)`, which closes the row `abandoned`
+  and writes the `upload_abandoned` certificate AT ONCE with the error text
+  (ruling 1; a "failure" reported after the object had in fact landed closes
+  `completed` and certifies nothing). The NETWORK dropped → neither RPC can
+  cross it; the row expires at 24 h and the hourly sweep certifies it, as does
+  a closed tab, a crash or the app quit mid-upload. The person next opens
+  Files → `release_stale_upload_reservations(keep)` closes their OWN open rows
+  except the keys that tab is still uploading, WITHOUT a certificate (ruling 2:
+  those rows lose theirs — so a closed tab no longer holds its bytes for a day
+  against the same person's retry). The company is torn down →
+  `sweep_open_uploads` closes every open row before the CASCADE and the
+  abandoned paths are certified in `platform_audit` as `WIL-7009` (§5). **Two
+  stated limits:** a second browser tab cannot see the first tab's in-flight
+  keys, so opening Files in tab B while tab A uploads releases A's row early —
+  the policy still refuses an over-quota object at commit, so the cost is a
+  late refusal, never an over-quota object; and there is NO per-person cap on
+  active reservations (ruling 3): a member who can write one project can
+  reserve the whole quota under fabricated keys until the 24 h expiry, which
+  is the bound. A database with 0073 but not 0074 makes the client fall back
+  to release on failure (PostgREST `PGRST202`, said in the console) and answers
+  0 to the stale release — the pre-0074 behaviour, never a refusal. And both "landed" tests — the meter's
   exclusion arm and the sweep's classification — key on the object's CURRENT
   name (`storage.objects.name`, then `files.storage_path`): nothing renames a
   Petal object today (a move is a `folder_id` change), but a future rename
@@ -3405,6 +3462,23 @@ of a session — this section is limits by design, that file is faults.
   storage REST API uploads unreserved and is gated only at commit, exactly as
   before — the policy is the enforcement; the reservation is the early answer,
   and it protects everyone else's uploads from the one that wrote it.
+- ✅ **Invoice activity is hidden from non-managers (0074, Track C / C2,
+  Audrey's ruling 22).** `file_events.is_financial` is snapshotted at capture
+  by one definition — the `files` row's flag OR a row-shaped key under
+  `INVOICES/` / `FINANCE/` — and `file_events_select` shows a flagged row to a
+  non-money reader ONLY as its `purged` certificate; workspace admins and
+  project managers (`can_access_project_money`) see every event, and
+  `log_file_downloaded` flags an invoice read the same way. Suite 78 (49
+  probes, ten breakers, each failing the probes it was built to fail).
+  **Limits, both directions:** the flag is a SNAPSHOT — a file that becomes
+  financial LATER keeps its earlier events unflagged, and a purged invoice that
+  lived outside a money segment before 0042 stays unclassified (its certificate
+  is visible to everyone anyway); a plain member simply sees fewer rows — there
+  is deliberately NO "hidden rows" indicator, because an indicator is an
+  existence oracle for invoices; and a workspace admin's money visibility rides
+  the JWT role (0026's read-only rationale), the same basis as the admin arm
+  beside it. Replaying 0027 or 0047 after 0074 would revert part of this;
+  0074's post-conditions 3–5 are the tripwires.
 - 🚨 **DELETING FILES DOES NOT FREE SPACE.** A cloud delete is soft (0014) and
   `storage-gc` refuses a trashed row for 30 days, while the meter reads
   `storage.objects`. Every over-quota message says so, because the obvious
@@ -3767,7 +3841,16 @@ documentation and starts being wrong answers.
   objects — `PROJECT.json` and `FINANCE/RATES.json`, built from the owned
   project ids rather than discovered — so what remains uncovered is only a blob
   no row points at *and* that the product does not write, i.e. a stranded
-  upload whose row never landed. Those are storage-gc's job.
+  upload whose row never landed. Those are storage-gc's job. **Since Track C /
+  C2 the certificate says this itself** — `WIL-7005` carries `thumbnails_note`,
+  a sentence stating that `blobs_*` and `thumbnails_*` are row-derived — and
+  the THIRD bucket, `user-avatars`, which teardown never touched before C2
+  (avatars are photographs of identifiable people, so "torn down" with them
+  resident was a personal-data statement), is LISTED by prefix rather than
+  derived: a stranded avatar IS removed and counted (`avatars_found` /
+  `_removed` / `_failed`, with `avatars_truncated: true` if the listing hit its
+  5000-object bound and stopped). Read that flag: truncated means objects
+  remain, stated, never assumed swept.
 
   🚨 **This entry used to end "the row-derived sweep covers every blob the
   product itself created", and that sentence had been false since S26 shipped
@@ -3832,6 +3915,7 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
+| `WIL-7009` | Teardown certified abandoned upload(s): the open `upload_reservations` rows `sweep_open_uploads()` closed before the CASCADE, 40 paths per row (Track C / C2, 0074). Certifies the abandonment, not a disposal — the partials expire at 24 h in Supabase Storage | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
 
 ---

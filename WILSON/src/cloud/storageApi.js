@@ -21,6 +21,7 @@
 // =============================================================================
 
 import { supabase } from './auth/supabaseClient'
+import { releaseStaleUploads } from '../tools/rabbit_v0.1.0/storage/uploadReservation.js'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -64,6 +65,21 @@ async function callStorageFn(name, body) {
  * @param {string} path row-shaped storage_path (never carries the prefix)
  * @returns {Promise<{url: string, method: string, expiresAt: string}>}
  */
+// ── Track C / 0074 — opening Files ──────────────────────────────────────────
+/**
+ * Release this person's own STALE upload reservations (Audrey's ruling 2,
+ * 2026-09-07): rows a closed tab or a crash left open, which would otherwise
+ * hold their bytes against the company's quota for 24 h. FileManager calls
+ * this when Files opens on the Supabase backend; the keys THIS tab is still
+ * uploading are kept (uploadReservation.js tracks them). Rides the shared
+ * authed client like the storage-usage read beside it (workspaceStorage.js),
+ * not the RABBIT adapter — the reservation is quota infrastructure, not
+ * project content. Best-effort, never throws; resolves the number closed.
+ */
+export function releaseStaleUploadReservations() {
+  return releaseStaleUploads(supabase)
+}
+
 export async function presignStorage(op, path) {
   const res = await callStorageFn('storage-presign', { op, path })
   if (!res.ok || !res.data?.url) {

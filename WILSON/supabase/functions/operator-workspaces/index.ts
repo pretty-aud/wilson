@@ -106,6 +106,20 @@ const PAGE = 1000          // PostgREST max_rows; read in exactly one page's wor
 const REMOVE_BATCH = 100   // objects per storage.remove() call
 const CERT_BATCH = 40      // paths per certificate row (context CHECK is 8000 chars)
 
+// Track C / C2 (Audrey's decision 24, 2026-09-04): THE THIRD BUCKET. Avatars
+// live at user-avatars/{workspace_id}/{user_id}/{filename} (0009) and are
+// photographs of identifiable people. Three buckets, and until C2 teardown
+// swept two: after the CASCADE `workspace_members` is gone, so storage-gc's
+// avatar arm could never run for that tenant again, and WIL-7005's "torn down"
+// was a personal-data statement made with the faces still resident. No row
+// names an avatar object (avatar_url names the CURRENT one only), so this
+// bucket is LISTED by prefix rather than derived from rows — the prefix is the
+// tenancy proof, because 0009's INSERT policy pins the first folder to the
+// uploader's workspace. Counted from remove()'s RETURNED array, never the batch.
+const AVATAR_BUCKET = 'user-avatars'
+const LIST_PAGE = 100      // storage.list() page (the API's own default)
+const AVATAR_MAX = 5000    // objects per teardown; past it the scan STOPS AND SAYS SO
+
 /**
  * Addresses that exist only to satisfy GoTrue's email shape, and that nobody
  * reads. Mailing one reports success to the operator and delivers nothing.
@@ -189,6 +203,58 @@ async function loadFoundingAdmin(
     username: row.username ?? null,
     email: (authUser.user.email ?? '').trim(),
   }
+}
+
+/** One folder level of a bucket, every page. Folders come back with id: null. */
+async function listFolder(
+  ctx: OperatorContext,
+  bucket: string,
+  prefix: string,
+): Promise<Array<{ name: string; id: string | null }>> {
+  const out: Array<{ name: string; id: string | null }> = []
+  for (let offset = 0; ; offset += LIST_PAGE) {
+    const { data, error } = await ctx.admin.storage.from(bucket).list(prefix, {
+      limit: LIST_PAGE, offset, sortBy: { column: 'name', order: 'asc' },
+    })
+    if (error) throw new Error(`storage list ${bucket}/${prefix}: ${error.message}`)
+    out.push(...((data ?? []) as Array<{ name: string; id: string | null }>))
+    if (!data || data.length < LIST_PAGE) return out
+  }
+}
+
+/**
+ * Every object below user-avatars/{workspaceId}/ (Track C / C2), by LISTING
+ * the prefix — see AVATAR_BUCKET for why no row can supply these. The layout is
+ * two levels deep; anything deeper under the prefix is still this tenant's and
+ * still swept, to a depth bound. Budgeted: past AVATAR_MAX the walk stops and
+ * `truncated` says so, because a certificate that silently stopped counting
+ * is the S39 defect one bucket over. A listing that fails THROWS, and the
+ * caller refuses the teardown — a certificate written over an unknown set
+ * would be wrong the moment it was signed.
+ */
+async function collectAvatarPaths(
+  ctx: OperatorContext,
+  workspaceId: string,
+): Promise<{ avatars: string[]; truncated: boolean }> {
+  const avatars: string[] = []
+  let truncated = false
+  const walk = async (prefix: string, depth: number): Promise<void> => {
+    if (truncated) return
+    const entries = await listFolder(ctx, AVATAR_BUCKET, prefix)
+    for (const e of entries) {
+      if (truncated) return
+      const path = `${prefix}/${e.name}`
+      if (e.id === null) {
+        if (depth >= 4) { truncated = true; return }
+        await walk(path, depth + 1)
+      } else {
+        if (avatars.length >= AVATAR_MAX) { truncated = true; return }
+        avatars.push(path)
+      }
+    }
+  }
+  await walk(workspaceId, 1)
+  return { avatars, truncated }
 }
 
 /**
@@ -643,7 +709,21 @@ Deno.serve(async (req: Request) => {
   //    already tear this company down. It reveals nothing about anyone outside
   //    the workspace they named.
   if (action === 'admin_contact') {
-    const admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    // 🚨 CAUGHT, exactly as send_setup_link catches it. loadFoundingAdmin THROWS
+    //    on a failed lookup — that is the R1 correction that made it the one
+    //    shared query — and Deno.serve wraps this function in no error handler,
+    //    so an uncaught throw here was a bare 500 with no CORS headers and no
+    //    JSON body, which the browser refuses to hand to the console. A
+    //    transient PostgREST or GoTrue hiccup on this READ therefore surfaced as
+    //    "Network error — check your connection." instead of admin_lookup_failed's
+    //    own sentence. The helper's failure contract changed in R1 and only one
+    //    of its two callers followed it. Found by the R2 review (Track A, A1).
+    let admin0
+    try {
+      admin0 = await loadFoundingAdmin(ctx, workspaceId)
+    } catch (err) {
+      return reply({ error: 'admin_lookup_failed', detail: String((err as Error)?.message ?? err) }, 500)
+    }
     if (!admin0) return reply({ error: 'no_admin' }, 409)
     return reply({
       email: admin0.email,
@@ -815,6 +895,55 @@ Deno.serve(async (req: Request) => {
     } catch (err) {
       return reply({ error: 'scan_failed', detail: String((err as Error).message ?? err) }, 500)
     }
+
+    // 1b. The AVATARS, by prefix (Track C / C2). Part of the collect step: a
+    //     listing that fails refuses the teardown like any other scan, for the
+    //     same reason — after the CASCADE nothing can re-derive the set.
+    let avatars: string[]
+    let avatarsTruncated: boolean
+    try {
+      const a = await collectAvatarPaths(ctx, workspaceId)
+      avatars = a.avatars
+      avatarsTruncated = a.truncated
+    } catch (err) {
+      return reply({ error: 'scan_failed', detail: `avatars: ${String((err as Error).message ?? err)}` }, 500)
+    }
+
+    // 1c. The OPEN UPLOAD RESERVATIONS (Track C / C2, migration 0074), BEFORE
+    //     anything is destroyed and BEFORE the CASCADE. upload_reservations and
+    //     file_events both CASCADE with the workspace, so a tenant torn down
+    //     with an upload in flight was certified "torn down" with that partial
+    //     unrecorded (TPN-CONT-017). sweep_open_uploads closes every open row —
+    //     'completed' where the object landed, 'abandoned' with a certificate
+    //     otherwise — and returns the abandoned paths, which the WIL-7009
+    //     certificates in step 2e carry into platform_audit, the one table the
+    //     CASCADE cannot reach.
+    //
+    //     🚨 THE FAILURE FLAG STARTS TRUE and is cleared only by an ANSWER
+    //     (storage-gc's lesson, C1 review round 1): a database without 0074
+    //     answers PGRST202, and a certificate that silently read 0/0 there
+    //     would claim a sweep that never ran. rpc() resolves for every status,
+    //     so `.error` is the only signal; a thrown transport error lands on the
+    //     same flag. Nothing here throws past this block — nothing has been
+    //     destroyed yet, but the teardown must still proceed and RECORD that
+    //     the sweep did not answer.
+    let reservationsAbandoned = 0
+    let reservationsCompleted = 0
+    let reservationSweepFailed = true
+    let abandonedPaths: string[] = []
+    try {
+      const { data, error } = await ctx.admin.rpc('sweep_open_uploads', { p_workspace_id: workspaceId })
+      if (!error) {
+        const row = (Array.isArray(data) ? data[0] : data) as
+          { abandoned?: number; completed?: number; abandoned_paths?: unknown } | null | undefined
+        reservationSweepFailed = false
+        reservationsAbandoned = Number(row?.abandoned ?? 0)
+        reservationsCompleted = Number(row?.completed ?? 0)
+        abandonedPaths = Array.isArray(row?.abandoned_paths)
+          ? (row?.abandoned_paths as unknown[]).filter((p): p is string => typeof p === 'string')
+          : []
+      }
+    } catch { /* reservationSweepFailed stays true, and the certificate says so */ }
 
     // A rejected path is a files/queue row for this workspace pointing at a
     // key outside its own projects — either data corruption or a deliberate
@@ -995,6 +1124,69 @@ Deno.serve(async (req: Request) => {
       })
     }
 
+    // 2d. The AVATARS (Track C / C2): the third bucket, its own pass, its own
+    //     counters — a photograph of a person is not a preview frame, and the
+    //     two must never be folded into one number. Same ordering rule as 2b
+    //     and 2c: AFTER the certificates already written for blobs already
+    //     gone. Counted from remove()'s RETURNED array — the batch length would
+    //     certify a destruction that never happened (the S15 finding).
+    let avatarsRemoved = 0
+    const avatarsFailed: string[] = []
+    const avatarsRemovedPaths: string[] = []
+    for (let i = 0; i < avatars.length; i += REMOVE_BATCH) {
+      const batch = avatars.slice(i, i + REMOVE_BATCH)
+      const { data, error } = await ctx.admin.storage.from(AVATAR_BUCKET).remove(batch)
+      if (error) {
+        avatarsFailed.push(...batch)
+      } else if (Array.isArray(data)) {
+        avatarsRemoved += data.length
+        avatarsRemovedPaths.push(
+          ...data.map((o: { name?: string }) => o?.name).filter((n): n is string => typeof n === 'string'),
+        )
+      }
+    }
+    for (let i = 0; i < avatarsRemovedPaths.length; i += CERT_BATCH) {
+      const batch = avatarsRemovedPaths.slice(i, i + CERT_BATCH)
+      await logPlatformEvent(ctx, {
+        action: 'blob.purged',
+        workspaceId,
+        workspaceSlug: ws.slug,
+        workspaceName: ws.name,
+        code: 'WIL-7006',
+        severity: 'warning',
+        message: `Purged ${batch.length} avatar(s) during teardown of ${ws.slug}`,
+        context: {
+          bucket: AVATAR_BUCKET,
+          avatars: true,
+          paths: batch,
+          batch: Math.floor(i / CERT_BATCH) + 1,
+        },
+      })
+    }
+
+    // 2e. The ABANDONED UPLOADS (Track C / C2), certified where the CASCADE
+    //     cannot reach. Nothing was destroyed here — a partial is reaped by
+    //     Supabase's 24 h TUS expiry, which nothing on the platform can see —
+    //     so this is WIL-7009, "certified abandoned", never WIL-7006 "purged".
+    //     One row per CERT_BATCH paths, like every other certificate here.
+    for (let i = 0; i < abandonedPaths.length; i += CERT_BATCH) {
+      const batch = abandonedPaths.slice(i, i + CERT_BATCH)
+      await logPlatformEvent(ctx, {
+        action: 'workspace.teardown',
+        workspaceId,
+        workspaceSlug: ws.slug,
+        workspaceName: ws.name,
+        code: 'WIL-7009',
+        severity: 'warning',
+        message: `Certified ${batch.length} abandoned upload(s) during teardown of ${ws.slug}`,
+        context: {
+          paths: batch,
+          batch: Math.floor(i / CERT_BATCH) + 1,
+          note: 'open upload reservations closed before the CASCADE (sweep_open_uploads, 0074); the partials expire at 24 h in Supabase Storage and are not enumerable from WILSON',
+        },
+      })
+    }
+
     // 3. Now the row, and the CASCADE with it.
     const { error: delErr } = await ctx.admin
       .from('workspaces')
@@ -1009,9 +1201,9 @@ Deno.serve(async (req: Request) => {
         code: 'WIL-7007',
         severity: 'error',
         message: `Teardown of ${ws.slug} FAILED after purging ${removed} blob(s)`,
-        context: { error: delErr.message, blobs_removed: removed },
+        context: { error: delErr.message, blobs_removed: removed, avatars_removed: avatarsRemoved },
       })
-      return reply({ error: 'teardown_failed', detail: delErr.message, blobs_removed: removed }, 500)
+      return reply({ error: 'teardown_failed', detail: delErr.message, blobs_removed: removed, avatars_removed: avatarsRemoved }, 500)
     }
 
     // 4. NOW drop the queue rows — after the cascade, not before it.
@@ -1075,6 +1267,29 @@ Deno.serve(async (req: Request) => {
         // certificate that under-reports is the failure S39's own review
         // caught. Same NULL-is-not-zero rule as the line above.
         byo_thumbnails_left: byoThumbsLeft,
+        // Track C / C2: the THIRD bucket, LISTED by prefix (no row names an
+        // avatar). `avatars_truncated: true` means the listing stopped at
+        // AVATAR_MAX and objects remain — stated, never assumed swept.
+        avatars_found: avatars.length,
+        avatars_removed: avatarsRemoved,
+        avatars_failed: avatarsFailed.length,
+        avatars_truncated: avatarsTruncated,
+        // Track C / C2: the open upload reservations closed BEFORE the CASCADE
+        // (sweep_open_uploads, 0074; the abandoned paths are on WIL-7009).
+        // `reservation_sweep_failed: true` means the sweep did not ANSWER — a
+        // database without 0074, or a transport failure — so any open
+        // reservation went with the CASCADE uncertified, and the two counts
+        // beside it are 0 and mean nothing.
+        reservations_abandoned: reservationsAbandoned,
+        reservations_completed: reservationsCompleted,
+        reservation_sweep_failed: reservationSweepFailed,
+        // Track C / C2: the stated limit of blobs_* and thumbnails_*, on the
+        // certificate rather than only in §17. Both are ROW-DERIVED (files +
+        // storage_gc_queue): an object whose row never landed — a body or
+        // preview put succeeded, the row insert was refused, both compensating
+        // deletes best-effort — is neither removed nor counted above. The
+        // avatars are the exception: they are listed, not derived.
+        thumbnails_note: 'row-derived: only objects named by a files or storage_gc_queue row were swept from rabbit-files and rabbit-thumbnails; a stranded body or preview with no row is neither removed nor counted',
       },
     })
 
@@ -1096,6 +1311,15 @@ Deno.serve(async (req: Request) => {
       // teardown is still on screen.
       byo_bodies_left: byoLeft,
       byo_thumbnails_left: byoThumbsLeft,
+      // Track C / C2: the avatar count Audrey's test plan reads ("the
+      // certificate's avatar count is 1"), and the reservation sweep's answer.
+      avatars_found: avatars.length,
+      avatars_removed: avatarsRemoved,
+      avatars_failed: avatarsFailed.length,
+      avatars_truncated: avatarsTruncated,
+      reservations_abandoned: reservationsAbandoned,
+      reservations_completed: reservationsCompleted,
+      reservation_sweep_failed: reservationSweepFailed,
     })
   }
 

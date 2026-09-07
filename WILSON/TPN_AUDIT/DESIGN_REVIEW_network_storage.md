@@ -387,6 +387,26 @@ be certified at once is a ruling owed by Audrey (hand-off C1 §6); the pack
 should describe the certificate's scope as "abandoned by the client without
 release" until then.
 
+**Status (2026-09-07, Track C / migration 0074) — the coverage limit above is
+closed on both counts, by Audrey's rulings.** (a) A resumable upload that
+FAILS with a server-answered error is now certified AT ONCE:
+`abandon_upload_reservation(path, reason)` is called from the client's failure
+path, closes the row as `abandoned` and writes the `upload_abandoned` row with
+the error text in `details.reason` (`details.reported_by = 'client'`); a
+failure reported after the object had in fact landed closes `completed` and
+certifies nothing. (b) Workspace teardown closes every OPEN reservation of the
+tenant BEFORE the CASCADE (`sweep_open_uploads`) and certifies the abandoned
+paths in `platform_audit` as `WIL-7009` — the table the CASCADE cannot reach —
+with the counts on `WIL-7005` and a `reservation_sweep_failed` flag that
+starts true and is cleared only by an answer. The certificate's scope is now
+"every reservation that did not complete", with one remaining, stated
+exception: rows a person's own client releases when they next open Files
+(`release_stale_upload_reservations`, Audrey's ruling 2) close without a
+certificate — a closed tab's partial is still reaped by the platform's 24 h
+expiry and is still un-enumerable, so the pack should describe those as
+"released by the owner before expiry, uncertified by design". pgTAP suite 78
+(49 probes, ten breakers); handbook §5, §12.3, §17.
+
 ### TPN-CLOUD-008 — A thumbnail bucket repeats TPN-CLOUD-004 if it is public or its policies are partially ported
 
 ```yaml

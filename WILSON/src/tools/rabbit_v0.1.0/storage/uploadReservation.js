@@ -49,6 +49,15 @@ export function isFunctionMissing(error) {
 }
 
 /**
+ * The keys THIS tab is uploading right now: reserved, not yet closed.
+ * release_stale_upload_reservations() (0074) is told to keep them, so opening
+ * Files in the tab that is uploading cannot release the upload's own row.
+ * Module-level on purpose — one tab, one set. A second tab has its own set and
+ * cannot see this one (stated limit, handbook §17).
+ */
+export const inFlightKeys = new Set()
+
+/**
  * The server's refusal names the object KEY's leaf — `<Date.now()>-<safe name>`,
  * the unique key uploadFile mints per attempt — because that is all
  * reserve_upload_bytes can see. The person reading it dropped "My Clip (1).mov",
@@ -103,6 +112,7 @@ export async function reserveUpload(client, key, bytes, opts) {
   // NULL = the path is quota-exempt; nothing was written and there is nothing
   // to release.
   if (res?.data === null || res?.data === undefined) return { reserved: false, reason: 'exempt' }
+  inFlightKeys.add(key)
   return { reserved: true, id: res.data }
 }
 
@@ -113,6 +123,7 @@ export async function reserveUpload(client, key, bytes, opts) {
  * closed, false otherwise.
  */
 export async function releaseUpload(client, key) {
+  inFlightKeys.delete(key)
   try {
     const res = await client.rpc('release_upload_reservation', { p_path: key })
     if (res?.error) {
@@ -123,5 +134,69 @@ export async function releaseUpload(client, key) {
   } catch (err) {
     console.warn('[supabase] upload reservation not released:', err?.message || err)
     return false
+  }
+}
+
+/** How much of a failure's message rides on the certificate; the server bounds it too. */
+export const ABANDON_REASON_MAX = 500
+
+/**
+ * Track C / 0074, Audrey's ruling 1 (2026-09-07): an upload that FAILS with an
+ * error the server answered is RECORDED, not silently released. Closes the
+ * caller's own reservation for `key` as 'abandoned' and writes the
+ * `upload_abandoned` certificate at once, carrying `reason` (bounded).
+ *
+ * Best-effort and never throws — the upload has already failed, and that
+ * failure is what the caller reports. Resolves true when a row was closed.
+ *
+ * Degradation, stated: where the database has 0073 but not 0074 the RPC does
+ * not exist (PGRST202) and this falls back to releaseUpload — exactly the
+ * pre-0074 behaviour. A NETWORK drop never reaches the server at all: the row
+ * stays open, expires at 24 h and the hourly sweep certifies it (0073).
+ */
+export async function abandonUpload(client, key, reason) {
+  inFlightKeys.delete(key)
+  const text = String(reason ?? '').slice(0, ABANDON_REASON_MAX) || null
+  try {
+    const res = await client.rpc('abandon_upload_reservation', { p_path: key, p_reason: text })
+    if (res?.error) {
+      if (isFunctionMissing(res.error)) {
+        console.warn(
+          '[supabase] abandon RPC unavailable (migration 0074 is not applied here) — releasing instead:',
+          res.error.message,
+        )
+        return releaseUpload(client, key)
+      }
+      console.warn('[supabase] upload reservation not abandoned:', res.error.message)
+      return false
+    }
+    return res?.data === true
+  } catch (err) {
+    console.warn('[supabase] upload reservation not abandoned:', err?.message || err)
+    return false
+  }
+}
+
+/**
+ * Track C / 0074, Audrey's ruling 2: a person's own STALE reservations are
+ * released when they next open Files — rows a closed tab or a crash left open,
+ * which would otherwise hold their bytes for 24 h. The keys this tab is still
+ * uploading are kept. Those rows close WITHOUT a certificate (her ruling; the
+ * handbook §17 says so). Best-effort, never throws; resolves the number of rows
+ * closed — 0 where 0074 is not applied, with no warning (nothing is wrong).
+ */
+export async function releaseStaleUploads(client) {
+  try {
+    const res = await client.rpc('release_stale_upload_reservations', { p_keep: [...inFlightKeys] })
+    if (res?.error) {
+      if (!isFunctionMissing(res.error)) {
+        console.warn('[supabase] stale upload reservations not released:', res.error.message)
+      }
+      return 0
+    }
+    return Number(res?.data ?? 0)
+  } catch (err) {
+    console.warn('[supabase] stale upload reservations not released:', err?.message || err)
+    return 0
   }
 }

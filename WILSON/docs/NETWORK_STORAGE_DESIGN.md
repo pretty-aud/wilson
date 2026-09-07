@@ -365,6 +365,21 @@ one binds first.
 >    accept files it could never give back. Fixed in the same session with a
 >    signed-URL download (`Content-Disposition` via `createSignedUrl`'s
 >    `download` option, because `a.download` is ignored cross-origin).
+> 7. ✅ **0074 (Track C / C2, 2026-09-07) closes the two certification gaps
+>    note 5 left open, and gives the stream the money arm it never had.** A
+>    resumable upload that FAILS with a server-answered error is certified at
+>    once (`abandon_upload_reservation`, called from the client's failure path
+>    with the error as the reason); a tenant torn down with open reservations
+>    has them closed BEFORE the CASCADE (`sweep_open_uploads`) and the
+>    abandoned paths certified in `platform_audit` as `WIL-7009`, the one
+>    table the CASCADE cannot reach; a person's own stale rows are released
+>    when they next open Files, without a certificate (Audrey's ruling); and
+>    there is NO per-person reservation cap (her ruling — the 24 h expiry is
+>    the bound). Separately, `file_events.is_financial` + the
+>    `file_events_select` money arm make invoice history manager-only while
+>    deletion certificates stay visible to every project reader (pgTAP suite
+>    78; handbook §12.3, §17). Teardown also sweeps `user-avatars`, the third
+>    bucket, listed by prefix (§5).
 >
 > ⚠️ **s3 workspaces are unchanged: still a 5 GB single presigned PUT.** S3
 > multipart was not implemented, so Petal's cap is now ten times the s3 one —

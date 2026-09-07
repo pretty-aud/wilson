@@ -22,7 +22,7 @@
 // =============================================================================
 
 import { putResumable, shouldUseResumable } from './resumableUpload.js'
-import { reserveUpload, releaseUpload } from './uploadReservation.js'
+import { reserveUpload, releaseUpload, abandonUpload } from './uploadReservation.js'
 import { withTimeout } from '../../../cloud/auth/withTimeout.js'
 
 const BUCKET = 'rabbit-files'
@@ -95,16 +95,22 @@ export function createSupabaseStorageProvider(requireClient) {
         // The quota policy cannot see an upload until it lands, so the space is
         // reserved here, first, and an over-quota upload is refused before any
         // byte moves (reserveUpload THROWS on refusal, so the upload never
-        // starts). Released in the finally — on completion AND on failure —
-        // and the release is best-effort because the meter already stops
-        // counting a reservation the instant its object lands (0073's
-        // NOT EXISTS arm): release timing cannot double-count. An unreleased
-        // row after a crash expires at 24 h and is certified by the sweep.
+        // starts). Closed in the finally — RELEASED on completion, ABANDONED
+        // with a certificate that carries the error on failure (0074, Audrey's
+        // ruling 1) — and both closes are best-effort because the meter already
+        // stops counting a reservation the instant its object lands (0073's
+        // NOT EXISTS arm): close timing cannot double-count. An unreleased row
+        // after a crash, or after a network drop that the abandon call cannot
+        // cross either, expires at 24 h and is certified by the sweep.
         // The file's own name rides along for the refusal sentence only (the
         // server sees the minted key and would otherwise name its leaf).
         const reservation = await reserveUpload(client, key, body?.size, { displayName: body?.name })
+        // `landed` is the only success signal: a thrown non-Error still reads
+        // as a failure, and the failure itself still propagates untouched.
+        let landed = false
+        let failure = null
         try {
-          return await putResumable({
+          const out = await putResumable({
             bucket: BUCKET,
             key,
             body,
@@ -113,8 +119,16 @@ export function createSupabaseStorageProvider(requireClient) {
             contentType: opts.contentType || body?.type || 'application/octet-stream',
             onProgress: opts.onProgress,
           })
+          landed = true
+          return out
+        } catch (err) {
+          failure = err
+          throw err
         } finally {
-          if (reservation.reserved) await releaseUpload(client, key)
+          if (reservation.reserved) {
+            if (landed) await releaseUpload(client, key)
+            else await abandonUpload(client, key, failure?.message || String(failure ?? 'upload failed'))
+          }
         }
       }
 

@@ -42,6 +42,7 @@ import { fileSlugify } from '../entityNaming'
 import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
 import { activeWorkspaceProvider } from '../storage'
 import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
+import { releaseStaleUploadReservations } from '../../../cloud/storageApi'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
 
@@ -157,6 +158,22 @@ export default function FileManager({
       .catch(() => { /* unknown stays unknown, and unknown keeps the pointer */ })
     return () => { cancelled = true }
   }, [])
+
+  // Track C / 0074 (Audrey's ruling 2, 2026-09-07): opening Files releases
+  // this person's own STALE upload reservations — rows a closed tab or a crash
+  // left open, which would otherwise count against the company's quota for
+  // 24 h (walkthrough 13's "refused for a day" case). Supabase backend only;
+  // the keys THIS tab is still uploading are kept (uploadReservation.js tracks
+  // them). Best-effort by design: nothing on screen depends on it, and a
+  // database without 0074 answers "no such function", which is a 0.
+  // ⚠️ Stated limit (§17): a second tab cannot see the first tab's in-flight
+  // keys, so opening Files in tab B while tab A uploads releases A's row early.
+  // The storage policy still refuses an over-quota object at commit
+  // (0055/0073), so the cost is a late refusal, never an over-quota object.
+  useEffect(() => {
+    if (ctx?.adapterMode !== 'supabase') return
+    releaseStaleUploadReservations().catch(() => {})
+  }, [ctx?.adapterMode])
 
   // Filter to only files for this parent, exclude soft-deleted.
   //
