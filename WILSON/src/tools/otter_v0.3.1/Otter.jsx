@@ -10,7 +10,7 @@ import {
   Keyboard, Loader2, Check, AlertCircle,
   RotateCcw, Eye, FileJson, Clock, Lightbulb,
   Code, HelpCircle, ArrowLeft, ArrowRight, Star, CheckCircle2,
-  Lock, Unlock, Library, Braces, FolderOpen, Share2,
+  Lock, Unlock, Library, Braces, FolderOpen, Share2, Info,
   Link, ExternalLink, ShieldCheck, GitPullRequestArrow
 } from 'lucide-react';
 import {
@@ -21,7 +21,7 @@ import {
 // Session 10: content routes go through the adapter seam instead of straight
 // to the in-app Express server — cloud when signed in, local otherwise, and
 // the only thing that works at all in the Session 11 web build.
-import { otterFetch, otterCloudActive } from './adapters';
+import { otterFetch, otterCloudActive, getOtterAdapterMode, setOtterAdapterMode, subscribeOtterAdapterMode } from './adapters';
 import { callAI, isRetryableAIError } from '../../cloud/aiProxy';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../lib/localData';
 import { pushSettingsToCloud } from '../../lib/userState';
@@ -244,12 +244,24 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // Cloud vs local. Read from the ADAPTER, not from usePermissions alone: the
   // Settings mode override can pin local while a session exists, and the
   // sharing controls must appear exactly when the backend behind them works.
+  // ── A4: which library am I looking at? (Audrey's decision 3) ──────────────
+  // The pin lives in a module variable inside the adapters, not in React state,
+  // because `otterFetch` has to route on it SYNCHRONOUSLY at ~90 call sites.
+  // Mirror it into state so this component can re-render when it moves.
+  const [libraryMode, setLibraryMode] = useState(() => getOtterAdapterMode());
+  useEffect(() => subscribeOtterAdapterMode(setLibraryMode), []);
+
+  // Desktop only. The six on-disk courses exist only where there is an in-app
+  // Express server to serve them; on the web there is no local library, so
+  // there is nothing to switch between and the control is not rendered.
+  const hasLocalLibrary = typeof window !== 'undefined' && !!window.electronAPI;
+
   const [cloudMode, setCloudMode] = useState(false);
   useEffect(() => {
     let alive = true;
     otterCloudActive().then(v => { if (alive) setCloudMode(v); }).catch(() => {});
     return () => { alive = false; };
-  }, [perms.ready, perms.workspaceId]);
+  }, [perms.ready, perms.workspaceId, libraryMode]);
 
   // ── Library filter chips (courses; subjects inherit — see CourseFilterChips) ──
   const [courseFilter, setCourseFilter] = useState('all');
@@ -552,6 +564,30 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     window.addEventListener('wilson:open-otter-course', onOpenCourse)
     return () => window.removeEventListener('wilson:open-otter-course', onOpenCourse)
   }, [loadSoftwareList, selectSoftware])
+
+  // ── A4: switching library throws away everything keyed by course slug ─────
+  //
+  // 🚨 THE TWO LIBRARIES DO NOT SHARE A SLUG SPACE. On disk a course's slug is
+  // `slugify(name)`; in cloud it is the course UUID (`supabaseOtterAdapter`
+  // maps `slug: row.id`). So every entry in softwareCacheRef/subjectCacheRef is
+  // meaningless after a switch, and the course currently open almost certainly
+  // does not exist on the other side — leaving it selected would render the
+  // previous library's content under the new library's name, which is exactly
+  // the "looks correct, silently wrong" shape this area keeps producing.
+  //
+  // Keyed on the mode rather than done inside the Settings handler so that any
+  // future caller of setOtterAdapterMode gets the reset too.
+  const lastLibraryModeRef = useRef(libraryMode);
+  useEffect(() => {
+    if (lastLibraryModeRef.current === libraryMode) return;
+    lastLibraryModeRef.current = libraryMode;
+    invalidateCache();
+    setActiveSubjectSlug(null);
+    setActiveSoftware(null);
+    setActiveSoftwareSlug(null);   // the effect below re-lists on this change
+    setCurrentView('library');
+    setCourseFilter('all');        // 'trash' is cloud-only; see the effect above
+  }, [libraryMode, invalidateCache]);
 
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveSubjectSlug(subjectSlug);
@@ -3887,6 +3923,44 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   //  LIBRARY VIEW
   // ═══════════════════════════════════════════════════════════════
+  // ── A4: say which library this is, when the other one is hidden ───────────
+  //
+  // Audrey's decision 3 asks for a notice "whenever the local library is
+  // hidden". Both directions are covered, because the switch creates the
+  // mirror-image trap the moment it exists: someone pins 'This computer',
+  // forgets, and later reads the missing company courses as data loss. The
+  // notice carries the way back, so the recovery does not depend on finding a
+  // padlocked Settings tab.
+  //
+  // Web build: nothing renders. There is no local library there to hide, and
+  // `usableMode` refuses a 'local' pin on that build for the same reason.
+  function renderLibrarySourceNotice() {
+    if (!hasLocalLibrary) return null;
+    const localHidden   = cloudMode;
+    const companyHidden = !cloudMode && libraryMode === 'local' && !!perms.workspaceId;
+    if (!localHidden && !companyHidden) return null;
+    return (
+      <div className="flex items-start gap-2 mb-4 px-3 py-2 rounded-sm border-2 border-stone-600 bg-stone-900">
+        <Info className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-stone-400 text-[11px] leading-relaxed">
+            {localHidden
+              ? 'You are signed in, so this is your company library. Courses saved on this computer are hidden.'
+              : 'This is the library on this computer. Your company courses are hidden.'}
+          </p>
+          <button
+            onClick={() => setOtterAdapterMode(localHidden ? 'local' : 'auto')}
+            className="mt-1 text-[11px] font-bold text-orange-400 hover:text-orange-300 underline underline-offset-2"
+          >
+            {localHidden ? 'Show the courses on this computer' : 'Show the company library'}
+          </button>
+          <span className="block text-stone-600 text-[10px] mt-1">
+            You can also change this in Settings under Library.
+          </span>
+        </div>
+      </div>
+    );
+  }
   function renderLibrary() {
     // "Recently deleted" is a FILTER STATE on this same pane, not a new view.
     if (courseFilter === 'trash') {
@@ -4083,6 +4157,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
       <div className="h-full overflow-y-auto p-6">
         <div className="max-w-6xl mx-auto">
           {renderSharingBanner()}
+          {renderLibrarySourceNotice()}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-bold text-orange-400">Course Library</h2>
             <div className="flex items-center gap-3">
@@ -5418,41 +5493,68 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   function renderToolsTab() {
     return (
       <div className={toolsTabLocked ? 'opacity-60' : ''}>
-        {/* Storage Location */}
-        <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
-          <label className={`block text-sm font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Storage Location</label>
-          {/* S30: a refused settings write used to leave the field showing the
-              new value with nothing saved. Now it says so. */}
-          {settingsError && (
-            <div className="flex items-start gap-2 mb-2 px-2 py-1.5 rounded-sm border border-red-800/50 bg-red-950/30">
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
-              <span className="text-xs text-red-300 leading-relaxed">
-                <span className="font-bold">Not saved.</span> {settingsError}
-              </span>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
-              disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 focus:outline-none transition-colors disabled:cursor-not-allowed" />
-            {/* Session 12: this button used to POST /api/browse-folder, a
-                route that never existed on ANY host — it was dead everywhere
-                (same class as S11's unreachable renderDeleteConfirm). The
-                preload rabbit bridge already ships a directory picker, so use
-                it where it exists and drop the button where it can't work. */}
-            {window.electronAPI?.rabbit?.pickDirectory && (
-              <button disabled={toolsTabLocked} onClick={async () => {
-                try {
-                  const dir = await window.electronAPI.rabbit.pickDirectory();
-                  if (dir) saveSettings({ storageLocation: dir });
-                } catch (e) { console.error('Browse folder failed:', e); }
-              }} className="bg-stone-700 text-stone-300 border-2 border-stone-600 px-3 py-2 rounded-sm hover:bg-stone-600 transition-colors disabled:cursor-not-allowed disabled:opacity-50 shrink-0 flex items-center gap-1.5" title="Browse for folder">
-                <FolderOpen className="w-4 h-4" /><span className="text-xs font-bold">Browse</span>
-              </button>
-            )}
+        {/* S30: a refused settings write used to leave the field showing the
+            new value with nothing saved. Now it says so. A4 hoisted this out of
+            the removed "Storage Location" block — deleting it with the field
+            would have made every failed write on this tab silent again. */}
+        {settingsError && (
+          <div className="flex items-start gap-2 mb-4 px-2 py-1.5 rounded-sm border border-red-800/50 bg-red-950/30">
+            <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-px" />
+            <span className="text-xs text-red-300 leading-relaxed">
+              <span className="font-bold">Not saved.</span> {settingsError}
+            </span>
           </div>
-          <p className="text-stone-600 text-[10px] mt-1">Default: ./data/software/ -- All courses and subjects are stored here.</p>
-        </div>
+        )}
+
+        {/* ── Library, A4 / Audrey's decision 3 ─────────────────────────────
+            Replaces "Storage Location", which was removed in the same bundle
+            (decision 28b): that field wrote `settings.storageLocation` and
+            NOTHING has ever read it — courses live at
+            userData/otter-data/software/ regardless. It was listed in
+            RELEASE_TESTING.md "Known not to work" #3.
+
+            This control is the one that does something. Desktop only, because
+            the on-disk library only exists where the in-app Express server
+            does. */}
+        {hasLocalLibrary && (
+          <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">
+            <label className={`block text-sm font-bold mb-2 ${toolsTabLocked ? 'text-stone-500' : 'text-orange-400'}`}>Library</label>
+            <p className="text-stone-500 text-[11px] mb-3 leading-relaxed">
+              Which courses O.T.T.E.R. shows on this computer. Signing in used to hide the
+              courses saved here with no way back. This choice is remembered for this
+              computer only — it is never carried to your other machines.
+            </p>
+            <div className="space-y-2">
+              {[
+                { mode: 'auto',  title: 'Company (signed in)', desc: 'Your company library when you are signed in, this computer when you are not.' },
+                { mode: 'local', title: 'This computer',       desc: 'Always the courses saved on this computer, even while signed in.' },
+              ].map(opt => (
+                <button
+                  key={opt.mode}
+                  onClick={() => setOtterAdapterMode(opt.mode)}
+                  disabled={toolsTabLocked}
+                  className={`w-full text-left px-3 py-2 rounded-sm border-2 transition-colors disabled:cursor-not-allowed ${
+                    libraryMode === opt.mode
+                      ? 'bg-stone-800 border-orange-500'
+                      : 'bg-stone-950 border-stone-600 hover:bg-stone-800'
+                  }`}
+                >
+                  <span className={`text-sm font-bold ${libraryMode === opt.mode ? 'text-orange-400' : 'text-stone-300'}`}>
+                    {opt.title}
+                  </span>
+                  <span className="block text-[10px] text-stone-500 mt-0.5">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+            {/* What is ACTUALLY in front of you, which is not always what the
+                setting says: 'Company (signed in)' shows this computer's
+                courses while signed out, and that is worth stating rather than
+                leaving someone to infer it from an empty screen. */}
+            <p className="text-stone-600 text-[10px] mt-2">
+              Showing now: {cloudMode ? 'your company library' : 'the courses on this computer'}.
+            </p>
+          </div>
+        )}
 
         {/* Data management */}
         <div className="bg-stone-900 border-2 border-stone-600 rounded-sm p-4 mb-4">

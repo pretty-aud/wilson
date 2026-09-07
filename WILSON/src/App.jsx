@@ -45,7 +45,7 @@ import {
   COMPANION_PROMPT
 } from './tools/otter_v0.3.1/prompts.js'
 import { AgentProvider, useAgent } from './agent'
-import { otterFetch } from './tools/otter_v0.3.1/adapters'
+import { otterFetch, subscribeOtterAdapterMode } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { withTimeout } from './cloud/auth/withTimeout'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
@@ -1114,6 +1114,20 @@ export default function App() {
     if (!perms.ready) return;
     clearPetKnowledgeCache();
   }, [perms.ready, perms.userId, perms.workspaceId]);
+
+  // ── A4: the library switch moves the pet's index too ──────────────────────
+  // O.T.T.E.R.'s Settings → Library control flips the adapter between the
+  // company library and this computer's. The index above is keyed on the
+  // IDENTITY, which does not change when the switch is flipped — so without
+  // this the pet would keep answering out of the library the person just
+  // switched away from, warm for INDEX_TTL_MS (five minutes) with nothing on
+  // screen to say so. Phase 6's retrieval reads through the same `otterFetch`
+  // seam, so the CONTENT follows the switch by itself; only the cache does not.
+  //
+  // Subscribed rather than keyed on a state value because the mode lives in a
+  // module variable in the adapters, not in React state: an effect dependency
+  // could not see it move.
+  useEffect(() => subscribeOtterAdapterMode(() => clearPetKnowledgeCache()), []);
 
   // ── S34: the workspace storage root reaches the main process ──────────────
   // main.cjs has no Supabase client, so the byos root (workspace_storage,
