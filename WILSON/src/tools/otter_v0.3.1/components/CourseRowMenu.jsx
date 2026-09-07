@@ -53,6 +53,7 @@ const VIEWPORT_PAD = 8
 
 export default function CourseRowMenu({
   course, role, onShare, onSuggestChange, onFork, onTrash, compact = false,
+  sourceIsStandard = false,
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState(null)
@@ -66,7 +67,18 @@ export default function CourseRowMenu({
   const isAdmin    = role === 'admin'
   const mayShare   = selectableVisibilities(course, role).length > 0 || canManageEditors(course, role)
   const mayFork    = canReadCourse(course)
-  const maySuggest = !!course?.source_course_id && canReadCourse(course)
+  // `source_course_id` says this course is a FORK. It does not say the thing it
+  // was forked FROM is still the standard, and only a standard can be the target
+  // of a change request (otter_cr_insert, 0025: the WITH CHECK requires
+  // otter_course_visibility(target_course_id) = 'company_standard'). An admin
+  // demoting a standard — the confirmDrop path in ShareCourseDialog, and since
+  // 0064 the automatic consequence of approving ANY nomination — used to leave
+  // every existing fork still offering this item: the dialog opened, the user
+  // wrote a summary, and only the POST failed, at RLS. `sourceIsStandard` is
+  // resolved by the caller against softwareList (CourseRowMenu sees one course
+  // and cannot look the source up itself) and defaults FALSE, so a render site
+  // that forgets it loses the item rather than restoring the dead end.
+  const maySuggest = !!course?.source_course_id && sourceIsStandard && canReadCourse(course)
   // Mirrors fn_otter_trash_authz's course arm: owner or admin. Granted editors
   // may edit content but never bin someone else's course.
   const mayTrash   = isOwn || isAdmin

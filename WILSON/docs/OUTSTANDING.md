@@ -809,10 +809,12 @@ What remains is not this file's kind of entry, and is tracked elsewhere:
 - **A human walkthrough is owed:** submit as a plain member, approve as a
   manager, confirm the incumbent stood down, confirm the read window opens AND
   closes. `docs/RELEASE_TESTING.md`.
-- ⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
+- ~~⚠️ **`maySuggest`'s dead-end (next entry) gets worse with this feature**:
   approving a nomination DEMOTES the incumbent standard, so every fork of it
   immediately starts showing a "Suggest a change…" item whose POST cannot
-  succeed.
+  succeed.~~ — FIXED (2026-08-13, `b051e20`), merged onto `track-a-product` in
+  bundle A4. Being made routine by 0064 is what turned this from a corner case
+  into the thing worth fixing.
 
 ### A manager can approve their own nomination
 **MEASURED in code (2026-08-12, Phase 5); decision owed by Audrey.** The
@@ -825,19 +827,53 @@ the closed entry above on 2026-09-04 so it does not sit under a FIXED heading.
 → If she wants it closed: refuse in the RPC when the nominator is the caller,
 with a pgTAP probe and a breaker.
 
-### "Suggest a change…" is offered on forks of a demoted standard, where it cannot work
-**MEASURED at code level (2026-08-12, Phase 5); NOT observed at runtime.**
-`CourseRowMenu`'s `maySuggest` gates only on `!!course?.source_course_id` — it
-never re-checks that the source is *still* `company_standard`. If an admin demotes
-a standard (the `confirmDrop` path in `ShareCourseDialog`), every existing fork
-keeps showing the menu item, `ChangeRequestDialog` renders its full submit form,
-and only the POST fails, at RLS, with *"Change requests can only be raised against
-a company standard course."* The user is offered a control that cannot succeed.
+### ~~"Suggest a change…" is offered on forks of a demoted standard, where it cannot work~~ — FIXED (2026-08-13, `b051e20`)
+Kept struck rather than deleted because the brief's suggested fix was half of
+one, and the missing half is the part worth remembering.
 
-Not fixed in Phase 5 because the check needs the caller to resolve
-`source_course_id` against `softwareList` (`CourseRowMenu` only receives one
-course), and "source not in my list" would have to be treated as "not a readable
-standard" — correct, but worth a deliberate look rather than a drive-by.
+**The defect, as filed.** `CourseRowMenu`'s `maySuggest` gated on
+`!!course?.source_course_id` — "this is a fork" — and never re-checked that the
+source was *still* `company_standard`. `otter_cr_insert` (0025) requires
+`otter_course_visibility(target_course_id) = 'company_standard'` at INSERT, so
+after a demotion the item still showed, `ChangeRequestDialog` still rendered its
+whole submit form, the user still wrote a summary, and only the POST failed.
+
+**What the fix does.** `Otter.jsx` gained one resolver, `sourceCourseOf`, which
+looks a fork's source up in `softwareList`; the three `CourseRowMenu` sites pass
+`sourceIsStandard`, which `maySuggest` now ANDs in. The prop defaults **false**,
+so a fourth render site that forgets it loses the item rather than restoring the
+dead end.
+
+**Two things the original entry had wrong or missing.**
+
+1. **Gating the menu item is not sufficient.** `RequestsView` opens
+   `ChangeRequestDialog` directly through `Otter.jsx`'s `onOpenDialog` — it never
+   touches `CourseRowMenu`. A proposer whose standard was demoted mid-review
+   could still reach the submit form from their own queue. The dialog therefore
+   makes the same check itself (`canPropose`), and its existing no-target empty
+   state was widened to say *which* nothing this is: "wasn't copied from a
+   standard" and "was, and that standard has since stood down" are different
+   facts, and telling someone the first when the second is true reads as a bug.
+2. **"Source not in my list" was the wrong test.** The entry proposed treating
+   absence as "not a readable standard". Absence *is* safe — `otter_course_index`
+   returns every `company_standard` course to every member (0022), so a live
+   standard is always present — but it is not the case that bites. A **demoted
+   standard stays in the list**; `handleCourseChanged` merges the new tier into
+   the row in place. So the check must read `visibility`, not existence. A
+   presence test (`!!sourceCourseOf(sw)`) would have looked right, passed review,
+   and fixed nothing. `suggestChangeGating.test.js` pins this specifically.
+
+**Not over-corrected.** `otter_cr_update` gates on *who* the caller is and never
+on the target's visibility, so withdrawing an open request and accepting a
+decline both still succeed after a demotion. Hiding the whole dialog would have
+stranded a proposer with a request they could not close, so only the write half
+is gated — pinned by a test, because it is the obvious one-line "simplification"
+a later session would reach for.
+
+**Still MEASURED at code level; NOT observed at runtime.** The suite is a source
+scan (no jsdom in the tree), so it proves the gate is written and wired to all
+four call sites. It cannot prove the item disappears on screen. A human
+walkthrough — demote a standard, then open a fork's menu — is still owed.
 
 ### `POST /api/software` on the local server silently discards `visibility`
 **MEASURED at code level (2026-08-12, Phase 5); latent.**
