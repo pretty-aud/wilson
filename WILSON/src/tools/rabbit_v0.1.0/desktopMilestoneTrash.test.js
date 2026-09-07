@@ -376,3 +376,85 @@ describe('ProjectTasksView no longer confirms a milestone delete', () => {
     expect(body).not.toContain('window.confirm')
   })
 })
+
+
+// ── Audrey, 2026-09-07: the panel is on the Tasks tab as well ───────────────
+
+const NL2 = String.fromCharCode(10)
+
+/** A view's source with CRLF normalised, the way the test above reads one. */
+function readView(name) {
+  return readFileSync(new URL('./views/' + name, import.meta.url), 'utf-8')
+    .split(String.fromCharCode(13) + NL2)
+    .join(NL2)
+}
+
+/**
+ * The whole `<Tag ... />` opening element, comments dropped and whitespace
+ * collapsed. Comments are dropped because the two mounts carry DIFFERENT
+ * commentary on purpose and only the wiring has to agree; whitespace is
+ * collapsed because indentation differs by nesting depth.
+ * No regex literal anywhere in here: the tooling that writes this file
+ * collapses backslash escapes, so a pattern carrying one cannot be trusted to
+ * arrive intact (the same reason the test above slices by index).
+ */
+function mountOf(source, tag) {
+  const at = source.indexOf('<' + tag)
+  if (at === -1) return null
+  const end = source.indexOf('/>', at)
+  if (end === -1) return null
+  const kept = []
+  for (const raw of source.slice(at, end).split(NL2)) {
+    const line = raw.trim()
+    if (line.length === 0 || line.startsWith('//')) continue
+    kept.push(line)
+  }
+  return kept.join(' ')
+}
+
+describe('MilestoneTrashModal is mounted on the Tasks tab too', () => {
+  const TASKS    = readView('ProjectTasksView.jsx')
+  const TIMELINE = readView('TimelineView.jsx')
+
+  it('the Tasks tab imports it and mounts it', () => {
+    expect(TASKS).toContain(
+      "import MilestoneTrashModal from '../components/MilestoneTrashModal'")
+    expect(TASKS).toContain('<MilestoneTrashModal')
+  })
+
+  it('🚨 both mounts are wired IDENTICALLY', () => {
+    // The failure this guards is not "the panel is missing" — it is the panel
+    // being present and answering DIFFERENTLY from the other screen. A mount
+    // that forgot `purgeScheduled` would promise a desktop user that a key
+    // date is "removed for good in 30 days" when nothing on Local Server ever
+    // purges; one that forgot `canWrite` would offer a reviewer a Restore
+    // button that only Postgres refuses. Comparing the whole element rather
+    // than a list of prop names catches a prop that is present but wired to
+    // the wrong thing, which a name list would pass.
+    const tasks    = mountOf(TASKS, 'MilestoneTrashModal')
+    const timeline = mountOf(TIMELINE, 'MilestoneTrashModal')
+    expect(tasks, 'no MilestoneTrashModal element in ProjectTasksView').not.toBeNull()
+    expect(timeline, 'no MilestoneTrashModal element in TimelineView').not.toBeNull()
+    expect(tasks).toBe(timeline)
+  })
+
+  it('the button says which Deleted it means', () => {
+    // 🚨 NOT the Timeline's bare `Deleted`. That toolbar is all key dates and
+    // phases; this screen is TASKS, and a bare `Deleted` here would read as
+    // "deleted tasks" — a list this panel does not show and nothing else in
+    // the product does either. The walkthrough quotes this label.
+    expect(TASKS).toContain('Deleted Key Dates')
+    expect(TASKS).toContain('title="Recently deleted key dates"')
+  })
+
+  it('opening the panel is a read, so it is not behind GatedAction', () => {
+    // Same call as the Timeline's: the Restore button inside carries its own
+    // gate, and hiding the LIST from a reviewer would hide the fact that a key
+    // date was deleted at all.
+    const at = TASKS.indexOf('onClick={() => setTrashOpen(true)}')
+    expect(at).toBeGreaterThan(-1)
+    const open = TASKS.lastIndexOf('<button', at)
+    const before = TASKS.slice(open - 220, open)
+    expect(before).not.toContain('<GatedAction')
+  })
+})

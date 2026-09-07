@@ -10,19 +10,31 @@
 //
 // `update` runs `write()` at once when the patch does not move anything INTO
 // a completion status (approved / final / completed) over an unfinished
-// predecessor. Otherwise it parks the write,
-// shows the modal, and runs it when the person chooses "Continue anyway" —
-// "Go back" drops it and nothing is written. Closing the modal any other way
-// — its X, a click outside it — also CONTINUES: the Phase 7 brief says every
-// warning is dismissible AND the change still lands, so a dismissal is never a
-// silent cancel; "Go back" is the one explicit way to keep the change unsaved
-// (R1 of Track A A2). That is a READING: the brief that says it
-// (docs/fixes/phase-7-dependency-status-warning/BRIEF.md) lives in Audrey's
-// local, gitignored folder, so the sentence cannot be checked in-repo; and
-// AssetStatusWarningModal is not a precedent for it — that modal warns AFTER
-// the write, so its close keeps a change already saved, whereas this one's
-// close performs a write that was waiting. If she reads "dismissible" as
-// "cancel", the two handlers marked DISMISS below are the whole change (R2).
+// predecessor. Otherwise it parks the write, shows the modal, and runs it when
+// the person chooses "Continue anyway".
+//
+// 🚨 EVERY OTHER WAY OUT CANCELS: "Go back", the X, and a click outside the
+// card all drop the parked write, and nothing is saved. **Audrey ruled this on
+// 2026-09-07 and it REVERSES what A2 session 1 shipped.** That session read the
+// Phase 7 brief's "dismissible" as "dismissing still lands the change", said so
+// here at length, and named the two handlers marked DISMISS below as the whole
+// change if she read it the other way. She read it the other way. This is that
+// change; the reading it replaces is gone rather than argued with, because a
+// header that still argued for it would be the next session's trap.
+//
+// Why this is also the safer shape, independent of the ruling: this is the only
+// modal in the product whose CLOSE performs a write that has not happened yet.
+// AssetStatusWarningModal warns AFTER its write, so closing that one keeps a
+// change already saved — it was never a precedent. Closing something that has
+// not saved yet reads as "never mind" everywhere else in this app. The warning
+// is still not a block: "Continue anyway" is one deliberate click away, and it
+// is now the ONLY control that writes.
+//
+// Nothing is lost by cancelling, because no surface holds the status in local
+// state: the inline dropdowns bind `value={task.status}`, both drop targets
+// read the row, and the timeline editor stays open with its draft intact. The
+// control snaps back to the stored value on its own. This is not a new code
+// path either — it is the path "Go back" has always taken.
 // Bulk writes pass every id and get one summary ("3 of 12 have unfinished
 // dependencies"), never one modal per row. Audrey, 2026-08-12: "warn dont
 // block. do both phases and tasks".
@@ -124,18 +136,20 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       // Portal events still bubble through the React tree: without these
       // stops a click here would reach the TaskEditor's backdrop (which
       // closes the editor) and the timeline's mousedown drag handlers.
-      // A click outside the card dismisses the warning, and a dismissed warning
-      // lands the change (see the header). Only "Go back" cancels. DISMISS.
-      // R2: a click's target is the common ancestor of its mousedown and its
-      // mouseup, so a press inside the card that slips out onto the backdrop
-      // (selecting a name in the list, sliding off a button) would read as a
-      // backdrop click and land the write. Both ends must be on the backdrop.
+      // DISMISS. A click outside the card CANCELS the parked write — Audrey,
+      // 2026-09-07; see the header for what this reverses.
+      // A2's R2 finding survives the reversal with its meaning inverted: a
+      // click's target is the common ancestor of its mousedown and its mouseup,
+      // so a press that starts inside the card and slips out onto the backdrop
+      // (selecting a name in the list, sliding off a button) reads as a
+      // backdrop click. It used to land the write by accident; it would now
+      // discard it by accident. Both ends must be on the backdrop either way.
       onMouseDown={(e) => { e.stopPropagation(); downOnBackdrop.current = e.target === e.currentTarget }}
       onClick={(e) => {
         e.stopPropagation()
         const wholeClickOnBackdrop = downOnBackdrop.current && e.target === e.currentTarget
         downOnBackdrop.current = false
-        if (wholeClickOnBackdrop) onContinue?.()
+        if (wholeClickOnBackdrop) onCancel?.()
       }}
     >
       <div
@@ -153,14 +167,14 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
               Unfinished dependencies
             </span>
           </div>
-          {/* DISMISS: closing counts as continue (see the header). */}
+          {/* DISMISS: closing CANCELS the change (see the header). */}
           <button
             type="button"
-            onClick={onContinue}
+            onClick={onCancel}
             className="p-1 rounded-sm hover:bg-stone-700"
             style={{ color: '#fca5a5' }}
-            aria-label="Close and continue"
-            title="Close — the change is saved as asked"
+            aria-label="Close without saving"
+            title="Close — the change is not saved"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -226,7 +240,7 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
           </div>
 
           <p className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
-            A warning, not a block: closing this saves the change as asked. Only Go back leaves it unsaved.
+            A warning, not a block — but only Continue anyway saves it. Closing this leaves the change unsaved.
           </p>
         </div>
 

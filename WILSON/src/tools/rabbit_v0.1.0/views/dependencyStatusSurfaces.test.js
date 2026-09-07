@@ -236,15 +236,99 @@ describe('"done" is defined in exactly one place', () => {
   })
 })
 
-describe('the warning modal cannot land a write by accident', () => {
-  // Closing the warning counts as continue, so the backdrop is a write
-  // control. R2: a click targets the common ancestor of its mousedown and
-  // mouseup, so a press inside the card that slips onto the backdrop would
-  // otherwise land the change. Both ends must be on the backdrop.
+// Comments are stripped before any assertion below, because the mistake this
+// block exists to catch is a header that ARGUES one semantics while the
+// handlers do the other -- which is exactly what shipped in A2 session 1 and
+// what Audrey reversed on 2026-09-07. A claim in a comment must not be able to
+// satisfy a pin, and a comment must not be able to inflate a count.
+// Only WHOLE-LINE `//` comments are dropped, so a `//` inside a string literal
+// is never touched; block comments (including the one-line JSX `{/* ... */}`
+// form) go first.
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n')
+    .filter(line => !line.trim().startsWith('//'))
+    .join('\n')
+}
+
+/**
+ * The whole `<button>...</button>` element containing `needle`, sliced from
+ * the `<button` that opens it. Two A3 lessons are built in:
+ *   * slice the WHOLE element, never from the middle, or everything above the
+ *     slice is invisible to the assertion;
+ *   * SELF-CHECK the slice. The first version of this helper was anchored on
+ *     the words "Continue anyway", which also appear in the caption paragraph
+ *     ABOVE the footer -- so it walked back to the X button and pinned the
+ *     wrong element. Returning null unless the needle is really inside the
+ *     slice turns that class of mistake into a red test instead of a pass
+ *     against the wrong control.
+ */
+function buttonAround(code, needle) {
+  const at = code.indexOf(needle)
+  if (at === -1) return null
+  const open = code.lastIndexOf('<button', at)
+  if (open === -1) return null
+  const end = code.indexOf('</button>', open)
+  const slice = code.slice(open, end === -1 ? code.length : end + '</button>'.length)
+  return slice.includes(needle) ? slice : null
+}
+
+const countOf = (code, pattern) => (code.match(pattern) || []).length
+
+describe('the warning modal writes ONLY when Continue anyway is pressed', () => {
+  // 🚨 Audrey, 2026-09-07: closing the warning by its X or by a click outside
+  // it CANCELS the status change. This reverses A2 session 1, whose modal
+  // treated both as "Continue anyway" -- so these pins are the record of a
+  // decision, not of an implementation detail, and a future session that
+  // flips them back has to delete the ruling to do it.
+  const GUARD = readSrc('tools/rabbit_v0.1.0/components/DependencyStatusGuard.jsx')
+  const CODE  = stripComments(GUARD)
+
+  it('the X cancels', () => {
+    const x = buttonAround(CODE, 'aria-label="Close without saving"')
+    expect(x).not.toBeNull()
+    expect(x).toContain('onClick={onCancel}')
+    expect(x).not.toContain('onClick={onContinue}')
+  })
+
+  it('a click outside the card cancels', () => {
+    expect(CODE).toContain('if (wholeClickOnBackdrop) onCancel?.()')
+    expect(CODE).not.toMatch(/wholeClickOnBackdrop\) onContinue/)
+  })
+
+  it('exactly one control writes, and it is Continue anyway', () => {
+    // An EXACT count, not a floor: the whole point of the ruling is that the
+    // set of controls that write has one member.
+    expect(countOf(CODE, /onClick=\{onContinue\}/g)).toBe(1)
+    // Anchored on each footer button's own icon, which appears nowhere else
+    // in the file -- the words themselves also appear in the caption.
+    const go = buttonAround(CODE, '<Check className="w-3 h-3" />')
+    expect(go).not.toBeNull()
+    expect(go).toContain('Continue anyway')
+    expect(go).toContain('onClick={onContinue}')
+    // ...and Go back stays the other cancel, so swapping the two footer
+    // buttons cannot pass the count above.
+    const back = buttonAround(CODE, '<ArrowLeft className="w-3 h-3" />')
+    expect(back).not.toBeNull()
+    expect(back).toContain('Go back')
+    expect(back).toContain('onClick={onCancel}')
+  })
+
+  it('the caption on screen says what the buttons do', () => {
+    // The walkthrough quotes this sentence to Audrey. A2 session 1 shipped a
+    // caption that argued the opposite of the ruling; a pin here means the
+    // screen and the script cannot drift apart silently.
+    expect(CODE).toContain('only Continue anyway saves it. Closing this leaves the change unsaved.')
+  })
+
+  // A2's R2 finding, still load-bearing with its meaning inverted: a click
+  // targets the common ancestor of its mousedown and its mouseup, so a press
+  // inside the card that slips onto the backdrop would otherwise read as a
+  // backdrop click -- landing the change before the ruling, discarding it
+  // after. Both ends must be on the backdrop either way.
   it('requires both ends of a backdrop click to be on the backdrop', () => {
-    const GUARD = readSrc('tools/rabbit_v0.1.0/components/DependencyStatusGuard.jsx')
-    expect(GUARD).toContain('downOnBackdrop.current = e.target === e.currentTarget')
-    expect(GUARD).toContain('if (wholeClickOnBackdrop) onContinue?.()')
-    expect(GUARD).not.toMatch(/if \(e\.target === e\.currentTarget\) onContinue/)
+    expect(CODE).toContain('downOnBackdrop.current = e.target === e.currentTarget')
+    expect(CODE).not.toMatch(/if \(e\.target === e\.currentTarget\) onCancel/)
   })
 })

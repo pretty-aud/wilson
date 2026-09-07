@@ -46,6 +46,7 @@ import NewTaskPopup from '../components/NewTaskPopup'
 // unfinished predecessors and then continues if asked. Never blocks.
 import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
+import MilestoneTrashModal from '../components/MilestoneTrashModal'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 
 // ── Constants ──
@@ -207,6 +208,20 @@ export default function ProjectTasksView() {
   const { can, role, ready: permsReady } = usePermissions()
   const canViewHistory = can('rabbit.history.view')
   const [historyTaskId, setHistoryTaskId] = useState(null)
+
+  // Ruling 38's "Recently deleted" panel for key dates, SECOND mount.
+  // Audrey, 2026-09-07: "the Recently Deleted panel for key dates appears on
+  // the Tasks tab as well as the Timeline". A2 session 2 put it only on the
+  // Timeline and its walkthrough asked her whether she wanted it here too.
+  // She does.
+  //
+  // A second mount rather than a lift into the shell: the two views are
+  // siblings under the same RabbitProvider, the panel owns all of its own
+  // state (it re-lists on every open, with a sequence guard), and hoisting it
+  // would mean threading `open` through the project shell for one button. The
+  // component is the shared thing; the mount is per surface, the same shape
+  // TaskDetailPopup already has here and in TimelineView.
+  const [trashOpen, setTrashOpen] = useState(false)
 
   // Entity writes (Session 6) — DB-side RLS is the real gate; this only
   // hides write affordances for staffed-project reviewers.
@@ -670,6 +685,28 @@ export default function ProjectTasksView() {
             </button>
           </GatedAction>
 
+          {/* Ruling 38 on the Tasks tab (Audrey, 2026-09-07). Next to the
+              create button it pairs with, not next to Export.
+
+              🚨 THE LABEL IS NOT THE TIMELINE'S. There the toolbar is all key
+              dates and phases, so `Deleted` can only mean one thing; here the
+              screen is TASKS, and a bare `Deleted` would read as "deleted
+              tasks" — which this panel does not show and nothing else does
+              either. Tasks have their own undo toast and no trash panel, so
+              the ambiguity would be a promise the product cannot keep.
+
+              Not gated, exactly as on the Timeline: reading the trash is a
+              read, and the Restore button inside carries its own gate. */}
+          <button
+            type="button"
+            onClick={() => setTrashOpen(true)}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded hover:bg-stone-700 transition-colors"
+            style={{ color: '#a8a29e', border: '1px solid #44403c' }}
+            title="Recently deleted key dates"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Deleted Key Dates
+          </button>
+
           <GatedAction allowed={canWrite}>
             <button type="button" onClick={() => handleAddTask()}
               className="flex items-center gap-1.5 px-4 py-1.5 text-[11.5px] font-mono uppercase tracking-wider rounded transition-colors"
@@ -815,6 +852,24 @@ export default function ProjectTasksView() {
           onClose={() => setHistoryTaskId(null)}
         />
       )}
+
+      {/* ── Recently deleted key dates (ruling 38; Audrey, 2026-09-07) ──
+          Every prop is the Timeline's, deliberately: the two mounts must
+          answer identically or the same key date would restore from one
+          screen and not the other. `purgeScheduled` is a CLOUD fact —
+          purge_soft_deleted runs on pg_cron there (0014 §4) and nothing
+          purges on Local Server, so the panel must not promise a deadline
+          the desktop will never meet. */}
+      <MilestoneTrashModal
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onList={ctx?.listTrashedMilestones}
+        onRestore={ctx?.restoreMilestone}
+        canWrite={canWrite}
+        writeReason={writeReason}
+        purgeScheduled={ctx?.adapterMode !== 'local_server'}
+        adapterMode={ctx?.adapterMode}
+      />
     </div>
     </WriteReasonProvider>
   )
