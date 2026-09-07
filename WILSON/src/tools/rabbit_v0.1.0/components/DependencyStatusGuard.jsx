@@ -11,9 +11,13 @@
 // `update` runs `write()` at once when the patch does not move anything INTO
 // a done status over an unfinished predecessor. Otherwise it parks the write,
 // shows the modal, and runs it when the person chooses "Continue anyway" —
-// "Go back" drops it and nothing is written. Bulk writes pass every id and
-// get one summary ("3 of 12 have unfinished dependencies"), never one modal
-// per row. Audrey, 2026-08-12: "warn dont block. do both phases and tasks".
+// "Go back" drops it and nothing is written. Closing the modal any other way
+// — its X, a click outside it — also CONTINUES: the Phase 7 brief says every
+// warning is dismissible AND the change still lands, so a dismissal is never a
+// silent cancel; "Go back" is the one explicit way to keep the change unsaved
+// (R1 of Track A A2). Bulk writes pass every id and get one summary ("3 of 12
+// have unfinished dependencies"), never one modal per row. Audrey, 2026-08-12:
+// "warn dont block. do both phases and tasks".
 //
 // Why a hook per surface and not one provider: the surfaces are table rows,
 // kanban columns, popups and an editor that already stacks over the timeline.
@@ -110,7 +114,9 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       // Portal events still bubble through the React tree: without these
       // stops a click here would reach the TaskEditor's backdrop (which
       // closes the editor) and the timeline's mousedown drag handlers.
-      onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onCancel?.() }}
+      // A click outside the card dismisses the warning, and a dismissed warning
+      // lands the change (see the header). Only "Go back" cancels.
+      onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onContinue?.() }}
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div
@@ -130,10 +136,11 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
           </div>
           <button
             type="button"
-            onClick={onCancel}
+            onClick={onContinue}
             className="p-1 rounded-sm hover:bg-stone-700"
             style={{ color: '#fca5a5' }}
-            aria-label="Close"
+            aria-label="Close and continue"
+            title="Close — the change is saved as asked"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -199,7 +206,7 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
           </div>
 
           <p className="text-[10.5px] font-mono" style={{ color: '#78716c' }}>
-            This is a warning, not a block — continue and the change is saved exactly as you asked.
+            A warning, not a block: closing this saves the change as asked. Only Go back leaves it unsaved.
           </p>
         </div>
 

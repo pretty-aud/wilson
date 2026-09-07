@@ -7,11 +7,16 @@
 // and fail that one — and warning fatigue is the brief's first listed risk.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
-  DONE_STATUSES, isDoneStatus, isDone, edgeKind,
+  DONE_STATUSES, COMPLETION_STATUSES, isDoneStatus, assertsCompletion, isDone, edgeKind,
   unfinishedPredecessors, statusWarning, itemLabel, humanStatus,
 } from './dependencyStatus'
+
+// The adapter is imported once below, to pin that its dependencyKind agrees
+// with edgeKind; its module graph reaches the shared Supabase client, which
+// columnAllowlist.test.js stubs the same way.
+vi.mock('../../../cloud/auth/supabaseClient.js', () => ({ supabase: null }))
 
 const TASK_STATUSES = [
   'waiting_to_start', 'in_progress', 'pending_review', 'needs_revisions',
@@ -46,8 +51,13 @@ function graph() {
 }
 
 describe('one definition of done', () => {
-  it('names exactly the four terminal statuses', () => {
+  it('names the four terminal statuses, and the three that assert completion', () => {
     expect([...DONE_STATUSES]).toEqual(['approved', 'final', 'omitted', 'completed'])
+    expect([...COMPLETION_STATUSES]).toEqual(['approved', 'final', 'completed'])
+    for (const s of DONE_STATUSES) expect(assertsCompletion(s), s).toBe(s !== 'omitted')
+    for (const s of [...TASK_STATUSES, ...PHASE_STATUSES]) {
+      expect(assertsCompletion(s), s).toBe(['approved', 'final', 'completed'].includes(s))
+    }
   })
 
   it('is true for the task done states, including omitted, and false for every other task status', () => {
@@ -76,6 +86,13 @@ describe('edgeKind', () => {
     expect(edgeKind({})).toBe('task')
     expect(edgeKind({ kind: 'PHASE' })).toBe('task')
     expect(edgeKind(null)).toBe('task')
+  })
+
+  it("agrees with the adapter's dependencyKind on every shape", async () => {
+    const { dependencyKind } = await import('../adapters/supabaseAdapter')
+    for (const dep of [{ kind: 'phase' }, { kind: 'task' }, {}, { kind: 'PHASE' }, { kind: 'phase ' }, null, undefined]) {
+      expect(edgeKind(dep)).toBe(dependencyKind(dep))
+    }
   })
 })
 
@@ -133,13 +150,25 @@ describe('statusWarning', () => {
     expect(w.offenders[0].unfinished.map(t => t.id)).toEqual(['A'])
   })
 
-  it('fires for every done status and for no other status', () => {
+  it('fires for the completion statuses and for no other task status — marking Omitted is a skip', () => {
     const g = graph()
     const c = g.tasks.find(t => t.id === 'C')
     for (const s of TASK_STATUSES) {
       const w = statusWarning({ items: [c], kind: 'task', toStatus: s, ...g })
-      expect(w === null).toBe(!['approved', 'final', 'omitted'].includes(s))
+      expect(w === null, s).toBe(!['approved', 'final'].includes(s))
     }
+  })
+
+  it('un-omitting straight to a completion status warns — the mirror of the skip', () => {
+    const g = graph()
+    // D is omitted today and depends on A, which is in progress.
+    g.dependencies.push({ id: 'x3', kind: 'task', predecessor_id: 'A', successor_id: 'D' })
+    const d = g.tasks.find(t => t.id === 'D')
+    const w = statusWarning({ items: [d], kind: 'task', toStatus: 'approved', ...g })
+    expect(w).not.toBeNull()
+    expect(w.offenders[0].unfinished.map(t => t.id)).toEqual(['A'])
+    // …and back to Omitted from anywhere is silent.
+    expect(statusWarning({ items: [d], kind: 'task', toStatus: 'omitted', ...g })).toBeNull()
   })
 
   it('does not fire when the item is already done (approved → final is not a move to done)', () => {

@@ -34,10 +34,15 @@
 //                          cross-project task model loads no dependency rows,
 //                          so the check has nothing to read (statusWarning
 //                          returns null, not a clean bill). docs/OUTSTANDING.md.
-//   rabbitAgentTools.js    set_status: the agent's DiffView approval is its
-//                          gate; the person approves the diff before it runs.
+//   rabbitAgentTools.js    set_status, AND update_task (an arbitrary patch that
+//                          may carry a status): the agent's DiffView approval
+//                          is the gate; the person approves the diff first.
+//   RelationsPanel.jsx     NewTaskSidePopup's status select is CREATE-only
+//                          (no updateTask in the file; pinned below).
 //   editHistoryRevert.js   a revert restores an earlier status; interrupting
-//                          undo with a warning is not wanted.
+//                          undo with a warning is not wanted. The provider's
+//                          own undo/redo (mutationsRef.current.updateTask with
+//                          the old values) is the same case.
 //   Assets, scenes, shots, levels, experiences: not endpoints of either
 //                          dependency table, so they have no predecessors.
 // =============================================================================
@@ -45,8 +50,11 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
-const SRC = new URL('../../../', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')
+// fileURLToPath, not URL.pathname: a checkout under a path with a space would
+// otherwise read as %20 and every readSrc below would fail (R1).
+const SRC = fileURLToPath(new URL('../../../', import.meta.url))
 const readSrc = (rel) => readFileSync(join(SRC, rel), 'utf8')
 
 const TASKS_VIEW  = readSrc('tools/rabbit_v0.1.0/views/ProjectTasksView.jsx')
@@ -54,6 +62,7 @@ const ASSETS_VIEW = readSrc('tools/rabbit_v0.1.0/views/ProjectAssetsView.jsx')
 const TIMELINE    = readSrc('tools/rabbit_v0.1.0/views/TimelineView.jsx')
 const TASK_POPUP  = readSrc('tools/rabbit_v0.1.0/components/TaskDetailPopup.jsx')
 const NEW_TASK    = readSrc('tools/rabbit_v0.1.0/components/NewTaskPopup.jsx')
+const RELATIONS   = readSrc('tools/rabbit_v0.1.0/components/RelationsPanel.jsx')
 
 const GUARD_IMPORT = /import \{ useDependencyStatusGuard \} from '[./]*components\/DependencyStatusGuard'/
 
@@ -178,6 +187,10 @@ describe('stated non-surfaces', () => {
   it('NewTaskPopup only creates — it has no update path to guard', () => {
     expect(NEW_TASK).not.toContain('updateTask')
   })
+
+  it("RelationsPanel's side popup only creates — the day it gains an update path, wire it", () => {
+    expect(RELATIONS).not.toContain('updateTask')
+  })
 })
 
 describe('"done" is defined in exactly one place', () => {
@@ -194,7 +207,11 @@ describe('"done" is defined in exactly one place', () => {
     return out
   }
 
-  it('no second isDone / isTaskDone / done-state set exists outside dependencyStatus.js', () => {
+  // Scope, stated: this matches a second copy SHAPED like the old ones (an
+  // isDone / isTaskDone function, a *_DONE_STATES set, the literal three-item
+  // array). A KPI tile that counts approved + final is a different measure —
+  // it leaves omitted out on purpose — and is not a definition of done.
+  it('no second isDone-shaped definition exists outside dependencyStatus.js', () => {
     const offenders = []
     for (const file of walk(join(SRC, 'tools/rabbit_v0.1.0'))) {
       if (file.endsWith('dependencyStatus.js')) continue

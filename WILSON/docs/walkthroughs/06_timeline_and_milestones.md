@@ -62,12 +62,20 @@ its default (tasks *Waiting to start*, phases *Not started*).
    - **If instead** there is no modal and Prod just saves: record it. **This
      is the failure that matters most in this whole walkthrough** — silence
      means a surface was missed. Say which screen.
-4. **Go back leaves the form.** Open Prod's editor again, set `Status` back to
-   `Active`, `Save` (no warning — Active is not a done status). Then set it to
-   `Completed` again, `Save`, and this time click `Go back`.
+4. **Go back keeps the change unsaved; closing the warning saves it.** Open
+   Prod's editor again, set `Status` back to `Active`, `Save` (no warning —
+   Active is not a done status). Set it to `Completed` again, `Save`, and this
+   time click `Go back`.
    - **Expect:** the modal closes, the editor is still open with Completed
      still selected, and nothing was saved (close the editor, reopen: Active).
-   - **If instead** the editor closed or the status changed: record which.
+   - Now `Save` once more and close the warning with its X (or click outside
+     it) instead of choosing a button.
+   - **Expect:** that counts as `Continue anyway` — the editor closes and Prod
+     is Completed. A dismissed warning is never a silent cancel; only
+     `Go back` is. Then put Prod back to `Active` (`Save`, no warning) so
+     step 5 starts clean.
+   - **If instead** the editor closed on Go back, or the X left the status
+     unchanged: record which.
 5. **The no-warning control.** Open Pre's editor, set `Status` → `Completed`,
    `Save` (Pre depends on nothing, so no modal). Now open Prod, `Completed`,
    `Save`.
@@ -109,10 +117,17 @@ its default (tasks *Waiting to start*, phases *Not started*).
       Model back to *Waiting to start* first, then try. `Continue anyway` →
       Final.
     - **If instead** no modal: record it.
-11. **Omitted counts as done.** Set Model's status to `Omitted` (Tasks tab
-    dropdown — no warning, and none expected). Then set Rig to `Final`.
+11. **Omitted counts as done — and is never itself warned about.** Set Model's
+    status to `Omitted` (Tasks tab dropdown — no warning, and none expected).
+    Then set Rig to `Final`.
     - **Expect:** no warning: an omitted predecessor is treated as done.
-    - **If instead** it warns about Model: record it.
+    - Put Rig back to *Waiting to start*, then set Animate (which depends on
+      Rig) to `Omitted`.
+    - **Expect:** no warning either — a skip is not a completion. Then set
+      Animate straight from Omitted to `Approved`.
+    - **Expect:** the warning, naming Rig — un-omitting into a done status is
+      the one move out of Omitted that checks.
+    - **If instead** any of the three behaved differently: record which.
 12. **Nothing blocks, on any surface.** Every modal above had `Continue
     anyway` and the status landed. Record any place where it did not.
 
@@ -182,12 +197,12 @@ its default (tasks *Waiting to start*, phases *Not started*).
 Walkthrough 06 — timeline (A2 session 1) — date:
 1 task arrows drawn: Y/N          2 phase arrow drawn: Y/N
 3 phase editor warned, named Pre, Continue landed: Y/N
-4 Go back kept the editor open and saved nothing: Y/N
+4 Go back kept the editor open and saved nothing / X counted as Continue: Y/N Y/N
 5 no warning once Pre was Completed: Y/N
 6 inline dropdown warned: Y/N     7 task popup warned: Y/N
 8 bulk: ONE summary, selection kept on Go back: Y/N
 9 Board drag warned: Y/N          10 asset task rows warned: Y/N
-11 Omitted counted as done (no warning): Y/N
+11 omitted predecessor ignored / marking Omitted silent / Omitted→Approved warned: Y/N Y/N Y/N
 12 any surface that changed a status with NO warning (screen + control):
 13 re-wire: Keep old link left it, Replace link moved it: Y/N   Not saved text, if any:
 14 same-bar / empty-space / click-to-remove unchanged: Y/N

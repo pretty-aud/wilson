@@ -26,15 +26,31 @@
 //           completed, delayed
 // The two vocabularies do not overlap, so ONE set serves both kinds without a
 // kind parameter: approved / final / omitted are the task done states (as
-// selectors.js has always said), completed is the phase one. `omitted` counts
-// as done on purpose — an omitted predecessor will never complete, and warning
-// about it forever would train the reader to click through.
+// selectors.js has always said), completed is the phase one.
+//
+// `omitted` plays two roles, and they differ (R1 of Track A A2 caught the
+// conflation). As a PREDECESSOR it counts as done: an omitted predecessor will
+// never complete, and warning about it forever would train the reader to
+// click through. As a TARGET it is a skip, not a completion: "we are not doing
+// this" needs no predecessor finished, so marking something Omitted never
+// warns. Only approved / final / completed ASSERT completion, and those are
+// the moves the warning is for. The mirror follows: un-omitting a task straight
+// to Approved over an unfinished predecessor does warn.
 // =============================================================================
 
+/** The statuses that assert the work is complete — the moves a warning is for. */
+export const COMPLETION_STATUSES = Object.freeze(['approved', 'final', 'completed'])
+/** The statuses after which a row will not move again — the predecessor role. */
 export const DONE_STATUSES = Object.freeze(['approved', 'final', 'omitted', 'completed'])
+const COMPLETE = new Set(COMPLETION_STATUSES)
 const DONE = new Set(DONE_STATUSES)
 
-/** True when a status string means "this will not move again". */
+/** True when a status asserts completion (approved, final, completed). */
+export function assertsCompletion(status) {
+  return COMPLETE.has(status)
+}
+
+/** True when a status string means "this will not move again" (completion, or omitted). */
 export function isDoneStatus(status) {
   return DONE.has(status)
 }
@@ -58,8 +74,9 @@ export function edgeKind(dep) {
 /**
  * The predecessors of one item that are NOT done.
  *
- * Every dependency the UI can create is finish-to-start (`dep_type` defaults
- * to 'FS' and no .jsx ever writes SS / FF / SF — measured by the Phase 7
+ * Every dependency the UI can create is finish-to-start (the edge's `type`
+ * column, enum `dep_type` in 0000, defaults to 'FS' and no .jsx ever writes
+ * SS / FF / SF — measured by the Phase 7
  * brief on 2026-08-12 and again on 2026-09-06), so "the predecessor must be
  * done" is strictly correct today. If the UI ever exposes the other three
  * types this has to learn them: start-to-start does not need a finished
@@ -91,9 +108,10 @@ export function unfinishedPredecessors({ id, kind = 'task', dependencies, tasks,
 /**
  * The warning for a status write, or null when there is nothing to say.
  *
- * Fires only for a move INTO a done status from a status that is not done —
- * approved → final is not a move to done, and a change that leaves the item
- * unfinished never needs a predecessor. Bulk writes pass every selected item
+ * Fires only for a move INTO a completion status (approved / final /
+ * completed) from a status that does not assert completion — approved → final
+ * is not such a move, marking something Omitted is a skip and never warns, and
+ * un-omitting straight to Approved does. Bulk writes pass every selected item
  * and get ONE result naming the offenders, so the caller shows one summary
  * instead of one modal per row.
  *
@@ -105,12 +123,12 @@ export function unfinishedPredecessors({ id, kind = 'task', dependencies, tasks,
  * @returns {null | { kind, toStatus, total, offenders: Array<{ item, unfinished }> }}
  */
 export function statusWarning({ items, kind = 'task', toStatus, dependencies, tasks, phases }) {
-  if (!isDoneStatus(toStatus)) return null
+  if (!assertsCompletion(toStatus)) return null
   if (!Array.isArray(dependencies)) return null
   const list = Array.isArray(items) ? items.filter(Boolean) : []
   const offenders = []
   for (const item of list) {
-    if (isDone(item)) continue
+    if (assertsCompletion(item.status)) continue
     const unfinished = unfinishedPredecessors({ id: item.id, kind, dependencies, tasks, phases })
     if (unfinished.length > 0) offenders.push({ item, unfinished })
   }

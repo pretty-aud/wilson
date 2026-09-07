@@ -1261,14 +1261,15 @@ export function RabbitProvider({ children }) {
     // capture them for undo. Before 0061 phase edges could not exist in cloud
     // at all, so nothing pruned them.
     //
-    // ⚠️ THIS PRUNES THE CLIENT BUNDLE ONLY. In local/desktop mode the Express
-    // route is the generic rabbitSubentityRoutes('phases','phases') DELETE,
-    // which splices bundle.phases and nothing else — so the orphaned edges are
-    // still written back to project.json and return on the next load. Cloud
-    // does not need a server-side prune (0061's ON DELETE CASCADE covers a hard
-    // delete, and a soft-deleted phase deliberately KEEPS its edges so they
-    // come back on restore); desktop does, and does not have one. deleteTask
-    // has the identical gap and always has. Recorded in docs/OUTSTANDING.md.
+    // This prunes the CLIENT bundle; each backend prunes its own copy too.
+    // Cloud: 0061's ON DELETE CASCADE covers a hard delete, and a soft-deleted
+    // phase deliberately KEEPS its edges so they come back on restore. Desktop:
+    // since Track A A2 (2026-09-06) the generic rabbitSubentityRoutes DELETE for
+    // phases and tasks sweeps the edges in the same write (sweepDependencyEdges
+    // in electron/main.cjs, replay-tested by desktopDeleteSweep.test.js), so
+    // the orphans that used to return from project.json on the next load no
+    // longer exist. The client prune stays: it is what the screen shows
+    // between the click and the reload, and what undo restores from.
     //
     // Matching on id alone (not on kind) mirrors deleteTask exactly. The ids
     // are uuids, so a task edge cannot collide with a phase id.

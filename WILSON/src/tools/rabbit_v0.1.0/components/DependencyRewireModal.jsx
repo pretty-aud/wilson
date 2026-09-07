@@ -12,12 +12,16 @@
 // and hiding it would make the modal a false promise.
 // =============================================================================
 
+import { createPortal } from 'react-dom'
 import { AlertTriangle, ArrowRight, Undo2, Link2 } from 'lucide-react'
 
 export default function DependencyRewireModal({ description, onConfirm, onCancel }) {
   if (!description) return null
   const { kindLabel, predName, oldName, newName } = description
-  return (
+  // Rendered through a portal like the Phase 7 modal: `position: fixed` inside
+  // the timeline's scroll container is at the mercy of any transformed
+  // ancestor, and the portal removes the question (R1 of Track A A2).
+  const node = (
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center p-4"
       style={{ backgroundColor: 'rgba(28, 25, 23, 0.78)' }}
@@ -94,4 +98,5 @@ export default function DependencyRewireModal({ description, onConfirm, onCancel
       </div>
     </div>
   )
+  return typeof document === 'undefined' ? node : createPortal(node, document.body)
 }
