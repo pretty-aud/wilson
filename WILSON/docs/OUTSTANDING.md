@@ -142,6 +142,26 @@ Deliberate for now: agent mode is a different feature with its own prompt, its o
 it retrieval is a design question rather than a port. Recorded because the
 behaviour changes under a toggle with no explanation on screen.
 
+### A failed pet sync is never retried until WILSON is relaunched
+
+**MEASURED by the A3 review rounds (2026-09-07).** When `resolveUserPet` throws
+— a transient Supabase blip on sign-in — `petUserIdRef` is deliberately left
+null so the failure cannot re-point writes at the account (that is the fix for
+the entry this replaced). Nothing then installs it: the identity effect is keyed
+`[perms.ready, perms.userId]`, both primitives, and `usePermissions` re-renders
+on `TOKEN_REFRESHED` without changing `userId`, so the effect never runs again
+for that session. Every subsequent pet save fails for the life of the process.
+
+It is not silent — the save reports *"Your pet could not be reached in your
+account, so this change was not saved. Reopen WILSON to try again."*, and the
+copy names the relaunch precisely because nothing retries. The pet on screen is
+this account's cached one, so nothing is lost or shown wrongly.
+
+Would fix it: a nonce ref bumped on a failed resolve and included in the
+effect's dependencies, driven by a bounded backoff or by `navigator.onLine`.
+Small. Not scheduled — it needs a decision about how hard to retry against a
+service that may be refusing on purpose.
+
 ### The pet does not sync live between machines
 
 **INFERRED (2026-08-12, Phase 3); NARROWED by Track A bundle A3 (2026-09-07,
@@ -170,8 +190,9 @@ anchor is OLDER than the stored one, which needs the *winning* writer to have
 advanced the anchor. Two windows both sitting on a non-decaying pet hold the
 SAME anchor, equal is allowed by design, and the second still overwrites the
 first. So: protected when the other machine has moved the pet on — creating an
-egg, feeding, petting, hatching, waking, a decay tick, or resuming Pet Mode.
-Not protected when neither has. Audrey's reported case (create an egg on PC A
+egg, feeding, petting a *hatched* pet, hatching, waking, a decay tick, or the
+second save of a Pet Mode resume. Not protected when neither has. (Petting an
+egg that does not hatch does not move the anchor; the egg's own mint did.) Audrey's reported case (create an egg on PC A
 while PC B sits on the old ghost) is protected, because minting an egg stamps a
 fresh anchor.
 

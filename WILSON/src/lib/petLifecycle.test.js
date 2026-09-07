@@ -485,6 +485,28 @@ describe('🚨 A3 — the anchor moves with the values, and only with them', () 
     expect(applyOfflineDecay(before).diedAt).toBe(out.diedAt)
   })
 
+  it('🚨 R2: and a BABY inverts the doubled rate, not the adult one', () => {
+    // `input.form` is read deliberately — pet.form is already 'ghost' by then
+    // — and mutating it to `pet.form` makes the multiplier always 1, which
+    // halves the assumed rate and doubles the interval from the anchor for
+    // every baby that starves offline. No probe moved.
+    const before = {
+      form: 'baby', breed: 'otter', difficulty: 'medium', petMode: true,
+      hunger: 10, happiness: 10, bornAt: iso(5 * MIN),
+      sleepingSince: null, lastSleptAt: iso(30 * MIN), interactionCount: 0,
+      diedAt: null, evolvedAt: null, lastUpdatedAt: iso(120 * MIN),
+    }
+    const out = applyOfflineDecay(before)
+    expect(out.form).toBe('ghost')
+    const anchorMs = new Date(before.lastUpdatedAt).getTime()
+    const expected = anchorMs + (10 / (2 * DECAY_RATES.medium.hunger)) * MIN
+    expect(new Date(out.diedAt).getTime()).toBeCloseTo(expected, -3)
+    // The failing control: the adult interval is twice as long, so a probe
+    // that could not tell them apart would accept either.
+    const adultExpected = anchorMs + (10 / DECAY_RATES.medium.hunger) * MIN
+    expect(new Date(out.diedAt).getTime()).not.toBeCloseTo(adultExpected, -3)
+  })
+
   it('an existing diedAt is never overwritten', () => {
     const before = adult(120, { hunger: 0, diedAt: iso(90 * MIN) })
     expect(applyOfflineDecay(before).diedAt).toBe(before.diedAt)

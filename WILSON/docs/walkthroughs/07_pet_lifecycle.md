@@ -34,9 +34,16 @@ would have looked like a failure. The steps below use a gesture that really
 does write.
 
 **Set-up.** On computer A, go to `Settings` → the `General` tab → the
-`Companion` section, and check what state your pet is in. If it is alive, the
-quickest way to run steps 1–8 is with a live pet; if it is a ghost, they work
-just as well. Note down the name and the `Hunger` number.
+`Companion` section, and check what state your pet is in. Note down the name
+and the `Hunger` number.
+
+🚨 **Steps 2–3 must be an action that MOVES the pet on, and which one depends
+on whether yours is alive.** The refusal compares timestamps: it fires when A's
+copy is genuinely newer, and only an action that changes hunger or happiness
+makes it so. Changing the difficulty on a dead pet does not — both computers
+would still be holding the same copy, both saves are accepted, and B would
+win with no notice, which would look exactly like a failure. The steps below
+name the right action for each case.
 
 ---
 
@@ -50,31 +57,39 @@ just as well. Note down the name and the `Hunger` number.
    - **If instead** they differ: stop and record both, with a screenshot. That
      is a different problem from the one this walkthrough is testing.
 
-2. **On A only, change something.** Click the `Difficulty` button that is not
-   currently selected (`low`, `medium` or `high`).
-   - **Expect:** the button highlights. Nothing else visible.
+2. **On A only, move the pet on.**
+   - If your pet is **alive** (a baby or an adult): click the food button on
+     the companion twice, so `Hunger` visibly rises.
+   - If your pet is **dead** (a ghost or a corpse): press `New Pet`, then
+     `Create Egg` on the modal headed `New Pet`.
+   - **Expect:** the pet changes on A — a higher `Hunger`, or an egg.
+   - **If instead** nothing happens: record it and stop; steps 3–8 depend on
+     this having worked.
 
-3. **On A, change it again** — click a different `Difficulty`. (Two changes,
-   so that A's copy is unambiguously ahead of B's.)
-   - **Expect:** the same.
+3. **On A, click a `Difficulty` button** that is not currently selected
+   (`low`, `medium` or `high`). This is not what makes A newer — step 2 did
+   that — it just gives A a second write to be sure.
+   - **Expect:** the button highlights. Nothing else visible.
 
 4. **On B — which has not been touched and still shows the old pet — click
    `Pet Mode`** to toggle it (`ON` → `OFF`, or `OFF` → `ON`).
    - **Expect:** a dark notice near the bottom of the screen reading
      **`Your pet changed on another device — refreshed.`**, and the pet card
-     updating to show A's difficulty. The same sentence appears inside the
-     `Companion` section, above the pet card, and stays there after the
-     bottom notice fades.
-   - **If instead** nothing appears and B's difficulty silently overwrites A's:
-     record which difficulty each computer shows after a reload of both. That
-     is the bug this step exists to catch.
+     updating to show what A did in step 2. The same sentence also appears on
+     the Settings page just ABOVE the `Companion` heading, and stays there
+     after the bottom notice fades.
+   - **If instead** nothing appears and B's copy silently overwrites A's:
+     reload both and record what each shows. That is the bug this step exists
+     to catch.
    - **If instead** you see a red message about the pet not being saved:
      record its exact text — that is a different failure and I want the words.
 
 5. **On B, click `Pet Mode` again.**
-   - **Expect:** it works normally now, no notice. B is holding A's copy, so it
-     is no longer stale.
-   - **If instead** you get the refresh notice a second time: record it. Two in
+   - **Expect:** it works normally now — no new notice at the bottom of the
+     screen. B is holding A's copy, so it is no longer stale. (The sentence on
+     the Settings page stays until the next save succeeds, which this one is,
+     so it should disappear.)
+   - **If instead** you get the bottom notice a second time: record it. Two in
      a row would mean the re-read is not landing, which is a real defect.
 
 6. **On A, reload the page.**

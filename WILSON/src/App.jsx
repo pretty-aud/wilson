@@ -485,7 +485,8 @@ export default function App() {
       // Captured BEFORE the teardown below nulls the ref. Best effort by
       // construction — clearPetCache never throws — because a cache that will
       // not cooperate must not trap somebody in a session they asked to leave.
-      const leavingUserId = petUserIdRef.current;
+      const leavingUserId = petUserIdRef.current || bootOwnerRef.current;
+      bootOwnerRef.current = null;
       try { await supabase.auth.signOut({ scope: 'local' }); } catch { /* swallow */ }
       await clearSession();
       if (leavingUserId) await clearPetCache(leavingUserId);
@@ -641,6 +642,23 @@ export default function App() {
   // S31: who the pet belongs to, in a ref so savePet's identity stays stable.
   // null when signed out, which is what routes a save to the per-device cache.
   const petUserIdRef = useRef(null);
+  // 🚨 R2 OF A3: WHO THE STORED SESSION SAYS THIS IS, KNOWN BEFORE PERMISSIONS
+  // RESOLVE.
+  //
+  // `setUserStateOwner` is only called inside the identity effect, behind
+  // `if (!perms.ready) return`, and perms.ready waits on
+  // supabase.auth.getSession() — the call this repo already records as able to
+  // hang the whole app. Meanwhile `authed` is set independently by
+  // checkSessionValid(), so the pet renders and can be clicked. In that window
+  // both petUserIdRef and getUserStateOwner() are null, so a Feed or a Pet
+  // Mode click took the signed-out branch, wrote the UNATTRIBUTED store and
+  // reported success — the exact defect R1's finding 4 was meant to close,
+  // surviving in the window it did not cover.
+  //
+  // The mount effect already computes this identity to pick a cache key; it is
+  // kept so the save path can ask "do I KNOW I am signed out?" rather than
+  // "is the owner installed yet?". Cleared wherever the session ends.
+  const bootOwnerRef = useRef(null);
   // S31: the last material signature actually written. Primed by both load
   // paths so that LOADING a pet never counts as a change to persist.
   const petPersistedSigRef = useRef(null);
@@ -738,9 +756,18 @@ export default function App() {
   // The rule now, and it is also what 0046 says the column means: the anchor
   // moves when, and only when, hunger or happiness moved. applyOfflineDecay
   // moves it on load if it decayed anything; the live tick moves it every tick;
-  // feeding, petting, waking, hatching and a thumbs-up that adds happiness each
-  // move it at the point they change the numbers. Everything else re-sends the
-  // anchor it is holding, unchanged, and 0068 accepts an equal anchor.
+  // feeding, petting a HATCHED pet, waking, hatching and a thumbs-up that adds
+  // happiness each move it at the point they change the numbers. Everything
+  // else — Pet Mode, difficulty, Reset History, a rename, a thumbs-down,
+  // petting an egg that does not hatch — re-sends the anchor it is holding,
+  // unchanged, and 0068 accepts an equal anchor.
+  //
+  // ⚠️ R2: THE ONE AMENDMENT, and it is a SECOND save rather than an exception
+  // to this rule. Resuming Pet Mode restarts the decay clock, so the anchor
+  // has to move — but a window that stamps `now` on a stale pet defeats 0068
+  // by construction. handlePetModeToggle therefore saves the held anchor
+  // first and stamps a fresh one only if that save LANDED. Every save that
+  // reaches this function still obeys the sentence above.
   //
   // ⚠️ The fallback exists for a pet object that somehow has no anchor at all
   // (a hand-edited cache). Sending null would be rejected by toPetRow and the
@@ -767,7 +794,7 @@ export default function App() {
         // under the OWNER's key, so the next person at this computer cannot be
         // handed this pet.
         await mirrorPetToCache(next, owner);
-      } else if (getUserStateOwner()) {
+      } else if (getUserStateOwner() || bootOwnerRef.current) {
         // 🚨 R1 OF A3: SIGNED IN, BUT THE PET'S ROUTING IS NOT ESTABLISHED.
         //
         // This is the failed-cloud-read state: the effect below deliberately
@@ -783,16 +810,29 @@ export default function App() {
         //
         // Failing loudly is the honest answer, and it is what that copy
         // promises.
+        // ⚠️ R2: THE COPY NAMES THE RELAUNCH, because nothing retries. The
+        // identity effect is keyed [perms.ready, perms.userId], both
+        // primitives, and usePermissions re-setStates on TOKEN_REFRESHED
+        // without changing userId — so the effect never re-runs and
+        // petUserIdRef is never installed for the life of the process. A
+        // sentence promising "it will save once the connection comes back"
+        // would be a promise the code does not keep. Filed in OUTSTANDING.
         throw new Error(
-          'Your pet could not be reached in your account, so this change was not saved. It will save once the connection comes back.');
+          'Your pet could not be reached in your account, so this change was not saved. Reopen WILSON to try again.');
       } else {
         await savePetData(next, owner);
       }
       setPetSaveError(null);
-      // A later success clears a standing ERROR notice; an 'info' one
-      // ("refreshed") describes something that happened and lives out its own
-      // ten seconds.
-      setPetNoticeSticky(n => (n && n.kind === 'error' ? null : n));
+      // A later success clears the STICKY notice outright — R2: the
+      // kind === 'error' condition meant an 'info' one ("refreshed") was
+      // rendered on Settings, with no dismiss control, for the rest of the
+      // session, through any number of later successful saves. The comment
+      // that used to sit here said it lived out its own ten seconds, which is
+      // true of the toast and was false of this state.
+      setPetNoticeSticky(null);
+      // The TOAST keeps the condition: an info toast has its own ten-second
+      // timer and a dismiss button, and cutting it short on an unrelated save
+      // would take the explanation off screen mid-sentence.
       setPetNotice(n => (n && n.kind === 'error' ? null : n));
       return true;
     } catch (err) {
@@ -878,6 +918,9 @@ export default function App() {
         // has never been cached here. A first sign-in on a new computer must
         // not flash a blank egg before the account's real pet arrives.
         const owner = await storedSessionUserId();
+        // R2: the save path consults this during the window before permissions
+        // resolve. See bootOwnerRef.
+        bootOwnerRef.current = owner;
         const stored = await loadPet(owner);
         if (!mounted || !stored) return;
         const fresh = applyOfflineDecay(stored);
@@ -966,7 +1009,7 @@ export default function App() {
     // nearly unreachable only because the sole sign-out control is buried in
     // the MFA enrolment gate. Adding a reachable one without this teardown
     // would turn a latent leak into a routine one.
-    if (!userId) { setPetData(null); return; }
+    if (!userId) { setPetData(null); bootOwnerRef.current = null; return; }
 
     let cancelled = false;
     // Phase 3: the read is stamped with the epoch it was ISSUED in. Creating a
@@ -1020,6 +1063,22 @@ export default function App() {
         // It must still SAY so, because "your pet stopped syncing" and "your pet
         // is fine" look identical on screen.
         if (!cancelled) {
+          // 🚨 R2: FALL BACK TO THIS ACCOUNT'S OWN CACHE.
+          //
+          // The mount effect has `[]` deps, so on an identity switch it has
+          // already run under the PREVIOUS identity — and the switch now
+          // blanks petData deliberately. Without this, a failed read on a
+          // switch left the new person with a blank Companion card even
+          // though their own cached pet was sitting on the machine. The cache
+          // is per-account, so this can only ever read their own.
+          try {
+            const cached = await loadPet(userId);
+            if (!cancelled && cached) {
+              const fresh = applyOfflineDecay(cached);
+              petPersistedSigRef.current = petMaterialSignature(fresh);
+              setPetData(fresh);
+            }
+          } catch { /* the cache is a cache; the message below is the point */ }
           const message = err?.message || 'Your pet could not be synced from your account.';
           setPetSaveError(message);
           // 🚨 A3: and SAY it somewhere that exists when the pet does not. When
@@ -1607,33 +1666,61 @@ export default function App() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Pet settings callbacks (for SettingsPage) ──
+  // 🚨 R2 OF A3: THE RESUME ANCHOR IS EARNED, NOT ASSERTED — AND R1'S FIX FOR
+  // IT WAS A WORSE BUG THAN THE ONE IT FIXED.
+  //
+  // R1 was right that turning Pet Mode back ON is a decay-clock event: while
+  // it is off nothing advances the anchor (the live tick returns `prev`,
+  // applyOfflineDecay skips), so the row keeps the anchor from the moment it
+  // was switched off, and the first launch after switching it on measures the
+  // WHOLE paused period and applies it in one go — six hours off, flipped on,
+  // reopened, hunger 0, form 'ghost'.
+  //
+  // 🚨 BUT STAMPING `now` INSIDE THE TOGGLE MADE MIGRATION 0068 INERT FOR THE
+  // ONE CONTROL WALKTHROUGH 07 TELLS AUDREY TO PRESS. A stale window's write
+  // is refused because its anchor is OLDER; a fresh stamp makes it newer, so
+  // the whole six-hour-old pet — hunger, happiness, form, name, the feedback
+  // array — was accepted over the other machine's, silently, with no notice.
+  // One click. It was also the only save in the app that minted a fresh anchor
+  // without moving hunger or happiness, which is exactly the shape 0068's
+  // header says makes the guard inert.
+  //
+  // So the anchor is taken in TWO STEPS. The toggle is saved with the anchor
+  // the window is HOLDING, which 0068 can still refuse; only a save that
+  // LANDED — which means this window's copy is the account's copy — earns the
+  // fresh one. A stale window gets the refusal, the re-read and the notice
+  // instead, which is ruling 4 working as intended.
+  //
+  // ⚠️ Two round trips for one toggle, and a window of one of them in which
+  // another machine could write between the two. That is bounded by a network
+  // round trip instead of by however long Pet Mode was off, which is the trade
+  // being made.
+  const resumeAnchorAfterLandedSave = useCallback((landed) => {
+    if (!landed) return;
+    setPetData(cur => {
+      if (!cur || cur.petMode !== true) return cur;
+      // Only the forms that decay. An egg, a corpse or a ghost gains nothing
+      // from a fresh anchor — applyOfflineDecay skips all three — so bumping
+      // there would spend a round trip to weaken 0068 for no benefit, and
+      // Audrey's own pet is a ghost.
+      if (cur.form !== 'baby' && cur.form !== 'adult') return cur;
+      const bumped = { ...cur, lastUpdatedAt: new Date().toISOString() };
+      savePet(bumped);
+      return bumped;
+    });
+  }, [savePet]);
+
   const handlePetModeToggle = useCallback((enabled) => {
     setPetData(prev => {
       if (!prev) return prev;
       const next = { ...prev, petMode: enabled };
-      // 🚨 R1 OF A3: TURNING PET MODE BACK ON IS A DECAY-CLOCK EVENT.
-      //
-      // While Pet Mode is off nothing advances the anchor — the live tick
-      // returns `prev` and applyOfflineDecay skips — so the row keeps the
-      // anchor from the moment it was switched off. Without this stamp, the
-      // first launch after switching it back on measures elapsed time across
-      // the ENTIRE paused period and applies it in one go. Measured against
-      // the shipped applyOfflineDecay: Pet Mode off for six hours, flipped on,
-      // reopened → hunger 0, form 'ghost'. The switch that implements ruling 6
-      // was defeating it.
-      //
-      // The rule at performPetSave therefore reads: the anchor moves when
-      // hunger or happiness move, OR when the decay clock is paused or
-      // resumed. Only the resume needs it — pausing leaves the anchor as the
-      // last instant the numbers were true, which is what it means.
-      if (enabled && prev.petMode === false) {
-        next.lastUpdatedAt = new Date().toISOString();
-      }
       next.state = derivePetState(next);
-      savePet(next);
+      const resuming = enabled && prev.petMode === false;
+      const saving = savePet(next);
+      if (resuming) saving.then(resumeAnchorAfterLandedSave);
       return next;
     });
-  }, [savePet]);
+  }, [savePet, resumeAnchorAfterLandedSave]);
 
   const handleDifficultyChange = useCallback((difficulty) => {
     setPetData(prev => {

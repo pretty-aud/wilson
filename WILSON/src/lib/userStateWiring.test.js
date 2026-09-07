@@ -120,7 +120,7 @@ describe('the 30-second whole-object auto-save is gone', () => {
     expect(app).toMatch(/petPersistedSigRef/)
   })
 
-  it('🚨 BOTH load paths prime the signature rather than saving — asserted by COUNT', () => {
+  it('🚨 ALL load paths prime the signature rather than saving — asserted by COUNT', () => {
     // Otherwise opening the app is a write again — the exact behaviour that
     // made "open WILSON on the second computer" a clobbering event.
     //
@@ -130,9 +130,19 @@ describe('the 30-second whole-object auto-save is gone', () => {
     // green while restoring the clobber. There are exactly two load paths (the
     // cached mount read and the cloud resolve) and BOTH must prime, so the
     // count is the property, not the presence.
+    //
+    // ⚠️ THREE load paths since A3/R2, not two. The cached mount read, the
+    // cloud resolve, and the fallback that reads THIS account's cache when a
+    // resolve fails on an identity switch — which exists because the mount
+    // effect has [] deps and already ran under the previous identity. All
+    // three prime; none saves. The count is the property, so a new load path
+    // has to update this number deliberately.
     const primes = app.match(/petPersistedSigRef\.current\s*=\s*petMaterialSignature\(fresh\)/g) || []
-    expect(primes).toHaveLength(2)
+    expect(primes).toHaveLength(3)
     expect(app).not.toMatch(/savePet\(fresh\)/)
+    // The stale-refusal re-read primes too, under its own name.
+    expect(app).toMatch(/petPersistedSigRef\.current\s*=\s*petMaterialSignature\(brought\)/)
+    expect(app).not.toMatch(/savePet\(brought\)/)
   })
 
   it('🚨 the mount effect no longer stamps a fresh lastUpdatedAt', () => {
@@ -179,15 +189,32 @@ describe('A3 — the anchor travels with the values it describes', () => {
       .split('\n')
       .filter(l => !l.trimStart().startsWith('//') && !l.trimStart().startsWith('*'))
       .join('\n')
+    //
+    // 🚨 R2: THE FLOOR WAS FOUR BELOW THE TRUTH, so four stamps could be
+    // deleted without a word — and the one that matters most had no anchored
+    // assertion at all. Measured: deleting the live tick's end-of-tick stamp
+    // left the whole suite green, and that stamp is what advances the anchor
+    // while the app is OPEN. Without it hunger and happiness move on every
+    // tick against a frozen anchor — the invariant petMaterialSignature's
+    // comment calls the one this design rests on — and every long-open window
+    // becomes permanently stale to 0068.
+    //
+    // The floor is now the EXACT count. Adding a stamp is a deliberate act and
+    // should have to update this number and say why in the commit.
     const stamps = live.match(/lastUpdatedAt(:| =) new Date\(\)\.toISOString\(\)/g) || []
-    expect(stamps.length).toBeGreaterThanOrEqual(6)
+    expect(stamps).toHaveLength(10)
     expect(live).toMatch(/hunger: Math\.min\(100, prev\.hunger \+ 25\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
     expect(live).toMatch(/happiness: Math\.min\(100, prev\.happiness \+ 20\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
     expect(live).toMatch(/sleepingSince: null[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
     // Hatching: the site the count could not see.
     expect(live).toMatch(/next\.hunger = 80;[\s\S]{0,300}next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
-    // And the resume transition, which R1 found defeats ruling 6 without it.
-    expect(live).toMatch(/if\s*\(enabled\s*&&\s*prev\.petMode\s*===\s*false\)\s*\{\s*\n\s*next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
+    // 🚨 R2: THE LIVE TICK'S END-OF-TICK STAMP, which had no assertion and
+    // whose deletion was green. It is the one that keeps a long-open window
+    // current.
+    expect(live).toMatch(/next\.state = derivePetState\(next\);\s*\n\s*next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);\s*\n\s*return next;\s*\n\s*\}\);\s*\n\s*\}, 30000\);/)
+    // And the Pet Mode resume, which now happens in a SECOND save — see the
+    // dedicated test below for why it may not be stamped in the toggle.
+    expect(live).toMatch(/const bumped = \{ \.\.\.cur, lastUpdatedAt: new Date\(\)\.toISOString\(\) \};/)
   })
 
   it('🚨 a thumbs-DOWN does not move the anchor', () => {
@@ -200,14 +227,25 @@ describe('A3 — the anchor travels with the values it describes', () => {
     // block". Moving the stamp OUT of the `if (rating === 'up' …)` arm — the
     // exact defect this names — left the assertion true (measured). The
     // property is containment, so the block is sliced out and asserted on.
-    const from = app.indexOf("if (rating === 'up' && prev.petMode")
+    //
+    // 🚨 R2: SLICING FROM THE `if` LEFT EVERYTHING ABOVE IT INVISIBLE. Adding
+    // the stamp to the `const next = { ...prev, feedback, … }` literal — which
+    // makes a thumbs-DOWN move the anchor, the exact defect this names — was
+    // measured GREEN. The property is that the WHOLE handler contains exactly
+    // one stamp and it is inside the up-only arm, so the whole handler is what
+    // gets sliced.
+    const start = app.indexOf('const handleThumbRating')
+    expect(start).toBeGreaterThan(-1)
+    const handler = app.slice(start, app.indexOf('const handleHatchConfirm', start))
+    expect(handler).not.toHaveLength(0)
+    const inHandler = handler.match(/lastUpdatedAt(:| =) new Date\(\)\.toISOString\(\)/g) || []
+    expect(inHandler).toHaveLength(1)
+
+    const from = handler.indexOf("if (rating === 'up' && prev.petMode")
     expect(from).toBeGreaterThan(-1)
-    const rest = app.slice(from)
+    const rest = handler.slice(from)
     const block = rest.slice(0, rest.indexOf('\n      }') + 8)
     expect(block).toMatch(/next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
-    // ...and the statement immediately after the block is not one.
-    expect(rest.slice(block.length, block.length + 200))
-      .not.toMatch(/next\.lastUpdatedAt = new Date\(\)/)
   })
 })
 
@@ -272,7 +310,7 @@ describe('A3/R1 — the corrections round 1 found', () => {
     // UNATTRIBUTED store — which the account arm of loadPet never reads again
     // — and returned true. Silently discarded, reported as saved, and left on
     // a shared computer for the next signed-out launcher.
-    expect(app).toMatch(/\}\s*else if\s*\(getUserStateOwner\(\)\)\s*\{/)
+    expect(app).toMatch(/\}\s*else if\s*\(getUserStateOwner\(\)\s*\|\|\s*bootOwnerRef\.current\)\s*\{/)
     expect(app).toMatch(/import\s*\{[^}]*getUserStateOwner[^}]*\}\s*from\s*'\.\/lib\/userState'/)
     // The local branch survives for the genuinely signed-out case.
     expect(app).toMatch(/\}\s*else\s*\{\s*\n\s*await savePetData\(next, owner\);/)
@@ -290,9 +328,12 @@ describe('A3/R1 — the corrections round 1 found', () => {
     expect(app).toMatch(/const \[petNoticeSticky, setPetNoticeSticky\] = useState\(null\)/)
     expect(app).toMatch(/petNotice=\{petNoticeSticky\}/)
     expect(app).toMatch(/<PetNotice notice=\{petNotice\}/)
-    // Cleared on sign-out and on a later successful save, and nowhere else.
-    expect(app).toMatch(/setPetNoticeSticky\(null\);/)
-    expect(app).toMatch(/setPetNoticeSticky\(n => \(n && n\.kind === 'error' \? null : n\)\)/)
+    // Cleared on sign-out and on a later successful save, and nowhere else —
+    // exactly two clears, both unconditional since R2 (an 'info' one used to
+    // survive the whole session on Settings with no dismiss control).
+    const clears = app.match(/setPetNoticeSticky\(null\);/g) || []
+    expect(clears).toHaveLength(2)
+    expect(app).not.toMatch(/setPetNoticeSticky\(n =>/)
   })
 
   it('🚨 the notice is cleared on sign-out, like the two channels beside it', () => {
@@ -338,6 +379,64 @@ describe('A3/R1 — the corrections round 1 found', () => {
   })
 })
 
+describe('A3/R2 — the corrections round 2 found', () => {
+  it('🚨 the Pet Mode resume EARNS its anchor — it does not stamp one', () => {
+    // R1 stamped `now` inside the toggle. That made 0068 inert for the one
+    // control walkthrough 07 tells Audrey to press: a stale window's write is
+    // refused because its anchor is OLDER, and a fresh stamp makes it newer —
+    // so six hours of stale pet overwrote the other machine's, silently, in
+    // one click. The toggle now saves the HELD anchor, which 0068 can refuse,
+    // and only a save that LANDED earns the fresh one.
+    expect(app).not.toMatch(/if\s*\(enabled\s*&&\s*prev\.petMode\s*===\s*false\)\s*\{\s*\n\s*next\.lastUpdatedAt/)
+    expect(app).toMatch(/const resuming = enabled && prev\.petMode === false;/)
+    expect(app).toMatch(/if\s*\(resuming\)\s*saving\.then\(resumeAnchorAfterLandedSave\);/)
+    // The bump refuses to run on a save that did not land...
+    expect(app).toMatch(/const resumeAnchorAfterLandedSave = useCallback\(\(landed\) => \{\s*\n\s*if \(!landed\) return;/)
+    // ...and only for the forms that can decay at all.
+    expect(app).toMatch(/if \(cur\.form !== 'baby' && cur\.form !== 'adult'\) return cur;/)
+  })
+
+  it('🚨 the boot window cannot write the unattributed store either', () => {
+    // setUserStateOwner runs behind `if (!perms.ready) return`, and perms.ready
+    // waits on getSession() — while `authed` is set independently, so the pet
+    // renders and can be clicked first. In that window R1's guard saw no owner
+    // and let the save through to the shared file, reporting success.
+    expect(app).toMatch(/const bootOwnerRef = useRef\(null\);/)
+    expect(app).toMatch(/\} else if \(getUserStateOwner\(\) \|\| bootOwnerRef\.current\) \{/)
+    expect(app).toMatch(/bootOwnerRef\.current = owner;/)
+    // ...and it is cleared wherever the session ends, or the next signed-out
+    // save would throw instead of writing this machine's own cache.
+    expect(app).toMatch(/if \(!userId\) \{ setPetData\(null\); bootOwnerRef\.current = null; return; \}/)
+    expect(app).toMatch(/const leavingUserId = petUserIdRef\.current \|\| bootOwnerRef\.current;/)
+  })
+
+  it('🚨 the sticky notice is cleared by a later success, whatever its kind', () => {
+    // The kind === 'error' condition meant "Your pet changed on another device
+    // — refreshed." was rendered on Settings, with no dismiss control, for the
+    // rest of the session.
+    expect(app).toMatch(/setPetNoticeSticky\(null\);\s*\n\s*\/\/ The TOAST keeps the condition/)
+    expect(app).not.toMatch(/setPetNoticeSticky\(n => \(n && n\.kind === 'error'/)
+  })
+
+  it('🚨 a failed read on an identity switch falls back to that account\'s cache', () => {
+    // The mount effect has [] deps and already ran under the PREVIOUS
+    // identity, and the switch now blanks petData — so without this the new
+    // person got a blank Companion card with their own cached pet sitting on
+    // the machine. The cache is per-account, so it can only read their own.
+    expect(app).toMatch(/const cached = await loadPet\(userId\);/)
+    expect(app).toMatch(/if \(!cancelled && cached\)/)
+  })
+
+  it('the unrecoverable-sync copy names the relaunch, because nothing retries', () => {
+    // The effect is keyed on two primitives and usePermissions re-setStates on
+    // TOKEN_REFRESHED without changing userId, so it never re-runs. A sentence
+    // promising the save would happen "once the connection comes back" was a
+    // promise the code does not keep.
+    expect(app).toMatch(/Reopen WILSON to try again\./)
+    expect(app).not.toMatch(/It will save once the connection comes back\./)
+  })
+})
+
 describe('A3 — the cached pet leaves with the person', () => {
   it('🚨 sign-out clears the account\'s cache', () => {
     // clearSession() clears the auth blob and nothing else; the pet cache
@@ -361,7 +460,7 @@ describe('A3 — the cached pet leaves with the person', () => {
     // The mount effect runs before usePermissions resolves, so it reads the
     // owner out of the stored session's JWT. Without this the cache is keyed by
     // account and then read with no key, which returns nothing on every launch.
-    expect(app).toMatch(/const owner = await storedSessionUserId\(\);\s*\n\s*const stored = await loadPet\(owner\);/)
+    expect(app).toMatch(/const owner = await storedSessionUserId\(\);[\s\S]{0,300}const stored = await loadPet\(owner\);/)
   })
 })
 

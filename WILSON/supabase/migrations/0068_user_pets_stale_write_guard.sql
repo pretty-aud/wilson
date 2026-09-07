@@ -41,11 +41,23 @@
 --
 -- The client half of bundle A3 removes that stamp and makes the anchor travel
 -- with the values it describes: it moves when, and only when, hunger or
--- happiness moved (the live decay tick, applyOfflineDecay, feeding, petting,
--- hatching, a thumbs-up that adds happiness). Every other save — Pet Mode,
--- difficulty, Reset History, renaming a hatchling — re-sends the anchor the
+-- happiness moved (the live decay tick, applyOfflineDecay, feeding, petting a
+-- HATCHED pet, hatching, waking, a thumbs-UP that adds happiness). Every other
+-- save — Pet Mode, difficulty, Reset History, renaming a hatchling, a
+-- thumbs-down, petting an egg that does not hatch — re-sends the anchor the
 -- client is holding, unchanged. That is also what 0046 says the column means,
 -- so this is a correction as much as a feature.
+--
+-- 🚨 THE ONE AMENDMENT, ADDED BY R2, AND IT IS A SECOND SAVE RATHER THAN AN
+-- EXCEPTION. Resuming Pet Mode restarts the decay clock, so the anchor has to
+-- move or the next launch decays the whole paused period in one go. R1 stamped
+-- `now` inside the toggle — and that made THIS GUARD INERT for that control: a
+-- stale window's write is refused because its anchor is older, and a fresh
+-- stamp made it newer, so six hours of stale pet overwrote the other machine's
+-- in one click. handlePetModeToggle now saves the HELD anchor first, which
+-- this trigger can still refuse, and stamps a fresh one in a SECOND save only
+-- if the first LANDED — which means that window's copy is already the
+-- account's. Every save is still governed by the sentence above.
 --
 -- ⚠️ WHAT THIS DOES NOT CATCH, stated so nobody reads it as more than it is.
 -- Two timestamps cannot order two writers that have both legitimately moved
@@ -62,9 +74,10 @@
 -- SAME anchor, equal is allowed, and the second still overwrites the first.
 --
 -- So, precisely: caught when the other machine has moved the pet on —
--- creating an egg, feeding, petting, hatching, waking, a decay tick, or
--- resuming Pet Mode, all of which move the anchor. Not caught when neither
--- machine has. Audrey's reported case (create an egg on PC A while PC B sits
+-- creating an egg, feeding, petting a HATCHED pet, hatching, waking, a decay
+-- tick, or the second save of a Pet Mode resume, all of which move the anchor.
+-- Not caught when neither machine has. (Petting an EGG that does not reach its
+-- hatch threshold does not move it; the egg's own mint already did.) Audrey's reported case (create an egg on PC A while PC B sits
 -- on the old ghost) is in the caught set, because creating an egg mints a
 -- fresh anchor. Closing the rest needs a revision counter or live sync, and
 -- neither was chosen.
