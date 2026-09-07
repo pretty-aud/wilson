@@ -396,7 +396,7 @@ the error text in `details.reason` (`details.reported_by = 'client'`); a
 failure reported after the object had in fact landed closes `completed` and
 certifies nothing. (b) Workspace teardown closes every OPEN reservation of the
 tenant BEFORE the CASCADE (`sweep_open_uploads`) and certifies the abandoned
-paths in `platform_audit` as `WIL-7009` — the table the CASCADE cannot reach —
+paths in `platform_audit` as `WIL-7012` — the table the CASCADE cannot reach —
 with the counts on `WIL-7005` and a `reservation_sweep_failed` flag that
 starts true and is cleared only by an answer. The certificate's scope is now
 "every reservation that did not complete", with one remaining, stated

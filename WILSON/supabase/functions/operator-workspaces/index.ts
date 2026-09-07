@@ -915,8 +915,8 @@ Deno.serve(async (req: Request) => {
     //     with an upload in flight was certified "torn down" with that partial
     //     unrecorded (TPN-CONT-017). sweep_open_uploads closes every open row —
     //     'completed' where the object landed, 'abandoned' with a certificate
-    //     otherwise — and returns the abandoned paths, which the WIL-7009
-    //     certificates in step 2e carry into platform_audit, the one table the
+    //     otherwise — and returns the abandoned paths, which the WIL-7012
+    //     certificates in step 1d carry into platform_audit, the one table the
     //     CASCADE cannot reach.
     //
     //     🚨 THE FAILURE FLAG STARTS TRUE and is cleared only by an ANSWER
@@ -944,6 +944,37 @@ Deno.serve(async (req: Request) => {
           : []
       }
     } catch { /* reservationSweepFailed stays true, and the certificate says so */ }
+
+    // 1d. Certify the ABANDONED UPLOADS NOW, where the CASCADE cannot reach.
+    //     Nothing has been destroyed yet, so 2b's ordering rule ("no new way
+    //     to throw ahead of certificates for blobs already gone") is not in
+    //     play — WIL-7008 below sits at the same point for the same reason. And
+    //     it must be NOW rather than after the blob passes: 1c has already
+    //     committed the rows as 'abandoned', so a teardown that died between
+    //     here and a later certificate would, on retry, find nothing open,
+    //     report 0/0 honestly, and let the CASCADE take the first run's
+    //     file_events certificates with it (R1 review, C2). Nothing was
+    //     destroyed here — a partial is reaped by Supabase's 24 h TUS expiry,
+    //     which nothing on the platform can see — so this is WIL-7012,
+    //     "certified abandoned", never WIL-7006 "purged". One row per
+    //     CERT_BATCH paths, like every other certificate here.
+    for (let i = 0; i < abandonedPaths.length; i += CERT_BATCH) {
+      const batch = abandonedPaths.slice(i, i + CERT_BATCH)
+      await logPlatformEvent(ctx, {
+        action: 'workspace.teardown',
+        workspaceId,
+        workspaceSlug: ws.slug,
+        workspaceName: ws.name,
+        code: 'WIL-7012',
+        severity: 'warning',
+        message: `Certified ${batch.length} abandoned upload(s) during teardown of ${ws.slug}`,
+        context: {
+          paths: batch,
+          batch: Math.floor(i / CERT_BATCH) + 1,
+          note: 'open upload reservations closed before the CASCADE (sweep_open_uploads, 0074); the partials expire at 24 h in Supabase Storage and are not enumerable from WILSON',
+        },
+      })
+    }
 
     // A rejected path is a files/queue row for this workspace pointing at a
     // key outside its own projects — either data corruption or a deliberate
@@ -1164,29 +1195,6 @@ Deno.serve(async (req: Request) => {
       })
     }
 
-    // 2e. The ABANDONED UPLOADS (Track C / C2), certified where the CASCADE
-    //     cannot reach. Nothing was destroyed here — a partial is reaped by
-    //     Supabase's 24 h TUS expiry, which nothing on the platform can see —
-    //     so this is WIL-7009, "certified abandoned", never WIL-7006 "purged".
-    //     One row per CERT_BATCH paths, like every other certificate here.
-    for (let i = 0; i < abandonedPaths.length; i += CERT_BATCH) {
-      const batch = abandonedPaths.slice(i, i + CERT_BATCH)
-      await logPlatformEvent(ctx, {
-        action: 'workspace.teardown',
-        workspaceId,
-        workspaceSlug: ws.slug,
-        workspaceName: ws.name,
-        code: 'WIL-7009',
-        severity: 'warning',
-        message: `Certified ${batch.length} abandoned upload(s) during teardown of ${ws.slug}`,
-        context: {
-          paths: batch,
-          batch: Math.floor(i / CERT_BATCH) + 1,
-          note: 'open upload reservations closed before the CASCADE (sweep_open_uploads, 0074); the partials expire at 24 h in Supabase Storage and are not enumerable from WILSON',
-        },
-      })
-    }
-
     // 3. Now the row, and the CASCADE with it.
     const { error: delErr } = await ctx.admin
       .from('workspaces')
@@ -1275,7 +1283,7 @@ Deno.serve(async (req: Request) => {
         avatars_failed: avatarsFailed.length,
         avatars_truncated: avatarsTruncated,
         // Track C / C2: the open upload reservations closed BEFORE the CASCADE
-        // (sweep_open_uploads, 0074; the abandoned paths are on WIL-7009).
+        // (sweep_open_uploads, 0074; the abandoned paths are on WIL-7012).
         // `reservation_sweep_failed: true` means the sweep did not ANSWER — a
         // database without 0074, or a transport failure — so any open
         // reservation went with the CASCADE uncertified, and the two counts
@@ -1285,11 +1293,12 @@ Deno.serve(async (req: Request) => {
         reservation_sweep_failed: reservationSweepFailed,
         // Track C / C2: the stated limit of blobs_* and thumbnails_*, on the
         // certificate rather than only in §17. Both are ROW-DERIVED (files +
-        // storage_gc_queue): an object whose row never landed — a body or
-        // preview put succeeded, the row insert was refused, both compensating
-        // deletes best-effort — is neither removed nor counted above. The
-        // avatars are the exception: they are listed, not derived.
-        thumbnails_note: 'row-derived: only objects named by a files or storage_gc_queue row were swept from rabbit-files and rabbit-thumbnails; a stranded body or preview with no row is neither removed nor counted',
+        // storage_gc_queue), plus the product-written reserved objects 2b
+        // builds from the project ids: an object whose row never landed — a
+        // body or preview put succeeded, the row insert was refused, both
+        // compensating deletes best-effort — is neither removed nor counted
+        // above. The avatars are the exception: they are listed, not derived.
+        thumbnails_note: 'row-derived: rabbit-files and rabbit-thumbnails were swept from files and storage_gc_queue rows plus the product-written reserved objects; a stranded body or preview with no row is neither removed nor counted',
       },
     })
 

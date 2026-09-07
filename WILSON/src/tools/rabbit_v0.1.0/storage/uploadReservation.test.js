@@ -400,11 +400,18 @@ describe('source pins — the call sites exist and sit in the right order', () =
 
   it('teardown sweeps open reservations and lists avatars BEFORE the CASCADE, and certifies both', () => {
     const sweepAt   = teardown.indexOf(".rpc('sweep_open_uploads', { p_workspace_id: workspaceId })")
+    const certAt    = teardown.indexOf("code: 'WIL-7012'")
+    const firstRm   = teardown.indexOf('.remove(batch)')
     const avatarsAt = teardown.indexOf('await collectAvatarPaths(ctx, workspaceId)')
     const removeAt  = teardown.indexOf('ctx.admin.storage.from(AVATAR_BUCKET).remove(batch)')
     const cascadeAt = teardown.indexOf(".from('workspaces')\n      .delete()")
     expect(sweepAt).toBeGreaterThan(-1)
     expect(avatarsAt).toBeGreaterThan(-1)
+    // R1 (C2): the abandoned-upload certificate is written straight after the
+    // sweep, BEFORE the first blob is removed — a teardown that dies mid-way
+    // must not leave the closed rows with no surviving record.
+    expect(certAt).toBeGreaterThan(sweepAt)
+    expect(certAt).toBeLessThan(firstRm)
     expect(removeAt).toBeGreaterThan(avatarsAt)
     expect(cascadeAt).toBeGreaterThan(Math.max(sweepAt, removeAt))
     expect(teardown).toContain("const AVATAR_BUCKET = 'user-avatars'")
@@ -414,7 +421,8 @@ describe('source pins — the call sites exist and sit in the right order', () =
       'avatars_found', 'avatars_removed', 'avatars_failed', 'avatars_truncated',
       'reservations_abandoned', 'reservations_completed', 'reservation_sweep_failed', 'thumbnails_note',
     ]) expect(teardown).toContain(`${field}:`)
-    expect(teardown).toContain("code: 'WIL-7009'")
+    // WIL-7009 is the setup-link certificate (Track A); the teardown's is 7012.
+    expect(teardown.match(/code: 'WIL-7012'/g)).toHaveLength(1)
   })
 
   it('storage-gc drives the sweep per workspace and reports a failed RPC rather than hiding it', () => {

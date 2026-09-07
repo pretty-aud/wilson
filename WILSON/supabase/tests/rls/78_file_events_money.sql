@@ -315,8 +315,10 @@ RESET ROLE;
 SELECT ok(
   NOT has_function_privilege('anon', 'public.abandon_upload_reservation(text, text)', 'EXECUTE')
   AND NOT has_function_privilege('anon', 'public.release_stale_upload_reservations(text[])', 'EXECUTE')
-  AND NOT has_function_privilege('anon', 'public.sweep_open_uploads(uuid)', 'EXECUTE'),
-  'anon — and so PUBLIC, which anon inherits — can execute none of the three');
+  AND NOT has_function_privilege('anon', 'public.sweep_open_uploads(uuid)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.rabbit_money_key(text)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.file_event_is_financial(boolean, text, text)', 'EXECUTE'),
+  'anon — and so PUBLIC, which anon inherits — can execute none of the three RPCs nor the two helpers');
                                                                             -- 23
 
 SELECT ok(

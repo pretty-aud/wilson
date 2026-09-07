@@ -371,7 +371,7 @@ one binds first.
 >    once (`abandon_upload_reservation`, called from the client's failure path
 >    with the error as the reason); a tenant torn down with open reservations
 >    has them closed BEFORE the CASCADE (`sweep_open_uploads`) and the
->    abandoned paths certified in `platform_audit` as `WIL-7009`, the one
+>    abandoned paths certified in `platform_audit` as `WIL-7012`, the one
 >    table the CASCADE cannot reach; a person's own stale rows are released
 >    when they next open Files, without a certificate (Audrey's ruling); and
 >    there is NO per-person reservation cap (her ruling — the 24 h expiry is

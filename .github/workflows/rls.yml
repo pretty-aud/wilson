@@ -145,6 +145,9 @@ jobs:
             echo "::error::The RLS enumeration returned nothing — the database is not up or has no RLS tables, and this guard cannot be trusted"
             exit 1
           fi
+          # A file, not `echo | grep -q`: under pipefail a grep that exits on its
+          # first match can hand echo a SIGPIPE and turn a MATCH into a failure.
+          printf '%s\n' $ENABLED > /tmp/rls_enabled.txt
           UNACCOUNTED=()
           for t in $ENABLED; do
             if grep -qx "$t" "$RLS_TABLES_FILE"; then continue; fi
@@ -169,7 +172,7 @@ jobs:
           NOT_ENABLED=()
           while IFS= read -r t; do
             [ -z "$t" ] && continue
-            echo "$ENABLED" | grep -qx "$t" || NOT_ENABLED+=("$t")
+            grep -qx "$t" /tmp/rls_enabled.txt || NOT_ENABLED+=("$t")
           done < "$RLS_TABLES_FILE"
           if [ "${#NOT_ENABLED[@]}" -ne 0 ]; then
             echo "::error::Tables in RLS_TABLES without RLS enabled in the database: ${NOT_ENABLED[*]}"

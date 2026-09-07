@@ -57,14 +57,6 @@ async function callStorageFn(name, body) {
   }
 }
 
-/**
- * Mint a presigned URL for one request against one row-shaped path.
- * THROWS on refusal, with the server's sentence — see header.
- *
- * @param {'put'|'get'|'del'|'head'} op
- * @param {string} path row-shaped storage_path (never carries the prefix)
- * @returns {Promise<{url: string, method: string, expiresAt: string}>}
- */
 // ── Track C / 0074 — opening Files ──────────────────────────────────────────
 /**
  * Release this person's own STALE upload reservations (Audrey's ruling 2,
@@ -80,6 +72,14 @@ export function releaseStaleUploadReservations() {
   return releaseStaleUploads(supabase)
 }
 
+/**
+ * Mint a presigned URL for one request against one row-shaped path.
+ * THROWS on refusal, with the server's sentence — see header.
+ *
+ * @param {'put'|'get'|'del'|'head'} op
+ * @param {string} path row-shaped storage_path (never carries the prefix)
+ * @returns {Promise<{url: string, method: string, expiresAt: string}>}
+ */
 export async function presignStorage(op, path) {
   const res = await callStorageFn('storage-presign', { op, path })
   if (!res.ok || !res.data?.url) {

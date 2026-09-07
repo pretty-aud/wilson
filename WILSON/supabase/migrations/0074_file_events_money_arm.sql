@@ -99,6 +99,15 @@ AS $$
     false);
 $$;
 
+-- The house pattern (0033/S22): a function is born with a PUBLIC aclitem, so
+-- the REVOKE is the load-bearing statement. Nothing a client can reach calls
+-- these directly — they live inside the trigger, the RPCs and the policy — and
+-- anon calling one over PostgREST would die on rabbit_money_segment's own
+-- privilege anyway; still, the one 0074 object outside the pattern is the one
+-- a later reader copies (R1 review, C2).
+REVOKE ALL ON FUNCTION public.rabbit_money_key(TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.rabbit_money_key(TEXT) TO authenticated, service_role;
+
 COMMENT ON FUNCTION public.rabbit_money_key(TEXT) IS
   'Track C / 0074: true when obj_name is a row-shaped Petal key under a money '
   'segment (INVOICES / FINANCE, per rabbit_money_segment). False — never NULL — '
@@ -117,6 +126,9 @@ AS $$
       OR public.rabbit_money_key(p_path_a)
       OR public.rabbit_money_key(p_path_b);
 $$;
+
+REVOKE ALL ON FUNCTION public.file_event_is_financial(BOOLEAN, TEXT, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.file_event_is_financial(BOOLEAN, TEXT, TEXT) TO authenticated, service_role;
 
 COMMENT ON FUNCTION public.file_event_is_financial(BOOLEAN, TEXT, TEXT) IS
   'Track C / 0074: the one definition of a financial file event — the files '
@@ -570,7 +582,7 @@ BEGIN
     -- The same certificate the hourly sweep writes (0073), plus who closed it.
     -- It leaves with the tenant's file_events at the CASCADE; the surviving
     -- record is what the caller writes to platform_audit from the returned
-    -- paths (WIL-7009) and the counts on WIL-7005.
+    -- paths (WIL-7012) and the counts on WIL-7005.
     INSERT INTO public.file_events (
       workspace_id, project_id, file_id, file_name, storage_provider,
       event, new_path, size_bytes, actor_user_id, actor_label, details, is_financial
@@ -709,8 +721,10 @@ BEGIN
   END IF;
   IF has_function_privilege('anon', 'public.abandon_upload_reservation(text, text)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.release_stale_upload_reservations(text[])', 'EXECUTE')
-     OR has_function_privilege('anon', 'public.sweep_open_uploads(uuid)', 'EXECUTE') THEN
-    RAISE EXCEPTION '0074 post-condition failed: anon (and so PUBLIC) can execute a reservation RPC';
+     OR has_function_privilege('anon', 'public.sweep_open_uploads(uuid)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.rabbit_money_key(text)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.file_event_is_financial(boolean, text, text)', 'EXECUTE') THEN
+    RAISE EXCEPTION '0074 post-condition failed: anon (and so PUBLIC) can execute a 0074 function';
   END IF;
   IF NOT has_function_privilege('authenticated', 'public.abandon_upload_reservation(text, text)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.release_stale_upload_reservations(text[])', 'EXECUTE') THEN

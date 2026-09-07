@@ -1043,7 +1043,14 @@ to understand why it cannot be simplified:
    otherwise), BEFORE the CASCADE would take both that table and the tenant's
    `file_events` away uncertified. The failure flag starts true and only an
    answer clears it: a database without 0074 reads
-   `reservation_sweep_failed: true`, never 0/0.
+   `reservation_sweep_failed: true`, never 0/0. And (3d) the abandoned paths
+   are certified AT ONCE — one `WIL-7012` per 40 paths, before any blob is
+   touched — because 3c has already committed the rows as `abandoned`, and a
+   teardown that died before a later certificate would, on retry, find nothing
+   open and let the CASCADE take the first run's `file_events` records. Nothing
+   is destroyed in 3d (the partials expire at 24 h in Supabase Storage, which
+   nothing on the platform can see), so it is "certified abandoned", never
+   "purged".
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -1066,10 +1073,7 @@ to understand why it cannot be simplified:
    pass, own counters (`avatars_found` / `_removed` / `_failed` /
    `_truncated`), certificate per 40 paths (`WIL-7006` with `avatars: true`),
    `avatars_removed` counted from `remove()`'s returned array like every other
-   count here; and (6c) the **abandoned uploads** — one `WIL-7009` per 40 paths
-   naming the reservations step 3c closed as abandoned. Nothing was destroyed
-   in 6c (the partials expire at 24 h in Supabase Storage, which nothing on
-   the platform can see), so it is "certified abandoned", never "purged".
+   count here. (The abandoned uploads were certified back in 3d.)
 7. **Delete the workspace row.** This fires the CASCADE.
 8. **Drop the queue rows — *after* the cascade, not before.** The `files`
    CASCADE re-enqueues one `storage_gc_queue` row per file; clearing first
@@ -3438,7 +3442,7 @@ of a session — this section is limits by design, that file is faults.
   those rows lose theirs — so a closed tab no longer holds its bytes for a day
   against the same person's retry). The company is torn down →
   `sweep_open_uploads` closes every open row before the CASCADE and the
-  abandoned paths are certified in `platform_audit` as `WIL-7009` (§5). **Two
+  abandoned paths are certified in `platform_audit` as `WIL-7012` (§5). **Two
   stated limits:** a second browser tab cannot see the first tab's in-flight
   keys, so opening Files in tab B while tab A uploads releases A's row early —
   the policy still refuses an over-quota object at commit, so the cost is a
@@ -3915,7 +3919,7 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
-| `WIL-7009` | Teardown certified abandoned upload(s): the open `upload_reservations` rows `sweep_open_uploads()` closed before the CASCADE, 40 paths per row (Track C / C2, 0074). Certifies the abandonment, not a disposal — the partials expire at 24 h in Supabase Storage | `platform_audit` |
+| `WIL-7012` | Teardown certified abandoned upload(s): the open `upload_reservations` rows `sweep_open_uploads()` closed before the CASCADE, 40 paths per row, written straight after the sweep and before any blob is touched (Track C / C2, 0074). Certifies the abandonment, not a disposal — the partials expire at 24 h in Supabase Storage. (`WIL-7009` is Track A's setup-link certificate.) | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
 
 ---
