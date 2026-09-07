@@ -29,7 +29,7 @@ import { test, expect } from '@playwright/test'
 // Session 43: sign-in lives in authFlow.ts so this spec and web-path.spec.ts
 // cannot drift apart again. USERNAME / PASSWORD / WORKSPACE come from there.
 import {
-  USERNAME, PASSWORD, WORKSPACE, signIn, gotoForgotPassword, clearCompanyStep,
+  USERNAME, PASSWORD, WORKSPACE, WORKSPACE_NAME, signIn, gotoForgotPassword, clearCompanyStep,
 } from './authFlow'
 
 const MAILPIT  = process.env.MAILPIT_URL         ?? 'http://localhost:54324'
@@ -216,13 +216,17 @@ test('an unknown company is refused at step 1 and never reaches credentials', as
   await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByLabel('Username')).toHaveCount(0)
 
-  // B1 review round R1: a star is not a search. PostgREST reads `*` in an
-  // ilike pattern as `%`, and before the fix the first three letters of the
-  // fixture's name plus `*` (`smo*`) resolved the smoke workspace and handed
-  // back its slug. Same wording as any other unknown company. Submitting
-  // clears the error first, so waiting for it to vanish proves the second
-  // assertion sees a new refusal, not the old text.
-  await page.getByLabel('Company').fill(`${WORKSPACE.slice(0, 3)}*`)
+  // B1 review rounds R1 + R2: a star is not a search. PostgREST reads `*` in
+  // an ilike pattern as `%`, and before the fix `smo*` resolved the smoke
+  // workspace and handed back its slug. The resolver now folds `*` to a
+  // one-character `_` and re-checks the returned names for equality — and
+  // ONLY the re-check stops this input: the display name minus its last
+  // character plus `*` (`Smoke Workspac*`) still matches the row at the
+  // database (`Smoke Workspac_`), so this line goes red the moment the
+  // re-check is removed. A three-letter prefix would not (R2). Same wording
+  // as any other unknown company. Submitting clears the error first, so
+  // waiting for it to vanish proves the second assertion sees a new refusal.
+  await page.getByLabel('Company').fill(`${WORKSPACE_NAME.slice(0, -1)}*`)
   await page.getByRole('button', { name: /^continue$/i }).click()
   await expect(page.getByText('COMPANY NOT FOUND.')).toBeHidden({ timeout: 5_000 })
   await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })

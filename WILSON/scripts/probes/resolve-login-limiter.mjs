@@ -7,10 +7,15 @@
 //
 // What it checks, in order:
 //   1. the company path answers contract v2 for a real, a nonsense and an
-//      empty company — and refuses a PREFIX of the real one followed by `*`.
-//      That is a second FAILING CONTROL (B1 review round R1, 2026-09-06):
-//      PostgREST reads `*` in an ilike pattern as `%`, and on v8 / v10 this
-//      line printed exists:true with the real slug for `smo*`;
+//      empty company — and refuses the real one's DISPLAY NAME minus its last
+//      character plus `*` (`Smoke Workspac*`), and a three-letter prefix plus
+//      `*`. That is a second FAILING CONTROL (B1 review rounds R1 + R2):
+//      PostgREST reads `*` in an ilike pattern as `%`, and on dev v8 `smo*`
+//      printed exists:true with the real slug. The name-minus-one form is the
+//      one that matters — it still matches at the database and only the
+//      resolver's equality re-check turns it into a miss. The control is
+//      INERT unless the real workspace resolved (the fixture is dev-only) and
+//      "not run" on a 429 — never a pass by default;
 //   2. known vs unknown username take the same time (the constant-time
 //      floor) and the smoke-probe shape (username, no slug) still resolves;
 //   3. GoTrue's own timing for a real email + wrong password vs a fake email
@@ -83,16 +88,31 @@ async function gotrue(email, password) {
 const strip = ({ email, ...rest }) => rest
 
 console.log('--- company path ---')
-console.log('real workspace           ', strip(await resolve({ company: WORKSPACE })))
+const real = strip(await resolve({ company: WORKSPACE }))
+console.log('real workspace           ', real)
 console.log('nonsense company         ', strip(await resolve({ company: `zz-no-such-${Date.now()}` })))
 console.log('empty company            ', strip(await resolve({ company: '' })))
-// A star is not a search. Only meaningful where WORKSPACE exists (dev by
-// default); elsewhere both lines above and this one print exists:false.
-const wildcard = strip(await resolve({ company: `${WORKSPACE.slice(0, 3)}*` }))
-console.log('prefix + * (must miss)   ', wildcard)
-if (wildcard.exists) {
+// A star is not a search — two forms, and the SECOND is the one that matters:
+//   prefix + `*`          `smo*` → pattern `smo_`: four characters, matches
+//                         nothing fifteen long, never reaches the re-check;
+//   name minus one + `*`  `Smoke Workspac*` → `Smoke Workspac_`: ILIKE matches
+//                         the row, and only the equality re-check makes it a
+//                         miss. Delete that re-check and THIS line goes red.
+// PROBE_WORKSPACE_NAME is the fixture's display name (dev: "Smoke Workspace").
+const NAME = process.env.PROBE_WORKSPACE_NAME || 'Smoke Workspace'
+const w1 = strip(await resolve({ company: `${WORKSPACE.slice(0, 3)}*` }))
+const w2 = strip(await resolve({ company: `${NAME.slice(0, -1)}*` }))
+console.log('prefix + * (must miss)   ', w1)
+console.log('name-1 + * (must miss)   ', w2)
+if (!real.exists) {
+  console.log('(wildcard control INERT: the real workspace did not resolve on this project — set PROBE_WORKSPACE / PROBE_WORKSPACE_NAME)')
+} else if (w1.status !== 200 || w2.status !== 200) {
+  console.log('(wildcard control NOT RUN: throttled — wait a minute and re-run without `burst`)')
+} else if (w1.exists || w2.exists) {
   console.log('WILDCARD MATCHED — `*` is acting as a search at the company step; do not ship this build')
   process.exit(1)
+} else {
+  console.log('wildcard control passed: both forms answered 200 / exists:false')
 }
 
 console.log('--- username path (timing: known vs unknown, 3 each) ---')

@@ -43,6 +43,15 @@ export const PASSWORD = process.env.WILSON_E2E_PASSWORD ?? ''
 // straight through and every scenario would fail step 1.
 export const WORKSPACE = process.env.WILSON_E2E_WORKSPACE_SLUG || 'smoke'
 
+// B1 review round R2: the fixture's DISPLAY NAME, for the control that proves
+// a `*` is not a wildcard at the company step. The name minus its last
+// character plus `*` is the one input that reaches the resolver's equality
+// re-check (a three-letter prefix already misses at the database, so it would
+// stay green with the re-check deleted). Same footing as WORKSPACE: an
+// identifier, not a credential. Set WILSON_E2E_WORKSPACE_NAME alongside
+// WILSON_E2E_WORKSPACE_SLUG if the probe account ever moves company.
+export const WORKSPACE_NAME = process.env.WILSON_E2E_WORKSPACE_NAME || 'Smoke Workspace'
+
 if (!PASSWORD) {
   throw new Error(
     'WILSON_E2E_PASSWORD is not set. These specs sign in to a real hosted project; '

@@ -54,11 +54,13 @@ Every label below was grep-verified against `src/` on the day this was written.
    (`Zebra Toast Ltd`), `Continue`.
    - **Expect:** `COMPANY NOT FOUND.` and you stay on the company step — no
      username field appears.
-4. Still on the company step: type the first three letters of Company A's
-   name followed by a star (for `Petal Studios`, `Pet*`), `Continue`.
+4. Still on the company step: type Company A's name minus its last letter,
+   then a star (for `Petal Studios`, `Petal Studio*`), `Continue`.
    - **Expect:** `COMPANY NOT FOUND.` A star is not a search. (The review
-     round after B1 found that it was one — `Pet*` went through as Petal
-     Studios — and fixed it; this step proves the fix on the beta.)
+     rounds after B1 found that it was one — `Petal Studio*` went through as
+     Petal Studios — and fixed it; this step proves the fix on the beta. The
+     name minus one letter is the form that matters: a short prefix would be
+     refused even by a resolver with the fix removed.)
    - **If instead** the username field appears: record exactly what you typed.
 
 ## Step 2 — Suspended reads exactly like missing (Browser A, then B)
@@ -152,7 +154,7 @@ Walkthrough 10 — sign in, company first — <date>
 Step 0 same username in two companies: accepted / refused (text: …)
 Step 1 remembered company: yes / no / wrong (…); real company: went through / COMPANY NOT FOUND
 Step 1.3 missing company wording: …
-Step 1.4 star (Pet*): COMPANY NOT FOUND / went through (typed: …)
+Step 1.4 star (Petal Studio*): COMPANY NOT FOUND / went through (typed: …)
 Step 2 suspended company wording: … (identical to 1.3? yes / no)
 Step 3 sameuser → Company A: ok / failed; → Company B: ok / failed; cross-password refused: yes / no
 Step 4 wrong password wording: …; unknown username wording: …; felt the same speed: yes / no

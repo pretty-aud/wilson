@@ -3621,13 +3621,18 @@ of a session — this section is limits by design, that file is faults.
   of sign-in asks `resolve-login` whether the typed company exists and gets a
   boolean plus the canonical slug back. Anyone holding the anon key — which
   the web app ships — can therefore test whether a name is a Petal customer,
-  at up to 20 names per minute per address, each answered in constant time.
-  A `*` in the typed name is NOT a wildcard: PostgREST aliases `*` to `%` in
-  an `ilike` pattern, and B1's review round R1 measured `smo*` resolving the
-  smoke workspace and returning its slug (v8); the resolver now folds `*` to
-  a one-character `_` and re-checks the returned names for equality, so the
-  step answers for the exact name typed and nothing wider. Scenario 5 of
-  `tests/e2e/auth.spec.ts` and the limiter probe both carry that control.
+  at up to 20 names per minute per address, each behind a response-time
+  floor that today's round trip exceeds (equal timing for a hit and a miss
+  is measured, not enforced — see `resolve-login`'s header). A `*` in the
+  typed name is NOT a wildcard: PostgREST aliases `*` to `%` in an `ilike`
+  pattern, and B1's review round R1 measured `smo*` resolving the smoke
+  workspace and returning its slug (dev v8); the resolver now folds `*` to a
+  one-character `_` and re-checks the returned names for equality, so the
+  step answers for the exact name typed, or for whatever slugifies to the
+  exact slug (`smoke!` finds `smoke`; `pet*` does not find `petal`), and
+  nothing wider. Scenario 5 of `tests/e2e/auth.spec.ts` and the limiter
+  probe both submit the display name minus its last character plus `*` —
+  the one input only the re-check turns into a miss (R2).
   What it does NOT reveal: status (a suspended, soft-deleted workspace answers
   exactly like a name that never existed — one wording, `COMPANY NOT
   FOUND.`), members, counts, or anything about a person; the username path's

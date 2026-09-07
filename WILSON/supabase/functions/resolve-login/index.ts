@@ -4,8 +4,14 @@
 // the company-existence check that runs before it (contract v2, Session 43).
 //
 // Security properties:
-//  - Constant-time response floor (~180ms) regardless of outcome, to defeat
-//    username enumeration timing attacks.
+//  - A response-time FLOOR (MIN_RESPONSE_MS) so a fast miss cannot be told
+//    from a slower hit. 🚨 It is a floor, not a clamp: since B1 put the
+//    durable limiter's round trip inside the call, a call takes ~320 ms end
+//    to end and the 180 ms floor is inert, so "a hit and a miss take the same
+//    time" currently rests on MEASUREMENT (B1 review round R1, wilson-dev,
+//    eight samples each, alternating: known username median 326 ms, unknown
+//    329 ms), not on this constant. Re-measure after any change to the work
+//    this function does on either path.
 //  - Per-IP rate limit through the DURABLE limiter (public.fn_rate_limit_hit,
 //    migration 0028; one counter shared by every isolate). Two buckets, one
 //    per path, so a burst of company probes cannot lock credentials out and
@@ -31,7 +37,9 @@ import { envInt, isRateLimited } from '../_shared/rateLimit.ts'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-// ~180ms floor — enough to mask DB lookup variance without hurting UX.
+// Response-time floor. Sized in S1 for one lookup; below the round trip since
+// B1 (see the header). Raising it above ~400 ms would make it real again at
+// the cost of ~0.2 s on every sign-in step — Audrey's call, not taken here.
 const MIN_RESPONSE_MS = 180
 
 // Per-IP limits, per fixed 60-second window, one bucket per path.
@@ -221,9 +229,13 @@ Deno.serve(async (req: Request) => {
   // ⚠️ This IS a company-existence oracle, and that is a deliberate product
   // decision taken with the trade-off on the table: anyone holding the anon
   // key can test whether a company name is a customer. It is bounded by the
-  // durable per-IP limiter above (COMPANY_RPM per minute per address), the
-  // ~180ms constant-time floor, and a reply that is a boolean plus the
-  // canonical slug — never a name, never a list, never a count. Do not extend
+  // durable per-IP limiter above (COMPANY_RPM per minute per address), a
+  // response-time floor (inert at today's latency — see the header — so the
+  // equal timing of a hit and a miss is measured, not enforced), and a reply
+  // that is a boolean plus the canonical slug — never a name, never a list,
+  // never a count. The slug path is punctuation-insensitive by design
+  // (`smoke!` finds `smoke`); that is not a search — `pet*` does not find
+  // `petal`. Do not extend
   // it to return anything else. The USERNAME path's enumeration defence is
   // untouched.
   //
@@ -248,14 +260,16 @@ Deno.serve(async (req: Request) => {
     // 1. Exact slug match (covers someone typing the slug they were given).
     const candidate = slugifyWorkspace(typed)
     let hit: { slug: string; id: string } | null = null
+    let lookupFailed = false
 
     if (isValidSlug(candidate)) {
-      const { data } = await admin
+      const { data, error } = await admin
         .from('workspaces')
         .select('id, slug')
         .eq('slug', candidate)
         .is('deleted_at', null)
         .limit(1)
+      if (error) lookupFailed = true
       if (data && data.length === 1) hit = data[0] as { slug: string; id: string }
     }
 
@@ -269,12 +283,13 @@ Deno.serve(async (req: Request) => {
     //    smoke workspace (B1 review round R1, measured on wilson-dev).
     if (!hit) {
       const wanted = typed.toLowerCase()
-      const { data } = await admin
+      const { data, error } = await admin
         .from('workspaces')
         .select('id, slug, name')
         .ilike('name', escapeLike(typed))
         .is('deleted_at', null)
         .limit(10)
+      if (error) lookupFailed = true
       const exact = ((data ?? []) as { id: string; slug: string; name: string | null }[])
         .filter((w) => typeof w.name === 'string' && w.name.toLowerCase() === wanted)
       // Two workspaces sharing a display name cannot be disambiguated from a
@@ -283,7 +298,13 @@ Deno.serve(async (req: Request) => {
       if (exact.length === 1) hit = { id: exact[0].id, slug: exact[0].slug }
     }
 
-    log({ workspace_id: hit?.id ?? null, outcome: hit ? 'resolved' : 'not_found' })
+    // A failed lookup is still a miss on the wire (disclosure-safe) but is
+    // logged as 'error', not 'not_found', so an outage does not read as a
+    // wave of unknown companies in auth_attempt_log (B1 review round R2).
+    log({
+      workspace_id: hit?.id ?? null,
+      outcome: hit ? 'resolved' : lookupFailed ? 'error' : 'not_found',
+    })
 
     return reply({ exists: !!hit, slug: hit?.slug ?? null, v: CONTRACT_VERSION })
   }
