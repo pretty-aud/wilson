@@ -3815,6 +3815,13 @@ documentation and starts being wrong answers.
 `src/cloud/errorCodes.js` is the client registry; `WIL-41xx` and the `admin`
 event type are **server-reserved** so clients cannot forge audit lines.
 
+⚠️ **`WIL-3005`, `WIL-3006` and `WIL-3007` are in this table and in
+`storage-secret/index.ts` but NOT in `errorCodes.js`** (measured 2026-09-07,
+Track A bundle A4). `describeErrorCode()` therefore returns *Unknown error
+code* for them in the Admin Terminal's Logs view. Not fixed here — they are
+Track C's codes and this was Track A's bundle; `OUTSTANDING.md` carries the
+entry. `eventVocabulary.test.js` exempts exactly those three, by name.
+
 | Range | Meaning | Stream |
 |---|---|---|
 | `WIL-1xxx` | Authentication (sign-in failed, session expired, MFA challenge failed) — declared, largely unwired | `app_events` |
@@ -3822,6 +3829,7 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-3005` / `WIL-3006` | Workspace bucket secret saved / cleared (S37; hint only, never the secret) | `app_events` |
 | `WIL-3007` | Bucket probe ran (stage + status on failure, latencies on success) | `app_events` |
 | `WIL-41xx` | Admin actions. `WIL-4101`–`4104` are written by `logAdminEvent` from an Edge Function; `WIL-4105`/`4106`/`4107` (privileges changed / membership created / membership removed) are written by the `trg_ws_members_audit` DEFINER trigger, which is what catches privilege changes made straight from the browser | `app_events` |
+| `WIL-4108` | **Nomination approved by its own proposer** (A4, migration 0069). Written by `otter_nomination_apply`, a DEFINER function owned by a BYPASSRLS role, in the SAME transaction as the promotion and allowed to raise — an unrecorded self-promotion rolls the promotion back with it. Self-approval is **allowed** (Audrey, 2026-09-07: a manager can already promote by hand); this is the record, not a refusal. `severity` is `warning`; `context` carries `nomination_id`, `course_id`, `course_slug`, `course_name`, `approver_app_role`, `superseded_course_id` | `app_events` |
 | `WIL-5001` / `WIL-5002` | Update check / download failure | `app_events` + Sentry |
 | `WIL-6001` / `WIL-6002` | AI request completed / failed, with model, tokens and `key_source` | `app_events` |
 | `WIL-7005` | `workspace.teardown` certificate (critical) | `platform_audit` |
