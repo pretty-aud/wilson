@@ -215,6 +215,18 @@ test('an unknown company is refused at step 1 and never reaches credentials', as
   await page.getByRole('button', { name: /^continue$/i }).click()
   await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })
   await expect(page.getByLabel('Username')).toHaveCount(0)
+
+  // B1 review round R1: a star is not a search. PostgREST reads `*` in an
+  // ilike pattern as `%`, and before the fix the first three letters of the
+  // fixture's name plus `*` (`smo*`) resolved the smoke workspace and handed
+  // back its slug. Same wording as any other unknown company. Submitting
+  // clears the error first, so waiting for it to vanish proves the second
+  // assertion sees a new refusal, not the old text.
+  await page.getByLabel('Company').fill(`${WORKSPACE.slice(0, 3)}*`)
+  await page.getByRole('button', { name: /^continue$/i }).click()
+  await expect(page.getByText('COMPANY NOT FOUND.')).toBeHidden({ timeout: 5_000 })
+  await expect(page.getByText('COMPANY NOT FOUND.')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByLabel('Username')).toHaveCount(0)
 })
 
 // ── Scenario 6 (B1): the company is remembered per device, and deep-linkable ─

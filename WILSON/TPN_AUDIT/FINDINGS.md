@@ -609,7 +609,7 @@ gap: |
 
   Audrey's ruling (2026-08-10, reaffirmed 2026-09-04 as fix-plan answer 34): "the system should confirm the company listed first exists and is real, after it makes sure the company exists THEN it should pull from that companies list." The alternative — a company step that verifies nothing — shipped for one S43 commit and signed people into the wrong company; she chose the oracle with the trade-off on the table.
 
-  What it discloses: whether a typed name (display name or slug) is an existing, non-suspended workspace — at most 20 answers per minute per client address (`resolve-login:company`, durable, fail-closed, keyed on `cf-connecting-ip`), each answered in ~180 ms regardless of outcome, each logged to auth_attempt_log with that address.
+  What it discloses: whether a typed name (display name or slug) is an existing, non-suspended workspace — at most 20 answers per minute per client address (`resolve-login:company`, durable, fail-closed, keyed on `cf-connecting-ip`), each answered in constant time regardless of outcome (a 180 ms floor; measured ~320 ms end to end on dev and staging, a hit and a miss alike, because the limiter round trip is inside it), each logged to auth_attempt_log with that address.
 
   What it does NOT disclose: status (a suspended, soft-deleted workspace answers exactly like a name that never existed — one wording on screen, `COMPANY NOT FOUND.`), members, counts, the display name behind a slug or the slug behind a name beyond the one the caller typed, or anything about a person. The username path's defence — one generic wording, a fake-email sign-in so an unknown username costs the same as a known one, constant time — is untouched, and tests/e2e/auth.spec.ts scenario 4 pins the wording.
 
@@ -621,6 +621,8 @@ opened: 2026-09-06
 ```
 
 **Opened by Track B bundle B1 (2026-09-06)** to record a product decision, as the B1 brief required: "record the residual risk … in the TPN pack as an accepted, rate-limited disclosure." (`TPN-AUTH-008` was merged into TPN-NET-005 during the 2026-07-30 re-audit, hence the gap in numbering.)
+
+**B1 review round R1 (2026-09-06) — the disclosure was wider than recorded, and was narrowed back (the commit after `397afef` on `track-b-auth`).** The name match is a PostgREST `ilike` with `%`, `_` and `\` escaped, but PostgREST also reads `*` as an alias of `%` in that filter and rewrites it before Postgres sees it. Measured on wilson-dev v8: `smo*`, `Smoke Work*` and `S*e Workspace` all answered `exists:true` with the smoke workspace's slug, so the step was a pattern search over customer names that handed back slugs the caller never typed — "the slug behind a name beyond the one the caller typed" was exactly what it disclosed. Fixed in `resolve-login` v9 (dev) / v11 (staging): `*` folds to a one-character `_` and the rows the pattern returns are re-checked for case-insensitive equality with the typed name, so the answer is about that one name only. Two failing controls carry it: `scripts/probes/resolve-login-limiter.mjs` refuses to pass when a prefix plus `*` resolves, and `tests/e2e/auth.spec.ts` scenario 5 submits `smo*` and expects `COMPANY NOT FOUND.`. The paragraph above is accurate again.
 
 ---
 

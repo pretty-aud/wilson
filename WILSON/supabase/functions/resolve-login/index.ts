@@ -117,8 +117,19 @@ function slugifyWorkspace(s: string): string {
 
 // `%`, `_` and `\` are LIKE metacharacters. A company called "50% Studio" must
 // not match "50X Studio".
+//
+// `*` is a FOURTH one, and it is PostgREST's, not Postgres's: the `like` and
+// `ilike` filters accept `*` as an alias of `%` (so a pattern survives URL
+// encoding) and rewrite it before the query runs, so a backslash in front of
+// it never reaches LIKE. Measured on wilson-dev (Track B bundle B1, review
+// round R1, 2026-09-06): `smo*`, `Smoke Work*` and `S*e Workspace` all
+// resolved the smoke workspace and handed back its slug — a prefix search over
+// customer names, which is more than TPN-AUTH-009 accepts. There is no way to
+// send a literal `*` through that filter, so it becomes `_` (exactly one
+// character, the narrowest wildcard there is) and the company branch re-checks
+// the rows that come back for equality with what was typed.
 function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (c) => `\\${c}`)
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`).replace(/\*/g, '_')
 }
 
 const corsHeaders = {
@@ -249,18 +260,27 @@ Deno.serve(async (req: Request) => {
     }
 
     // 2. Case-insensitive exact match on the display name. `.ilike` with the
-    //    metacharacters escaped is an equality test, not a prefix search.
+    //    metacharacters escaped is an equality test, not a prefix search —
+    //    except for `*`, which PostgREST rewrites to `%` before Postgres sees
+    //    it (escapeLike folds it to a one-character `_`). So the pattern can
+    //    still match a SUPERSET of the exact name, and the rows that come back
+    //    are re-checked here: a candidate counts only if its name IS what was
+    //    typed, case aside. Before this check existed, `smo*` resolved the
+    //    smoke workspace (B1 review round R1, measured on wilson-dev).
     if (!hit) {
+      const wanted = typed.toLowerCase()
       const { data } = await admin
         .from('workspaces')
-        .select('id, slug')
+        .select('id, slug, name')
         .ilike('name', escapeLike(typed))
         .is('deleted_at', null)
-        .limit(2)
+        .limit(10)
+      const exact = ((data ?? []) as { id: string; slug: string; name: string | null }[])
+        .filter((w) => typeof w.name === 'string' && w.name.toLowerCase() === wanted)
       // Two workspaces sharing a display name cannot be disambiguated from a
       // name alone — refuse rather than pick one and sign the user into the
       // wrong tenant.
-      if (data && data.length === 1) hit = data[0] as { slug: string; id: string }
+      if (exact.length === 1) hit = { id: exact[0].id, slug: exact[0].slug }
     }
 
     log({ workspace_id: hit?.id ?? null, outcome: hit ? 'resolved' : 'not_found' })

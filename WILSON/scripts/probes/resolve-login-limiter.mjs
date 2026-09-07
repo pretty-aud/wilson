@@ -7,7 +7,10 @@
 //
 // What it checks, in order:
 //   1. the company path answers contract v2 for a real, a nonsense and an
-//      empty company;
+//      empty company — and refuses a PREFIX of the real one followed by `*`.
+//      That is a second FAILING CONTROL (B1 review round R1, 2026-09-06):
+//      PostgREST reads `*` in an ilike pattern as `%`, and on v8 / v10 this
+//      line printed exists:true with the real slug for `smo*`;
 //   2. known vs unknown username take the same time (the constant-time
 //      floor) and the smoke-probe shape (username, no slug) still resolves;
 //   3. GoTrue's own timing for a real email + wrong password vs a fake email
@@ -83,6 +86,14 @@ console.log('--- company path ---')
 console.log('real workspace           ', strip(await resolve({ company: WORKSPACE })))
 console.log('nonsense company         ', strip(await resolve({ company: `zz-no-such-${Date.now()}` })))
 console.log('empty company            ', strip(await resolve({ company: '' })))
+// A star is not a search. Only meaningful where WORKSPACE exists (dev by
+// default); elsewhere both lines above and this one print exists:false.
+const wildcard = strip(await resolve({ company: `${WORKSPACE.slice(0, 3)}*` }))
+console.log('prefix + * (must miss)   ', wildcard)
+if (wildcard.exists) {
+  console.log('WILDCARD MATCHED — `*` is acting as a search at the company step; do not ship this build')
+  process.exit(1)
+}
 
 console.log('--- username path (timing: known vs unknown, 3 each) ---')
 const known = [], unknown = []
