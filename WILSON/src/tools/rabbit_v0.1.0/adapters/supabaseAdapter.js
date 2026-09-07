@@ -938,8 +938,13 @@ export function supabaseAdapter() {
             .order('sort_order').then(unwrapOptionalTable),
           client.from('folders').select('*').eq('project_id', projectId)
             .order('path').then(unwrapOptionalTable),
+          // `.order('id')` is the TIE-BREAK, not decoration: `ORDER BY date`
+          // alone leaves two key dates on the same day in an arbitrary heap
+          // order, while the local adapter's Array.sort is stable — so the two
+          // backends could return the same project in different orders, which
+          // is what ordering this at all was meant to prevent (R2).
           client.from('milestones').select('*').eq('project_id', projectId)
-            .order('date').then(unwrapOptionalTable),
+            .order('date').order('id').then(unwrapOptionalTable),
         ]);
       return {
         project, phases, assets, tasks, dependencies, taskLinks, files,
@@ -2460,7 +2465,7 @@ export function supabaseAdapter() {
     async listMilestones(projectId) {
       const client = await requireClient();
       return unwrapOptionalTable(await client.from('milestones').select('*')
-        .eq('project_id', projectId).order('date'));
+        .eq('project_id', projectId).order('date').order('id'));
     },
     async upsertMilestone(milestone) {
       const client = await requireClient();
@@ -2515,9 +2520,24 @@ export function supabaseAdapter() {
       const { data, error } = await client.rpc(
         'milestones_trash_index', { p_project_id: projectId });
       if (error) {
-        if (error.code === 'PGRST202' || error.code === '42883') return [];
-        throw new Error(`[supabase] ${error.message || String(error)}`);
+        // 🚨 NARROWED, and the narrowing matters. PostgREST surfaces the
+        // Postgres code, so a 42883 raised INSIDE this function's body — a
+        // helper dropped or re-signatured — would otherwise be turned into
+        // "the trash is empty", which is the exact conflation the comment
+        // above says this method avoids. Only a missing
+        // milestones_trash_index degrades; anything else reaches the panel.
+        const msg = error.message || String(error);
+        const missingFn = (error.code === 'PGRST202')
+          || (error.code === '42883' && msg.includes('milestones_trash_index'));
+        if (missingFn) { lastError = null; lastSyncAt = new Date(); return []; }
+        lastError = msg;
+        throw new Error(`[supabase] ${lastError}`);
       }
+      // The bookkeeping every other path in this file does. Without it a
+      // failing trash read leaves a stale lastError, and status() reports it
+      // (and a stale lastSyncAt) as the adapter's health.
+      lastError  = null;
+      lastSyncAt = new Date();
       return data || [];
     },
 

@@ -17,7 +17,7 @@
 // else. Both had to exist — the toast is gone the moment it is dismissed.
 // =============================================================================
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { Trash2, Undo2, X, Diamond } from 'lucide-react'
 import GatedAction from '../../../permissions/GatedAction'
@@ -66,12 +66,22 @@ export default function MilestoneTrashModal({
   const [error, setError]     = useState(null)
   const [busyId, setBusyId]   = useState(null)
 
+  // 🚨 A SEQUENCE GUARD, because a stale answer here is not merely stale.
+  // Close the panel, switch project, reopen before the first request settles,
+  // and the older resolution can land last — showing the PREVIOUS project's
+  // deleted key dates, from which a Restore would act on that project's row by
+  // id. Only the newest request may write state (R2).
+  const runId = useRef(0)
+
   const load = useCallback(async () => {
+    const mine = ++runId.current
     setError(null)
     try {
       const got = await onList?.()
+      if (runId.current !== mine) return
       setRows(got === null || got === undefined ? null : got)
     } catch (err) {
+      if (runId.current !== mine) return
       // A failed trash read must not read as an empty trash: "nothing here"
       // and "we could not look" are different answers and the second one is
       // the one worth acting on.

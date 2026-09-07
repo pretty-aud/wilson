@@ -58,17 +58,35 @@ function sortByPath(rows) {
   return [...(rows || [])].sort((a, b) => String(a.path).localeCompare(String(b.path)))
 }
 
-// Mirrors the supabase adapter's `.order('date')` for milestones. Postgres
-// sorts NULLs LAST on an ascending order by default, so an undated key date
-// goes to the end here too — the editor refuses to save one, but a row written
-// before that check existed can still carry a null.
+// Mirrors the supabase adapter's `.order('date').order('id')` for milestones.
+// Postgres sorts NULLs LAST on an ascending order by default, so an undated key
+// date goes to the end here too — the editor refuses to save one, but a row
+// written before that check existed can still carry a null.
+//
+// 🚨 TWO THINGS R2 MEASURED, both fixed here and in the cloud query.
+// (a) TIES. `ORDER BY date` alone leaves equal dates in an arbitrary
+//     heap order, while Array.prototype.sort is spec-stable and keeps bundle
+//     insertion order — so two key dates on the same day could render in
+//     different orders on the two backends, which is the exact symptom this
+//     sort was added to remove. Both sides now break ties on `id`.
+// (b) FORMAT. localeCompare is a string compare, and '2026-1-5' sorts AFTER
+//     '2026-01-15' where Postgres orders them Jan 5 then Jan 15. `<input
+//     type="date">` always emits padded ISO, so this needs a hand-edited or
+//     imported bundle to reach — but comparing as dates costs nothing.
+function milestoneDateKey(value) {
+  if (!value) return null
+  const t = Date.parse(value)
+  return Number.isFinite(t) ? t : null
+}
+
 function byMilestoneDate(a, b) {
-  const x = a?.date
-  const y = b?.date
-  if (!x && !y) return 0
-  if (!x) return 1
-  if (!y) return -1
-  return String(x).localeCompare(String(y))
+  const x = milestoneDateKey(a?.date)
+  const y = milestoneDateKey(b?.date)
+  if (x === null && y === null) return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
+  if (x === null) return 1
+  if (y === null) return -1
+  if (x !== y) return x < y ? -1 : 1
+  return String(a?.id ?? '').localeCompare(String(b?.id ?? ''))
 }
 
 export function localServerAdapter() {

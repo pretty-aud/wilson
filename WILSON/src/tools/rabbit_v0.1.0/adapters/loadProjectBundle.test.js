@@ -199,3 +199,46 @@ describe('localServerAdapter — R1 corrections', () => {
     expect(calls[0].url).not.toContain('purge')
   })
 })
+
+
+// ── R2 L5: the sort must agree with Postgres, not merely be a sort ─────────
+
+describe('byMilestoneDate matches ORDER BY date, id', () => {
+  it('breaks ties on id rather than on bundle order', async () => {
+    // `ORDER BY date` alone leaves equal dates in an arbitrary heap order in
+    // Postgres, while Array.prototype.sort is spec-stable and keeps insertion
+    // order — so two key dates on the same day could render differently on the
+    // two backends, which is the symptom ordering was added to remove. Both
+    // sides now break ties on id.
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-z', date: '2026-05-01' },
+      { id: 'm-a', date: '2026-05-01' },
+      { id: 'm-m', date: '2026-05-01' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-a', 'm-m', 'm-z'])
+  })
+
+  it('compares dates as dates, not as strings', async () => {
+    // localeCompare put '2026-1-5' AFTER '2026-01-15'; Postgres orders them
+    // Jan 5 then Jan 15. Only reachable from a hand-edited or imported bundle,
+    // since the editor emits padded ISO — but a string compare on a date
+    // column is wrong wherever it appears.
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-15', date: '2026-01-15' },
+      { id: 'm-5',  date: '2026-1-5' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-5', 'm-15'])
+  })
+
+  it('an unparseable date sorts with the nulls, at the end', async () => {
+    stubFetch({ project: { id: 'p1' }, milestones: [
+      { id: 'm-bad', date: 'not a date' },
+      { id: 'm-ok',  date: '2026-01-15' },
+    ] })
+    expect((await localServerAdapter().listMilestones('p1')).map(m => m.id))
+      .toEqual(['m-ok', 'm-bad'])
+  })
+})
+

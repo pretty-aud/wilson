@@ -1927,7 +1927,13 @@ export function RabbitProvider({ children }) {
   // panel would otherwise have claimed an empty trash it never looked in. The
   // EditHistoryDrawer / FileAuditDrawer precedent is to name the adapter.
   const listTrashedMilestones = useCallback(async () => {
-    if (!adapterRef.current || !activeProjectId) return null;
+    // No project open is not the same claim as "this backend keeps no trash",
+    // and answering null for both would put a false sentence about the adapter
+    // on screen. An empty list is the honest answer when there is nothing to
+    // ask about. (Not reachable from the timeline toolbar today — no project
+    // means no TimelineView — but it is the same two-answers-one-value
+    // conflation the third state exists to remove.)
+    if (!adapterRef.current || !activeProjectId) return [];
     if (typeof adapterRef.current.listTrashedMilestones !== 'function') return null;
     return (await adapterRef.current.listTrashedMilestones(activeProjectId)) || [];
   }, [activeProjectId]);

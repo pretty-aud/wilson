@@ -20,6 +20,7 @@
 // =============================================================================
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 // A chainable query builder. Every PostgREST method loadProject uses returns
 // `this`, and the builder itself is thenable, so `.select().eq().order()` and
@@ -340,10 +341,26 @@ describe('listTrashedMilestones degrades on a MISSING FUNCTION, not a missing ta
 
   it('absorbs 42883, the Postgres-side undefined_function', async () => {
     globalThis.__testSupabase = clientWithRpc({
-      data: null, error: { code: '42883', message: 'function does not exist' },
+      // The message must NAME the function: 42883 raised INSIDE the function's
+      // body (a helper dropped) is a real failure and must not be absorbed.
+      data: null,
+      error: { code: '42883', message: 'function public.milestones_trash_index(uuid) does not exist' },
     })
     resetSupabaseAdapter()
     expect(await supabaseAdapter().listTrashedMilestones('p1')).toEqual([])
+  })
+
+  it('does NOT absorb a 42883 raised INSIDE the function body', async () => {
+    // PostgREST surfaces the Postgres code, so a helper that was dropped or
+    // re-signatured inside milestones_trash_index arrives as 42883 too. Turning
+    // that into an empty trash is the exact "could not look vs nothing here"
+    // conflation this method claims to avoid (R2).
+    globalThis.__testSupabase = clientWithRpc({
+      data: null,
+      error: { code: '42883', message: 'function public.current_workspace_id() does not exist' },
+    })
+    resetSupabaseAdapter()
+    await expect(supabaseAdapter().listTrashedMilestones('p1')).rejects.toThrow(/current_workspace_id/)
   })
 
   it('does NOT absorb a permission failure — "could not look" must reach the panel', async () => {
@@ -352,6 +369,35 @@ describe('listTrashedMilestones degrades on a MISSING FUNCTION, not a missing ta
     })
     resetSupabaseAdapter()
     await expect(supabaseAdapter().listTrashedMilestones('p1')).rejects.toThrow(/permission denied/)
+  })
+
+  // ── The adapter's own health bookkeeping ────────────────────────────────
+  //
+  // A SOURCE PIN, and it says so. `lastError` / `lastSyncAt` are module-scope
+  // and not exported; `status()` cannot witness them because its ordinary arm
+  // RE-PROBES the database and overwrites lastError with its own result, and
+  // its no-client arm is only reachable through `resetSupabaseAdapter()`,
+  // which clears lastError as its first act. So there is no behavioural
+  // vantage point, and a pin is the honest instrument that remains.
+  //
+  // What it guards: R2 found this method — the file's single hand-rolled error
+  // block — skipping the bookkeeping every other path does, so a failing trash
+  // read left the adapter reporting stale health.
+  it('records lastError and lastSyncAt like every other path in the file', () => {
+    const SRC = readFileSync(
+      new URL('./supabaseAdapter.js', import.meta.url), 'utf-8')
+    const start = SRC.indexOf('async listTrashedMilestones(projectId)')
+    expect(start, 'listTrashedMilestones moved or was renamed').toBeGreaterThan(-1)
+    // To the NEXT method declaration, so the slice is the whole body and
+    // nothing after it.
+    const NEXT = String.fromCharCode(10) + '    async '
+    const next = SRC.indexOf(NEXT, start + 1)
+    const body = SRC.slice(start, next > start ? next : start + 4000)
+    // The failure path records the message...
+    expect(body).toContain('lastError = msg')
+    // ...and the success path clears it and stamps the sync time.
+    expect(body).toContain('lastError  = null')
+    expect(body).toContain('lastSyncAt = new Date()')
   })
 
   it('returns the rows when the function is there', async () => {

@@ -802,7 +802,10 @@ read doubles as the final audit (code findings → §6 gaps for S17).
 9. ~~`public.users` drop + `schema.sql` retirement~~ — **CLOSED S10** (0023;
    Audrey confirmed standalone RABBIT is no longer supported).
 10. ~~Milestones have no undo path (kept confirm dialog).~~ — **CLOSED** by
-    ruling 38 (Track A A2 session 2, `4f65d63` + `d5baa0b`): a deleted key date
+    ruling 38 (Track A A2 session 2, `4f65d63` + `d5baa0b`, and the confirm
+    dialog itself removed in `269b796` — the first two commits built the undo
+    path and left the dialog standing in ProjectTasksView, which the R1 review
+    caught): a deleted key date
     goes to the trash on BOTH backends, an undo toast appears on delete, and a
     "Recently deleted key dates" panel restores one later. Cloud rides 0014's
     soft_delete_row / restore_soft_deleted, whose allowlist 0067 extends;
@@ -1283,7 +1286,7 @@ undecided gap at a release is a decision nobody made.
 | 7 | **ACCEPTED** | `project_members` changes are not edit-history captured. Roster changes are visible in the UI and the workspace channel; the audit gap that mattered — *workspace* privilege changes — is #42, closed below. |
 | 8 / 19 | **RE-OWNED** | Legacy `useTeamMembers` still backs six views. Migrating a live data source across Timeline / Scenes / Levels / Experiences / Budget / Intake is exactly the kind of refactor this session was told not to attempt. |
 | 9 | **CLOSED S10** | `public.users` dropped (0023). |
-| 10 | **CLOSED** (A2s2 `4f65d63` + `d5baa0b`, ruling 38) | Milestones have trash and undo on both backends: an undo toast on delete and a "Recently deleted key dates" panel with Restore. |
+| 10 | **CLOSED** (A2s2 `4f65d63` + `d5baa0b` + `269b796`, ruling 38) | Milestones have trash and undo on both backends: an undo toast on delete and a "Recently deleted key dates" panel with Restore. The confirm dialog this row named as the stand-in was removed in `269b796`, after R1 found it still in the tree. |
 | 11 | **ACCEPTED** | pgTAP realtime probes are lenient in CI by design — there is no realtime service in the CI stack. Hosted coverage comes from live probes. |
 | 12 | **ACCEPTED** | Notes have no cross-device live list refresh. Deliberate: notes ride no channel, and the version guard already makes concurrent edits lossless. |
 | 13 | **CLOSED S9** | Roster liveness + assigned-projects column. |

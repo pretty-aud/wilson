@@ -35,25 +35,43 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 
+const NL = String.fromCharCode(10)
+
 const PROVIDER = readFileSync(
   new URL('./state/RabbitProvider.jsx', import.meta.url), 'utf-8')
 
 /**
  * Lift `const <name> = useCallback(<params> => { ... })` out of the source.
- * Parens first, then braces — see the header.
+ *
+ * 🚨 THE PARENS THAT MATTER ARE THE CALLBACK'S, NOT useCallback'S. The first
+ * version of this matched from `useCallback(` itself, so the paren loop closed
+ * on the end of `useCallback(fn, [deps])` and the next `{` it found was the
+ * NEXT DECLARATION'S body — every extract silently carried a whole extra
+ * function. R2 measured it: `addMilestone` came back with `updateMilestone`
+ * attached. Every pin below still passed, which is exactly why the control at
+ * the bottom of this function's describe block is not decoration.
  */
 function extractCallback(source, name) {
   const decl = `const ${name} = useCallback(`
   const start = source.indexOf(decl)
   if (start < 0) throw new Error(`RabbitProvider no longer declares ${name} — the pin cannot run`)
-  // Walk to the arrow's parameter list, paren-matching from the useCallback(.
-  let i = source.indexOf('(', start + decl.length - 1)
+  // Step past `useCallback(`, then past an optional `async `, to the
+  // CALLBACK's own parameter list.
+  let i = start + decl.length
+  while (i < source.length && /\s/.test(source[i])) i++
+  if (source.startsWith('async', i)) {
+    i += 'async'.length
+    while (i < source.length && /\s/.test(source[i])) i++
+  }
+  if (source[i] !== '(') throw new Error(`${name} is not a parenthesised arrow callback`)
   let pd = 0
   for (; i < source.length; i++) {
     if (source[i] === '(') pd++
     else if (source[i] === ')') { pd--; if (pd === 0) break }
   }
-  const open = source.indexOf('{', i)
+  const arrow = source.indexOf('=>', i)
+  if (arrow < 0) throw new Error(`no arrow after ${name}'s parameter list`)
+  const open = source.indexOf('{', arrow)
   let depth = 0
   for (let j = open; j < source.length; j++) {
     if (source[j] === '{') depth++
@@ -67,21 +85,33 @@ function extractCallback(source, name) {
 
 const addMilestone    = extractCallback(PROVIDER, 'addMilestone')
 const deleteMilestone = extractCallback(PROVIDER, 'deleteMilestone')
+const listTrashed     = extractCallback(PROVIDER, 'listTrashedMilestones')
 
 // A control on the extractor itself: if these are wrong, every assertion below
 // is meaningless in the reassuring direction.
 describe('the extractor actually extracted the right two functions', () => {
-  it('addMilestone is the create, and does not swallow deleteMilestone', () => {
+  it('addMilestone is the create', () => {
     expect(addMilestone).toContain('upsertMilestone')
     expect(addMilestone).toContain('pushHistory')
-    expect(addMilestone.length).toBeLessThan(PROVIDER.length / 4)
-    expect(addMilestone).not.toContain('const deleteMilestone')
   })
 
-  it('deleteMilestone is the delete, and does not swallow addMilestone', () => {
+  it('deleteMilestone is the delete', () => {
     expect(deleteMilestone).toContain('showUndoToast')
     expect(deleteMilestone).toContain('pushHistory')
-    expect(deleteMilestone).not.toContain('const addMilestone')
+  })
+
+  it('🚨 THE REAL CONTROL: no extract carries a second useCallback', () => {
+    // This is what the first version of the extractor failed and what its
+    // controls could not see. `not.toContain('const deleteMilestone')` passed
+    // happily while `addMilestone`'s extract carried `updateMilestone`, and a
+    // length bound of PROVIDER.length / 4 left 4,000% of slack. One
+    // useCallback per extract is the property that actually holds.
+    for (const [label, text] of Object.entries({
+      addMilestone, deleteMilestone, listTrashedMilestones: listTrashed,
+    })) {
+      const opens = text.split('useCallback(').length - 1
+      expect(opens, `${label}'s extract spans ${opens} useCallback declarations`).toBe(1)
+    }
   })
 })
 
@@ -145,23 +175,63 @@ describe('the delete still raises the undo toast ruling 38 asks for', () => {
 
 // ── The trash panel's three states start here, in the provider ─────────────
 
-const listTrashed = extractCallback(PROVIDER, 'listTrashedMilestones')
-
 describe('listTrashedMilestones separates "no trash on this backend" from "empty"', () => {
   it('answers null when the adapter cannot list a trash', () => {
     // googleDriveAdapter is read-only and implements none of the milestone
     // methods. Returning [] for it would have the panel claim an empty trash it
     // never looked in — the mistake unwrapOptionalTable's own comment condemns
     // and that useRosterMembers makes. R1 of this session found the same shape.
-    expect(listTrashed).toContain("typeof adapterRef.current.listTrashedMilestones !== 'function'")
-    // Both early exits answer null, and neither answers an empty array.
-    const early = listTrashed.slice(0, listTrashed.indexOf('return (await'))
-    expect(early).toContain('return null')
-    expect(early).not.toContain('return []')
+    // The capability check answers null; the no-project check answers [].
+    // Those are different claims and R2 found them collapsed: "no project
+    // open" was being rendered as "this backend keeps no deleted key dates",
+    // a false sentence about the adapter.
+    const capability = "typeof adapterRef.current.listTrashedMilestones !== 'function'"
+    expect(listTrashed).toContain(capability)
+    const capLine = listTrashed.slice(listTrashed.indexOf(capability))
+    expect(capLine.slice(0, capLine.indexOf(NL))).toContain('return null')
+    const noProject = listTrashed.slice(0, listTrashed.indexOf(capability))
+    expect(noProject).toContain('!activeProjectId')
+    expect(noProject.slice(noProject.indexOf('!activeProjectId'))).toContain('return []')
   })
 
   it('still answers an array when the adapter DOES list one', () => {
     expect(listTrashed).toContain('listTrashedMilestones(activeProjectId)')
+  })
+})
+
+
+// ── The trash panel's sequence guard ───────────────────────────────────────
+//
+// Another SOURCE PIN, for the same reason as the ones above: nothing in this
+// repo mounts React, so a race between two in-flight loads has no behavioural
+// vantage point here.
+//
+// What it guards (R2): close the panel, switch project, reopen before the
+// first request settles, and the older resolution can land last — showing the
+// PREVIOUS project's deleted key dates. A Restore pressed from that list is
+// routed by row id, so in cloud it would restore a row belonging to the other
+// project. Only the newest request may write state.
+
+const MODAL = readFileSync(
+  new URL('./components/MilestoneTrashModal.jsx', import.meta.url), 'utf-8')
+
+describe('MilestoneTrashModal.load only lets the newest request write state', () => {
+  const load = MODAL.slice(MODAL.indexOf('const load = useCallback'),
+                           MODAL.indexOf('useEffect(('))
+
+  it('takes a ticket before awaiting', () => {
+    expect(load).toContain('const mine = ++runId.current')
+  })
+
+  it('checks that ticket on BOTH the success and the failure path', () => {
+    // Two guards, not one: a stale REJECTION would otherwise overwrite a fresh
+    // list with an error banner.
+    const guards = load.split('if (runId.current !== mine) return').length - 1
+    expect(guards, 'both the resolve and the catch path must be guarded').toBe(2)
+  })
+
+  it('the counter is a ref, so a re-render cannot reset it', () => {
+    expect(MODAL).toContain('const runId = useRef(0)')
   })
 })
 

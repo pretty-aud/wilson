@@ -350,13 +350,23 @@ describe('ProjectTasksView no longer confirms a milestone delete', () => {
     // CLOSED — while the dialog was still in the tree, so one gesture on this
     // tab raised a modal AND a toast. A source pin, because no test in this
     // repo mounts React.
+    // Line endings normalised first: the view is CRLF on disk and an anchor
+    // written with a bare newline finds nothing.
     const SRC = readFileSync(
       new URL('./views/ProjectTasksView.jsx', import.meta.url), 'utf-8')
+      .split(String.fromCharCode(13) + String.fromCharCode(10))
+      .join(String.fromCharCode(10))
     // Sliced by index rather than matched by a regex literal: the tooling
     // that wrote this file collapses backslash escapes, so a pattern with
     // one in it cannot be trusted to arrive intact.
     const NL = String.fromCharCode(10)
-    const anchor = SRC.indexOf('if (isProjectBound) return')
+    // From the FUNCTION HEADER, not from the isProjectBound line: a slice that
+    // starts mid-body would miss a confirm re-added above it (R2). The comment
+    // block above the header quotes "window.confirm" while explaining why it
+    // was removed, which is why the anchor is the header and not the comment —
+    // the trap this repo has hit three times, where a negative assertion
+    // matches the documentation instead of the code.
+    const anchor = SRC.indexOf('function handleDelete() {' + NL + '    if (isProjectBound) return')
     expect(anchor, 'the milestone row handleDelete moved or was renamed')
       .toBeGreaterThan(-1)
     const close = SRC.indexOf(NL + '  }', anchor)

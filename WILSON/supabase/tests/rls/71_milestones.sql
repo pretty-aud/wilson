@@ -30,7 +30,7 @@
 -- =========================================================================
 BEGIN;
 
-SELECT plan(30);
+SELECT plan(31);
 
 SELECT * FROM tests.rls_setup();
 
@@ -353,6 +353,28 @@ SELECT ok(
 -- fails that check, probes 19-21) got a raised exception where the panel could
 -- only show a raw Postgres string. The gate is now the READ predicate.
 
+-- Put something IN the trash first, AS THE ADMIN. Without this the reviewer
+-- probe below reads an empty list and proves only that nothing was raised —
+-- it could not distinguish "the reviewer reads the list" from "the reviewer
+-- reads nothing", and a WHERE clause added to the RETURN QUERY instead of the
+-- gate would pass it silently.
+--
+-- 🚨 The role switch is not optional: probes 19-21 leave the REVIEWER active,
+-- and a reviewer cannot trash anything (probe 21 is the proof), so doing this
+-- without switching first aborts the whole run at fn_trash_authz — measured.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT public.soft_delete_row('milestones', '77770000-0000-0000-0000-0000000000a1');
+
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
 SELECT set_config('request.jwt.claims', json_build_object(
@@ -364,10 +386,14 @@ SELECT set_config('request.jwt.claims', json_build_object(
 )::text, true);
 SET LOCAL ROLE authenticated;
 
--- A reviewer can READ the trash. Restore is refused elsewhere: client-side by
--- GatedAction, server-side by fn_trash_authz (probe 21).
-SELECT lives_ok(
-  $$SELECT * FROM public.milestones_trash_index('aaaa1111-0000-0000-0000-000000000001')$$,
+-- A reviewer can READ the trash, and SEES THE ROW. Restore is refused
+-- elsewhere: client-side by GatedAction, server-side by fn_trash_authz
+-- (probe 21).
+SELECT is(
+  (SELECT count(*)::int FROM public.milestones_trash_index(
+     'aaaa1111-0000-0000-0000-000000000001')
+    WHERE id = '77770000-0000-0000-0000-0000000000a1'),
+  1,
   'a project reviewer can READ the trash index — it is gated on read, not on write');
 
 SELECT set_config('request.jwt.claims', '{}', true);
@@ -475,7 +501,37 @@ SELECT is(
   'purge_soft_deleted hard-deletes an expired trashed milestone');
 
 
--- ── 30: a trashed PROJECT hides its trash too ────────────────────────────
+-- ── 30: a DEACTIVATED member is refused ──────────────────────────────────
+--
+-- current_workspace_id() reads the JWT (0001), so deactivating someone does
+-- NOT change what their token claims: v_ws is still non-null, and the project
+-- EXISTS arm below tests the project, not the caller. has_active_membership is
+-- the only thing standing between a deactivated member and this list, and it
+-- had no probe until R2 asked for one.
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+UPDATE public.workspace_members SET is_active = false
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+   AND user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+
+SELECT set_config('request.jwt.claims', json_build_object(
+  'sub', 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  'role', 'authenticated',
+  'app_metadata', json_build_object(
+    'workspace_id', '11111111-1111-1111-1111-111111111111',
+    'app_role', 'user')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT throws_ok(
+  $$SELECT * FROM public.milestones_trash_index('aaaa1111-0000-0000-0000-000000000001')$$,
+  'not_a_workspace_member',
+  'a DEACTIVATED member cannot read the trash, token notwithstanding');
+
+
+-- ── 31: a trashed PROJECT hides its trash too ────────────────────────────
 --
 -- LAST, because soft-deleting the project hides everything under it. Restoring
 -- a milestone beneath a trashed project is authorized by fn_trash_authz and
