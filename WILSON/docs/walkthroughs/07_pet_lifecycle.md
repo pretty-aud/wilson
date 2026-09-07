@@ -175,12 +175,22 @@ Say if any of these surprises you; each is a decision rather than an oversight.
 - **There is still no live sync.** B does not learn about A's change until B
   tries to write. You chose the smaller option (ruling 4); the bigger one is
   its own piece of work.
-- **A window showing a LIVE pet with Pet Mode ON can still win a race.** Such a
-  window advances its own hunger every thirty seconds, so its copy is
-  genuinely newer and the database accepts it. What is protected is every
-  window showing an egg, a corpse, a ghost, or Pet Mode off — and every change
-  that is not hunger or happiness, from any window. Your reported case (an egg
-  on A while B sits on the old ghost) is inside the protected set.
+- **The refusal needs the other computer to have DONE something.** A save is
+  refused only when the copy it carries is genuinely older than what is stored,
+  which means the other computer has to have moved the pet on — created an egg,
+  fed it, petted it, hatched it, woken it, let it decay, or turned Pet Mode back
+  on. Your reported case (an egg on A while B sits on the old ghost) is exactly
+  that, which is why step 4 should show you the notice. But if NEITHER computer
+  has moved the pet on, both are holding the same copy, both saves are accepted,
+  and the second one still wins. And a window showing a live pet with Pet Mode
+  ON is advancing its own copy every thirty seconds, so its save is accepted
+  too.
+- **A computer whose clock is wrong is handled badly but not fatally.** The
+  comparison is a timestamp your computer supplies, so a fast clock always wins
+  and a slow one gets the refresh notice more often than it should — it then
+  picks up the account's copy and can save normally. If you see the refresh
+  notice on a machine where nothing else is running, tell me: that is a clock
+  problem, not a pet problem.
 - **A sleeping pet with Pet Mode OFF stays asleep while the app is closed.**
   That mirrors what happens with the app open, where the tick does nothing at
   all while Pet Mode is off.
