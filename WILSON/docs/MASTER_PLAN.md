@@ -912,8 +912,25 @@ read doubles as the final audit (code findings → §6 gaps for S17).
     each other. Accepted for v1 (one-window product; same class as two
     Electron windows) — documented in the module header. A
     `storage`-event merge is the fix if it ever matters.
-31. **project file ATTACHMENTS still ride project-row patches — S15 fixed
-    the DATA LOSS, the re-homing is S17.** The `rabbit-files` bucket exists
+31. ~~**project file ATTACHMENTS still ride project-row patches**~~ —
+    **CLOSED, Track C bundle C3, 2026-09-07 (`2a4924f`, migration 0075, pgTAP
+    79).** Attachments are ordinary project files on every write-capable
+    backend now — a row in `public.files` / `bundle.files` and a body in
+    `rabbit-files` / the project's files directory, written through
+    `adapter.uploadFile` and read back by D.O.G. through
+    `adapter.downloadFile`. All seven traps below were handled and the commit
+    message states how, one by one. Three things a later reader should carry:
+    (i) trap (b)'s polarity is resolved in the CLIENT — `is_core_definer`
+    keeps its `NOT NULL DEFAULT false` and the two readers keep opposite
+    defaults deliberately; (ii) the polarity diff the disposition row asked
+    for was run in two halves and both were ZERO, and it CAUGHT A REAL DEFECT
+    on its first run (a PDF whose name matches none of `detectDocumentKind`'s
+    heuristics was written with a NULL kind and became invisible to
+    generation — trap (c) reached through trap (b)'s door);
+    (iii) trap (c)'s "adapter.downloadFile has zero call sites anywhere" was
+    true when this was filed and is NOT now — S24's `InvoiceAttachment` and
+    `FileManager` both ride it. The rest of this entry is kept verbatim as the
+    record of what was found. The `rabbit-files` bucket exists
     and `supabaseAdapter.uploadFile` works end to end, so the blocker is
     gone; what remains is wiring, and S15's recon showed it is NOT the
     cheap close the S15 brief assumed.
@@ -1293,7 +1310,7 @@ undecided gap at a release is a decision nobody made.
 | 28 | **RE-OWNED** | A reviewer still compares two courses by eye. A subject-level diff view is a feature, and it was deliberately excluded from S13's scope rather than forgotten. |
 | 29 | **ACCEPTED** | Apply moves subjects, not the five reference documents. Their merge semantics live in client JS; reimplementing them in plpgsql would duplicate load-bearing logic, and overwriting them would violate the additive-only rule. **The approve dialog says so.** |
 | 30 | **ACCEPTED** | Web multi-tab last-writer-wins on the three `localStorage` stores. One-window product; same class as two Electron windows. |
-| 31 | **RE-OWNED** | D.O.G. cloud attachments. S15 closed the data-loss half; the re-homing is a migration plus five wiring changes with seven catalogued traps (see the entry above — the `isCore` polarity flip alone would change generation output). Explicitly excluded from S17 by the session brief. **In local mode attachments work end to end; in cloud mode they are refused loudly at the write layer, not silently lost.** |
+| 31 | ✅ **CLOSED** | D.O.G. cloud attachments — Track C bundle C3, `2a4924f`, migration 0075 + pgTAP 79. All seven traps handled, each named in the commit message. The `isCore` polarity flip the earlier disposition warned about was measured rather than argued: the legacy reader is byte-identical to its previous revision, and a legacy project taken through the real migration and read back moves not one file between CORE and REFERENCE (`polarityRoundTrip.test.js`, kept as regression coverage). **Attachments now work end to end in BOTH modes**; the limits that remain — a 20-file / 32 MiB read budget, `document_kind` as the marker that separates a deck source from a production upload, and the legacy arrays still being read until Audrey runs the one-time move — are in `SYSTEMS_HANDBOOK.md` §17. |
 | 32 | **CLOSED S15** | The local password module deleted entire. |
 | 33 | **CLOSED S13b** | Non-admin standard-course owners get the decidable queue. |
 | 34 | **CLOSED S15** | Teardown collects, deletes and certificates blobs before the CASCADE. |

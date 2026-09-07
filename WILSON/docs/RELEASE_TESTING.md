@@ -541,28 +541,26 @@ early-return as no-ops. That is by design, not a failure; do not run §L there.
 **Skip these.** They are recorded and dispositioned in `docs/MASTER_PLAN.md` §6; consolidated
 limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing we know about.
 
-1. D.O.G. cloud projects have no attachment surface — the picker is replaced by explanatory
-   copy. Local mode works. §6 #31.
-2. Quiz scores and Validator findings are never persisted — React state only.
-3. O.T.T.E.R. → SETTINGS → Tools → "Storage Location" — the Tools tab is padlocked by default,
+1. Quiz scores and Validator findings are never persisted — React state only.
+2. O.T.T.E.R. → SETTINGS → Tools → "Storage Location" — the Tools tab is padlocked by default,
    so it reads as *disabled*; unlocked, the field still has no effect.
-4. R.A.B.B.I.T.'s agent integration is prompt-only and unreachable; the Agent Skills
+3. R.A.B.B.I.T.'s agent integration is prompt-only and unreachable; the Agent Skills
    checkboxes gate nothing.
-5. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
+4. Scenes / shots / levels / experiences / milestones are local-only — the Supabase adapter
    methods throw.
-6. Managed files (the ASSETS/SCENES/SHOTS mirror) are local_server only.
-7. A username colliding across two workspaces makes sign-in unreachable — no company field.
-8. Google Drive is read-only in v0.1; every write throws.
-9. No single-instance lock — two desktop copies share one userData directory.
-10. Web multi-tab is last-writer-wins on pet / otter-settings / agent-skills.
-11. Managed-file thumbnails resolve only for `ASSETS/`; `SCENES/` and `SHOTS/` always 410.
-12. The RABBIT Summary Budget tile is structurally always zero (rollup called with no rates).
-13. Operator sign-in / sign-out and guard refusals write no audit row anywhere.
-14. `WIL-1001/1002/1003` are in the Diagnostics error-code table but nothing emits them.
-15. **The Attach button on the Crew and Talent tabs appears to do nothing** — the invoice-folder
+5. Managed files (the ASSETS/SCENES/SHOTS mirror) are local_server only.
+6. A username colliding across two workspaces makes sign-in unreachable — no company field.
+7. Google Drive is read-only in v0.1; every write throws.
+8. No single-instance lock — two desktop copies share one userData directory.
+9. Web multi-tab is last-writer-wins on pet / otter-settings / agent-skills.
+10. Managed-file thumbnails resolve only for `ASSETS/`; `SCENES/` and `SHOTS/` always 410.
+11. The RABBIT Summary Budget tile is structurally always zero (rollup called with no rates).
+12. Operator sign-in / sign-out and guard refusals write no audit row anywhere.
+13. `WIL-1001/1002/1003` are in the Diagnostics error-code table but nothing emits them.
+14. **The Attach button on the Crew and Talent tabs appears to do nothing** — the invoice-folder
     response's `res.ok` is never checked. §6 #63. The most findable item on this list.
-16. Approving a change request moves subjects but **not the five reference documents**. §6 #29.
-17. Milestones have no undo path — deletion is immediate, no toast, no trash. §6 #10.
+15. Approving a change request moves subjects but **not the five reference documents**. §6 #29.
+16. Milestones have no undo path — deletion is immediate, no toast, no trash. §6 #10.
 
 ---
 

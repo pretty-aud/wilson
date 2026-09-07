@@ -2342,6 +2342,57 @@ carries the install and which build to download. Packaged by
 - **`.ts` is deliberately NOT a video extension.** MPEG transport streams use
   it and so does every TypeScript file; this tool sees far more of the latter.
 
+### 12.8 Deck attachments (Track C / C3, migration 0075)
+
+D.O.G.'s project attachments are **ordinary project files**, on every backend
+that has a file store. There is no second mechanism: the Resources drop zone
+and D.O.G.'s new-project modal both call `adapter.uploadFile`, so an
+attachment is a row in `public.files` / `bundle.files` with its body in
+`rabbit-files` / the project's files directory, and it inherits the quota
+meter, the reservation (§12.4), the money gate, `file_events` (§12.3), the
+30-day trash and the teardown sweep without any of them being told about it.
+
+**What marks a file as a DECK attachment** (`deckAttachments.js`, one module
+for one contract — the reader and its three writers drifted the moment they
+lived apart):
+
+- `document_kind` is non-null (0075's column, the ten-value enum 0000
+  declared), **or** the file is an image or a video.
+- 🚨 RABBIT's own uploads leave `document_kind` NULL, and that is the whole
+  separation: a project's plates, renders and versions are not deck source
+  material. A file uploaded from RABBIT's Files view becomes one when someone
+  gives it a Kind in the Resources table.
+- 🚨 A writer that KNOWS it is writing an attachment must therefore leave the
+  row recognisable. `documentKindFor()` is total by construction: media →
+  NULL, anything else → the detected kind **or `'other'`**. Using
+  `detectDocumentKind(name) || null` — which is what all three writers did at
+  first — writes NULL for a PDF whose name matches none of its heuristics, and
+  the file then uploads, lists in the grid, and is invisible to generation.
+  Measured, not reasoned about: `polarityRoundTrip.test.js` caught it on a
+  file called `legacy.pdf`.
+
+**What D.O.G. reads back, and the bound.** It lists the rows, filters them,
+then DOWNLOADS each body through `adapter.downloadFile` and rehydrates it —
+text as text, binary as base64 with the data-URL prefix stripped. Without that
+step a cloud attachment uploads perfectly and contributes nothing to
+generation, which is worse than the loud refusal it replaced. Bounded at the
+**newest 20 files and 32 MiB in total**, because `files` holds a project's
+whole production tree; anything over the budget is skipped rather than
+truncated, and the panel states how many were left out.
+
+**The legacy arrays are still read.** `project.documents[]` /
+`visualAssets[]` are never written any more but are still merged into both the
+Resources list and D.O.G.'s source set on every backend, so nothing an
+existing local project had was lost. Moving them is a deliberate one-time
+action: **Settings → RABBIT → "Move deck attachments into project files"**,
+dry run required first, per-file ceiling 64 MiB, oversized files named and
+left in place, and each entry cleared from the array only after its upload
+returns — so a crash mid-run means a re-run moves exactly what is left.
+
+**Two CORE flags with opposite defaults**, deliberately not unified — see
+§17's "Correctness" note. `runAttachmentMigration` is the one place they meet
+and it carries `isCore !== false` across explicitly.
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
@@ -3779,6 +3830,23 @@ of a session — this section is limits by design, that file is faults.
 - `CrewTeamTab` / `TalentTab` do not check `res.ok` on the invoice-folder call,
   so a 400 becomes a swallowed `ERR_INVALID_ARG_TYPE` and the Attach button
   appears to do nothing.
+- **Two CORE flags mean opposite things by default, and that is deliberate**
+  (Track C, C3; MASTER_PLAN §6 #31 trap (b)). D.O.G.'s legacy attachment
+  arrays carry `isCore` and read it as TRUE unless it says otherwise
+  (`f.isCore !== false`); `public.files.is_core_definer` is `NOT NULL DEFAULT
+  false` and is read strictly (`=== true`). Unifying them would move every
+  previously-unmarked file between CORE and REFERENCE, and CORE/REFERENCE is
+  injected into the generation prompt as "primary sources of truth" versus
+  "supporting reference material only" — so the decks would change with
+  nothing failing. Every writer therefore passes the flag EXPLICITLY, and the
+  one place the two meet, `runAttachmentMigration`, carries `isCore !== false`
+  across at the moment of the move. Migration 0075's post-condition 7 and
+  pgTAP 79's probe 17 fail if a later session "fixes" this in the database.
+  *~~The two ProjectFilesTable columns a cloud row could not keep~~ — fixed by
+  0075 in the same bundle: `document_kind` and `description` were written by
+  the Kind select and the Description cell on every gesture, stripped by
+  `toColumns` because `files` had neither column, and persisted only on Local
+  Server, whose PATCH route spreads `req.body`.*
 
 *Fixed in Session 17 and listed here only so a reader of an older copy is not
 misled:* milestones dropped on project load, `addManagedFile` unguarded
@@ -3811,8 +3879,38 @@ global Space shortcut firing from every page.
   sites repo-wide, for O.T.T.E.R. as well as RABBIT. The copy claiming they
   "control which actions are honored at runtime" was corrected in S17; the
   state is still loaded, persisted, rendered and read by nothing.
-- D.O.G. cloud attachments: refused at the write layer, with the re-homing
-  plan and its seven traps catalogued in §6 #31. Re-owned post-1.0.
+- ~~D.O.G. cloud attachments: refused at the write layer~~ — **CLOSED, Track C
+  bundle C3 (`2a4924f`, migration 0075).** Attachments are ordinary project
+  files on every write-capable backend now: a row in `public.files` /
+  `bundle.files` and a body in `rabbit-files` / the project's files directory,
+  written through `adapter.uploadFile` by the Resources drop zone and by
+  D.O.G.'s new-project modal, and read back by D.O.G. through
+  `adapter.downloadFile`. The limits that remain, stated in both directions:
+  * D.O.G. reads the **newest 20** attachments per project, up to **32 MiB**
+    in total (`deckAttachments.js`). `public.files` is every file RABBIT has
+    stored for that project, so selecting one must not start a gigabyte
+    download. Anything over the budget is skipped, never truncated, and the
+    panel says how many were left out.
+  * A stored row counts as a deck attachment when it has a `document_kind`
+    (0075) **or** is an image or video. RABBIT's own production uploads leave
+    `document_kind` NULL, which is what keeps plates and renders out of a
+    deck's source material — and it means a file uploaded from RABBIT's Files
+    view is NOT deck source material until someone sets its Kind.
+  * The **legacy arrays are still read** on every backend, so no existing
+    project lost anything. Moving them is Audrey's own one-time action:
+    Settings → RABBIT → "Move deck attachments into project files", dry run
+    first, per-file ceiling 64 MiB, oversized files named and left in place.
+  * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
+    arrays default `isCore` TRUE and the two are deliberately NOT unified —
+    see §17's "Correctness" note and 0075's header. The migration carries
+    `isCore !== false` across explicitly, and the round-trip diff in
+    `polarityRoundTrip.test.js` is what proves no file changes side.
+  * Google Drive is read-only, so the drop zone is disabled there with a
+    sentence rather than a thrown stub.
+  * **Deleting means two different things** and the panel now says which:
+    in cloud mode it is 0014's soft delete (30-day window, still holding
+    quota); on Local Server it unlinks the body and certificates it as
+    `purged`, because there is no local trash.
 
 **Documentation drift inside the product**
 

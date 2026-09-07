@@ -380,6 +380,19 @@ one binds first.
 >    deletion certificates stay visible to every project reader (pgTAP suite
 >    78; handbook §12.3, §17). Teardown also sweeps `user-avatars`, the third
 >    bucket, listed by prefix (§5).
+> 8. ✅ **0075 (Track C / C3, 2026-09-07) puts D.O.G.'s deck attachments in
+>    this store, on every backend that has one.** They used to be base64 data
+>    URLs on the project ROW — the shape §3.6 exists to argue against, and one
+>    the cloud never accepted at all. Now they are ordinary `public.files` /
+>    `bundle.files` rows with bodies in `rabbit-files` / the project's files
+>    directory, so they inherit everything this path already has: the quota
+>    meter, the reservation, the money gate, `file_events`, the 30-day trash
+>    and the teardown sweep. Nothing about the storage design changed to make
+>    that true — the point is that it did not have to. Two consequences worth
+>    stating: an attachment now COUNTS toward the Petal quota where a project-row
+>    blob never did, and D.O.G. bounds what it reads back (newest 20, 32 MiB)
+>    because `files` holds a project's entire production tree and selecting a
+>    project must not start a gigabyte download (handbook §17).
 >
 > ⚠️ **s3 workspaces are unchanged: still a 5 GB single presigned PUT.** S3
 > multipart was not implemented, so Petal's cap is now ten times the s3 one —
