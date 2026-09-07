@@ -74,7 +74,14 @@ export function withLocalToken(input, init) {
   const token = localServerToken()
   if (!token || !isLocalServerUrl(input)) return init
 
+  // 🚨 Seed from the Request's OWN headers when the caller passed a Request and
+  // no init.headers. `fetch(request, { headers })` REPLACES the request's
+  // headers rather than merging them, so building `headers` from nothing here
+  // would silently drop a content-type the caller set on the Request.
+  // `otterFetch` already reads `input?.url`, so a Request-shaped input is a
+  // shape this seam is written to accept.
   const existing = init?.headers
+    ?? (typeof input === 'object' && input?.headers instanceof Headers ? input.headers : undefined)
   let headers
   if (existing instanceof Headers) {
     headers = new Headers(existing)

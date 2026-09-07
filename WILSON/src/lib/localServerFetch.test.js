@@ -136,6 +136,16 @@ describe('withLocalToken', () => {
     expect(out.headers).toContainEqual(['accept', 'application/json'])
   })
 
+  it('keeps a Request’s own headers when init has none', () => {
+    // fetch(request, { headers }) REPLACES rather than merges, so a Request's
+    // content-type would vanish if we built headers from nothing.
+    asDesktop()
+    const req = { url: '/api/pet', headers: new Headers({ 'content-type': 'application/json' }) }
+    const out = withLocalToken(req, undefined)
+    expect(out.headers.get('content-type')).toBe('application/json')
+    expect(out.headers.get(LOCAL_TOKEN_HEADER)).toBe(TOKEN)
+  })
+
   it('a caller cannot spoof the header under a different case', () => {
     asDesktop()
     const out = withLocalToken('/api/pet', { headers: { 'X-Wilson-Local-Token': 'not-the-token' } })

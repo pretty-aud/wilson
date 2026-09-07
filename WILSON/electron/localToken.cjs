@@ -83,16 +83,50 @@ function mintLaunchToken() {
 /**
  * Only `/api` is refused. See the header comment for why the static shell is
  * not. `/apiary` must not match, hence the explicit two-branch test.
+ *
+ * 🚨 THE INVARIANT: this must guard everything Express ROUTES, and Express does
+ * not route the way a naive `startsWith` reads. Two complete authentication
+ * bypasses were found by probing it with a raw socket during B3's own review
+ * round (`fetch` normalises the request target before it leaves the process and
+ * hides both):
+ *
+ *   1. **Case.** Express's router is case-INSENSITIVE by default
+ *      (`caseSensitive: false`), so `GET /API/RABBIT/PROJECTS` matched
+ *      `/api/rabbit/projects` and returned the project list while a
+ *      case-sensitive prefix test said "not an /api path". Hence `.toLowerCase()`
+ *      — and note the direction is safe if `caseSensitive` is ever turned on,
+ *      because guarding case-insensitively guards a superset.
+ *   2. **Slashes.** `/api//rabbit` and `//api/rabbit` are different strings and
+ *      the same intent; collapsed before testing so neither can drift from what
+ *      the router does.
+ *
+ * The absolute-form request target (`GET http://host/api/... HTTP/1.1`, legal
+ * per RFC 9112 §3.2.2 and accepted by Node) is the third, and it is handled in
+ * `requestPathCandidates` rather than here.
  */
 function isGuardedPath(pathname) {
-  return pathname === '/api' || pathname.startsWith('/api/');
+  const p = String(pathname ?? '').replace(/\/{2,}/g, '/').toLowerCase();
+  return p === '/api' || p.startsWith('/api/');
 }
 
-/** `req.url` without its query string. */
-function pathnameOf(req) {
-  const raw = String(req?.url ?? '');
-  const cut = raw.indexOf('?');
-  return cut === -1 ? raw : raw.slice(0, cut);
+/**
+ * Every reading of `req.url` that Express might route on. The guard refuses if
+ * ANY of them is an `/api` path — fail closed, because the cost of guarding one
+ * static asset too many is a 401 on a file nothing requests that way, and the
+ * cost of guarding one too few is the project list.
+ */
+function requestPathCandidates(rawUrl) {
+  const raw = String(rawUrl ?? '');
+  const cut = raw.search(/[?#]/);
+  const target = cut === -1 ? raw : raw.slice(0, cut);
+  const candidates = [target];
+  // Absolute-form: `req.url` is the whole URL, so the prefix test would miss it
+  // while the router matched the path. The base is only there to satisfy the
+  // parser for the ordinary origin-form case.
+  try {
+    candidates.push(new URL(raw, 'http://wilson.invalid').pathname);
+  } catch { /* unparseable: the raw target above still stands */ }
+  return candidates;
 }
 
 /**
@@ -132,7 +166,7 @@ function tokensMatch(candidate, expected) {
  */
 function createLocalTokenGuard(getToken) {
   return function localTokenGuard(req, res, next) {
-    if (!isGuardedPath(pathnameOf(req))) return next();
+    if (!requestPathCandidates(req?.url).some(isGuardedPath)) return next();
 
     const expected = typeof getToken === 'function' ? getToken() : getToken;
     // No token minted yet means the server is not ready to serve data. Fail
@@ -201,6 +235,7 @@ module.exports = {
   TOKEN_COOKIE,
   mintLaunchToken,
   isGuardedPath,
+  requestPathCandidates,
   readCookie,
   tokensMatch,
   createLocalTokenGuard,

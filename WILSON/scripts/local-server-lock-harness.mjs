@@ -38,6 +38,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
+import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -111,6 +112,69 @@ await check('truncated token         → 401', { path: ENUMERATE, headers: { [TO
 await check('empty token             → 401', { path: ENUMERATE, headers: { [TOKEN_HEADER]: '' } }, 401);
 await check('static shell, no token  → 200', { path: '/index.html' }, 200);
 await check('SPA fallback, no token  → 200', { path: '/anything' }, 200);
+// 🚨 An /api path with NO matching route must be refused by the guard, not
+// fall through to the SPA catch-all — otherwise probing for routes gets a 200
+// and an HTML body, which is both an oracle and a very confusing 200.
+await check('unmatched /api, no token→ 401', { path: '/api/does-not-exist' }, 401);
+await check('/api exactly, no token   → 401', { path: '/api' }, 401);
+// …and a path that merely STARTS with the four letters is not /api.
+await check('/apiary is not /api      → 200', { path: '/apiary' }, 200);
+
+// ── raw-socket bypass probes ───────────────────────────────────────────
+// 🚨 THESE EXIST BECAUSE TWO OF THEM WERE REAL, and B3's own review round is
+// where they were found — both complete authentication bypasses, both invisible
+// to every check above:
+//
+//   * `GET /API/RABBIT/PROJECTS` — Express's router is case-INSENSITIVE by
+//     default, so it matched the route and returned the project list while a
+//     case-sensitive `startsWith('/api/')` said "not an /api path".
+//   * `GET http://127.0.0.1:<port>/api/... HTTP/1.1` — the absolute-form
+//     request target (RFC 9112 §3.2.2), which Node accepts and puts in
+//     `req.url` whole, so the prefix test missed it and the router did not.
+//
+// A raw socket is REQUIRED to see either: `fetch()` normalises the request
+// target before it leaves the process, so the same probes through fetch are
+// green against a guard that is wide open.
+const CRLF = '\r\n';
+function rawGet(target) {
+  return new Promise((resolve) => {
+    const sock = net.connect(port, '127.0.0.1', () => {
+      sock.write(
+        `GET ${target} HTTP/1.1${CRLF}Host: 127.0.0.1:${port}${CRLF}Connection: close${CRLF}${CRLF}`);
+    });
+    let buf = '';
+    sock.on('data', (d) => { buf += d; });
+    sock.on('end', () => resolve({
+      status: Number((buf.split(CRLF)[0] || '').split(' ')[1]),
+      leaked: buf.includes('"p1"') || buf.includes('ORIGINAL-MEDIA-BYTES'),
+    }));
+    sock.on('error', () => resolve({ status: 0, leaked: false }));
+  });
+}
+
+for (const target of [
+  '/API/RABBIT/PROJECTS',
+  '/Api/Rabbit/Projects',
+  '//api/rabbit/projects',
+  '/api//rabbit/projects',
+  '/./api/rabbit/projects',
+  '/foo/../api/rabbit/projects',
+  '/api/rabbit/projects;x=1',
+  '/api/rabbit/projects/',
+]) {
+  const r = await rawGet(target);
+  results.push({
+    label: `raw ${target.padEnd(28)} no leak`,
+    expected: 'no data', actual: r.leaked ? `LEAKED (${r.status})` : 'no data', pass: !r.leaked,
+  });
+}
+{
+  const r = await rawGet(`http://127.0.0.1:${port}${ENUMERATE}`);
+  results.push({
+    label: 'raw absolute-form target      no leak',
+    expected: 'no data', actual: r.leaked ? `LEAKED (${r.status})` : 'no data', pass: !r.leaked,
+  });
+}
 
 // A refusal must say nothing about WHY.
 const refused = await fetch(`http://127.0.0.1:${port}${ENUMERATE}`);
