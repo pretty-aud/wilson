@@ -2370,14 +2370,24 @@ lived apart):
   budget entirely and 32 MiB of production media went into the generation
   prompt in its place. An entity FileManager stamps the file with the entity it
   was opened on; the Resources drop zone stamps nothing.
-- ⚠️ **The residue, stated rather than closed.** `FileManager` mounted at
-  PROJECT level stamps no entity either, so an image uploaded there — and an
-  expense receipt, which `BudgetView` uploads with a scope `uploadFile` does
-  not read — is indistinguishable from one dropped on Resources and will be
-  included. It is bounded rather than fixed: documents are always taken first
+- ⚠️ **The residue, stated rather than closed — and review round 2 corrected
+  WHERE it is.** Round 1 named "`FileManager` mounted at project level"; there
+  is no such mount, since every `<FileManager>` passes an entity. The surfaces
+  that really write project-level media are **`ProjectSummaryView`'s
+  ProjectFilesSection** (its Add Files calls `uploadFile(file, { type:
+  'project' })`, no entity keys) and **`BudgetView`'s expense receipts** (a
+  scope `uploadFile` does not read — its own `OUTSTANDING.md` entry). Files
+  from either are indistinguishable from a Resources drop and WILL be
+  included. Bounded rather than fixed: documents are always taken first
   (below), so nothing can crowd out the brief, and D.O.G.'s File roles list
   names every file it is using. Closing it properly needs a column that says
   "filed as deck source material", which C3 did not take.
+- ⚠️ **On Local Server the entity check is weaker than it looks.** The Express
+  upload route writes `phase_id`, `asset_id` and `task_id` and drops
+  `scene_id`, `shot_id`, `level_id` and `experience_id`, so "no entity" there
+  can mean "the route discarded it". Narrow in practice — that backend's entity
+  FileManagers write the *managed* store, which `listFiles` never returns — but
+  real when the renderer runs without the preload bridge.
 - 🚨 A writer that KNOWS it is writing an attachment must therefore leave the
   row recognisable. `documentKindFor()` is total by construction: media →
   NULL, anything else → the detected kind **or `'other'`**. Using
@@ -2407,9 +2417,15 @@ about.
 Resources list and D.O.G.'s source set on every backend, so nothing an
 existing local project had was lost. Moving them is a deliberate one-time
 action: **Settings → RABBIT → "Move deck attachments into project files"**,
-dry run required first, per-file ceiling 64 MiB, oversized files named and
+dry run required first, per-file ceiling **32 MiB**, oversized files named and
 left in place, and each entry cleared from the array only after its upload
 returns — so a crash mid-run means a re-run moves exactly what is left.
+
+⚠️ The ceiling is 32 MiB because `localServerAdapter.uploadFile` base64-encodes
+into a JSON body that `express.json({ limit: '50mb' })` caps — and Local Server
+is the only backend whose projects can hold legacy arrays at all, so a ceiling
+above ~37 MiB would never bind: those files would fail with a raw HTTP 413,
+counted as failures rather than named as oversize.
 
 **Two CORE flags with opposite defaults**, deliberately not unified — see
 §17's "Correctness" note. `runAttachmentMigration` is the one place they meet
@@ -2424,12 +2440,15 @@ Resources — from "a primary source of truth for what this project IS" into
 stayed at zero throughout, because both covered the READ path and the
 migration and neither covered the WRITE path.
 
-⚠️ **And `is_core_definer` is also RABBIT's flag.** `intake/pipeline.js` and
-`IntakeWizardView` select on it, so a document dropped on Resources now
-appears as an intake candidate. For a brief or a treatment that is the right
-answer — a document that defines the project is what intake means by a core
-definer — and nothing runs on its own: `IntakeProgress` is the only caller of
-`startBackgroundIngestion`. Recorded here rather than left to be discovered.
+⚠️ **`is_core_definer` is shared with RABBIT's Files views, and that is the
+whole of it — it does NOT reach intake.** Review round 1 added a paragraph
+here claiming a Resources drop became an intake candidate; review round 2
+traced it and found it false. `IntakeWizardView` keeps its files in local
+state, populated only by `IntakePrepare` from a picker as staging objects
+carrying a `dataUrl`, and `runIngestion` needs that `dataUrl` to extract text.
+A `files` row has none, and no code path puts one in that list. Left here as a
+correction rather than silently deleted, because "measured" was claimed for it
+and it had not been.
 
 ## 13. The three tools, the shell, and the agent
 
@@ -3924,20 +3943,29 @@ global Space shortcut firing from every page.
   written through `adapter.uploadFile` by the Resources drop zone and by
   D.O.G.'s new-project modal, and read back by D.O.G. through
   `adapter.downloadFile`. The limits that remain, stated in both directions:
-  * D.O.G. reads the **newest 20** attachments per project, up to **32 MiB**
-    in total (`deckAttachments.js`). `public.files` is every file RABBIT has
-    stored for that project, so selecting one must not start a gigabyte
-    download. Anything over the budget is skipped, never truncated, and the
-    panel says how many were left out.
+  * D.O.G. reads at most **20** attachments per project and **32 MiB** in
+    total (`deckAttachments.js`), spending that budget **documents first, then
+    media, each newest-first**. `public.files` is every file RABBIT has stored
+    for that project, so selecting one must not start a gigabyte download —
+    and ordering by date alone spent it on renders, which is why the order is
+    by kind first. Anything that does not fit is skipped, never truncated, and
+    the panel says how many were left out.
   * A stored row counts as a deck attachment when it has a `document_kind`
-    (0075) **or** is an image or video. RABBIT's own production uploads leave
-    `document_kind` NULL, which is what keeps plates and renders out of a
-    deck's source material — and it means a file uploaded from RABBIT's Files
-    view is NOT deck source material until someone sets its Kind.
+    (0075) **or** is an image or video **filed against the project itself**.
+    The full rule, its residue and why the second arm needs that qualifier are
+    in §12.8; the short version is that `document_kind` is the marker for
+    documents and media has none, so for media the marker is where it was
+    filed. ⚠️ This bullet read "or is an image or video" flat until review
+    round 2 — the very rule that let every plate and render in a project become
+    deck source material, corrected in the code by round 1 and left standing
+    here, in the section a reader goes to for the limits.
   * The **legacy arrays are still read** on every backend, so no existing
     project lost anything. Moving them is Audrey's own one-time action:
     Settings → RABBIT → "Move deck attachments into project files", dry run
-    first, per-file ceiling 64 MiB, oversized files named and left in place.
+    first, per-file ceiling **32 MiB** (Local Server's JSON body limit is
+    50 MB and the migration base64-encodes, so a larger ceiling would refuse
+    with a raw HTTP 413 instead of naming the file), oversized files named and
+    left in place.
   * `is_core_definer` keeps its `NOT NULL DEFAULT false`. D.O.G.'s legacy
     arrays default `isCore` TRUE and the two are deliberately NOT unified —
     see §17's "Correctness" note and 0075's header. The migration carries

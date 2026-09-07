@@ -296,11 +296,29 @@ export default function ProjectsPage({ onNavigate }) {
     // carries both names and columnAllowlist.test.js pins them.
     const storedRow = fileRows.find(f => f.id === fileId)
     if (storedRow) {
+      // 🚨 Review round 2, §6 #31 trap (f) — the SAME defect D.O.G.'s Core
+      // toggle had, on the sibling surface that finding was about, left
+      // unfixed by round 1. `if (!adapter?.updateFile)` is the typeof check
+      // the trap names: Drive's is `readOnly('updateFile')`, a function that
+      // throws, so the guard passes.
+      if (!canStoreFiles) {
+        setSaveError('This backend is read-only — files cannot be changed on it.')
+        return
+      }
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.updateFile) return
+      // 🚨 AND IT REVERTS. Round 1 fixed the optimistic-write-with-no-revert
+      // in D.O.G. and left it here, where its own sibling `handleFileDelete`
+      // already re-reads on failure: a rejected write left the Core tick, the
+      // Kind or the Description showing a value the row does not have, with an
+      // error message beside it, until the project was reopened.
+      const before = storedRow
       setFileRows(prev => prev.map(f => (f.id === fileId ? { ...f, ...patch } : f)))
       adapter.updateFile(fileId, { ...patch, project_id: activeProject.id })
-        .catch(err => setSaveError(err.message || 'Failed to update file.'))
+        .catch(err => {
+          setSaveError(err.message || 'Failed to update file.')
+          setFileRows(prev => prev.map(f => (f.id === fileId ? before : f)))
+        })
       return
     }
 
@@ -332,7 +350,7 @@ export default function ProjectsPage({ onNavigate }) {
       assets[assetIdx] = { ...assets[assetIdx], ...legacyPatch }
       updateActive({ visualAssets: assets })
     }
-  }, [activeProject, updateActive, fileRows, ctx])
+  }, [activeProject, updateActive, fileRows, ctx, canStoreFiles])
 
   /** Remove a file — a stored row, or an entry in either legacy array */
   const handleFileDelete = useCallback((fileId) => {
@@ -340,6 +358,10 @@ export default function ProjectsPage({ onNavigate }) {
 
     const storedRow = fileRows.find(f => f.id === fileId)
     if (storedRow) {
+      if (!canStoreFiles) {
+        setSaveError('This backend is read-only — files cannot be deleted from it.')
+        return
+      }
       const adapter = ctx?.getAdapter?.()
       if (!adapter?.deleteFile) return
       // 🚨 §6 #31 trap (g), AND IT IS TWO DIFFERENT THINGS. In CLOUD mode
@@ -362,7 +384,7 @@ export default function ProjectsPage({ onNavigate }) {
     const docs   = (activeProject.documents    || []).filter(f => f.id !== fileId)
     const assets = (activeProject.visualAssets || []).filter(f => f.id !== fileId)
     updateActive({ documents: docs, visualAssets: assets })
-  }, [activeProject, updateActive, fileRows, ctx, loadFileRows])
+  }, [activeProject, updateActive, fileRows, ctx, loadFileRows, canStoreFiles])
 
   // ── Create prompt view ────────────────────────────────────
   if (view === 'create') {
@@ -439,8 +461,17 @@ export default function ProjectsPage({ onNavigate }) {
     //
     // 🚨 §6 #31 trap (e): THE TWO LEGACY ARRAYS ARE STILL READ, on every
     // backend. They hold real content on Local Server for every project that
-    // predates C3, and on cloud they may hold rows written before S12 stopped
-    // accepting them. Nothing writes them any more, so the list shrinks toward
+    // predates C3.
+    //
+    // ⚠️ THEY CANNOT HOLD ANYTHING IN CLOUD MODE, and this comment used to say
+    // they might ("rows written before S12 stopped accepting them"). Review
+    // round 2 settled it against the schema: the cloud `projects` table has no
+    // such columns and never has, `mapDogProjectFields` deletes both keys, and
+    // an insert carrying them 42703s. So the cloud branch of this read is
+    // structurally empty — kept because it costs nothing and because the same
+    // code serves both backends, not because there is anything there.
+    //
+    // Nothing writes them any more, so on Local Server the list shrinks toward
     // the single store as Audrey runs the migration — never underneath her.
     //
     // ProjectFilesTable keys on `name`, `size`, `type` and `is_image`; a

@@ -219,8 +219,10 @@ export async function runAttachmentMigration({
           await adapter.uploadFile(projectId, {
             // 🚨 EVERY MIGRATED ENTRY MUST STILL BE A DECK ATTACHMENT
             // AFTERWARDS, and that is what documentKindFor guarantees. D.O.G.
-            // recognises a stored row by `document_kind` OR an image/video
-            // mime type; a PDF whose name matches none of
+            // recognises a stored row by `document_kind`, or as media filed at
+            // project level (deckAttachments.isDeckAttachmentRow — this runner
+            // stamps no entity, so migrated media qualifies); a PDF whose name
+            // matches none of
             // detectDocumentKind's heuristics ("legacy.pdf", "Nightjar_v3.pdf")
             // gets NULL from it, has a non-media mime type, and would vanish
             // from generation the moment it was migrated — uploaded

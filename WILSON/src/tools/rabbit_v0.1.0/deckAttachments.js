@@ -26,10 +26,27 @@
 
 /**
  * The columns that say a file is filed against a PRODUCTION entity rather than
- * against the project itself. `supabaseAdapter.uploadFile` writes all of them
- * unconditionally from its `scope`, and `electron/main.cjs` writes the first
- * three, so "all null" is a fact about the row rather than an absence of
- * information.
+ * against the project itself.
+ *
+ * `supabaseAdapter.uploadFile` writes ALL SEVEN unconditionally from its
+ * `scope`, so on the cloud "all null" is a fact about the row.
+ *
+ * ⚠️ NOT SO ON LOCAL SERVER (review round 2 — round 1's comment here said
+ * "writes the first three", which was both the wrong three and the wrong
+ * conclusion). `electron/main.cjs`'s upload route writes `phase_id`,
+ * `asset_id` and `task_id` and DROPS `scene_id`, `shot_id`, `level_id` and
+ * `experience_id` even when the caller sends them — so on that backend a
+ * missing key can mean "filed at project level" OR "the route discarded it",
+ * and this function cannot tell them apart.
+ *
+ * The exposure is narrow rather than zero: Local Server's entity FileManagers
+ * write the MANAGED store (`bundle.managedFiles`), which `listFiles` never
+ * returns, so a scene-scoped image does not normally reach this test at all.
+ * It reaches it when the renderer is served from the loopback server WITHOUT
+ * the preload bridge, because `FileManager` picks its store from
+ * `ctx.supportsManagedFiles`. Stated rather than closed: closing it means
+ * teaching the Express route the other four columns, which is a change to a
+ * shared write path C3 has no other reason to touch.
  */
 const ENTITY_KEYS = [
   'scene_id', 'shot_id', 'asset_id', 'task_id',
@@ -67,15 +84,22 @@ function isProjectLevelRow(row) {
  * FileManager stamps `scene_id` / `shot_id` / `asset_id` / `task_id`, and the
  * Resources drop zone stamps none of them.
  *
- * ⚠️ THE STATED RESIDUE. FileManager mounted at PROJECT level stamps no entity
- * either, so an image uploaded there — and an expense receipt, which
- * `BudgetView` uploads with a scope `uploadFile` does not read — is
- * indistinguishable from one dropped on Resources and will be included. That
- * is bounded rather than closed: documents are always taken first (so nothing
- * can crowd out the brief), and D.O.G.'s File roles list names every file it
- * is using, so an unexpected one is visible rather than silent. Closing it
- * properly needs a column that says "this was filed as deck source material",
- * which is a migration this bundle did not take. Handbook §17.
+ * ⚠️ THE STATED RESIDUE, and review round 2 corrected WHERE it is. Round 1
+ * named "FileManager mounted at project level"; there is no such mount — every
+ * `<FileManager>` in the tree passes an entity (TaskDetailPopup,
+ * ProjectAssetsView, ScenesView). The surface that really writes project-level
+ * media is `ProjectSummaryView`'s ProjectFilesSection, whose Add Files calls
+ * `ctx.uploadFile(file, { type: 'project' })` — no entity keys — and
+ * `BudgetView`'s expense receipts, which pass a scope `uploadFile` does not
+ * read (OUTSTANDING has that one as its own entry). Files from either are
+ * indistinguishable from a Resources drop and WILL be included.
+ *
+ * Bounded rather than closed: documents are always taken first (see
+ * orderAttachmentCandidates), so nothing can crowd out the brief, and D.O.G.'s
+ * File roles list names every file it is using — an unexpected one is visible
+ * rather than silent. Closing it properly needs a column that says "filed as
+ * deck source material", which is a migration this bundle did not take.
+ * Handbook §12.8.
  *
  * Money files never qualify, whatever else they are: an invoice is not deck
  * source material, RLS already hides it from anyone without money access, and
@@ -86,9 +110,14 @@ function isProjectLevelRow(row) {
 export function isDeckAttachmentRow(row) {
   if (!row || row.deleted_at || row.is_financial) return false;
   if (row.document_kind) return true;
-  const mime = row.mime_type || '';
-  const isMedia = mime.startsWith('image/') || mime.startsWith('video/');
-  return isMedia && isProjectLevelRow(row);
+  // 🚨 THE SAME TEST THE WRITER USES, name included. Round 2's fix made
+  // `documentKindFor` return NULL for `plate.mov` with an empty mime type
+  // (correctly — it is a video, not a document); if this arm still asked only
+  // the mime type, that row would satisfy neither arm and the clip would
+  // vanish from generation. The reader and the writer answer "is this media?"
+  // with ONE function or the contract has a hole between them, which is the
+  // whole reason this module exists.
+  return looksLikeMedia(row.mime_type, row.name) && isProjectLevelRow(row);
 }
 
 /** True for the rows that are DOCUMENTS rather than visual assets. */
@@ -118,9 +147,31 @@ export function isDeckDocumentRow(row) {
  * @param {(n: string) => string|null} [detectKind] usually detectDocumentKind.
  */
 export function documentKindFor(mimeType, name, detectKind) {
-  const m = mimeType || '';
-  if (m.startsWith('image/') || m.startsWith('video/')) return null;
+  if (looksLikeMedia(mimeType, name)) return null;
   return detectKind?.(name) || 'other';
+}
+
+/**
+ * Is this media, by mime type OR by name?
+ *
+ * 🚨 THE NAME IS CONSULTED, AND ROUND 2 IS WHY. `documentKindFor` used to
+ * branch on the mime type alone — but `File.type` is the EMPTY STRING for
+ * .mov/.mkv/.avi on any machine whose OS MIME registry lacks them (S40's
+ * lesson, which `dogTypeForRow` four lines below already states). So
+ * `documentKindFor('', 'plate.mov', …)` returned `'other'` and the row was
+ * written CLAIMING TO BE A DOCUMENT.
+ *
+ * Before round 1 that was a mislabel with no consequence. After it, it was a
+ * defect: `isDeckDocumentRow` said yes, `orderAttachmentCandidates` sorted the
+ * clip into the DOCUMENTS group ahead of every image, and one 30 MiB ProRes
+ * .mov could consume the whole byte budget — the precise outcome the ordering
+ * was added to make impossible. A fix that creates the hole it closes.
+ */
+export function looksLikeMedia(mimeType, name) {
+  const m = mimeType || '';
+  if (m.startsWith('image/') || m.startsWith('video/')) return true;
+  return /\.(mp4|mov|webm|avi|mkv|m4v|mpg|mpeg|wmv|png|jpe?g|gif|webp|bmp|tiff?|heic|avif)$/i
+    .test(name || '');
 }
 
 /**
@@ -131,6 +182,9 @@ export function documentKindFor(mimeType, name, detectKind) {
 export function attachmentRowIsVisible(mimeType, name, detectKind) {
   return isDeckAttachmentRow({
     mime_type: mimeType || '',
+    // The NAME travels too — without it this invariant could not see round 2's
+    // extension-only-video hole, which is the one it exists to catch.
+    name: name || '',
     document_kind: documentKindFor(mimeType, name, detectKind),
   });
 }
@@ -154,14 +208,17 @@ export function attachmentRowIsVisible(mimeType, name, detectKind) {
  * carries across (`entry.isCore !== false`); the two agree, and a brief
  * dropped today means the same thing as one dropped last month.
  *
- * ⚠️ AND IT IS ALSO A RABBIT FLAG. `files.is_core_definer` is what
- * `intake/pipeline.js` and `IntakeWizardView` select on, so a document dropped
- * on Resources now appears as an intake candidate. That is the right answer
- * for a brief or a treatment — a document that defines the project is exactly
- * what intake means by a core definer — and intake is user-driven
- * (`IntakeProgress` is the only caller of `startBackgroundIngestion`), so
- * nothing runs on its own. Recorded in handbook §12.8 rather than left to be
- * discovered.
+ * ⚠️ THE COLUMN IS SHARED WITH RABBIT, AND THAT IS ALL. `files.is_core_definer`
+ * is also what RABBIT's Files views show as a Core tick. It does NOT reach the
+ * intake pipeline: round 1 added a paragraph here saying a Resources drop
+ * became an intake candidate, and review round 2 traced it and found it false
+ * in both directions. `IntakeWizardView` holds its files in local state,
+ * populated only by `IntakePrepare` from a picker, as staging objects carrying
+ * a `dataUrl`; `runIngestion` needs that `dataUrl` to extract text. A `files`
+ * row has none and no code path puts one in that list. Nothing about intake
+ * changes because of this constant — which is the honest claim, and the one
+ * round 1 should have made instead of a measured-sounding one it had not
+ * traced.
  */
 export const NEW_ATTACHMENT_IS_CORE = true;
 
@@ -225,5 +282,11 @@ export function orderAttachmentCandidates(rows) {
 export const DOG_ATTACHMENT_MAX_FILES = 20;
 export const DOG_ATTACHMENT_MAX_BYTES = 32 * 1024 * 1024;
 
-/** The same number, said once, for the panel copy. */
-export const DOG_ATTACHMENT_MAX_MB = DOG_ATTACHMENT_MAX_BYTES / (1024 * 1024);
+/**
+ * The same number, said once, for the panel copy — and named MiB, because that
+ * is what it is. Round 1 fixed exactly this unit slip in the migration panel
+ * and introduced it here in the same commit, under a constant literally called
+ * `_MAX_MB`. 32 MiB is 33.55 MB; a person who reads "32 MB" and prepares a
+ * 33 MB set is told their files did not fit for a reason the copy denies.
+ */
+export const DOG_ATTACHMENT_MAX_MIB = DOG_ATTACHMENT_MAX_BYTES / (1024 * 1024);

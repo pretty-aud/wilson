@@ -21,17 +21,16 @@
 --     the client and in the migration tool instead; this probe is what fails
 --     if a later session reaches for the database again.
 --
---   * THE MONEY GATE IS UNTOUCHED, ON BOTH SIDES (probes 21-25): a plain
---     project member reads an ordinary attachment's kind and description (22,
---     the presence control) and NOTHING of an invoice's (23); their WRITE to
---     an invoice lands on nothing (23-24, added in review round 1 — files_UPDATE
---     carries the same 0038 money arm and had only a positive control, so a
---     dropped arm there tripped nothing — though see probe 15's note: it
---     turned out no behavioural probe CAN isolate files_update, and the fix
---     was to make probe 15 structural across all four policies); a project
---     manager reads and writes both (24-25). New columns on a money-gated
---     table are a way to widen a surface without touching a policy; 78 pins
---     the same shape for file_events, and this is its twin for `files`.
+--   * THE MONEY GATE IS UNTOUCHED, ON BOTH SIDES (probes 20-25): a plain
+--     project member reads an ordinary attachment's kind and description (21,
+--     the presence control) and NOTHING of an invoice's (22); their WRITE to
+--     an invoice lands on nothing (23-24, added in review round 1 — though see
+--     probe 15's note: it turned out no behavioural probe CAN isolate
+--     files_update, because an UPDATE passes the SELECT policy too, and the
+--     fix was to make probe 15 structural and per-clause); a project manager
+--     reads and writes both (24-25). New columns on a money-gated table are a
+--     way to widen a surface without touching a policy; 78 pins the same shape
+--     for file_events, and this is its twin for `files`.
 --
 --   * 🚨 WHAT anon CAN DO, ASKED OF THE ROLE (probes 16-17). The first version
 --     of probe 16 counted `information_schema.column_privileges` and COULD NOT
@@ -46,14 +45,14 @@
 --     re-pointing a policy that looked incidental to its migration; a column
 --     addition is exactly the kind of migration a re-point can ride.
 --     ⚠️ Probe 13 checks NAMES, so it cannot see a DROP + CREATE of the same
---     name — breaker B5 proved that, tripping 15 and 23 while 13 stayed
+--     name — breaker B5 proved that, tripping 15 and 22 while 13 stayed
 --     green. That is why the arms are asserted as well as the names.
 --
 --   * THE CAP IS REAL (probes 6-8): 2000 characters accepted, 2001 refused,
 --     and the constraint asserted by its DEFINITION rather than its name —
 --     a widened body under the same name would pass a name-only test.
 --
---   * NULL IS A LEGAL KIND (probes 4, 20): the client's select offers "—" and
+--   * NULL IS A LEGAL KIND (probes 4, 19): the client's select offers "—" and
 --     sends null for it, and every image and video row has no document kind at
 --     all. A NOT NULL or a DEFAULT 'other' here would either refuse those
 --     uploads or make them claim to be documents.
@@ -252,13 +251,33 @@ SELECT is(
 -- Asserted as a substring, so a re-worded but equivalent arm still passes
 -- while a DELETED one fails; `permissive` too, because a RESTRICTIVE policy
 -- with the same body means something entirely different (0041's lesson).
+-- ⚠️ COUNTED PER CLAUSE, NOT PER POLICY (review round 2). A policy-level
+-- `qual OR with_check` cannot see files_update losing the arm from ONE of its
+-- two clauses — and 0038 puts it in both deliberately ("USING guards the OLD
+-- row, WITH CHECK the NEW one"). Dropping it from WITH CHECK alone would leave
+-- `qual` matching, the count at 4, and a plain member able to flip a row's
+-- is_financial. 0038's real shape is five clauses carrying the arm:
+-- select/USING, insert/WITH CHECK, update/USING, update/WITH CHECK,
+-- delete/USING.
+--
+-- ⚠️ AND IT IS A PRESENCE TEST, NOT A CORRECTNESS ONE. `LIKE '%…%'` matches
+-- `NOT can_access_project_money(...)` just as happily. An inverted arm on
+-- files_select is caught behaviourally by probe 22; on insert, update or
+-- delete it is caught by nothing here. Suite 53 owns the money segments and
+-- 05_files owns the table's own policies; this probe's job is to notice the
+-- arm going MISSING while a column migration is in flight.
 SELECT is(
-  (SELECT count(*)::INT FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'files'
-      AND permissive = 'PERMISSIVE'
-      AND (COALESCE(qual, '') LIKE '%can_access_project_money%'
-        OR COALESCE(with_check, '') LIKE '%can_access_project_money%')),
-  4, 'all four files policies still carry the 0038 money arm');              -- 15
+  (SELECT
+     (SELECT count(*)::INT FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = 'files'
+         AND permissive = 'PERMISSIVE'
+         AND COALESCE(qual, '') LIKE '%can_access_project_money%')
+   + (SELECT count(*)::INT FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = 'files'
+         AND permissive = 'PERMISSIVE'
+         AND COALESCE(with_check, '') LIKE '%can_access_project_money%')),
+  5, 'the 0038 money arm is on all FIVE clauses of the four files policies');
+                                                                             -- 15
 
 -- 🚨 REWRITTEN IN REVIEW ROUND 1, BECAUSE THE FIRST VERSION COULD NOT FAIL.
 -- It counted `information_schema.column_privileges` for grantee IN
@@ -298,11 +317,17 @@ SELECT ok(
 -- PRESENCE CONTROL for probe 16 — the one absence check in this file that had
 -- none, which is how the vacuous version survived. If has_table_privilege
 -- itself were answering NO to everything, this would fail too.
+-- 🚨 CONTROLS BOTH INSTRUMENTS. Round 1 controlled only has_table_privilege
+-- and left has_column_privilege — the half that actually sees breaker B9's
+-- column GRANT — with no presence control at all, which is the same gap that
+-- let the original probe 16 be vacuous.
 SELECT ok(
   has_table_privilege('authenticated', 'public.files', 'SELECT')
-  AND has_table_privilege('authenticated', 'public.files', 'UPDATE'),
-  'authenticated CAN select and update public.files — the probe above is '
-  'reading real answers');                                                  -- 17
+  AND has_table_privilege('authenticated', 'public.files', 'UPDATE')
+  AND has_column_privilege('authenticated', 'public.files', 'document_kind', 'SELECT')
+  AND has_column_privilege('authenticated', 'public.files', 'description', 'UPDATE'),
+  'authenticated CAN select and update public.files, table AND column — both '
+  'instruments above are reading real answers');                            -- 17
 
 -- 🚨 THE POLARITY TRIPWIRE. See the header.
 SELECT is(

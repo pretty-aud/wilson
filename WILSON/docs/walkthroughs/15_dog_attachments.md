@@ -64,8 +64,9 @@ the adapter refused rather than losing your files quietly. Now it uploads.
 
 5. Open the same project in **RABBIT → Files**.
    **Expected:** the three files you just dropped are there. ☐
-6. Upload one more file from RABBIT's Files view, then go back to
-   **Projects → Resources** on that project.
+6. Open an **asset** in RABBIT and upload a **document** (a .txt or .pdf) to
+   it from that asset's Files list. Then go back to **Projects → Resources**
+   on the project.
    **Expected:** it is in the list here too. ☐
    **Expected:** its **Kind** is blank ("—"). ☐
    *That is deliberate and worth understanding: a file uploaded from RABBIT is
@@ -121,7 +122,8 @@ already had attachments before today.
     list and in RABBIT's Files view." ☐
 15. Go back to **Projects → Resources** on that old project.
     **Expected:** the same files are still all there. ☐
-    **Expected:** their **Kind** cells are filled in, not blank. ☐
+    **Expected:** their **Kind** cells are filled in, not blank — except for
+    images and video, which correctly show "—". ☐
 16. Click **DRY-RUN** again.
     **Expected:** it finds nothing left to move (0 attachments found, or only
     the oversized ones from step 13). ☐
@@ -134,10 +136,12 @@ this bundle took the shape it did.
 The risk: D.O.G. treats files marked **Core** as "the primary sources of truth
 for what this project IS" and everything else as "supporting reference
 material only", and it says so to the model in as many words. Old attachments
-were Core unless you had said otherwise; the new file records are the reverse
-by default. If the move had got that backwards, every one of your old projects
-would quietly start generating a different deck, with nothing failing and no
-error anywhere.
+were Core unless you had said otherwise, and the database column they move into
+means the opposite by default. If the move — or the drop zone — had taken that
+default, every one of your old projects would quietly start generating a
+different deck, with nothing failing and no error anywhere. Both were checked
+by machine, and the drop zone was found doing exactly that and fixed; this part
+is you checking the same thing by eye, on your own files.
 
 17. **BEFORE you migrated** — if you still have it — you should have a deck
     generated from this project. If not, that is fine; do step 18 first on a
@@ -170,8 +174,22 @@ Three specific things worth calling out even if everything else is fine:
   reopening the project.
 - **Step 18** — any file that changed between Core and Ref across the move.
 
-And one honest limit, so it is not a surprise: D.O.G. reads the **newest 20**
-attachments per project, up to **32 MB in total**. If a project has more than
-that, the panel says so in a line under the count. A project with a hundred
-production files is not going to feed all of them to the model, and it should
-not — but if that line appears when you think it should not, tell me.
+And three honest limits, so none of them is a surprise:
+
+- D.O.G. reads at most **20** attachments per project and **32 MiB** in total,
+  and it spends that budget **documents first** — so a project with a hundred
+  renders still feeds the brief to the model, and what falls off the end is
+  reference imagery. If a project has more than fits, the panel says so in a
+  line under the count. If that line appears when you think it should not,
+  tell me.
+- **A file uploaded from RABBIT's Files view against a scene, shot, asset or
+  task is NOT deck source material** — that is deliberate, and it is what keeps
+  a project's plates and renders out of your decks. Give it a **Kind** in the
+  Resources table if you do want D.O.G. to read it.
+  ⚠️ But an image added from the project **Summary** page's Add Files, or an
+  expense receipt, has nothing marking it either way and WILL be included. If
+  you see a file in D.O.G.'s File roles list that you did not put there, that
+  is the one I know about — tell me which and I will name it in the notes.
+- The one-time move in Part D leaves anything over **32 MiB** where it is and
+  names it. That is not a storage limit; it is the desktop server's request
+  limit, and a bigger file would fail with an unreadable error instead.

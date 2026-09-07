@@ -136,12 +136,21 @@ describe('documentKindFor — every attachment written stays visible', () => {
   it('🚨 is TOTAL: nothing written through it is invisible to the reader', () => {
     // The property, asserted rather than described. If a future writer or a
     // future reader drifts, this fails on the case that drifted.
+    //
+    // 🚨 `plate.mov` WITH AN EMPTY MIME TYPE IS THE CASE ROUND 2 FOUND. It is
+    // a video whose OS had no MIME registry entry — S40's lesson — so a
+    // mime-only writer called it a document ('other'), which after round 1's
+    // documents-first ordering let one 30 MiB clip sort ahead of the brief and
+    // eat the whole byte budget. Now `documentKindFor` and the reader's media
+    // arm both consult the NAME, through the same function.
     const cases = [
       ['application/pdf', 'legacy.pdf'], ['application/pdf', 'creative-brief.pdf'],
       ['text/plain', 'notes.txt'],       ['', 'mystery'],
       ['image/png', 'board.png'],        ['video/quicktime', 'plate.mov'],
       ['image/webp', 'ref.webp'],        ['application/msword', 'treatment.doc'],
       ['application/octet-stream', 'x.bin'],
+      ['', 'plate.mov'],                 ['', 'still.PNG'],
+      ['', 'clip.mkv'],                  ['', 'ref.jpeg'],
     ]
     for (const [mime, name] of cases) {
       expect(attachmentRowIsVisible(mime, name, detect),
@@ -242,6 +251,20 @@ describe('orderAttachmentCandidates', () => {
       .toEqual(['notes-new.txt', 'brief-old.pdf', 'render-new.png', 'render-old.png'])
   })
 
+  it('🚨 does not let an extension-only video jump the documents queue', () => {
+    // Round 2's finding, as a probe. `documentKindFor('', 'plate.mov')` used
+    // to return 'other', so isDeckDocumentRow said yes and the clip sorted
+    // ahead of every image — and ahead of an older brief — then consumed the
+    // byte budget the ordering exists to protect.
+    expect(documentKindFor('', 'plate.mov', () => null)).toBe(null)
+    const rows = [
+      { name: 'plate.mov', mime_type: '',          document_kind: null,   uploaded_at: '2026-09-06' },
+      { name: 'brief.pdf', mime_type: 'application/pdf', document_kind: 'brief', uploaded_at: '2026-01-01' },
+    ]
+    expect(orderAttachmentCandidates(rows).map(r => r.name))
+      .toEqual(['brief.pdf', 'plate.mov'])
+  })
+
   it('does not mutate its input', () => {
     const rows = [{ name: 'a', mime_type: 'image/png' }, { name: 'b', document_kind: 'brief' }]
     orderAttachmentCandidates(rows)
@@ -292,6 +315,21 @@ describe('a newly written attachment is CORE', () => {
     // read it back — nor an entity id, which files it under a scene, shot or
     // asset and takes it out of D.O.G.'s reach entirely.
     // uploadScope.test.js pins the container function these feed.
+    //
+    // ⚠️ WHAT THIS CANNOT SEE, stated because review round 2 constructed all
+    // three and the honest bound is more useful than an overclaim. It reads
+    // source text, not an AST:
+    //   * a scope passed as a VARIABLE (`uploadFile(id, scope, file)`) — the
+    //     walker would slice the next `{` in the file, which is some unrelated
+    //     block, and pass on it. The `scopeLooksLiteral` guard below refuses
+    //     that case loudly instead;
+    //   * ES shorthand (`{ financial, … }`) or a computed key — the two
+    //     patterns want `name:`. The guard below rejects a spread for the same
+    //     reason;
+    //   * a `{` or `}` inside a comment in the scope literal desynchronises the
+    //     depth count. Both literals are comment-heavy and currently balanced.
+    // A real AST walk is the fix if this ever needs to be load-bearing; today
+    // it is a tripwire on two call sites that are three lines long each.
     const scopeArgOf = (src, from) => {
       const open = src.indexOf('{', src.indexOf('(', from))
       let depth = 0
@@ -303,15 +341,25 @@ describe('a newly written attachment is CORE', () => {
     }
     const PROJECTS = read('../../components/Projects/ProjectsPage.jsx')
     for (const [label, src] of [['ProjectsPage', PROJECTS], ['DeckOutlineGenerator', SRC]]) {
+      // `?.` included: `adapter?.uploadFile(` does not contain the plain token,
+      // so a new call written that way would have been invisible.
       const scopes = []
-      for (let i = src.indexOf('adapter.uploadFile('); i >= 0;
-           i = src.indexOf('adapter.uploadFile(', i + 1)) {
-        const scope = scopeArgOf(src, i)
-        if (scope) scopes.push(scope)
+      for (const token of ['adapter.uploadFile(', 'adapter?.uploadFile(']) {
+        for (let i = src.indexOf(token); i >= 0; i = src.indexOf(token, i + 1)) {
+          const scope = scopeArgOf(src, i)
+          if (scope) scopes.push(scope)
+        }
       }
       expect(scopes.length, label + ' has no adapter.uploadFile scope to check')
         .toBeGreaterThan(0)
       for (const scope of scopes) {
+        // The slice must look like the scope literal itself, not some other
+        // block the walker wandered into, and not a shorthand/spread form the
+        // two patterns below cannot read. Loud rather than silently green.
+        expect(scope, label + ': uploadFile scope is not a readable literal')
+          .toMatch(/documentKind\s*:/)
+        expect(scope, label + ': uploadFile scope uses a spread this test cannot read')
+          .not.toMatch(/\.\.\./)
         expect(scope, label + ' passes financial to uploadFile')
           .not.toMatch(/financial\s*:/)
         expect(scope, label + ' passes an entity id to uploadFile')
@@ -329,9 +377,14 @@ describe('the fetch effect', () => {
     // list, so it takes a new identity many times a session. An effect that
     // downloads file bodies must not depend on it — that re-downloads every
     // attachment on every provider render.
-    expect(SRC).toMatch(
-      /\}, \[selectedProjectId, getAdapter, adapterMode, storedFilesReloadKey\]\);/)
+    expect(SRC).toMatch(/\}, \[selectedProjectId, getAdapter, adapterMode\]\);/)
     expect(SRC).not.toMatch(/\}, \[selectedProjectId, rabbitCtx/)
+    // 🚨 AND NOTHING DEAD IN THE LIST. Round 1 added `storedFilesReloadKey`
+    // and removed both of its bumpers in the same commit, leaving state no
+    // code writes — which this very pin then held in place, because a
+    // dependency-array assertion is not a usage a linter can see. Round 2
+    // removed it; this line stops it coming back unaccompanied.
+    expect(SRC).not.toMatch(/storedFilesReloadKey/)
   })
 
   it('guards every setState after an await with the liveness token', () => {

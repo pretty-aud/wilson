@@ -92,13 +92,16 @@ export default function ProjectDetailPanel({
   // body immediately and certificates it as 'purged'. The copy below is the
   // only place a person is told which one they are about to do.
   //
-  // 🚨 DEFAULTS TO THE SAFE CLAIM, NOT THE CONVENIENT ONE (review round 1).
-  // ProjectsPage is the only renderer and passes it explicitly, so this
-  // default is unexercised today — but "moves to trash, kept 30 days" is the
-  // RECOVERABLE claim, and a second renderer that forgot the prop on a Local
-  // Server surface would tell someone their permanently unlinked file could be
-  // restored. False is the claim that is never worse than the truth.
-  deletesAreSoft = false,
+  // 🚨 THREE STATES, NOT TWO — review round 2. Round 1 defaulted this to
+  // `false` on a "never worse than the truth" argument, which held on the
+  // destructiveness axis and failed on the accuracy one: the false branch
+  // NAMES A BACKEND ("there is no trash in Local Server mode"), so a renderer
+  // that forgot the prop on a cloud surface would tell a Supabase user they
+  // were in Local Server mode AND that a restorable, quota-holding soft delete
+  // was permanent. A default cannot know which backend it is on, so it says
+  // nothing: null means "do not make a claim about deletion", and each renderer
+  // that knows passes true or false.
+  deletesAreSoft = null,
   saveError,
   storageWarning,
 }) {
@@ -362,11 +365,13 @@ export default function ProjectDetailPanel({
           checkbox — D.O.G. treats those as the sources that define the project
           and everything else as reference.
           {' '}
-          {deletesAreSoft
+          {deletesAreSoft === true
             ? 'Deleting moves a file to the trash and keeps it for 30 days; it '
               + 'holds storage until then.'
-            : 'Deleting removes the file from this computer immediately — there '
-              + 'is no trash in Local Server mode.'}
+            : deletesAreSoft === false
+              ? 'Deleting removes the file from this computer immediately — '
+                + 'there is no trash in Local Server mode.'
+              : ''}
         </p>
 
         {/* Drop zone */}
@@ -416,6 +421,12 @@ export default function ProjectDetailPanel({
             files={allFiles}
             onUpdate={onFileUpdate}
             onDelete={onFileDelete}
+            // 🚨 Review round 2, §6 #31 trap (f) at the surface the drop zone
+            // already guarded. `canUpload` disabled the drop zone and left the
+            // Core checkbox, the Kind select, the Description cell and Delete
+            // fully live on a read-only backend — where every one of them ends
+            // in a thrown `readOnly(...)` stub. One backend, one answer.
+            readOnly={!canUpload}
             maxHeight={380}
             variant="warm"
           />

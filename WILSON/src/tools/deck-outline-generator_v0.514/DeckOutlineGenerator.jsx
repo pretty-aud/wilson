@@ -6,7 +6,7 @@ import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/Project
 import {
   isDeckAttachmentRow, dogTypeForRow, documentKindFor,
   orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
-  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MB,
+  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MIB,
 } from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
@@ -293,11 +293,12 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
   const [storedProjectFiles, setStoredProjectFiles] = useState([]);
   const [storedFilesBusy, setStoredFilesBusy] = useState(false);
   const [storedFilesNote, setStoredFilesNote] = useState('');
-  // Bumped after a write that changes what the effect would read (a Core
-  // toggle, an upload from the new-project modal). A counter rather than a
-  // function so the effect keeps ONE trigger and cannot be re-entered by a
-  // caller holding a stale closure.
-  const [storedFilesReloadKey, setStoredFilesReloadKey] = useState(0);
+  // 🚨 SEPARATE FROM THE NOTE, and round 2 is why. Round 1 put the create
+  // modal's upload failure into `storedFilesNote` — the same state the fetch
+  // effect ends by overwriting with '' — so the message it promised was "NOT
+  // silent" could be erased by a listFiles round trip that landed after it.
+  // An error the effect never writes cannot be raced.
+  const [storedFilesError, setStoredFilesError] = useState('');
 
   useEffect(() => {
     // 🚨 A REQUEST TOKEN, NOT A BOOLEAN. Selecting project A then B while A's
@@ -318,6 +319,7 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
       return () => { live = false; };
     }
     setStoredFilesBusy(true);
+    setStoredFilesError('');
     (async () => {
       let rows;
       try {
@@ -392,10 +394,14 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         parts.push(`${left} more file${left === 1 ? '' : 's'} on this project ` +
           `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads ` +
           `${DOG_ATTACHMENT_MAX_FILES} attachments at most, documents first, ` +
-          `up to ${DOG_ATTACHMENT_MAX_MB} MB in total`);
+          `up to ${DOG_ATTACHMENT_MAX_MIB} MiB in total`);
       }
       if (skippedTooBig > 0) {
-        parts.push(`${skippedTooBig} over the ${DOG_ATTACHMENT_MAX_MB} MB budget`);
+        // ⚠️ "did not fit" rather than "over the budget": this counts files
+        // that did not fit the REMAINING budget, so a 400 KB reference photo
+        // behind a 31 MiB document lands here too. Round 1 made this more
+        // specific and less true; round 2 made it true again.
+        parts.push(`${skippedTooBig} did not fit in the remaining space`);
       }
       if (failed > 0) parts.push(`${failed} could not be read`);
       setStoredProjectFiles(out);
@@ -407,7 +413,15 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     // adapterRef.current and keeps ONE identity across a backend switch, so
     // without the mode in this list a switch from Local Server to Supabase
     // would leave the previous backend's bodies on screen.
-  }, [selectedProjectId, getAdapter, adapterMode, storedFilesReloadKey]);
+    //
+    // ⚠️ NO RELOAD KEY. Round 1 added one and then removed both of its
+    // bumpers in the same commit (the Core toggle reconciles locally now, and
+    // the create modal selects the project, which re-runs this effect on its
+    // own) — leaving dead state with a comment naming two callers that no
+    // longer existed, and a source pin holding it in place. Round 2 removed
+    // it. If a future write needs to force a re-read, add the trigger and its
+    // caller together.
+  }, [selectedProjectId, getAdapter, adapterMode]);
 
   // Both stores, one list. Legacy first so an existing project's ordering —
   // and therefore its generation output — is untouched by the new source.
@@ -523,7 +537,7 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         // One flag changed; only that flag is reconciled.
         console.error('[DOG] toggle core flag failed:', err);
         setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, !next) : f)));
-        setStoredFilesNote(`That file's role could not be saved: ${err?.message || err}`);
+        setStoredFilesError(`That file's role could not be saved: ${err?.message || err}`);
       }
       return;
     }
@@ -622,10 +636,20 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         }),
         status:       'active',
       });
-      // 🚨 R1: SELECTED AFTER THE UPLOADS, NOT BEFORE. Setting it first
-      // starts the fetch effect, whose final setStoredFilesNote('') races the
-      // catch below and can erase the failure message the comment promises is
-      // never silent — while resetNewProjectModal() closes the modal anyway.
+      // 🚨 SELECTED IMMEDIATELY — round 2 reversed round 1 here, because
+      // round 1 traded a message race for two worse things. Selecting AFTER
+      // the uploads meant an upload rejection skipped the selection entirely:
+      // the project existed, the modal closed, the pickers were cleared, and
+      // D.O.G. still pointed at whatever was selected before — so the person
+      // could neither see the project they had just made nor retry the files.
+      // And the error itself became invisible, because the panel that renders
+      // it is inside `{selectedProject && …}`, which was exactly the case that
+      // had not been selected.
+      //
+      // The race round 1 was avoiding is closed properly instead: the failure
+      // goes to `storedFilesError`, which the fetch effect never writes.
+      if (created?.id) setSelectedProjectId(created.id);
+
       if (created?.id && canStoreFiles && pending.length > 0) {
         const adapter = getAdapter?.();
         if (adapter?.uploadFile) {
@@ -651,13 +675,16 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
           }
         }
       }
-      if (created?.id) setSelectedProjectId(created.id);
+      // Only cleared once everything that needed them has succeeded: the
+      // pickers hold the only copy of what the person chose, so clearing them
+      // on failure would make the retry impossible.
+      resetNewProjectModal();
     } catch (err) {
       console.error('[DOG] createProject failed:', err);
-      setStoredFilesNote(`Project attachments could not be saved: ${err?.message || err}`);
+      setStoredFilesError(`Project attachments could not be saved: ${err?.message || err}`);
+      setShowNewProjectModal(false);
     } finally {
       setStoredFilesBusy(false);
-      resetNewProjectModal();
     }
   }, [newProjectTitle, newProjectDescription, newProjectStartDate, newProjectEndDate, newProjectDocuments, newProjectAssets, createUnifiedProject, resetNewProjectModal, canStoreFiles, getAdapter]);
 
@@ -4256,6 +4283,11 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                     </p>
                     {storedFilesNote && (
                       <p className="text-[10px] text-stone-500 mb-1.5">{storedFilesNote}</p>
+                    )}
+                    {storedFilesError && (
+                      <p className="text-[10px] mb-1.5" style={{ color: '#fca5a5' }}>
+                        {storedFilesError}
+                      </p>
                     )}
 
                     {/* CORE / REFERENCE classifier — tells the AI which files
