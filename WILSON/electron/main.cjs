@@ -1795,7 +1795,32 @@ function startLocalServer(distPath) {
     // Passing it gives every row of that type its own folder on create AND
     // moves the folder when the row is renamed. Entities without it (phases,
     // tasks, comments…) are unaffected — they are not things with folders.
-    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null) {
+    // Track A bundle A2 (2026-09-06): the desktop's equivalent of 0061's
+    // ON DELETE CASCADE. A task or phase delete used to splice only its own
+    // collection, so every dependency edge naming the deleted row stayed in
+    // project.json and was re-mirrored into {Slug}_DATABASES/tasks.json and
+    // timeline.json on every write; RabbitProvider pruned its own copy, which
+    // hid the orphans for the session and brought them back on reload. The
+    // sweep runs in the SAME write that removes the entity, on the bundle the
+    // mirrors are rendered from, so they never see an orphan again. Edges are
+    // task→task or phase→phase and ids are uuids, so matching on id alone
+    // (not kind) is exact — the same rule the provider's deleteTask and
+    // deletePhase use. Replayed with a failing control by
+    // src/tools/rabbit_v0.1.0/desktopDeleteSweep.test.js.
+    function sweepDependencyEdges(bundle, id) {
+      if (!Array.isArray(bundle.dependencies)) return 0;
+      const before = bundle.dependencies.length;
+      bundle.dependencies = bundle.dependencies.filter(
+        d => d.predecessor_id !== id && d.successor_id !== id,
+      );
+      return before - bundle.dependencies.length;
+    }
+    // `opts` is a plain parameter, not `{ sweepDependencies = false } = {}`:
+    // two test files lift functions out of this file by brace matching from
+    // the name, and a brace in the parameter list is the one thing that
+    // breaks them.
+    function rabbitSubentityRoutes(entityName, bundleKey, folderEntityType = null, opts) {
+      const sweepDependencies = !!(opts && opts.sweepDependencies);
       // POST insert / upsert
       expressApp.post(`/api/rabbit/projects/:projectId/${entityName}`, (req, res) => {
         const bundle = readRabbitBundle(req.params.projectId);
@@ -1838,12 +1863,13 @@ function startLocalServer(distPath) {
         if (!bundle[bundleKey]) bundle[bundleKey] = [];
         const removed = rabbitRemoveFrom(bundle[bundleKey], req.params.id);
         if (!removed) return rabbitNotFound(res, entityName);
+        const swept = sweepDependencies ? sweepDependencyEdges(bundle, req.params.id) : 0;
         writeRabbitBundle(req.params.projectId, bundle);
-        res.json({ ok: true });
+        res.json({ ok: true, swept });
       });
     }
 
-    rabbitSubentityRoutes('phases',         'phases');
+    rabbitSubentityRoutes('phases',         'phases',         null, { sweepDependencies: true });
 
     // ── Assets: custom routes with folder lifecycle side-effects ──
     // Replaces rabbitSubentityRoutes('assets','assets') so we can
@@ -2019,7 +2045,7 @@ function startLocalServer(distPath) {
       res.json({ ok: true });
     });
 
-    rabbitSubentityRoutes('tasks',          'tasks');
+    rabbitSubentityRoutes('tasks',          'tasks',          null, { sweepDependencies: true });
     rabbitSubentityRoutes('dependencies',   'dependencies');
     rabbitSubentityRoutes('task-links',     'taskLinks');
     rabbitSubentityRoutes('asset-versions', 'assetVersions');
