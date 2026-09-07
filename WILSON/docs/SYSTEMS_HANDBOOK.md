@@ -2431,11 +2431,38 @@ applies the proposer's live subjects **additively**: update by slug in place,
 insert when absent, **never delete**. One approval must not silently strip
 lessons from everyone's official course.
 
-**What apply does not touch: the five reference documents.** Their merge
-semantics live in client JavaScript; reimplementing them in plpgsql would
-duplicate load-bearing logic and overwriting them would violate the
-additive-only rule. So an approval moves lesson content and not hotkey tables —
-and the approve dialog says so.
+**What apply moves: subjects, and four of the five reference documents.**
+SHIPPED 2026-09-07 (Track A, A4, `dfe666e`, Audrey’s decision 37). `hotkeys`,
+`functions`, `nodes` and `reference_urls` are merged into the standard as well,
+additively — an entry deleted on the fork survives on the standard.
+
+The merge stayed in **client JavaScript**; it was NOT reimplemented in plpgsql,
+which is the objection `MASTER_PLAN` §6 #29 raised and which still stands.
+`CR_DOC_MERGE` (`otterRoutes.js`) adapts a STORED document into the shape each
+existing merger expects: they were written for the GENERATOR’s output, and for
+`nodes` the two shapes differ, so handing a stored document straight in would
+merge nothing and report success. `mergeReferenceUrls` is new — there had never
+been one.
+
+**The ORDER is load-bearing in both directions.** The fork’s documents are read
+BEFORE the RPC, because deciding closes the consented review window below and the
+approver can no longer read the source afterwards; the merge is written AFTER it,
+because `otter_fork_course` snapshots the target’s documents into the
+`(before change #n)` archive during the RPC, so the archive keeps the OLD ones.
+
+**`corrections` do NOT move, and that is a choice.** `otter_fork_course` blanks
+them when making a fork, with the reason in its own body (*“the original
+author’s agent memory, not content”*), so a fork never inherits them and
+publishing a proposer’s to the company standard would contradict that rule.
+Audrey is asked to confirm in walkthrough `08_otter.md`.
+
+**Limit, in the other direction.** `otter_courses_update`’s WITH CHECK requires
+`current_app_role() = 'admin'` to write a `company_standard` course, while
+`otter_cr_apply` also admits the standard’s OWNER. A non-admin owner approving
+(not reachable from the Admin Terminal, which is admin-only) therefore gets the
+subjects and not the documents. The RPC has already committed by then, so this is
+REPORTED rather than rolled back: the result banner names each document that did
+not move.
 
 **The consented review window.** Submitting a request grants reviewers **read**
 access to the proposer's own source course, opening on submit and closing the
@@ -3092,7 +3119,9 @@ and — Session 30 — `validatorSave`, `quizWiring` and `textFromMessage`.
 > passed for twenty sessions, and **nothing ever requested that URL** — the
 > whole quiz feature was plumbing with no tap. Four features have now shipped
 > in that state (the folder tree S27, task templates S28, quiz history S30,
-> and `setOtterAdapterMode`, which is still dead). A test that pins a
+> and `setOtterAdapterMode`, dead from S10 until A4 gave it the `Library`
+> control on 2026-09-07 — six weeks of two comments describing a control
+> nobody had built). A test that pins a
 > MECHANISM cannot tell you the mechanism is reached; `quizWiring.test.js`
 > asserts that `nextQuestion` actually calls the writer, and fails if the call
 > is removed while every other test stays green.
@@ -3702,14 +3731,28 @@ global Space shortcut firing from every page.
   *"just make Accept actually save."* The loss she was reporting was the
   accepted CORRECTION, which used to 404 on Local Server and report success
   anyway; that is fixed at both ends.
-- **Signing in on the desktop app empties the O.T.T.E.R. library** and there
-  is no control to switch back: `otterFetch` routes to Supabase whenever the
-  session carries a `workspace_id`, cloud holds zero courses, and
-  `setOtterAdapterMode` — described in two comments as "the Settings
-  override" — has **no callers**. Content de-prioritised by Audrey; the
-  silence is not. See `OUTSTANDING.md`.
-- Settings → Tools "Storage Location" is an editable field that has no effect;
-  `getDataDir()` hardcodes the userData path.
+- ~~**Signing in on the desktop app empties the O.T.T.E.R. library**~~ —
+  **SHIPPED 2026-09-07** (A4, `088dba8`, Audrey’s decision 3). O.T.T.E.R. →
+  `SETTINGS` → `Tool Settings` → **`Library`** offers `Company (signed in)`
+  and `This computer`, pinned per DEVICE in `localStorage` — not in
+  `otter-settings.json`, because the routing seam reads the pin SYNCHRONOUSLY at
+  ~90 call sites and `resolveUserSettings` already refuses to carry machine state
+  between computers. `setOtterAdapterMode` finally has callers: it had none from
+  Session 10 until now, the fourth feature to ship with none.
+  A notice on the library screen says which library is showing and carries the
+  way back, in BOTH directions, so recovery never depends on finding a padlocked
+  Settings tab. Phase 6’s pet index is cleared on the switch, or the pet keeps
+  answering from the library you just left for up to `INDEX_TTL_MS`.
+  **Two limits, both deliberate:** desktop only (there is no local library on the
+  web, and a `local` pin is REFUSED there because every content route would
+  answer 401 with the control that undoes it off-screen); and the switch sits
+  behind the Tools tab’s padlock, which is exactly why the on-screen notice
+  carries its own way back.
+- ~~Settings → Tools "Storage Location"~~ — **REMOVED 2026-09-07** (A4,
+  `088dba8`, decision 28b). It wrote `settings.storageLocation`, which nothing has
+  ever read; courses live under `getDataDir()` regardless. The `Library` control
+  is in its place. The project-files location in WILSON’s own General settings
+  is a different setting and is real.
 - R.A.B.B.I.T.'s agent integration is prompt-selection only — and in fact
   **unreachable**, not merely unwired: `App.jsx` hard-gates the whole agent
   surface to the O.T.T.E.R. page, so the RABBIT prompt can never reach the
