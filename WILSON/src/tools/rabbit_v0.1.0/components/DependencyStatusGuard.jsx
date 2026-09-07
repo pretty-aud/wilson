@@ -9,15 +9,23 @@
 //   {guard.modal}
 //
 // `update` runs `write()` at once when the patch does not move anything INTO
-// a done status over an unfinished predecessor. Otherwise it parks the write,
+// a completion status (approved / final / completed) over an unfinished
+// predecessor. Otherwise it parks the write,
 // shows the modal, and runs it when the person chooses "Continue anyway" —
 // "Go back" drops it and nothing is written. Closing the modal any other way
 // — its X, a click outside it — also CONTINUES: the Phase 7 brief says every
 // warning is dismissible AND the change still lands, so a dismissal is never a
 // silent cancel; "Go back" is the one explicit way to keep the change unsaved
-// (R1 of Track A A2). Bulk writes pass every id and get one summary ("3 of 12
-// have unfinished dependencies"), never one modal per row. Audrey, 2026-08-12:
-// "warn dont block. do both phases and tasks".
+// (R1 of Track A A2). That is a READING: the brief that says it
+// (docs/fixes/phase-7-dependency-status-warning/BRIEF.md) lives in Audrey's
+// local, gitignored folder, so the sentence cannot be checked in-repo; and
+// AssetStatusWarningModal is not a precedent for it — that modal warns AFTER
+// the write, so its close keeps a change already saved, whereas this one's
+// close performs a write that was waiting. If she reads "dismissible" as
+// "cancel", the two handlers marked DISMISS below are the whole change (R2).
+// Bulk writes pass every id and get one summary ("3 of 12 have unfinished
+// dependencies"), never one modal per row. Audrey, 2026-08-12: "warn dont
+// block. do both phases and tasks".
 //
 // Why a hook per surface and not one provider: the surfaces are table rows,
 // kanban columns, popups and an editor that already stacks over the timeline.
@@ -42,7 +50,7 @@
 // silently covered.
 // =============================================================================
 
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, X, ArrowLeft, Check } from 'lucide-react'
 import { statusWarning, itemLabel, humanStatus } from '../state/dependencyStatus'
@@ -101,6 +109,8 @@ function StatusChip({ status }) {
 }
 
 export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) {
+  // Where the last mousedown landed — read by the backdrop's onClick below.
+  const downOnBackdrop = useRef(false)
   if (!warning) return null
   const { kind, toStatus, total, offenders } = warning
   const noun = kind === 'phase' ? 'phase' : 'task'
@@ -115,9 +125,18 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
       // stops a click here would reach the TaskEditor's backdrop (which
       // closes the editor) and the timeline's mousedown drag handlers.
       // A click outside the card dismisses the warning, and a dismissed warning
-      // lands the change (see the header). Only "Go back" cancels.
-      onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onContinue?.() }}
-      onMouseDown={(e) => e.stopPropagation()}
+      // lands the change (see the header). Only "Go back" cancels. DISMISS.
+      // R2: a click's target is the common ancestor of its mousedown and its
+      // mouseup, so a press inside the card that slips out onto the backdrop
+      // (selecting a name in the list, sliding off a button) would read as a
+      // backdrop click and land the write. Both ends must be on the backdrop.
+      onMouseDown={(e) => { e.stopPropagation(); downOnBackdrop.current = e.target === e.currentTarget }}
+      onClick={(e) => {
+        e.stopPropagation()
+        const wholeClickOnBackdrop = downOnBackdrop.current && e.target === e.currentTarget
+        downOnBackdrop.current = false
+        if (wholeClickOnBackdrop) onContinue?.()
+      }}
     >
       <div
         className="w-full max-w-md rounded-sm overflow-hidden flex flex-col"
@@ -134,6 +153,7 @@ export function DependencyStatusWarningModal({ warning, onContinue, onCancel }) 
               Unfinished dependencies
             </span>
           </div>
+          {/* DISMISS: closing counts as continue (see the header). */}
           <button
             type="button"
             onClick={onContinue}

@@ -189,7 +189,11 @@ describe('stated non-surfaces', () => {
   })
 
   it("RelationsPanel's side popup only creates — the day it gains an update path, wire it", () => {
-    expect(RELATIONS).not.toContain('updateTask')
+    // Scoped to the popup's body and to a CALL (R2): a comment or an
+    // onUpdateTask prop elsewhere in the file must not turn this red.
+    const popup = functionBody(RELATIONS, 'NewTaskSidePopup')
+    expect(popup).toBeTruthy()
+    expect(popup).not.toMatch(/updateTask\(/)
   })
 })
 
@@ -226,5 +230,18 @@ describe('"done" is defined in exactly one place', () => {
   it('both original consumers import it', () => {
     expect(readSrc('tools/rabbit_v0.1.0/state/selectors.js')).toContain("import { isDone } from './dependencyStatus'")
     expect(readSrc('tools/rabbit_v0.1.0/components/AssetStatusWarningModal.jsx')).toContain("import { isDone } from '../state/dependencyStatus'")
+  })
+})
+
+describe('the warning modal cannot land a write by accident', () => {
+  // Closing the warning counts as continue, so the backdrop is a write
+  // control. R2: a click targets the common ancestor of its mousedown and
+  // mouseup, so a press inside the card that slips onto the backdrop would
+  // otherwise land the change. Both ends must be on the backdrop.
+  it('requires both ends of a backdrop click to be on the backdrop', () => {
+    const GUARD = readSrc('tools/rabbit_v0.1.0/components/DependencyStatusGuard.jsx')
+    expect(GUARD).toContain('downOnBackdrop.current = e.target === e.currentTarget')
+    expect(GUARD).toContain('if (wholeClickOnBackdrop) onContinue?.()')
+    expect(GUARD).not.toMatch(/if \(e\.target === e\.currentTarget\) onContinue/)
   })
 })

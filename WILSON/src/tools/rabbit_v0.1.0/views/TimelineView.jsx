@@ -4019,8 +4019,8 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
     setDraft(d => ({ ...d, [field]: value }))
   }
 
-  // Phase 7 (Track A A2): warn before a phase or task is saved INTO a done
-  // status over unfinished predecessors, then save if asked. This phase
+  // Phase 7 (Track A A2): warn before a phase or task is saved INTO a
+  // completion status over unfinished predecessors, then save if asked. This phase
   // editor is the ONLY phase-status surface in the product. Existing tasks
   // open TaskDetailPopup instead of this form (openEditTask), so the task arm
   // here meets a create — no predecessors yet — and stays for the day that

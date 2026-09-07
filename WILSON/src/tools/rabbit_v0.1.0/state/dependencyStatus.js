@@ -2,7 +2,8 @@
 // dependencyStatus.js — Phase 7 (docs/fixes/phase-7-dependency-status-warning),
 // Track A bundle A2, 2026-09-06.
 //
-// The ONE definition of "done", and the one predecessor check built on it.
+// The ONE place "done" is defined — as two sets, one per role, see below —
+// and the one predecessor check built on them.
 //
 // Before this file there were two copies of "done": `isTaskDone` in
 // selectors.js (feeds the asset roll-up and the asset-status warning) and a

@@ -1261,7 +1261,7 @@ export function RabbitProvider({ children }) {
     // capture them for undo. Before 0061 phase edges could not exist in cloud
     // at all, so nothing pruned them.
     //
-    // This prunes the CLIENT bundle; each backend prunes its own copy too.
+    // This prunes the CLIENT bundle. The backends differ:
     // Cloud: 0061's ON DELETE CASCADE covers a hard delete, and a soft-deleted
     // phase deliberately KEEPS its edges so they come back on restore. Desktop:
     // since Track A A2 (2026-09-06) the generic rabbitSubentityRoutes DELETE for

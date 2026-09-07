@@ -167,7 +167,8 @@ describe('statusWarning', () => {
     const w = statusWarning({ items: [d], kind: 'task', toStatus: 'approved', ...g })
     expect(w).not.toBeNull()
     expect(w.offenders[0].unfinished.map(t => t.id)).toEqual(['A'])
-    // …and back to Omitted from anywhere is silent.
+    // …and Omitted → Omitted is silent too (every other origin → Omitted is in
+    // the loop above).
     expect(statusWarning({ items: [d], kind: 'task', toStatus: 'omitted', ...g })).toBeNull()
   })
 
