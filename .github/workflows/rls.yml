@@ -24,6 +24,7 @@ on:
   push:
     branches:
       - 'feat/**'
+      - 'track-*'       # the parallel fix tracks (docs/sessions/HANDOFF_PROTOCOL.md), 2026-09-07
   pull_request:
     branches:
       - main

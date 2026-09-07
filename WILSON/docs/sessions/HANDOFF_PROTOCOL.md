@@ -169,6 +169,27 @@ English, fixed / diagnosed / hers to do.
 - **Discard lockfile noise.** `npm install` in a fresh worktree tends to
   rewrite `WILSON/package-lock.json`; `git checkout -- WILSON/package-lock.json`
   before committing unless you deliberately changed `package.json`.
+- 🚨 **A dev schema difference is probably another track's migration, not
+  drift.** Before writing any "repair", read `supabase_migrations.schema_migrations`
+  on that environment for the other tracks' reserved numbers (A 0067–0069,
+  B 0070–0072, C 0073–0075). On 2026-09-06 Track A read Track C's 0073 on dev
+  as corruption and wrote a re-narrow script that would have reverted it.
+  Suites also diverge across branches until merges land: another track's
+  probe going red on your branch is a transient, not a fault — say which
+  branch's suite you ran.
+- **CI runs on every push to a `track-*` branch** since `136030a` (root
+  `rls.yml`, trigger block). Merge `feat/multi-user-v1` in to receive it, and
+  state the run's URL and result in the hand-off instead of "unknown".
+- **The permission classifier decides per command, not per project.** In one
+  session `functions deploy --project-ref <staging>` was allowed while a DDL
+  `db query` against dev and a read against prod were refused; in another the
+  staging deploy was refused. Try the command, record exactly what was
+  refused, hand that to Audrey, never work around it.
+- **One `tap-all` run per project at a time.** Two on the same project race
+  the CLI's temporary login role and the loser's suites report QUERY FAILED,
+  which is not a red assertion and is not counted — read the per-suite lines.
+- **`OUTSTANDING.md`'s session log takes new rows at the top**, so two tracks
+  that both add a row conflict trivially on merge: keep both rows.
 
 ## 7. What the controller session does
 
