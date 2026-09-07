@@ -68,7 +68,18 @@ directory, `link` there, `db query --linked --workdir <dir>`; put
 `inet_server_addr()` and a workspace count in every query).
 
 If a hand-off file names a branch that already exists (a continuation), check
-it out instead of renaming: `git checkout track-a-product`.
+it out instead of renaming: `git checkout track-a-product`. If git refuses
+because the branch is still checked out in the previous session's stale
+worktree, use `git checkout --ignore-other-worktrees track-a-product`; do
+not try to detach or remove the other worktree (the classifier blocks it,
+and it is not yours).
+
+**`RLS_TABLES` entries land with their suite.** The coverage guard runs on
+the branch being tested and demands the `*_<table>.sql` file there, so each
+track adds its own table names to `RLS_TABLES` in the same commit as the
+suite, on its own branch. Track C's ownership of that list means it resolves
+the (adjacent-line) conflicts when branches meet, not that it makes every
+addition.
 
 🚨 **Staging is behind a permission wall in spawned sessions.** The desktop
 app's classifier allows `supabase link` and `functions deploy` against dev
