@@ -266,6 +266,14 @@ automated coverage of this path (§6 #68).
   again. `[NOTE]`
 - Sign in as the MFA-enrolled admin → expect a **6-digit code challenge**; a wrong code →
   refusal and retry, never a half-signed-in state. `[BLOCKING]`
+- Admin Terminal → Logs → **Sign-ins** → expect your own **Signed in** row (`Where` = `app`,
+  with an address) and, with the two Auth hooks enabled (OWED §14), the server's
+  **Sign-in failed** row for the wrong password you typed above. `[BLOCKING]` (B2; walkthrough 11)
+- Leave a signed-in tab alone → **STILL THERE?** at 25 minutes, the login screen at 30 with
+  `SIGNED OUT AFTER 30 MINUTES WITHOUT ACTIVITY.`; sign back in and Sign-ins shows
+  **Signed out (idle)**. `[BLOCKING]`
+- Drop the modem (not Wi-Fi) mid-use and open a page that reads → **Connection lost — reload to
+  continue.** within about 20 s; **RELOAD** recovers. A long upload never shows it. `[NOTE]`
 - Add your admin to a second workspace → expect the **workspace picker** (arrows, Enter), and
   `SYSTEM SETTINGS` → `GENERAL` → workspace switcher to change roster, projects and rate card
   together. `[BLOCKING]`

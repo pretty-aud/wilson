@@ -1180,9 +1180,9 @@ Migration 0070 (`auth_events`) is applied on wilson-dev and wilson-staging,
 and suite 74 proves it — but the two Postgres functions that feed it are only
 called if each project's Auth is told to call them, and that switch lives in
 the dashboard, not in a migration (`supabase config push` is banned, so the
-CLI route is closed on purpose). Until you flip it, sign-ins and MFA
-challenges write nothing; sign-outs and timeouts (part 2 of B2) will still
-flow.
+CLI route is closed on purpose). Until you flip it, the server writes nothing
+for sign-ins and MFA challenges; the app's own sign-in, sign-out and timeout
+rows flow regardless (B2 part 2 shipped them).
 
 Per project — wilson-dev first, then wilson-staging; prod when the release
 session applies 0070 there:
@@ -1207,7 +1207,25 @@ the Postgres logs, not a refusal).
 
 Also yours, from the same brief (fix plan answer 23): the dashboard's session
 controls — Authentication → Sessions → *time-box user sessions* and
-*inactivity timeout* — are per project and in no migration. B2 part 2 ships
-the client's 25 / 30-minute idle warning and sign-out and an absolute cap;
-set the dashboard figures to match, or looser, so the server never signs
-someone out with nothing on screen explaining it.
+*inactivity timeout* — are per project and in no migration. B2 part 2
+shipped the client's 25 / 30-minute idle warning and sign-out and a
+**4-hour** cap; set the dashboard figures to match, or looser (a time-box of
+4 hours or more, an inactivity timeout of 30 minutes or more), so the server
+never signs someone out with nothing on screen explaining it.
+
+4. **Apply migration 0071 on wilson-dev** (B2 part 2, 2026-09-06). It
+   narrows the admin read arm on `auth_events` (a shared member's client
+   rows for their OTHER company were readable by this company's admins). It
+   is already applied and recorded on **staging** and verified there by
+   query and by suite 74 (35/35); the spawned session's classifier refused
+   the same command against dev. From the canonical `WILSON/` with the CLI
+   linked to wilson-dev:
+
+   ```
+   supabase db query --linked --file supabase/migrations/0071_auth_events_admin_scope.sql
+   supabase migration repair --status applied 0071 --linked
+   node scripts/tap-all.mjs 74
+   ```
+
+   Expect the last line to say 35 passed. Until then suite 74 on dev is red
+   on its two 0071 assertions — that is the missing migration, not a fault.

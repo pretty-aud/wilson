@@ -3662,9 +3662,25 @@ of a session — this section is limits by design, that file is faults.
   for); an unknown username never reaches GoTrue and lives in
   `auth_attempt_log` instead. Until the two hooks are enabled in each
   project's dashboard (OWED_AUDREY §14) the functions are inert and only
-  client rows flow. Suite 74 pins all of it; part 2 — the views, the client
-  emitters, the idle timeout and cap, the reload banner — is the next Track B
-  session.
+  client rows flow. Suite 74 pins all of it. **Part 2 shipped (2026-09-06):**
+  the client writes `sign_in` (after a completed sign-in), `sign_out`,
+  `idle_timeout` and `session_cap` rows with `context.surface` (`app` /
+  `admin`); the idle warning at 25 minutes and sign-out at 30, and the 4-hour
+  cap with a 5-minute notice — wall-clock, evaluated on a tick, on activity
+  and on every return to visibility (`sessionTimeouts.js`), with clocks that
+  hang off each surface's own session key, shared by two tabs of one surface
+  on purpose and never across surfaces; `WIL-1002` on both expiries; Admin
+  Terminal → Logs → Sign-ins and the operator console's Sign-ins (filtered to
+  `platform_operators`); and **0071**, which confines the admin arm's
+  membership clause to hook rows — 0070's applied to every row, so an admin
+  of company A could read a shared member's client rows, address included,
+  for company B. The connection-lost banner: `connectionWatchdog.js` wraps
+  the one fetch supabase-js uses and raises "Connection lost — reload to
+  continue" when an auth, PostgREST or storage-download request is pending
+  past 20 s while `navigator.onLine` is true; uploads, the resumable path and
+  every Edge Function call (all raw fetch) are outside it by construction;
+  reproduction in `scripts/probes/connection-hang.mjs`. Reconnect without a
+  reload is deferred (fix plan answer 10).
 
 **Correctness**
 
