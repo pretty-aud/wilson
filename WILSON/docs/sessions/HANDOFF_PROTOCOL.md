@@ -204,9 +204,22 @@ before doing any work. Review subagents pass `model: "opus"`.
   `db query` against dev and a read against prod were refused; in another the
   staging deploy was refused. Try the command, record exactly what was
   refused, hand that to Audrey, never work around it.
-- **One `tap-all` run per project at a time.** Two on the same project race
-  the CLI's temporary login role and the loser's suites report QUERY FAILED,
-  which is not a red assertion and is not counted — read the per-suite lines.
+- **One `tap-all` run at a time, full stop.** The CLI's temporary login role
+  is per login, not per project: two runs against DIFFERENT projects also
+  race (measured by Track A: planned assertion counts came out 25 below the
+  truth, suites that never ran). The loser's suites report QUERY FAILED,
+  which is not a red assertion and is not counted — read the per-suite
+  lines, and never pipe `tap-all` through `tail`.
+- 🚨 **A worktree that has handed off must never commit again.** Two
+  worktrees can hold one track branch (a continuation checks it out with
+  `--ignore-other-worktrees`), and they share the ref: when the newer session
+  commits and pushes, the older worktree's HEAD advances while its FILES stay
+  at the old commit, so its next commit silently REVERTS the newer session's
+  changes (Track A's `75c82b3`, undone by `79b1d3d`). Therefore: the LAST
+  command of a hand-off is `git checkout --detach`, which frees the branch;
+  a session that must commit after a long idle first runs `git fetch origin`
+  and compares `git rev-parse HEAD` with its own last pushed commit, and if
+  they differ runs `git reset --hard origin/<branch>` before touching a file.
 - **`OUTSTANDING.md`'s session log takes new rows at the top**, so two tracks
   that both add a row conflict trivially on merge: keep both rows.
 
