@@ -13,7 +13,7 @@
 --     from the client's DOCUMENT_KINDS array the first time either list grew;
 --     probes 3 and 10 are what refuse it.
 --
---   * 🚨 THE POLARITY TRIPWIRE (probe 17): files.is_core_definer is STILL
+--   * 🚨 THE POLARITY TRIPWIRE (probe 18): files.is_core_definer is STILL
 --     NOT NULL DEFAULT false. MASTER_PLAN §6 #31 trap (b) is that D.O.G. reads
 --     `isCore !== false` (default TRUE) while this column defaults FALSE, and
 --     the tempting "fix" is to move the default here — which would silently
@@ -21,23 +21,39 @@
 --     the client and in the migration tool instead; this probe is what fails
 --     if a later session reaches for the database again.
 --
---   * THE MONEY GATE IS UNTOUCHED (probes 20-23): a plain project member reads
---     an ordinary attachment's kind and description (20, the presence control)
---     and NOTHING of an invoice's (21), while a project manager reads both
---     (22-23). New columns on a money-gated table are a way to widen a read
---     surface without touching a policy; 78 pins the same shape for
---     file_events, and this is its twin for `files` itself.
+--   * THE MONEY GATE IS UNTOUCHED, ON BOTH SIDES (probes 21-25): a plain
+--     project member reads an ordinary attachment's kind and description (22,
+--     the presence control) and NOTHING of an invoice's (23); their WRITE to
+--     an invoice lands on nothing (23-24, added in review round 1 — files_UPDATE
+--     carries the same 0038 money arm and had only a positive control, so a
+--     dropped arm there tripped nothing — though see probe 15's note: it
+--     turned out no behavioural probe CAN isolate files_update, and the fix
+--     was to make probe 15 structural across all four policies); a project
+--     manager reads and writes both (24-25). New columns on a money-gated
+--     table are a way to widen a surface without touching a policy; 78 pins
+--     the same shape for file_events, and this is its twin for `files`.
+--
+--   * 🚨 WHAT anon CAN DO, ASKED OF THE ROLE (probes 16-17). The first version
+--     of probe 16 counted `information_schema.column_privileges` and COULD NOT
+--     FAIL: this file runs as `authenticated` from probe 7 onward, and that
+--     view hides rows granted to anon by postgres from any role that is
+--     neither. `has_table_privilege` is role-independent — suite 77's own
+--     round-1 note says the same of `role_table_grants` — and 17 is the
+--     presence control it had been missing.
 --
 --   * THE POLICIES DID NOT MOVE (probes 12-14): four policies, exactly those
 --     four names, RLS enabled AND forced. 0038 inverted the invoice gate by
 --     re-pointing a policy that looked incidental to its migration; a column
 --     addition is exactly the kind of migration a re-point can ride.
+--     ⚠️ Probe 13 checks NAMES, so it cannot see a DROP + CREATE of the same
+--     name — breaker B5 proved that, tripping 15 and 23 while 13 stayed
+--     green. That is why the arms are asserted as well as the names.
 --
 --   * THE CAP IS REAL (probes 6-8): 2000 characters accepted, 2001 refused,
 --     and the constraint asserted by its DEFINITION rather than its name —
 --     a widened body under the same name would pass a name-only test.
 --
---   * NULL IS A LEGAL KIND (probes 4, 18): the client's select offers "—" and
+--   * NULL IS A LEGAL KIND (probes 4, 20): the client's select offers "—" and
 --     sends null for it, and every image and video row has no document kind at
 --     all. A NOT NULL or a DEFAULT 'other' here would either refuse those
 --     uploads or make them claim to be documents.
@@ -51,7 +67,7 @@
 
 BEGIN;
 
-SELECT plan(23);
+SELECT plan(25);
 
 SELECT * FROM tests.rls_setup();
 
@@ -220,21 +236,73 @@ SELECT is(
     WHERE oid = 'public.files'::regclass),
   true, 'RLS is still enabled AND forced on public.files');                   -- 14
 
--- The money arm survives verbatim in the SELECT policy. Asserted as a
--- substring of the compiled qual, so a re-worded but equivalent arm still
--- passes while a DELETED one fails.
-SELECT ok(
-  (SELECT qual FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'files'
-      AND policyname = 'files_select')
-  LIKE '%can_access_project_money%',
-  'files_select still carries the 0038 money arm');                          -- 15
-
+-- 🚨 THE MONEY ARM SURVIVES ON ALL FOUR POLICIES — the only instrument that
+-- can see it, and review round 1 is why this is structural rather than
+-- behavioural.
+--
+-- The first version pinned files_select alone, and round 1 asked for a
+-- negative twin on files_UPDATE: a plain member's write to an invoice landing
+-- on nothing. MEASURED with the arm deliberately dropped from files_update
+-- (breaker B10), that write STILL affects zero rows — because an UPDATE's
+-- WHERE clause reads the row, so Postgres applies the SELECT policy to it as
+-- well as the UPDATE policy's USING. files_update's arm is therefore NOT
+-- independently observable from a client while files_select's stands, and no
+-- behavioural probe can isolate it. Asserting the compiled qual can.
+--
+-- Asserted as a substring, so a re-worded but equivalent arm still passes
+-- while a DELETED one fails; `permissive` too, because a RESTRICTIVE policy
+-- with the same body means something entirely different (0041's lesson).
 SELECT is(
-  (SELECT count(*)::INT FROM information_schema.column_privileges
-    WHERE table_schema = 'public' AND table_name = 'files'
-      AND grantee IN ('anon', 'PUBLIC')),
-  0, 'anon and PUBLIC hold no column privilege on public.files');            -- 16
+  (SELECT count(*)::INT FROM pg_policies
+    WHERE schemaname = 'public' AND tablename = 'files'
+      AND permissive = 'PERMISSIVE'
+      AND (COALESCE(qual, '') LIKE '%can_access_project_money%'
+        OR COALESCE(with_check, '') LIKE '%can_access_project_money%')),
+  4, 'all four files policies still carry the 0038 money arm');              -- 15
+
+-- 🚨 REWRITTEN IN REVIEW ROUND 1, BECAUSE THE FIRST VERSION COULD NOT FAIL.
+-- It counted `information_schema.column_privileges` for grantee IN
+-- ('anon','PUBLIC') — but this file has been running as `authenticated` since
+-- probe 7, and that view's final predicate is
+-- `pg_has_role(grantor,'USAGE') OR pg_has_role(grantee,'USAGE') OR grantee =
+-- 'PUBLIC'`. As `authenticated`, rows granted TO anon BY postgres are filtered
+-- out of the view entirely, so a deliberate
+-- `GRANT SELECT (description) ON public.files TO anon` still read 0.
+--
+-- has_table_privilege is role-independent and is the idiom 77's own round-1
+-- note already established for exactly this reason ("role_table_grants OMITS
+-- grants made to PUBLIC … anon INHERITS PUBLIC, so asking what anon CAN DO
+-- covers both"). All seven privileges, because a column addition is a
+-- plausible moment for a stray GRANT of any of them.
+-- 🚨 TWO INSTRUMENTS, BECAUSE A COLUMN GRANT IS NOT A TABLE GRANT. Breaker B9
+-- is `GRANT SELECT (description) ON public.files TO anon` — the exact shape a
+-- migration that adds columns might reach for — and has_table_privilege stays
+-- FALSE for it, because the table-level bit is untouched. has_column_privilege
+-- is the one that sees it, and it is asked about the two columns 0075 adds,
+-- which are the only ones this migration could have granted.
+SELECT ok(
+  NOT (has_table_privilege('anon', 'public.files', 'SELECT')
+    OR has_table_privilege('anon', 'public.files', 'INSERT')
+    OR has_table_privilege('anon', 'public.files', 'UPDATE')
+    OR has_table_privilege('anon', 'public.files', 'DELETE')
+    OR has_table_privilege('anon', 'public.files', 'TRUNCATE')
+    OR has_table_privilege('anon', 'public.files', 'REFERENCES')
+    OR has_table_privilege('anon', 'public.files', 'TRIGGER')
+    OR has_column_privilege('anon', 'public.files', 'document_kind', 'SELECT')
+    OR has_column_privilege('anon', 'public.files', 'document_kind', 'UPDATE')
+    OR has_column_privilege('anon', 'public.files', 'description', 'SELECT')
+    OR has_column_privilege('anon', 'public.files', 'description', 'UPDATE')),
+  'anon (and so PUBLIC) can do nothing at all on public.files, table or column');
+                                                                            -- 16
+
+-- PRESENCE CONTROL for probe 16 — the one absence check in this file that had
+-- none, which is how the vacuous version survived. If has_table_privilege
+-- itself were answering NO to everything, this would fail too.
+SELECT ok(
+  has_table_privilege('authenticated', 'public.files', 'SELECT')
+  AND has_table_privilege('authenticated', 'public.files', 'UPDATE'),
+  'authenticated CAN select and update public.files — the probe above is '
+  'reading real answers');                                                  -- 17
 
 -- 🚨 THE POLARITY TRIPWIRE. See the header.
 SELECT is(
@@ -244,7 +312,7 @@ SELECT is(
       AND column_name = 'is_core_definer'),
   'NO/false',
   '🚨 files.is_core_definer is still NOT NULL DEFAULT false — §6 #31 trap (b) '
-  'is resolved in the client, never by moving this default');                -- 17
+  'is resolved in the client, never by moving this default');                -- 18
 
 -- ══ 5. What a member can actually do ════════════════════════════════════════
 
@@ -253,7 +321,7 @@ SELECT is(
 SELECT lives_ok($$
   UPDATE public.files SET document_kind = NULL, description = NULL
    WHERE id = 'aaaa1111-0000-0000-0000-000000007901'
-$$, 'a kind and a description can be cleared back to NULL');                 -- 18
+$$, 'a kind and a description can be cleared back to NULL');                 -- 19
 
 -- Two rows for the money probes: one ordinary attachment, one invoice, both
 -- carrying a kind and a description so an over-broad read is visible.
@@ -271,7 +339,7 @@ VALUES ('aaaa1111-0000-0000-0000-000000007903',
 SELECT is(
   (SELECT count(*)::INT FROM public.files
     WHERE id = 'aaaa1111-0000-0000-0000-000000007903'),
-  1, 'the admin who wrote the invoice row can see it');                      -- 19
+  1, 'the admin who wrote the invoice row can see it');                      -- 20
 
 -- ── user_c: a plain member, no money access ─────────────────────────────────
 SELECT set_config('request.jwt.claims', jsonb_build_object(
@@ -285,7 +353,7 @@ SELECT is(
   (SELECT document_kind::TEXT || '/' || description FROM public.files
     WHERE id = 'aaaa1111-0000-0000-0000-000000007901'),
   'brief/the client brief',
-  'a plain member reads an ordinary attachment''s kind and description');    -- 20
+  'a plain member reads an ordinary attachment''s kind and description');    -- 21
 
 SELECT is(
   (SELECT count(*)::INT FROM public.files
@@ -293,7 +361,32 @@ SELECT is(
       AND (document_kind IS NOT NULL OR description IS NOT NULL)),
   0,
   '🚨 a plain member reads NOTHING of an invoice — the new columns did not '
-  'widen the money gate');                                                   -- 21
+  'widen the money gate');                                                   -- 22
+
+-- 🚨 THE NEGATIVE TWIN FOR files_update's MONEY ARM (review round 1). Probe
+-- 15 pins the arm on files_select by its compiled qual and the last probe in
+-- this file is a POSITIVE control on files_update — a manager writing an
+-- invoice. Neither fails if the arm is dropped from files_update, which is
+-- the write half of the same gate 0038 once inverted. A plain member's UPDATE
+-- must reach zero rows: RLS filters the row out of the USING clause rather
+-- than raising, so this is a row count, not a throws_ok.
+-- ⚠️ RLS FILTERS, IT DOES NOT RAISE: an UPDATE whose USING clause excludes
+-- the row affects zero rows and returns cleanly, so there is nothing for
+-- throws_ok to catch. (A data-modifying CTE cannot be nested inside is()
+-- either — 0A000.) The write is attempted here and its ABSENCE is asserted by
+-- the manager one probe below, who is the only reader who can see the value.
+--
+-- ⚠️ AND IT IS DEFENCE IN DEPTH, NOT AN ISOLATION OF files_update. Breaker
+-- B10 measured it: with the money arm dropped from files_update and left on
+-- files_select, this write still touches zero rows, because the UPDATE's WHERE
+-- clause reads the row and so passes the SELECT policy too. What this pair
+-- proves is the property that matters to a person — a plain member cannot
+-- change an invoice at all — and probe 15 is what would notice the arm going
+-- missing from any one policy.
+SELECT lives_ok($$
+  UPDATE public.files SET description = 'member got in'
+   WHERE id = 'aaaa1111-0000-0000-0000-000000007903'
+$$, 'a plain member''s UPDATE of an invoice is filtered, not refused');     -- 23
 
 -- ── user_d: a project manager, no admin claim ───────────────────────────────
 SELECT set_config('request.jwt.claims', jsonb_build_object(
@@ -306,13 +399,14 @@ SELECT is(
   (SELECT description FROM public.files
     WHERE id = 'aaaa1111-0000-0000-0000-000000007903'),
   'october invoice, 12k',
-  'a project manager reads the invoice''s description through the money arm');
-                                                                             -- 22
+  '🚨 a project manager reads the invoice through the money arm — AND the '
+  'plain member''s write above landed on nothing');
+                                                                             -- 24
 
 SELECT lives_ok($$
   UPDATE public.files SET description = 'october invoice, reissued'
    WHERE id = 'aaaa1111-0000-0000-0000-000000007903'
-$$, 'and can write it — files_update''s money arm admits the same reader');  -- 23
+$$, 'and can write it — files_update''s money arm admits the same reader');  -- 25
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;

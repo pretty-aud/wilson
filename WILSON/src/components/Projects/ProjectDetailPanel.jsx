@@ -91,7 +91,14 @@ export default function ProjectDetailPanel({
   // for 30 days. FALSE on Local Server, where the same button unlinks the
   // body immediately and certificates it as 'purged'. The copy below is the
   // only place a person is told which one they are about to do.
-  deletesAreSoft = true,
+  //
+  // 🚨 DEFAULTS TO THE SAFE CLAIM, NOT THE CONVENIENT ONE (review round 1).
+  // ProjectsPage is the only renderer and passes it explicitly, so this
+  // default is unexercised today — but "moves to trash, kept 30 days" is the
+  // RECOVERABLE claim, and a second renderer that forgot the prop on a Local
+  // Server surface would tell someone their permanently unlinked file could be
+  // restored. False is the claim that is never worse than the truth.
+  deletesAreSoft = false,
   saveError,
   storageWarning,
 }) {

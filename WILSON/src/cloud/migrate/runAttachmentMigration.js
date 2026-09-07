@@ -51,8 +51,26 @@
 
 import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments';
 
-/** Per-file ceiling. Stated in the panel and in the report. */
-export const MAX_ATTACHMENT_BYTES = 64 * 1024 * 1024;
+/**
+ * Per-file ceiling. Stated in the panel and in the report.
+ *
+ * 🚨 32 MiB, NOT 64 — review round 1. THE BACKEND THAT WILL ACTUALLY RUN THIS
+ * IS LOCAL SERVER, because it is the only one whose projects can hold legacy
+ * arrays at all, and `localServerAdapter.uploadFile` base64-encodes the body
+ * into a JSON request that `express.json({ limit: '50mb' })` caps. base64
+ * inflates by 4/3, so the real refusal is at roughly 36 MiB decoded — and a
+ * 64 MiB ceiling meant every file between 36 and 64 MiB failed with a raw
+ * `[localServer] HTTP 413`, counted under `failed` rather than under
+ * `oversize` where the panel explains it. A ceiling that never binds on the
+ * one backend that runs the tool is worse than no ceiling: it makes the panel
+ * promise something it cannot do.
+ *
+ * 32 MiB encodes to about 42.7 MB, comfortably inside the 50 MB body limit
+ * with room for the JSON envelope, and it is the same number D.O.G. spends on
+ * a whole project — so nothing this tool moves can be a file D.O.G. could
+ * never read back anyway.
+ */
+export const MAX_ATTACHMENT_BYTES = 32 * 1024 * 1024;
 
 /**
  * Decode ONE `data:<mime>;base64,<payload>` string into a File.
@@ -238,10 +256,26 @@ export async function runAttachmentMigration({
         // rather than swallowed, because the next run would move them again
         // and produce duplicates — which is exactly what the person needs to
         // know before they run it twice.
+        //
+        // 🚨 R1: supabaseAdapter.updateProject REFUSES this patch whenever
+        // anything is left behind. mapDogProjectFields sets droppedAttachments,
+        // hasRealAttachments sees the remaining entry, and it throws
+        // ATTACHMENTS_MSG — whose text is advice about where to upload files,
+        // which is nonsense as an explanation of a migration writeback. That
+        // refusal is CORRECT (nothing should be writing those arrays to the
+        // cloud) and unreachable today, because a cloud project cannot hold
+        // legacy arrays in the first place; it is reported in words that
+        // describe what actually happened rather than passed through.
+        const raw = err?.message || String(err);
+        const refused = /not saved|file records/i.test(raw);
         report.errors.push({
           projectId, name: null,
-          message: `files were uploaded but the project row was not cleared — `
-                 + `re-running would duplicate them: ${err.message || String(err)}`,
+          message: refused
+            ? 'the files were uploaded, but this backend does not store the old '
+              + 'attachment arrays, so the project record could not be cleared — '
+              + 're-running would upload them a second time'
+            : `files were uploaded but the project row was not cleared — `
+              + `re-running would duplicate them: ${raw}`,
         });
       }
     }

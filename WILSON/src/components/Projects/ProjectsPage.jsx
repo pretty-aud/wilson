@@ -27,14 +27,10 @@ import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
-import { documentKindFor } from '../../tools/rabbit_v0.1.0/deckAttachments'
+import { documentKindFor, NEW_ATTACHMENT_IS_CORE } from '../../tools/rabbit_v0.1.0/deckAttachments'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
 import { LIGHT_INK } from '../lightSurface'
-
-function newFileId() {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
-}
 
 function isMediaMime(t) {
   return (t || '').startsWith('image/') || (t || '').startsWith('video/')
@@ -254,17 +250,27 @@ export default function ProjectsPage({ onNavigate }) {
           // grid, and be invisible to generation. §6 #31 trap (c), measured on
           // `legacy.pdf` by this bundle's round-trip diff.
           documentKind: documentKindFor(file.type, file.name, detectDocumentKind),
-          // 🚨 §6 #31 trap (b), THE POLARITY. Written EXPLICITLY false, which
-          // is what the legacy writer on this page already wrote
-          // (is_core_definer: false) — so a file dropped here means the same
-          // thing before and after C3. It is NOT the same as D.O.G.'s legacy
-          // `isCore` default of TRUE, and the two are deliberately not
-          // unified: unifying them would silently promote or demote every
-          // existing file. New files start as reference and are promoted with
-          // the Core checkbox; legacy rows keep their own default where they
-          // are read. runAttachmentMigration is the one place the two meet,
-          // and it carries `isCore !== false` across rather than defaulting.
-          isCoreDefiner: false,
+          // 🚨 §6 #31 trap (b), THE POLARITY — and review round 1 found the
+          // first version of this line had it BACKWARDS.
+          //
+          // The claim it carried was that `false` matched "what the legacy
+          // writer on this page already wrote (is_core_definer: false)". It
+          // did write that key, and NOTHING READ IT: D.O.G.'s legacy reader
+          // looks at `doc.isCore`, which that writer never set, and reads a
+          // missing flag as CORE. So the identical gesture — drop a brief on
+          // Resources, Local Server — produced a CORE file before C3 and a
+          // REFERENCE file after it: "a primary source of truth for what this
+          // project IS" became "supporting reference material only", silently,
+          // with nothing failing. That is exactly the consequence §6 #31's
+          // disposition row names, arriving through the WRITE path while both
+          // measured diffs — which cover the read path and the migration —
+          // stayed at zero.
+          //
+          // CORE it is, which is also what runAttachmentMigration carries
+          // across, so a brief dropped today means what one dropped last month
+          // means. See deckAttachments.NEW_ATTACHMENT_IS_CORE for the RABBIT
+          // side of this flag.
+          isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
         }, file)
       }
       await loadFileRows(activeProject.id)
@@ -301,16 +307,29 @@ export default function ProjectsPage({ onNavigate }) {
     const docs   = Array.isArray(activeProject.documents)    ? [...activeProject.documents]    : []
     const assets = Array.isArray(activeProject.visualAssets) ? [...activeProject.visualAssets] : []
 
+    // 🚨 R1: A LEGACY ROW HAS TWO NAMES FOR ONE FLAG, and this page was
+    // writing the one nothing reads. ProjectFilesTable's Core checkbox emits
+    // `is_core_definer` — right for a stored row, where it is the column — but
+    // a legacy entry's CORE/REFERENCE role lives in `isCore`, which is what
+    // D.O.G. reads and what runAttachmentMigration carries across. Ticking the
+    // box therefore appeared to work and changed nothing about the split the
+    // checkbox is captioned for. Both are written so the row is consistent
+    // however it is read, and `allFiles` below derives the checkbox's state
+    // from `isCore` so an unticked box no longer lies about a CORE file.
+    const legacyPatch = ('is_core_definer' in patch)
+      ? { ...patch, isCore: !!patch.is_core_definer }
+      : patch
+
     const docIdx = docs.findIndex(f => f.id === fileId)
     if (docIdx >= 0) {
-      docs[docIdx] = { ...docs[docIdx], ...patch }
+      docs[docIdx] = { ...docs[docIdx], ...legacyPatch }
       updateActive({ documents: docs })
       return
     }
 
     const assetIdx = assets.findIndex(f => f.id === fileId)
     if (assetIdx >= 0) {
-      assets[assetIdx] = { ...assets[assetIdx], ...patch }
+      assets[assetIdx] = { ...assets[assetIdx], ...legacyPatch }
       updateActive({ visualAssets: assets })
     }
   }, [activeProject, updateActive, fileRows, ctx])
@@ -428,12 +447,18 @@ export default function ProjectsPage({ onNavigate }) {
     // stored row spells two of those differently, so it is mapped rather than
     // spread.
     const allFiles = [
+      // 🚨 R1: the Core checkbox reads `is_core_definer`, and a legacy row's
+      // real flag is `isCore` with a DEFAULT OF TRUE. Mapping it here is what
+      // makes the box show the state D.O.G. is actually using; without it an
+      // unmarked legacy attachment rendered unticked while generating as CORE.
       ...normalized.documents.map(f => ({
         ...f,
+        is_core_definer: f.isCore !== false,
         is_image: f.is_image ?? isMediaMime(f.type),
       })),
       ...normalized.visualAssets.map(f => ({
         ...f,
+        is_core_definer: f.isCore !== false,
         is_image: f.is_image ?? true,
       })),
       ...fileRows.map(f => ({

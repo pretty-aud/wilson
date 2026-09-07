@@ -1430,6 +1430,29 @@ population is currently empty.
 
 ---
 
+## An expense receipt is not money-gated, and now it can reach a deck
+
+`BudgetView`'s receipt upload calls `adapter.uploadFile(projectId,
+{ type: 'expense' }, file)`. `type` is not a key `uploadFile` reads, and
+`financial` is absent — so the row lands with `is_financial = false` under the
+ordinary `project` path segment, readable by every project member, while
+`InvoiceAttachment` one file away passes `{ financial: true, lineId }` and is
+gated correctly. A receipt states an amount, so this is the same class of
+exposure 0038 exists to close, on the one budget surface that missed it.
+
+**Pre-existing** — since the receipt upload was written, and unrelated to
+Track C. It is recorded here because C3 made it MORE visible rather than
+because C3 caused it: a project-level image is now deck source material, so a
+receipt photo can be downloaded into a generation prompt. Found by C3's review
+round 1.
+
+Fixing it is a two-sided change (the scope AND a decision about whether an
+existing receipt should be migrated behind the money gate), which is why it is
+an entry rather than a line in a commit. Whoever takes it: `uploadFile` already
+does the right thing given `financial: true` — it pins the body to Supabase,
+files it under `INVOICES`, and sets `is_financial` — so the client half is one
+key. The migration half is the question.
+
 ## Session log
 
 Kept so the file's own history is visible without `git log`.

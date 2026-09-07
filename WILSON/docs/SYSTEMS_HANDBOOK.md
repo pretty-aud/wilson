@@ -2357,11 +2357,27 @@ for one contract — the reader and its three writers drifted the moment they
 lived apart):
 
 - `document_kind` is non-null (0075's column, the ten-value enum 0000
-  declared), **or** the file is an image or a video.
-- 🚨 RABBIT's own uploads leave `document_kind` NULL, and that is the whole
-  separation: a project's plates, renders and versions are not deck source
-  material. A file uploaded from RABBIT's Files view becomes one when someone
-  gives it a Kind in the Resources table.
+  declared) — whoever uploaded it; **or** the file is an image or a video
+  **filed against the project itself**, with no `scene_id` / `shot_id` /
+  `asset_id` / `task_id` / `phase_id` / `level_id` / `experience_id`.
+- 🚨 RABBIT's own uploads leave `document_kind` NULL, and for DOCUMENTS that
+  is the whole separation: a project's scripts and specs are not deck source
+  material unless someone gives them a Kind in the Resources table.
+- 🚨 **MEDIA HAS NO MARKER OF ITS OWN, SO THE MARKER IS WHERE IT WAS FILED.**
+  Review round 1 caught the first version of this rule admitting *every* image
+  and video the project had ever held. On a project a month into production
+  the twenty NEWEST files are renders, so the brief was pushed out of D.O.G.'s
+  budget entirely and 32 MiB of production media went into the generation
+  prompt in its place. An entity FileManager stamps the file with the entity it
+  was opened on; the Resources drop zone stamps nothing.
+- ⚠️ **The residue, stated rather than closed.** `FileManager` mounted at
+  PROJECT level stamps no entity either, so an image uploaded there — and an
+  expense receipt, which `BudgetView` uploads with a scope `uploadFile` does
+  not read — is indistinguishable from one dropped on Resources and will be
+  included. It is bounded rather than fixed: documents are always taken first
+  (below), so nothing can crowd out the brief, and D.O.G.'s File roles list
+  names every file it is using. Closing it properly needs a column that says
+  "filed as deck source material", which C3 did not take.
 - 🚨 A writer that KNOWS it is writing an attachment must therefore leave the
   row recognisable. `documentKindFor()` is total by construction: media →
   NULL, anything else → the detected kind **or `'other'`**. Using
@@ -2375,10 +2391,16 @@ lived apart):
 then DOWNLOADS each body through `adapter.downloadFile` and rehydrates it —
 text as text, binary as base64 with the data-URL prefix stripped. Without that
 step a cloud attachment uploads perfectly and contributes nothing to
-generation, which is worse than the loud refusal it replaced. Bounded at the
-**newest 20 files and 32 MiB in total**, because `files` holds a project's
-whole production tree; anything over the budget is skipped rather than
-truncated, and the panel states how many were left out.
+generation, which is worse than the loud refusal it replaced. Bounded at
+**20 files and 32 MiB in total**, because `files` holds a project's whole
+production tree; anything over the budget is skipped rather than truncated,
+and the panel states how many were left out.
+
+🚨 **The budget is spent DOCUMENTS FIRST, then media, each newest-first**
+(`orderAttachmentCandidates`). A single date sort spends it on whatever
+happens to be newest, which on a working project is media — so what the bound
+costs is visual reference material and never the source material the deck is
+about.
 
 **The legacy arrays are still read.** `project.documents[]` /
 `visualAssets[]` are never written any more but are still merged into both the
@@ -2392,6 +2414,22 @@ returns — so a crash mid-run means a re-run moves exactly what is left.
 **Two CORE flags with opposite defaults**, deliberately not unified — see
 §17's "Correctness" note. `runAttachmentMigration` is the one place they meet
 and it carries `isCore !== false` across explicitly.
+
+🚨 **A NEWLY WRITTEN ATTACHMENT IS CORE** (`NEW_ATTACHMENT_IS_CORE`), because
+that is what the legacy writer produced: it never set `isCore`, and D.O.G.
+reads a missing flag as CORE. Review round 1 found this bundle's first version
+writing `false` there, which turned an identical gesture — drop a brief on
+Resources — from "a primary source of truth for what this project IS" into
+"supporting reference material only", silently. Both measured polarity diffs
+stayed at zero throughout, because both covered the READ path and the
+migration and neither covered the WRITE path.
+
+⚠️ **And `is_core_definer` is also RABBIT's flag.** `intake/pipeline.js` and
+`IntakeWizardView` select on it, so a document dropped on Resources now
+appears as an intake candidate. For a brief or a treatment that is the right
+answer — a document that defines the project is what intake means by a core
+definer — and nothing runs on its own: `IntakeProgress` is the only caller of
+`startBackgroundIngestion`. Recorded here rather than left to be discovered.
 
 ## 13. The three tools, the shell, and the agent
 

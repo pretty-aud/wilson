@@ -1,14 +1,14 @@
 // =============================================================================
-// projectAttachmentSource.test.js — Track C, bundle C3 (MASTER_PLAN §6 #31).
+// deckAttachmentSource.test.js — Track C, bundle C3 (MASTER_PLAN §6 #31).
 //
 // D.O.G.'s side of the re-homing: WHICH stored file rows are deck attachments,
 // what kind of source block each becomes, and — the part that would be silent
 // — the two polarities that must NOT be unified.
 //
-// The two exported helpers are driven directly. The polarity itself lives
-// inside the component's readers, so it is held here by a SOURCE PIN, which is
-// the only instrument available for logic inside a 5000-line component's
-// hooks. 🚨 The pin normalises CRLF before matching: the working tree is CRLF
+// The contract's exported helpers are driven directly. The polarity itself
+// lives inside the component's readers, so it is held here by a SOURCE PIN,
+// which is the only instrument available for logic inside a 5700-line
+// component's hooks. 🚨 The pin normalises CRLF before matching: the working tree is CRLF
 // under core.autocrlf and CI's checkout is LF, so a multi-line regex that
 // passes on this machine fails in CI (Track C hit exactly this in C2).
 // =============================================================================
@@ -17,8 +17,10 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { isDeckAttachmentRow, dogTypeForRow, documentKindFor, attachmentRowIsVisible }
-  from '../rabbit_v0.1.0/deckAttachments'
+import {
+  isDeckAttachmentRow, isDeckDocumentRow, dogTypeForRow, documentKindFor,
+  attachmentRowIsVisible, orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
+} from '../rabbit_v0.1.0/deckAttachments'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const read = (p) => readFileSync(join(HERE, p), 'utf8').replace(/\r\n/g, '\n')
@@ -35,9 +37,35 @@ describe('isDeckAttachmentRow', () => {
       .toBe(true)
   })
 
-  it('takes images and video — what visualAssets[] used to hold', () => {
+  it('takes PROJECT-LEVEL images and video — what visualAssets[] used to hold', () => {
     expect(isDeckAttachmentRow(row({ mime_type: 'image/png' }))).toBe(true)
     expect(isDeckAttachmentRow(row({ mime_type: 'video/mp4' }))).toBe(true)
+  })
+
+  it('🚨 LEAVES media filed against a production entity alone', () => {
+    // Review round 1: without this the media arm read "every image or video
+    // this project has ever held" — every plate, render and frame grab from
+    // RABBIT's Files view. On a project a month into production the twenty
+    // NEWEST files are renders, so the brief was pushed out of D.O.G.'s budget
+    // entirely and 32 MiB of production media went into the prompt instead.
+    // The first version of THIS test asserted the exclusion using only
+    // `application/octet-stream` and `application/zip`, which is why it passed
+    // while the claim was false — the missing case was the only one that
+    // mattered.
+    for (const key of ['scene_id', 'shot_id', 'asset_id', 'task_id',
+                       'phase_id', 'level_id', 'experience_id']) {
+      expect(isDeckAttachmentRow(row({ mime_type: 'image/png', [key]: 'e1' })),
+        `an image filed under ${key} is not a deck attachment`).toBe(false)
+      expect(isDeckAttachmentRow(row({ mime_type: 'video/mp4', [key]: 'e1' })),
+        `a video filed under ${key} is not a deck attachment`).toBe(false)
+    }
+  })
+
+  it('still takes a DOCUMENT filed against an entity — the kind is the marker', () => {
+    // A document only ever gets a kind from one of the three attachment
+    // writers, so it stays a deck attachment wherever it was filed. The entity
+    // check exists for media, which has no marker of its own.
+    expect(isDeckAttachmentRow(row({ document_kind: 'brief', asset_id: 'a1' }))).toBe(true)
   })
 
   it('LEAVES an unclassified production file alone', () => {
@@ -193,6 +221,103 @@ describe('the attachment bound', () => {
   it('says how many files it left out', () => {
     expect(SRC).toMatch(/setStoredFilesNote\(/)
     expect(SRC).toMatch(/not included/)
+  })
+})
+
+// ── Documents cannot be crowded out ─────────────────────────────────────────
+
+describe('orderAttachmentCandidates', () => {
+  it('puts every document ahead of every media file, each newest-first', () => {
+    // 🚨 The bound spends itself in this order, so what it costs is visual
+    // reference material and never the brief the deck is about. A single date
+    // sort put the newest renders first and reported the brief as "1 more file
+    // is not included".
+    const rows = [
+      { name: 'render-new.png', mime_type: 'image/png',       uploaded_at: '2026-09-06' },
+      { name: 'brief-old.pdf',  document_kind: 'brief',        uploaded_at: '2026-01-01' },
+      { name: 'render-old.png', mime_type: 'image/png',       uploaded_at: '2026-02-01' },
+      { name: 'notes-new.txt',  document_kind: 'notes',        uploaded_at: '2026-09-05' },
+    ]
+    expect(orderAttachmentCandidates(rows).map(r => r.name))
+      .toEqual(['notes-new.txt', 'brief-old.pdf', 'render-new.png', 'render-old.png'])
+  })
+
+  it('does not mutate its input', () => {
+    const rows = [{ name: 'a', mime_type: 'image/png' }, { name: 'b', document_kind: 'brief' }]
+    orderAttachmentCandidates(rows)
+    expect(rows.map(r => r.name)).toEqual(['a', 'b'])
+  })
+
+  it('isDeckDocumentRow is the split it sorts on', () => {
+    expect(isDeckDocumentRow({ document_kind: 'brief' })).toBe(true)
+    expect(isDeckDocumentRow({ mime_type: 'image/png' })).toBe(false)
+    expect(isDeckDocumentRow(null)).toBe(false)
+  })
+})
+
+// ── §6 #31 trap (b), the WRITE half ─────────────────────────────────────────
+
+describe('a newly written attachment is CORE', () => {
+  it('NEW_ATTACHMENT_IS_CORE is true, matching the legacy default', () => {
+    // 🚨 Review round 1 found this bundle had it backwards. D.O.G.'s legacy
+    // reader treats a missing `isCore` as CORE, and the Resources page's legacy
+    // writer never set one — so rerouting that writer with
+    // `isCoreDefiner: false` turned "a primary source of truth for what this
+    // project IS" into "supporting reference material only" for every file
+    // dropped after the change, silently. runAttachmentMigration carries
+    // `isCore !== false` across, so this constant is what keeps a brief
+    // dropped today meaning what one dropped last month means.
+    expect(NEW_ATTACHMENT_IS_CORE).toBe(true)
+  })
+
+  it('and both writers use the constant rather than a literal', () => {
+    const PROJECTS = read('../../components/Projects/ProjectsPage.jsx')
+    expect(PROJECTS).toMatch(/isCoreDefiner: NEW_ATTACHMENT_IS_CORE/)
+    expect(SRC).toMatch(/isCoreDefiner: NEW_ATTACHMENT_IS_CORE/)
+    expect(PROJECTS).not.toMatch(/isCoreDefiner: false/)
+    expect(SRC).not.toMatch(/isCoreDefiner: false/)
+  })
+
+  it('🚨 and neither writer can file an attachment as money', () => {
+    // The brief's fourth requirement, read off the REAL call sites rather than
+    // off a literal built inside the test (review round 1 called the first
+    // version tautological, and it was: it asserted a property of an object
+    // declared two lines above it).
+    //
+    // The scope each writer passes is sliced out by BRACE MATCHING from the
+    // `adapter.uploadFile(` token rather than by a regex, so a reformat cannot
+    // make the check silently match nothing. Neither writer may pass
+    // `financial` — which files the body under the INVOICES segment, readable
+    // only by managers, so the person who uploaded their own brief could not
+    // read it back — nor an entity id, which files it under a scene, shot or
+    // asset and takes it out of D.O.G.'s reach entirely.
+    // uploadScope.test.js pins the container function these feed.
+    const scopeArgOf = (src, from) => {
+      const open = src.indexOf('{', src.indexOf('(', from))
+      let depth = 0
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') depth++
+        else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(open, i + 1) }
+      }
+      return null
+    }
+    const PROJECTS = read('../../components/Projects/ProjectsPage.jsx')
+    for (const [label, src] of [['ProjectsPage', PROJECTS], ['DeckOutlineGenerator', SRC]]) {
+      const scopes = []
+      for (let i = src.indexOf('adapter.uploadFile('); i >= 0;
+           i = src.indexOf('adapter.uploadFile(', i + 1)) {
+        const scope = scopeArgOf(src, i)
+        if (scope) scopes.push(scope)
+      }
+      expect(scopes.length, label + ' has no adapter.uploadFile scope to check')
+        .toBeGreaterThan(0)
+      for (const scope of scopes) {
+        expect(scope, label + ' passes financial to uploadFile')
+          .not.toMatch(/financial\s*:/)
+        expect(scope, label + ' passes an entity id to uploadFile')
+          .not.toMatch(/\b(assetId|taskId|phaseId|sceneId|shotId|levelId|experienceId)\s*:/)
+      }
+    }
   })
 })
 

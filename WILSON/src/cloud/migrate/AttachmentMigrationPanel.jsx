@@ -21,12 +21,15 @@ import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/Project
 import { runAttachmentMigration, MAX_ATTACHMENT_BYTES } from './runAttachmentMigration'
 import { LIGHT_INK } from '../../components/lightSurface'
 
+// MiB, and it says MiB. R1: the ceiling is a hard limit a person will run
+// into, so rounding it into "64.0 MB" and being refused at 36 is the kind of
+// small lie that costs an afternoon.
 function fmtBytes(b) {
   if (!b) return '0 B'
   if (b < 1024) return `${b} B`
-  if (b < 1048576) return `${(b / 1024).toFixed(1)} KB`
-  if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MB`
-  return `${(b / 1073741824).toFixed(2)} GB`
+  if (b < 1048576) return `${(b / 1024).toFixed(1)} KiB`
+  if (b < 1073741824) return `${(b / 1048576).toFixed(1)} MiB`
+  return `${(b / 1073741824).toFixed(2)} GiB`
 }
 
 export default function AttachmentMigrationPanel() {

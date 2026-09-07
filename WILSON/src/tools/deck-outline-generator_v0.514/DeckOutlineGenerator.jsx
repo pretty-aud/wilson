@@ -5,7 +5,8 @@ import { adapterSupportsWrites } from '../../tools/rabbit_v0.1.0/adapters';
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable';
 import {
   isDeckAttachmentRow, dogTypeForRow, documentKindFor,
-  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES,
+  orderAttachmentCandidates, NEW_ATTACHMENT_IS_CORE,
+  DOG_ATTACHMENT_MAX_FILES, DOG_ATTACHMENT_MAX_BYTES, DOG_ATTACHMENT_MAX_MB,
 } from '../../tools/rabbit_v0.1.0/deckAttachments';
 import { callAI } from '../../cloud/aiProxy';
 import { uploadAIFile, FILES_BETA } from '../../cloud/aiFiles';
@@ -309,6 +310,11 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     if (!selectedProjectId || !adapter?.listFiles || !adapter?.downloadFile) {
       setStoredProjectFiles([]);
       setStoredFilesNote('');
+      // 🚨 R1: CLEARED HERE TOO. It used to be set only on the live path and
+      // cleared only at the end of it, so an aborted run (`if (!live) return`)
+      // followed by an early return left "Reading project attachments…" on
+      // screen for the rest of the session, hiding the real count.
+      setStoredFilesBusy(false);
       return () => { live = false; };
     }
     setStoredFilesBusy(true);
@@ -324,10 +330,12 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         if (live) { setStoredProjectFiles([]); setStoredFilesNote(''); setStoredFilesBusy(false); }
         return;
       }
-      const candidates = (rows || [])
-        .filter(isDeckAttachmentRow)
-        .sort((a, b) => new Date(b.uploaded_at || b.created_at || 0)
-                      - new Date(a.uploaded_at || a.created_at || 0));
+      // 🚨 R1: ORDERED BY KIND FIRST, then date. A single date sort spends
+      // the budget on whatever is newest, which on a working project is media
+      // — so the brief the deck is about falls off the end and is reported
+      // only as "N more files are not included". See
+      // deckAttachments.orderAttachmentCandidates.
+      const candidates = orderAttachmentCandidates((rows || []).filter(isDeckAttachmentRow));
 
       const out = [];
       let bytes = 0;
@@ -374,14 +382,21 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         }
       }
       if (!live) return;
-      const left = candidates.length - out.length;
+      // 🚨 R1: `left` ALREADY INCLUDES the two counted causes, so listing all
+      // three side by side double-counted them. Only the remainder — files the
+      // COUNT cut off — is reported as its own number, and the size figure
+      // comes from the constant rather than a literal beside it.
+      const left = candidates.length - out.length - skippedTooBig - failed;
       const parts = [];
       if (left > 0) {
         parts.push(`${left} more file${left === 1 ? '' : 's'} on this project ` +
-          `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads the newest ` +
-          `${DOG_ATTACHMENT_MAX_FILES} attachments, up to 32 MB in total`);
+          `${left === 1 ? 'is' : 'are'} not included — D.O.G. reads ` +
+          `${DOG_ATTACHMENT_MAX_FILES} attachments at most, documents first, ` +
+          `up to ${DOG_ATTACHMENT_MAX_MB} MB in total`);
       }
-      if (skippedTooBig > 0) parts.push(`${skippedTooBig} over the size budget`);
+      if (skippedTooBig > 0) {
+        parts.push(`${skippedTooBig} over the ${DOG_ATTACHMENT_MAX_MB} MB budget`);
+      }
       if (failed > 0) parts.push(`${failed} could not be read`);
       setStoredProjectFiles(out);
       setStoredFilesNote(parts.join(' · '));
@@ -473,27 +488,42 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     if (!entry) return;
 
     if (entry.source === 'stored') {
+      // 🚨 R1, §6 #31 trap (f) AGAIN, at the one gate this bundle missed.
+      // `if (!adapter?.updateFile)` is the typeof check the trap names:
+      // googleDriveAdapter sets `updateFile: readOnly('updateFile')`, a
+      // FUNCTION THAT THROWS, so on Drive the guard passed, the tag flipped
+      // optimistically, the write threw into a console line and the reload
+      // flipped it back — a silent revert. The mode is the gate here as
+      // everywhere else, and the button is disabled to match.
+      if (!canStoreFiles) return;
       const adapter = getAdapter?.();
       if (!adapter?.updateFile) return;
       const next = !entry.isCore;
-      // Optimistic, then reconciled by the reload — the same shape
-      // ProjectsPage uses, and for the same reason: a round trip per click
-      // makes the toggle feel broken.
-      setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id
-        ? { ...f, isCore: next,
-            file: { ...f.file,
-              name: `${next ? '[Project · CORE]' : '[Project · REF]'} ` +
-                    `${f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')}` } }
-        : f)));
+      const relabel = (f, core) => ({
+        ...f, isCore: core,
+        file: { ...f.file,
+          name: `${core ? '[Project · CORE]' : '[Project · REF]'} ` +
+                `${f.file.name.replace(/^\[Project · (CORE|REF)\]\s*/, '')}` },
+      });
+      // Optimistic, and reconciled LOCALLY rather than by a reload.
+      setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, next) : f)));
       try {
         await adapter.updateFile(entry.rowId, {
           is_core_definer: next,
           project_id: selectedProjectId,
         });
       } catch (err) {
+        // 🚨 R1: DO NOT BUMP THE RELOAD KEY HERE. It is a dependency of the
+        // fetch effect, so every click re-ran the effect and re-DOWNLOADED
+        // every attachment body — up to 20 files and 32 MiB per toggle. Worse
+        // than the bandwidth: supabaseAdapter.downloadFile calls the
+        // log_file_downloaded RPC and Local Server's route appends a
+        // `downloaded` event, so each click wrote N audit rows for downloads
+        // nobody performed, into the very stream 0047 exists to keep honest.
+        // One flag changed; only that flag is reconciled.
         console.error('[DOG] toggle core flag failed:', err);
-      } finally {
-        setStoredFilesReloadKey(k => k + 1);
+        setStoredProjectFiles(prev => prev.map(f => (f.id === entry.id ? relabel(f, !next) : f)));
+        setStoredFilesNote(`That file's role could not be saved: ${err?.message || err}`);
       }
       return;
     }
@@ -511,7 +541,7 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
     } catch (err) {
       console.error('[DOG] toggle core flag failed:', err);
     }
-  }, [selectedProject, selectedProjectId, updateUnifiedProject, getAdapter]);
+  }, [selectedProject, selectedProjectId, updateUnifiedProject, getAdapter, canStoreFiles]);
 
   // Reset all new project modal fields
   const resetNewProjectModal = useCallback(() => {
@@ -592,8 +622,10 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
         }),
         status:       'active',
       });
-      if (created?.id) setSelectedProjectId(created.id);
-
+      // 🚨 R1: SELECTED AFTER THE UPLOADS, NOT BEFORE. Setting it first
+      // starts the fetch effect, whose final setStoredFilesNote('') races the
+      // catch below and can erase the failure message the comment promises is
+      // never silent — while resetNewProjectModal() closes the modal anyway.
       if (created?.id && canStoreFiles && pending.length > 0) {
         const adapter = getAdapter?.();
         if (adapter?.uploadFile) {
@@ -608,13 +640,18 @@ export default function DeckOutlineGenerator({ onNavigate, showNavMenu, onToggle
               // from generation. Measured on `legacy.pdf` by this bundle's
               // round-trip diff.
               documentKind: documentKindFor(f.type, f.name, detectDocumentKind),
-              // The polarity, explicit — see supabaseAdapter.uploadFile.
-              isCoreDefiner: false,
+              // 🚨 R1, §6 #31 trap (b): CORE, not false. This modal's legacy
+              // writer never set `isCore`, and D.O.G. reads a missing flag as
+              // CORE — so `false` here quietly demoted every file attached at
+              // project creation from "a primary source of truth" to
+              // "supporting reference material only". See
+              // deckAttachments.NEW_ATTACHMENT_IS_CORE.
+              isCoreDefiner: NEW_ATTACHMENT_IS_CORE,
             }, f.raw);
           }
-          setStoredFilesReloadKey(k => k + 1);
         }
       }
+      if (created?.id) setSelectedProjectId(created.id);
     } catch (err) {
       console.error('[DOG] createProject failed:', err);
       setStoredFilesNote(`Project attachments could not be saved: ${err?.message || err}`);
@@ -4242,12 +4279,19 @@ Generate an optimized ${modelName} prompt for each asset listed above. Follow yo
                                 <button
                                   type="button"
                                   onClick={() => toggleProjectFileCore(entry)}
+                                  // R1: a stored row's flag can only be written
+                                  // on a backend that supports writes. A legacy
+                                  // row's lives on the project record and
+                                  // follows updateProject's own rules.
+                                  disabled={entry.source === 'stored' && !canStoreFiles}
                                   className="px-1.5 py-0.5 rounded-sm text-[9px] font-mono uppercase tracking-wider transition-colors flex-shrink-0"
                                   style={{
                                     width: '52px',
                                     backgroundColor: isCore ? '#ea580c' : '#44403c',
                                     color: isCore ? '#fff7ed' : '#a8a29e',
                                     border: `1px solid ${isCore ? '#c2410c' : '#57534e'}`,
+                                    cursor: entry.source === 'stored' && !canStoreFiles ? 'default' : 'pointer',
+                                    opacity: entry.source === 'stored' && !canStoreFiles ? 0.6 : 1,
                                   }}
                                   title={isCore ? 'CORE — defines the project concept (click to demote)' : 'REFERENCE — supporting context only (click to promote to core)'}
                                 >
