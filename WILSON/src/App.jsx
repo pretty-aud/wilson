@@ -521,38 +521,38 @@ export default function App() {
   const signOutLocal = useCallback(async ({ event = 'sign_out' } = {}) => {
     if (signingOutRef.current) return signingOutRef.current;
     const run = (async () => {
-    const expiry = EXPIRE_REASONS.includes(event) ? event : null;
-    setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
-    await clearSession();
-    const writes = [];
-    if (event) writes.push(recordAuthEvent(event));
-    if (expiry) {
-      writes.push(withTimeout(reportAppEvent({
-        code: 'WIL-1002', eventType: 'auth', severity: 'info',
-        context: { reason: expiry, surface: 'app' },
-      }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
-    }
-    if (writes.length) await Promise.all(writes);
-    try {
-      await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
-    } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
-    setSessionId(null);
-    // 🚨 Belt and braces with the perms.userId teardown effect: this runs
-    // even if the permissions channel is slow to notice, so the next person
-    // at this computer cannot see the previous person's pet for a beat.
-    setPetData(null);
-    petUserIdRef.current = null;
-    petPersistedSigRef.current = null;
-    // Phase 3: the two error channels were left set across sign-out, so the
-    // next person at this computer inherited "Ollie isn't being saved" from
-    // somebody else's session.
-    setPetSaveError(null);
-    setNewPetStatus(null);
-    setAuthed(false);
-    setShowOverlay(true);
-    // Arm the welcome again — signing back in during the same session is a
-    // new arrival, and a once-per-page-load ref would silently skip it.
-    welcomePlayedRef.current = false;
+      const expiry = EXPIRE_REASONS.includes(event) ? event : null;
+      setSignedOutNotice(expiry ? describeSessionExpiry(expiry) : '');
+      await clearSession();
+      const writes = [];
+      if (event) writes.push(recordAuthEvent(event));
+      if (expiry) {
+        writes.push(withTimeout(reportAppEvent({
+          code: 'WIL-1002', eventType: 'auth', severity: 'info',
+          context: { reason: expiry, surface: 'app' },
+        }), 4000, 'WIL-1002').catch(() => { /* best-effort */ }));
+      }
+      if (writes.length) await Promise.all(writes);
+      try {
+        await withTimeout(supabase.auth.signOut({ scope: 'local' }), AUTH_EVENT_TIMEOUT_MS, 'sign-out');
+      } catch { /* a hung revoke must not strand the person on a signed-in screen */ }
+      setSessionId(null);
+      // 🚨 Belt and braces with the perms.userId teardown effect: this runs
+      // even if the permissions channel is slow to notice, so the next person
+      // at this computer cannot see the previous person's pet for a beat.
+      setPetData(null);
+      petUserIdRef.current = null;
+      petPersistedSigRef.current = null;
+      // Phase 3: the two error channels were left set across sign-out, so the
+      // next person at this computer inherited "Ollie isn't being saved" from
+      // somebody else's session.
+      setPetSaveError(null);
+      setNewPetStatus(null);
+      setAuthed(false);
+      setShowOverlay(true);
+      // Arm the welcome again — signing back in during the same session is a
+      // new arrival, and a once-per-page-load ref would silently skip it.
+      welcomePlayedRef.current = false;
     })();
     signingOutRef.current = run;
     // Released on the next sign-in (handleAuth), not here: everything after
