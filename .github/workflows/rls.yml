@@ -97,8 +97,31 @@ jobs:
           fi
           echo "RLS test coverage OK for ${#RLS_TABLES[@]} tables."
 
+      # 🚨 `supabase start` APPLIES EVERY MIGRATION to a fresh database, so a
+      # migration that is fine against dev and staging (which skip 0065, and
+      # already hold the objects it creates) can still fail HERE — and until
+      # 2026-09-07 the only thing it produced was "Process completed with exit
+      # code 1". Full logs need repo admin; annotations are public. This is the
+      # same argument the pgTAP steps below already make, applied to the step
+      # that fails first and says least.
       - name: Start Supabase local DB
-        run: supabase start --exclude realtime,storage-api,imgproxy,edge-runtime,studio,mailpit
+        run: |
+          set -o pipefail
+          supabase start --exclude realtime,storage-api,imgproxy,edge-runtime,studio,mailpit 2>&1 | tee /tmp/start.log
+
+      - name: Annotate a failed start
+        if: failure()
+        run: |
+          # A migration failure surfaces as `ERROR: …` plus the statement; the
+          # cap keeps one broken migration from exhausting GitHub's 10-per-step
+          # annotation budget before the useful line is reached.
+          grep -nE 'ERROR|FATAL|error:|failed|Failed|does not exist|violates' /tmp/start.log \
+            | head -12 \
+            | while IFS= read -r line; do
+                echo "::error title=supabase start::${line}"
+              done
+          echo "----- supabase start output (tail 80) -----"
+          tail -80 /tmp/start.log || true
 
       # Track C / C2 (2026-09-07): THE GUARD IS NOW TWO-DIRECTIONAL. The step
       # above proves every table in RLS_TABLES has a suite; nothing ever proved
