@@ -1213,13 +1213,17 @@ shipped the client's 25 / 30-minute idle warning and sign-out and a
 4 hours or more, an inactivity timeout of 30 minutes or more), so the server
 never signs someone out with nothing on screen explaining it.
 
-4. **Apply migration 0071 on wilson-dev** (B2 part 2, 2026-09-06). It
-   narrows the admin read arm on `auth_events` (a shared member's client
-   rows for their OTHER company were readable by this company's admins). It
-   is already applied and recorded on **staging** and verified there by
-   query and by suite 74 (35/35); the spawned session's classifier refused
-   the same command against dev. From the canonical `WILSON/` with the CLI
-   linked to wilson-dev:
+4. ~~**Apply migration 0071 on wilson-dev**~~ — ✅ **DONE 2026-09-07**, by the
+   Track B close-out session; **nothing is owed here any more.** It narrows
+   the admin read arm on `auth_events` (a shared member's client rows for
+   their OTHER company were readable by this company's admins). Applied and
+   recorded on **staging** by B2 part 2, and now on **dev** as well: the
+   earlier sessions' classifier refused the command against dev, this one
+   allowed it. Verified on dev two ways, not one — `schema_migrations` now
+   carries `0071`, AND the live policy read back from `pg_policies` confines
+   the membership clause to hook rows (`workspace_id IS NULL`), so it is a
+   real change and not just a history row. Commands kept for the record, and
+   for prod when the release session gets there:
 
    ```
    supabase db query --linked --file supabase/migrations/0071_auth_events_admin_scope.sql
@@ -1227,5 +1231,18 @@ never signs someone out with nothing on screen explaining it.
    node scripts/tap-all.mjs 74
    ```
 
-   Expect the last line to say 35 passed. Until then suite 74 on dev is red
-   on its two 0071 assertions — that is the missing migration, not a fault.
+   ⚠️ **The old "expect 35 passed" line was wrong, and is corrected here.**
+   That figure came from a pristine database. Suite 74's last two assertions
+   — #34 (operator sees every row) and #35 (`purge_auth_events`) — each do a
+   global `count(*) FROM public.auth_events` expecting exactly the nine rows
+   the suite seeds, so **any** real accumulated row fails them. On dev, which
+   holds 106 client rows written by CI's Playwright runs, the suite reads
+   **33/35 with those two as the only failures** — that is the assertions'
+   pristine-database assumption, not 0071 and not a fault. The same suite is
+   green in CI, which runs it against a fresh local database. So on dev
+   (and on staging once anyone signs in there) 33/35 is the correct, healthy
+   reading; treat a failure anywhere else in the suite as the real signal.
+
+   Running it on dev is safe: the suite is wrapped `BEGIN … ROLLBACK`, so its
+   nine seeded rows are removed again and #35's purge never touches real
+   ones. Measured 2026-09-07: 106 rows before, 115 during, 106 after.
