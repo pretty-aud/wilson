@@ -28,7 +28,7 @@
 
 BEGIN;
 
-SELECT plan(27);
+SELECT plan(37);
 
 SELECT * FROM tests.rls_setup();
 
@@ -259,6 +259,124 @@ RESET ROLE;
 SELECT is((SELECT count(*)::int FROM public.user_pets
             WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
           1, 'the other member''s pet survived the unqualified DELETE');
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Track A, bundle A3 (2026-09-07) — migration 0068's stale-write guard, and
+-- the feedback size cap 0046 asserted in a comment and never tested.
+--
+-- 🚨 user_c's pet was DELETED by the probes above; user_d's survived. Every
+-- probe below therefore runs as user_d, on the row the delete section proved
+-- is still there.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+SELECT has_trigger('public', 'user_pets', 'trg_user_pets_reject_stale_write',
+  '0068: the stale-write guard is attached to user_pets');
+
+-- Presence is not the property — TIMING is. An AFTER trigger would raise after
+-- the row had already been written by a statement that then rolls back, and a
+-- STATEMENT-level one has no OLD/NEW at all, so either would make the guard
+-- meaningless while has_trigger stayed green.
+SELECT is(
+  (SELECT count(*)::int FROM pg_trigger
+    WHERE tgrelid = 'public.user_pets'::regclass
+      AND tgname  = 'trg_user_pets_reject_stale_write'
+      AND NOT tgisinternal
+      AND (tgtype & 1) = 1 AND (tgtype & 2) = 2 AND (tgtype & 16) = 16),
+  1, 'and it is BEFORE UPDATE, FOR EACH ROW');
+
+SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd',
+                      '11111111-1111-1111-1111-111111111111');
+
+-- ── the ACCEPTING CONTROL that matters most ────────────────────────────────
+-- An UNCHANGED anchor is the ordinary case: every save that does not move
+-- hunger or happiness — Pet Mode, difficulty, Reset History, renaming a
+-- hatchling — re-sends the anchor the client is holding. A guard written with
+-- <= instead of < refuses all of those, which is the way a concurrency check
+-- is most likely to ship broken. now() is the transaction's start time and the
+-- row was inserted in this transaction, so this genuinely is equality.
+SELECT lives_ok(
+  $$UPDATE public.user_pets SET name = 'Dee-equal', last_updated_at = now()$$,
+  '0068: a save carrying the SAME anchor is accepted — the unchanged-anchor case');
+
+-- ── the REFUSING PROBE ─────────────────────────────────────────────────────
+-- The SQLSTATE, not the message: the client branches on this to re-read
+-- instead of retrying, and a message match is what rots.
+SELECT throws_ok(
+  $$UPDATE public.user_pets SET name = 'Stale', last_updated_at = now() - INTERVAL '1 hour'$$,
+  'WP001',
+  NULL,
+  '0068: a save carrying an OLDER anchor is refused with SQLSTATE WP001');
+
+-- 🚨 Counted over the WHOLE condition, not read as a column. A probe that
+-- selects one field and compares it can pass on NULL = NULL when the row it
+-- meant to inspect is not there at all — the false pass the A2 session found
+-- under the exact mutation its probe existed to catch. This asserts BOTH
+-- halves at once: the equal-anchor write landed (name is 'Dee-equal') and the
+-- older-anchor write did not (it is not 'Stale').
+SELECT is(
+  (SELECT count(*)::int FROM public.user_pets
+    WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      AND name = 'Dee-equal'),
+  1, 'the refused write changed nothing, and the accepted one did');
+
+-- ── forward is still allowed ───────────────────────────────────────────────
+-- Without this the guard could be "refuse every UPDATE" and everything above
+-- would still be green.
+SELECT lives_ok(
+  $$UPDATE public.user_pets
+       SET happiness = 41, last_updated_at = now() + INTERVAL '1 hour'$$,
+  '0068: a save carrying a NEWER anchor is accepted');
+
+SELECT is(
+  (SELECT count(*)::int FROM public.user_pets
+    WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+      AND happiness = 41
+      AND last_updated_at > now()),
+  1, 'and the newer anchor is what is stored');
+
+-- ── the feedback size cap — 0046 asserted this in a comment and never tested it
+--
+-- 🚨 MEASURED on wilson-dev, 2026-09-07, before these probes were written:
+-- fifty entries whose botResponse is 4096 characters (the ceiling a 1024
+-- max_tokens reply can reach) and whose userMsg is 200 come to 219,807 bytes
+-- against a 262,144 cap — 84% of it. The cap is NOT comfortably above what the
+-- product can produce, which is exactly what the OUTSTANDING entry suspected,
+-- and Create Egg carries the whole array into the new pet.
+--
+-- These two probes are the accepting control and the refusing probe for that
+-- number. Neither touches last_updated_at, so NEW.last_updated_at equals OLD's
+-- and 0068's guard lets both through to the CHECK — which is the point of
+-- running them here rather than in a suite of their own.
+SELECT lives_ok(
+  $$UPDATE public.user_pets SET feedback = (
+      SELECT jsonb_agg(jsonb_build_object(
+        'timestamp', '2026-09-07T12:00:00.000Z',
+        'userMsg',   repeat('u', 200),
+        'botResponse', repeat('b', 4096),
+        'rating',    'up'))
+      FROM generate_series(1, 50))$$,
+  'the maximal LEGITIMATE feedback array — 50 entries at the reply ceiling — is accepted');
+
+-- Presence control: without this the lives_ok above would pass just as well if
+-- the UPDATE had matched no rows at all.
+SELECT is(
+  (SELECT jsonb_array_length(feedback)::int FROM public.user_pets
+    WHERE user_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'),
+  50, 'and all fifty entries are actually stored');
+
+SELECT throws_ok(
+  $$UPDATE public.user_pets SET feedback = (
+      SELECT jsonb_agg(jsonb_build_object(
+        'timestamp', '2026-09-07T12:00:00.000Z',
+        'userMsg',   repeat('u', 200),
+        'botResponse', repeat('b', 6000),
+        'rating',    'up'))
+      FROM generate_series(1, 50))$$,
+  'new row for relation "user_pets" violates check constraint "user_pets_feedback_sz_chk"',
+  'a feedback array over 262144 bytes is refused by the CHECK, not silently truncated');
 
 SELECT * FROM finish();
 
