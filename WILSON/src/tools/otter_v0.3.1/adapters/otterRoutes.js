@@ -352,6 +352,73 @@ export const DOC_MERGERS = {
   corrections: mergeCorrections,
 }
 
+// ── A4 / decision 37: the documents an APPROVAL carries ─────────────────────
+//
+// Until this bundle, approving a change request moved subjects and left the
+// five per-course documents untouched (MASTER_PLAN §6 #29, and the approve
+// dialog said so). Audrey's decision 37: move them too.
+//
+// 🚨 THE MERGERS ABOVE DO NOT TAKE A STORED DOCUMENT. They were written for the
+// GENERATOR's output shape — `doc.merge` feeds them `body.categories` — and the
+// stored shape is different for two of the four. Passing a stored document
+// straight in is the silent-no-op this area specialises in: for `nodes` the
+// stored form is `{systems:[…]}`, so `body.categories` is undefined and the
+// merge would move NOTHING while reporting success. CR_DOC_MERGE is the
+// adapter between the two shapes, and it exists so that fact is written down
+// once rather than rediscovered.
+
+/** Reference URLs merge by `url` — the same key the library's own add-a-URL
+ *  path dedupes on (Otter.jsx: `referenceUrls.some(r => r.url === fullUrl)`).
+ *  Additive, like every other merger here: a URL the proposer deleted from
+ *  their fork stays on the standard. */
+export function mergeReferenceUrls(existing, incoming) {
+  const out = { urls: [...(existing?.urls || [])] }
+  for (const r of incoming || []) {
+    const key = (r?.url || '').trim()
+    if (!key) continue
+    if (!out.urls.some(e => (e?.url || '').trim() === key)) out.urls.push(r)
+  }
+  return out
+}
+
+/** A STORED nodes document, flattened into the `{system, category, nodes}`
+ *  rows mergeNodes expects. migrateNodesData first, so a course still holding
+ *  the pre-0.3 `{categories:[…]}` shape is upgraded rather than dropped. */
+export function flattenNodesForMerge(stored) {
+  const doc = migrateNodesData(stored || { systems: [] })
+  const rows = []
+  for (const sys of doc.systems || []) {
+    for (const cat of sys.categories || []) {
+      rows.push({ system: sys.system, category: cat.category, nodes: cat.nodes || [] })
+    }
+  }
+  return rows
+}
+
+/**
+ * Merge a fork's STORED document into the standard's STORED document.
+ * Keyed by the COURSE_DOCS name, value takes (targetStored, forkStored).
+ *
+ * 🚨 `corrections` IS DELIBERATELY ABSENT, and this is the one judgement call
+ * in decision 37. §6 #29 lists five documents, but `otter_fork_course` blanks
+ * corrections when it makes a fork, with the reason in its own body: *"Corrections
+ * are the original author's agent memory, not content."* A fork therefore never
+ * inherits them, so anything in a proposer's corrections is memory they
+ * accumulated privately — and pushing that onto the company standard on
+ * approval would contradict the rule the fork states, in the direction that
+ * leaks one person's agent history to everyone.
+ *
+ * Four documents move; corrections do not. If Audrey wants all five, adding
+ * `corrections: (t, f) => mergeCorrections(t, f?.corrections ?? [])` here is
+ * the whole change — the caller iterates this map.
+ */
+export const CR_DOC_MERGE = {
+  hotkeys:    (target, fork) => mergeHotkeys(target, fork?.categories ?? []),
+  functions:  (target, fork) => mergeFunctions(target, fork?.categories ?? []),
+  nodes:      (target, fork) => mergeNodes(target, flattenNodesForMerge(fork)),
+  references: (target, fork) => mergeReferenceUrls(target, fork?.urls ?? []),
+}
+
 /** slugify, matching electron/main.cjs so local and cloud agree on ids. */
 export function slugify(name) {
   return (name || '')

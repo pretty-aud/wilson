@@ -26,7 +26,7 @@
 // =============================================================================
 
 import { supabase } from '../../../cloud/auth/supabaseClient.js'
-import { COURSE_DOCS, DOC_MERGERS, migrateNodesData, slugify } from './otterRoutes.js'
+import { COURSE_DOCS, DOC_MERGERS, CR_DOC_MERGE, migrateNodesData, slugify } from './otterRoutes.js'
 
 /** Columns that make up a subject's list entry — deliberately excludes the
  *  fat `sections` blob so the sidebar never pulls whole courses. */
@@ -672,16 +672,77 @@ export const supabaseOtterAdapter = {
   // Session 13: approve = APPLY (locked #22). otter_cr_apply archives the
   // target into a personal copy owned by the approver, copies the proposer's
   // live subjects into the target additively (update by slug, insert when
-  // absent, never delete — reference documents untouched), and settles the
-  // request, all in one transaction. Returns the archive course id.
+  // absent, never delete), and settles the request, all in one transaction.
+  // Returns the archive course id.
+  //
+  // A4 / Audrey's decision 37: the four reference documents now move too. The
+  // merge stays in CLIENT JS rather than moving into the RPC — §6 #29's
+  // objection is that reimplementing mergeHotkeys/mergeFunctions/mergeNodes in
+  // plpgsql duplicates load-bearing logic, and it still stands.
+  //
+  // 🚨 THE FORK'S DOCUMENTS ARE READ BEFORE THE RPC, AND THAT ORDER IS THE
+  //    WHOLE DESIGN. Deciding CLOSES the consented review window
+  //    (otter_has_open_review_access opens on submit and closes on settle), so
+  //    the instant the RPC returns, the approver can no longer read the
+  //    proposer's course at all. Reading after would return nothing, merge
+  //    nothing, and report success.
+  //
+  // 🚨 THE ARCHIVE KEEPS THE OLD DOCUMENTS FOR FREE, and only because the merge
+  //    runs AFTER the RPC. otter_fork_course copies hotkeys/functions/nodes/
+  //    reference_urls off the target (verified against the deployed body, not
+  //    the comment), and the RPC never touches those columns — so the snapshot
+  //    it takes is the pre-merge standard. Moving this merge before the RPC
+  //    would silently put the NEW documents in the archive.
+  //
+  // ⚠️ PARTIAL FAILURE IS REPORTED, NOT SWALLOWED. The RPC has already
+  //    committed by the time these writes run, so a refused document write
+  //    cannot roll the approval back. otter_courses_update's WITH CHECK
+  //    requires current_app_role() = 'admin' to write a company_standard
+  //    course, while the RPC also admits the standard's OWNER — so a non-admin
+  //    owner approving (not reachable from the Admin Terminal, which is
+  //    admin-only, but reachable by calling the RPC directly) gets the subjects
+  //    and not the documents. The caller is told which ones failed.
   async 'cr.approve'({ id }) {
+    const cr = unwrap(await supabase.from('otter_change_requests')
+      .select('id, source_course_id, target_course_id').eq('id', id).maybeSingle())
+    if (!cr) throw new OtterCloudError('that change request is no longer visible', 404)
+
+    const forkDocs = {}
+    for (const doc of Object.keys(CR_DOC_MERGE)) {
+      const { column, empty } = COURSE_DOCS[doc]
+      const row = unwrap(await supabase.from('otter_courses')
+        .select(column).eq('id', cr.source_course_id).maybeSingle())
+      forkDocs[doc] = row?.[column] ?? empty
+    }
+
     const { data, error } = await supabase.rpc('otter_cr_apply', { p_cr_id: id })
     if (error) {
       // Every refusal the RPC raises is already written for a person
       // ("the target is no longer the company standard — …"); pass it through.
       throw new OtterCloudError(error.message, 409)
     }
-    return { ok: true, archive_course_id: data }
+
+    const documents = { merged: [], failed: [] }
+    for (const [doc, merge] of Object.entries(CR_DOC_MERGE)) {
+      const { column, empty } = COURSE_DOCS[doc]
+      try {
+        const cur = unwrap(await supabase.from('otter_courses')
+          .select(column).eq('id', cr.target_course_id).maybeSingle())
+        const merged = merge(cur?.[column] ?? empty, forkDocs[doc])
+        // `.select('id').maybeSingle()` is load-bearing: an UPDATE that RLS
+        // refuses affects 0 rows and PostgREST answers 204 with NO error, so a
+        // bare update reports success and the documents silently do not move.
+        const row = unwrap(await supabase.from('otter_courses')
+          .update({ [column]: merged }).eq('id', cr.target_course_id)
+          .select('id').maybeSingle())
+        if (!row) throw new OtterCloudError('not allowed to edit the standard course', 403)
+        documents.merged.push(doc)
+      } catch (err) {
+        documents.failed.push({ doc, message: err?.message ?? String(err) })
+      }
+    }
+
+    return { ok: true, archive_course_id: data, documents }
   },
 
   // ── company-standard nominations (0064) ───────────────────────────────────
