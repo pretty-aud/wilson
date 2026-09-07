@@ -27,8 +27,12 @@
 - **Steps 8–12: the BETA, in a browser.** You need **two accounts in two
   browsers**; I will call them **MANAGER** (a manager or admin) and
   **MEMBER** (an ordinary member). Keep each in its own browser window.
-- **Steps 13–17: the BETA**, MEMBER and MANAGER again, plus the Admin Terminal
+- **Steps 13–22: the BETA**, MEMBER and MANAGER again, plus the Admin Terminal
   as an **ADMIN**.
+- **Steps 23–25 are OPTIONAL** and need a third person (or a reused account).
+  They are the edge the second review found after I had written down that it
+  could not happen, so they are the ones I would most like exercised if you have
+  the patience.
 
 🚨 **Two things to know before you start.**
 
@@ -225,6 +229,37 @@
     - **If instead** it disappeared from the standard: record it — additivity is
       the rule this whole flow is built on.
 
+### The interesting edge — a MEMBER who owns the standard (optional but valuable)
+
+This one was found by the second review, after I had already written down that it
+could not happen. It is the case where the new code refuses to do half its job,
+and I would rather you saw the refusal than trusted my description of it.
+
+23. **Make MEMBER the owner of a company standard.** As MEMBER, submit one of your
+    own courses to become the standard (`Share or submit…`), and as MANAGER/ADMIN
+    approve it. MEMBER now owns a company standard while still being a plain member.
+    - **Expect:** the course is the standard and MEMBER still owns it.
+    - **If instead** approval fails: record it and stop — the rest needs this.
+
+24. **As a THIRD person (or MANAGER), take a copy of that standard, change a hotkey,
+    and send a change request.** Then, **as MEMBER**, open O.T.T.E.R. → the `Requests`
+    tab. You should be able to decide it, because you own the target.
+    - **Expect:** an `Approve` button on that request, in O.T.T.E.R. itself — not the
+      Admin Terminal, which MEMBER cannot open.
+    - **If instead** there is no Approve: record it. That is a different finding and
+      it would mean this edge cannot be reached at all.
+
+25. **Approve it as MEMBER.**
+    - **Expect:** the subjects move, AND the green banner says *“Their subjects moved,
+      but hotkeys, functions, nodes, reference links could NOT be updated — only an
+      admin can edit a company standard course's documents.”* **That message is the
+      correct outcome here, not a bug.** Only an admin may write a company standard
+      course’s documents, and the alternative would be telling you it worked when it
+      did not.
+    - **If instead** it shows a plain green “Applied” with no mention of documents:
+      **record it.** That is exactly the defect the second review found, back again.
+    - **Then have an ADMIN approve the next one** and confirm the documents do move.
+
 ---
 
 ## What I could not test for you
@@ -299,6 +334,13 @@ REFERENCE DOCUMENTS (beta, admin)
 21 archive holds the OLD documents           PASS / FAIL
 22 deleting on the copy did NOT delete on
    the standard                              PASS / FAIL
+
+THE MEMBER-OWNS-THE-STANDARD EDGE (steps 23-25, optional)
+23 member owns a company standard             PASS / FAIL / SKIPPED
+24 Approve offered in O.T.T.E.R. Requests     PASS / FAIL / SKIPPED
+25 banner NAMES the documents that failed     PASS / FAIL / SKIPPED
+   exact banner wording seen:
+   and an ADMIN approval DID move them        PASS / FAIL / SKIPPED
 
 MY ANSWER ON corrections: move all five / leave it as four
 
