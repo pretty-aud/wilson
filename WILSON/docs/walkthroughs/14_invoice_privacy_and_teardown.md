@@ -14,7 +14,7 @@ to destroy, whose admin has uploaded a profile picture.
 Where things are: the company's storage plan is set from the **operator
 console** (`/wilsonadmin` → Companies → the company's Storage panel; the
 quota field takes gigabytes and accepts decimals); the company's own view is
-**Admin Terminal → Storage**; the export is **Admin Terminal → Takeout**; the
+**Admin Terminal → Storage**; the export is **Admin Terminal → Company → Workspace takeout → Download takeout (.zip)**; the
 operator's certificates are **operator console → Audit**.
 
 ⚠️ **Where to run it.** Dev's database and staging's both carry migration
@@ -39,7 +39,8 @@ records stay visible).
 1. As the **admin**: open a project → **Budget** → attach the PDF to an
    invoice line (the invoice attachment control). Then add any small image in
    **Files** as a plain file, for comparison.
-2. **Admin Terminal → Takeout** → export → open `file_events.csv`.
+2. **Admin Terminal → Company**, scroll to the **Workspace takeout** card →
+   **Download takeout (.zip)** → open `file_events.csv` inside it.
    **Expected:** the invoice's `uploaded` row is there with `is_financial` =
    `true`; the plain file's `uploaded` row with `false`. ☐
 3. Still as the admin: open the project's **Summary** tab and open the plain
@@ -77,7 +78,8 @@ way.
    the final step and refuses the object. Note the exact wording. ☐
 3. **Admin Terminal → Storage**: the used figure is back to what was there
    before the attempt (a failed upload holds no space). ☐
-4. **Admin Terminal → Takeout** → `file_events.csv`: one `upload_abandoned`
+4. **Admin Terminal → Company → Workspace takeout → Download takeout (.zip)**,
+   then `file_events.csv`: one `upload_abandoned`
    row whose path ends in your file's name, with `details` containing
    `"reported_by":"client"` and the refusal text under `"reason"`. ☐
    (Before this bundle there was no row at all for this case.)

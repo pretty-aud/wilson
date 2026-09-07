@@ -566,16 +566,25 @@ flowchart TB
   subgraph "Teardown — the ORDER is the design"
     T1["1 snapshot slug + name"] --> T2["2 require typed slug"]
     T2 --> T3["3 collect blob paths<br/>files + gc_queue, .range() paged"]
-    T3 --> T4["4 refuse foreign paths → WIL-7008"]
+    T3 --> T3a["3b list avatars by prefix<br/>user-avatars/{ws}/…"]
+    T3a --> T3b["3c sweep OPEN upload reservations<br/>sweep_open_uploads → abandoned paths"]
+    T3b --> T3c["3d WIL-7012 certificate ×40<br/>before any blob moves"]
+    T3c --> T4["4 refuse foreign paths → WIL-7008"]
     T4 --> T5["5 delete blobs ×100<br/>certificate ×40 → WIL-7006"]
-    T5 --> T6["6 DELETE workspace → CASCADE"]
-    T6 --> T7["7 drop queue rows AFTER cascade"]
-    T7 --> T8["8 WIL-7005 certificate"]
+    T5 --> T5a["6b delete avatars ×100<br/>certificate ×40 → WIL-7006"]
+    T5a --> T6["7 DELETE workspace → CASCADE"]
+    T6 --> T7["8 drop queue rows AFTER cascade"]
+    T7 --> T8["9 WIL-7005 certificate"]
   end
 ```
 
 - Collect **before** the cascade: afterwards nothing can tell which blobs were the tenant's.
 - Queue rows are dropped **after**, because the cascade re-enqueues them.
+- **Three buckets, not two** (Track C / C2): `user-avatars` is *listed* by
+  prefix rather than derived from rows, because no row names an avatar object.
+- The reservation sweep and its certificate come **first**, before any blob is
+  touched: the sweep commits its rows immediately, and `file_events` is
+  destroyed by the cascade a moment later.
 
 → Handbook §5.4
 

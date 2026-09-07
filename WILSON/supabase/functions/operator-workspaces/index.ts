@@ -951,15 +951,51 @@ Deno.serve(async (req: Request) => {
     //     play — WIL-7008 below sits at the same point for the same reason. And
     //     it must be NOW rather than after the blob passes: 1c has already
     //     committed the rows as 'abandoned', so a teardown that died between
-    //     here and a later certificate would, on retry, find nothing open,
-    //     report 0/0 honestly, and let the CASCADE take the first run's
-    //     file_events certificates with it (R1 review, C2). Nothing was
+    //     here and a later certificate would let the CASCADE take the first
+    //     run's file_events certificates with it (R1 review, C2). Nothing was
     //     destroyed here — a partial is reaped by Supabase's 24 h TUS expiry,
     //     which nothing on the platform can see — so this is WIL-7012,
     //     "certified abandoned", never WIL-7006 "purged". One row per
     //     CERT_BATCH paths, like every other certificate here.
-    for (let i = 0; i < abandonedPaths.length; i += CERT_BATCH) {
-      const batch = abandonedPaths.slice(i, i + CERT_BATCH)
+    //
+    //     🚨 WHAT IS CERTIFIED IS THE TENANT'S WHOLE ABANDONED-UPLOAD RECORD,
+    //     NOT ONLY THIS RUN'S. Every `upload_abandoned` row in file_events —
+    //     written by this sweep, by the hourly one (0073), or by a person's
+    //     own client on a failed upload (0074) — is destroyed by the CASCADE in
+    //     a few seconds' time, and this is the last moment any of it can be
+    //     preserved. Reading them also closes the retry case R2 named: a
+    //     teardown that DIED between 1c and this line left rows already closed
+    //     as 'abandoned', so a second attempt's sweep would find nothing open
+    //     and certify nothing — but their file_events rows are still there to
+    //     be read. Union, deduped, bounded; a read that fails leaves the
+    //     sweep's own paths, which is what the previous revision certified.
+    const certifyPaths = new Set<string>(abandonedPaths)
+    let abandonedRecordsTruncated = false
+    try {
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await ctx.admin
+          .from('file_events')
+          .select('new_path')
+          .eq('workspace_id', workspaceId)
+          .eq('event', 'upload_abandoned')
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1)
+        if (error) break
+        for (const r of data ?? []) {
+          if (typeof r.new_path === 'string' && r.new_path.length > 0) certifyPaths.add(r.new_path)
+        }
+        if (!data || data.length < PAGE) break
+        // One page is 1000 records; a tenant with more has had a pathological
+        // number of abandoned uploads, and a certificate that quietly stopped
+        // counting is the S39 defect. Stop, and SAY so.
+        abandonedRecordsTruncated = true
+        break
+      }
+    } catch { abandonedRecordsTruncated = true }
+    const abandonedCertified = [...certifyPaths]
+
+    for (let i = 0; i < abandonedCertified.length; i += CERT_BATCH) {
+      const batch = abandonedCertified.slice(i, i + CERT_BATCH)
       await logPlatformEvent(ctx, {
         action: 'workspace.teardown',
         workspaceId,
@@ -971,7 +1007,8 @@ Deno.serve(async (req: Request) => {
         context: {
           paths: batch,
           batch: Math.floor(i / CERT_BATCH) + 1,
-          note: 'open upload reservations closed before the CASCADE (sweep_open_uploads, 0074); the partials expire at 24 h in Supabase Storage and are not enumerable from WILSON',
+          truncated: abandonedRecordsTruncated,
+          note: 'every upload_abandoned record this company had, preserved before the CASCADE destroyed it: the open reservations this teardown closed (sweep_open_uploads, 0074) plus any already certified by the hourly sweep or by a person\'s own failed upload. The partials expire at 24 h in Supabase Storage and are not enumerable from WILSON',
         },
       })
     }

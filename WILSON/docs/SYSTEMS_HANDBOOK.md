@@ -1043,14 +1043,24 @@ to understand why it cannot be simplified:
    otherwise), BEFORE the CASCADE would take both that table and the tenant's
    `file_events` away uncertified. The failure flag starts true and only an
    answer clears it: a database without 0074 reads
-   `reservation_sweep_failed: true`, never 0/0. And (3d) the abandoned paths
+   `reservation_sweep_failed: true`, never 0/0. And (3d) the abandoned uploads
    are certified AT ONCE — one `WIL-7012` per 40 paths, before any blob is
-   touched — because 3c has already committed the rows as `abandoned`, and a
-   teardown that died before a later certificate would, on retry, find nothing
-   open and let the CASCADE take the first run's `file_events` records. Nothing
-   is destroyed in 3d (the partials expire at 24 h in Supabase Storage, which
-   nothing on the platform can see), so it is "certified abandoned", never
-   "purged".
+   touched — because 3c commits its rows immediately and the CASCADE destroys
+   `file_events` moments later. **What 3d certifies is the company's WHOLE
+   `upload_abandoned` record**, read back from `file_events`: the reservations
+   3c just closed, plus any the hourly sweep or a person's own failed upload
+   had already certified, all of which the CASCADE is about to destroy. That
+   read is also what makes a retried teardown safe — a run that died between
+   3c and 3d left rows already closed, so a second attempt's sweep finds
+   nothing open, but the records are still there to be read (`truncated: true`
+   on the certificate if a company somehow had more than one page of them).
+   Nothing is destroyed in 3d (the partials expire at 24 h in Supabase Storage,
+   which nothing on the platform can see), so it is "certified abandoned",
+   never "purged". ⚠️ **A certificate that cannot be WRITTEN is logged and the
+   teardown continues** — `logPlatformEvent` reports an insert failure on
+   supabase-js's error channel to `console.error` and never throws, which is
+   deliberate (a destruction must not be half-done because its record failed)
+   and true of every `WIL-70xx` here, not only this one.
 4. **Refuse foreign paths.** Only paths shaped `projects/{project_id}/…` whose
    project id belongs to *this* workspace are accepted. `files.storage_path` is
    client-writable and the sweep runs as service_role, so a member could
@@ -3919,8 +3929,8 @@ event type are **server-reserved** so clients cannot forge audit lines.
 | `WIL-7006` | `blob.purged` batch certificate | `platform_audit` |
 | `WIL-7007` | Teardown failure | `platform_audit` |
 | `WIL-7008` | Teardown refused foreign paths | `platform_audit` |
-| `WIL-7012` | Teardown certified abandoned upload(s): the open `upload_reservations` rows `sweep_open_uploads()` closed before the CASCADE, 40 paths per row, written straight after the sweep and before any blob is touched (Track C / C2, 0074). Certifies the abandonment, not a disposal — the partials expire at 24 h in Supabase Storage. (`WIL-7009` is Track A's setup-link certificate.) | `platform_audit` |
 | `WIL-7010` / `WIL-7011` | Company AI key set / cleared (hint only, never the key) | `platform_audit` |
+| `WIL-7012` | Teardown certified abandoned upload(s) (Track C / C2, 0074): every `upload_abandoned` record the company had — the open reservations `sweep_open_uploads()` closed plus any the hourly sweep or a person's own failed upload had already certified — preserved 40 paths per row, straight after the sweep and before any blob is touched, because the CASCADE destroys `file_events` moments later. Certifies the abandonment, not a disposal: the partials expire at 24 h in Supabase Storage. ⚠️ 7009 was NOT free — it is `workspace.invite_sent`, written by `send_setup_link` in the same function (Track A), and this table does not list it. | `platform_audit` |
 
 ---
 

@@ -423,6 +423,14 @@ describe('source pins — the call sites exist and sit in the right order', () =
     ]) expect(teardown).toContain(`${field}:`)
     // WIL-7009 is the setup-link certificate (Track A); the teardown's is 7012.
     expect(teardown.match(/code: 'WIL-7012'/g)).toHaveLength(1)
+    // R2 (C2): the certificate preserves the tenant's WHOLE upload_abandoned
+    // record — read back from file_events, which the CASCADE destroys moments
+    // later — not only what this run's sweep closed. That read is also what
+    // makes a retried teardown re-certify.
+    const readAt = teardown.indexOf("from('file_events')")
+    expect(readAt).toBeGreaterThan(sweepAt)
+    expect(readAt).toBeLessThan(certAt)
+    expect(teardown).toContain("eq('event', 'upload_abandoned')")
   })
 
   it('storage-gc drives the sweep per workspace and reports a failed RPC rather than hiding it', () => {
