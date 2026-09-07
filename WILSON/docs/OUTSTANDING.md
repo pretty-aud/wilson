@@ -78,6 +78,20 @@ after her report.
 
 ## Broken features
 
+### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
+**REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
+read from the code, not yet measured in a browser.** `MfaEnrollGate` renders
+inside `AuthShell`, whose split-phase bars are `SPLIT_BAR_HEIGHT = 24vh` each,
+so the light band is 52vh — sized (Session 43) for the 330px login form. The
+enrolment content (heading, two-line blurb, QR panel, secret, code field,
+button, two links) is roughly 490px, so at 824px the band is about 428px and
+the heading and the two links sit on the dark bars. The login form fits; this
+screen does not. Owner: Track B (`src/cloud/auth/`). Fix shape: let the
+shell's bars shrink when the child is taller than the band (never below the
+reveal height, which Home's bars must still meet) or scroll the child within
+the band; verify with a screenshot at 824px AND at the 700px minimum window,
+on the web and the desktop.
+
 ### `otterContext` is written on every O.T.T.E.R. navigation and read by nothing
 
 **OBSERVED (2026-08-14, Phase 6.)** `App.jsx` declares
