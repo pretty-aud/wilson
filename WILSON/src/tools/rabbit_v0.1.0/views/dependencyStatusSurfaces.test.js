@@ -190,10 +190,13 @@ describe('stated non-surfaces', () => {
 
   it("RelationsPanel's side popup only creates — the day it gains an update path, wire it", () => {
     // Scoped to the popup's body and to a CALL (R2): a comment or an
-    // onUpdateTask prop elsewhere in the file must not turn this red.
+    // onUpdateTask prop elsewhere in the file must not turn this red. The
+    // call shape this codebase uses is `ctx?.updateTask?.(…)` — the first
+    // version of this pin matched only `updateTask(` and its breaker stayed
+    // green (measured); the optional chain is part of the pattern now.
     const popup = functionBody(RELATIONS, 'NewTaskSidePopup')
     expect(popup).toBeTruthy()
-    expect(popup).not.toMatch(/updateTask\(/)
+    expect(popup).not.toMatch(/updateTask(\?\.)?\(/)
   })
 })
 
