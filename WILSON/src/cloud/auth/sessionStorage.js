@@ -39,6 +39,13 @@ const SURFACE =
 const STORAGE_KEY =
   SURFACE === 'admin' ? 'wilson.operator.session' : 'wilson.dev.session'
 
+// B2 part 2: the session timeouts hang their two clocks (`<key>.activity`,
+// `<key>.start`) off this same key, so the per-surface isolation above is
+// also what keeps a busy /wilsonadmin tab from holding an idle /wilson tab
+// open. Exported for that one consumer (sessionTimeouts.js); the session
+// itself is still only reachable through the three functions below.
+export const SESSION_STORAGE_KEY = STORAGE_KEY
+
 // The Electron preload bridge is a SINGLE safeStorage slot — save/load/clear
 // take no key argument. So the operator surface must never touch it: sharing
 // that one slot would defeat the isolation the key split above provides. The

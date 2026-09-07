@@ -22,7 +22,7 @@
 
 BEGIN;
 
-SELECT plan(33);
+SELECT plan(35);
 
 SELECT * FROM tests.rls_setup();
 
@@ -290,6 +290,18 @@ SELECT is(
 
 -- ── read scope: an admin of ws_a ────────────────────────────────────────────
 RESET ROLE;
+
+-- 0071 fixture (runner, RLS bypassed, no stamp — the runner is not the
+-- `authenticated` role): user_c also signed in to the OTHER company. A client
+-- row tagged with ws_b, carrying ws_b's address. An admin of ws_a must not
+-- see it; an admin of ws_b must.
+INSERT INTO public.auth_events
+  (user_id, workspace_id, kind, outcome, source, ip_address, user_agent, context)
+VALUES ('cccccccc-cccc-cccc-cccc-cccccccccccc',
+        '22222222-2222-2222-2222-222222222222',
+        'sign_in', 'success', 'client', '198.51.100.71'::inet, 'pgTAP suite 74 (ws_b)',
+        '{"surface":"app"}'::jsonb);
+
 SELECT set_config(
   'request.jwt.claims',
   jsonb_build_object(
@@ -309,6 +321,14 @@ SELECT is(
     WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
   6,
   'admin: sees a member''s hook rows and client rows'
+);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.auth_events
+    WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+      AND workspace_id = '22222222-2222-2222-2222-222222222222'),
+  0,
+  'admin (0071): a shared member''s client row for the OTHER company — its address included — is invisible'
 );
 
 SELECT is(
@@ -336,9 +356,17 @@ SELECT set_config('role', 'authenticated', true);
 
 SELECT is(
   (SELECT count(*)::int FROM public.auth_events
-    WHERE user_id <> 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'),
+    WHERE user_id <> 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
+      AND workspace_id IS DISTINCT FROM '22222222-2222-2222-2222-222222222222'),
   0,
   'admin of the other company: sees none of ws_a''s rows (hook or client)'
+);
+
+SELECT is(
+  (SELECT host(ip_address) FROM public.auth_events
+    WHERE user_id = 'cccccccc-cccc-cccc-cccc-cccccccccccc'),
+  '198.51.100.71',
+  'admin of the other company (0071): sees exactly the one row tagged with their own company, and not user_c''s hook rows'
 );
 
 -- ── read scope: anon ────────────────────────────────────────────────────────
@@ -369,16 +397,16 @@ SELECT tests.login_as(
 
 SELECT is(
   (SELECT count(*)::int FROM public.auth_events),
-  8,
-  'operator: sees every row across companies (6 for user_c, 1 for user_a, 1 for user_b)'
+  9,
+  'operator: sees every row across companies (7 for user_c, 1 for user_a, 1 for user_b)'
 );
 
 -- ── retention ───────────────────────────────────────────────────────────────
 RESET ROLE;
 SELECT is(
   public.purge_auth_events(INTERVAL '-1 day')::int,
-  8,
-  'purge_auth_events: deletes everything older than the cut-off (here: all eight)'
+  9,
+  'purge_auth_events: deletes everything older than the cut-off (here: all nine)'
 );
 
 SELECT * FROM finish();

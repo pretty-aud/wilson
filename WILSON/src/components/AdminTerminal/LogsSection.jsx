@@ -1,22 +1,35 @@
 // =============================================================================
-// LogsSection — System (app_events) and Activity (edit_history) streams
-// (Session 9).
+// LogsSection — System (app_events), Activity (edit_history) and, since Track
+// B bundle B2 part 2, Sign-ins (auth_events) streams (Session 9; B2 2026-09-06).
 //
 // UX laws embodied:
-//   Hick's Law — two tabs, two selects, one refresh; nothing else.
+//   Hick's Law — three tabs, one select each, one refresh; nothing else.
 //   Doherty Threshold — refresh spinner + instant client-side filtering
-//     over the fetched 100 rows.
+//     over the fetched rows.
 //   Jakob's Law — same chip-tab + light-table grammar as the rest of the app.
 //
-// RLS: app_events is admin-only, edit_history admin/manager — both queries
-// ride the signed-in client. Missing-table errors ('42P01'/'PGRST205') are
-// a legitimate pre-deploy state, not a failure.
+// RLS: app_events is admin-only, edit_history admin/manager, auth_events
+// (0070) self + admin-of-the-company — every query rides the signed-in
+// client. Missing-table errors ('42P01'/'PGRST205') are a legitimate
+// pre-deploy state, not a failure.
+//
+// Sign-ins (B2): a plain `select … order by created_at desc` — the 0070
+// SELECT policy does the scoping (an admin sees rows tagged with their
+// company and the sign-in server's rows for its members). Names come from
+// the roster the page already holds (workspace_directory()); the sign-in
+// server's rows carry no address and say so in the legend. Unknown-username
+// attempts are NOT here: they never reach GoTrue, live in auth_attempt_log,
+// and that table is operator-readable only (0002) — showing them to a company
+// admin would need a policy decision and a migration, so they stay out.
 // =============================================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { RefreshCw, ScrollText, Loader2 } from 'lucide-react'
 import { supabase } from '../../cloud/auth/supabaseClient'
 import { describeErrorCode } from '../../cloud/errorCodes'
+import {
+  describeAuthEvent, sourceLabel, KIND_FILTERS, matchesFilter, ADDRESS_LEGEND, AUTH_EVENT_COLUMNS,
+} from '../../cloud/auth/authEventLabels'
 import {
   LIGHT_INK, LIGHT_RULE, LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW,
 } from '../lightSurface' // §B — light page
@@ -55,8 +68,15 @@ function timeAgo(iso) {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-export default function LogsSection({ isActive, workspaceId }) {
+export default function LogsSection({ isActive, workspaceId, wm }) {
   const [tab, setTab] = useState('system')
+
+  // Sign-ins stream (B2 part 2, auth_events)
+  const [signIns, setSignIns] = useState([])
+  const [signInsLoading, setSignInsLoading] = useState(false)
+  const [signInsError, setSignInsError] = useState(null)
+  const [signInsMissing, setSignInsMissing] = useState(false)
+  const [signInFilter, setSignInFilter] = useState('')
 
   // System stream
   const [events, setEvents] = useState([])
@@ -148,8 +168,46 @@ export default function LogsSection({ isActive, workspaceId }) {
     }
   }
 
-  // Lazy-load: nothing until the section is opened; the Activity stream
-  // additionally waits for its tab's first activation.
+  const signInsSeqRef = useRef(0)
+  const signInsLoadedRef = useRef(false)
+  async function loadSignIns() {
+    if (!workspaceId) return
+    const seq = ++signInsSeqRef.current
+    setSignInsLoading(true)
+    setSignInsError(null)
+    try {
+      // No .eq('workspace_id'): the sign-in server's rows carry none, and
+      // RLS is the scope. The view narrows below to this company's client
+      // rows plus the server's rows, so a member of two companies does not
+      // show their other company's sign-ins here.
+      const { data, error } = await supabase
+        .from('auth_events')
+        .select(AUTH_EVENT_COLUMNS)
+        .order('created_at', { ascending: false })
+        .limit(200)
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      if (error) {
+        if (MISSING_TABLE_CODES.has(error.code)) {
+          setSignInsMissing(true)
+          setSignIns([])
+        } else {
+          setSignInsError(error.message || String(error))
+        }
+      } else {
+        setSignInsMissing(false)
+        const rows = Array.isArray(data) ? data : []
+        setSignIns(rows.filter(r => r.workspace_id == null || r.workspace_id === workspaceId))
+      }
+    } catch (err) {
+      if (!mountedRef.current || seq !== signInsSeqRef.current) return
+      setSignInsError(err?.message || String(err))
+    } finally {
+      if (mountedRef.current && seq === signInsSeqRef.current) setSignInsLoading(false)
+    }
+  }
+
+  // Lazy-load: nothing until the section is opened; the Activity and
+  // Sign-ins streams additionally wait for their tab's first activation.
   useEffect(() => {
     if (!isActive || !workspaceId) return
     if (!eventsLoadedRef.current) {
@@ -160,6 +218,10 @@ export default function LogsSection({ isActive, workspaceId }) {
       historyLoadedRef.current = true
       loadHistory()
     }
+    if (tab === 'signins' && !signInsLoadedRef.current) {
+      signInsLoadedRef.current = true
+      loadSignIns()
+    }
     // loadEvents/loadHistory are stable within a render's closure; seq refs
     // make duplicate invocations harmless anyway.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -169,12 +231,30 @@ export default function LogsSection({ isActive, workspaceId }) {
     .filter(e => !typeFilter || e.event_type === typeFilter)
     .filter(e => !sevFilter || e.severity === sevFilter), [events, typeFilter, sevFilter])
 
+  const visibleSignIns = useMemo(() => signIns.filter(r => matchesFilter(r, signInFilter)), [signIns, signInFilter])
+
+  // user_id → what the roster calls them (workspace_directory()).
+  const memberNames = useMemo(() => {
+    const map = new Map()
+    for (const m of wm?.members ?? []) {
+      if (m?.user_id) map.set(m.user_id, m.display_name || m.username || '')
+    }
+    return map
+  }, [wm?.members])
+
+  const reloadCurrent = () => {
+    if (tab === 'system') return loadEvents()
+    if (tab === 'activity') return loadHistory()
+    return loadSignIns()
+  }
+  const currentLoading = tab === 'system' ? eventsLoading : tab === 'activity' ? historyLoading : signInsLoading
+
   return (
     <div className="h-full flex flex-col min-h-0">
       {/* Tab chips */}
       <div className="flex items-center gap-2 mb-4">
         <div className="flex items-center gap-1 rounded-sm p-0.5" style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)' }}>
-          {[{ key: 'system', label: 'System' }, { key: 'activity', label: 'Activity' }].map(t => (
+          {[{ key: 'system', label: 'System' }, { key: 'activity', label: 'Activity' }, { key: 'signins', label: 'Sign-ins' }].map(t => (
             <button
               key={t.key}
               type="button"
@@ -211,22 +291,32 @@ export default function LogsSection({ isActive, workspaceId }) {
             </select>
           </>
         )}
+        {tab === 'signins' && (
+          <select
+            value={signInFilter}
+            onChange={(e) => setSignInFilter(e.target.value)}
+            className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            style={lightSelectStyle}
+          >
+            {KIND_FILTERS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        )}
         <div className="flex-1" />
         <button
           type="button"
-          onClick={() => (tab === 'system' ? loadEvents() : loadHistory())}
-          disabled={tab === 'system' ? eventsLoading : historyLoading}
+          onClick={reloadCurrent}
+          disabled={currentLoading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
-          {(tab === 'system' ? eventsLoading : historyLoading)
+          {currentLoading
             ? <Loader2 className="w-3 h-3 animate-spin" />
             : <RefreshCw className="w-3 h-3" />}
           Refresh
         </button>
       </div>
 
-      {tab === 'system' ? (
+      {tab === 'system' && (
         <SystemTable
           events={visibleEvents}
           allCount={events.length}
@@ -236,7 +326,8 @@ export default function LogsSection({ isActive, workspaceId }) {
           expandedId={expandedId}
           onToggleExpand={(id) => setExpandedId(prev => (prev === id ? null : id))}
         />
-      ) : (
+      )}
+      {tab === 'activity' && (
         <ActivityTable
           rows={history}
           loading={historyLoading}
@@ -244,6 +335,92 @@ export default function LogsSection({ isActive, workspaceId }) {
           missing={historyMissing}
         />
       )}
+      {tab === 'signins' && (
+        <SignInsTable
+          rows={visibleSignIns}
+          allCount={signIns.length}
+          loading={signInsLoading}
+          error={signInsError}
+          missing={signInsMissing}
+          memberNames={memberNames}
+        />
+      )}
+    </div>
+  )
+}
+
+const TONE_DOT = { ok: '#16a34a', bad: '#dc2626', neutral: 'rgba(28, 25, 23, 0.45)' }
+const TONE_INK = { ok: '#166534', bad: '#991b1b', neutral: LIGHT_INK }
+
+// B2 part 2: the Sign-ins stream. Six columns and a legend; failures are the
+// red rows. "Person" is the roster name; a row whose user is no longer in
+// the directory (a removed member's old sign-ins) shows the id's first eight
+// characters rather than nothing, because that row still happened.
+function SignInsTable({ rows, allCount, loading, error, missing, memberNames }) {
+  if (error) {
+    return (
+      <div className="text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220, 38, 38, 0.1)', color: '#dc2626' }}>
+        {error}
+      </div>
+    )
+  }
+  if (missing) return <EmptyState text="Sign-in log not deployed yet (migration 0070)." />
+  if (loading && rows.length === 0) return <EmptyState text="Loading..." />
+  if (rows.length === 0) {
+    return <EmptyState text={allCount === 0 ? 'No sign-ins recorded yet.' : 'No rows match the filter.'} />
+  }
+  return (
+    <div className="flex flex-col min-h-0 flex-1">
+      <div className="overflow-auto flex-1 rounded-sm wilson-light-scroll" style={{ border: '1px solid #d6d3d1', maxHeight: '100%' }}>
+        <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+          <thead>
+            <tr style={LIGHT_TABLE_HEAD_ROW}>
+              <ThLight>Time</ThLight>
+              <ThLight>Event</ThLight>
+              <ThLight>Person</ThLight>
+              <ThLight>Where</ThLight>
+              <ThLight>Address</ThLight>
+              <ThLight>Factor</ThLight>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => {
+              const { label, tone } = describeAuthEvent(r)
+              const name = memberNames.get(r.user_id)
+              return (
+                <tr key={r.id} style={{ borderBottom: '1px solid #e7e5e4' }}>
+                  <TdLight>
+                    <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(r.created_at)}>
+                      {timeAgo(r.created_at)}
+                    </span>
+                  </TdLight>
+                  <TdLight>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: TONE_DOT[tone] }} />
+                      <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: TONE_INK[tone] }}>{label}</span>
+                    </span>
+                  </TdLight>
+                  <TdLight>
+                    <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
+                      {name || String(r.user_id ?? '').slice(0, 8) || '--'}
+                    </span>
+                  </TdLight>
+                  <TdLight>
+                    <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{sourceLabel(r)}</span>
+                  </TdLight>
+                  <TdLight>
+                    <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{r.ip_address ?? '--'}</span>
+                  </TdLight>
+                  <TdLight>
+                    <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{r.factor_type ?? '--'}</span>
+                  </TdLight>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] mt-2 font-mono" style={{ color: LIGHT_INK }}>{ADDRESS_LEGEND}</p>
     </div>
   )
 }

@@ -26,25 +26,41 @@
 // in the list rather than merely sorted differently); Cognitive Load (no
 // dashboard, no charts, no counts anyone has to interpret — just the rows
 // and what can be done to them).
+//
+// B2 part 2 (Track B, 2026-09-06): this surface now has the same session
+// discipline as /wilson — its own sign_in / sign_out / idle_timeout /
+// session_cap rows in auth_events, the 25/30-minute idle warning and
+// sign-out, the 4-hour cap, the connection-lost banner — and a fourth nav
+// item, Sign-ins, which is the operator-tier mirror of the Admin Terminal's
+// Sign-ins tab (TPN-LOG-007). Its clocks live under `wilson.operator.session`,
+// never the app's key, so the two surfaces cannot keep each other alive.
 // =============================================================================
 
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, ScrollText, LogOut, Cpu } from 'lucide-react'
+import { Building2, ScrollText, LogOut, Cpu, KeyRound } from 'lucide-react'
 import { supabase, hydrateSupabase } from '../cloud/auth/supabaseClient'
 import { loadSession, clearSession } from '../cloud/auth/sessionStorage'
+import { recordAuthEvent } from '../cloud/auth/authEvents'
+import { useSessionTimeouts, sessionIdOf, EXPIRE_REASONS } from '../cloud/auth/sessionTimeouts'
+import SessionWarning, { describeSessionExpiry } from '../cloud/auth/SessionWarning'
+import ConnectionLostBanner from '../cloud/ConnectionLostBanner'
 import OperatorLogin from './OperatorLogin'
 import CompaniesSection from './CompaniesSection'
 import AuditSection from './AuditSection'
 import ModelsSection from './ModelsSection'
+import SignInsSection from './SignInsSection'
 
-// Three now, not two. The Miller's Law note in the header still holds — the
-// count is deliberate — but Models earns its place: it is the only surface in
-// WILSON where a model can be added, and D4 makes it the source every company's
-// picker reads from. It destroys nothing, which is why it sits below Companies.
+// Four now, not two. The Miller's Law note in the header still holds — the
+// count is deliberate — but each earns its place: Models is the only surface
+// in WILSON where a model can be added, and D4 makes it the source every
+// company's picker reads from; Sign-ins (B2) is the only place operator
+// access is visible at all. Neither destroys anything, which is why both sit
+// below Companies.
 const NAV = [
   { key: 'companies', label: 'Companies', icon: Building2 },
   { key: 'models', label: 'Models', icon: Cpu },
   { key: 'audit', label: 'Audit', icon: ScrollText },
+  { key: 'signins', label: 'Sign-ins', icon: KeyRound },
 ]
 
 export default function OperatorApp() {
@@ -52,6 +68,9 @@ export default function OperatorApp() {
   const [session, setSession] = useState(null)
   const [isOperator, setIsOperator] = useState(false)
   const [section, setSection] = useState('companies')
+  // B2 part 2: why the operator is back at the login screen, if a timeout
+  // put them there. Cleared by the next sign-in.
+  const [notice, setNotice] = useState('')
 
   // Confirm operator status against the table, not the JWT claim. The claim
   // is stamped at token mint and can be up to a full TTL stale; the row is
@@ -96,6 +115,11 @@ export default function OperatorApp() {
     const ok = await checkOperator(next?.user?.id)
     setSession(next)
     setIsOperator(ok)
+    setNotice('')
+    // B2 part 2: the console's own sign_in row (surface 'admin' in context).
+    // The password hook's row has no address and no surface; this one has
+    // both. Fire-and-forget; it never gates the sign-in.
+    recordAuthEvent('sign_in')
   }, [checkOperator])
 
   // scope: 'local' — signing out of the console must NOT sign the same person
@@ -104,60 +128,98 @@ export default function OperatorApp() {
   // workspace admin, closing the console would have dropped her out of the
   // product app in another tab. 'local' clears this surface only, which is
   // what a separate session is for.
-  const handleSignOut = useCallback(async () => {
+  //
+  // B2 part 2: `event` names the auth_events row written BEFORE the revoke
+  // ('sign_out' by default; 'idle_timeout' / 'session_cap' from the
+  // timeouts). No WIL-1002 here on purpose: reportAppEvent writes to the
+  // caller's COMPANY log, and an operator's console session is not company
+  // business — auth_events (operator-readable) is the record on this surface.
+  const handleSignOut = useCallback(async (opts) => {
+    const event = opts && (typeof opts.event === 'string' || opts.event === null) ? opts.event : 'sign_out'
+    const expiry = EXPIRE_REASONS.includes(event) ? event : null
+    if (event) await recordAuthEvent(event)
+    setNotice(expiry ? describeSessionExpiry(expiry) : '')
     try { await supabase.auth.signOut({ scope: 'local' }) } catch { /* best effort */ }
     await clearSession()
     setSession(null)
     setIsOperator(false)
   }, [])
 
+  // B2 part 2: idle warning at 25 minutes, sign-out at 30, the 4-hour cap.
+  // Enabled for any session on this surface, operator or not — a signed-in
+  // non-operator looking at "Not a platform operator" still holds a session.
+  const sessionTimeouts = useSessionTimeouts({
+    enabled: !!session,
+    sessionId: sessionIdOf(session),
+    onExpire: (reason) => { handleSignOut({ event: reason }) },
+  })
+
+  const chrome = (
+    <>
+      <ConnectionLostBanner />
+      {session && (
+        <SessionWarning
+          phase={sessionTimeouts.phase}
+          deadline={sessionTimeouts.deadline}
+          onStay={sessionTimeouts.stay}
+        />
+      )}
+    </>
+  )
+
   if (!booted) return null
-  if (!session) return <OperatorLogin onSignedIn={handleSignedIn} />
+  if (!session) return <>{chrome}<OperatorLogin onSignedIn={handleSignedIn} notice={notice} /></>
 
   if (isOperator === 'unknown') {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
-        <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-sm font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
-            Could not verify operator status
-          </h1>
-          <p className="text-xs leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
-            The check failed to reach the database. This is almost certainly
-            temporary — it does not mean your access has been revoked.
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
-          >
-            Retry
-          </button>
+      <>
+        {chrome}
+        <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
+          <div style={{ maxWidth: '380px' }}>
+            <h1 className="text-sm font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
+              Could not verify operator status
+            </h1>
+            <p className="text-xs leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
+              The check failed to reach the database. This is almost certainly
+              temporary — it does not mean your access has been revoked.
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
+              style={{ backgroundColor: '#ea580c', color: '#fff' }}
+            >
+              Retry
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
   if (!isOperator) {
     return (
-      <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
-        <div style={{ maxWidth: '380px' }}>
-          <h1 className="text-sm font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
-            Not a platform operator
-          </h1>
-          <p className="text-xs leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
-            This account is signed in, but it does not hold platform operator
-            status. If you are looking for your company&rsquo;s admin tools,
-            they live in WILSON under Admin Terminal.
-          </p>
-          <button
-            onClick={handleSignOut}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
-          >
-            Sign out
-          </button>
+      <>
+        {chrome}
+        <div className="min-h-screen flex items-center justify-center px-4" style={{ backgroundColor: '#1c1917' }}>
+          <div style={{ maxWidth: '380px' }}>
+            <h1 className="text-sm font-bold uppercase tracking-widest mb-2" style={{ color: '#f4a261' }}>
+              Not a platform operator
+            </h1>
+            <p className="text-xs leading-relaxed mb-4" style={{ color: '#a8a29e' }}>
+              This account is signed in, but it does not hold platform operator
+              status. If you are looking for your company&rsquo;s admin tools,
+              they live in WILSON under Admin Terminal.
+            </p>
+            <button
+              onClick={() => handleSignOut()}
+              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm"
+              style={{ backgroundColor: '#ea580c', color: '#fff' }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
-      </div>
+      </>
     )
   }
 
@@ -165,6 +227,7 @@ export default function OperatorApp() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#faf8f5' }}>
+      {chrome}
       {/* Identity strip. Permanently visible and visually unlike the app's
           chrome: this console can destroy a company, so "which surface am I
           in, as whom" is never a thing the operator has to go and check. */}
@@ -178,7 +241,7 @@ export default function OperatorApp() {
         <div className="flex items-center gap-3">
           <span className="text-[11px] font-mono" style={{ color: '#a8a29e' }}>{email}</span>
           <button
-            onClick={handleSignOut}
+            onClick={() => handleSignOut()}
             className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'rgba(255,255,255,0.08)', color: '#f4a261' }}
           >
@@ -207,7 +270,7 @@ export default function OperatorApp() {
             ))}
           </nav>
 
-          {/* Both sections stay mounted with display toggling (the app-wide
+          {/* All sections stay mounted with display toggling (the app-wide
               pattern) so filter and scroll state survive a hop; each
               lazy-fetches on its first activation via isActive. */}
           <div className="flex-1 min-w-0 min-h-0 pl-4" style={{ borderLeft: '1px solid #e7e5e4' }}>
@@ -228,6 +291,16 @@ export default function OperatorApp() {
               style={{ display: section === 'audit' ? 'block' : 'none' }}
             >
               <AuditSection isActive={section === 'audit'} />
+            </div>
+            <div
+              className="h-full min-h-0 overflow-y-auto wilson-light-scroll"
+              style={{ display: section === 'signins' ? 'block' : 'none' }}
+            >
+              <SignInsSection
+                isActive={section === 'signins'}
+                selfUserId={session?.user?.id ?? null}
+                selfEmail={email}
+              />
             </div>
           </div>
         </div>

@@ -195,7 +195,11 @@ async function fetchUserWorkspaces() {
   return data ?? []
 }
 
-export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
+// `notice` (B2 part 2): one line above the form saying WHY the person is
+// looking at it again — the idle sign-out or the 4-hour cap. Set by App.jsx
+// from the expiry reason and cleared by the next sign-in. Terminal-styled
+// like the reset wizard's "YOU WILL BE SIGNED OUT ON EVERY DEVICE." line.
+export default function LoginScreen({ onAuthenticated, onForgotPassword, notice = '' }) {
   // ── Shell phase gate ───────────────────────────────────────────────────
   const [ready, setReady]         = useState(false)
   const [revealing, setRevealing] = useState(false)
@@ -385,7 +389,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       // enumeration via response time).
       const email = exists ? resolved : `__miss+${crypto.randomUUID()}@invalid.local`
 
-      const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+      // B2 part 2: bounded like every other await on this screen (the S17
+      // rule). This was the one unbounded call left on the sign-in path; a
+      // silently hung password check read "Signing in…" forever.
+      const { data, error: signInErr } = await withTimeout(
+        supabase.auth.signInWithPassword({ email, password }), AUTH_TIMEOUT_MS, 'sign-in')
       if (signInErr || !data.session) {
         setError(GENERIC_ERROR)
         setBusy(false)
@@ -420,8 +428,12 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
       } else {
         await completeSignIn(data.session, null)
       }
-    } catch {
-      setError(GENERIC_ERROR)
+    } catch (err) {
+      // A stalled network is not a wrong password; the words differ because
+      // the cause is this address's connection, not the credentials.
+      setError(err?.name === 'TimeoutError'
+        ? 'THE SERVER DID NOT RESPOND. CHECK YOUR CONNECTION AND TRY AGAIN.'
+        : GENERIC_ERROR)
       setBusy(false)
     }
   }, [busy, username, password, companySlug, completeSignIn])
@@ -574,6 +586,17 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
             it animates on every step change. That is exactly what the first
             attempt at this did. In reveal, the parent fades the whole block. */}
         <div style={AUTH_TITLE_STYLE}>LOGIN</div>
+
+        {/* B2 part 2: why you are here again (idle sign-out, 4-hour cap).
+            Outside the keyed block below so it does not re-animate per step. */}
+        {notice && (
+          <div
+            role="status"
+            style={{ ...AUTH_HINT_STYLE, textAlign: 'center', maxWidth: '36ch', lineHeight: 1.7 }}
+          >
+            {notice}
+          </div>
+        )}
 
         {/* The step swap. `key={stage}` remounts on every change so the CSS
             entrance in .auth-step (index.css) re-runs; the outgoing step is

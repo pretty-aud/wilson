@@ -137,7 +137,7 @@ function AdminTerminalBody({ workspaceId }) {
             <ChangeRequestsSection isActive={section === 'requests'} />
           </div>
           <div className="h-full min-h-0" style={{ display: section === 'logs' ? 'block' : 'none' }}>
-            <LogsSection isActive={section === 'logs'} workspaceId={workspaceId} />
+            <LogsSection isActive={section === 'logs'} workspaceId={workspaceId} wm={wm} />
           </div>
           <div className="h-full min-h-0 overflow-y-auto wilson-light-scroll" style={{ display: section === 'diagnostics' ? 'block' : 'none' }}>
             <DiagnosticsSection isActive={section === 'diagnostics'} />

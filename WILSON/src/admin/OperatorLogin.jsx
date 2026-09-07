@@ -35,7 +35,9 @@ import { withTimeout, AUTH_TIMEOUT_MS } from '../cloud/auth/withTimeout'
 // addresses exist or which of them hold platform privilege.
 const GENERIC_ERROR = 'Sign-in failed. Check your details and try again.'
 
-export default function OperatorLogin({ onSignedIn }) {
+// `notice` (B2 part 2): why the operator is back at this screen — the idle
+// sign-out or the 4-hour cap. Set by OperatorApp from the expiry reason.
+export default function OperatorLogin({ onSignedIn, notice = '' }) {
   const [stage, setStage] = useState('auth')   // 'auth' | 'mfa'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -167,6 +169,16 @@ export default function OperatorLogin({ onSignedIn }) {
             Platform administration. Not the company admin terminal.
           </p>
         </div>
+
+        {notice && (
+          <p
+            role="status"
+            className="text-[11px] mb-4 px-3 py-2 rounded-sm leading-relaxed"
+            style={{ backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261', border: '1px solid rgba(244, 162, 97, 0.35)' }}
+          >
+            {notice}
+          </p>
+        )}
 
         <form
           onSubmit={stage === 'auth' ? handlePassword : handleCode}
