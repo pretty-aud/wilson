@@ -584,10 +584,18 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     invalidateCache();
     setActiveSubjectSlug(null);
     setActiveSoftware(null);
-    setActiveSoftwareSlug(null);   // the effect below re-lists on this change
+    setActiveSoftwareSlug(null);
     setCurrentView('library');
     setCourseFilter('all');        // 'trash' is cloud-only; see the effect above
-  }, [libraryMode, invalidateCache]);
+    // 🚨 AND RE-LIST, EXPLICITLY. An earlier version of this effect only cleared
+    // activeSoftwareSlug and claimed in a comment that an effect below would
+    // re-list on that change. THERE IS NO SUCH EFFECT — every loadSoftwareList()
+    // call in this file sits inside a handler (handleCourseChanged, deleteSoftware,
+    // fork, generate) or the mount effect. Without this line the switch cleared the
+    // open course and then left the OTHER library's courses on screen, which is the
+    // whole feature appearing not to work.
+    loadSoftwareList();
+  }, [libraryMode, invalidateCache, loadSoftwareList]);
 
   const selectSubject = useCallback((softwareSlug, subjectSlug) => {
     setActiveSubjectSlug(subjectSlug);

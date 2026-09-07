@@ -61,14 +61,27 @@ describe('Otter.jsx reaches the adapter seam', () => {
 })
 
 describe('switching libraries throws away the other library state', () => {
-  const body = functionBody(otterCode, 'const lastLibraryModeRef')
+  // 🚨 SLICED BY EXPLICIT MARKERS, and both are asserted to exist. The first
+  // version of this block built its slice from a nested indexOf of the effect's
+  // DEPENDENCY ARRAY text; adding one dependency made that lookup return -1, the
+  // slice collapsed to 39 characters, and the assertions were suddenly checking
+  // almost nothing. A slice whose bounds are not checked is not a slice.
+  const START = 'const lastLibraryModeRef'
+  const END = '  }, [libraryMode, invalidateCache'
+  const from = otterCode.indexOf(START)
+  const to = otterCode.indexOf(END, from)
+  const effect = otterCode.slice(from, to)
+
+  it('the effect can be located at all', () => {
+    expect(from, 'start marker missing').toBeGreaterThan(-1)
+    expect(to, 'end marker missing').toBeGreaterThan(from)
+    expect(effect.length).toBeGreaterThan(200)
+  })
 
   it('🚨 invalidates the per-course caches — the two libraries do not share a slug space', () => {
     // On disk a slug is slugify(name); in cloud it is the course UUID. A cached
-    // entry that survives the switch renders the old library under the new
-    // library's name.
-    const effect = otterCode.slice(otterCode.indexOf('const lastLibraryModeRef'))
-      .slice(0, otterCode.slice(otterCode.indexOf('const lastLibraryModeRef')).indexOf('}, [libraryMode, invalidateCache]);') + 40)
+    // entry that survives the switch renders the old library's content under the
+    // new library's name.
     expect(effect).toContain('invalidateCache();')
     expect(effect).toContain('setActiveSoftwareSlug(null);')
     expect(effect).toContain('setActiveSubjectSlug(null);')
@@ -76,15 +89,25 @@ describe('switching libraries throws away the other library state', () => {
     expect(effect).toContain("setCurrentView('library');")
   })
 
+  it('🚨 RE-LISTS. Nothing else in this file will.', () => {
+    // The bug this catches was live for one commit: the effect cleared the open
+    // course and a comment claimed "the effect below re-lists on this change".
+    // There is no such effect — every loadSoftwareList() call in Otter.jsx is
+    // inside a handler or the mount effect — so the switch left the OTHER
+    // library's courses on screen and the whole feature looked broken.
+    expect(effect).toContain('loadSoftwareList();')
+    // …and it must be a DEPENDENCY, or the effect closes over a stale one.
+    expect(otterCode).toContain('}, [libraryMode, invalidateCache, loadSoftwareList]);')
+  })
+
   it('🚨 guards the FIRST run — a mount must not look like a switch', () => {
     // Without the ref the effect fires on mount, closing the course the user
     // just opened from a deep link and re-listing for no reason.
-    const effect = otterCode.slice(otterCode.indexOf('const lastLibraryModeRef'))
-    expect(effect.slice(0, 900)).toContain('if (lastLibraryModeRef.current === libraryMode) return;')
+    expect(effect).toContain('if (lastLibraryModeRef.current === libraryMode) return;')
   })
 
   it('the ref is seeded from the current mode, not from a constant', () => {
-    expect(body).toContain('useRef(libraryMode)')
+    expect(effect).toContain('useRef(libraryMode)')
   })
 })
 
