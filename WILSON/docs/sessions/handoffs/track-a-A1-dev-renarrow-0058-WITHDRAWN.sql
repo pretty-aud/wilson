@@ -1,3 +1,9 @@
+-- ⛔ WITHDRAWN 2026-09-07 by the controller session. DO NOT RUN.
+-- The constraint state this file 'repairs' is Track C's migration 0073
+-- (upload reservations, 68f97fe on track-c-storage), applied and recorded on
+-- wilson-dev on 2026-09-06. Running this would silently revert 0073's vocabulary
+-- widening while 0073 stays recorded as applied. Kept for the record only.
+--
 -- Track A, bundle A1 (2026-09-06) — DEV ONLY, an environment repair, NOT a migration.
 --
 -- Measured 2026-09-06 on wilson-dev (inet_server_addr …9d59…, 4 workspaces):
