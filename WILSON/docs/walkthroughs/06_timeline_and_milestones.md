@@ -1,7 +1,8 @@
 # Walkthrough 06 — the timeline: dependency warnings, the re-wire confirm, ghost links, migrated links
 
 **What this checks.** Track A bundle A2, session 1 (`cc1f55e`, `b104e50`,
-`643b5ca`, 2026-09-06). Four things, all around dependencies:
+`643b5ca`, with the review corrections `327cd37`, `4c645f7` and `564f02c`;
+2026-09-06). Four things, all around dependencies:
 
 1. **Phase 7** — marking a task or phase *done* while something it depends on
    is not done now shows a warning that names the unfinished dependencies and
