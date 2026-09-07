@@ -18,6 +18,13 @@ import {
   Gamepad2, Sparkles, Boxes, FolderOpen,
 } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+// Phase 7 (Track A A2, 2026-09-06): the status dropdown warns about
+// unfinished predecessors, then continues if asked. This popup is rendered by
+// the Tasks tab, the Timeline, Scenes, Levels, Experiences and the Dashboard,
+// so wiring it here covers all six; the Dashboard passes a ctx with no
+// dependency rows, where the check has nothing to read (stated limit,
+// docs/OUTSTANDING.md).
+import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import { useRosterMembers } from '../../../components/TeamMembers/useRosterMembers'
 import { useRateCard } from '../../../components/RateCard/useRateCard'
 import { usePermissions } from '../../../permissions/usePermissions'
@@ -61,6 +68,7 @@ function fmt(s) { return (s || '').replace(/_/g, ' ') }
 // ═════════════════════════════════════════════════════
 export default function TaskDetailPopup({ taskId, ctx, onClose }) {
   const task = (ctx?.tasks || []).find(t => t.id === taskId)
+  const guard = useDependencyStatusGuard(ctx)
   const assets = ctx?.assets || []
   const phases = ctx?.phases || []
   const project = ctx?.project
@@ -159,7 +167,9 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
     ? shots.filter(s => s.scene_id === task.scene_id)
     : shots
 
-  function handleUpdate(patch) { ctx?.updateTask?.(task.id, patch) }
+  function handleUpdate(patch) {
+    guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
+  }
 
   // Check which databases are enabled
   const scenesOn = project?.scenes_enabled
@@ -169,6 +179,7 @@ export default function TaskDetailPopup({ taskId, ctx, onClose }) {
 
   return (
     <>
+      {guard.modal}
       {/* Backdrop */}
       <div className="fixed inset-0 z-50" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose} />
       {/* Modal — wider when left column is shown */}

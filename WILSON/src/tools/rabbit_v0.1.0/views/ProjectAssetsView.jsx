@@ -40,6 +40,12 @@ import { usePermissions } from '../../../permissions/usePermissions'
 import { canOnProject, projectActionDeniedReason } from '../../../permissions/projectRoleMatrix'
 import GatedAction, { WriteReasonProvider } from '../../../permissions/GatedAction'
 import AssetStatusWarningModal from '../components/AssetStatusWarningModal'
+// Phase 7 (Track A A2, 2026-09-06): the task rows inside an asset's detail
+// popup write task statuses, so they warn about unfinished predecessors like
+// every other task-status surface. Asset statuses themselves are not guarded:
+// assets are not endpoints of either dependency table, so an asset has no
+// predecessors — AssetStatusWarningModal (child tasks) is the asset warning.
+import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { RelationPickerPopup, RelationBadge, AssetRelationsSidebar } from '../components/RelationsPanel'
 import FileManager from '../components/FileManager'
@@ -1675,6 +1681,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
 // ═════════════════════════════════════════════════════
 function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChanged, onClose }) {
   const tm = useTeamMembers()
+  const guard = useDependencyStatusGuard(ctx)
   const tt = useTaskTemplates()
   const teamAssignments = ctx?.teamAssignments || []
   const phases = ctx?.phases || []
@@ -2110,13 +2117,14 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                     task={t}
                     projectMembers={projectMembers}
                     memberById={memberById}
-                    onUpdateTask={(patch) => ctx?.updateTask?.(t.id, patch)}
+                    onUpdateTask={(patch) => guard.update({ ids: t.id, patch, write: () => ctx?.updateTask?.(t.id, patch) })}
                   />
                 ))}
               </tbody>
             </table>
           )}
 
+          {guard.modal}
           {/* Files section */}
           <div className="mt-6 pt-4" style={{ borderTop: '1px solid #44403c' }}>
             <FileManager

@@ -16,6 +16,10 @@
 
 import { AlertTriangle, X, ArrowDownCircle, Check } from 'lucide-react'
 import { useRabbit } from '../state/RabbitProvider'
+// One definition of "done" — shared with the selectors and with the Phase 7
+// predecessor warning (Track A bundle A2, 2026-09-06). The private copy that
+// used to sit at the bottom of this file is gone on purpose.
+import { isDone } from '../state/dependencyStatus'
 
 export default function AssetStatusWarningModal({ asset, onClose }) {
   const ctx = useRabbit()
@@ -145,8 +149,4 @@ export default function AssetStatusWarningModal({ asset, onClose }) {
       </div>
     </div>
   )
-}
-
-function isDone(task) {
-  return task && (task.status === 'approved' || task.status === 'final' || task.status === 'omitted')
 }

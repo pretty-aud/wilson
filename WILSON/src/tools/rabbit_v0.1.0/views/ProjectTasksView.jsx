@@ -41,6 +41,10 @@ import { canOnProject, projectActionDeniedReason } from '../../../permissions/pr
 import GatedAction, { WriteReasonProvider, useWriteReason } from '../../../permissions/GatedAction'
 import TaskDetailPopup from '../components/TaskDetailPopup'
 import NewTaskPopup from '../components/NewTaskPopup'
+// Phase 7 (Track A A2, 2026-09-06): every task-status write on this tab —
+// the inline dropdown, the bulk select, and both drop targets — warns about
+// unfinished predecessors and then continues if asked. Never blocks.
+import { useDependencyStatusGuard } from '../components/DependencyStatusGuard'
 import EditHistoryDrawer from '../components/EditHistoryDrawer'
 import { downloadCsv, exportDateStamp } from '../../../lib/csvExport'
 
@@ -963,6 +967,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
 
   // ── Multi-select state ──
   const [selected, setSelected] = useState(new Set())
+  const guard = useDependencyStatusGuard(ctx)
   const allTaskIds = useMemo(() => {
     if (groups) return groups.flatMap(g => g.tasks.map(t => t.id))
     return tasks.map(t => t.id)
@@ -978,9 +983,19 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
     else setSelected(new Set(allTaskIds))
   }
   function clearSelection() { setSelected(new Set()) }
+  // A bulk status change gets ONE warning naming every selected task with an
+  // unfinished predecessor, then continues if asked. The selection is cleared
+  // only when the write goes ahead, so "Go back" leaves the person exactly
+  // where they were.
   function bulkUpdate(patch) {
-    for (const id of selected) ctx?.updateTask?.(id, patch)
-    clearSelection()
+    const ids = [...selected]
+    guard.update({
+      ids, patch,
+      write: () => {
+        for (const id of ids) ctx?.updateTask?.(id, patch)
+        clearSelection()
+      },
+    })
   }
   // Bulk keeps its confirm (large blast radius); single rows rely on undo.
   function bulkDelete() {
@@ -1003,6 +1018,7 @@ function TaskTable({ tasks, groups, groupBy, assets, phases, members, assetById,
 
   return (
     <div className="min-w-full relative">
+      {guard.modal}
       {/* Header */}
       <div className="relative flex sticky top-0 z-10" style={{ borderBottom: '1px solid #44403c' }}>
         {/* ── Bulk-action bar (overlays header) ── */}
@@ -1168,6 +1184,7 @@ function buildGroupPatch(groupBy, targetKey) {
 // ── Task group with header + add-row + drop target ──
 function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById, phaseById, memberById, collapsed, onToggle, ctx, canWrite, onAddTask, onDetailClick, onHistoryClick, selected, toggleOne }) {
   const [dragOver, setDragOver] = useState(false)
+  const guard = useDependencyStatusGuard(ctx)
   const dragCountRef = useRef(0)
 
   function groupDefaults() {
@@ -1193,7 +1210,8 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
     if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(groupBy, group.key)
-    ctx.updateTask(taskId, patch)
+    // Phase 7: a drop into a done-status group warns first, then lands.
+    guard.update({ ids: taskId, patch, write: () => ctx.updateTask(taskId, patch) })
   }
 
   // Resolve accent color — use status color if grouped by status, otherwise orange
@@ -1210,6 +1228,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
         backgroundColor: dragOver ? 'rgba(234, 88, 12, 0.04)' : 'transparent',
         transition: 'box-shadow 200ms ease, background-color 200ms ease',
       }}>
+      {guard.modal}
       <div
         className="flex items-center gap-2.5 px-3.5 py-2.5 hover:bg-stone-800/50 transition-colors"
         style={{
@@ -1467,6 +1486,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
 // ── Single task row ──
 function TaskRow({ task, columns, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onDetailClick, onHistoryClick, isSelected, onToggleSelect }) {
   const [hovered, setHovered] = useState(false)
+  const guard = useDependencyStatusGuard(ctx)
   const writeReason = useWriteReason()
 
   // 🚨 Session 29 — this funnel was UNGATED, and it is not a create affordance
@@ -1481,7 +1501,9 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
   // would leave nine editable-looking cells that silently discard input.
   function handleUpdate(patch) {
     if (!canWrite) return
-    ctx?.updateTask?.(task.id, patch)
+    // Phase 7: a status move into done over an unfinished predecessor warns
+    // first; any other cell commits straight through.
+    guard.update({ ids: task.id, patch, write: () => ctx?.updateTask?.(task.id, patch) })
   }
   // Soft delete — no confirm; the shell-level undo toast covers it.
   function handleDelete() {
@@ -1616,6 +1638,7 @@ function TaskRow({ task, columns, assets, phases, members, assetById, phaseById,
         transition: 'background-color 150ms ease, border-color 150ms ease',
       }}
       onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
+      {guard.modal}
       {/* Checkbox */}
       <div className="flex items-center justify-center px-2" style={{ width: 36, flexShrink: 0 }}>
         <button type="button" onClick={e => { e.stopPropagation(); onToggleSelect?.() }}
@@ -1675,6 +1698,7 @@ function KanbanBoard({ groups, kanbanGroup, assets, phases, members, assetById, 
 
 function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, phaseById, memberById, ctx, canWrite, onAddTask, onDetailClick }) {
   const [addTitle, setAddTitle] = useState('')
+  const guard = useDependencyStatusGuard(ctx)
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef(null)
   const dragCountRef = useRef(0)
@@ -1709,7 +1733,8 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
     if (!canWrite) return
     if (!taskId || !ctx?.updateTask) return
     const patch = buildGroupPatch(kanbanGroup, group.key)
-    ctx.updateTask(taskId, patch)
+    // Phase 7: a card dropped into a done-status column warns first, then lands.
+    guard.update({ ids: taskId, patch, write: () => ctx.updateTask(taskId, patch) })
   }
 
   // Column accent color — status-mapped when grouped by status, orange otherwise
@@ -1729,6 +1754,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
           : 'none',
         transition: 'background-color 200ms ease, box-shadow 200ms ease',
       }}>
+      {guard.modal}
 
       {/* ── Column header ── */}
       <div className="px-3.5 py-3 flex items-center justify-between"
