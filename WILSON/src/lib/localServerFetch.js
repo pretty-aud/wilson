@@ -50,12 +50,23 @@ export function localServerToken() {
 export function isLocalServerUrl(input) {
   const url = typeof input === 'string' ? input : (input?.url ?? '')
   if (typeof url !== 'string' || url.length === 0) return false
-  // `//host/path` is protocol-relative and points at ANOTHER host.
-  if (url.startsWith('//')) return false
-  if (url.startsWith('/')) return true
-  if (typeof window === 'undefined' || !window.location?.origin) return false
+  const origin = typeof window === 'undefined' ? null : window.location?.origin
+  if (!origin) return false
+  // 🚨 ALWAYS PARSE. There is deliberately NO `url.startsWith('/') → true`
+  // shortcut, and review round R2 is what removed it: a leading `/` does not
+  // mean same-origin. The WHATWG parser treats a BACKSLASH as a second slash
+  // and strips leading control characters, so `/\evil.com/x`, `/\\evil.com/x`
+  // and `/<CR|LF|TAB>/evil.com/x` all resolve to `http://evil.com` while
+  // reading, character by character, like an ordinary root-relative path. The
+  // shortcut answered `true` for every one of them and the token went with it
+  // — the exact failure this module's header says it exists to prevent,
+  // reintroduced by the optimisation that skipped the parse. Measured: five
+  // shapes, all `true` before, all `false` now.
+  //
+  // Comparing resolved origins is the only test that cannot be spelled around,
+  // so it is the only test here.
   try {
-    return new URL(url, window.location.href).origin === window.location.origin
+    return new URL(url, window.location.href ?? origin).origin === origin
   } catch {
     return false
   }

@@ -740,7 +740,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   // ═══════════════════════════════════════════════════════════════
   // Session 12 (gap #21): loadSoftwareList() must not depend on the settings
   // fetch. In a browser there is no in-app Express server, so the old
-  // localFetch('/api/otter-settings') chain rejected, the catch swallowed it, and
+  // fetch('/api/otter-settings') chain rejected, the catch swallowed it, and
   // the library never loaded at all. localData routes settings to Express in
   // Electron (unchanged order: settings → legacy migration → list) and to
   // localStorage on the web; the list load now runs in every case.

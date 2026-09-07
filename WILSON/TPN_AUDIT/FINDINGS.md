@@ -700,9 +700,9 @@ all under `/api`. Guarding them would make a failed `cookies.set()` a white
 window rather than a degraded feature. A local process that loads the shell
 gets a UI whose every call answers 401.
 
-**Verification** — `scripts/local-server-lock-harness.mjs` (16 checks over a
-real socket, plus a control that must fail; runs in CI's Vitest job), and by
-running the desktop app: from a process outside Electron, `GET
+**Verification** — `scripts/local-server-lock-harness.mjs` (**31 checks** over a
+real socket, nine of them raw-socket request-target probes, plus a control that
+must fail; runs in CI's Vitest job), and by running the desktop app: from a process outside Electron, `GET
 /api/rabbit/projects` returned the project list before and returns 401 with an
 empty body after; with the header or the cookie it returns 200.
 

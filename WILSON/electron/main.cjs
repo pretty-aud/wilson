@@ -15,6 +15,7 @@ const {
   TOKEN_COOKIE,
   mintLaunchToken,
   applyLocalServerLock,
+  localServerErrorHandler,
 } = require('./localToken.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
@@ -31,9 +32,14 @@ if (require('electron-squirrel-startup')) app.quit();
 // lock — the §6 accepted limit this closes. Nostalgia TV learned the same
 // lesson the hard way.
 //
-// 🚨 MUST come after the Squirrel guard: an installer run is a legitimate
-// second process, and taking the lock before Squirrel has had its say would
-// have the update handshake fight the running app for it.
+// ⚠️ Ordering vs the Squirrel guard, stated precisely (R2 corrected an earlier,
+// looser version of this comment): `if (require('electron-squirrel-startup'))
+// app.quit();` does NOT return, so an installer process still reaches this line
+// and still takes — or fails to take — the lock. Ordering only decides who
+// quits first. If a Squirrel process fails to take it, the running app gets a
+// `second-instance` event and raises its window mid-install: cosmetic, and
+// better than the installer racing the running app for the lock, which is why
+// the guard stays first.
 //
 // `app.quit()` starts the shutdown but does NOT stop this module evaluating, so
 // the flag is read again at whenReady rather than trusted to have taken effect.
@@ -3418,6 +3424,11 @@ function startLocalServer(distPath) {
       res.sendFile(path.join(distPath, 'index.html'));
     });
 
+    // LAST, after every route: see localServerErrorHandler. Without it a route
+    // that throws answers a local caller with finalhandler's stack trace, which
+    // in a packaged Electron build is the development-mode one.
+    expressApp.use(localServerErrorHandler);
+
     const server = expressApp.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       // The one origin the renderer will ever have — see localToken.cjs on why
@@ -3462,7 +3473,13 @@ ipcMain.on('wilson:local-server-token', (event) => {
 app.on('second-instance', () => {
   if (!mainWindow) return;
   if (mainWindow.isMinimized()) mainWindow.restore();
-  if (!mainWindow.isVisible()) mainWindow.show();
+  // ⚠️ `show()` UNCONDITIONALLY, not only when hidden — R2's finding. The case
+  // Audrey actually tests (walkthrough 12 step 6.2) is a window that is VISIBLE
+  // but behind other windows, and that path used to reach `focus()` alone.
+  // Windows' foreground lock commonly refuses `focus()` from a process that
+  // does not own the foreground and flashes the taskbar button instead;
+  // `show()` raises. Harmless on an already-visible window.
+  mainWindow.show();
   mainWindow.focus();
 });
 

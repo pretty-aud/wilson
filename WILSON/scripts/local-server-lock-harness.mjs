@@ -83,7 +83,17 @@ const server = await new Promise((resolve, reject) => {
 const port = server.address().port;
 rendererOrigin = `http://127.0.0.1:${port}`;
 
-// ── assertions ───────────────────────────────────────────────────────────────
+// ⚠️ Cleanup on EVERY exit path, not just the happy one — R2's finding. The
+// close and the rmSync below are plain statements, so a thrown assertion (a
+// dead server, a fetch that rejects) used to leave a `wilson-lock-harness-*`
+// directory in the temp folder and the listener open. Registered here, before
+// anything can throw. Idempotent.
+process.on('exit', () => {
+  try { server.closeAllConnections?.(); server.close(); } catch { /* already closed */ }
+  try { fs.rmSync(distPath, { recursive: true, force: true }); } catch { /* already gone */ }
+});
+
+// ── assertions ─────────────────────────────────────────────────────────
 const results = [];
 
 async function check(label, { path: p = '/api/rabbit/projects', headers = {} } = {}, expected) {
@@ -136,11 +146,12 @@ await check('/apiary is not /api      → 200', { path: '/apiary' }, 200);
 // target before it leaves the process, so the same probes through fetch are
 // green against a guard that is wide open.
 const CRLF = '\r\n';
-function rawGet(target) {
+function rawGet(target, headers = {}) {
+  const extra = Object.entries(headers).map(([k, v]) => `${k}: ${v}${CRLF}`).join('');
   return new Promise((resolve) => {
     const sock = net.connect(port, '127.0.0.1', () => {
       sock.write(
-        `GET ${target} HTTP/1.1${CRLF}Host: 127.0.0.1:${port}${CRLF}Connection: close${CRLF}${CRLF}`);
+        `GET ${target} HTTP/1.1${CRLF}Host: 127.0.0.1:${port}${CRLF}${extra}Connection: close${CRLF}${CRLF}`);
     });
     let buf = '';
     sock.on('data', (d) => { buf += d; });
@@ -163,16 +174,56 @@ for (const target of [
   '/api/rabbit/projects/',
 ]) {
   const r = await rawGet(target);
+  // ⚠️ STATUS AND BODY, both — R2's finding. `!leaked` alone passes on a 404,
+  // on a 200 from the SPA catch-all, and on rawGet's own error path
+  // (`{status: 0, leaked: false}`), so a regression that stopped refusing these
+  // could go green. 401 is the only right answer.
   results.push({
-    label: `raw ${target.padEnd(28)} no leak`,
-    expected: 'no data', actual: r.leaked ? `LEAKED (${r.status})` : 'no data', pass: !r.leaked,
+    label: `raw ${target.padEnd(28)} 401`,
+    expected: '401, no data',
+    actual: `${r.status}${r.leaked ? ', LEAKED' : ', no data'}`,
+    pass: r.status === 401 && !r.leaked,
   });
 }
 {
   const r = await rawGet(`http://127.0.0.1:${port}${ENUMERATE}`);
   results.push({
-    label: 'raw absolute-form target      no leak',
-    expected: 'no data', actual: r.leaked ? `LEAKED (${r.status})` : 'no data', pass: !r.leaked,
+    label: 'raw absolute-form target      401',
+    expected: '401, no data',
+    actual: `${r.status}${r.leaked ? ', LEAKED' : ', no data'}`,
+    pass: r.status === 401 && !r.leaked,
+  });
+}
+// The raw arm's OWN control: the same socket, WITH the token, must come back
+// 200 AND carry the data. Without this, every raw probe above could be passing
+// because the detector is broken rather than because the guard works.
+{
+  const r = await rawGet(ENUMERATE, { [TOKEN_HEADER]: token });
+  results.push({
+    label: 'raw + token: detector works   200',
+    expected: '200, data present',
+    actual: `${r.status}${r.leaked ? ', data present' : ', NO DATA'}`,
+    pass: r.status === 200 && r.leaked,
+  });
+}
+
+// 🚨 A non-ASCII token must be a 401, not a 500 with a stack trace. R2
+// measured the old `tokensMatch` comparing STRING length while
+// `crypto.timingSafeEqual` compares BYTE length: 64 é characters passed the
+// length check, threw a RangeError inside the guard, and express's finalhandler
+// answered an unauthenticated caller with 1.8 KB of stack naming source files
+// and the absolute path of the user's home directory.
+for (const [what, headers] of [
+  ['header', { [TOKEN_HEADER]: 'é'.repeat(64) }],
+  ['cookie', { cookie: `${TOKEN_COOKIE}=${'é'.repeat(64)}` }],
+]) {
+  const res = await fetch(`http://127.0.0.1:${port}${ENUMERATE}`, { headers });
+  const body = await res.text();
+  results.push({
+    label: `non-ascii token (${what})       401 + empty`,
+    expected: '401, ""',
+    actual: `${res.status}, ${body.length} bytes`,
+    pass: res.status === 401 && body === '',
   });
 }
 

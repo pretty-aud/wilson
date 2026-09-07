@@ -151,8 +151,19 @@ function readCookie(cookieHeader, name) {
  */
 function tokensMatch(candidate, expected) {
   if (typeof candidate !== 'string' || typeof expected !== 'string') return false;
-  if (candidate.length === 0 || candidate.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(candidate, 'utf8'), Buffer.from(expected, 'utf8'));
+  // 🚨 BYTE length, not string length — R2's finding. `crypto.timingSafeEqual`
+  // throws `RangeError: Input buffers must have the same byte length`, and 64
+  // characters of `é` is 64 JS chars but 128 UTF-8 bytes. The old check
+  // compared `.length`, so a non-ASCII token of the right CHARACTER count sailed
+  // past it and threw inside the guard — which express handed to finalhandler,
+  // which (Electron never sets NODE_ENV, so it is in its development branch)
+  // answered an unauthenticated caller with a 500 and a 1.8 KB stack trace
+  // naming this file, its line, and the absolute path of the developer's tree.
+  // A bundle whose whole point is a bare 401 must not answer anything else.
+  const a = Buffer.from(candidate, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length === 0 || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
 }
 
 /**
@@ -166,23 +177,32 @@ function tokensMatch(candidate, expected) {
  */
 function createLocalTokenGuard(getToken) {
   return function localTokenGuard(req, res, next) {
-    if (!requestPathCandidates(req?.url).some(isGuardedPath)) return next();
+    // 🚨 THE WHOLE BODY IS WRAPPED. A guard that can THROW answers with
+    // whatever the framework's error handler decides — for express that is
+    // finalhandler, which prints a stack. The only two answers this middleware
+    // may ever give are `next()` and a bare 401, so anything unexpected becomes
+    // the 401. Fail closed, and say nothing.
+    try {
+      if (!requestPathCandidates(req?.url).some(isGuardedPath)) return next();
 
-    const expected = typeof getToken === 'function' ? getToken() : getToken;
-    // No token minted yet means the server is not ready to serve data. Fail
-    // closed: a guard that opens when it cannot find its own secret is not a
-    // guard.
-    if (typeof expected !== 'string' || expected.length === 0) {
+      const expected = typeof getToken === 'function' ? getToken() : getToken;
+      // No token minted yet means the server is not ready to serve data. Fail
+      // closed: a guard that opens when it cannot find its own secret is not a
+      // guard.
+      if (typeof expected !== 'string' || expected.length === 0) {
+        res.status(401).end();
+        return;
+      }
+
+      const header = req.headers?.[TOKEN_HEADER];
+      const cookie = readCookie(req.headers?.cookie, TOKEN_COOKIE);
+      if (tokensMatch(typeof header === 'string' ? header : null, expected)) return next();
+      if (tokensMatch(cookie, expected)) return next();
+
       res.status(401).end();
-      return;
+    } catch {
+      if (!res.headersSent) res.status(401).end();
     }
-
-    const header = req.headers?.[TOKEN_HEADER];
-    const cookie = readCookie(req.headers?.cookie, TOKEN_COOKIE);
-    if (tokensMatch(typeof header === 'string' ? header : null, expected)) return next();
-    if (tokensMatch(cookie, expected)) return next();
-
-    res.status(401).end();
   };
 }
 
@@ -194,13 +214,26 @@ function createLocalTokenGuard(getToken) {
  * is defence in depth: it stops a drive-by page in the user's ordinary browser
  * from READING a response it managed to provoke.
  *
- * 🚨 A missing `Origin` is allowed. Measured: a same-origin `fetch`, a plain
- * `<img>` and a `<video crossOrigin="anonymous">` all send NO Origin header,
- * while `<img crossOrigin="anonymous">` DOES send one — and the entity
+ * 🚨 A missing `Origin` is allowed, and THAT is the arm this codebase actually
+ * depends on. Measured in Chromium: a same-origin `fetch()`, a plain `<img>`
+ * and a `<video crossOrigin="anonymous">` all send NO Origin header, while
+ * `<img crossOrigin="anonymous">` DOES send one.
+ *
+ * ⚠️ Corrected by review round R2, because the first version of this comment
+ * got the codebase wrong in a way worth remembering: it claimed the entity
  * thumbnails in ScenesView / ProjectAssetsView / LevelsView / ExperiencesView
- * are exactly that shape. Refusing the header-less case would break the first
- * three; refusing the renderer's own origin would break the fourth. Both are
- * behind the token either way.
+ * were `<img crossOrigin="anonymous">`. They are not. `grep -rn crossOrigin
+ * src/` returns exactly two files, both `<video>` (`VideoPreview.jsx`,
+ * `videoThumbnails.js`); all eight thumbnail `<img>` tags are plain. So
+ * **nothing in `src/` sends an Origin to this server today**, and the
+ * header-less allow is what keeps every one of them working.
+ *
+ * The renderer-origin arm is therefore insurance, not load-bearing: it is here
+ * so that adding a `crossOrigin` attribute — or any future caller that does
+ * send an Origin — is not silently refused, while every other origin still is.
+ * Recorded as insurance rather than dressed up as a requirement, because a
+ * comment that overstates its own necessity is how the next person justifies
+ * keeping something they should have questioned.
  *
  * `getOrigin` is a function because the origin contains the port, and the port
  * is only known once `listen(0)` has bound.
@@ -223,11 +256,45 @@ function localCorsOptions(getOrigin) {
  * exercises the real mounting order and the real guard rather than a copy.
  *
  * Mount before any body parser and before any route.
+ *
+ * ⚠️ ONE EXCEPTION to "ahead of every route", found by R2 and left alone
+ * deliberately: `cors@2.8.6` defaults to `preflightContinue: false`, so it
+ * ANSWERS an `OPTIONS` preflight itself (204) before the guard sees it. Measured
+ * — an unauthenticated `OPTIONS /api/anything` gets 204 whether the path exists
+ * or not, and a FOREIGN origin gets 401 because cors calls `next()` when its
+ * origin callback returns false. A uniform 204 with no body is not a route
+ * oracle and carries no data, and making preflight require the token would
+ * break any future cross-origin caller for no gain. Recorded so the next reader
+ * does not mistake it for an oversight.
  */
 function applyLocalServerLock(expressApp, { cors, getToken, getOrigin }) {
   expressApp.use(cors(localCorsOptions(getOrigin)));
   expressApp.use(createLocalTokenGuard(getToken));
   return expressApp;
+}
+
+/**
+ * The terminal error handler. Mount LAST, after every route.
+ *
+ * 🚨 Express's default is `finalhandler`, which prints the stack when
+ * `NODE_ENV` is not 'production' — and Electron never sets `NODE_ENV`, so the
+ * PACKAGED app is in the stack-printing branch. Any route that throws
+ * therefore hands a local caller ~2 KB naming source files, line numbers and
+ * the absolute path of the user's own home directory. Four express routes in
+ * this server already leak `err.message` deliberately (TPN-LOG); this stops the
+ * unhandled ones leaking considerably more, and it is what makes B3's
+ * "residual reachability is nil for an outside caller" annotation true rather
+ * than nearly true.
+ *
+ * Four arguments, and the unused `next` is load-bearing: express identifies an
+ * error handler by arity, and a three-argument function is silently treated as
+ * ordinary middleware that never runs.
+ */
+// eslint-disable-next-line no-unused-vars
+function localServerErrorHandler(err, req, res, next) {
+  console.error('[wilson] local server route failed:', err?.stack ?? err);
+  if (res.headersSent) return res.end();
+  res.status(500).type('text/plain').send('internal error');
 }
 
 module.exports = {
@@ -241,4 +308,5 @@ module.exports = {
   createLocalTokenGuard,
   localCorsOptions,
   applyLocalServerLock,
+  localServerErrorHandler,
 };
