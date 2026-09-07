@@ -564,7 +564,10 @@ limits in `docs/SYSTEMS_HANDBOOK.md` §17. Finding one means you found the thing
 14. `WIL-1001/1002/1003` are in the Diagnostics error-code table but nothing emits them.
 15. **The Attach button on the Crew and Talent tabs appears to do nothing** — the invoice-folder
     response's `res.ok` is never checked. §6 #63. The most findable item on this list.
-16. Approving a change request moves subjects but **not the five reference documents**. §6 #29.
+16. ~~Approving a change request moves subjects but **not the five reference documents**~~ —
+    **FIXED** in Track A bundle A4 (`dfe666e`, Audrey's decision 37): hotkeys, functions,
+    nodes and reference links now move too, additively. `corrections` deliberately do not
+    — walkthrough `08_otter.md` asks her to confirm that. §6 #29.
 17. Milestones have no undo path — deletion is immediate, no toast, no trash. §6 #10.
 
 ---

@@ -57,6 +57,7 @@ import {
   ExternalLink, Archive,
 } from 'lucide-react'
 import { otterFetch } from '../../tools/otter_v0.3.1/adapters'
+import { DOC_LABELS } from '../../tools/otter_v0.3.1/adapters/otterRoutes.js'
 import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
 
 const TABS = [
@@ -279,7 +280,7 @@ export default function ChangeRequestsSection({ isActive }) {
             {applied.updates != null ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added` : ''}.
             {(applied.docsFailed?.length ?? 0) === 0
               ? ' Their hotkeys, functions, nodes and reference links were merged in as well.'
-              : ` Their subjects moved, but ${applied.docsFailed.map(d => d.doc).join(', ')} could NOT be updated — you may not have permission to edit this standard's documents.`}
+              : ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated — you may not have permission to edit this standard's documents.`}
             {' '}A pre-change archive was kept in your O.T.T.E.R. library.
           </span>
           <button type="button" onClick={() => setApplied(null)} className="ml-auto flex-shrink-0" aria-label="Dismiss">

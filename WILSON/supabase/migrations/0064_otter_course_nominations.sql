@@ -14,6 +14,16 @@
 -- anywhere in the product representing "make my course the standard". Nothing
 -- could even create the FIRST standard of a topic except that manual flip.
 --
+-- 🚨 RE-RUN ORDER, ADDED 2026-09-07 (Track A, A4).
+--    0069_otter_nomination_self_approval_audit.sql REPLACES this file's
+--    `otter_nomination_apply`, adding the WIL-4108 self-approval audit line.
+--    The version-ordered runner is safe (0064 then 0069). A BY-HAND REPLAY OF
+--    THIS FILE AFTER 0069 SILENTLY REVERTS THAT AUDIT LINE, and both files'
+--    post-conditions still pass, because neither knows about the other's
+--    additions. If you replay 0064, replay 0069 straight after it.
+--    (0069's header carries the mirror of this warning. The trap is the one
+--    0022/0025 set and MASTER_PLAN records.)
+--
 -- Audrey, 2026-08-12, on the shape:
 --   "it needs to be reviewers/managers not just admins with approval access.
 --    anyone should be able to submit to become company standard"

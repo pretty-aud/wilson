@@ -106,6 +106,26 @@ describe('switching libraries throws away the other library state', () => {
     expect(effect).toContain('if (lastLibraryModeRef.current === libraryMode) return;')
   })
 
+  it('🚨 a load already in flight cannot install the OTHER library', () => {
+    // loadSoftwareList is fire-and-forget and fans out seven requests per course.
+    // Flip the switch mid-load and the old load's setSoftwareList can land after
+    // the new one, and its detail fetches repopulate the caches AFTER
+    // invalidateCache() cleared them. The generation is bumped BEFORE the clear.
+    expect(effect).toContain('listGenerationRef.current += 1;')
+    const bumpAt = effect.indexOf('listGenerationRef.current += 1;')
+    const clearAt = effect.indexOf('invalidateCache();')
+    expect(bumpAt, 'the bump must come BEFORE the clear').toBeLessThan(clearAt)
+    // and the loader must actually consult it, in all three places it writes.
+    const loader = otterCode.slice(
+      otterCode.indexOf('const loadSoftwareList = useCallback'),
+      otterCode.indexOf('const selectSoftware = useCallback'))
+    expect(loader.length).toBeGreaterThan(400)
+    expect(loader).toContain('const generation = listGenerationRef.current')
+    expect((loader.match(/if \(!current\(\)\) return/g) || []).length,
+      'expected the guard before the list write and the cache write').toBe(2)
+    expect(loader).toContain('if (current()) subjectCacheRef.current[cacheKey] = fullSub;')
+  })
+
   it('the ref is seeded from the current mode, not from a constant', () => {
     expect(effect).toContain('useRef(libraryMode)')
   })

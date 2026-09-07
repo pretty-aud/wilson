@@ -56,6 +56,7 @@ import {
   Eye, EyeOff, Archive, ExternalLink, MessageSquareWarning, ShieldCheck,
 } from 'lucide-react'
 import { otterFetch } from '../adapters'
+import { DOC_LABELS } from '../adapters/otterRoutes.js'
 
 const STATUS_STYLE = {
   open:              { color: 'text-amber-500',  dot: '#b45309', label: 'Open' },
@@ -215,6 +216,16 @@ export default function RequestsView({
         name: r.target_name ?? 'the standard course',
         adds: diff?.adds ?? null,
         updates: diff?.updates ?? null,
+        // 🚨 A4: THIS SURFACE IS WHERE THE FAILURE ACTUALLY HAPPENS.
+        // `canDecide` here is `isAdmin || ownTargets.has(...)`, so the OWNER of a
+        // company-standard course decides whatever their tier — and a plain member
+        // can own one, because approving a nomination promotes a course owned by
+        // whoever proposed it. otter_cr_apply admits that person, but
+        // otter_courses_update's WITH CHECK requires admin to write a
+        // company_standard row, so their four document writes are all refused.
+        // Dropping `documents` here would show them a plain green 'Applied' and
+        // defeat the .select('id') guard at the only surface that reaches it.
+        docsFailed: data?.documents?.failed ?? [],
       })
       setDecide(null)
       setDiff(null)
@@ -447,7 +458,10 @@ export default function RequestsView({
               {applied.updates != null
                 ? ` — ${applied.updates} subject${applied.updates === 1 ? '' : 's'} updated, ${applied.adds} added`
                 : ''}.
-              A pre-change archive was kept in your library.
+              {(applied.docsFailed?.length ?? 0) === 0
+                ? ' Their hotkeys, functions, nodes and reference links were merged in as well.'
+                : ` Their subjects moved, but ${applied.docsFailed.map(d => DOC_LABELS[d.doc] ?? d.doc).join(', ')} could NOT be updated — only an admin can edit a company standard course's documents.`}
+              {' '}A pre-change archive was kept in your library.
             </p>
             <button onClick={() => setApplied(null)} aria-label="Dismiss">
               <X className="w-3 h-3 text-green-400" />
@@ -561,9 +575,11 @@ export default function RequestsView({
                                       “{r.target_name ?? 'the standard'}”: <strong className="text-white">{diff?.updates ?? 0} subject{(diff?.updates ?? 0) === 1 ? '' : 's'} updated,
                                       {' '}{diff?.adds ?? 0} added</strong>.</>
                                     )}{' '}
-                                    Nothing is deleted, and reference documents (hotkeys, functions,
-                                    nodes) are untouched. A snapshot of the current standard is kept
-                                    first, as a private archive owned by you.
+                                    Nothing is deleted. Their hotkeys, functions, nodes and reference
+                                    links are merged in as well — additively, so anything only the
+                                    standard has is kept. Corrections stay with them: those are agent
+                                    memory, not content. A snapshot of the standard as it is now,
+                                    documents included, is kept first as a private archive owned by you.
                                   </p>
                                   <div className="flex gap-2">
                                     <button

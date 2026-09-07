@@ -412,6 +412,17 @@ export function flattenNodesForMerge(stored) {
  * `corrections: (t, f) => mergeCorrections(t, f?.corrections ?? [])` here is
  * the whole change — the caller iterates this map.
  */
+/** What to CALL these documents in front of a person. `references` is a map
+ *  key, not a name — rendering it raw put "references" in a sentence that said
+ *  "reference links" two lines above. Shared by both approve surfaces so they
+ *  cannot drift apart again. */
+export const DOC_LABELS = {
+  hotkeys:    'hotkeys',
+  functions:  'functions',
+  nodes:      'nodes',
+  references: 'reference links',
+}
+
 export const CR_DOC_MERGE = {
   hotkeys:    (target, fork) => mergeHotkeys(target, fork?.categories ?? []),
   functions:  (target, fork) => mergeFunctions(target, fork?.categories ?? []),

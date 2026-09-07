@@ -1319,7 +1319,7 @@ undecided gap at a release is a decision nobody made.
 | 26 | **CLOSED S13** | `otter_cr_apply()` (0025). |
 | 27 | **CLOSED S13** | The consented review window. |
 | 28 | **RE-OWNED** | A reviewer still compares two courses by eye. A subject-level diff view is a feature, and it was deliberately excluded from S13's scope rather than forgotten. |
-| 29 | **ACCEPTED** | Apply moves subjects, not the five reference documents. Their merge semantics live in client JS; reimplementing them in plpgsql would duplicate load-bearing logic, and overwriting them would violate the additive-only rule. **The approve dialog says so.** |
+| 29 | **NARROWED 2026-09-07 (A4, `dfe666e`)** | Apply now moves subjects AND four of the five reference documents (hotkeys, functions, nodes, reference_urls) — Audrey's decision 37. The merge stayed in client JS, which is what this entry originally objected to protecting; `corrections` still do not move, because `otter_fork_course` blanks them as the author's agent memory. See the narrated entry in §6. **The approve dialog says so.** |
 | 30 | **ACCEPTED** | Web multi-tab last-writer-wins on the three `localStorage` stores. One-window product; same class as two Electron windows. |
 | 31 | **RE-OWNED** | D.O.G. cloud attachments. S15 closed the data-loss half; the re-homing is a migration plus five wiring changes with seven catalogued traps (see the entry above — the `isCore` polarity flip alone would change generation output). Explicitly excluded from S17 by the session brief. **In local mode attachments work end to end; in cloud mode they are refused loudly at the write layer, not silently lost.** |
 | 32 | **CLOSED S15** | The local password module deleted entire. |

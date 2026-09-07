@@ -464,10 +464,22 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     }
   }, []);
 
+  // 🚨 A4: WHICH LIBRARY DID THIS LOAD START AGAINST?
+  // loadSoftwareList is fire-and-forget and fans out seven more requests per
+  // course. Flip the Library switch while one is in flight and the OLD load's
+  // setSoftwareList can land AFTER the new one, putting the other library's
+  // courses on screen, and its detail fetches repopulate softwareCacheRef AFTER
+  // invalidateCache() has run. Bumped by the mode effect below; a load whose
+  // generation is stale installs nothing.
+  const listGenerationRef = useRef(0);
+
   const loadSoftwareList = useCallback(async () => {
+    const generation = listGenerationRef.current;
+    const current = () => listGenerationRef.current === generation;
     try {
       const res = await otterFetch('/api/software');
       const data = await res.json();
+      if (!current()) return;
       setSoftwareList(data);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
@@ -480,13 +492,14 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             otterFetch(`/api/software/${sw.slug}/nodes`).then(r => r.json()).catch(() => ({ categories: [] })),
             otterFetch(`/api/software/${sw.slug}/references`).then(r => r.json()).catch(() => ({ urls: [] })),
           ]).then(([meta, subjects, progress, hotkeys, functions, nodes, refs]) => {
+            if (!current()) return;
             softwareCacheRef.current[sw.slug] = { meta, subjects, progress, hotkeys, functions, nodes, references: refs.urls || [] };
             for (const sub of subjects) {
               const cacheKey = `${sw.slug}/${sub.slug}`;
               if (!subjectCacheRef.current[cacheKey]) {
                 otterFetch(`/api/software/${sw.slug}/subjects/${sub.slug}`)
                   .then(r => r.json())
-                  .then(fullSub => { subjectCacheRef.current[cacheKey] = fullSub; })
+                  .then(fullSub => { if (current()) subjectCacheRef.current[cacheKey] = fullSub; })
                   .catch(() => {});
               }
             }
@@ -581,6 +594,9 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
   useEffect(() => {
     if (lastLibraryModeRef.current === libraryMode) return;
     lastLibraryModeRef.current = libraryMode;
+    // Bump FIRST: a load already in flight against the old library must not
+    // install its result or repopulate the caches we are about to clear.
+    listGenerationRef.current += 1;
     invalidateCache();
     setActiveSubjectSlug(null);
     setActiveSoftware(null);

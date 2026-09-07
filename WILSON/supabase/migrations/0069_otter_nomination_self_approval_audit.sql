@@ -293,6 +293,14 @@ GRANT  EXECUTE ON FUNCTION public.otter_nomination_apply(UUID) TO authenticated,
 COMMENT ON FUNCTION public.otter_nomination_apply IS
   '0064, extended by 0069: approves an open nomination by PROMOTING the course to company_standard, demoting the incumbent standard for that slug to shared first. Refuses when a same-named standard exists under a different slug. Returns the promoted course id. The only path to status=approved. 0069: when the approver is also the nominator the approval is ALLOWED (Audrey, 2026-09-07) and writes a WIL-4108 app_events row in the same transaction.';
 
+-- One line of housekeeping that belongs to A4 rather than to this migration’s own
+-- subject. 0025’s COMMENT on otter_cr_apply still ended "reference documents are
+-- untouched". That is strictly true OF THE RPC — the merge is client-side, by
+-- MASTER_PLAN §6 #29’s design — but it is the first description a reader finds,
+-- and read alone it now says the opposite of what the product does.
+COMMENT ON FUNCTION public.otter_cr_apply IS
+  'Session 13: approves an open change request by APPLYING it (locked #22). Archives the target to a personal copy owned by the approver, then copies the proposer''s live subjects into the target additively (update by slug, insert when absent, never delete), and settles the request. THE RPC ITSELF STILL TOUCHES NO REFERENCE DOCUMENT — but since A4 (2026-09-07, Audrey''s decision 37) the CLIENT merges the fork''s hotkeys, functions, nodes and reference_urls into the standard immediately after this call, reading them BEFORE it because the review window closes on decision. See supabaseOtterAdapter cr.approve and MASTER_PLAN §6 #29. corrections deliberately do not move.';
+
 -- ── 3. Post-conditions ───────────────────────────────────────────────────────
 --
 -- 🚨 EVERY CHECK HERE IS AGAINST THE COMMENT-STRIPPED BODY, AND COUNTS RATHER

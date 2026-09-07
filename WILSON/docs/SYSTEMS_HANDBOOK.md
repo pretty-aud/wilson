@@ -2459,10 +2459,19 @@ Audrey is asked to confirm in walkthrough `08_otter.md`.
 **Limit, in the other direction.** `otter_courses_update`’s WITH CHECK requires
 `current_app_role() = 'admin'` to write a `company_standard` course, while
 `otter_cr_apply` also admits the standard’s OWNER. A non-admin owner approving
-(not reachable from the Admin Terminal, which is admin-only) therefore gets the
-subjects and not the documents. The RPC has already committed by then, so this is
-REPORTED rather than rolled back: the result banner names each document that did
-not move.
+therefore gets the subjects and not the documents. The RPC has already committed
+by then, so this is REPORTED rather than rolled back: the result banner names each
+document that did not move.
+
+🚨 **And that person DOES have a surface.** A4 first shipped this thinking the
+case was unreachable because the Admin Terminal is admin-only. It is not:
+`RequestsView`’s `canDecide` is `isAdmin || ownTargets.has(target)`, so the OWNER
+of a company standard decides whatever their tier — and a plain member can own one,
+because approving a nomination promotes a course owned by whoever proposed it.
+`RequestsView` is therefore *the* surface where the refusal happens, and it now
+carries the same banner and the same confirm copy as the Admin Terminal. Both read
+their document names from one shared `DOC_LABELS` map so a third surface cannot
+drift again.
 
 **The consented review window.** Submitting a request grants reviewers **read**
 access to the proposer's own source course, opening on submit and closing the

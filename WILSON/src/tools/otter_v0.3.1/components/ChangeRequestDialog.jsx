@@ -313,8 +313,9 @@ export default function ChangeRequestDialog({ course, standardName, sourceIsStan
                           Submitting lets reviewers open your copy of this course, read-only, while
                           the request is under review. That access ends when the request is decided.
                           If it is approved, your changes are added to the standard course — nothing
-                          is ever deleted from it, and its hotkey/function/node references stay as
-                          they are.
+                          is ever deleted from it. Your hotkeys, functions, nodes and reference links
+                          are added to it too, alongside whatever it already has. Your corrections
+                          are not: those stay with your copy.
                         </p>
                       </div>
                     </>

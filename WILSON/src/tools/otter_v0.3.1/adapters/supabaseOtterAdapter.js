@@ -718,7 +718,16 @@ export const supabaseOtterAdapter = {
       const { column, empty } = COURSE_DOCS[doc]
       const row = unwrap(await supabase.from('otter_courses')
         .select(column).eq('id', cr.source_course_id).maybeSingle())
-      forkDocs[doc] = row?.[column] ?? empty
+      // 🚨 NO ROW IS NOT AN EMPTY DOCUMENT. `row?.[column] ?? empty` alone cannot
+      // tell "the fork is invisible to me" from "the fork has no hotkeys", and the
+      // first one silently merges nothing into all four columns while every write
+      // succeeds and the banner reports a clean merge — the same silent success the
+      // read-before-RPC ordering exists to prevent, reached by a different door.
+      if (!row) {
+        throw new OtterCloudError(
+          'could not read the proposer' + String.fromCharCode(39) + 's course — nothing has been changed', 403)
+      }
+      forkDocs[doc] = row[column] ?? empty
     }
 
     const { data, error } = await supabase.rpc('otter_cr_apply', { p_cr_id: id })
@@ -734,7 +743,12 @@ export const supabaseOtterAdapter = {
       try {
         const cur = unwrap(await supabase.from('otter_courses')
           .select(column).eq('id', cr.target_course_id).maybeSingle())
-        const merged = merge(cur?.[column] ?? empty, forkDocs[doc])
+        // Same trap, and worse on this side: treating an unreadable standard as an
+        // EMPTY one would merge the fork into nothing and then WRITE that back,
+        // replacing the standard's own documents with only the proposer's. That is
+        // the additive rule broken silently, so refuse this document instead.
+        if (!cur) throw new OtterCloudError('could not read the standard course', 403)
+        const merged = merge(cur[column] ?? empty, forkDocs[doc])
         // `.select('id').maybeSingle()` is load-bearing: an UPDATE that RLS
         // refuses affects 0 rows and PostgREST answers 204 with NO error, so a
         // bare update reports success and the documents silently do not move.
