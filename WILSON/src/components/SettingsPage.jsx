@@ -41,6 +41,12 @@ export default function SettingsPage({
   // well as failure. It is not `petSaveError`, which multiplexes four unrelated
   // conditions and is cleared by any later successful save.
   newPetStatus = null, newPetPending = false,
+  // A3 (2026-09-07): the pet's cross-device notices — today, "Your pet changed
+  // on another device — refreshed" after migration 0068 refuses this window's
+  // stale copy. The same object drives the app-level <PetNotice> toast; this
+  // card is the surface that is still there once the toast has gone.
+  // null | { kind: 'info' | 'error', message }
+  petNotice = null,
   // Agent settings (passed via SettingsPageWithAgent wrapper)
   agentEnabled, onAgentEnabledChange,
   autoApprove, onAutoApproveChange,
@@ -401,11 +407,46 @@ export default function SettingsPage({
                   <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
                     Companion
                   </h2>
-                  <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                  {/* 🚨 A3: CLOUD-ONLY, SAID OUT LOUD. The pet is one row per
+                      person in your account (migration 0046) and every save
+                      goes there — `savePetData`'s local branch is only reached
+                      when nobody is signed in. The Phase 3 brief claimed the
+                      pet "works on desktop in local mode"; it does not, and
+                      until now nothing on screen said so. Somebody whose egg
+                      failed to hatch on a bad connection had no way to tell
+                      that from the feature being broken. */}
+                  <p className="text-xs text-stone-950 mb-2 leading-relaxed">
                     Your AI pet companion appears on every page. Manage pet mode, difficulty, and more.
+                  </p>
+                  <p className="text-xs text-stone-950 mb-4 leading-relaxed">
+                    Your pet lives in your account, so it follows you between computers —
+                    and it needs a connection. There is no offline copy: if the connection
+                    drops, changes to your pet are not saved until it comes back.
                   </p>
 
                   <div className="space-y-4">
+                    {/* 🚨 A3: the cross-device notice, on the page that
+                        describes the pet. The app-level toast auto-dismisses
+                        after ten seconds; a person who was looking elsewhere
+                        when their pet was refreshed underneath them finds the
+                        explanation here. LIGHT_INK for the same contrast reason
+                        the Create Egg status block below spells out — this
+                        block composites onto the page's #f4a261. */}
+                    {petNotice && (
+                      <div
+                        role="status"
+                        aria-live="polite"
+                        className="px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
+                        style={
+                          petNotice.kind === 'error'
+                            ? { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
+                            : { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
+                        }
+                      >
+                        {petNotice.message}
+                      </div>
+                    )}
+
                     {/* Pet info card */}
                     <div className="p-4 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)' }}>
                       <div className="flex items-center justify-between mb-3">

@@ -41,7 +41,10 @@ describe('the per-user pet is actually reached from App.jsx', () => {
   })
 
   it('🚨 CALLS resolveUserPet — a store nothing reads looks identical to one that works', () => {
-    expect(app).toMatch(/await\s+resolveUserPet\(\)/)
+    // A3: it takes the owner now, because the cache it consults to decide
+    // whether to ADOPT is keyed by account. Calling it with nothing would read
+    // the unattributed store and put the shared-computer leak straight back.
+    expect(app).toMatch(/await\s+resolveUserPet\(userId\)/)
   })
 
   it('🚨 keys the cloud load on perms.userId, NOT on `authed`', () => {
@@ -61,7 +64,10 @@ describe('the per-user pet is actually reached from App.jsx', () => {
   it('routes a save on whether there is a USER, not on whether this is Electron', () => {
     // window.electronAPI is true for the desktop app in cloud mode too, so
     // hasLocalServer() cannot answer "which backend" — the standing rule.
-    expect(app).toMatch(/if\s*\(petUserIdRef\.current\)\s*\{[\s\S]{0,400}saveCloudPet\(/)
+    // A3 reads the ref into `owner` first, because the same value now has to
+    // reach mirrorPetToCache as the cache key. The property is unchanged: the
+    // branch is "is there a signed-in user", never "is this Electron".
+    expect(app).toMatch(/const\s+owner\s*=\s*petUserIdRef\.current;[\s\S]{0,200}if\s*\(owner\)\s*\{[\s\S]{0,400}saveCloudPet\(/)
     expect(app).not.toMatch(/hasLocalServer\(\)[\s\S]{0,200}saveCloudPet/)
   })
 })
@@ -133,6 +139,158 @@ describe('the 30-second whole-object auto-save is gone', () => {
     // That line destroyed the decay anchor on every launch, which is also why
     // lastUpdatedAt could never order two devices' pets.
     expect(app).not.toMatch(/pet\.lastUpdatedAt\s*=\s*new Date\(\)\.toISOString\(\)/)
+  })
+})
+
+describe('A3 — the anchor travels with the values it describes', () => {
+  it('🚨 performPetSave no longer stamps a fresh anchor on every save', () => {
+    // It used to write `{ ...data, lastUpdatedAt: new Date().toISOString() }`,
+    // so a Pet Mode toggle from a window sitting on a week-old copy still
+    // claimed its hunger was true AT THAT INSTANT. That makes migration 0068's
+    // stale-write guard INERT — the stale window's anchor is always the
+    // fresher one, so it always wins. A guard that can never fire is worse
+    // than no guard, because it reads like protection.
+    //
+    // The property is that the stamp is CONDITIONAL. `const next = { ...data,
+    // lastUpdatedAt: now }` is the unconditional shape that has to be gone; the
+    // same literal survives as the ternary's fallback arm, for a pet object
+    // that somehow carries no anchor at all (a hand-edited cache).
+    expect(app).not.toMatch(/const\s+next\s*=\s*\{\s*\.\.\.data,\s*lastUpdatedAt:/)
+    expect(app).toMatch(/const\s+next\s*=\s*data\.lastUpdatedAt\s*\n?\s*\?\s*data\s*\n?\s*:\s*\{\s*\.\.\.data,\s*lastUpdatedAt:/)
+  })
+
+  it('🚨 and every mutation that MOVES hunger or happiness stamps one', () => {
+    // The other half. If the save stops stamping and the handlers do not start,
+    // decay is written against an anchor that never advances and every cold
+    // start re-applies the same interval — the pet drifts dead-ward.
+    //
+    // Counted, not merely present: feeding, hatching, waking and petting are
+    // four separate object literals and one of them losing the field is exactly
+    // the kind of edit a `toMatch` cannot see.
+    const stamps = app.match(/lastUpdatedAt: new Date\(\)\.toISOString\(\)/g) || []
+    expect(stamps.length).toBeGreaterThanOrEqual(4)
+    expect(app).toMatch(/hunger: Math\.min\(100, prev\.hunger \+ 25\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    expect(app).toMatch(/happiness: Math\.min\(100, prev\.happiness \+ 20\)[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+    expect(app).toMatch(/sleepingSince: null[\s\S]{0,200}lastUpdatedAt: new Date\(\)/)
+  })
+
+  it('🚨 a thumbs-DOWN does not move the anchor', () => {
+    // It changes the feedback array and no number, so it re-sends the anchor it
+    // holds and 0068 accepts it as an equal. Stamping there would let a rating
+    // from a stale window count as "this copy is newer" — the clobber wearing a
+    // different hat.
+    expect(app).toMatch(/next\.happiness = Math\.min\(100, next\.happiness \+ 5\);\s*\n[\s\S]{0,400}next\.lastUpdatedAt = new Date\(\)\.toISOString\(\);/)
+  })
+})
+
+describe('A3 — 0068\'s refusal is a re-read, never a retry', () => {
+  it('🚨 recognises the refusal through the shared predicate', () => {
+    // Matching the message text here instead would rot the moment the message
+    // is reworded, and the failure mode is silent: the refusal would be
+    // reported as an ordinary save failure and the stale copy left on screen.
+    expect(app).toMatch(/import\s*\{[^}]*isStalePetWrite[^}]*\}\s*from\s*'\.\/lib\/userState'/)
+    expect(app).toMatch(/if\s*\(isStalePetWrite\(err\)\)/)
+  })
+
+  it('🚨 re-reads the account instead of retrying the write', () => {
+    expect(app).toMatch(/isStalePetWrite\(err\)[\s\S]{0,900}await\s+fetchCloudPet\(\)/)
+    // The failing control: no retry of the save that was just refused.
+    expect(app).not.toMatch(/isStalePetWrite\(err\)[\s\S]{0,600}saveCloudPet\(/)
+  })
+
+  it('🚨 says so on a surface that does not need the pet to be rendering', () => {
+    // The existing banner lives inside PetCompanion's chat popup, and App
+    // renders PetCompanion as `{petData && …}` — so it is invisible in exactly
+    // the two cases that need it: a stale copy being replaced, and a failed
+    // LOAD, which unmounts the only renderer of its own error message.
+    expect(app).toMatch(/setPetNotice\(\{\s*\n?\s*kind: 'info'/)
+    expect(app).toMatch(/<PetNotice\s+notice=\{petNotice\}/)
+    // Mounted OUTSIDE every petData gate — beside UndoToast at the root.
+    expect(app).toMatch(/<UndoToast \/>[\s\S]{0,600}<PetNotice/)
+    expect(app).not.toMatch(/petData && [\s\S]{0,200}<PetNotice/)
+  })
+
+  it('the load failure reaches it too — the entry that had nowhere to show itself', () => {
+    expect(app).toMatch(/setPetNotice\(\{ kind: 'error', message \}\)/)
+  })
+})
+
+describe('A3 — a failed cloud read must not re-point the writes', () => {
+  it('🚨 petUserIdRef is CLEARED on an identity change, not SET', () => {
+    // It used to be set unconditionally, before the async read. If
+    // resolveUserPet() then threw, the catch kept rendering the stale device
+    // pet while savePet had already been re-pointed at the account — so any
+    // interaction wrote that stale pet over the account row, with no adoption
+    // decision and no staleness check. A transient Supabase blip on the second
+    // computer was enough to overwrite the first computer's pet.
+    expect(app).toMatch(/if\s*\(petUserIdRef\.current\s*!==\s*userId\)\s*petUserIdRef\.current\s*=\s*null;/)
+    // The failing control: the unconditional assignment must be gone from the
+    // effect's synchronous head.
+    expect(app).not.toMatch(/const userId = perms\.userId \|\| null;\s*\n\s*petUserIdRef\.current = userId;/)
+  })
+
+  it('🚨 and is SET only after the read has landed', () => {
+    expect(app).toMatch(/await\s+resolveUserPet\(userId\);[\s\S]{0,200}petUserIdRef\.current\s*=\s*userId;/)
+  })
+})
+
+describe('A3 — the cached pet leaves with the person', () => {
+  it('🚨 sign-out clears the account\'s cache', () => {
+    // clearSession() clears the auth blob and nothing else; the pet cache
+    // survived deliberately, and resolveUserPet READ it to decide adoption.
+    expect(app).toMatch(/import\s*\{[^}]*clearPetCache[^}]*\}\s*from\s*'\.\/lib\/localData'/)
+    expect(app).toMatch(/await\s+clearPetCache\(leavingUserId\)/)
+  })
+
+  it('🚨 and captures the owner BEFORE the teardown nulls the ref', () => {
+    // Reading petUserIdRef.current after `petUserIdRef.current = null` clears
+    // nothing at all, and looks completely correct.
+    const signOut = app.slice(app.indexOf('window.wilsonSignOut = async'))
+    const capture = signOut.indexOf('const leavingUserId = petUserIdRef.current')
+    const teardown = signOut.indexOf('petUserIdRef.current = null')
+    expect(capture).toBeGreaterThan(-1)
+    expect(teardown).toBeGreaterThan(-1)
+    expect(capture).toBeLessThan(teardown)
+  })
+
+  it('the pre-auth cache read is attributed', () => {
+    // The mount effect runs before usePermissions resolves, so it reads the
+    // owner out of the stored session's JWT. Without this the cache is keyed by
+    // account and then read with no key, which returns nothing on every launch.
+    expect(app).toMatch(/const owner = await storedSessionUserId\(\);\s*\n\s*const stored = await loadPet\(owner\);/)
+  })
+})
+
+describe('A3 — the corpse promotion window is shared', () => {
+  it('🚨 the live tick and the load path read ONE constant', () => {
+    // The tick's setTimeout was the only thing that promoted a corpse, and the
+    // load path had no idea the number existed — which is the whole of the
+    // "a pet saved as a corpse never becomes a ghost" entry.
+    expect(app).toMatch(/\}, CORPSE_TO_GHOST_MS\);/)
+    expect(app).not.toMatch(/\}, 10000\);/)
+  })
+})
+
+describe('A3 — what is stored in feedback is bounded', () => {
+  it('🚨 both fields are sliced before they go into the array', () => {
+    // MEASURED on wilson-dev 2026-09-07: fifty entries at the reply ceiling are
+    // 219,807 bytes against user_pets' 262,144-byte CHECK, and userMsg was not
+    // bounded at all. Create Egg carries the whole array into the new pet, so
+    // the write most likely to trip the cap is the one taken by somebody whose
+    // pet has just died.
+    expect(app).toMatch(/userMsg: \(lastUser\?\.content \|\| ''\)\.slice\(0, FEEDBACK_SNIPPET_CHARS\)/)
+    expect(app).toMatch(/botResponse: \(lastAssistant\.content \|\| ''\)\.slice\(0, FEEDBACK_SNIPPET_CHARS\)/)
+    expect(app).toMatch(/const FEEDBACK_SNIPPET_CHARS = \d+;/)
+  })
+
+  it('🚨 and the bound leaves the fifty-entry array clear of the cap', () => {
+    // The arithmetic, not a promise about it: 50 entries of two bounded strings
+    // plus ~60 bytes of keys and timestamp must stay well under 262144.
+    const chars = Number(app.match(/const FEEDBACK_SNIPPET_CHARS = (\d+);/)[1])
+    expect(50 * (2 * chars + 80)).toBeLessThan(262144 / 2)
+    // ...and it must still be comfortably more than the 60 characters the one
+    // consumer actually reads, or the bound is a behaviour change in disguise.
+    expect(chars).toBeGreaterThanOrEqual(240)
   })
 })
 
@@ -254,7 +412,19 @@ describe('Phase 3 — Create Egg is decided by the ACCOUNT pet and reported on S
     // Making it unconditional wrote applyOfflineDecay's decayed hunger against
     // the ORIGINAL lastUpdatedAt, so the next launch decayed the same interval
     // again and the pet drifted dead-ward on every sign-in.
-    expect(app).toMatch(/if\s*\(adopted\)\s*await\s+mirrorPetToCache\(fresh\)/)
+    expect(app).toMatch(/if\s*\(adopted\)\s*await\s+mirrorPetToCache\(fresh,\s*userId\)/)
+  })
+
+  it('🚨 A3 — EVERY mirror call names the account, asserted by COUNT', () => {
+    // mirrorPetToCache(pet) with no owner writes the unattributed store, which
+    // the account arm of loadPet() never reads again — so a dropped argument is
+    // a cache that is silently never used, and the "renders instantly" promise
+    // quietly stops being true. A bare toMatch would pass while one of the
+    // three call sites lost its owner, so the property is the count.
+    const calls = app.match(/mirrorPetToCache\(/g) || []
+    const owned = app.match(/mirrorPetToCache\([A-Za-z]+,\s*[A-Za-z.]+\)/g) || []
+    expect(calls.length).toBeGreaterThan(0)
+    expect(owned).toHaveLength(calls.length)
   })
 
   it('the Create Egg result is cleared on navigation', () => {
@@ -304,11 +474,19 @@ describe('Phase 3 — Create Egg is decided by the ACCOUNT pet and reported on S
     expect(app).toMatch(/if\s*\(!canCreateNewEgg\(current\)\)/)
   })
 
-  it('an egg is never labelled starving', () => {
-    // Every egg is minted with hunger 0, and the hunger ladder rendered that in
-    // RED as "STARVING" — so a brand-new egg announced that it was dying, to
-    // the one person whose pet had just died.
-    expect(app).toMatch(/if\s*\(pet\.form\s*===\s*'egg'\)\s*return\s*'content'/)
+  it('an egg is never labelled starving — the assertion MOVED, it did not go', () => {
+    // 🚨 A3: derivePetState and applyOfflineDecay left App.jsx for
+    // src/lib/petLifecycle.js, so this can finally be a real call instead of a
+    // regex over a 2000-line component — petLifecycle.test.js now asserts
+    // derivePetState({ form: 'egg', hunger: 0 }) === 'content' directly.
+    //
+    // What is left here is the WIRING half a behaviour test cannot see: that
+    // App.jsx still gets its rules from that module rather than growing a
+    // second copy. A private helper would drift from the tested one in silence.
+    expect(app).toMatch(/import\s*\{[^}]*derivePetState[^}]*\}\s*from\s*'\.\/lib\/petLifecycle'/)
+    expect(app).not.toMatch(/function\s+derivePetState\s*\(/)
+    expect(app).not.toMatch(/function\s+applyOfflineDecay\s*\(/)
+    expect(app).not.toMatch(/const\s+DECAY_RATES\s*=/)
   })
 
   it('🚨 a pristine local egg is never seeded into the account', () => {

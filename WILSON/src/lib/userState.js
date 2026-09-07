@@ -61,6 +61,28 @@ export function getUserStateOwner() { return currentUserId }
 const PET_TABLE = 'user_pets'
 const SETTINGS_TABLE = 'user_settings'
 
+/**
+ * Migration 0068's SQLSTATE for "this copy of the pet is older than the one
+ * already saved". ONE definition, because the client's whole response to it —
+ * do not retry, re-read, say "refreshed" — hangs on recognising it.
+ */
+export const PET_STALE_WRITE_CODE = 'WP001'
+
+/**
+ * Was this failure 0068's stale-write refusal?
+ *
+ * Matches the SQLSTATE first and the message token second. The token exists
+ * because a transport that drops `code` (a fetch shim, a future client) would
+ * otherwise turn a refusal into "your pet could not be saved" — the wrong
+ * message and the wrong recovery. 0009's `RAISE EXCEPTION 'slug_taken'` is the
+ * precedent for a message that is meant to be read by a program.
+ */
+export function isStalePetWrite(err) {
+  if (!err) return false
+  if (err.code === PET_STALE_WRITE_CODE) return true
+  return typeof err.message === 'string' && err.message.includes('pet_stale_write')
+}
+
 // camelCase in the app, snake_case in Postgres. `state` is deliberately absent
 // from both directions — it is derived by derivePetState on every read, and a
 // stored copy could disagree with the row describing it (0046 §"state is
@@ -187,7 +209,18 @@ export async function saveCloudPet(pet) {
     .from(PET_TABLE)
     .upsert(row, { onConflict: 'user_id' })
     .select('user_id')
-  if (error) throw new Error(`[supabase] ${error.message}`)
+  if (error) {
+    // 🚨 A3: THE SQLSTATE SURVIVES THE RE-THROW.
+    //
+    // Migration 0068 refuses a write whose decay anchor is older than the
+    // stored row's, and the caller has to tell that ONE refusal apart from
+    // every other failure — it must re-read instead of retrying, and it must
+    // say "refreshed" rather than "could not be saved". Wrapping the message in
+    // a bare Error threw the code away, so `code` is carried across.
+    const wrapped = new Error(`[supabase] ${error.message}`)
+    wrapped.code = error.code
+    throw wrapped
+  }
   if (!data || data.length === 0) {
     throw new Error('Your pet was refused by the server (no row was written).')
   }
@@ -243,7 +276,7 @@ export async function saveCloudSettings({ prompts, agentPromptOverrides }) {
  * makes it unreachable, and a timestamp comparison here would be reading
  * `lastUpdatedAt`, which historical launches have already overwritten.
  */
-export async function resolveUserPet() {
+export async function resolveUserPet(userId = null) {
   const cloud = await fetchCloudPet()
 
   // 🚨 THE ORDER HERE IS S31'S ORIGINAL AND MUST STAY THAT WAY — Phase 3 tried
@@ -271,13 +304,34 @@ export async function resolveUserPet() {
   if (isRealPet(cloud)) return { pet: cloud, source: 'cloud', adopted: false }
 
   // RAW local read — see the adoption-trap note at the top of this file.
+  //
+  // 🚨 A3: SCOPED TO THE ACCOUNT. `loadLocalPet(userId)` reads
+  // `pet.<userId>.json` / `wilson.pet.<userId>` and returns null when this
+  // account has never been cached here. Passing nothing would read the
+  // unattributed store — which is how person A's pet could be adopted into
+  // person B's account on a shared computer, underneath RLS, through the
+  // filesystem. A cache that does not record its owner cannot be adopted
+  // safely, so it is not read here at all.
   let local = null
-  try { local = await loadLocalPet() } catch { /* a broken cache is not fatal */ }
+  try { local = await loadLocalPet(userId) } catch { /* a broken cache is not fatal */ }
 
   // Rule 2: no REAL cloud pet + a REAL local pet → lift it up. This is the
   // pre-accounts migration case (Audrey's Ollie, resident since 16 July).
   if (isRealPet(local)) {
-    await saveCloudPet(local)
+    try {
+      await saveCloudPet(local)
+    } catch (err) {
+      // 🚨 0068 CAN REFUSE AN ADOPTION, AND THAT REFUSAL IS AN ANSWER.
+      //
+      // The cached copy carries the anchor it was cached with. If another
+      // machine has written the account since, that anchor is older and the
+      // guard rejects this upsert. Re-raising would turn "somebody else already
+      // moved this pet on" into a sign-in error; the right reading is that the
+      // account's copy wins, which is rule 1 arriving one step late.
+      if (!isStalePetWrite(err)) throw err
+      const fresh = await fetchCloudPet()
+      return { pet: fresh ?? cloud, source: 'cloud', adopted: false }
+    }
     return { pet: local, source: 'local', adopted: true }
   }
 
@@ -332,13 +386,19 @@ export async function resolveUserSettings() {
 }
 
 /**
- * Mirror the authoritative pet back into the per-device cache so the next cold
- * start renders instantly and a signed-out or offline session still shows
- * something true. Never throws: a failed cache write must not surface as "your
- * pet was not saved" when the cloud write succeeded.
+ * Mirror the authoritative pet back into THIS ACCOUNT'S per-device cache, so
+ * the next cold start on this computer renders instantly. Never throws: a
+ * failed cache write must not surface as "your pet was not saved" when the
+ * cloud write succeeded.
+ *
+ * ⚠️ A3: `userId` is not optional in practice. Called without one it writes the
+ * unattributed store, which nothing adopts and which the account arm of
+ * loadPet() never reads — so a missing argument here is a cache that is
+ * silently never used again. App.jsx passes petUserIdRef.current at both call
+ * sites and userStateWiring.test.js fails if either drops it.
  */
-export async function mirrorPetToCache(pet) {
-  try { await saveLocalPetData(pet) } catch { /* cache only */ }
+export async function mirrorPetToCache(pet, userId = null) {
+  try { await saveLocalPetData(pet, userId) } catch { /* cache only */ }
 }
 
 /**

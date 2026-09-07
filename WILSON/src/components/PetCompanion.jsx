@@ -142,7 +142,11 @@ export default function PetCompanion({
             {petSaveError && (
               <div className="flex items-start gap-2 px-3 py-2.5 rounded-sm border text-xs font-mono" style={{ background: isDarkPage ? '#450a0a' : '#fee2e2', borderColor: isDarkPage ? '#991b1b' : '#ef4444', color: isDarkPage ? '#fca5a5' : '#991b1b' }}>
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                <span><strong>{name} isn’t being saved.</strong> {petSaveError}</span>
+                {/* A3: the second sentence is the one that was missing. The
+                    pet is stored in the account and nowhere else, so "not being
+                    saved" means "not saved anywhere", not "saved locally for
+                    now" — and the recovery is a connection, not a retry. */}
+                <span><strong>{name} isn’t being saved.</strong> {petSaveError} {name} lives in your account, so this change is not stored anywhere until the connection comes back.</span>
               </div>
             )}
             {aiUnavailable && !isEgg && (

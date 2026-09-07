@@ -327,15 +327,84 @@ function startLocalServer(distPath) {
     expressApp.use(express.json({ limit: '50mb' }));
 
     // ── Pet endpoints ──
+    //
+    // 🚨 A3 (2026-09-07): THE CACHE IS KEYED BY ACCOUNT.
+    //
+    // getDataDir() has no user segment, so `pet.json` was one file per INSTALL
+    // and nothing removed it on sign-out. src/lib/userState.js's resolveUserPet
+    // reads that cache to decide whether to ADOPT it into the account, so on a
+    // shared computer person A's pet could be lifted into person B's account
+    // whenever B had no pet row of their own — underneath RLS, through the
+    // filesystem. `?user=<uuid>` names the owner: `pet.<userId>.json`.
+    //
+    // ⚠️ Without the parameter these routes behave exactly as before, on the
+    // historical `pet.json`. That is the signed-out path, and nothing adopts it
+    // into an account any more.
+    //
+    // 🚨 THE UUID IS VALIDATED, NOT SANITISED. The value reaches path.join, so
+    // anything that is not exactly a UUID is REFUSED. A sanitiser is a list of
+    // the traversals somebody happened to think of; a shape check is not.
+    const PET_USER_RE =
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+    // Returns the path to write, or NULL after answering 400 — callers must
+    // check, because returning a fallback path on a bad parameter is how a
+    // rejected request quietly writes to somebody else's file.
+    function petPathFor(req, res) {
+      const user = req.query && req.query.user;
+      if (user === undefined || user === null || user === '') {
+        return path.join(getDataDir(), 'pet.json');
+      }
+      if (typeof user !== 'string' || !PET_USER_RE.test(user)) {
+        res.status(400).json({ error: 'user must be a UUID' });
+        return null;
+      }
+      return path.join(getDataDir(), 'pet.' + user + '.json');
+    }
+
     expressApp.get('/api/pet', (req, res) => {
-      const petPath = path.join(getDataDir(), 'pet.json');
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
       let pet = readJSON(petPath);
-      if (!pet) { pet = defaultPet(); writeJSON(petPath, pet); }
+      if (!pet) {
+        // 🚨 THE ACCOUNT ARM DOES NOT MINT. "This account has never been cached
+        // on this computer" is a real answer and the renderer needs to hear it:
+        // minting an egg here would hand resolveUserPet a pristine pet to
+        // reason about on every first sign-in, and would flash a blank egg on
+        // screen before the account's real pet arrives.
+        if (req.query && req.query.user) {
+          return res.status(404).json({ error: 'no cached pet for this account' });
+        }
+        pet = defaultPet(); writeJSON(petPath, pet);
+      }
       res.json(pet);
     });
 
     expressApp.post('/api/pet', (req, res) => {
-      writeJSON(path.join(getDataDir(), 'pet.json'), req.body);
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      writeJSON(petPath, req.body);
+      res.json({ ok: true });
+    });
+
+    // Sign-out deletes THIS ACCOUNT'S cached copy. Not the same class of action
+    // as deleting the pet: public.user_pets is the authority and is untouched,
+    // so signing back in restores everything.
+    expressApp.delete('/api/pet', (req, res) => {
+      // ⚠️ Refuses to touch the unattributed pet.json. That file is nobody's
+      // account state, nothing reads it into an account any more, and a
+      // sign-out has no business deleting a file it cannot attribute — Audrey's
+      // original Ollie lives in one of them.
+      if (!(req.query && req.query.user)) {
+        return res.status(400).json({ error: 'user is required' });
+      }
+      const petPath = petPathFor(req, res);
+      if (!petPath) return;
+      try {
+        if (fs.existsSync(petPath)) fs.unlinkSync(petPath);
+      } catch (err) {
+        return res.status(500).json({ error: err.message });
+      }
       res.json({ ok: true });
     });
 

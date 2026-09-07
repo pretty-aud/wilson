@@ -441,3 +441,139 @@ describe('mirrorSettingsToCache', () => {
       .resolves.toBeUndefined()
   })
 })
+
+// =============================================================================
+// Track A, bundle A3 (2026-09-07) — migration 0068's refusal, and the
+// account-scoped cache read.
+// =============================================================================
+
+const { isStalePetWrite, PET_STALE_WRITE_CODE, mirrorPetToCache } =
+  await import('./userState')
+
+describe('A3 — recognising 0068\'s refusal', () => {
+  // The whole client response hangs on this: do not retry, re-read, say
+  // "refreshed" rather than "could not be saved". Getting it wrong in the safe
+  // direction still shows the wrong message; in the unsafe direction it retries
+  // the stale copy against a row that has moved on.
+  it('matches the SQLSTATE', () => {
+    expect(isStalePetWrite({ code: PET_STALE_WRITE_CODE })).toBe(true)
+    expect(PET_STALE_WRITE_CODE).toBe('WP001')
+  })
+
+  it('🚨 and the message token, for a transport that drops the code', () => {
+    expect(isStalePetWrite(new Error('[supabase] pet_stale_write: this copy is older'))).toBe(true)
+  })
+
+  it('is not fooled by an ordinary failure', () => {
+    expect(isStalePetWrite(new Error('[supabase] permission denied for table user_pets'))).toBe(false)
+    expect(isStalePetWrite({ code: '23514' })).toBe(false)
+    expect(isStalePetWrite(null)).toBe(false)
+    expect(isStalePetWrite(undefined)).toBe(false)
+  })
+
+  it('🚨 saveCloudPet carries the SQLSTATE across the re-throw', () => {
+    // Wrapping the PostgrestError in a bare Error threw `code` away, which
+    // turned the one refusal the client has to recognise into an anonymous
+    // save failure.
+    //
+    // 🚨 THE MESSAGE HERE DOES NOT CONTAIN THE TOKEN, AND THAT IS THE WHOLE
+    // POINT. A first version asserted isStalePetWrite(err) against a message
+    // that DID contain `pet_stale_write` — so the predicate's message arm
+    // answered true and the probe passed with `wrapped.code` deleted. It was
+    // green under the exact mutation it existed to catch, found by running that
+    // mutation. Assert the field the mutation removes.
+    stubTable({ upsertError: { message: 'row is stale', code: 'WP001' } })
+    return saveCloudPet({ name: 'Ollie' }).then(
+      () => { throw new Error('expected a rejection') },
+      (err) => {
+        expect(err.code).toBe(PET_STALE_WRITE_CODE)
+        expect(isStalePetWrite(err)).toBe(true)
+      },
+    )
+  })
+})
+
+describe('A3 — resolveUserPet reads only THIS account\'s cache', () => {
+  const UID = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+
+  it('🚨 passes the owner to the local read', async () => {
+    // Reading the unattributed store is how person A's pet could be adopted
+    // into person B's account on a shared computer.
+    stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(null)
+    await resolveUserPet(UID)
+    expect(loadPet).toHaveBeenCalledWith(UID)
+  })
+
+  it('a real cached pet for THIS account is still adopted', async () => {
+    const { upsert } = stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(REAL_GHOST)
+    const out = await resolveUserPet(UID)
+    expect(out.adopted).toBe(true)
+    expect(out.source).toBe('local')
+    expect(upsert).toHaveBeenCalled()
+  })
+
+  it('nothing cached for this account → no adoption, and no throw', async () => {
+    stubTable({ selectRow: null })
+    loadPet.mockResolvedValue(null)
+    const out = await resolveUserPet(UID)
+    expect(out.adopted).toBe(false)
+    expect(out.pet).toBeNull()
+  })
+
+  it('🚨 a 0068 refusal DURING adoption is an answer, not a sign-in error', async () => {
+    // The cached copy carries the anchor it was cached with. If another machine
+    // wrote the account since, that anchor is older and the guard rejects the
+    // upsert. Re-raising would turn "somebody else already moved this pet on"
+    // into a failure to sign in; the right reading is that the account wins.
+    const CLOUD = { ...REAL_GHOST, name: 'Newer', form: 'egg', feedback: [{ rating: 'up' }] }
+    const upsert = vi.fn(() => ({
+      select: () => Promise.resolve({
+        data: null, error: { message: 'pet_stale_write: older', code: 'WP001' },
+      }),
+    }))
+    let selects = 0
+    from.mockReturnValue({
+      select: () => ({
+        maybeSingle: () => {
+          selects += 1
+          // First read: nothing real, so adoption is attempted. Second read (the
+          // recovery): the row another machine wrote.
+          return Promise.resolve({
+            data: selects === 1 ? null : { name: CLOUD.name, form: 'egg', feedback: [{ rating: 'up' }] },
+            error: null,
+          })
+        },
+      }),
+      upsert,
+    })
+    loadPet.mockResolvedValue(REAL_GHOST)
+
+    const out = await resolveUserPet(UID)
+    expect(out.adopted).toBe(false)
+    expect(out.source).toBe('cloud')
+    expect(out.pet?.name).toBe('Newer')
+  })
+
+  it('🚨 and ANY OTHER adoption failure still raises', async () => {
+    // The failing control: swallowing every upsert error would hide a real
+    // permission or constraint problem behind a silent "no adoption".
+    stubTable({ selectRow: null, upsertError: { message: 'permission denied', code: '42501' } })
+    loadPet.mockResolvedValue(REAL_GHOST)
+    await expect(resolveUserPet(UID)).rejects.toThrow(/permission denied/)
+  })
+})
+
+describe('A3 — the cache mirror names its owner', () => {
+  it('passes the account through to the store', async () => {
+    savePetData.mockResolvedValue(undefined)
+    await mirrorPetToCache({ name: 'Ollie' }, 'u-9')
+    expect(savePetData).toHaveBeenCalledWith({ name: 'Ollie' }, 'u-9')
+  })
+
+  it('still never throws — a failed cache write is not a failed save', async () => {
+    savePetData.mockRejectedValue(new Error('quota'))
+    await expect(mirrorPetToCache({ name: 'Ollie' }, 'u-9')).resolves.toBeUndefined()
+  })
+})

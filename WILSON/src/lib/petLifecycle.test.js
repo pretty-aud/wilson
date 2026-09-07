@@ -185,3 +185,260 @@ describe('mintEggFrom — what the new egg inherits', () => {
     expect(egg.petMode).toBe(true)
   })
 })
+
+// =============================================================================
+// Track A, bundle A3 (2026-09-07) — the death trio, driven as real functions.
+//
+// 🚨 THESE COULD NOT BE WRITTEN BEFORE. applyOfflineDecay and derivePetState
+// lived in App.jsx, so every guard over them was a regex across a 2000-line
+// component. Two of the four pins that broke when they moved were matching text
+// that had simply been relocated — which is what a regex pin measures. Moving
+// them into this module is what makes the assertions below possible, and each
+// one drives the shipped function with real inputs.
+// =============================================================================
+
+import {
+  applyOfflineDecay, derivePetState,
+  DECAY_RATES, EVOLVE_TIMES, SLEEP_DURATIONS, CORPSE_TO_GHOST_MS,
+} from './petLifecycle'
+
+const MIN = 60000
+const iso = (msAgo) => new Date(Date.now() - msAgo).toISOString()
+
+/** A live adult with full bars, last true `minutesAgo` minutes ago. */
+function adult(minutesAgo, over = {}) {
+  return {
+    form: 'adult', breed: 'otter', difficulty: 'medium', petMode: true,
+    hunger: 100, happiness: 100,
+    bornAt: iso(90 * MIN), sleepingSince: null, lastSleptAt: iso(60 * MIN),
+    interactionCount: 3, diedAt: null, evolvedAt: iso(70 * MIN),
+    lastUpdatedAt: iso(minutesAgo * MIN),
+    ...over,
+  }
+}
+
+describe('derivePetState — now driven, not grepped', () => {
+  // This assertion used to live in userStateWiring.test.js as
+  // `toMatch(/if \(pet\.form === 'egg'\) return 'content'/)` over App.jsx.
+  it('🚨 an egg is never labelled starving', () => {
+    // Every egg is minted with hunger 0, and the hunger ladder rendered that in
+    // RED as "STARVING" — so a brand-new egg announced that it was dying, to
+    // the one person whose pet had just died.
+    expect(derivePetState({ form: 'egg', hunger: 0, happiness: 0 })).toBe('content')
+  })
+
+  it('a dead pet reads dead in both forms', () => {
+    expect(derivePetState({ form: 'corpse', hunger: 0 })).toBe('dead')
+    expect(derivePetState({ form: 'ghost', hunger: 0 })).toBe('dead')
+  })
+
+  it('sleep outranks the hunger ladder', () => {
+    expect(derivePetState({ form: 'adult', sleepingSince: iso(MIN), hunger: 5 }))
+      .toBe('sleeping')
+  })
+
+  it('the hunger ladder, in order', () => {
+    expect(derivePetState({ form: 'adult', hunger: 10, happiness: 100 })).toBe('starving')
+    expect(derivePetState({ form: 'adult', hunger: 30, happiness: 100 })).toBe('hungry')
+    expect(derivePetState({ form: 'adult', hunger: 90, happiness: 10 })).toBe('lonely')
+    expect(derivePetState({ form: 'adult', hunger: 90, happiness: 90 })).toBe('content')
+  })
+})
+
+describe('🚨 A3(a) — the corpse that never became a ghost', () => {
+  // The live tick sets form='corpse' and only a setTimeout inside that same
+  // tick promotes it. Close, reload or sign out inside the window and the
+  // corpse was the stored state FOREVER: this function excluded corpses and so
+  // did the tick. Phase 3 made it recoverable (Create Egg accepts a corpse) and
+  // left the state machine stalled.
+  it('promotes a corpse whose death is older than the promotion window', () => {
+    const out = applyOfflineDecay({
+      form: 'corpse', hunger: 0, happiness: 0, difficulty: 'medium', petMode: true,
+      diedAt: iso(CORPSE_TO_GHOST_MS + 5000), lastUpdatedAt: iso(30 * MIN),
+    })
+    expect(out.form).toBe('ghost')
+    expect(out.state).toBe('dead')
+  })
+
+  it('leaves a corpse inside the window alone — the live tick still owns it', () => {
+    const out = applyOfflineDecay({
+      form: 'corpse', hunger: 0, happiness: 0, difficulty: 'medium', petMode: true,
+      diedAt: iso(2000), lastUpdatedAt: iso(30 * MIN),
+    })
+    expect(out.form).toBe('corpse')
+  })
+
+  it('leaves a corpse with no diedAt alone rather than guessing', () => {
+    // Absence of diedAt is not evidence the window has passed, and
+    // canCreateNewEgg accepts a corpse either way, so nobody is stuck.
+    const out = applyOfflineDecay({
+      form: 'corpse', hunger: 0, happiness: 0, difficulty: 'medium', petMode: true,
+      diedAt: null, lastUpdatedAt: iso(30 * MIN),
+    })
+    expect(out.form).toBe('corpse')
+  })
+
+  it('🚨 promotes even with Pet Mode OFF — finishing a transition is not decay', () => {
+    // A pet that died before its owner turned Pet Mode off must not be
+    // stranded as a corpse by that switch.
+    const out = applyOfflineDecay({
+      form: 'corpse', hunger: 0, happiness: 0, difficulty: 'medium', petMode: false,
+      diedAt: iso(CORPSE_TO_GHOST_MS + 5000), lastUpdatedAt: iso(30 * MIN),
+    })
+    expect(out.form).toBe('ghost')
+  })
+})
+
+describe('🚨 A3(b) — Pet Mode OFF protects the pet while the app is closed', () => {
+  // The live tick short-circuits on `if (!prev.petMode) return prev`; this
+  // function never read petMode at all, so switching Pet Mode off did not pause
+  // starvation — it DEFERRED the whole elapsed interval to the next launch, and
+  // the pet could be found dead on reopening.
+  it('applies no elapsed decay over six hours', () => {
+    const before = adult(360, { petMode: false })
+    const out = applyOfflineDecay(before)
+    expect(out.hunger).toBe(100)
+    expect(out.happiness).toBe(100)
+    expect(out.form).toBe('adult')
+    expect(out.lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('and the SAME pet with Pet Mode on does decay — the failing control', () => {
+    const out = applyOfflineDecay(adult(10))
+    // ⚠️ Precision 1, not 5. The fixture's anchor is built a few milliseconds
+    // before the call, so the real elapsed time is always slightly more than
+    // the nominal ten minutes — and at precision 5 that difference is larger
+    // than the tolerance. A breaker run caught this pin going red under an
+    // unrelated mutation, which is a flaky instrument, not a finding.
+    expect(out.hunger).toBeCloseTo(100 - 10 * DECAY_RATES.medium.hunger, 1)
+    expect(out.happiness).toBeCloseTo(100 - 10 * DECAY_RATES.medium.happiness, 1)
+  })
+
+  it('🚨 an ABSENT petMode still decays — `=== false`, not falsy', () => {
+    // A row that predates the column, or a partial object, carries undefined.
+    // Reading that as "off" would silently freeze a pet nobody asked to pause.
+    const out = applyOfflineDecay(adult(10, { petMode: undefined }))
+    expect(out.hunger).toBeLessThan(100)
+  })
+
+  it('does not resurrect a pet that starved before Pet Mode was turned off', () => {
+    // hunger was already 0 at the anchor; the guard pauses decay, it does not
+    // rewrite history. (The stored form is what the live tick left.)
+    const out = applyOfflineDecay(adult(360, { petMode: false, hunger: 0 }))
+    expect(out.hunger).toBe(0)
+  })
+})
+
+describe('🚨 A3(c) — sleep ends and a baby grows while the app is shut', () => {
+  it('ends a sleep that has run its course, deterministically', () => {
+    const sleptFor = 10 * MIN
+    const before = adult(10, { sleepingSince: iso(sleptFor), interactionCount: 15 })
+    const out = applyOfflineDecay(before)
+    expect(out.sleepingSince).toBeNull()
+    expect(out.interactionCount).toBe(0)
+    // The instant it WOKE, not `now` — otherwise every launch produces a
+    // different pet and the "prime, do not save" rule stops being idempotent.
+    const wokeAt = new Date(before.sleepingSince).getTime() + SLEEP_DURATIONS.medium
+    expect(new Date(out.lastSleptAt).getTime()).toBe(wokeAt)
+  })
+
+  it('🚨 decays from the moment it WOKE, not from the moment it fell asleep', () => {
+    const before = adult(10, { sleepingSince: iso(10 * MIN) })
+    const out = applyOfflineDecay(before)
+    // Awake for 10 min minus the 2-min sleep = 8 minutes of decay.
+    const awakeMin = (10 * MIN - SLEEP_DURATIONS.medium) / MIN
+    expect(out.hunger).toBeCloseTo(100 - awakeMin * DECAY_RATES.medium.hunger, 1)
+  })
+
+  it('leaves a pet still inside its sleep asleep, and immortal for now', () => {
+    const before = adult(1, { sleepingSince: iso(30000) })
+    const out = applyOfflineDecay(before)
+    expect(out.sleepingSince).toBe(before.sleepingSince)
+    expect(out.hunger).toBe(100)
+    expect(out.state).toBe('sleeping')
+    expect(out.lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('evolves a baby that has passed its evolution time', () => {
+    const before = {
+      form: 'baby', breed: 'otter', difficulty: 'medium', petMode: true,
+      hunger: 100, happiness: 100, bornAt: iso(EVOLVE_TIMES.medium + 5 * MIN),
+      sleepingSince: null, lastSleptAt: iso(30 * MIN), interactionCount: 0,
+      diedAt: null, evolvedAt: null, lastUpdatedAt: iso(MIN),
+    }
+    const out = applyOfflineDecay(before)
+    expect(out.form).toBe('adult')
+    const evolvesAt = new Date(before.bornAt).getTime() + EVOLVE_TIMES.medium
+    expect(new Date(out.evolvedAt).getTime()).toBe(evolvesAt)
+  })
+
+  it('🚨 and evolving is IDEMPOTENT across two cold starts', () => {
+    // The load paths prime rather than save, so the stored row keeps the old
+    // anchor and this runs again on the next launch from the same input. A
+    // `new Date()` stamp here would produce a different pet every time.
+    //
+    // ⚠️ Comparing two calls to each other is NOT enough on its own: two calls
+    // in the same millisecond agree even with a `now` stamp. The assertion that
+    // discriminates is that the value is the birth-plus-evolve instant, which
+    // is five minutes in the PAST — nothing stamped with `now` can be.
+    const before = {
+      form: 'baby', breed: 'otter', difficulty: 'medium', petMode: true,
+      hunger: 100, happiness: 100, bornAt: iso(EVOLVE_TIMES.medium + 5 * MIN),
+      sleepingSince: null, lastSleptAt: iso(30 * MIN), interactionCount: 0,
+      diedAt: null, evolvedAt: null, lastUpdatedAt: iso(MIN),
+    }
+    const first = applyOfflineDecay(before).evolvedAt
+    expect(applyOfflineDecay(before).evolvedAt).toBe(first)
+    expect(new Date(first).getTime()).toBeLessThan(Date.now() - 4 * MIN)
+  })
+
+  it('🚨 a baby that starved does NOT also evolve', () => {
+    const out = applyOfflineDecay({
+      form: 'baby', breed: 'otter', difficulty: 'medium', petMode: true,
+      hunger: 1, happiness: 10, bornAt: iso(EVOLVE_TIMES.medium + 5 * MIN),
+      sleepingSince: null, lastSleptAt: iso(30 * MIN), interactionCount: 0,
+      diedAt: null, evolvedAt: null, lastUpdatedAt: iso(10 * MIN),
+    })
+    expect(out.form).toBe('ghost')
+    expect(out.evolvedAt).toBeNull()
+  })
+})
+
+describe('🚨 A3 — the anchor moves with the values, and only with them', () => {
+  // Migration 0068 refuses an UPDATE whose last_updated_at is older than the
+  // stored row's, and App.jsx no longer stamps one on every save. So this
+  // function is now the thing that decides whether a window's copy counts as
+  // current — and an anchor that moved without the numbers moving would make a
+  // stale window look up to date.
+  it('moves it when decay was applied', () => {
+    const before = adult(10)
+    const out = applyOfflineDecay(before)
+    expect(out.lastUpdatedAt).not.toBe(before.lastUpdatedAt)
+    expect(new Date(out.lastUpdatedAt).getTime())
+      .toBeGreaterThan(new Date(before.lastUpdatedAt).getTime())
+  })
+
+  it('🚨 leaves it alone for an egg — the form that cannot decay', () => {
+    // This is what lets 0068 tell a window sitting on an old egg from one that
+    // has kept up: the egg's anchor stays where the account put it.
+    const before = {
+      form: 'egg', breed: null, difficulty: 'medium', petMode: true,
+      hunger: 0, happiness: 0, bornAt: null, sleepingSince: null,
+      lastSleptAt: null, interactionCount: 0, diedAt: null, evolvedAt: null,
+      lastUpdatedAt: iso(120 * MIN),
+    }
+    expect(applyOfflineDecay(before).lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('🚨 leaves it alone for a ghost — Audrey\'s own pet is one', () => {
+    const before = adult(120, { form: 'ghost', hunger: 0, diedAt: iso(120 * MIN) })
+    expect(applyOfflineDecay(before).lastUpdatedAt).toBe(before.lastUpdatedAt)
+  })
+
+  it('never mutates its input', () => {
+    const before = adult(10)
+    const copy = JSON.parse(JSON.stringify(before))
+    applyOfflineDecay(before)
+    expect(before).toEqual(copy)
+  })
+})
