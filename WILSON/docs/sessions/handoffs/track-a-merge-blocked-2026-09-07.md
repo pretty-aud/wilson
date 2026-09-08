@@ -130,6 +130,16 @@ reverted. `.claude/` is untracked and left so.
   those commands would have died with a missing file, on a path that looks
   correct. Corrected in §6. **Before handing someone a `--file` command, check
   the file exists on the branch THEY are standing on.**
+- 🚨 **THE BACKSLASH TRAP BIT A FIFTH SESSION, THROUGH A SIXTH LAYER — AND
+  THE VICTIM WAS THE EDIT THAT DOCUMENTED THE FIX.** Rewriting this file to record
+  a Windows Desktop path, the path went into a **non-raw Python triple-quoted
+  string**, where `\U` in `\Users` is a unicode escape: `SyntaxError: truncated
+  \UXXXXXXXX escape`. It failed loudly and wrote nothing, which is the good
+  outcome — `\b` in the same position would have written an invisible 0x08 instead.
+  The standing rule held and I broke it anyway: **never write a backslash into
+  generated code. Build it with `chr(92)`** — here,
+  `chr(92).join(['C:', 'Users', ...])`. Six layers so far: regex source, quoted
+  heredoc, JSON, shell, markdown and now a Python string literal.
 - **Do not fabricate a merge commit to make a step look performed.** The
   instruction was to merge `feat/multi-user-v1` in with a merge commit; git said
   `Already up to date.`, and `--no-ff` does not invent a commit when the target
@@ -150,9 +160,12 @@ is no other Track A work to do in the meantime.**
    were sent to her in the chat as files this session. The blocking set for the
    five unmerged pieces is **01, 02 (A1), 06 both parts (A2), 07 (A3) and 08
    (A4)**; 03, 04 and 05 also belong to A1.
-   They also remain readable on disk at
-   `C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON\.claude\worktrees\great-cori-a6d599\WILSON\docs\walkthroughs\`
-   (or in any worktree holding `track-a-product`).
+   **She then asked for them on her Desktop, and they are there:**
+   `C:\Users\Audrey\Desktop\WILSON walkthroughs\` — all 14 plus a written
+   `00_START_HERE.md` index giving each one's track, bundle, whether it blocks a
+   merge, and a suggested order (02 and 01 first, 06 last of Track A's).
+   Copied outside git: **no branch, no push and no deploy was involved.**
+   They also remain on disk in any worktree holding `track-a-product`.
    **Getting them onto `feat/multi-user-v1` is a push to a branch that
    auto-deploys the staging beta — still her call, still not a session's.**
 
@@ -250,6 +263,32 @@ is no other Track A work to do in the meantime.**
    issue-session smoke), read from the GitHub REST API **by full SHA**.
    Remember the push to `feat/multi-user-v1` **deploys the staging beta**, which
    is why §6 item 2 must be finished first.
+
+---
+
+## 9. Cross-track survey (measured this session, because Track A had no work)
+
+Audrey asked which track to run next and told this session to recommend one.
+Measured rather than inferred, from each track's own hand-off and from dev:
+
+| Track | Bundles left | Blocked on |
+|---|---|---|
+| **A** | **none** | her two gates in §6 |
+| **B** | **none** — B3's hand-off says so in its own §7 step 3 | walkthrough reports 10, 11, 12. Its other gate is now CLEAR: **0071 IS on dev** (measured here), which B3's hand-off still lists as outstanding |
+| **C** | **one: C4** | nothing. C1's *display half* is still blocked — dev has **0** rows in `workspace_storage` where `provider = 's3'`, so her test bucket still does not exist |
+
+**Recommendation given: Track C, bundle C4 ("receipts are money").** It is the
+only unblocked buildable bundle left in the whole fix phase: one key in
+`BudgetView`'s upload path plus migration **0076** marking existing receipts
+financial. `0076` is **absent from the tree**, so it is genuinely unbuilt.
+Note **Track C's own C3 hand-off does not mention C4** — it says "Track C has no
+bundle left" and warns against taking a number. That hand-off predates C4, which
+`FIX_PLAN_2026-09-04.md` added on 2026-09-07 and explicitly assigned 0076 to
+Track C. **The fix plan is right and the C3 hand-off is stale on this point;**
+the next Track C session should not be talked out of C4 by its own hand-off.
+
+L1 (release) was not recommended: the fix plan puts it last, after A, B, C and
+the overhaul.
 
 ---
 
