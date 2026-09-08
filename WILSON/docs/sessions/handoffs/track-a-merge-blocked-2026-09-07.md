@@ -41,9 +41,9 @@ session.
 | staging (`rzkirvkotslbovzbsdfh`) | **STILL UNKNOWN. Not applied, not read.** The `link` succeeded this time; the `db query` was refused. See §5 | attempted, refused |
 | prod (`rqyriuyldhovirbuievt`) | **untouched, deliberately** | — |
 | `schema_migrations` shape | `version:text, statements:ARRAY, name:text`. Dev's Track A rows read `0067=milestones`, `0068=user_pets_stale_write_guard`, `0069=otter_nomination_self_approval_audit`, `0077=milestones_realtime` | queried on dev, so the staging INSERT in §6 is copied from the real thing, not guessed |
-| CI | green on `5a129ee`'s parent `7e67bd8`, all four jobs (run 34171294399, recorded by A4). This session's only push is this docs file | — |
+| CI | **green on this session's pushed head `04324a3`, all four jobs** — Vitest (renderer units), pgTAP (Supabase local DB), Playwright auth (wilson-dev), issue-session smoke (wilson-dev). Run [34181271227](https://github.com/pretty-aud/wilson/actions/runs/34181271227) | GitHub REST by FULL SHA, jobs enumerated rather than the run conclusion trusted |
 | CLI link | wilson-dev in **both** `.temp` files, re-verified after the staging attempt | `cat` |
-| walkthroughs | **8 on `track-a-product`; 0 on `feat/multi-user-v1`** | `git ls-tree` on both refs |
+| walkthroughs | **14 exist; her branch has 0.** 8 on `track-a-product`, 3 on `track-b-auth` (10–12), 3 on `track-c-storage` (13–15), **0 on `feat/multi-user-v1`** | `git ls-tree` on all four refs |
 | her checkout | `feat/multi-user-v1` at `08d44d2`, **working tree completely clean (0 status lines)** | `git -C` read-only |
 
 ---
@@ -73,10 +73,16 @@ session.
      `WILSON/docs/walkthroughs/` **is not present on disk in it at all.**
    **She has never been able to open a single walkthrough. This is not a
    testing backlog; it was a delivery failure, and it is ours.**
-4. **The eight walkthroughs were delivered to her directly** (`SendUserFile`),
+4. **ALL FOURTEEN WALKTHROUGHS WERE DELIVERED TO HER DIRECTLY** (`SendUserFile`),
    which puts them in front of her on any device **without pushing anything to
    `feat/multi-user-v1`** — that branch auto-deploys the staging beta and the
    push is her call, not a session's.
+   🚨 **AND THIS IS NOT A TRACK A PROBLEM.** Track B's 10–12 live only on
+   `track-b-auth` and Track C's 13–15 only on `track-c-storage`. **All three
+   tracks are blocked on reports she was never able to produce**, for the same
+   reason, and B's and C's hand-offs are presumably also recording "no report
+   yet". Theirs were extracted with `git show <branch>:<path>` and sent too;
+   no other track's files were modified.
 5. **Gate (b) — staging — attempted, and the wall moved.** See §5; it is new
    information and it changes what to ask her for.
 6. **The merge order was verified by ancestry rather than trusted**, because
