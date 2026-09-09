@@ -1444,7 +1444,7 @@ population is currently empty.
 
 ---
 
-### An expense receipt is not money-gated, and now it can reach a deck
+### An expense receipt is not money-gated, and now it can reach a deck — FIXED (C4), one residual
 
 **INFERRED (2026-09-07, Track C bundle C3, review round 1; confirmed by round
 2 by reading both call sites).** `BudgetView`'s receipt upload calls
@@ -1463,12 +1463,41 @@ It is recorded because C3 made it more VISIBLE, not because C3 caused it:
 project-level media is now deck source material, so a receipt photo can be
 downloaded into a generation prompt.
 
-→ **Fix is two-sided**, which is why it is an entry rather than a line in a
-commit. The client half is one key: `uploadFile` already does the right thing
-given `financial: true` — it pins the body to Supabase, files it under
-`INVOICES` and sets `is_financial`. The other half is the decision about
-receipts already uploaded: leaving them is a standing exposure, moving them is
-a migration that relocates blobs. That decision is Audrey's.
+**FIXED 2026-09-08 by Track C bundle C4** (`b90ee99`), except for one named
+residual, below. The client half was one key — `{ financial: true }` in
+`BudgetView`'s upload — and it closes both gates on both write-capable
+backends, because `uploadFile` spends the flag on the `INVOICES` segment, on
+`is_financial` and on the Supabase pin inside one function, and Local Server
+reads the same flag and routes the body to its own invoices directory.
+Migration **0076** marks every existing receipt financial (a `files` row whose
+id appears in an `expenses.file_ids`) and backfills their `file_events` too, so
+the activity stream cannot serve the history of a row the reader can no longer
+see. Measured before and after: dev and staging both carry ZERO expenses and
+ZERO files, so the backfill moved nothing on either and exists for the
+environments that come later.
+
+→ **RESIDUAL, narrowed to exactly what 0076 could not do.** Two populations,
+both empty today and both COUNTED and reported by 0076 at apply time:
+
+1. **A pre-existing receipt is gated at the ROW and not at the BLOB.** The
+   three base `rabbit_files_*` storage policies key on the third PATH segment
+   and never consult `files.is_financial`, so flipping the flag does not move
+   an existing object to the money side of that test. The practical effect is
+   still large — `storage_path` itself becomes manager-only, so the path can no
+   longer be DISCOVERED through the app — but anyone already holding a path
+   keeps object-level read access. Moving the bytes is not a migration's job
+   (`storage.objects.name` IS the S3 key, so renaming the row without moving
+   the object breaks the download); it needs a one-time client-side mover in
+   the shape of C3's `runAttachmentMigration`. Pinned as a fact by suite 78
+   probe 55 rather than left as a comment.
+2. **A receipt whose body is on a customer's own bucket cannot be flagged at
+   all.** `files_money_provider_chk` (0050) refuses a financial row outside
+   Supabase, so 0076 scopes its backfill to `storage_provider = 'supabase'`
+   rather than aborting. Those rows need their body moved into Supabase before
+   they can be gated. Suite 78 probe 53 pins the refusal; breaker BM1 showed an
+   unscoped backfill dies on the CHECK.
+
+The standing diagnostic for both is in `SYSTEMS_HANDBOOK.md` §12.4.
 
 ---
 
@@ -1478,6 +1507,7 @@ Kept so the file's own history is visible without `git log`.
 
 | Session | Added | Removed |
 |---|---|---|
+| Track C / bundle C4 (2026-09-08) — migration **0076**, pgTAP suite **78 extended** (probes 50-58), the one key in `BudgetView`; `b90ee99` on `track-c-storage` | **nothing.** | **One entry fixed and narrowed to a named residual:** *An expense receipt is not money-gated, and now it can reach a deck.* The client half was one key — `{ financial: true }` — and it is genuinely one key because `uploadFile` spends `scope.financial` on the `INVOICES` segment, on `is_financial` and on the Supabase pin inside ONE function, while Local Server reads the same flag and routes the body to its own invoices directory. The old scope was `{ type: 'expense' }` and **`scope.type` is read by nothing in the tree**, so it was effectively empty: the receipt landed unguarded while the `expenses` row pointing at it is manager-only, i.e. the amount was hidden and the receipt stating it was not. 0076 marks every existing receipt financial (a `files` row in some `expenses.file_ids` — the only `file_ids` column in the schema) and backfills their `file_events`, on Audrey's ruling this session, so the activity stream cannot serve the history of a row the reader can no longer see. 🚨 **Two traps the fix plan's one line did not name.** (1) `files_money_provider_chk` REFUSES a financial row outside Supabase, so an unscoped backfill would have ABORTED the migration on the first BYO-hosted receipt — breaker BM1 kills the whole suite with a 23514, which is how that was proven rather than argued. (2) The backfill closes the ROW gate and not the BLOB gate: the base storage policies key on the third PATH segment and never read `is_financial`, so an existing receipt's object stays where it is. Both populations are COUNTED and reported by 0076 at apply time and both are EMPTY today — dev and staging carry zero expenses and zero files, measured before and after. State: 0076 on **dev** by query (statements first, history row second; the recorded md5 `3ce25350…` equals the committed blob's, which 0075's no longer does), suite 78 **58/58 on dev** with four migration breakers, vitest **1809/76** with seven client breakers, full dev sweep **1378/1378, 0 failed**. **Unmerged**, with C1, C2 and C3, until Audrey's walkthrough reports 13, 14, 15 and 16 — she confirmed at the top of this session that none had been run. |
 | Track C / bundle C3 (2026-09-07) — migration **0075**, pgTAP suite **79**, D.O.G. cloud attachments; `2a4924f` on `track-c-storage` | **nothing.** | **Nothing was on this list to remove** — `MASTER_PLAN.md` §6 #31 is where D.O.G. cloud attachments were tracked, and it is marked CLOSED with this commit; `RELEASE_TESTING.md`'s "Known not to work" #1 is deleted and the list renumbered. What shipped: 0075 adds `files.document_kind` (the EXISTING 0000 enum, not a second vocabulary) and `files.description`, the two fields `ProjectFilesTable` has written on every gesture since S27 while `toColumns` silently stripped both — persisting on Local Server, whose PATCH spreads `req.body`, and nowhere in the cloud. Both write-capable backends now route the Resources drop zone and D.O.G.'s modal through `adapter.uploadFile`; D.O.G. lists, DOWNLOADS and rehydrates the bodies (trap (c) — a row without its body contributes nothing to generation), bounded at 20 files / 32 MiB, documents first so nothing can crowd out the brief, with the count left out stated; the legacy arrays are still READ everywhere and move only when Audrey runs Settings → "Move deck attachments into project files" (dry run required, 32 MiB per-file ceiling, oversized files named and left in place). 🚨 **The polarity diff §6 #31 demanded CAUGHT A REAL DEFECT on its first run**: all three writers used `detectDocumentKind(name) || null`, which is null for a PDF whose name matches no heuristic, so a migrated `legacy.pdf` uploaded, listed in the grid and vanished from generation. `deckAttachments.documentKindFor` is total by construction and `polarityRoundTrip.test.js` keeps it that way. State: 0075 on dev AND staging by query (DDL first, history row second, the recorded statement's md5 = the file's LF-normalised bytes on both), suite 79 **25/25 on both** after two review rounds (eleven breakers, each failing the probes it was built for), vitest **1797/75**. **Unmerged**, along with C1 and C2, until Audrey's walkthrough reports 13, 14 and 15. |
 | Track C / bundle C2 (2026-09-07) — migration **0074**, pgTAP suite **78**, the teardown avatar + open-reservation sweeps in `operator-workspaces`, the two-directional `rls.yml` guard; `60bc7c9` and its review commits on `track-c-storage` | **nothing.** | **Three entries closed, one narrowed:** *`file_events` has no money arm* — 0074 snapshots `is_financial` at capture (the row's flag OR a money-segment key, one definition) and `file_events_select` gains the money arm: a non-money reader sees a financial row only as its `purged` certificate (Audrey's ruling 22; workspace admins and project managers see everything). *Abandoned-upload certification has two uncovered cases* — a failed upload is certified AT ONCE by `abandon_upload_reservation` (her ruling 1); teardown closes every open reservation BEFORE the CASCADE (`sweep_open_uploads`) and certifies the paths as `WIL-7012` in `platform_audit`; the 24 h hold is released when the person next opens Files, without a certificate (ruling 2); NO per-member cap (ruling 3 — an accepted limit, handbook §17). *`user-avatars` survives workspace teardown* — listed by prefix, removed, counted (`avatars_*` on WIL-7005, the torn-down card names the number). *The teardown sweep is row-derived* narrowed to what `thumbnails_note` on the certificate does not cover. Also: `otter_quiz_attempts` joins `RLS_TABLES`, and the guard now enumerates RLS-enabled tables from the CI database (six mapped in `COVERED_BY`, `otter_subject_shares` knowingly uncovered until Phase 5c). State: 0074 on dev AND staging by query (DDL first, history row second, the recorded statement's md5 = the file's on both), suite 78 **49/49 on both** (ten breakers, each failing the probes it was built for), suites 33 and 77 green on both, `operator-workspaces` **v14 dev / v11 staging** (both hash-verified by download), vitest **1751/72**. **Unmerged until walkthroughs 13 and 14 report.** |
 | Track C / bundle C1, reservation half — SECOND session (2026-09-06) — 0073 applied on **staging**, review rounds 1 and 2, `ea8467f` and the round-2 commit on `track-c-storage` | **one entry:** *abandoned-upload certification has two uncovered cases* — a FAILED upload releases its reservation and is never certified, and teardown CASCADEs open reservations away uncertified; with two adjacent limits (the 24 h hold after a closed tab, no per-member reservation cap). All four are rulings owed by Audrey and candidates for C2's 0074; none blocks the merge. | **nothing** — the two entries C1 closes were already deleted by `68f97fe`. State: 0073 on **dev AND staging** by query (DDL first, history row second, the recorded statement's md5 = the file's on both), `storage-gc` **v10** on both (hash-verified by download), suite 77 **53/53 on both**, suite 66 30/30 on staging, vitest **1735/72**, CI **green** on `ea8467f`. Round 1 fixed ten things in the client, the card, the function and the docs (the refusal named the minted key leaf; the client courtesy check never said "uploads in progress"; a dead run's certificate read "sweep ran, 0/0"; four suite-77 probes could not see the fault they named — each now proven by a breaker); walkthrough 13 rewritten to what the UI can do (Add files is DISABLED while a clip uploads — the second clip needs a second browser tab). **Unmerged until her walkthrough 13 report.** |

@@ -2450,6 +2450,79 @@ A `files` row has none, and no code path puts one in that list. Left here as a
 correction rather than silently deleted, because "measured" was claimed for it
 and it had not been.
 
+### 12.9 Expense receipts are money (Track C / C4, migration 0076)
+
+An expense receipt is gated exactly like an invoice. `BudgetView`'s expense
+form uploads through `adapter.uploadFile(projectId, { financial: true }, file)`
+— **one key**, and it is genuinely one key because `uploadFile` spends
+`scope.financial` three times inside a single function:
+
+- the reserved **`INVOICES`** third path segment, which is what the
+  `rabbit_files_invoices_*` storage policies key on and what the three base
+  policies negate — the **blob** gate;
+- **`files.is_financial`** — the **row** gate (0038);
+- the **Supabase pin** — a money body never leaves Petal's bucket whatever
+  storage the workspace selected (0050's `files_money_provider_chk`).
+
+Local Server reads the same flag and writes the body into the project's
+invoices directory, so both write-capable backends gate on one word. No
+`lineId` is passed: an expense's id does not exist yet when the create form
+uploads, so `uploadFile`'s documented `|| projectId` fallback supplies the
+entity id. The gate is the THIRD segment; the fourth is only organisation.
+
+**Why this was a bug and not a gap.** `public.expenses` is one of the five
+tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
+a project manager can read — or create — an expense at all. The receipt,
+meanwhile, was uploaded with `{ type: 'expense' }`, and **`scope.type` is read
+by nothing** in the tree: not `supabaseAdapter`, not `localServerAdapter`, not
+the Express server. The scope was therefore empty and the receipt landed as an
+ordinary project-level file readable by every project member. The amount was
+manager-only and the receipt stating the amount was not. 0038's column comment
+had said "an invoice or receipt" since the day it was written; only the receipt
+half was ever wired.
+
+A consequence worth knowing: because a receipt is now financial, it is also
+excluded from D.O.G.'s attachment set (§12.8) and from the Resources list,
+which both drop `is_financial` rows. That is the same rule C3 pinned for
+invoices, not a new one.
+
+🚨 **What migration 0076 did NOT close, and cannot.** It marks every existing
+receipt financial — a `files` row whose id appears in some `expenses.file_ids`,
+the only `file_ids` column in the schema — and backfills their `file_events` so
+the activity stream cannot serve the history of a row the reader can no longer
+see. Two residuals remain, both **counted and reported by the migration at
+apply time** rather than left invisible, and both empty on dev and staging:
+
+1. **Row gated, blob not.** The base storage policies key on the PATH segment
+   and never consult `is_financial`, so a pre-existing receipt's object stays
+   under its container segment. The path can no longer be DISCOVERED (the
+   `files` row carrying it is now manager-only), but anyone already holding one
+   keeps object-level read access. Moving bytes is not a migration's job —
+   `storage.objects.name` IS the S3 key — so this needs a one-time client-side
+   mover in the shape of C3's `runAttachmentMigration`.
+2. **A receipt on a customer's bucket cannot be flagged at all.**
+   `files_money_provider_chk` refuses a financial row outside Supabase, so the
+   backfill is scoped to `storage_provider = 'supabase'`. Without that scoping
+   the migration ABORTS on the first such row with a 23514 — proven by breaker
+   BM1, which kills the whole suite rather than failing an assertion.
+
+**The standing diagnostic** for both, run as a money-cleared role:
+
+```sql
+SELECT
+  count(*) FILTER (WHERE f.is_financial
+                     AND f.storage_provider = 'supabase'
+                     AND NOT public.rabbit_money_key(f.storage_path)) AS blob_outside_money_segment,
+  count(*) FILTER (WHERE NOT f.is_financial
+                     AND f.storage_provider <> 'supabase')            AS ungated_on_customer_bucket
+FROM public.files f
+WHERE EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
+```
+
+Both columns must be 0. A durable view over this query was deliberately NOT
+created: it would add a second readable surface over the money table, which is
+the class of defect this bundle exists to fix.
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
