@@ -2595,7 +2595,33 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     try {
       const results = []
       for (const file of files) {
-        const uploaded = await adapter.uploadFile(projectId, { type: 'expense' }, file)
+        // 🚨 C4. `financial: true` IS THE WHOLE GATE, AND IT IS ONE KEY BECAUSE
+        // uploadFile SPENDS IT THREE TIMES. It picks the reserved `INVOICES`
+        // path segment (which is what the rabbit_files_invoices_* storage
+        // policies key on — the blob gate), it writes files.is_financial (the
+        // row gate, 0038), and it pins the body to Supabase whatever storage
+        // the workspace chose (0050's files_money_provider_chk). The two gates
+        // are independent by design and either one alone is a way in, so they
+        // must be set together — which is exactly why the flag is passed to
+        // the single writer rather than patched onto the row afterwards.
+        //
+        // What was here before was `{ type: 'expense' }`, and `scope.type` is
+        // read by NOTHING — not this adapter, not localServerAdapter, not the
+        // Express server. So the scope was effectively empty: a receipt landed
+        // as an ordinary project-level file, readable by every project member,
+        // while the `expenses` row that points at it is manager-only
+        // (0037 gates all five money tables on can_access_project_money).
+        // The amount was hidden and the receipt stating it was not — 0038's
+        // own words for why both gates exist.
+        //
+        // No `lineId`: an expense's id does not exist yet when the create
+        // form uploads, so uploadFile's documented fallback (`|| projectId`)
+        // is the honest entity id. The gate is the THIRD segment; the fourth
+        // is only organisation.
+        //
+        // Deliberately NOT a matching change to `files.is_core_definer` — the
+        // C3 polarity lesson. This flag says "money", nothing else.
+        const uploaded = await adapter.uploadFile(projectId, { financial: true }, file)
         if (uploaded?.id) results.push({ id: uploaded.id, name: file.name, mime_type: file.type })
       }
       setUploadedFiles(prev => [...prev, ...results])

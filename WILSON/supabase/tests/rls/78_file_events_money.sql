@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(49);
+SELECT plan(58);
 
 SELECT * FROM tests.rls_setup();
 
@@ -604,6 +604,155 @@ SELECT throws_ok(
   $$ SELECT * FROM public.sweep_open_uploads('11111111-1111-1111-1111-111111111111') $$,
   'permission denied for function sweep_open_uploads',
   'authenticated cannot run the teardown sweep');                            -- 49
+
+-- ══ 6. C4 / migration 0076: an expense receipt is money ═════════════════════
+--
+-- 🚨 WHY THESE PROBES RE-RUN THE MIGRATION'S OWN STATEMENTS. 0076 is a one-time
+-- DML backfill. Every fixture below is inserted AFTER it has been applied, so
+-- nothing here can observe the backfill by simply looking — a probe that
+-- asserted "the receipt is financial" would be reading a row this file wrote
+-- that way, and would pass with 0076 deleted. The two UPDATEs are therefore
+-- replayed inside this rolled-back transaction against a fixture that
+-- reproduces the PRE-migration state, which is the only honest instrument for
+-- a backfill. The statements are copied from 0076; if they drift, probe 51
+-- goes red.
+
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+
+-- Three receipts-to-be and one control, all in the pre-0076 state
+-- (is_financial = false, body outside the money namespace — which is what
+-- every receipt uploaded before C4 looks like).
+INSERT INTO public.files (id, project_id, name, storage_provider, storage_path, size_bytes, is_financial)
+VALUES
+  -- A Supabase-hosted receipt: the row 0076 must flip.
+  ('aaaa1111-0000-0000-0000-000000007611', 'aaaa1111-0000-0000-0000-000000000001',
+   'receipt-cab.pdf', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf',
+   700, false),
+  -- A receipt whose BODY is on a customer's bucket. files_money_provider_chk
+  -- REFUSES a financial row here, so 0076 must leave it alone rather than
+  -- abort — TRAP 1.
+  ('aaaa1111-0000-0000-0000-000000007612', 'aaaa1111-0000-0000-0000-000000000001',
+   'receipt-byo.pdf', 's3',
+   'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-byo.pdf',
+   700, false),
+  -- BLAST-RADIUS CONTROL: an ordinary project file no expense points at. If
+  -- the backfill's predicate is ever widened, this is what notices.
+  ('aaaa1111-0000-0000-0000-000000007613', 'aaaa1111-0000-0000-0000-000000000001',
+   'moodboard.png', 'supabase',
+   'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-moodboard.png',
+   700, false);
+
+INSERT INTO public.expenses (id, project_id, workspace_id, title, actual_cost, file_ids)
+VALUES ('aaaa1111-0000-0000-0000-0000000076e1',
+        'aaaa1111-0000-0000-0000-000000000001',
+        '11111111-1111-1111-1111-111111111111',
+        'Cab to the shoot', 42.00,
+        ARRAY['aaaa1111-0000-0000-0000-000000007611',
+              'aaaa1111-0000-0000-0000-000000007612']::uuid[]);
+
+SELECT is(
+  (SELECT count(*)::int FROM public.files
+    WHERE id IN ('aaaa1111-0000-0000-0000-000000007611',
+                 'aaaa1111-0000-0000-0000-000000007612')
+      AND is_financial),
+  0, 'PRE-STATE CONTROL: both receipts start ungated, so a later "gated" cannot pass by accident');
+                                                                            -- 50
+
+-- 0076 statement 1, verbatim.
+UPDATE public.files f
+   SET is_financial = true
+ WHERE NOT f.is_financial
+   AND f.storage_provider = 'supabase'
+   AND EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
+
+SELECT is(
+  (SELECT is_financial FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-000000007611'),
+  true, '🚨 0076 flips a Supabase-hosted receipt to financial — the bundle''s whole point');
+                                                                            -- 51
+
+SELECT is(
+  (SELECT is_financial FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-000000007612'),
+  false, 'TRAP 1: a receipt whose body is on a customer bucket is left alone, not flipped');
+                                                                            -- 52
+
+-- ...and probe 52 is a GUARD, not a coincidence. Without the storage_provider
+-- scoping the same UPDATE would hit this row and take the whole migration down
+-- with a CHECK violation. This is the probe that says so.
+SELECT throws_ok(
+  $$ UPDATE public.files SET is_financial = true
+      WHERE id = 'aaaa1111-0000-0000-0000-000000007612' $$,
+  '23514',
+  NULL,
+  '🚨 files_money_provider_chk REFUSES a financial row outside Supabase — which is why 0076 scopes its backfill instead of aborting');
+                                                                            -- 53
+
+SELECT is(
+  (SELECT is_financial FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-000000007613'),
+  false, 'BLAST RADIUS: a project file no expense references is untouched');  -- 54
+
+-- TRAP 2, pinned as a fact rather than left in a comment: the row is gated and
+-- the BLOB is not. The receipt's body is still under its container segment, so
+-- the three base storage policies still serve it to anyone holding the path.
+-- 0076 cannot move bytes; this probe is the standing record of what it did not
+-- close, next to the thing it did.
+SELECT ok(
+  (SELECT is_financial FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-000000007611')
+  AND NOT public.rabbit_money_key(
+        (SELECT storage_path FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-000000007611')),
+  '🚨 TRAP 2: a backfilled receipt is gated at the ROW while its blob is still outside the money path segment');
+                                                                            -- 55
+
+-- The history. 0076 statement 2, verbatim — 0074's own backfill re-run now
+-- that the flags are right.
+UPDATE public.file_events fe
+   SET is_financial = true
+  FROM public.files f
+ WHERE f.id = fe.file_id
+   AND f.is_financial
+   AND NOT fe.is_financial;
+
+SELECT ok(
+  (SELECT count(*) FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007611') > 0
+  AND NOT EXISTS (
+    SELECT 1 FROM public.file_events
+     WHERE file_id = 'aaaa1111-0000-0000-0000-000000007611' AND NOT is_financial),
+  'the receipt''s existing history is flagged too — a member cannot read the upload event of a file they can no longer see');
+                                                                            -- 56
+
+-- Flipping the flag must not MANUFACTURE history. fn_file_events_capture fires
+-- on every files UPDATE but only writes on a deleted_at transition or a
+-- storage_path change; a backfill that invented a 'moved' event would put a
+-- false row in the one record that survives the file's deletion.
+SELECT is(
+  (SELECT count(*)::int FROM public.file_events
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007611'
+      AND event IN ('moved', 'trashed', 'restored')),
+  0, 'the backfill writes no fake history — only deleted_at and storage_path changes capture events');
+                                                                            -- 57
+
+-- And the gate actually bites. A plain project member cannot read the
+-- backfilled receipt, with the blast-radius control one line away proving the
+-- empty result is not an empty table.
+SELECT set_config('request.jwt.claims', '{}', true);
+RESET ROLE;
+SELECT tests.login_as(
+  'cccccccc-cccc-cccc-cccc-cccccccccccc',
+  '11111111-1111-1111-1111-111111111111'
+);
+
+SELECT ok(
+  (SELECT count(*)::int FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-000000007611') = 0
+  AND (SELECT count(*)::int FROM public.files
+    WHERE id = 'aaaa1111-0000-0000-0000-000000007613') = 1,
+  '🚨 a plain member cannot read the backfilled receipt, and CAN still read the ordinary file beside it (presence control)');
+                                                                            -- 58
 
 SELECT * FROM finish();
 ROLLBACK;
