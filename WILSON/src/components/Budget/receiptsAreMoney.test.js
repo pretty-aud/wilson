@@ -104,6 +104,14 @@ describe('scope.financial closes both gates in the cloud writer', () => {
     expect(SUPA).toMatch(/is_financial:\s*!!scope\.financial/)
   })
 
+  it('pins the body to Supabase — the THIRD use, 0050', () => {
+    // 🚨 Review round 1: this file asserted "uploadFile spends it three times"
+    // and pinned TWO. Deleting the provider pin turned no probe here red (it
+    // was caught only over in storageRegistry.test.js), so the file's own
+    // claim outran its own probes. This is the missing third.
+    expect(SUPA).toMatch(/fileProviderFor\([^)]*\{\s*financial:\s*!!scope\.financial/)
+  })
+
   it('keeps the two in one function, so they cannot drift apart', () => {
     // 0038: "the row and the blob are gated independently, and either one
     // alone is a way in". One key is only safe BECAUSE one writer spends it
@@ -140,6 +148,41 @@ describe('scope.financial reaches the desktop writer too — parity', () => {
     expect(SERVER).toMatch(
       /isFinancial\s*\n?\s*\?\s*resolveProjectInvoicesDir/,
     )
+  })
+})
+
+// ── 3b. The other half of the gate: the manager can still READ it back ───────
+
+describe('a receipt stays reachable by the person who uploaded it', () => {
+  // 🚨 REVIEW ROUND 1 FOUND THIS MISSING, and it is the regression class the
+  // fix most risks. Marking a receipt financial removes it from BOTH surfaces
+  // that could open a file: FileManager drops every is_financial row, and
+  // ProjectsPage filters them out of the project's file table. So the gate
+  // also took away the manager's only way to open their own receipt, and
+  // walkthrough 16's step A3 asserted the opposite. ExpensePopup now carries
+  // the receipt's own open control, the twin of InvoiceAttachment's.
+  //
+  // Nothing else in the tree pins this. If it is deleted, no other test fails
+  // and a manager silently loses access to their own financial documents.
+
+  it('ExpensePopup can open an attachment, not merely name it', () => {
+    expect(BUDGET_VIEW).toMatch(/async function openFile\s*\(/)
+  })
+
+  it('and it opens the row it re-lists, the way InvoiceAttachment does', () => {
+    // Re-lists rather than trusting state: a freshly uploaded file is only
+    // { id, name, mime_type } from uploadFile's result, and downloadFile needs
+    // the real row. The invoice surface already worked this way.
+    const open = BUDGET_VIEW.slice(BUDGET_VIEW.indexOf('async function openFile'))
+    expect(open).toMatch(/listFiles\(projectId\)/)
+    expect(open).toMatch(/downloadFile\(row\)/)
+    expect(open).toMatch(/createObjectURL/)
+    expect(INVOICE_ATT).toMatch(/createObjectURL/)
+  })
+
+  it('and the attachment row actually renders that control', () => {
+    // A handler nothing calls is not an affordance.
+    expect(BUDGET_VIEW).toMatch(/onClick=\{\(\)\s*=>\s*openFile\(f\.id\)\}/)
   })
 })
 

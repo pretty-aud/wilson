@@ -26,7 +26,7 @@ import {
   DollarSign, Layers, Boxes, UserCircle, Sparkles, Receipt,
   ArrowUp, ArrowDown, Minus, AlertCircle, Save, Trash2,
   Lock, LockOpen, CheckCircle, Loader2, Plus, Pencil, X, Undo2, Redo2,
-  Upload, FileText, Paperclip, Search, Filter, ArrowUpDown,
+  Upload, FileText, Paperclip, FolderOpen, Search, Filter, ArrowUpDown,
   BookmarkPlus, ChevronDown, ChevronRight, ShieldCheck, RotateCcw,
   Users, Star, Eye, CheckSquare, Square, MinusSquare,
   Film, Gamepad2, Zap,
@@ -2567,6 +2567,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [uploading, setUploading]         = useState(false)
   const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
+  const [openingId, setOpeningId]         = useState(null)
   const fileInputRef = useRef(null)
 
   const [existingFiles, setExistingFiles] = useState([])
@@ -2597,13 +2598,33 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
       for (const file of files) {
         // 🚨 C4. `financial: true` IS THE WHOLE GATE, AND IT IS ONE KEY BECAUSE
         // uploadFile SPENDS IT THREE TIMES. It picks the reserved `INVOICES`
-        // path segment (which is what the rabbit_files_invoices_* storage
-        // policies key on — the blob gate), it writes files.is_financial (the
-        // row gate, 0038), and it pins the body to Supabase whatever storage
-        // the workspace chose (0050's files_money_provider_chk). The two gates
-        // are independent by design and either one alone is a way in, so they
-        // must be set together — which is exactly why the flag is passed to
-        // the single writer rather than patched onto the row afterwards.
+        // path segment — which is what the four `rabbit_files_money_*` storage
+        // policies key on and what the four base `rabbit_files_*` policies
+        // negate, the blob gate — it writes files.is_financial (the row gate,
+        // 0038), and on the Supabase backend it pins the body to Petal's
+        // bucket whatever storage the workspace chose (0050's
+        // files_money_provider_chk). The two gates are independent by design
+        // and either one alone is a way in, so they must be set together —
+        // which is why the flag is passed to the single writer rather than
+        // patched onto the row afterwards.
+        //
+        // ⚠️ REVIEW ROUND 1 corrected three things in this comment.
+        // (a) It named `rabbit_files_invoices_*`, a policy family 0042 DROPPED
+        //     and replaced with `rabbit_files_money_*` — the same phantom name
+        //     that caused the S39 incident recorded in OUTSTANDING.md. The
+        //     real predicate is `NOT rabbit_money_segment(seg 3)`: INVOICES or
+        //     FINANCE, in any case, not a literal 'invoices'.
+        // (b) The Supabase pin is supabaseAdapter's alone. Local Server writes
+        //     to the customer's disk with storage_provider 'local_server'; it
+        //     honours the same flag by routing into its own INVOICES dir.
+        // (c) 🚨 A FOURTH CONSEQUENCE, and it LOOSENS rather than tightens:
+        //     the INVOICES segment is exempt from the Petal storage quota
+        //     (0055's rabbit_quota_exempt_path short-circuits the RESTRICTIVE
+        //     petal_storage_quota_insert), while the meter still counts the
+        //     bytes. So a receipt can never be refused for quota, and the
+        //     picker below takes `multiple` files with no accept and no size
+        //     cap. Not a security hole — 0037 gates `expenses` — but a billing
+        //     one. Handbook §12.9; bounding it is Audrey's call, not a fix.
         //
         // What was here before was `{ type: 'expense' }`, and `scope.type` is
         // read by NOTHING — not this adapter, not localServerAdapter, not the
@@ -2614,10 +2635,15 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         // The amount was hidden and the receipt stating it was not — 0038's
         // own words for why both gates exist.
         //
-        // No `lineId`: an expense's id does not exist yet when the create
-        // form uploads, so uploadFile's documented fallback (`|| projectId`)
-        // is the honest entity id. The gate is the THIRD segment; the fourth
-        // is only organisation.
+        // No `lineId`. The create form has no expense id yet, and — review
+        // round 1 — THE EDIT PATH DOES NOT PASS ONE EITHER, so the original
+        // "does not exist yet" reason was only half the story; one uniform
+        // folder per project's receipts is the actual justification. uploadFile
+        // falls back to `|| projectId` (supabaseAdapter.js). That fallback is
+        // NOT documented: the UploadScope typedef in adapters/index.js lists
+        // neither `lineId` nor `financial` — the key this whole gate turns on
+        // is missing from the only contract describing this argument.
+        // The gate is the THIRD segment; the fourth is only organisation.
         //
         // Deliberately NOT a matching change to `files.is_core_definer` — the
         // C3 polarity lesson. This flag says "money", nothing else.
@@ -2642,6 +2668,43 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
     setFileIds(prev => prev.filter(fid => fid !== id))
     setUploadedFiles(prev => prev.filter(f => f.id !== id))
     setExistingFiles(prev => prev.filter(f => f.id !== id))
+  }
+
+  // 🚨 C4 REVIEW ROUND 1. THIS IS THE OTHER HALF OF MAKING A RECEIPT MONEY.
+  // Marking it financial removed it from BOTH surfaces that could open a file:
+  // `FileManager` drops every `is_financial` row (its comment says invoices
+  // "have their own surface" — a receipt had none), and `ProjectsPage`'s
+  // Resources list filters them the same way. So after the gate went on, the
+  // manager who uploaded a receipt could see its NAME here and open it
+  // nowhere — walkthrough 16's own step A3 asserts they can, and it could not
+  // have passed. A gate that locks out the person it is meant to admit is not
+  // a finished gate; this is the receipt's own surface, the twin of
+  // `InvoiceAttachment.handleOpen`.
+  //
+  // Always re-lists rather than trusting the row in state: a freshly uploaded
+  // file is only `{ id, name, mime_type }` from uploadFile's result, and
+  // downloadFile needs the real row. A missing row is the expected shape of
+  // "you are not cleared for this" as well as "it was deleted" — RLS returns
+  // an empty set, not an error — so say something either way.
+  async function openFile(id) {
+    const adapter = ctx?.getAdapter?.()
+    if (!adapter?.downloadFile || !adapter?.listFiles) return
+    setOpeningId(id)
+    setUploadError(null)
+    try {
+      const files = await adapter.listFiles(projectId)
+      const row = (files || []).find(f => f.id === id)
+      if (!row) throw new Error('That receipt is no longer available to you.')
+      const blob = await adapter.downloadFile(row)
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank', 'noopener')
+      // Give the new tab time to take the blob before revoking it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    } catch (err) {
+      setUploadError(err?.message || 'Could not open that receipt.')
+    } finally {
+      setOpeningId(null)
+    }
   }
   function handleSubmit() {
     if (!title.trim()) return
@@ -2743,6 +2806,11 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
                   <div key={f.id} className="flex items-center gap-2 px-2 py-1.5 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}>
                     <Paperclip className="w-3 h-3 flex-shrink-0" style={{ color: '#78716c' }} />
                     <span className="text-[11.5px] font-mono truncate flex-1" style={{ color: '#a8a29e' }}>{f.name}</span>
+                    <button type="button" onClick={() => openFile(f.id)} disabled={openingId === f.id}
+                      title="Open this receipt"
+                      className="p-0.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0 disabled:opacity-50" style={{ color: '#a8a29e' }}>
+                      {openingId === f.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <FolderOpen className="w-3 h-3" />}
+                    </button>
                     <button type="button" onClick={() => removeFile(f.id)} className="p-0.5 rounded hover:bg-stone-700 transition-colors flex-shrink-0" style={{ color: '#ef4444' }}><X className="w-3 h-3" /></button>
                   </div>
                 ))}

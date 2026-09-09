@@ -2457,18 +2457,50 @@ form uploads through `adapter.uploadFile(projectId, { financial: true }, file)`
 — **one key**, and it is genuinely one key because `uploadFile` spends
 `scope.financial` three times inside a single function:
 
-- the reserved **`INVOICES`** third path segment, which is what the
-  `rabbit_files_invoices_*` storage policies key on and what the three base
-  policies negate — the **blob** gate;
+- the reserved **`INVOICES`** third path segment, which is what the four
+  `rabbit_files_money_*` storage policies key on and what the four base
+  `rabbit_files_*` policies negate — the **blob** gate. ⚠️ Review round 1
+  corrected this sentence twice over: it named `rabbit_files_invoices_*`, a
+  family **0042:212-214 dropped and replaced**, and it said *three* base
+  policies where 0042 creates four (`_select`, `_insert`, `_update`,
+  `_delete_own`) — eight in all, the count 0042's own post-condition asserts.
+  The predicate is `NOT public.rabbit_money_segment(seg 3)`, i.e. `INVOICES`
+  **or** `FINANCE` in **any case**, not a literal `'invoices'`;
 - **`files.is_financial`** — the **row** gate (0038);
 - the **Supabase pin** — a money body never leaves Petal's bucket whatever
-  storage the workspace selected (0050's `files_money_provider_chk`).
+  storage the workspace selected (0050's `files_money_provider_chk`). This one
+  is `supabaseAdapter`'s alone; Local Server writes to the customer's disk with
+  `storage_provider: 'local_server'`.
 
 Local Server reads the same flag and writes the body into the project's
-invoices directory, so both write-capable backends gate on one word. No
-`lineId` is passed: an expense's id does not exist yet when the create form
-uploads, so `uploadFile`'s documented `|| projectId` fallback supplies the
-entity id. The gate is the THIRD segment; the fourth is only organisation.
+invoices directory, so both write-capable backends gate on one word. There are
+exactly two: `adapters/index.js` registers three adapters and Google Drive's
+`uploadFile` is `readOnly()` — a function that throws (`googleDriveAdapter.js:267`)
+— so Drive cannot write an ungated receipt because it cannot write at all.
+⚠️ Nothing pins that, and C4 did not check it; a session that ever gives Drive
+a write path must revisit this section. No `lineId` is passed — the create form
+has no expense id yet, and **the edit path does not pass one either** — so
+`uploadFile` falls back to `projectId` (`supabaseAdapter.js:1184`). That
+fallback is not *documented*: the `UploadScope` typedef (`adapters/index.js`)
+lists neither `lineId` nor, more importantly, **`financial`** — the key this
+whole gate turns on is absent from the only contract describing the argument.
+The gate is the THIRD segment; the fourth is only organisation.
+
+🚨 **A consequence C4 did not name: a receipt is now EXEMPT FROM THE STORAGE
+QUOTA.** The RESTRICTIVE `petal_storage_quota_insert` (0055) reads
+`bucket_id <> 'rabbit-files' OR rabbit_quota_exempt_path(name) OR
+rabbit_petal_storage_ok(...)`, and `rabbit_quota_exempt_path` is true for any
+money segment. Before C4 a receipt's third segment was `project`, so it was
+weighed and could be refused; it is now `INVOICES`, so **the quota can never
+refuse a receipt**. Meanwhile `workspace_petal_committed_bytes` has no
+exemption clause, so those bytes still consume the allowance that refuses
+ordinary media. 0055 justified the exemption on the premise that money paths
+are tiny — one invoice PDF per budget line — and `BudgetView`'s picker is
+`<input type="file" multiple>` with no `accept` and no size cap. Not a security
+hole (0037 gates `expenses`, so only money-cleared people reach it), but a
+billing one: a manager can burn a workspace's storage without limit and without
+refusal. **Bounding the exemption by object size is a 0055 change and a pricing
+decision — Audrey's, not a review's.**
 
 **Why this was a bug and not a gap.** `public.expenses` is one of the five
 tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
@@ -2519,9 +2551,48 @@ FROM public.files f
 WHERE EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
 ```
 
-Both columns must be 0. A durable view over this query was deliberately NOT
-created: it would add a second readable surface over the money table, which is
-the class of defect this bundle exists to fix.
+🚨 **Read the two columns differently — review round 1 corrected a false
+invariant here.** This used to say "Both columns must be 0", which contradicts
+the two residuals described above and would send an operator to "fix" a
+documented, accepted state.
+
+- **`ungated_on_customer_bucket` must be 0** on any environment whose receipts
+  all live in Supabase. Non-zero is residual 2: those rows need their body
+  moved before they can be gated at all.
+- **`blob_outside_money_segment` is the SIZE of residual 1, not a fault.** Every
+  receipt 0076 backfills lands in this count by construction — 0076 computes
+  exactly it as `v_blob_outside` and **reports it as expected output**, and
+  suite 78 probe 55 asserts it is true of a backfilled receipt while probe 59
+  measures the exposure directly. It is 0 only where no receipt predates 0076.
+  A non-zero value is the backlog for the one-time body-mover, not a failure.
+
+Run it as `service_role`/`postgres`: as an ordinary money-cleared role the
+counts are RLS-scoped to that person's workspace, which is not the global
+answer the prose implies.
+
+A durable view over this query was deliberately NOT created: it would add a
+second readable surface over the money table, which is the class of defect this
+bundle exists to fix.
+
+🚨 **Residual 3, which C4 did not name at all: Local Server receipts uploaded
+before C4.** 0076 is a Postgres migration. The desktop keeps its own
+`is_financial` in its JSON bundle (`electron/main.cjs`), and **nothing
+backfills it and nothing moves those bodies into `INVOICES/`.** A receipt
+uploaded on the desktop before this bundle therefore stays ungated forever —
+still listed in Project Files, and still eligible as D.O.G. deck source
+material, which is the literal defect this entry marks fixed. Unlike residuals
+1 and 2 it is counted and reported by nothing. New desktop uploads are gated
+correctly; only the existing ones are stranded.
+
+**Reading a receipt back.** Marking it financial removed it from both surfaces
+that could open a file — `FileManager` and `ProjectsPage`'s Resources list both
+drop `is_financial` rows — so after the gate went on, the manager who uploaded
+a receipt could see its name on the expense and open it nowhere. Review round 1
+added the receipt's own surface: `ExpensePopup` now has an open control that
+re-lists through the adapter and hands back a blob URL, the twin of
+`InvoiceAttachment.handleOpen`. A money file's only surface is the record it
+hangs off — that is the design, and it is now true of receipts as well as
+invoices.
 
 ## 13. The three tools, the shell, and the agent
 

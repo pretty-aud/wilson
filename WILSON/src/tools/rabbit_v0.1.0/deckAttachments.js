@@ -90,9 +90,18 @@ function isProjectLevelRow(row) {
  * ProjectAssetsView, ScenesView). The surface that really writes project-level
  * media is `ProjectSummaryView`'s ProjectFilesSection, whose Add Files calls
  * `ctx.uploadFile(file, { type: 'project' })` — no entity keys — and
- * `BudgetView`'s expense receipts, which pass a scope `uploadFile` does not
- * read (OUTSTANDING has that one as its own entry). Files from either are
- * indistinguishable from a Resources drop and WILL be included.
+ * such a file is indistinguishable from a Resources drop and WILL be included.
+ *
+ * ⚠️ C4 CLOSED THE OTHER HALF OF THIS RESIDUE, and this comment asserted the
+ * opposite until review round 1 caught it. `BudgetView`'s expense receipts
+ * used to pass `{ type: 'expense' }` — a scope `uploadFile` does not read — so
+ * they landed as ordinary project-level files and were included here. They now
+ * pass `{ financial: true }`, which makes them money, and the `is_financial`
+ * arm of `isDeckAttachmentRow` below excludes them. A receipt can no longer
+ * reach a deck on the cloud backend. ⚠️ Local Server is NOT covered: migration
+ * 0076 is Postgres-only, so a desktop receipt uploaded before C4 keeps
+ * `is_financial: false` in its JSON bundle and still qualifies here.
+ * Handbook §12.9.
  *
  * Bounded rather than closed: documents are always taken first (see
  * orderAttachmentCandidates), so nothing can crowd out the brief, and D.O.G.'s

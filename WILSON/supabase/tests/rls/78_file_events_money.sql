@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(58);
+SELECT plan(59);
 
 SELECT * FROM tests.rls_setup();
 
@@ -614,8 +614,19 @@ SELECT throws_ok(
 -- that way, and would pass with 0076 deleted. The two UPDATEs are therefore
 -- replayed inside this rolled-back transaction against a fixture that
 -- reproduces the PRE-migration state, which is the only honest instrument for
--- a backfill. The statements are copied from 0076; if they drift, probe 51
--- goes red.
+-- a backfill.
+--
+-- 🚨 AND HERE IS WHAT THIS INSTRUMENT DOES **NOT** DO, corrected by review
+-- round 1, which found the previous sentence ("the statements are copied from
+-- 0076; if they drift, probe 51 goes red") to be false. NOTHING COMPARES THESE
+-- TWO TEXTS. Not CI, not a test, not a script — `0076` appears only in the
+-- migration, this file and the docs. Probe 51 exercises only the copy below,
+-- so an edit to 0076 ALONE leaves this suite green, twice over: CI applies
+-- 0076 and runs this suite in the same job, but the CI database is empty, so
+-- 0076's DO block is vacuous there and the suite proves only its own copy.
+-- The copies are kept byte-identical BY HAND. If you edit either statement in
+-- 0076, edit it here in the same commit, or this suite silently stops being
+-- evidence about the migration.
 
 SELECT set_config('request.jwt.claims', '{}', true);
 RESET ROLE;
@@ -660,12 +671,18 @@ SELECT is(
   0, 'PRE-STATE CONTROL: both receipts start ungated, so a later "gated" cannot pass by accident');
                                                                             -- 50
 
--- 0076 statement 1, verbatim.
+-- 0076 statement 1, verbatim — byte-identical to 0076:95-102. Review round 1
+-- found this copy had been reflowed (the EXISTS collapsed onto one line) while
+-- the comment still claimed "verbatim"; it is re-expanded here so the word is
+-- true. Statement 2 below was, and remains, byte-identical.
 UPDATE public.files f
    SET is_financial = true
  WHERE NOT f.is_financial
    AND f.storage_provider = 'supabase'
-   AND EXISTS (SELECT 1 FROM public.expenses e WHERE f.id = ANY (e.file_ids));
+   AND EXISTS (
+         SELECT 1 FROM public.expenses e
+          WHERE f.id = ANY (e.file_ids)
+       );
 
 SELECT is(
   (SELECT is_financial FROM public.files
@@ -697,14 +714,28 @@ SELECT is(
 
 -- TRAP 2, pinned as a fact rather than left in a comment: the row is gated and
 -- the BLOB is not. The receipt's body is still under its container segment, so
--- the three base storage policies still serve it to anyone holding the path.
--- 0076 cannot move bytes; this probe is the standing record of what it did not
--- close, next to the thing it did.
+-- the FOUR base storage policies still serve it to anyone holding the path.
+-- 0076 cannot move bytes; these probes are the standing record of what it did
+-- not close, next to the thing it did.
+--
+-- 🚨 REVIEW ROUND 1 REPLACED A TAUTOLOGY HERE. The old probe 55 asserted
+-- `is_financial AND NOT rabbit_money_key(storage_path)` — the second conjunct
+-- being a property of the STRING THIS FILE ITSELF INSERTED above. It exercised
+-- no storage access at all, while the commit message called it "the fact
+-- pinned rather than a comment". It would have stayed green if a later
+-- migration moved the bytes and closed the gap. So the object is now really
+-- inserted and a plain member is really asked whether it can read it.
+INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
+VALUES ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '{"size": 700}'::jsonb);
+
 SELECT ok(
   (SELECT is_financial FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-000000007611')
   AND NOT public.rabbit_money_key(
         (SELECT storage_path FROM public.files WHERE id = 'aaaa1111-0000-0000-0000-000000007611')),
-  '🚨 TRAP 2: a backfilled receipt is gated at the ROW while its blob is still outside the money path segment');
+  'TRAP 2, the path shape: a backfilled receipt is gated at the ROW while its body stays outside the money path segment');
                                                                             -- 55
 
 -- The history. 0076 statement 2, verbatim — 0074's own backfill re-run now
@@ -729,11 +760,15 @@ SELECT ok(
 -- on every files UPDATE but only writes on a deleted_at transition or a
 -- storage_path change; a backfill that invented a 'moved' event would put a
 -- false row in the one record that survives the file's deletion.
+-- Review round 1 widened this from "no moved/trashed/restored" to the TOTAL,
+-- which is the claim the message actually makes: the row had exactly one event
+-- (its `uploaded`, minted by the fixture INSERT) before the flip and must have
+-- exactly one after. Naming three event types would have let an extra
+-- `uploaded`, or any event added to the vocabulary later, slip past.
 SELECT is(
   (SELECT count(*)::int FROM public.file_events
-    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007611'
-      AND event IN ('moved', 'trashed', 'restored')),
-  0, 'the backfill writes no fake history — only deleted_at and storage_path changes capture events');
+    WHERE file_id = 'aaaa1111-0000-0000-0000-000000007611'),
+  1, 'the backfill writes no fake history — the receipt still has exactly its one uploaded event');
                                                                             -- 57
 
 -- And the gate actually bites. A plain project member cannot read the
@@ -753,6 +788,21 @@ SELECT ok(
     WHERE id = 'aaaa1111-0000-0000-0000-000000007613') = 1,
   '🚨 a plain member cannot read the backfilled receipt, and CAN still read the ordinary file beside it (presence control)');
                                                                             -- 58
+
+-- 🚨 TRAP 2, MEASURED RATHER THAN ASSERTED (review round 1). The row gate just
+-- closed for this member — probe 58 one line up. The BLOB gate did not: the
+-- object still sits under the `project` segment, so `rabbit_files_select`
+-- (which tests NOT rabbit_money_segment(seg 3)) still serves it. THIS PROBE IS
+-- EXPECTED TO FIND THE OBJECT READABLE, and that is the limitation, not a
+-- failure — it is the reason a body-mover is still owed. If someone later
+-- closes the blob gate, this probe goes red and the docs that describe the gap
+-- must change with it. That is exactly what the old tautological probe could
+-- never do.
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
+  1, '🚨 TRAP 2 MEASURED: the member who cannot read the receipt ROW can STILL read its BLOB — 0076 closes one gate, not both');
+                                                                            -- 59
 
 SELECT * FROM finish();
 ROLLBACK;

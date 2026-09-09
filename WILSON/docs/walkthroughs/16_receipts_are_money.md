@@ -19,14 +19,17 @@ Each part is independent. Do them in any order and report the ☐ lines.
 - **one small image or PDF** to stand in for a receipt — call it
   `cab_receipt.jpg` so you can spot it;
 - for Part D, the desktop app in **Local Server** mode with a **project folder
-  configured** (Settings → General). Without one the desktop has nowhere
+  configured** (Settings → **Storage** — the tab is called Storage, not
+  General; the per-project folder is on the project's own page). Without one the desktop has nowhere
   special to put an invoice and falls back to the ordinary files directory —
   that is deliberate, so a receipt is never written somewhere unreachable, but
   it does mean Part D needs the folder set to show anything.
 
 **Where things are:** expenses are **Projects → open a project → Budget →
-Expenses**; the receipt picker is inside the expense's own form. The Files
-grid is **Projects → open a project → Files**.
+Expenses**; the receipt picker is inside the expense's own form. The project's
+file list is the **Project Files** table on the Projects page — there is no
+tab called "Files" in R.A.B.B.I.T., and "Resources" is the left-hand nav
+section, not a per-project list.
 
 ⚠️ **Where to run it.** Dev's database carries migration 0076; the app side is
 on the `track-c-storage` branch and reaches the beta only with the merge that
@@ -58,12 +61,24 @@ expense.
 
 ☐ **A2.** The receipt is still listed, by name.
 
-5. Go to **Files** for that project.
+4b. While the expense form is open, click the **open** control (the folder
+   icon) next to `cab_receipt.jpg`.
 
-☐ **A3.** You can see `cab_receipt.jpg` there, and you can download it.
+☐ **A2b.** 🚨 The receipt opens in a new tab. **This is the control that
+matters most in Part A** — a gate that hides a receipt from the person who
+uploaded it would be worse than the bug being fixed.
 
-> If A1 or A3 fails, stop and report it — that is the fix having broken the
-> normal case, which matters more than the rest of this walkthrough.
+5. Now look at the **Project Files** table for that project.
+
+☐ **A3.** `cab_receipt.jpg` is **NOT** listed there — not even for you, the
+manager — while the project's ordinary files still are. That is correct and
+deliberate: a money file's only surface is the record it hangs off, exactly as
+an invoice's is. (Review round 1 corrected this step: it used to say the
+receipt should be downloadable from Project Files, which the fix makes
+impossible by design.)
+
+> If A1 or **A2b** fails, stop and report it — that is the fix having broken
+> the normal case, which matters more than the rest of this walkthrough.
 
 ---
 
@@ -81,8 +96,14 @@ gate they DO hit in B2 is the file's, not the tab's.)
 
 2. Go to **Files** for that project.
 
-☐ **B2.** 🚨 **`cab_receipt.jpg` is NOT in the list.** This is the line that
-matters. Before this bundle it was, and anyone on the project could open it.
+☐ **B2.** 🚨 **`cab_receipt.jpg` is NOT in the list.** Before this bundle it
+was, and anyone on the project could open it.
+
+> ⚠️ Honest note added by review round 1: B2 confirms the visible outcome, but
+> it does **not** by itself prove the database gate — the app filters money
+> files out of that table for everyone, including you. **B4 below is the check
+> that only RLS can satisfy**, and suite 78's probes 58 and 59 are where the
+> row gate is actually proven.
 
 3. If there are other, ordinary files on the project, look at them.
 
@@ -128,8 +149,9 @@ Desktop app, **Local Server** mode, with a project folder configured.
 is in there — **not** in the ordinary files folder alongside the rest of the
 project's attachments.
 
-☐ **D2.** Back in the app, the receipt still opens and downloads from the
-expense.
+☐ **D2.** Back in the app, re-open the expense and click the folder icon
+next to the receipt — it opens. (Before review round 1 there was no such
+control anywhere and this step could not have passed.)
 
 > This is the desktop's version of the same gate. The cloud puts a money file
 > under a reserved path segment that its storage policies key on; the desktop
@@ -146,10 +168,15 @@ currently **zero rows**, so there is nothing to look at — which is the honest
 answer rather than a missing test.
 
 If you want to confirm it yourself later, or on a company that has been in use
-for a while, the standing query is in `SYSTEMS_HANDBOOK.md` §12.4 (§12.9). Both
-of its columns should be `0`.
+for a while, the standing query is in `SYSTEMS_HANDBOOK.md` **§12.9**.
 
-☐ **E1.** Skipped, or run and both columns were 0.
+⚠️ Its two columns read differently, and review round 1 corrected this:
+`ungated_on_customer_bucket` should be `0`, but `blob_outside_money_segment`
+is the *count of old receipts whose body has not been moved* — on a company
+that has been in use for a while a non-zero value there is expected and is not
+a fault.
+
+☐ **E1.** Skipped, or run — `ungated_on_customer_bucket` was 0.
 
 ---
 
