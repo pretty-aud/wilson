@@ -55,7 +55,7 @@
 
 BEGIN;
 
-SELECT plan(59);
+SELECT plan(60);
 
 SELECT * FROM tests.rls_setup();
 
@@ -671,7 +671,7 @@ SELECT is(
   0, 'PRE-STATE CONTROL: both receipts start ungated, so a later "gated" cannot pass by accident');
                                                                             -- 50
 
--- 0076 statement 1, verbatim — byte-identical to 0076:95-102. Review round 1
+-- 0076 statement 1, verbatim — byte-identical to 0076's statement 1. Review round 1
 -- found this copy had been reflowed (the EXISTS collapsed onto one line) while
 -- the comment still claimed "verbatim"; it is re-expanded here so the word is
 -- true. Statement 2 below was, and remains, byte-identical.
@@ -718,16 +718,33 @@ SELECT is(
 -- 0076 cannot move bytes; these probes are the standing record of what it did
 -- not close, next to the thing it did.
 --
--- 🚨 REVIEW ROUND 1 REPLACED A TAUTOLOGY HERE. The old probe 55 asserted
--- `is_financial AND NOT rabbit_money_key(storage_path)` — the second conjunct
--- being a property of the STRING THIS FILE ITSELF INSERTED above. It exercised
--- no storage access at all, while the commit message called it "the fact
--- pinned rather than a comment". It would have stayed green if a later
--- migration moved the bytes and closed the gap. So the object is now really
--- inserted and a plain member is really asked whether it can read it.
+-- 🚨 PROBE 55 IS A SHAPE ASSERTION AND PROBE 60 IS THE ACCESS ONE. Read them
+-- as a pair, and do not mistake the first for the second.
+--
+-- Review round 1 claimed here that it had "replaced a tautology". **It had
+-- not** — review round 2 diffed probe 55 against b90ee99 and found the
+-- assertion BYTE-IDENTICAL, with only its message reworded. That claim was
+-- wrong and is withdrawn. What round 1 actually did was ADD an access probe
+-- beside it, which is the useful half.
+--
+-- So, honestly: probe 55's second conjunct is a property of the STRING THIS
+-- FILE ITSELF INSERTED above. It pins the fixture's SHAPE — that a backfilled
+-- receipt's path is outside the money namespace — and nothing more. It cannot
+-- go red if someone closes the blob gate. **Probe 60 is the one that touches
+-- storage**, with probe 59 as its control.
+-- TWO objects: the backfilled receipt's body, still under its `project`
+-- container segment, and a money-namespace object beside it. The second is the
+-- CONTROL — without it, "the member can read the receipt's blob" cannot be
+-- told apart from "storage RLS is not applying to this session at all", which
+-- is the failure mode every absence/presence pair in this suite exists to rule
+-- out (review round 2).
 INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
 VALUES ('rabbit-files',
         'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf',
+        'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        '{"size": 700}'::jsonb),
+       ('rabbit-files',
+        'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/1-invoice-control.pdf',
         'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         '{"size": 700}'::jsonb);
 
@@ -789,20 +806,29 @@ SELECT ok(
   '🚨 a plain member cannot read the backfilled receipt, and CAN still read the ordinary file beside it (presence control)');
                                                                             -- 58
 
--- 🚨 TRAP 2, MEASURED RATHER THAN ASSERTED (review round 1). The row gate just
--- closed for this member — probe 58 one line up. The BLOB gate did not: the
--- object still sits under the `project` segment, so `rabbit_files_select`
--- (which tests NOT rabbit_money_segment(seg 3)) still serves it. THIS PROBE IS
--- EXPECTED TO FIND THE OBJECT READABLE, and that is the limitation, not a
--- failure — it is the reason a body-mover is still owed. If someone later
--- closes the blob gate, this probe goes red and the docs that describe the gap
--- must change with it. That is exactly what the old tautological probe could
--- never do.
+-- THE CONTROL FIRST. A money-namespace object IS hidden from this member by
+-- `rabbit_files_select`'s `NOT rabbit_money_segment(seg 3)` arm. If this ever
+-- returns 1, storage RLS is not applying to the session and probe 60 below
+-- proves nothing.
+SELECT is(
+  (SELECT count(*)::int FROM storage.objects
+    WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/aaaa1111-0000-0000-0000-000000000001/1-invoice-control.pdf'),
+  0, 'CONTROL: storage RLS IS applying — the member cannot read an object under the money segment');
+                                                                            -- 59
+
+-- 🚨 TRAP 2, MEASURED RATHER THAN ASSERTED. The row gate just closed for this
+-- member — probe 58. The BLOB gate did not: the object still sits under the
+-- `project` segment, so `rabbit_files_select` still serves it.
+--
+-- ⚠️ THIS PROBE IS EXPECTED TO FIND THE OBJECT READABLE. Green here means the
+-- documented gap is still open; that is the limitation, not a failure, and it
+-- is why a body-mover is still owed. The disposition is IN THE MESSAGE and not
+-- only in this comment, because a comment is not printed in a CI log.
 SELECT is(
   (SELECT count(*)::int FROM storage.objects
     WHERE name = 'projects/aaaa1111-0000-0000-0000-000000000001/project/aaaa1111-0000-0000-0000-000000000001/1-receipt-cab.pdf'),
-  1, '🚨 TRAP 2 MEASURED: the member who cannot read the receipt ROW can STILL read its BLOB — 0076 closes one gate, not both');
-                                                                            -- 59
+  1, '🚨 TRAP 2 MEASURED (EXPECTED 1): the member who cannot read the receipt ROW can STILL read its BLOB. If this is 0 the blob gate was CLOSED — that is good news, and handbook §12.9, OUTSTANDING residual 1 and this probe must all be updated together');
+                                                                            -- 60
 
 SELECT * FROM finish();
 ROLLBACK;

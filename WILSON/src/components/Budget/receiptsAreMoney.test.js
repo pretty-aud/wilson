@@ -94,9 +94,10 @@ describe('InvoiceAttachment stays the reference implementation', () => {
 
 describe('scope.financial closes both gates in the cloud writer', () => {
   it('picks the reserved INVOICES path segment — the blob gate', () => {
-    // rabbit_files_invoices_* key on the third path segment; the three base
-    // policies negate it (0038). This line is the only thing that puts a file
-    // on the money side of that test.
+    // The four rabbit_files_money_* policies key on the third path segment and
+    // the four base rabbit_files_* policies negate it (0042 — NOT
+    // rabbit_files_invoices_*, which 0042:212-214 dropped). This line is the
+    // only thing that puts a file on the money side of that test.
     expect(SUPA).toMatch(/const entity\s*=\s*scope\.financial\s*\?\s*'INVOICES'\s*:/)
   })
 
@@ -154,6 +155,14 @@ describe('scope.financial reaches the desktop writer too — parity', () => {
 // ── 3b. The other half of the gate: the manager can still READ it back ───────
 
 describe('a receipt stays reachable by the person who uploaded it', () => {
+  // Bounded to openFile's own body (round 2): from its declaration to the next
+  // top-level function in the component.
+  const openFileStart = BUDGET_VIEW.indexOf('async function openFile')
+  const openFileBody = BUDGET_VIEW.slice(
+    openFileStart,
+    BUDGET_VIEW.indexOf('function handleSubmit', openFileStart),
+  )
+
   // 🚨 REVIEW ROUND 1 FOUND THIS MISSING, and it is the regression class the
   // fix most risks. Marking a receipt financial removes it from BOTH surfaces
   // that could open a file: FileManager drops every is_financial row, and
@@ -173,16 +182,39 @@ describe('a receipt stays reachable by the person who uploaded it', () => {
     // Re-lists rather than trusting state: a freshly uploaded file is only
     // { id, name, mime_type } from uploadFile's result, and downloadFile needs
     // the real row. The invoice surface already worked this way.
-    const open = BUDGET_VIEW.slice(BUDGET_VIEW.indexOf('async function openFile'))
-    expect(open).toMatch(/listFiles\(projectId\)/)
-    expect(open).toMatch(/downloadFile\(row\)/)
-    expect(open).toMatch(/createObjectURL/)
+    //
+    // 🚨 Round 2 BOUNDED THIS SLICE. It ran to end of file — 300-odd lines of
+    // unrelated code — so these assertions passed on any occurrence anywhere
+    // below. It was only accidentally sound.
+    expect(openFileBody).toMatch(/listFiles\(projectId\)/)
+    expect(openFileBody).toMatch(/downloadFile\(row\)/)
+    expect(openFileBody).toMatch(/createObjectURL/)
     expect(INVOICE_ATT).toMatch(/createObjectURL/)
+  })
+
+  it('and it does not fail silently the way the invoice bug did', () => {
+    // Round 2: window.open runs after two awaits, so a large receipt loses
+    // transient activation and the tab is blocked — it returns null. And the
+    // missing-capability branch was a bare `return` while the button renders
+    // unconditionally. Both are the silent nothing-happens InvoiceAttachment
+    // exists to have fixed.
+    expect(openFileBody).toMatch(/const\s+opened\s*=\s*window\.open\(/)
+    expect(openFileBody).toMatch(/if\s*\(!opened\)/)
+    expect(openFileBody).not.toMatch(/listFiles\)\s*return\b/)
+    expect(openFileBody).toMatch(/setOpenError\(/)
   })
 
   it('and the attachment row actually renders that control', () => {
     // A handler nothing calls is not an affordance.
     expect(BUDGET_VIEW).toMatch(/onClick=\{\(\)\s*=>\s*openFile\(f\.id\)\}/)
+  })
+
+  it('and the icon it renders is actually imported', () => {
+    // Round 2: without this, deleting FolderOpen from the import leaves every
+    // other pin here green while the popup throws a ReferenceError on render.
+    const imports = BUDGET_VIEW.slice(0, BUDGET_VIEW.indexOf("from 'lucide-react'"))
+    expect(imports).toMatch(/\bFolderOpen\b/)
+    expect(imports).toMatch(/\bLoader2\b/)
   })
 })
 

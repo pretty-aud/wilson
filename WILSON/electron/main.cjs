@@ -1148,8 +1148,8 @@ function startLocalServer(distPath) {
     // Every user-visible project folder gets three sub-folders:
     //   ASSETS/                       — asset folders + managed files
     //   {Slug}_DATABASES/             — read-only JSON mirrors of project data
-    //   {Slug}_FILES/                 — uploaded files (docs, etc.; NOT receipts
-//                                   since C4 — those go to INVOICES/ below)
+    //   {Slug}_FILES/                 — uploaded files (docs, etc.; NOT
+    //                                   receipts since C4 — see INVOICES/)
 
     function resolveProjectFolder(bundle) {
       const root = bundle?.project?.folder_root;

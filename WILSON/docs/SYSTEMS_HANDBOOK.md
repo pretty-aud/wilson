@@ -2500,7 +2500,13 @@ are tiny — one invoice PDF per budget line — and `BudgetView`'s picker is
 hole (0037 gates `expenses`, so only money-cleared people reach it), but a
 billing one: a manager can burn a workspace's storage without limit and without
 refusal. **Bounding the exemption by object size is a 0055 change and a pricing
-decision — Audrey's, not a review's.**
+decision.** ✅ **Audrey ruled on 2026-09-09: BOUND THE EXEMPTION BY SIZE** —
+not cap the picker, and not leave it. So a money path stays quota-exempt only
+below a threshold; above it the object is weighed like any other and can be
+refused. That is a new migration in the 0055 family with its own two review
+rounds and a probe pair (a small money file still exempt; an oversized one
+weighed), and it needs a migration number Track C does not currently hold —
+ask before taking one. It does not block the C1–C4 merge.
 
 **Why this was a bug and not a gap.** `public.expenses` is one of the five
 tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
@@ -2538,7 +2544,7 @@ apply time** rather than left invisible, and both empty on dev and staging:
    the migration ABORTS on the first such row with a 23514 — proven by breaker
    BM1, which kills the whole suite rather than failing an assertion.
 
-**The standing diagnostic** for both, run as a money-cleared role:
+**The standing diagnostic** for both (run it as `service_role`/`postgres` — see the note under it):
 
 ```sql
 SELECT
@@ -2585,7 +2591,7 @@ material, which is the literal defect this entry marks fixed. Unlike residuals
 correctly; only the existing ones are stranded.
 
 **Reading a receipt back.** Marking it financial removed it from both surfaces
-that could open a file — `FileManager` and `ProjectsPage`'s Resources list both
+that could open a file — `FileManager` and `ProjectsPage`'s **Project Files** table both
 drop `is_financial` rows — so after the gate went on, the manager who uploaded
 a receipt could see its name on the expense and open it nowhere. Review round 1
 added the receipt's own surface: `ExpensePopup` now has an open control that

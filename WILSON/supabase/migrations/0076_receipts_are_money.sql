@@ -97,7 +97,7 @@
 --    are in the safe direction (v_blob_outside can only over-count).
 -- 2. THE RECEIPT PREDICATE IS UN-INDEXABLE AND IS EVALUATED SIX TIMES.
 --    `f.id = ANY (e.file_ids)` cannot be a join key and there is no GIN index
---    on expenses.file_ids (0037:305-306 creates only expenses_project_idx), so
+--    on expenses.file_ids (0037:306-307 creates only expenses_project_idx), so
 --    each evaluation is O(files x expenses). Free at today's zero rows; this
 --    file exists for the environments that come later, which is exactly when
 --    it bites. Left as-is rather than fixed: a GIN index is DDL this file
@@ -109,10 +109,52 @@
 --    Under a plain psql apply it would NOT: statements 1 and 2 would already
 --    be committed and the post-conditions would be a report, not a guard.
 --    Apply this file through the CLI.
--- pgTAP: 78_file_events_money.sql, extended (probes 50-58). Track C's suite
+-- pgTAP: 78_file_events_money.sql, extended (probes 50-59). Track C's suite
 -- reservation 77-79 is spent, so this bundle EXTENDS its own suite rather than
 -- taking a number belonging to another track (FIX_PLAN rules, item 2).
 -- =============================================================================
+
+-- ── 🚨 0. THE GUARD, AND IT REALLY DOES COME FIRST ──────────────────────────
+-- public.files and public.expenses are both ENABLE **and FORCE** row security
+-- (0004:344-345, 0037:483-484), and FORCE subjects the table OWNER to its own
+-- policies. In a migration session there is no JWT, so current_workspace_id()
+-- is NULL and files_update / expenses_select match NOTHING. A role without a
+-- bypass would update zero rows, read zero in every count below, pass the
+-- post-conditions vacuously, and print "0076 OK: receipts are money" over a
+-- database full of ungated receipts.
+--
+-- Nothing else in this file can tell those two worlds apart: every
+-- post-condition is evaluated through the same policies the write went
+-- through, and on a zero-receipt environment both worlds answer 0. The
+-- tripwire further down even ASSERTS the forcing that creates the hazard.
+--
+-- 🚨 IT IS ITS OWN STATEMENT, ABOVE THE BACKFILL — review round 2. Round 1 put
+-- this check first inside the post-condition DO block, which is the THIRD
+-- statement of the file: both UPDATEs had already run, and under a plain psql
+-- apply (see header note 3) they would already be COMMITTED. A guard that
+-- fires after the write it guards is a report, not a guard.
+--
+-- 🚨 row_security_active() RATHER THAN A ROLE-ATTRIBUTE TEST. `rolsuper OR
+-- rolbypassrls` is a PROXY; this asks the question itself — "does RLS bite for
+-- ME on this table, right now?" — so it is correct for a superuser, for a
+-- BYPASSRLS role, and for a session that has been handed `SET row_security`,
+-- and it CANNOT wrongly refuse a legitimate apply. That matters because CI
+-- applies every migration through `supabase start`, and a tripwire that
+-- blocked CI would be worse than the hole it closes.
+--
+-- Measured on wilson-dev and wilson-staging 2026-09-09: current_user =
+-- postgres, rolsuper = false, rolbypassrls = TRUE, row_security_active() FALSE
+-- on both tables. C4's original apply was therefore sound; this is insurance
+-- for the environments that come later, not a retraction. file_events is
+-- deliberately ENABLE-but-not-FORCE (0027:109-111, the 0012 idiom), so
+-- statement 2 was never at risk either way.
+
+DO $$
+BEGIN
+  IF row_security_active('public.files') OR row_security_active('public.expenses') THEN
+    RAISE EXCEPTION '0076 refused: row security is ACTIVE for role % on public.files/public.expenses, so this backfill and every count below it would silently see nothing and still report success. Apply as a role that bypasses RLS.', current_user;
+  END IF;
+END $$;
 
 -- ── 1. The receipts themselves ──────────────────────────────────────────────
 -- `storage_provider = 'supabase'` is TRAP 1, not an optimisation: without it
@@ -175,33 +217,6 @@ DECLARE
   v_unflagged       INT;
   v_policies        INT;
 BEGIN
-  -- ── 🚨 3z. THE TRIPWIRE THAT HAS TO COME FIRST (review round 1) ───────────
-  -- public.files and public.expenses are both ENABLE **and FORCE** row
-  -- security (0004:344-345, 0037:483-484), and FORCE subjects the table OWNER
-  -- to its own policies. In a migration session there is no JWT, so
-  -- current_workspace_id() is NULL and files_update / expenses_select match
-  -- NOTHING. A role without BYPASSRLS would therefore update zero rows, read
-  -- zero in every count below, pass 3b and 3c vacuously, and print
-  -- "0076 OK: receipts are money" over a database full of ungated receipts.
-  --
-  -- Nothing else in this file can tell those two worlds apart: every
-  -- post-condition is evaluated through the same policies the write went
-  -- through, and on a zero-receipt environment both worlds answer 0. 3h below
-  -- even ASSERTS the forcing that creates the hazard. So the escape is
-  -- asserted rather than assumed.
-  --
-  -- Measured on wilson-dev 2026-09-09: current_user = postgres, rolsuper =
-  -- false, rolbypassrls = TRUE. The C4 apply was therefore sound; this guard
-  -- is insurance for the environments that come later, not a retraction.
-  -- file_events is deliberately ENABLE-but-not-FORCE (0027:109-111, the 0012
-  -- idiom), so statement 2 was never at risk either way.
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_roles
-     WHERE rolname = current_user AND (rolsuper OR rolbypassrls)
-  ) THEN
-    RAISE EXCEPTION '0076 refused: applying role % is subject to FORCE RLS on public.files, so the backfill and every count in this file would silently see nothing. Apply as a role with BYPASSRLS.', current_user;
-  END IF;
-
   -- 3a. THE REPORT. Counts of STATE, not of rows just written, so a re-run
   --     reports the same numbers rather than a second delta of zero.
 
@@ -278,6 +293,12 @@ BEGIN
        AND conname = 'files_money_provider_chk'
        AND pg_get_constraintdef(oid) LIKE '%storage_provider%'
        AND pg_get_constraintdef(oid) LIKE '%rabbit_money_segment%'
+       -- 🚨 Round 2: the CHECK has TWO money axes and round 1 asserted only the
+       -- path one. This backfill writes `is_financial`, so THAT disjunct is
+       -- the one making TRAP 1 real for a row-flag receipt. Drop it and re-add
+       -- under the same name and the scoping justification above silently
+       -- becomes false while a path-only test still passes.
+       AND pg_get_constraintdef(oid) LIKE '%is_financial%'
   ) THEN
     RAISE EXCEPTION '0076 post-condition failed: files_money_provider_chk is gone — a money body could now leave Supabase';
   END IF;
@@ -343,27 +364,48 @@ BEGIN
   END IF;
 
   -- 3i. Nothing was granted. anon and PUBLIC hold nothing on either table.
-  --     🚨 Review round 1 replaced the instrument. This read
-  --     information_schema.column_privileges, which structurally CANNOT
-  --     express DELETE, TRUNCATE or TRIGGER — measured on dev, that view holds
-  --     only INSERT/REFERENCES/SELECT/UPDATE across the whole public schema,
-  --     while role_table_grants on files holds all seven. So
-  --     `GRANT TRUNCATE ON public.files TO anon` — which BYPASSES RLS
-  --     outright — passed 3g, 3h and 3i together, under a comment claiming
-  --     anon holds "nothing". The house already litigated this twice
-  --     (77:73-78, "naming four had let a TRUNCATE grant ... pass as
-  --     nothing"; 79:281-311 rewrote its probe 16 off this same view); 0076
-  --     inherited the old idiom from 0075:222-229, which was never brought
-  --     forward. has_table_privilege sees all seven.
+  --     🚨 TWO INSTRUMENTS, BECAUSE A COLUMN GRANT IS NOT A TABLE GRANT.
+  --     Round 1 found that information_schema.column_privileges structurally
+  --     CANNOT express DELETE, TRUNCATE or TRIGGER — measured on dev, it holds
+  --     only INSERT/REFERENCES/SELECT/UPDATE across the whole public schema
+  --     while role_table_grants on files holds all seven — so
+  --     `GRANT TRUNCATE ON public.files TO anon`, which BYPASSES RLS outright,
+  --     passed 3g, 3h and 3i together under a comment claiming anon holds
+  --     "nothing". Round 1 then REPLACED the view with has_table_privilege,
+  --     and review round 2 caught that as a COVERAGE REGRESSION: a column
+  --     grant is invisible to has_table_privilege, so
+  --     `GRANT SELECT (is_financial) ON public.files TO anon` — a grant on the
+  --     very column this migration exists to protect — used to fail here and
+  --     would have started passing. Suite 79 keeps BOTH for exactly this
+  --     reason (79:295-301, breaker B9). So does this now.
+  --     anon INHERITS PUBLIC, so asking about anon covers both (77:73-78);
+  --     the redundant 'public' grantee round 1 added is gone.
+  IF has_table_privilege('anon', 'public.files',       'SELECT')
+  OR has_table_privilege('anon', 'public.files',       'INSERT')
+  OR has_table_privilege('anon', 'public.files',       'UPDATE')
+  OR has_table_privilege('anon', 'public.files',       'DELETE')
+  OR has_table_privilege('anon', 'public.files',       'TRUNCATE')
+  OR has_table_privilege('anon', 'public.files',       'REFERENCES')
+  OR has_table_privilege('anon', 'public.files',       'TRIGGER')
+  OR has_table_privilege('anon', 'public.file_events', 'SELECT')
+  OR has_table_privilege('anon', 'public.file_events', 'INSERT')
+  OR has_table_privilege('anon', 'public.file_events', 'UPDATE')
+  OR has_table_privilege('anon', 'public.file_events', 'DELETE')
+  OR has_table_privilege('anon', 'public.file_events', 'TRUNCATE')
+  OR has_table_privilege('anon', 'public.file_events', 'REFERENCES')
+  OR has_table_privilege('anon', 'public.file_events', 'TRIGGER')
+  THEN
+    RAISE EXCEPTION '0076 post-condition failed: anon (or PUBLIC, which anon inherits) holds a TABLE privilege on files or file_events';
+  END IF;
+
+  -- The column arm round 1 deleted, restored. This is the only one of the two
+  -- that can see `GRANT SELECT (is_financial) ON public.files TO anon`.
   IF EXISTS (
-    SELECT 1
-      FROM unnest(ARRAY['files', 'file_events'])                                      AS t(tbl)
-     CROSS JOIN unnest(ARRAY['anon', 'public'])                                       AS g(grantee)
-     CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE',
-                             'TRUNCATE','REFERENCES','TRIGGER'])                      AS p(priv)
-     WHERE has_table_privilege(g.grantee, format('public.%I', t.tbl), p.priv)
+    SELECT 1 FROM information_schema.column_privileges
+     WHERE table_schema = 'public' AND table_name IN ('files', 'file_events')
+       AND grantee IN ('anon', 'PUBLIC')
   ) THEN
-    RAISE EXCEPTION '0076 post-condition failed: anon or PUBLIC holds a table privilege on files or file_events';
+    RAISE EXCEPTION '0076 post-condition failed: anon or PUBLIC holds a COLUMN privilege on files or file_events';
   END IF;
 
   RAISE NOTICE '0076 OK: receipts are money — rows and their history flagged, four money policies intact, both column definitions unmoved.';

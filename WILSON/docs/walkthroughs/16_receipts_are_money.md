@@ -19,8 +19,10 @@ Each part is independent. Do them in any order and report the ☐ lines.
 - **one small image or PDF** to stand in for a receipt — call it
   `cab_receipt.jpg` so you can spot it;
 - for Part D, the desktop app in **Local Server** mode with a **project folder
-  configured** (Settings → **Storage** — the tab is called Storage, not
-  General; the per-project folder is on the project's own page). Without one the desktop has nowhere
+  configured**. The folder lives on the project's own page ("Project folder");
+  the Local Server switch and the default root directory are under
+  Settings → **Storage**. (There is a Settings → General tab, but none of this
+  is on it.) Without one the desktop has nowhere
   special to put an invoice and falls back to the ordinary files directory —
   that is deliberate, so a receipt is never written somewhere unreachable, but
   it does mean Part D needs the folder set to show anything.
@@ -94,7 +96,7 @@ outright when the person fails the money gate, so they never reach the expense.
 (This was already true before this bundle; it is the control that shows the
 gate they DO hit in B2 is the file's, not the tab's.)
 
-2. Go to **Files** for that project.
+2. Go to the **Project Files** table for that project.
 
 ☐ **B2.** 🚨 **`cab_receipt.jpg` is NOT in the list.** Before this bundle it
 was, and anyone on the project could open it.
@@ -108,7 +110,7 @@ was, and anyone on the project could open it.
 3. If there are other, ordinary files on the project, look at them.
 
 ☐ **B3.** The member can still see the ordinary project files. (The gate
-should hide the receipt and nothing else — if Files is now empty for them,
+should hide the receipt and nothing else — if the Project Files table is now empty for them,
 that is a different and worse bug.)
 
 4. Open the activity/history for the project's files if your build shows it.
@@ -122,7 +124,7 @@ no size.
 
 Still as the ordinary member, or back as yourself; either is fine.
 
-1. Open the project's **Resources** list.
+1. Open the project's **Project Files** table.
 
 ☐ **C1.** `cab_receipt.jpg` is not there.
 
@@ -183,7 +185,7 @@ a fault.
 ## What to report
 
 For each ☐, "ok" or what you actually saw. **B2 is the one that matters** — if
-the ordinary member can still see the receipt in Files, the bundle has not
+the ordinary member can still see the receipt in Project Files, the bundle has not
 done its job and nothing else in this list makes up for it. **A1, A3 and B3
 are the ones that would show the fix went too far**, hiding things from people
 who should still see them.

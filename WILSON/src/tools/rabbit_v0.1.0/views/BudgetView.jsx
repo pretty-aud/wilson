@@ -2568,6 +2568,10 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   const [uploadError, setUploadError]     = useState(null)
   const [busy, setBusy]                   = useState(false)
   const [openingId, setOpeningId]         = useState(null)
+  // Round 2: opening and uploading are two actions; sharing one error channel
+  // made an open failure read as an upload failure, and wiped a pending upload
+  // error on every open.
+  const [openError, setOpenError]         = useState(null)
   const fileInputRef = useRef(null)
 
   const [existingFiles, setExistingFiles] = useState([])
@@ -2674,7 +2678,8 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   // Marking it financial removed it from BOTH surfaces that could open a file:
   // `FileManager` drops every `is_financial` row (its comment says invoices
   // "have their own surface" — a receipt had none), and `ProjectsPage`'s
-  // Resources list filters them the same way. So after the gate went on, the
+  // **Project Files** table filters them the same way ("Resources" is the
+  // left-hand nav section, not a per-project list — review round 2). So after the gate went on, the
   // manager who uploaded a receipt could see its NAME here and open it
   // nowhere — walkthrough 16's own step A3 asserts they can, and it could not
   // have passed. A gate that locks out the person it is meant to admit is not
@@ -2687,21 +2692,35 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
   // "you are not cleared for this" as well as "it was deleted" — RLS returns
   // an empty set, not an error — so say something either way.
   async function openFile(id) {
-    const adapter = ctx?.getAdapter?.()
-    if (!adapter?.downloadFile || !adapter?.listFiles) return
     setOpeningId(id)
-    setUploadError(null)
+    setOpenError(null)
     try {
+      const adapter = ctx?.getAdapter?.()
+      // 🚨 Round 2: this was a bare `return`, while the button that calls it
+      // renders unconditionally — the exact silent nothing-happens that
+      // `InvoiceAttachment`'s header calls the bug it replaced. Say it instead.
+      if (!adapter?.downloadFile || !adapter?.listFiles) {
+        throw new Error('This backend cannot open files.')
+      }
       const files = await adapter.listFiles(projectId)
       const row = (files || []).find(f => f.id === id)
       if (!row) throw new Error('That receipt is no longer available to you.')
       const blob = await adapter.downloadFile(row)
       const url = URL.createObjectURL(blob)
-      window.open(url, '_blank', 'noopener')
+      // 🚨 Round 2: `window.open` runs after TWO awaits — a listFiles round
+      // trip and a full body download — and transient user activation expires
+      // in a few seconds, so a large receipt gets the tab blocked. It returns
+      // null when that happens, and not checking it is the same silent failure
+      // again, one layer up.
+      const opened = window.open(url, '_blank', 'noopener')
+      if (!opened) {
+        URL.revokeObjectURL(url)
+        throw new Error('Your browser blocked the new tab. Allow pop-ups for this site to open receipts.')
+      }
       // Give the new tab time to take the blob before revoking it.
       setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (err) {
-      setUploadError(err?.message || 'Could not open that receipt.')
+      setOpenError(err?.message || 'Could not open that receipt.')
     } finally {
       setOpeningId(null)
     }
@@ -2815,6 +2834,9 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
                   </div>
                 ))}
               </div>
+            )}
+            {openError && (
+              <p className="text-[11px] font-mono leading-relaxed" style={{ color: '#ef4444' }}>{openError}</p>
             )}
             <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading}
               className="flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-mono rounded-sm transition-colors hover:bg-stone-700 self-start"
