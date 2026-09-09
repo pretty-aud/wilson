@@ -56,6 +56,17 @@ Prod is `rqyriuyldhovirbuievt` and was **not touched**.
   **60** (round 2 added the control that makes the access probe mean something).
 - **C1's display half is still blocked.** Re-measured: **0** s3 workspaces on
   dev. Her test bucket still does not exist. Do not start it.
+- **CI GREEN on the pushed head `272acc242c38dc976e9e0ec50a3c6e7948cab076`** —
+  RLS tests run #383, success in 1m 57s, **all four jobs**: pgTAP (Supabase
+  local DB), Vitest (renderer units), issue-session smoke (wilson-dev) and
+  Playwright auth (wilson-dev).
+  https://github.com/pretty-aud/wilson/actions/runs/34322950020
+  🚨 **That run is also the only proof suite 78's new `storage.objects`
+  INSERT and probes 59/60 work anywhere but hosted dev** — review round 2
+  raised exactly that, since `supabase start` excludes storage-api. The
+  pgTAP job builds a clean database from EVERY migration including 0065 and
+  runs all 73 suites under real pgTAP, so it is the stronger evidence and it
+  covers what the stalled local sweep could not.
 
 ## 3. Done and verified
 
