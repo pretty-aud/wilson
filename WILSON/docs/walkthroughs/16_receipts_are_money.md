@@ -74,9 +74,10 @@ project).
 
 1. Open the same project.
 
-☐ **B1.** **Budget** is not usable to them — they cannot read the expense.
-(This was already true before this bundle. Note what they actually see: a
-hidden tab, an empty budget, or an error.)
+☐ **B1.** There is **no Budget tab at all** for them — `Rabbit.jsx` hides it
+outright when the person fails the money gate, so they never reach the expense.
+(This was already true before this bundle; it is the control that shows the
+gate they DO hit in B2 is the file's, not the tab's.)
 
 2. Go to **Files** for that project.
 
