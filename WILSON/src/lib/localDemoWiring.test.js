@@ -62,6 +62,8 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
     )
     expect(fn).toContain('const demoRoot = localDemoRootDir()')
     expect(fn).toContain('isPathInside(demoRoot, resolved)')
+    // …and never inside the folder's own data directory (review 1, L8)
+    expect(fn).toContain("isPathInside(path.join(demoRoot, '.wilson'), resolved)")
     // and the demo arm sits BEFORE the workspace arm, like the resolver.
     expect(fn.indexOf('localDemoRootDir()')).toBeLessThan(fn.indexOf('if (workspaceRootDir) {'))
   })
@@ -72,13 +74,41 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
     )
     expect(fn).toContain('localDemoRootDir(); if (d) roots.push(d)')
   })
-  it('readRabbitBundle rebases a folder_root that points outside the open folder', () => {
+  it('readRabbitBundle re-slugifies folder_slug on read, and rebases only a folder_root that is GONE (review 1, H3/L9)', () => {
     const fn = mainCjs.slice(
       mainCjs.indexOf('function readRabbitBundle('),
       mainCjs.indexOf('function writeRabbitBundle('),
     )
-    expect(fn).toContain('!isPathInside(demoRoot, cur)')
-    expect(fn).toContain('bundle.project.folder_root = path.join(localDemoProjectsDir(), slug)')
+    expect(fn).toContain('bundle.project.folder_slug = safeSlug')
+    expect(fn).toContain('!isPathInside(demoRoot, cur) && !fs.existsSync(cur)')
+    expect(fn).toContain('bundle.project.folder_root = next')
+    expect(fn).toContain("event: 'relinked'")
+    // the slug is sanitised BEFORE the rebase computes a path from it
+    expect(fn.indexOf('folder_slug = safeSlug')).toBeLessThan(fn.indexOf('const demoRoot = localDemoRootDir()'))
+  })
+  it('project ids are contained: getRabbitProjectDir and the DELETE route refuse a decoded traversal (review 1)', () => {
+    const helper = mainCjs.slice(
+      mainCjs.indexOf('function getRabbitProjectDir('),
+      mainCjs.indexOf('function getRabbitFilesDir('),
+    )
+    expect(helper).toContain("resolveContainedFilePath(projectsDir, String(projectId || ''))")
+    expect(helper).toContain("throw new Error('invalid project id')")
+    const read = mainCjs.slice(mainCjs.indexOf('function readRabbitBundle('), mainCjs.indexOf('function readRabbitBundle(') + 300)
+    expect(read).toContain('try { bundleFile = rabbitBundlePath(projectId); } catch { return null; }')
+    const del = mainCjs.slice(
+      mainCjs.indexOf("expressApp.delete('/api/rabbit/projects/:id'"),
+      mainCjs.indexOf("expressApp.delete('/api/rabbit/projects/:id'") + 600,
+    )
+    expect(del).toContain("resolveContainedFilePath(projectsDir, String(req.params.id || ''))")
+    expect(del).toContain('return rabbitNotFound(res)')
+    expect(del).not.toContain('path.join(getRabbitProjectsDir(), req.params.id)')
+  })
+  it('the local API refuses while the remembered folder is missing — mounted ahead of the R.A.B.B.I.T. routes (review 1, M6)', () => {
+    expect(mainCjs).toContain('function localDemoMissingGuard(req, res, next)')
+    expect(mainCjs).toContain('res.status(503)')
+    const mount = mainCjs.indexOf("expressApp.use('/api/rabbit', localDemoMissingGuard)")
+    expect(mount).toBeGreaterThan(-1)
+    expect(mount).toBeLessThan(mainCjs.indexOf("expressApp.get('/api/rabbit/projects'"))
   })
   it('the folder is loaded in app.whenReady BEFORE the legacy cleanups derive a data dir', () => {
     const ready = mainCjs.slice(mainCjs.indexOf('app.whenReady().then('), mainCjs.indexOf('app.whenReady().then(') + 600)
@@ -94,16 +124,26 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
       mainCjs.indexOf("ipcMain.handle('local-demo:open'"),
       mainCjs.indexOf("ipcMain.handle('local-demo:close'"),
     )
-    expect(open).toContain('!userAuthorizedDirs.has(key) && !localDemo().isKnownFolder(folder)')
+    // (review 1, M5) a pick for the FILES ROOT is not consent to open a demo
+    // folder: the demo pick records into its own set, and only that set (or
+    // a folder this machine already remembers) satisfies `open`.
+    expect(mainCjs).toContain('const demoAuthorizedDirs = new Set()')
+    expect(open).toContain('!demoAuthorizedDirs.has(key) && !localDemo().isKnownFolder(folder)')
+    expect(open).not.toContain('userAuthorizedDirs.has(key)')
     const pick = mainCjs.slice(
       mainCjs.indexOf("ipcMain.handle('local-demo:pick'"),
       mainCjs.indexOf("ipcMain.handle('local-demo:open'"),
     )
-    expect(pick).toContain('userAuthorizedDirs.add(path.resolve(picked).toLowerCase())')
+    expect(pick).toContain('demoAuthorizedDirs.add(path.resolve(picked).toLowerCase())')
+    expect(pick).not.toContain('userAuthorizedDirs.add(')
   })
-  it('the DEV-ONLY knobs are gated on !app.isPackaged', () => {
+  it('the DEV-ONLY knobs are gated on !app.isPackaged, and the offline matcher parses the URL (review 1, N12)', () => {
     expect(mainCjs).toMatch(/!app\.isPackaged && process\.env\.WILSON_USER_DATA/)
     expect(mainCjs).toMatch(/!app\.isPackaged && process\.env\.WILSON_DEV_OFFLINE === '1'/)
+    const offline = mainCjs.slice(mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === '1'"), mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === '1'") + 900)
+    expect(offline).toContain('new URL(details.url)')
+    expect(offline).toContain("u.hostname === '127.0.0.1'")
+    expect(offline).not.toMatch(/\/\^\(https\?:/)
   })
 })
 
@@ -122,10 +162,24 @@ describe('the sign-in gate stays (Audrey, 2026-09-10)', () => {
 })
 
 describe('the Storage card — the one way in, and every seam has its caller', () => {
-  it('rides the shared client, and reloads on success', () => {
-    expect(storageConnections).toContain('pickLocalFolder(')
-    expect(storageConnections).toContain('reopenLocalFolder(')
+  // 🚨 (review 1, H1) The first cut imported the client's pickLocalFolder
+  // under the name of a callback this component ALREADY had — the local
+  // const shadowed the import, so "Choose a demo folder…" ran the files-root
+  // picker, repointed defaultRootDir and threw. A `toContain('pickLocalFolder(')`
+  // pin was satisfied by the shadow itself. These three pins cannot be.
+  it('calls the CLIENT picker under an alias no local declaration can shadow', () => {
+    expect(storageConnections).toContain('pickLocalFolder as pickDemoFolder')
+    expect(storageConnections).toContain('pickDemoFolder(demo, { confirmForeign })')
+    expect(storageConnections).not.toMatch(/(const|let|var|function)\s+pickDemoFolder\b/)
+  })
+  it('rides the shared client, asks before reopening a folder that now holds other files, and reloads on success', () => {
+    expect(storageConnections).toContain('reopenLocalFolder(demo, folder, { confirmForeign })')
     expect(storageConnections).toContain('reloadApp()')
+    // (review 1, M4) the client's reopen path never initialises on its own
+    const reopen = client.slice(client.indexOf('export async function reopenLocalFolder'), client.indexOf('export function reloadApp'))
+    expect(reopen).toContain('{ confirmForeign } = {}')
+    expect(reopen).toContain('const yes = confirmForeign ? await confirmForeign(r) : false')
+    expect(reopen.indexOf('allowForeign: true')).toBeGreaterThan(reopen.indexOf('if (!yes) return'))
     // the client pins Local Server mode before the reload
     const pick = client.slice(client.indexOf('export async function pickLocalFolder'), client.indexOf('export async function reopenLocalFolder'))
     expect(pick.match(/await pinLocalServerMode\(\)/g)?.length).toBeGreaterThanOrEqual(2)

@@ -89,12 +89,18 @@ export async function pickLocalFolder(bridge, { confirmForeign } = {}) {
   return { done: true, result: r }
 }
 
-/** Reopen a remembered folder (recent list / "continue locally"). */
-export async function reopenLocalFolder(bridge, folder) {
+/**
+ * Reopen a remembered folder (the recent list). The ASK rule holds here
+ * too (review round 1, M4): a remembered path can now hold somebody else's
+ * files — a USB letter reassigned to a different drive, a manifest deleted
+ * by a sync client — so a folder that asks is asked about, through the same
+ * `confirmForeign` the pick flow uses, and never initialised on its own.
+ */
+export async function reopenLocalFolder(bridge, folder, { confirmForeign } = {}) {
   const r = await bridge.open({ folder })
   if (r?.needsConfirm) {
-    // A remembered folder whose manifest went missing but whose files are
-    // still there: the person already chose it once, so keep going.
+    const yes = confirmForeign ? await confirmForeign(r) : false
+    if (!yes) return { done: false, canceled: true }
     const r2 = await bridge.open({ folder, allowForeign: true })
     if (!r2?.ok) return { done: false, error: r2?.error || FAILED }
     await pinLocalServerMode()

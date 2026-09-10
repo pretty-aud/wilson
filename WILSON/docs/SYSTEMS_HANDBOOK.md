@@ -2294,11 +2294,18 @@ NAMES AND SIGNATURES and asks the module where they resolve:
   folder must sit strictly inside it), ahead of the workspace-root arm.
 - `isUserAuthorizedRelinkDir()` counts the open folder as user-chosen (it
   was picked in the OS dialog, or remembered from that pick).
-- `readRabbitBundle()` rebases a stored `folder_root` that points OUTSIDE
-  the open folder to `<folder>/projects/<slug>` on read. The project POST
-  writes `folder_root` absolute, so without this a folder moved or copied
-  elsewhere kept pointing at where it used to be — and on the same machine
-  the old copy still exists, so the `existsSync` fallback never fired.
+- `readRabbitBundle()` re-slugifies `folder_slug` on read (review round 1,
+  H3: `resolveProjectFolder`, `ensureProjectFolders`, `mirrorProjectDatabases`
+  and `resolveProjectFilesDir` join the RAW value; S40 hardened only
+  `resolveProjectFolderRoot`, and a copied demo folder is a bundle somebody
+  else wrote), and rebases a stored `folder_root` that points OUTSIDE the
+  open folder **and no longer exists** to `<folder>/projects/<slug>`,
+  logging a `relinked` event in the bundle. A live folder elsewhere keeps
+  its pointer (L9): losing the only pointer to real files is worse than a
+  same-machine copy resolving to the original.
+- `getRabbitProjectDir()` and `DELETE /api/rabbit/projects/:id` contain the
+  project id with `resolveContainedFilePath` — Express 5 decodes `..%2F` in
+  route params, and the base is now a user-chosen folder.
 
 **The adopt / initialise / ask rule** (`classifyFolder`): a folder with a
 current manifest is adopted (never reinitialised); an empty folder (OS
@@ -2311,14 +2318,26 @@ newer WILSON is refused with a sentence.
 (eight most recent, case-folded dedupe). `load()` runs FIRST in
 `app.whenReady()`, before the legacy cleanups derive a data dir. A
 remembered folder that is not on disk is reported as `missing` — the card
-shows *Locate it… / Forget it* — and is NEVER silently replaced by userData.
+shows *Locate it… / Forget it* — and is NEVER silently replaced by userData:
+`localDemoMissingGuard`, mounted once ahead of the `/api/rabbit` routes,
+answers 503 with the sentence until the person locates, forgets or closes
+the folder (review round 1, M6). Every folder is stored by its REAL path
+(`fs.realpathSync.native`), and `reset()` re-checks the real path of each
+subtree before `rmSync` — containment in pathContainment.cjs is lexical, and
+a junction planted inside a shared folder would otherwise reach outside
+(M7). `reset()` also refuses unless the manifest's `created_layout` says
+WILSON made `projects/` itself — a folder adopted with its own `projects/`
+is never emptied behind a confirm that promises the opposite (H2).
 
-**The IPC** (`local-demo:get-state / pick / open / close / forget /
+**The IPC** (`local-demo:get-state / pick / open / close / forget / reset /
 open-in-explorer`, preload `electronAPI.localDemo`): IPC, not Express, for
 the S34 reason — the Express server answers any local origin, and a drive-by
 page must not repoint where the machine keeps its data. `open` accepts only a
-folder the user picked in the OS dialog THIS session (`userAuthorizedDirs`,
-the S14 mechanism) or one `local-demo.json` already remembers.
+folder the user picked in the demo dialog THIS session (`demoAuthorizedDirs`
+— its own set, because a pick made for the files root is not consent to
+open a demo folder, M5) or one `local-demo.json` already remembers; the
+renderer's reopen path asks before initialising a remembered folder that
+now holds other files (M4).
 
 **The renderer** (`src/components/local/localDemoClient.js`,
 `StorageConnections.jsx`): the card shows the open folder in full with

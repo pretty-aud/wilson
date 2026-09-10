@@ -73,6 +73,12 @@ function checkDemoFolderShape(candidate, pathImpl = nodePath) {
   if (/^[\\/]{2}[?.]([\\/]|$)/.test(raw)) {
     return { ok: false, error: 'device-namespace paths cannot be a demo folder' };
   }
+  // (review round 1, N13) three or more leading separators are neither a UNC
+  // path nor a device path; resolve() would silently rebase them onto the
+  // process drive — the exact case the relative-path refusal exists for.
+  if (/^[\\/]{3,}/.test(raw)) {
+    return { ok: false, error: 'the demo folder must be an absolute \\\\server\\share\\folder or drive path' };
+  }
   const windows = pathImpl.sep === '\\';
   const isUnc = /^[\\/]{2}/.test(raw);
   const isDrive = /^[A-Za-z]:[\\/]/.test(raw);
@@ -221,14 +227,25 @@ function makeLocalDemoRoot({
     try { return fs.statSync(p).isDirectory(); } catch { return false; }
   }
 
+  // (review round 1, M7) Containment is LEXICAL in pathContainment.cjs; a
+  // symlink or junction inside a shared folder would pass it and reach
+  // outside. Every folder this module opens, and every subtree reset()
+  // deletes, is resolved to its REAL path first, so the comparisons below
+  // run on what the filesystem will actually touch.
+  function realPathOf(p) {
+    const rp = fs.realpathSync && fs.realpathSync.native ? fs.realpathSync.native : fs.realpathSync;
+    return rp(p);
+  }
+
   // What is this folder? Never writes.
   function inspect(candidate) {
     const shape = checkDemoFolderShape(candidate, path);
     if (!shape.ok) return { ok: false, error: shape.error };
-    const root = shape.resolved;
+    let root = shape.resolved;
     if (!isDirectory(root)) {
       return { ok: false, error: 'the folder does not exist or is not a folder', folder: root };
     }
+    try { root = realPathOf(root).replace(/[\\/]+$/, '') || root; } catch { /* keep the resolved form */ }
     let entries = [];
     try { entries = fs.readdirSync(root); } catch {
       return { ok: false, error: 'the folder cannot be read', folder: root };
@@ -282,13 +299,24 @@ function makeLocalDemoRoot({
       };
     }
     try {
-      const layout = ensureLayout(root);
+      const layout = layoutFor(root, path);
+      // (review round 1, H2) PROVENANCE. A folder that already held a
+      // `projects` directory when WILSON opened it (the "use it anyway" case)
+      // did not get that directory from WILSON, and reset() must never delete
+      // it. Recorded in the manifest at initialise time; an adopted folder
+      // keeps whatever its own manifest says.
+      const hadProjects = isDirectory(layout.projectsDir);
+      const hadData = isDirectory(layout.dataDir);
+      ensureLayout(root);
       if (info.kind === 'wilson') {
         const manifest = { ...info.manifest, last_opened_at: stamp, last_opened_with: appVersion || null };
         writeJSON(layout.manifestPath, manifest);
         return activate(root, 'adopted');
       }
-      writeJSON(layout.manifestPath, newManifest({ appVersion, now: stamp }));
+      writeJSON(layout.manifestPath, {
+        ...newManifest({ appVersion, now: stamp }),
+        created_layout: { projects: !hadProjects, rabbit_data: !hadData },
+      });
       return activate(root, 'initialised');
     } catch (err) {
       return { ok: false, folder: root, error: `the folder cannot be written: ${err.message}` };
@@ -338,27 +366,58 @@ function makeLocalDemoRoot({
   function reset() {
     if (!active) return { ok: false, error: 'no demo folder is open' };
     const layout = layoutFor(active, path);
+    // (review round 1, H2) Only a `projects` directory WILSON itself created
+    // may be deleted. A manifest without the record (an older WILSON, or a
+    // folder adopted with its own `projects`) refuses — the confirm sentence
+    // promises "everything WILSON made", and that promise is kept by refusing
+    // when WILSON cannot know.
+    const manifest = readJSON(layout.manifestPath);
+    const created = manifest && typeof manifest === 'object' ? manifest.created_layout : null;
+    if (!created || created.projects !== true) {
+      return {
+        ok: false,
+        error: `${PROJECTS_SUBDIR}${path.sep} existed before WILSON opened this folder (or the folder was made by an older WILSON), so Reset will not delete it. Empty it by hand in Explorer, then reset.`,
+      };
+    }
+    // Two passes — every target is checked BEFORE anything is removed, so a
+    // refusal on the second target never leaves the first half-deleted.
     const targets = [layout.projectsDir, layout.dataDir];
-    const removed = [];
+    const plan = [];
     for (const t of targets) {
       if (!isPathInside(active, t) || keyOf(path, t) === keyOf(path, active)) {
         return { ok: false, error: 'refusing to delete outside the demo folder' };
       }
+      let exists = false;
+      try { exists = fs.existsSync(t); } catch { exists = false; }
+      if (!exists) continue;
+      // (review round 1, M7) the REAL path must sit inside the open folder
+      // too — a `.wilson` junction pointing at Documents would otherwise make
+      // this delete `Documents/rabbit-data` past a lexical check that cannot
+      // fail on a path this function constructed itself.
+      let real = t;
+      try { real = realPathOf(t); } catch (err) {
+        return { ok: false, error: `could not resolve ${t}: ${err.message}` };
+      }
+      if (!isPathInside(active, real) || keyOf(path, real) === keyOf(path, active)) {
+        return { ok: false, error: `refusing to delete ${t}: it points outside the demo folder (${real})` };
+      }
+      plan.push(t);
+    }
+    const removed = [];
+    for (const t of plan) {
       try {
-        if (fs.existsSync(t)) {
-          fs.rmSync(t, { recursive: true, force: true });
-          removed.push(t);
-        }
+        fs.rmSync(t, { recursive: true, force: true });
+        removed.push(t);
       } catch (err) {
-        return { ok: false, error: `could not remove ${t}: ${err.message}` };
+        return { ok: false, error: `could not remove ${t}: ${err.message}`, removed };
       }
     }
     try {
       ensureLayout(active);
-      const manifest = readJSON(layout.manifestPath);
       const stamp = now();
       writeJSON(layout.manifestPath, {
-        ...(manifest && typeof manifest === 'object' ? manifest : newManifest({ appVersion, now: stamp })),
+        ...manifest,
+        created_layout: { projects: true, rabbit_data: true },
         last_reset_at: stamp,
       });
     } catch (err) {
@@ -402,6 +461,9 @@ function makeLocalDemoRoot({
   return {
     load, open, inspect, close, forget, reset, getState, isKnownFolder,
     rootDir: () => active,
+    // The remembered folder that is not on disk (drive unplugged), or null.
+    // main.cjs's local API refuses while this is set (review round 1, M6).
+    missingDir: () => missing,
     dataDir: () => (active ? layoutFor(active, path).dataDir : null),
     projectsDir: () => (active ? layoutFor(active, path).projectsDir : null),
     // "is this path inside the open demo folder" — the containment question

@@ -15,7 +15,7 @@
 // =============================================================================
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync, symlinkSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -68,6 +68,12 @@ describe('checkDemoFolderShape — relative, root and device paths are refused',
     expect(checkDemoFolderShape('demos\\wilson', path.win32).ok).toBe(false)
     expect(checkDemoFolderShape('', path.win32).ok).toBe(false)
     expect(checkDemoFolderShape(null, path.win32).ok).toBe(false)
+  })
+  it('three or more leading separators are refused, not rebased onto the process drive (review 1, N13)', () => {
+    const four = '\\'.repeat(4)
+    expect(checkDemoFolderShape(four + 'nas\\share\\demo', path.win32).ok).toBe(false)
+    expect(checkDemoFolderShape(four + '?\\C:\\x', path.win32).ok).toBe(false)
+    expect(checkDemoFolderShape('///tmp/demo', path.posix).ok).toBe(false)
   })
   it('posix: an absolute folder passes, the filesystem root and a relative path do not', () => {
     expect(checkDemoFolderShape('/Users/audrey/Demos/', path.posix)).toEqual({ ok: true, resolved: '/Users/audrey/Demos' })
@@ -303,6 +309,72 @@ describe('makeLocalDemoRoot — root resolution and the folder lifecycle', () =>
     // still open, same roots
     expect(root.rootDir()).toBe(dir)
     expect(root.dataDir()).toBe(layout.dataDir)
+  })
+
+  it('records which layout directories WILSON itself created (review 1, H2)', () => {
+    const empty = folder('empty')
+    make().open(empty)
+    expect(JSON.parse(readFileSync(path.join(empty, MANIFEST_NAME), 'utf8')).created_layout)
+      .toEqual({ projects: true, rabbit_data: true })
+
+    const theirs = folder('theirs')
+    mkdirSync(path.join(theirs, 'projects', 'ClientA'), { recursive: true })
+    make().open(theirs, { allowForeign: true })
+    expect(JSON.parse(readFileSync(path.join(theirs, MANIFEST_NAME), 'utf8')).created_layout)
+      .toEqual({ projects: false, rabbit_data: true })
+  })
+
+  it('reset() REFUSES when projects/ existed before WILSON opened the folder, and touches nothing (review 1, H2)', () => {
+    const root = make()
+    const dir = folder('theirs')
+    mkdirSync(path.join(dir, 'projects', 'ClientA'), { recursive: true })
+    writeFileSync(path.join(dir, 'projects', 'ClientA', 'cut.txt'), 'their work')
+    root.open(dir, { allowForeign: true })
+    const layout = layoutFor(dir)
+    mkdirSync(path.join(layout.dataDir, 'projects', 'p1'), { recursive: true })
+    writeFileSync(path.join(layout.dataDir, 'projects', 'p1', 'project.json'), '{}')
+
+    const r = root.reset()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/existed before WILSON opened this folder/)
+    expect(readFileSync(path.join(dir, 'projects', 'ClientA', 'cut.txt'), 'utf8')).toBe('their work')
+    // nothing at all was removed — not even WILSON's own data, because the
+    // check runs before any delete
+    expect(existsSync(path.join(layout.dataDir, 'projects', 'p1', 'project.json'))).toBe(true)
+  })
+
+  it('reset() refuses when a manifest carries no provenance (an older WILSON)', () => {
+    const root = make()
+    const dir = folder('older')
+    writeFileSync(path.join(dir, MANIFEST_NAME), JSON.stringify({ format: MANIFEST_FORMAT, kind: MANIFEST_KIND }))
+    expect(root.open(dir)).toMatchObject({ ok: true, status: 'adopted' })
+    expect(root.reset()).toMatchObject({ ok: false })
+  })
+
+  it('a folder opened through a link is stored by its REAL path, and reset() refuses a linked subtree (review 1, M7)', () => {
+    const linkType = process.platform === 'win32' ? 'junction' : 'dir'
+    // the folder itself, reached through a link
+    const real = folder('real-demo')
+    const link = path.join(base, 'demo-link')
+    symlinkSync(real, link, linkType)
+    const viaLink = make()
+    expect(viaLink.open(link)).toMatchObject({ ok: true })
+    expect(viaLink.rootDir().toLowerCase()).toBe(realpathSync.native(real).toLowerCase())
+
+    // a `.wilson` link planted inside a folder, pointing at a victim
+    const victim = folder('victim')
+    mkdirSync(path.join(victim, 'rabbit-data'), { recursive: true })
+    writeFileSync(path.join(victim, 'rabbit-data', 'secret.txt'), 'must survive')
+    const planted = folder('planted')
+    symlinkSync(victim, path.join(planted, '.wilson'), linkType)
+    const root = make()
+    expect(root.open(planted, { allowForeign: true })).toMatchObject({ ok: true })
+    const r = root.reset()
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/points outside the demo folder/)
+    expect(readFileSync(path.join(victim, 'rabbit-data', 'secret.txt'), 'utf8')).toBe('must survive')
+    // and the first target was NOT deleted ahead of the refusal
+    expect(existsSync(path.join(planted, 'projects'))).toBe(true)
   })
 
   it('switching folders keeps both in the recent list, newest first, and moves the roots', () => {

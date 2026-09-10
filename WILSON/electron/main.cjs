@@ -99,11 +99,30 @@ function localDemoRootDir()     { return _localDemo ? _localDemo.rootDir() : nul
 function localDemoDataDir()     { return _localDemo ? _localDemo.dataDir() : null; }
 function localDemoProjectsDir() { return _localDemo ? _localDemo.projectsDir() : null; }
 
+// (review round 1, M6) While the remembered demo folder is MISSING (drive
+// unplugged), every resolver above would fall through to userData for every
+// writer — the silent fallback the brief forbids, visible only on the
+// Storage card. The local API refuses instead, with a sentence, until the
+// person locates the folder, forgets it or closes it (all IPC, all still
+// working). Mounted once, ahead of the R.A.B.B.I.T. routes.
+function localDemoMissingGuard(req, res, next) {
+  const missing = _localDemo ? _localDemo.missingDir() : null;
+  if (!missing) return next();
+  res.status(503).json({
+    error: `the demo folder is not available: ${missing} — open Settings → Storage to locate it, forget it, or close it`,
+  });
+}
+
 // Folders the USER picked through the OS dialog this session (lowercased
 // resolved paths). The relink routes only accept folders from here or from
 // inside the project's own roots — a body-supplied path is never enough
 // (Session 14; see isUserAuthorizedRelinkDir).
 const userAuthorizedDirs = new Set();
+// (review round 1, M5) A pick made for the per-machine FILES ROOT is not
+// consent to open a folder as the demo root — a pick for purpose A is not
+// consent for purpose B, the S14 scope rule. `local-demo:pick` records here
+// and only `local-demo:open` consults it.
+const demoAuthorizedDirs = new Set();
 
 // Session 34: the workspace storage root (workspace_storage.root_path when
 // mode = 'byos'). Main has no Supabase client, so the signed-in renderer
@@ -197,6 +216,11 @@ function folderRootRefusal(candidate) {
     }
     if (!isPathInside(demoRoot, resolved)) {
       return { error: `the project folder must be inside the local demo folder (${demoRoot})` };
+    }
+    // (review round 1, L8) …and not inside its data folder, where a
+    // `<slug>_DATABASES` mirror would be enumerated as a project id.
+    if (isPathInside(path.join(demoRoot, '.wilson'), resolved)) {
+      return { error: 'the project folder cannot be inside the demo folder’s .wilson data folder' };
     }
     return { resolved };
   }
@@ -1069,7 +1093,16 @@ function startLocalServer(distPath) {
       return dir;
     }
     function getRabbitProjectDir(projectId) {
-      const dir = path.join(getRabbitProjectsDir(), projectId);
+      // (review round 1) Express 5 DECODES route params, so `..%2F..%2Fx`
+      // arrives as `../../x` and a plain join walks out of projects/ — into
+      // the person's own demo folder now that the root is user-chosen. The
+      // id is contained the way every file path is; a traversal is a
+      // thrown error the readers turn into "not found".
+      const projectsDir = getRabbitProjectsDir();
+      const dir = resolveContainedFilePath(projectsDir, String(projectId || ''));
+      if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) {
+        throw new Error('invalid project id');
+      }
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
@@ -1082,7 +1115,9 @@ function startLocalServer(distPath) {
       return path.join(getRabbitProjectDir(projectId), 'project.json');
     }
     function readRabbitBundle(projectId) {
-      const bundle = readJSON(rabbitBundlePath(projectId), null);
+      let bundleFile;
+      try { bundleFile = rabbitBundlePath(projectId); } catch { return null; }
+      const bundle = readJSON(bundleFile, null);
       if (!bundle) return null;
       // ── Migrate old bundles ──
       let dirty = false;
@@ -1106,11 +1141,34 @@ function startLocalServer(distPath) {
       // is open, a folder_root outside it is rebased to <folder>/projects/<slug>
       // on read; the slug is re-slugified for the S40 reason.
       try {
+        // (review round 1, H3) folder_slug is a PATH SEGMENT that
+        // resolveProjectFolder, ensureProjectFolders, mirrorProjectDatabases
+        // and resolveProjectFilesDir join RAW — S40 hardened only
+        // resolveProjectFolderRoot. A bundle somebody else wrote (a copied
+        // demo folder) can carry `..\..\..` and walk out of the root. Slugify
+        // it ONCE here, where every route reads the bundle, so no join below
+        // can leave the folder; idempotent for every legitimate slug.
+        if (bundle.project && bundle.project.folder_slug != null) {
+          const rawSlug = String(bundle.project.folder_slug);
+          const safeSlug = fileSlugify(rawSlug) || fileSlugify(String(bundle.project.title || '')) || 'Untitled-Project';
+          if (safeSlug !== rawSlug) { bundle.project.folder_slug = safeSlug; dirty = true; }
+        }
         const demoRoot = localDemoRootDir();
         const cur = bundle.project?.folder_root;
-        if (demoRoot && cur && !isPathInside(demoRoot, cur)) {
+        // (review round 1, L9) Rebase only a root that is GONE. A live folder
+        // elsewhere — an adopted bundle whose files stayed put — keeps its
+        // pointer: losing the only pointer to real files is worse than a
+        // same-machine copy resolving to the original. The move is recorded
+        // in the project's own audit stream.
+        if (demoRoot && cur && !isPathInside(demoRoot, cur) && !fs.existsSync(cur)) {
           const slug = fileSlugify(String(bundle.project.folder_slug || bundle.project.title || 'Untitled-Project')) || 'Untitled-Project';
-          bundle.project.folder_root = path.join(localDemoProjectsDir(), slug);
+          const next = path.join(localDemoProjectsDir(), slug);
+          rabbitLogFileEvent(bundle, {
+            file_id: null, project_id: projectId, file_name: null, storage_provider: 'local_managed',
+            event: 'relinked', old_path: cur, new_path: next,
+            note: 'project folder rebased into the open demo folder (the stored path no longer exists)',
+          });
+          bundle.project.folder_root = next;
           dirty = true;
         }
       } catch { /* leave the stored root alone */ }
@@ -1670,6 +1728,7 @@ function startLocalServer(distPath) {
     }
 
     // ── Projects ────────────────────────────────────────────
+    expressApp.use('/api/rabbit', localDemoMissingGuard); // demo sprint (2026-09-10): refuse while the demo folder is missing
     expressApp.get('/api/rabbit/projects', (req, res) => {
       const projectsDir = getRabbitProjectsDir();
       const ids = fs.readdirSync(projectsDir).filter(f =>
@@ -1857,7 +1916,11 @@ function startLocalServer(distPath) {
     });
 
     expressApp.delete('/api/rabbit/projects/:id', (req, res) => {
-      const dir = path.join(getRabbitProjectsDir(), req.params.id);
+      // (review round 1) contained like getRabbitProjectDir: a decoded
+      // `../..` id is "not found", never an rmSync outside projects/.
+      const projectsDir = getRabbitProjectsDir();
+      const dir = resolveContainedFilePath(projectsDir, String(req.params.id || ''));
+      if (!dir || dir.toLowerCase() === path.resolve(projectsDir).toLowerCase()) return rabbitNotFound(res);
       if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
       res.json({ ok: true });
     });
@@ -3497,7 +3560,14 @@ async function createWindow() {
   // builds.
   if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === '1') {
     mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-      const local = /^(https?:\/\/127\.0\.0\.1[:/]|devtools:|chrome-extension:|data:|blob:)/.test(details.url);
+      // (review round 1, N12) parsed, not pattern-matched: a userinfo trick
+      // (`https://127.0.0.1:x@evil.example/`) passed the old regex.
+      let local = false;
+      try {
+        const u = new URL(details.url);
+        local = ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
+          || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
+      } catch { local = false; }
       callback({ cancel: !local });
     });
     console.info('[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled');
@@ -3662,16 +3732,10 @@ ipcMain.handle('rabbit:write-files-config', (_event, cfg) => {
 // S14 mechanism) or one this machine already remembers (the recent list);
 // a renderer-supplied path alone is never enough.
 function localDemoState() {
-  const state = localDemo().getState();
-  // How many Local Server projects sit in userData — the Storage card offers
-  // to adopt them explicitly; nothing is moved silently.
-  let appDataProjectCount = 0;
-  try {
-    const dir = path.join(app.getPath('userData'), 'rabbit-data', 'projects');
-    appDataProjectCount = fs.readdirSync(dir)
-      .filter(f => fs.existsSync(path.join(dir, f, 'project.json'))).length;
-  } catch { /* none */ }
-  return { ...state, appDataDir: app.getPath('userData'), appDataProjectCount };
+  // appDataDir is what the Storage card shows while no folder is open.
+  // (An "adopt the projects already in app data" count lived here and had
+  // no reader — removed, review round 1, L10; build the action if wanted.)
+  return { ...localDemo().getState(), appDataDir: app.getPath('userData') };
 }
 ipcMain.handle('local-demo:get-state', () => localDemoState());
 ipcMain.handle('local-demo:pick', async () => {
@@ -3683,16 +3747,19 @@ ipcMain.handle('local-demo:pick', async () => {
   });
   if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
   const picked = result.filePaths[0];
-  // A dialog pick IS the user's authorization (S14) — for the relink routes
-  // and for a later `open` of the same folder after a "use it anyway".
-  userAuthorizedDirs.add(path.resolve(picked).toLowerCase());
+  // A dialog pick IS the user's authorization (S14) — for a later `open` of
+  // the same folder after a "use it anyway". Recorded in the DEMO set only:
+  // once open, the folder reaches the relink routes through
+  // localDemoRootDir(), and a pick that is never confirmed authorises nothing
+  // else (review round 1, M5).
+  demoAuthorizedDirs.add(path.resolve(picked).toLowerCase());
   return { ...localDemo().open(picked, { allowForeign: false }), state: localDemoState() };
 });
 ipcMain.handle('local-demo:open', (_event, opts) => {
   const folder = opts && typeof opts.folder === 'string' ? opts.folder.trim() : '';
   if (!folder) return { ok: false, error: 'no folder given' };
   const key = path.resolve(folder).toLowerCase();
-  if (!userAuthorizedDirs.has(key) && !localDemo().isKnownFolder(folder)) {
+  if (!demoAuthorizedDirs.has(key) && !localDemo().isKnownFolder(folder)) {
     return { ok: false, error: 'pick the folder through the app before opening it' };
   }
   const allowForeign = !!(opts && opts.allowForeign);

@@ -28,9 +28,15 @@ import { usePermissions } from '../../permissions'
 import GatedAction from '../../permissions/GatedAction'
 import { LIGHT_INK } from '../lightSurface'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
+// 🚨 `pickLocalFolder` is imported under a DIFFERENT name on purpose. This
+// component already had a `pickLocalFolder` callback (the per-machine files
+// root's "Change folder"), and the first cut imported the client function
+// under the same name — the local const shadowed it, so "Choose a demo
+// folder…" ran the files-root picker and repointed defaultRootDir instead
+// (review round 1, H1). localDemoWiring.test.js pins the alias.
 import {
   localDemoBridge, describeLocalState, folderLeaf,
-  pickLocalFolder, reopenLocalFolder, reloadApp,
+  pickLocalFolder as pickDemoFolder, reopenLocalFolder, reloadApp,
   resetConfirmText, seedDemoProject,
 } from '../local/localDemoClient'
 
@@ -186,7 +192,7 @@ export default function StorageConnections() {
     if (!demo?.pick || busy) return
     setBusy(true)
     setDemoError('')
-    try { finishDemo(await pickLocalFolder(demo, { confirmForeign })) }
+    try { finishDemo(await pickDemoFolder(demo, { confirmForeign })) }
     catch (err) { finishDemo({ done: false, error: err?.message || 'the folder could not be opened' }) }
   }, [demo, busy, canEditMachineRoot, confirmForeign, finishDemo])
 
@@ -195,9 +201,9 @@ export default function StorageConnections() {
     if (!demo?.open || busy) return
     setBusy(true)
     setDemoError('')
-    try { finishDemo(await reopenLocalFolder(demo, folder)) }
+    try { finishDemo(await reopenLocalFolder(demo, folder, { confirmForeign })) }
     catch (err) { finishDemo({ done: false, error: err?.message || 'the folder could not be opened' }) }
-  }, [demo, busy, canEditMachineRoot, finishDemo])
+  }, [demo, busy, canEditMachineRoot, confirmForeign, finishDemo])
 
   const closeDemoFolder = useCallback(async () => {
     if (!canEditMachineRoot) return
