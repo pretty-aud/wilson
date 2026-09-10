@@ -25,6 +25,7 @@ export const TABLE_COLUMNS = [
   { id: 'roll',         label: 'Roll',     width: '70px',  sortable: true },
   { id: 'shoot_day',    label: 'Day',      width: '92px',  sortable: true },
   { id: 'scene',        label: 'Scene',    width: '110px', sortable: false },
+  { id: 'used',         label: 'Used in',  width: '70px',  sortable: false },
   { id: 'duration_sec', label: 'Duration', width: '72px',  sortable: true, align: 'right' },
   { id: 'dims',         label: 'Size px',  width: '90px',  sortable: false, align: 'right' },
   { id: 'fps',          label: 'fps',      width: '56px',  sortable: false, align: 'right' },
@@ -37,7 +38,7 @@ const FLAG_NEXT = { unflagged: 'select', select: 'reject', reject: 'unflagged' }
 
 export default function BinFileTable({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor,
-  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor,
+  binsById, showBin, sort, onSort, onInlinePatch, canWrite, scenesById, renamingId, onRenameEnd, dragIdsFor, usageCount = null,
 }) {
   const cols = TABLE_COLUMNS.filter(c => showBin || c.id !== 'bin')
   const template = cols.map(c => c.width).join(' ')
@@ -65,6 +66,7 @@ export default function BinFileTable({
             thumbUrl={thumbUrlFor?.(row.id)}
             binName={showBin ? (binsById.get(row.bin_id)?.name || '—') : null}
             sceneName={row.scene_id ? (scenesById.get(row.scene_id)?.name || '?') : ''}
+            used={usageCount?.get(row.id) || 0}
             renaming={renamingId === row.id}
             onRenameEnd={onRenameEnd}
             canWrite={canWrite}
@@ -87,7 +89,7 @@ export default function BinFileTable({
   )
 }
 
-function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binName, sceneName, renaming, onRenameEnd, canWrite, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
+function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binName, sceneName, used = 0, renaming, onRenameEnd, canWrite, onClick, onDoubleClick, onContextMenu, onPatch, onDragStart }) {
   const [draft, setDraft] = useState(row.display_name || '')
   const inputRef = useRef(null)
   useEffect(() => { if (renaming) { setDraft(row.display_name || ''); setTimeout(() => { inputRef.current?.focus(); inputRef.current?.select() }, 0) } }, [renaming, row.display_name])
@@ -130,6 +132,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
       case 'roll': return <span style={{ color: C.text }}>{row.roll || ''}</span>
       case 'shoot_day': return <span style={{ color: C.text }}>{row.shoot_day || ''}</span>
       case 'scene': return <span className="truncate block" style={{ color: C.muted }} title={sceneName}>{sceneName}</span>
+      case 'used': return used ? <span className="tabular-nums" style={{ color: C.accentText }} title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>{used} shot{used === 1 ? '' : 's'}</span> : <span style={{ color: C.dimmer }}>—</span>
       case 'duration_sec': return <span className="tabular-nums" style={{ color: C.muted }}>{formatDuration(row.duration_sec)}</span>
       case 'dims': return <span className="tabular-nums" style={{ color: C.muted }}>{row.width && row.height ? `${row.width}×${row.height}` : ''}</span>
       case 'fps': return <span className="tabular-nums" style={{ color: C.muted }}>{row.fps ? (Number(row.fps) % 1 === 0 ? row.fps : Number(row.fps).toFixed(2)) : ''}</span>

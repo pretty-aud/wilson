@@ -56,6 +56,7 @@ import LevelsView from './views/LevelsView'
 import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
 import { RABBIT_HELP_SIDEBAR_ITEMS } from './rabbitHelpContent.jsx'
+import { subscribeNavigate } from './state/rabbitNavigate'
 
 export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   const ctx = useRabbit()
@@ -97,6 +98,12 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
   useEffect(() => {
     if (hiddenTabs.has(activeView)) setActiveView('summary')
   }, [hiddenTabs, activeView])
+
+  // Cross-tab navigation (milestone 2): "open this shot in Scenes" from the
+  // bin inspector, "show this file in Bins" from a shot's takes. The shell
+  // switches the tab; the target view consumes the payload when it mounts
+  // (state/rabbitNavigate.js).
+  useEffect(() => subscribeNavigate(d => { if (d?.view) setActiveView(d.view) }), [])
 
   // ── Settings, help & holidays (shared across all RABBIT tabs) ──
   const [settings, setSettings] = useState(() => loadRabbitSettings())

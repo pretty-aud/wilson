@@ -652,5 +652,29 @@ export function localServerAdapter() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, label }),
     }),
     removeBinRoot: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bins/roots/${id}`, { method: 'DELETE' }),
+
+    // Shot takes (milestone 2): bin files assigned to shots, many-to-many.
+    // Every mutation answers { affectedShotIds, shotTakes } — the FULL row set
+    // of the shots it touched, because a role change or a removal renumbers
+    // and re-roles the siblings; the provider replaces those shots' rows.
+    listShotTakes: (projectId) => jfetch(`${BASE}/projects/${projectId}/shot-takes`),
+    // assignments: [{ shot_id, bin_file_id, role?, notes? }] → { created, skipped, … }
+    assignShotTakes: (projectId, assignments) => jfetch(`${BASE}/projects/${projectId}/shot-takes`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignments }),
+    }),
+    // patch: { role?, notes?, position? } → { take, … }
+    updateShotTake: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/shot-takes/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    removeShotTakes: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/shot-takes/remove`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    reorderShotTakes: (projectId, shotId, ids) => jfetch(`${BASE}/projects/${projectId}/shot-takes/reorder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shot_id: shotId, ids }),
+    }),
+    // The undo primitive: the given shots' rows become exactly `rows`.
+    replaceShotTakes: (projectId, shotIds, rows) => jfetch(`${BASE}/projects/${projectId}/shot-takes/replace`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shotIds, rows }),
+    }),
   };
 }

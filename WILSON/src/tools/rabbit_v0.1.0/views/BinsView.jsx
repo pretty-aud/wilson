@@ -42,6 +42,11 @@ import {
 } from '../bins/binSelectors'
 import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes, previewKindFor } from '../bins/binMedia'
 import { probeInBrowser } from '../bins/binProbeFallback'
+// Shot takes (milestone 2): "Assign to shot…" from a file's menu, the selection
+// bar and the inspector; "used in" on the inspector; a badge on tiles and rows.
+import AssignToShotDialog from './bins/AssignToShotDialog'
+import { usageByFile, usageCounts } from '../bins/shotTakeSelectors'
+import { useNavigateTarget } from '../state/rabbitNavigate'
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -62,6 +67,7 @@ export default function BinsView() {
   const roots = ctx?.binRoots || []
   const scenes = ctx?.scenes || []
   const shots = ctx?.shots || []
+  const shotTakes = ctx?.shotTakes || []
   const fps = Number(ctx?.project?.fps) > 0 ? Number(ctx.project.fps) : 24
   const ffmpeg = ctx?.binsInfo?.ffmpeg ?? null
   const probing = ctx?.binsInfo?.probing || 0
@@ -88,6 +94,8 @@ export default function BinsView() {
   const [deleteDlg, setDeleteDlg] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [relinkOpen, setRelinkOpen] = useState(false)
+  const [assignDlg, setAssignDlg] = useState(null)   // the rows being assigned to a shot (milestone 2)
+  const [assignBusy, setAssignBusy] = useState(false)
   const [thumbRev, setThumbRev] = useState(0)
   const [notice, setNotice] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -212,6 +220,10 @@ export default function BinsView() {
   const selectedRows = useMemo(() => rows.filter(r => selection.has(r.id)), [rows, selection])
   const scenesById = useMemo(() => new Map(scenes.map(s => [s.id, s])), [scenes])
   const filterCount = activeFilterCount(filters)
+  // Where each file is used (milestone 2): the inspector's "Used in shots",
+  // and the count badge on tiles and rows. Takes of a deleted shot are skipped.
+  const usage = useMemo(() => usageByFile(shotTakes, shots, scenes), [shotTakes, shots, scenes])
+  const usageCount = useMemo(() => usageCounts(shotTakes, shots), [shotTakes, shots])
 
   // Selection survives only for rows that still exist here.
   useEffect(() => {
@@ -276,6 +288,39 @@ export default function BinsView() {
     try { await ctx.probeBinFile(id); setThumbRev(v => v + 1) }
     catch (e) { say(e?.message || String(e), 'error') }
   }, [ctx, say])
+
+  // ── Shot takes (milestone 2): "Assign to shot…" from the files ──
+  const openAssign = useCallback((ids) => {
+    const rows = files.filter(f => ids.includes(f.id))
+    if (!rows.length || !canWrite) return
+    if (!shots.length) { say('No shots to assign to yet. Add shots on the Scenes tab first.', 'warn'); return }
+    setAssignDlg(rows)
+  }, [files, shots.length, canWrite, say])
+  const confirmAssign = useCallback(async (shotIds, role) => {
+    if (!assignDlg || !shotIds?.length) return
+    setAssignBusy(true)
+    try {
+      const assignments = []
+      for (const shotId of shotIds) for (const f of assignDlg) assignments.push({ shot_id: shotId, bin_file_id: f.id, ...(role ? { role } : {}) })
+      const res = await ctx.assignShotTakes(assignments)
+      const n = res?.created?.length || 0; const k = res?.skipped?.length || 0
+      const where = shotIds.length === 1 ? `"${shots.find(s => s.id === shotIds[0])?.name || 'shot'}"` : `${shotIds.length} shots`
+      say(`Assigned ${n} take${n === 1 ? '' : 's'} to ${where}${k ? ` · ${k} already assigned` : ''}${n ? '. Ctrl+Z undoes it.' : '.'}`, n ? 'ok' : 'warn')
+      setAssignDlg(null)
+    } catch (e) { say(e?.message || String(e), 'error') }
+    finally { setAssignBusy(false) }
+  }, [assignDlg, ctx, shots, say])
+  const unassign = useCallback(async (takeIds) => {
+    try { await ctx.removeShotTakes(takeIds) } catch (e) { say(e?.message || String(e), 'error') }
+  }, [ctx, say])
+  // "Show in Bins" from a shot's takes lands on the file, selected, in its bin.
+  const onNavigate = useCallback((p) => {
+    const f = p?.fileId ? files.find(x => x.id === p.fileId) : null
+    if (!f) return
+    setCurrentBinId(f.bin_id); setIncludeNested(true); setSearch(''); setFilters(EMPTY_FILTERS)
+    setSelection(new Set([f.id])); setCurrentId(f.id); anchorRef.current = f.id
+  }, [files])
+  useNavigateTarget('bins', onNavigate)
 
   // ── Adding files ──
   const addPathsTo = useCallback(async (binId, paths) => {
@@ -415,6 +460,8 @@ export default function BinsView() {
       canWrite && { label: 'Unflag', hint: 'U', onClick: () => patchIds(ids, { review_flag: 'unflagged' }) },
       canWrite && { label: row?.circled && n === 1 ? 'Uncircle' : 'Circle (director’s pick)', Icon: Circle, hint: 'C', onClick: () => patchIds(ids, { circled: !(row?.circled && n === 1) }) },
       canWrite && { divider: true },
+      canWrite && { label: n === 1 ? 'Assign to shot…' : `Assign ${n} to a shot…`, Icon: Clapperboard, hint: 'A', disabled: !shots.length, onClick: () => openAssign(ids) },
+      canWrite && { divider: true },
       canWrite && { header: 'Colour' },
       ...(canWrite ? COLORS.map((c, i) => ({ label: c, ColorDot: c, hint: String(i + 1), onClick: () => patchIds(ids, { color: c }) })) : []),
       canWrite && { label: 'No colour', hint: '0', onClick: () => patchIds(ids, { color: null }) },
@@ -432,7 +479,7 @@ export default function BinsView() {
       canWrite && { label: n === 1 ? 'Remove from bin' : `Remove ${n} from bin`, Icon: Trash2, danger: true, hint: 'Del', onClick: () => removeIds(ids) },
     ]
     setMenu({ x: e.clientX, y: e.clientY, items })
-  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds])
+  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds, shots.length, openAssign])
 
   const binMenu = useCallback((e, bin) => {
     const sub = descendantIds(bins, bin.id)
@@ -463,7 +510,7 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    if (menu || addDlg || deleteDlg || relinkOpen) return
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg) return
     const cols = view === 'grid' ? Math.max(1, Math.floor(((paneRef.current?.clientWidth || 800) - 24) / (tileWidth + 12))) : 1
     const move = (steps) => {
       const next = stepId(orderedIds, currentId, steps)
@@ -490,7 +537,7 @@ export default function BinsView() {
       case 'Home': return move(-orderedIds.length)
       case 'End': return move(orderedIds.length)
       case 'Escape': e.preventDefault(); return clearSelection()
-      case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } return
+      case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } else if (ids.length) { e.preventDefault(); openAssign(ids) } return
       case 's': case 'S': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'select' }) } return
       case 'r': case 'R': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'reject' }) } return
       case 'u': case 'U': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'unflagged' }) } return
@@ -500,7 +547,7 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds])
+  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
 
   // ── Drag and drop from the OS onto the files pane ──
   const onDragOverPane = (e) => {
@@ -698,12 +745,12 @@ export default function BinsView() {
                 thumbUrlFor={thumbUrlFor} binsById={binsById} showBin={showBinColumn} sort={sort}
                 onSort={field => setSort(s => s.field === field ? { ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })}
                 onInlinePatch={(id, patch) => patchIds([id], patch)} canWrite={canWrite} scenesById={scenesById}
-                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} />
+                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount} />
             ) : (
               <BinFileGrid rows={rows} selection={selection} currentId={currentId} onRowClick={selectRow}
                 onRowDoubleClick={id => canWrite && setRenamingFileId(id)} onContextMenu={fileMenu}
                 thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor} tileWidth={tileWidth} canWrite={canWrite}
-                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} />
+                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} usageCount={usageCount} />
             )}
             {renamingFileId && view === 'grid' && (
               <RenameBar row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
@@ -719,6 +766,7 @@ export default function BinsView() {
                   <Btn small onClick={() => patchSelection({ review_flag: 'reject' })} title="Reject (R)"><Ban className="w-3 h-3" style={{ color: C.red }} /> Reject</Btn>
                   <Btn small onClick={() => patchSelection({ review_flag: 'unflagged' })} title="Unflag (U)">Unflag</Btn>
                   <Btn small onClick={() => patchSelection({ circled: !selectedRows.every(r => r.circled) })} title="Circle (C)"><Circle className="w-3 h-3" style={{ color: C.accentText }} /> Circle</Btn>
+                  <Btn small onClick={() => openAssign([...selection])} title={shots.length ? 'Assign the selection to a shot (A)' : 'Add shots on the Scenes tab first'} disabled={!shots.length}><Clapperboard className="w-3 h-3" style={{ color: C.accentText }} /> Assign to shot</Btn>
                   <span className="inline-flex items-center gap-1 px-1">{COLORS.map(c => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c}`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour" /></span>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Move to' }, ...binTargets().map(t => ({ label: t.label, Icon: FolderInput, ColorDot: t.color || undefined, onClick: () => moveIds([...selection], t.id) }))] })} disabled={bins.length < 2}><FolderInput className="w-3 h-3" /> Move to</Btn>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
@@ -732,7 +780,8 @@ export default function BinsView() {
 
         <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
-          onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor} />
+          onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
+          usage={usage} onAssign={openAssign} onUnassign={unassign} />
       </div>
 
       {/* ── Footer hints ── */}
@@ -742,7 +791,7 @@ export default function BinsView() {
           its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
       <div className="flex items-center gap-3 pr-3 text-[9px] font-mono flex-shrink-0 flex-wrap"
         style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
-        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
+        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>A</Kbd> assign to shot</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
         <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>
       </div>
 
@@ -755,6 +804,10 @@ export default function BinsView() {
           onScan={(p) => ctx.binRelinkScan(p)}
           onApply={async (m) => { const r = await ctx.binRelinkApply(m); setThumbRev(v => v + 1); return r }}
           onClose={() => setRelinkOpen(false)} />
+      )}
+      {assignDlg && (
+        <AssignToShotDialog files={assignDlg} scenes={scenes} shots={shots} shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy}
+          onConfirm={confirmAssign} onCancel={() => !assignBusy && setAssignDlg(null)} />
       )}
     </div>
   )

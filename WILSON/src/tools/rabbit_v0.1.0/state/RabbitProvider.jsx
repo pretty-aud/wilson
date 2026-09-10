@@ -2430,7 +2430,7 @@ export function RabbitProvider({ children }) {
     const data = await adapterRef.current.listBins(projectId);
     // The project may have been switched during the await.
     if (activeProjectIdRef.current !== projectId) return data;
-    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [] }));
+    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [], shotTakes: data.shotTakes || prev.shotTakes || [] }));
     setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
     return data;
   }, [activeProjectId]);
@@ -2761,6 +2761,104 @@ export function RabbitProvider({ children }) {
   const binFileStreamUrl = useCallback((id, opts) =>
     (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
       ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+
+  // ── Shot takes (milestone 2, docs/BINS_DESIGN.md §4.4 and §6 Q6) ──
+  //
+  // Bin files assigned to shots, many-to-many, ordered, with a role. Every
+  // server mutation answers the FULL row set of the shots it touched
+  // (siblings get re-roled and renumbered), and the provider replaces those
+  // shots' rows with it. Undo is a SNAPSHOT: the rows of the affected shots
+  // before the call, handed back verbatim through replaceShotTakes — exact
+  // whatever the mutation did, and one primitive instead of four inverses.
+  // Orphans (a take whose shot or file is gone) stay in state on purpose:
+  // undoing the delete brings the take back; the selectors skip them.
+  const replaceTakeRows = (rows, shotIds, incoming) => {
+    const set = new Set(shotIds || []);
+    return [...(rows || []).filter(t => !set.has(t.shot_id)), ...(incoming || [])];
+  };
+  const snapshotTakes = (shotIds) => {
+    const set = new Set(shotIds || []);
+    return (bundleRef.current.shotTakes || []).filter(t => set.has(t.shot_id)).map(t => ({ ...t }));
+  };
+  const applyTakeResponse = (res) => {
+    if (!res?.affectedShotIds) return;
+    setBundle(prev => ({ ...prev, shotTakes: replaceTakeRows(prev.shotTakes, res.affectedShotIds, res.shotTakes) }));
+  };
+
+  const replaceShotTakes = useCallback(async (shotIds, rows) => {
+    const a = binsAdapter();
+    const res = await a.replaceShotTakes(activeProjectId, shotIds, rows);
+    applyTakeResponse(res);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const pushTakeHistory = (shotIds, before, after) => pushHistory({
+    undoOps: [() => mutationsRef.current.replaceShotTakes(shotIds, before)],
+    redoOps: [() => mutationsRef.current.replaceShotTakes(shotIds, after)],
+  });
+
+  // assignments: [{ shot_id, bin_file_id, role?, notes? }]
+  const assignShotTakes = useCallback(async (assignments) => {
+    const a = binsAdapter();
+    const list = (assignments || []).filter(x => x && x.shot_id && x.bin_file_id);
+    if (!list.length) return { created: [], skipped: [], affectedShotIds: [], shotTakes: [] };
+    const shotIds = [...new Set(list.map(x => x.shot_id))];
+    const before = snapshotTakes(shotIds);
+    const res = await a.assignShotTakes(activeProjectId, list);
+    applyTakeResponse(res);
+    if (res?.created?.length) pushTakeHistory(shotIds, before, res.shotTakes || []);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  // patch: { role?, notes?, position? }
+  const updateShotTake = useCallback(async (id, patch) => {
+    const a = binsAdapter();
+    const row = (bundleRef.current.shotTakes || []).find(t => t.id === id);
+    const shotIds = row ? [row.shot_id] : [];
+    const before = snapshotTakes(shotIds);
+    const res = await a.updateShotTake(activeProjectId, id, patch);
+    applyTakeResponse(res);
+    const affected = res?.affectedShotIds || shotIds;
+    if (affected.length) pushTakeHistory(affected, before, res.shotTakes || []);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const removeShotTakes = useCallback(async (ids, { quiet = false } = {}) => {
+    const a = binsAdapter();
+    const set = new Set(ids || []);
+    const rows = (bundleRef.current.shotTakes || []).filter(t => set.has(t.id));
+    if (!rows.length) return { removed: [], affectedShotIds: [], shotTakes: [] };
+    const shotIds = [...new Set(rows.map(t => t.shot_id))];
+    const before = snapshotTakes(shotIds);
+    const res = await optimistic(
+      prev => ({ ...prev, shotTakes: (prev.shotTakes || []).filter(t => !set.has(t.id)) }),
+      () => a.removeShotTakes(activeProjectId, [...set]),
+    );
+    applyTakeResponse(res);
+    const removed = res?.removed || [];
+    if (removed.length) {
+      const token = pushTakeHistory(res.affectedShotIds || shotIds, before, res.shotTakes || []);
+      if (token != null && !quiet) {
+        const shot = bundleRef.current.shots.find(s => s.id === shotIds[0]);
+        const where = shotIds.length === 1 && shot ? ` from "${shot.name || 'Untitled shot'}"` : '';
+        showUndoToast(removed.length === 1 ? `Unassigned 1 take${where}` : `Unassigned ${removed.length} takes${where}`, () => undoHistoryEntry(token));
+      }
+    }
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  const reorderShotTakes = useCallback(async (shotId, ids) => {
+    const a = binsAdapter();
+    const before = snapshotTakes([shotId]);
+    const pos = new Map((ids || []).map((id, i) => [id, i]));
+    const res = await optimistic(
+      prev => ({ ...prev, shotTakes: (prev.shotTakes || []).map(t => pos.has(t.id) ? { ...t, position: pos.get(t.id) } : t) }),
+      () => a.reorderShotTakes(activeProjectId, shotId, ids),
+    );
+    applyTakeResponse(res);
+    pushTakeHistory([shotId], before, res?.shotTakes || []);
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId]);
 
   // ── Ingestion runs ──────────────────────────────────────
   // The actual chunked pipeline lives in intake/pipeline.js (Commit 10).
@@ -3217,6 +3315,8 @@ export function RabbitProvider({ children }) {
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
     binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
+    // Shot takes (milestone 2).
+    assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
@@ -3262,6 +3362,7 @@ export function RabbitProvider({ children }) {
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
     binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
+    assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
     addLevel, updateLevel, deleteLevel,

@@ -234,7 +234,16 @@ import { googleDriveAdapter } from './googleDriveAdapter';
 //   binRelinkScan(projectId, folderPath?) → { offline, candidates, truncated } ; binRelinkApply(projectId, mappings)
 //   addBinRoot(projectId, path, label) / removeBinRoot(projectId, id)
 //
-// Milestone 2 (shot takes) adds listShotTakes / setShotTakes to this block.
+// Shot takes (milestone 2): bin files assigned to shots, many-to-many, ordered,
+// with a role (primary | part | alt) and notes; `bundle.shotTakes`. Every
+// mutation answers { affectedShotIds, shotTakes } — the full row set of the
+// shots it touched — because siblings are re-roled and renumbered.
+//   listShotTakes(projectId)                       → { shotTakes } (live rows only: shot and file both exist)
+//   assignShotTakes(projectId, [{ shot_id, bin_file_id, role?, notes? }]) → { created, skipped, … }
+//   updateShotTake(projectId, id, { role?, notes?, position? }) → { take, … }
+//   removeShotTakes(projectId, ids)                → { removed, … }
+//   reorderShotTakes(projectId, shotId, ids)
+//   replaceShotTakes(projectId, shotIds, rows)     (the undo primitive: those shots' rows become exactly `rows`)
 
 /** @type {Record<string, () => RabbitAdapter>} */
 const ADAPTERS = {

@@ -312,11 +312,13 @@ function mountRabbitBins(expressApp, deps) {
   }
   expressApp.use(`${P}/bins`, gate);
   expressApp.use(`${P}/bin-files`, gate);
+  expressApp.use(`${P}/shot-takes`, gate);
 
   function ensure(bundle) {
     if (!bundle.bins) bundle.bins = [];
     if (!bundle.binFiles) bundle.binFiles = [];
     if (!bundle.binRoots) bundle.binRoots = [];
+    if (!bundle.shotTakes) bundle.shotTakes = [];
     return bundle;
   }
   function load(req, res) {
@@ -388,6 +390,7 @@ function mountRabbitBins(expressApp, deps) {
       bins: bundle.bins,
       binFiles: bundle.binFiles.map(withOnline),
       binRoots: bundle.binRoots,
+      shotTakes: liveTakes(bundle).slice().sort(byPosition),
       ffmpeg: ffmpeg.hasFfmpeg(),
     });
   });
@@ -1062,12 +1065,210 @@ function mountRabbitBins(expressApp, deps) {
     writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ binRoots: bundle.binRoots });
   });
+
+  // ── Shot takes (milestone 2) ──────────────────────────────────────────────
+  //
+  // Audrey (DEMO_BINS_BRIEF §5): "a single shot can have multiple takes, the
+  // shot item in the scenes table should be able to show which take/files are
+  // being used in the shot … some editors will also build a shot from multiple
+  // takes to make a reworked version of a shot, please make sure multiple
+  // files from a bin can be assigned to a single shot."
+  //
+  // A shot take (`bundle.shotTakes`, BINS_DESIGN §4.4) links one shot to one
+  // bin file, many-to-many both ways (§6 Q6: one take may serve several
+  // shots), ordered by `position`, with a `role`: `primary` — the take the
+  // shot is cut from, exactly one per shot that has any; `part` — one piece of
+  // a shot rebuilt from several takes; `alt` — a spare. `notes` is the
+  // editor's reason. Invariants, re-established by normalizeShotTakes after
+  // every write: unique on (shot_id, bin_file_id); positions 0..n-1 in list
+  // order; a shot with any take has exactly one primary.
+  //
+  // Orphans are FILTERED on read, never pruned. A shot deleted through the
+  // generic shots route (main.cjs, not this file) or a bin file removed above
+  // leaves its rows on disk, so an undo that restores the shot or the file
+  // brings its takes back with it. `liveTakes` is what every response carries.
+  //
+  // `replace` is the undo primitive: the provider snapshots the rows of the
+  // shots a mutation touches and hands them back verbatim to undo, so undo is
+  // exact whatever the mutation did to siblings (a promoted primary, shifted
+  // positions), instead of every mutation needing a hand-written inverse.
+  function liveTakes(bundle) {
+    const shots = new Set((bundle.shots || []).map(s => s.id));
+    const files = new Set(bundle.binFiles.map(f => f.id));
+    return bundle.shotTakes.filter(t => shots.has(t.shot_id) && files.has(t.bin_file_id));
+  }
+  function takesOf(bundle, shotIds) {
+    const set = new Set(shotIds);
+    return liveTakes(bundle).filter(t => set.has(t.shot_id)).sort(byPosition);
+  }
+  // `preferId`: the row that should be primary when several claim it (a take
+  // just promoted); otherwise the first claimant in list order, else the first
+  // take. A demoted claimant becomes `alt`, never `part`: parts are a thing
+  // the editor states, not something normalisation invents.
+  function normalizeShotTakes(bundle, shotId, preferId = null) {
+    const rows = takesOf(bundle, [shotId]);
+    if (!rows.length) return;
+    let primary = preferId ? rows.find(r => r.id === preferId && r.role === 'primary') : null;
+    if (!primary) primary = rows.find(r => r.role === 'primary') || rows[0];
+    rows.forEach((r, i) => {
+      const role = r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role);
+      if (r.position !== i || r.role !== role) { r.position = i; r.role = role; r.updated_at = now(); }
+    });
+  }
+  function takeResponse(bundle, shotIds, extra = {}) {
+    const affected = [...new Set(shotIds)];
+    return { ...extra, affectedShotIds: affected, shotTakes: takesOf(bundle, affected) };
+  }
+
+  expressApp.get(`${P}/shot-takes`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    res.json({ shotTakes: liveTakes(bundle).slice().sort(byPosition) });
+  });
+
+  // Assign: several files to one shot, one file to several shots, or any
+  // mix. The whole batch is validated before anything is written; a pair
+  // already assigned is reported as skipped, never duplicated. The first take
+  // a shot gets is its primary; later ones are `alt` unless a role is given;
+  // asking for `primary` demotes the current one.
+  expressApp.post(`${P}/shot-takes`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const list = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+    if (!list.length) return res.status(400).json({ error: 'assignments required' });
+    for (const a of list) {
+      if (!a || !(bundle.shots || []).some(s => s.id === a.shot_id)) return res.status(400).json({ error: `shot ${a?.shot_id} not found`, code: 'shot_not_found' });
+      if (!bundle.binFiles.some(f => f.id === a.bin_file_id)) return res.status(400).json({ error: `bin file ${a?.bin_file_id} not found`, code: 'file_not_found' });
+    }
+    const created = []; const skipped = []; const affected = [];
+    for (const a of list) {
+      const existing = liveTakes(bundle).find(t => t.shot_id === a.shot_id && t.bin_file_id === a.bin_file_id);
+      if (existing) { skipped.push({ shot_id: a.shot_id, bin_file_id: a.bin_file_id, reason: 'already_assigned', id: existing.id }); affected.push(a.shot_id); continue; }
+      const siblings = takesOf(bundle, [a.shot_id]);
+      const hasPrimary = siblings.some(t => t.role === 'primary');
+      let role = TAKE_ROLES.includes(a.role) ? a.role : null;
+      if (!hasPrimary) role = 'primary';
+      else if (!role) role = 'alt';
+      if (role === 'primary' && hasPrimary) for (const t of siblings) if (t.role === 'primary') { t.role = 'alt'; t.updated_at = now(); }
+      const row = rabbitTouch({
+        id: undefined, project_id: req.params.projectId, shot_id: a.shot_id, bin_file_id: a.bin_file_id,
+        role, position: siblings.length, notes: a.notes == null ? '' : String(a.notes),
+      });
+      bundle.shotTakes.push(row);
+      created.push(row); affected.push(a.shot_id);
+      normalizeShotTakes(bundle, a.shot_id, row.id);
+    }
+    if (created.length) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, affected, { created, skipped }));
+  });
+
+  // role / notes / position. Promoting a take to primary SWAPS roles with the
+  // current primary (a part stays a part, a spare stays a spare); demoting the
+  // primary hands the role to the next take in order; the only take of a shot
+  // stays primary whatever is asked. position moves the take within its shot.
+  expressApp.patch(`${P}/shot-takes/:id`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const take = liveTakes(bundle).find(t => t.id === req.params.id);
+    if (!take) return rabbitNotFound(res, 'shot-take');
+    const body = req.body || {};
+    if ('role' in body && !TAKE_ROLES.includes(body.role)) return res.status(400).json({ error: 'role must be primary, part or alt', code: 'bad_role' });
+    if ('position' in body && !Number.isFinite(Number(body.position))) return res.status(400).json({ error: 'position must be a number' });
+    if ('notes' in body) take.notes = body.notes == null ? '' : String(body.notes);
+    if ('role' in body && body.role !== take.role) {
+      const siblings = takesOf(bundle, [take.shot_id]);
+      if (body.role === 'primary') {
+        const old = siblings.find(t => t.role === 'primary' && t.id !== take.id);
+        if (old) { old.role = take.role; old.updated_at = now(); }
+        take.role = 'primary';
+      } else if (take.role === 'primary') {
+        const next = siblings.find(t => t.id !== take.id);
+        if (next) { next.role = 'primary'; next.updated_at = now(); take.role = body.role; }
+      } else take.role = body.role;
+    }
+    if ('position' in body) {
+      const others = takesOf(bundle, [take.shot_id]).filter(t => t.id !== take.id);
+      const idx = Math.max(0, Math.min(others.length, Math.floor(Number(body.position))));
+      others.splice(idx, 0, take);
+      others.forEach((t, i) => { t.position = i; });
+    }
+    take.updated_at = now();
+    normalizeShotTakes(bundle, take.shot_id, take.id);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, [take.shot_id], { take }));
+  });
+
+  // Unassign. Removing a shot's primary promotes the next take in order.
+  expressApp.post(`${P}/shot-takes/remove`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const ids = new Set(idsOf(req.body));
+    if (!ids.size) return res.status(400).json({ error: 'ids required' });
+    const removed = bundle.shotTakes.filter(t => ids.has(t.id));
+    if (!removed.length) return rabbitNotFound(res, 'shot-take');
+    bundle.shotTakes = bundle.shotTakes.filter(t => !ids.has(t.id));
+    const affected = [...new Set(removed.map(t => t.shot_id))];
+    for (const s of affected) normalizeShotTakes(bundle, s);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, affected, { removed }));
+  });
+
+  // The listed ids take the given order; takes of the shot not listed follow
+  // in the order they had. Roles are untouched.
+  expressApp.post(`${P}/shot-takes/reorder`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const shotId = req.body?.shot_id; const ids = idsOf(req.body);
+    if (!shotId || !ids.length) return res.status(400).json({ error: 'shot_id and ids required' });
+    if (!(bundle.shots || []).some(s => s.id === shotId)) return res.status(400).json({ error: 'shot not found', code: 'shot_not_found' });
+    const rows = takesOf(bundle, [shotId]);
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    const listed = rows.filter(r => pos.has(r.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id));
+    const rest = rows.filter(r => !pos.has(r.id));
+    [...listed, ...rest].forEach((r, i) => { if (r.position !== i) { r.position = i; r.updated_at = now(); } });
+    normalizeShotTakes(bundle, shotId);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, [shotId]));
+  });
+
+  // The undo primitive: for the given shots, every current row (live or
+  // orphaned) is dropped and `rows` are put in their place verbatim — ids
+  // kept, so a redo finds the same rows. Rows for other shots, for files that
+  // no longer exist, or duplicating a pair are ignored; an id already in use
+  // by another shot's row gets a fresh one.
+  expressApp.post(`${P}/shot-takes/replace`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const shotIds = Array.isArray(req.body?.shotIds) ? req.body.shotIds.map(String) : [];
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!shotIds.length) return res.status(400).json({ error: 'shotIds required' });
+    const shotSet = new Set(shotIds);
+    for (const id of shotSet) if (!(bundle.shots || []).some(s => s.id === id)) return res.status(400).json({ error: `shot ${id} not found`, code: 'shot_not_found' });
+    const remaining = bundle.shotTakes.filter(t => !shotSet.has(t.shot_id));
+    const usedIds = new Set(remaining.map(t => t.id));
+    const seen = new Set(); const clean = [];
+    for (const r of rows) {
+      if (!r || typeof r !== 'object' || !shotSet.has(r.shot_id)) continue;
+      if (!bundle.binFiles.some(f => f.id === r.bin_file_id)) continue;
+      const key = `${r.shot_id}|${r.bin_file_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const id = r.id && !usedIds.has(r.id) ? String(r.id) : undefined;
+      const row = rabbitTouch({
+        ...r, id, project_id: req.params.projectId, shot_id: r.shot_id, bin_file_id: r.bin_file_id,
+        role: TAKE_ROLES.includes(r.role) ? r.role : 'alt', position: Number(r.position) || 0, notes: r.notes == null ? '' : String(r.notes),
+      });
+      usedIds.add(row.id);
+      clean.push(row);
+    }
+    bundle.shotTakes = remaining.concat(clean);
+    for (const s of shotSet) normalizeShotTakes(bundle, s);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, shotIds));
+  });
 }
+
+const TAKE_ROLES = ['primary', 'part', 'alt'];
+const byPosition = (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || ''));
 
 module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
   guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
-  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS,
+  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };
