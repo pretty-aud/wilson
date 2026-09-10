@@ -436,6 +436,14 @@ export default function BinsView() {
       setCurrentId(next)
     }
     const ids = [...selection]
+    // Undo / redo on the pane, the way TimelineView binds them: the provider's
+    // history holds every bins mutation.
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault()
+      if (e.shiftKey) ctx?.redo?.(); else ctx?.undo?.()
+      return
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); ctx?.redo?.(); return }
     switch (e.key) {
       case 'ArrowDown': return move(cols)
       case 'ArrowUp': return move(-cols)
@@ -454,7 +462,7 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [menu, addDlg, deleteDlg, relinkOpen, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds])
+  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds])
 
   // ── Drag and drop from the OS onto the files pane ──
   const onDragOverPane = (e) => {
