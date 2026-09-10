@@ -3373,6 +3373,16 @@ function startLocalServer(distPath) {
       res.sendFile(path.join(distPath, 'index.html'));
     });
 
+    // ── The bin system (demo 2026-09-11) — electron/rabbitBins.cjs ────────────
+    // Mounted with its helpers INJECTED: they are closures over this server
+    // (readRabbitBundle reconciles on read, generateVideoThumbOnce dedupes
+    // ffmpeg runs), so passing them is the alternative to copying them.
+    require('./rabbitBins.cjs').mountRabbitBins(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
+      getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
+      userAuthorizedDirs, dialog, getMainWindow: () => mainWindow,
+    });
+
     const server = expressApp.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       resolve({ server, port });
