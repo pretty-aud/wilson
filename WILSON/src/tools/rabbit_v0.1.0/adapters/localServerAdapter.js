@@ -597,8 +597,9 @@ export function localServerAdapter() {
     pickBinFolder: (projectId, title) => jfetch(`${BASE}/projects/${projectId}/bins/pick-folder`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
     }),
-    prepareBinFiles: (projectId, paths) => jfetch(`${BASE}/projects/${projectId}/bins/prepare`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }),
+    // opts.folderAsBin (default true): a picked folder becomes a nested bin named after itself.
+    prepareBinFiles: (projectId, paths, opts = {}) => jfetch(`${BASE}/projects/${projectId}/bins/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths, ...opts }),
     }),
     addBinFiles: (projectId, binId, items, createSubBins = true) =>
       jfetch(`${BASE}/projects/${projectId}/bins/${binId}/files`, {

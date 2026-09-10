@@ -6,8 +6,8 @@
 // store), so a route that mutates without writing is caught, exactly as it
 // would be on the desktop. Real files in a temp folder: a PNG made by sharp,
 // a numbered PNG sequence, and bytes standing in for a video and a WAV.
-// ffmpeg is absent in this process (resolveFfmpegPath looks only in
-// resources/ffmpeg/), so the ffmpeg arms answer with their NAMED states.
+// ffmpeg may or may not be present (resolveFfmpegPath looks only in
+// resources/ffmpeg/, gitignored); either way the ffmpeg arms answer NAMED states.
 //
 // Each route gets a happy path, a refusal and a missing-file case where those
 // exist (DEMO_BINS_BRIEF.md §4.4).
@@ -22,6 +22,10 @@ import express from 'express'
 
 const require = createRequire(import.meta.url)
 const { mountRabbitBins } = require('../../../../electron/rabbitBins.cjs')
+// resources/ffmpeg/ffmpeg.exe is gitignored: absent on CI and in a fresh
+// worktree, present on a machine set up for the desktop app. Both states are
+// legitimate and both are asserted — the NAMED state differs, not the shape.
+const FFMPEG = require('../../../../electron/ffmpeg.cjs').hasFfmpeg()
 
 // ── the fakes ────────────────────────────────────────────────────────────────
 const store = new Map()
@@ -192,10 +196,15 @@ describe('pick, prepare, add', () => {
     expect(byName['clip.mp4']).toMatchObject({ media_type: 'video', mime_type: 'video/mp4', size_bytes: 2048 })
     expect(byName['12A_3_T4_A.mov'].suggestions).toMatchObject({ slate: '12A', take_number: 4, camera: 'A' })
     expect(byName['A001C001_240612_R1AB.mov'].suggestions).toMatchObject({ camera: 'A', roll: 'A001', shoot_day: '2024-06-12' })
-    expect(byName['ref.png'].sub_bin).toBe('stills')
+    expect(byName['ref.png'].sub_bin).toBe('Day01/stills')
+    expect(byName['12A_3_T4_A.mov'].sub_bin).toBe('Day01')
+    expect(byName['plate_seq'].sub_bin).toBe('Day01')
     expect(byName['plate_seq']).toMatchObject({ kind: 'sequence', media_type: 'sequence', sequence: { pattern: 'plate.####.png', frame_count: 5 } })
     expect(byName['ghost.mov'].status).toBe('missing')
-    expect(plan.folders).toEqual([{ path: path.join(media(), 'Day01'), name: 'Day01' }])
+    expect(plan.folders).toEqual([{ path: path.join(media(), 'Day01'), name: 'Day01', sub_bin: 'Day01' }])
+    const flat = await (await api('/bins/prepare', J({ paths: [path.join(media(), 'Day01')], folderAsBin: false }))).json()
+    expect(flat.items.find(i => i.original_name === 'ref.png').sub_bin).toBe('stills')
+    expect(flat.items.find(i => i.original_name === '12A_3_T4_A.mov').sub_bin).toBeNull()
     expect(plan.truncated).toBe(false)
   })
   it('prepare refuses relative paths and empty input', async () => {
@@ -213,11 +222,15 @@ describe('pick, prepare, add', () => {
     const hero = added.created.find(f => f.original_name === '12A_3_T4_A.mov')
     expect(hero).toMatchObject({ display_name: 'Sc 12A T4', slate: '12A', take_number: 4, camera: 'A', tags: ['hero'], review_flag: 'unflagged', circled: false, probe_status: 'pending', online: true, media_type: 'video' })
     const ref = added.created.find(f => f.original_name === 'ref.png')
-    expect(added.bins.map(b => b.name)).toEqual(['stills'])
-    expect(ref.bin_id).toBe(added.bins[0].id)
-    expect(added.bins[0].parent_bin_id).toBe(dailies.id)
+    // The dropped folder itself becomes a nested bin, its subfolder inside it.
+    expect(added.bins.map(b => b.name)).toEqual(['Day01', 'stills'])
+    const dayBin = added.bins[0]; const stillsBin = added.bins[1]
+    expect(dayBin.parent_bin_id).toBe(dailies.id)
+    expect(stillsBin.parent_bin_id).toBe(dayBin.id)
+    expect(ref.bin_id).toBe(stillsBin.id)
+    expect(hero.bin_id).toBe(dayBin.id)
     const seq = added.created.find(f => f.is_sequence)
-    expect(seq).toMatchObject({ media_type: 'sequence', frame_count: 5, sequence_pattern: 'plate.####.png', bin_id: dailies.id })
+    expect(seq).toMatchObject({ media_type: 'sequence', frame_count: 5, sequence_pattern: 'plate.####.png', bin_id: dayBin.id })
     const roots = (await (await api('/bins')).json()).binRoots
     expect(roots.length).toBeGreaterThan(0)
     expect(roots.some(x => path.resolve(x.path) === path.resolve(media()))).toBe(true)
@@ -288,9 +301,9 @@ describe('probe', () => {
     const r = await (await api(`/bin-files/${seq.id}/probe`, J({}))).json()
     expect(r).toMatchObject({ frame_count: 5, fps: 25, duration_sec: 0.2, width: 8, height: 8, probe_status: 'done' })
   })
-  it('a video without ffmpeg is "unavailable", not an error', async () => {
+  it('a video that cannot be probed is a named state, never an error', async () => {
     const r = await (await api(`/bin-files/${find('clip.mp4').id}/probe`, J({}))).json()
-    expect(r.probe_status).toBe('unavailable')
+    expect(r.probe_status).toBe(FFMPEG ? 'failed' : 'unavailable')
   })
   it('a missing file is 410 offline; an unknown id is 404', async () => {
     const ghostRow = await (await api(`/bin-files/restore`, J({ rows: [{ id: 'ghost-row', bin_id: dailies.id, source_path: path.join(media(), 'gone.mp4'), original_name: 'gone.mp4', extension: '.mp4', media_type: 'video', is_sequence: false }] }))).json()
@@ -317,9 +330,12 @@ describe('thumbnail', () => {
     const r = await api(`/bin-files/${seq.id}/thumbnail`)
     expect(r.status).toBe(200)
   })
-  it('video without ffmpeg is 415 ffmpeg_missing; audio is 415 unsupported_type', async () => {
+  it('an undecodable video is a named code; audio is 415 unsupported_type', async () => {
     const v = await api(`/bin-files/${find('clip.mp4').id}/thumbnail`)
-    expect(v.status).toBe(415)
+    // The stubbed generateVideoThumbOnce answers ffmpeg_missing; with a real
+    // binary present the route still reaches it and reports the stub's reason
+    // as a 422 (the bytes are not a video), without one it is 415.
+    expect(v.status).toBe(FFMPEG ? 422 : 415)
     expect((await v.json()).code).toBe('ffmpeg_missing')
     const a = await api(`/bin-files/${find('tone.wav').id}/thumbnail`)
     expect(a.status).toBe(415)
@@ -419,7 +435,10 @@ describe('relink', () => {
 describe('delete bin', () => {
   it('move mode moves the files of the bin and its children to the target', async () => {
     const before = (await (await api('/bins')).json())
-    const inTree = before.binFiles.filter(f => f.bin_id === dailies.id || before.bins.some(b => b.id === f.bin_id && b.parent_bin_id === dailies.id))
+    const subtree = new Set([dailies.id])
+    let grew = true
+    while (grew) { grew = false; for (const b of before.bins) if (b.parent_bin_id && subtree.has(b.parent_bin_id) && !subtree.has(b.id)) { subtree.add(b.id); grew = true } }
+    const inTree = before.binFiles.filter(f => subtree.has(f.bin_id))
     expect(inTree.length).toBeGreaterThan(0)
     const bad = await api(`/bins/${dailies.id}?mode=move&target=${childBin.id}`, { method: 'DELETE' })
     expect(bad.status).toBe(400)

@@ -12,7 +12,7 @@
 
 import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
-  Film, Gamepad2,
+  Film, Gamepad2, Clapperboard,
 } from 'lucide-react'
 
 export const RABBIT_VIEWS = [

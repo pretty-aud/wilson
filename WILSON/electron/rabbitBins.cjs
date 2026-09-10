@@ -531,29 +531,40 @@ function mountRabbitBins(expressApp, deps) {
     };
   }
 
+  // `folderAsBin` (default true): a dropped or picked FOLDER becomes a nested
+  // bin named after itself, with its own subfolders nested inside it —
+  // "Add folder Day01 to Footage" gives Footage / Day01 / stills. The view
+  // passes false when it has just created a bin named after that folder.
   expressApp.post(`${P}/bins/prepare`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const paths = Array.isArray(req.body?.paths) ? req.body.paths.filter(isAbs) : [];
     if (!paths.length) return res.status(400).json({ error: 'paths required (absolute)' });
+    const folderAsBin = req.body?.folderAsBin !== false;
     const items = []; const folders = []; let truncated = false;
     const seen = new Set();
     const push = (item) => { const k = pathKey(item.source_path); if (seen.has(k)) return; seen.add(k); items.push(item); };
+    const joinSub = (prefix, rel) => [prefix, rel].filter(Boolean).join('/') || null;
     for (const p of paths) {
       if (isFile(p)) { push(describeFile(bundle, p, path.basename(p), null)); continue; }
       if (!isDir(p)) { push({ kind: 'file', source_path: p, original_name: path.basename(p), status: 'missing' }); continue; }
       const seq = detectSequence(p);
       if (seq) { push(describeSequence(bundle, p, seq, null)); continue; }
-      folders.push({ path: p, name: path.basename(p) });
+      const prefix = folderAsBin ? path.basename(p) : null;
+      folders.push({ path: p, name: path.basename(p), sub_bin: prefix });
       const r = walkFolder(p, {
         maxEntries: 5000, maxDepth: 8,
         onDir: (abs, rel) => {
           const s = detectSequence(abs);
-          if (s) { push(describeSequence(bundle, abs, s, path.dirname(rel) === '.' ? null : path.dirname(rel).split(path.sep).join('/'))); return false; }
+          if (s) {
+            const parentRel = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
+            push(describeSequence(bundle, abs, s, joinSub(prefix, parentRel)));
+            return false;
+          }
           return true;
         },
         onFile: (abs, rel, name) => {
           const sub = rel.includes('/') ? rel.slice(0, rel.lastIndexOf('/')) : null;
-          push(describeFile(bundle, abs, name, sub));
+          push(describeFile(bundle, abs, name, joinSub(prefix, sub)));
         },
       });
       if (r.truncated) truncated = true;

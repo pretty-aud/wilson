@@ -2535,7 +2535,7 @@ export function RabbitProvider({ children }) {
 
   const pickBinFiles = useCallback(() => binsAdapter().pickBinFiles(activeProjectId), [binsAdapter, activeProjectId]);
   const pickBinFolder = useCallback((title) => binsAdapter().pickBinFolder(activeProjectId, title), [binsAdapter, activeProjectId]);
-  const prepareBinFiles = useCallback((paths) => binsAdapter().prepareBinFiles(activeProjectId, paths), [binsAdapter, activeProjectId]);
+  const prepareBinFiles = useCallback((paths, opts) => binsAdapter().prepareBinFiles(activeProjectId, paths, opts), [binsAdapter, activeProjectId]);
 
   const probeBinFile = useCallback(async (id) => {
     const a = binsAdapter();
@@ -3093,6 +3093,11 @@ export function RabbitProvider({ children }) {
     projectTeam:     bundle.projectTeam || [],
     scenes:          bundle.scenes || [],
     shots:           bundle.shots || [],
+    // The bin system (demo 2026-09-11).
+    bins:            bundle.bins || [],
+    binFiles:        bundle.binFiles || [],
+    binRoots:        bundle.binRoots || [],
+    shotTakes:       bundle.shotTakes || [],
     levels:          bundle.levels || [],
     experiences:     bundle.experiences || [],
     milestones:      bundle.milestones || [],

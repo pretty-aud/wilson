@@ -243,13 +243,21 @@ export default function BinsView() {
   const addPathsTo = useCallback(async (binId, paths) => {
     if (!paths?.length || !canWrite) return
     let bin = binsById.get(binId)
+    // A dropped folder becomes a nested bin named after itself — unless no bin
+    // is selected and the drop IS one folder, in which case that folder's name
+    // becomes the new bin and its files go straight in (no "Day01 / Day01").
+    let folderAsBin = true
     try {
       if (!bin) {
-        const name = paths.length === 1 ? String(paths[0]).split(/[\\/]/).filter(Boolean).pop() || 'New bin' : 'New bin'
+        const single = paths.length === 1 ? String(paths[0]) : null
+        const leaf = single ? (single.split(/[\\/]/).filter(Boolean).pop() || '') : ''
+        const looksLikeFile = /\.[A-Za-z0-9]{1,12}$/.test(leaf)
+        const name = single && leaf && !looksLikeFile ? leaf : 'New bin'
         bin = await ctx.addBin({ name, kind: 'footage' })
         setCurrentBinId(bin.id)
+        if (single && !looksLikeFile) folderAsBin = false
       }
-      const plan = await ctx.prepareBinFiles(paths)
+      const plan = await ctx.prepareBinFiles(paths, { folderAsBin })
       if (!plan?.items?.length) { say('Nothing to add: no files were found at what was dropped.', 'warn'); return }
       setAddDlg({ bin, plan })
     } catch (e) { say(e?.message || String(e), 'error') }
