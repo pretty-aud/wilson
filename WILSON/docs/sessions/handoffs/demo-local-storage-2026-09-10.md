@@ -99,9 +99,9 @@ forget / reset`. A second round was not run.
   of this session if `git log origin/feat/demo-2026-09-11` shows the commit
   above `862fbc8`; otherwise do it first.
 - **Audrey's signed-in run-through of walkthrough 18.** Nobody has yet seen
-  the Storage card in a signed-in session: my instance cannot sign in (no
-  credentials, by rule), and Audrey's sign-in on my test window was refused
-  by wilson-dev (see §6).
+  the Storage card in a signed-in session. Her sign-in on my staging-built
+  test window succeeded (§5, §6); she chose to move to the next session
+  before opening a folder there.
 - **Offline, signed in** (brief §3.3): not measured. Needs a session saved
   while online, then `set WILSON_DEV_OFFLINE=1 && npm run electron:dev`. Read
   `docs/walkthroughs/18_local_demo_folder.md` "The cable pulled" for the
@@ -145,10 +145,18 @@ forget / reset`. A second round was not run.
 - The whole shell is gated on `authed` (`App.jsx` `{authed && (`); a signed-
   out local mode needed a second gate — removed on Audrey's instruction.
 - **Sign-in on the desktop dev build goes to wilson-dev** (`.env.development`
-  and `.env.local` both point at `eqjzmnvkrakroyqxfsvw`, same anon key). The
-  resolver knows username `audrey` in workspace `petal` (email
-  `ad…@petalstudios.co`); GoTrue answered 400 invalid_credentials to her
-  password. That is the wilson-dev password, not the beta one.
+  and `.env.local` both point at `eqjzmnvkrakroyqxfsvw`, same anon key), and
+  there the username `audrey` in workspace `petal` is the
+  `admin@petalstudios.co` account — `docs/sessions/SESSION_22_prompt.md:79`:
+  "passwords are per-project: audrey resolves to admin@petalstudios.co on
+  dev but audrey@petalstudios.co on staging". GoTrue answered 400
+  invalid_credentials to her real password. **Resolved 2026-09-10:** build
+  the desktop app against staging — copy `.env.staging` from the canonical
+  checkout into `WILSON/` (gitignored), then
+  `npx vite build --mode staging && npx electron .` — and she signed in on
+  the first try. The walkthrough now says so. A test window built this way
+  saves HER session under its userData: use a scratch `WILSON_USER_DATA`
+  and delete it when the window closes.
 - The auto-mode classifier can go temporarily unavailable ("claude-sonnet-5
   is temporarily unavailable"); read-only tools keep working, Bash comes
   back after a minute.
@@ -163,8 +171,8 @@ forget / reset`. A second round was not run.
   adopt-existing is NOT built (start empty); **Q4** seed content placeholder;
   **Q5** recent-folder switching built; **Q6** which machine / OS.
 - Her decision recorded 2026-09-10: no sign-in-screen entry; login required.
-- The wilson-dev password (or a reset via "Forgot password?") so she can run
-  walkthrough 18 signed in, and report.
+- Her run of walkthrough 18, signed in on the **staging** build (sign-in
+  itself is confirmed working there, 2026-09-10 ~05:10), and the report.
 - Whether "Sign in shortly before going offline" is acceptable for Friday, or
   whether she wants a longer JWT expiry on wilson-dev (a Supabase auth
   setting, not code).

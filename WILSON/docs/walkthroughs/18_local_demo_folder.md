@@ -17,21 +17,22 @@ says what you should see; if you see something else, that is the report.
 
 ## Before you start
 
-1. **Run the desktop app, not the browser:**
+1. **Run the desktop app, built against staging** (measured 2026-09-10 —
+   the build that lets you sign in with your own account). From `WILSON\`:
 
    ```bash
-   npm run electron:dev
+   npx vite build --mode staging && npx electron .
    ```
 
-   `npm run dev` is the browser build — it has no local server and no folder
-   dialog, so Local Server mode cannot work there. `electron:dev` builds and
-   opens the window.
+   Not `npm run dev` (the browser build has no local server and no folder
+   dialog). Not `npm run electron:dev` either: that builds against
+   **wilson-dev**, where the username `audrey` belongs to the
+   `admin@petalstudios.co` account and your password is refused
+   (`docs/sessions/SESSION_22_prompt.md` line 79 records the same thing).
 
-2. **Sign in.** The desktop dev build talks to **wilson-dev**
-   (`eqjzmnvkrakroyqxfsvw`, from `.env.development`). Use the account that
-   exists there — username `audrey`, the `…@petalstudios.co` one. If the
-   password is refused, it is the wilson-dev password that is wrong, not the
-   app; "Forgot password?" on that screen resets it there.
+2. **Sign in** as usual: company, username `audrey`, your password, TOTP if
+   asked. Staging is only used for the sign-in and your account data; every
+   R.A.B.B.I.T. project in this walkthrough lives in the folder on your disk.
 
 3. **Make an empty folder** somewhere you can find in Explorer, for example
    `C:\Users\Audrey\Desktop\WILSON Demo`.
