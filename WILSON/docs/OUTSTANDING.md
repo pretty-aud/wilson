@@ -80,6 +80,40 @@ NO environment yet" is out of date.
 
 ## Broken features
 
+### O.T.T.E.R. software routes join a route parameter onto `getSoftwareDir()` raw
+**INFERRED from code reading (adversarial review round 2 of the local demo
+folder, 2026-09-10); not yet measured.** The same shape that round measured
+on the R.A.B.B.I.T. per-id routes (fixed the same day with `dataFilePath`):
+`electron/main.cjs` joins `req.params.slug` / `req.params.sub` onto
+`getSoftwareDir()` in the O.T.T.E.R. software routes (the review named lines
+486, 492, 574–595, 600, 618–620, 642, 659, 695–700, 721–726, 762–768, 803–808
+and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so an
+unauthenticated local page can read, write or unlink outside
+`userData/otter-data` — up to and including an open demo folder. Fix shape:
+the same `dataFileOrThrow` the R.A.B.B.I.T. routes use, one line per helper.
+Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
+Q2); settle it by copying the routes into a scratch express app the way the
+review's `repro-express.cjs` did.
+
+### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
+**INFERRED from code reading (2026-09-10), not yet seen failing — the
+measurement needs a session saved on a staging build and a relaunch with
+`WILSON_DEV_OFFLINE=1`.** `checkSessionValid()` (App.jsx) restores the saved
+session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
+`@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
+(GET `/auth/v1/user`) for a token that has NOT expired
+(`dist/main/GoTrueClient.js` line 2815); an unreachable auth server turns that
+into an error, `hydrateSupabase` returns null, and the boot lands on the
+sign-in screen with no way through. The demo script's step 6 ("close and
+relaunch … pull the cable at any point") therefore holds only when the
+relaunch happens online; walkthrough 18 "The cable pulled" says so. Fix
+shape (a policy decision, asked in the local-storage hand-off): in
+`hydrateSupabase`, when the saved token is unexpired and `setSession` fails
+with a retryable fetch error, return the saved session so the shell opens
+offline; cloud calls then fail honestly and the Storage card follows
+solo-user rules until the next online launch. Owner: the local-storage
+session (`demo/local-storage`).
+
 ### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
 **REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
 read from the code, not yet measured in a browser.** `MfaEnrollGate` renders

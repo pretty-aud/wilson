@@ -44,6 +44,9 @@ import { AgentProvider, useAgent } from './agent'
 import { otterFetch } from './tools/otter_v0.3.1/adapters'
 import { retrieveOtterKnowledge, clearPetKnowledgeCache } from './tools/otter_v0.3.1/petKnowledge'
 import { withTimeout } from './cloud/auth/withTimeout'
+// The line above is pinned VERBATIM by src/tools/otter_v0.3.1/petKnowledgeWiring.test.js
+// (a tree this sprint does not edit), so the boot ceiling's constant rides its own import.
+import { AUTH_TIMEOUT_MS } from './cloud/auth/withTimeout'
 import { RabbitProvider } from './tools/rabbit_v0.1.0/state/RabbitProvider'
 import UndoToast from './tools/rabbit_v0.1.0/components/UndoToast'
 
@@ -146,9 +149,20 @@ async function checkSessionValid() {
   try {
     const saved = await loadSession();
     if (!saved) return null;
-    const session = await hydrateSupabase(saved);
+    // Demo sprint (2026-09-10): BOUNDED. hydrateSupabase → setSession refreshes
+    // an expired token over the network with no ceiling of its own, and NOTHING
+    // renders until this returns (`showOverlay && sessionChecked` gates the
+    // sign-in screen, `authed` the shell): Audrey's all-orange window on
+    // 2026-09-10 was a 2026-09-07 session and a stalled refresh. The same
+    // ceiling as every await in LoginScreen; a timeout is "no session", so the
+    // sign-in screen appears within it. The request is left to settle
+    // (withTimeout races, never aborts) — a late success is harmless.
+    const session = await withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore');
     return session ?? null;
-  } catch { return null; }
+  } catch (err) {
+    console.warn('[wilson] session restore skipped:', err?.message ?? err);
+    return null;
+  }
 }
 
 const EASE = 'cubic-bezier(0.4,0,0.2,1)';

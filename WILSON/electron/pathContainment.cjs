@@ -98,7 +98,22 @@ function makeContainment(pathImpl) {
     return { ok: true, resolved };
   }
 
-  return { resolveContainedFilePath, isPathInside, checkFolderRootShape };
+  // Demo sprint (2026-09-10, review round 2, H1/H2): the "id → file under
+  // this data directory" rule for the per-id JSON documents (rate cards,
+  // team members, task templates) and the thumbnail cache — everywhere a
+  // client-chosen id used to be joined RAW onto getRabbitDataDir(). Express 5
+  // decodes route params, so `..%2F..%2Fx` arrives as `../../x`, and a
+  // `.json` or `.jpg` suffix is not a containment check: join strips the
+  // `..` before the suffix is ever seen. The id must be ONE plain segment
+  // (never empty, `.` or `..`; no separator, colon or NUL) AND the joined
+  // path must stay inside the base. Returns the absolute path, or null.
+  function dataFilePath(baseDir, id, ext = '') {
+    const seg = String(id ?? '');
+    if (!seg || seg === '.' || seg === '..' || /[\\/:\0]/.test(seg)) return null;
+    return resolveContainedFilePath(baseDir, `${seg}${ext}`);
+  }
+
+  return { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath };
 }
 
 const platform = makeContainment(path);
@@ -108,4 +123,5 @@ module.exports = {
   resolveContainedFilePath: platform.resolveContainedFilePath,
   isPathInside: platform.isPathInside,
   checkFolderRootShape: platform.checkFolderRootShape,
+  dataFilePath: platform.dataFilePath,
 };

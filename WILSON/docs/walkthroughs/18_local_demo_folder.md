@@ -57,7 +57,7 @@ says what you should see; if you see something else, that is the report.
 | 12 | Rename the folder back → **Locate it…** → pick it | Reload. `Friday Demo` is back; the folder was **adopted**, not reinitialised (the project is intact). |
 | 13 | Copy the whole folder to another computer (or move it here and rename the original) → **Change folder…** → pick the copy | Reload. Same projects, same files; each project's folder now resolves under the copy. (A project remembers an absolute folder path; while a demo folder is open, a remembered path that **no longer exists** is rebased to `<folder>\projects\<slug>` on read, and the move is written to the project's audit stream. A copy made on the **same** machine while the original still exists keeps pointing at the original's files — deliberate: a pointer to real files is never overwritten.) |
 | 14 | Settings → Storage → **Create demo project** (second row of buttons on the card) | A green line: *Created "Friday Demo" with 2 scenes and 5 shots. Open it from PROJECTS.* PROJECTS lists **Friday Demo**; opening it in R.A.B.B.I.T. shows the **Scenes** tab (scenes and shots are on) with SC01 (three shots) and SC02 (two shots). In Explorer, `projects\Friday-Demo\SCENES\` and `SHOTS\` have a folder per scene and shot. The names are placeholders until you answer question 4. |
-| 15 | Settings → Storage → **Reset demo folder…** | A confirmation that names the folder and exactly what goes: `<folder>\projects` and `<folder>\.wilson\rabbit-data`, *"Nothing outside this folder is touched, and the folder stays open."* Confirm → reload → PROJECTS is empty, the folder is still open, `wilson-demo.json` is still there (now with `last_reset_at`), and any file you had put beside them survives. If the folder already had a `projects\` of its own before WILSON opened it (step 10's "use it anyway" case), Reset **refuses** with a red sentence and deletes nothing — empty that folder by hand first. |
+| 15 | Settings → Storage → **Reset demo folder…** | A confirmation that names the folder and exactly what goes: `<folder>\projects` and `<folder>\.wilson\rabbit-data`, *"Nothing outside this folder is touched, and the folder stays open."* Confirm → reload → PROJECTS is empty, the folder is still open, `wilson-demo.json` is still there (now with `last_reset_at`), and any file you had put beside them survives. If the folder already had a `projects\` or a `.wilson\rabbit-data\` of its own before WILSON opened it (step 10's "use it anyway" case), Reset **refuses** with a red sentence and deletes nothing — empty those by hand first. |
 | 15a | While the folder is missing (step 11) open PROJECTS | The list is empty and Settings → Storage → *Storage Backend* shows **Offline — the demo folder is not available: <path> — open Settings → Storage to locate it, forget it, or close it**. WILSON refuses to read or write R.A.B.B.I.T. data until you do one of the three; it never quietly uses app data instead. |
 | 16 | Settings → Storage → **Close folder** → confirm | Reload. The card is back to the grey-dot state; Projects shows whatever lives in app data (an old Local Server install's projects, or nothing). The folder on disk is untouched — closing never deletes. |
 
@@ -71,21 +71,43 @@ working from the folder — the local server is an in-app Express server on
 Anything that needs the cloud (AI, the pet's account sync, the Admin
 Terminal, cloud storage) reports unavailable rather than hanging.
 
-**The one limit, stated plainly:** the saved sign-in is a token that expires
-after about an hour and can only be renewed online. If the app is launched
-offline more than an hour after the last online session, it shows the sign-in
-screen and cannot get past it. So on the demo machine: sign in shortly before
-going offline, and do not close the app between then and the demo.
+**The one limit, stated plainly (corrected 2026-09-10):** a LAUNCH needs the
+auth server, however fresh the saved sign-in is. Restoring a saved session asks
+Supabase to confirm the account first (`@supabase/auth-js` 2.101.1,
+`GoTrueClient._setSession`: the `_getUser` request it makes for a token that
+has *not* expired), and offline that request fails, so the app shows the
+sign-in screen and cannot get past it — a minute after signing in as much as
+a day after. Once the app is OPEN the session lives in memory: R.A.B.B.I.T.
+keeps working from the folder, and after about an hour (when the token can no
+longer be renewed) only the cloud features — AI, account sync, the Admin
+Terminal — report unavailable. So on the demo machine: **sign in while
+online, then pull the cable, and do not close the app** between then and the
+demo. If the app has to be relaunched, reconnect first, launch, sign in, then
+disconnect again. (An offline-tolerant launch — open the shell on a saved,
+unexpired sign-in when the auth server cannot be reached — is a small change
+to `hydrateSupabase` in `src/cloud/auth/supabaseClient.js`; it is a policy
+decision, asked in the hand-off, not built.)
 
-To rehearse without unplugging anything (dev builds only):
+To rehearse without unplugging anything (dev builds only), from `WILSON\` in
+PowerShell:
 
-```bash
-set WILSON_DEV_OFFLINE=1 && npm run electron:dev
+```powershell
+npx vite build --mode staging; $env:WILSON_DEV_OFFLINE = '1'; npx electron .
 ```
 
 Every request that is not to the app's own local server is cancelled before
 it leaves the window. The terminal shows
 `[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled`.
+`Remove-Item Env:\WILSON_DEV_OFFLINE` turns it off again. (In cmd.exe the
+form is `set WILSON_DEV_OFFLINE=1&& npx electron .` with NO space before the
+`&&` — with the space the value becomes `1 ` and the switch does nothing.)
+
+The worse cable, a network that answers nothing: `$env:WILSON_DEV_OFFLINE =
+'stall'` leaves every cloud request pending for ever. With a saved sign-in
+this used to be an all-orange window — the session restore waited on a token
+refresh that never returned, measured on your own app on 2026-09-10 — and it
+is now bounded by the same 15-second ceiling as the sign-in screen's own
+steps, so the sign-in screen appears within it either way.
 
 ---
 
@@ -120,3 +142,6 @@ it leaves the window. The terminal shows
   local projects" action is on the list if you want it — question 3.)
 - The pet you see while working locally is this machine's own pet, saved in
   app data.
+- **A folder that disappears while WILSON is open** (drive unplugged, folder
+  renamed) is reported as missing on the next action — the same red card as
+  step 11 — and nothing is recreated at the old path.

@@ -7,10 +7,10 @@ const { execFile } = require('child_process');
 const sharp = require('sharp');
 const { loadEnv } = require('./env.cjs');
 const { initMainSentry } = require('./sentry.cjs');
-const { resolveContainedFilePath, isPathInside, checkFolderRootShape } = require('./pathContainment.cjs');
+const { resolveContainedFilePath, isPathInside, checkFolderRootShape, dataFilePath } = require('./pathContainment.cjs');
 // Demo sprint (2026-09-10): the local demo folder — one user-chosen folder
 // that holds the whole signed-out demo. See localDemoRoot.cjs.
-const { makeLocalDemoRoot } = require('./localDemoRoot.cjs');
+const { makeLocalDemoRoot, checkDemoFolderShape, storedRootAllowed } = require('./localDemoRoot.cjs');
 // Session 40: the still-frame decoder for codecs a browser cannot read. Its
 // binary is optional and its absence is a first-class state, never a crash —
 // see electron/ffmpeg.cjs and resources/ffmpeg/README.md.
@@ -123,6 +123,12 @@ const userAuthorizedDirs = new Set();
 // consent for purpose B, the S14 scope rule. `local-demo:pick` records here
 // and only `local-demo:open` consults it.
 const demoAuthorizedDirs = new Set();
+// (review round 2, H2) Pictures the person picked THIS session through
+// rabbit:pick-image (lowercased resolved file paths). The thumbnail routes
+// open a bundle's thumbnail_image only if it is one of these or sits under a
+// folder the person chose — the renderer stores the path first and generates
+// the cache second, so the first <img> request can arrive between the two.
+const userAuthorizedImages = new Set();
 
 // Session 34: the workspace storage root (workspace_storage.root_path when
 // mode = 'byos'). Main has no Supabase client, so the signed-in renderer
@@ -159,7 +165,14 @@ function fileSlugify(str) {
 // ── Managed-files config ────────────────────────────────────
 // Stores { defaultRootDir: string|null } at rabbit-data/files-config.json.
 // Individual projects can override with their own folder_root.
-function getFilesConfigPath() { return path.join(getRabbitDataDir(), 'files-config.json'); }
+// (review round 2, M4) PER MACHINE, never under the demo folder: the file
+// travelled with a copied folder, and a shipped {"defaultRootDir":"C:\\Users"}
+// authorised relink anywhere it named. Same path as before this sprint.
+function getFilesConfigPath() {
+  const dir = path.join(app.getPath('userData'), 'rabbit-data');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return path.join(dir, 'files-config.json');
+}
 function readFilesConfig() { return readJSON(getFilesConfigPath(), { defaultRootDir: null }); }
 function writeFilesConfig(cfg) { writeJSON(getFilesConfigPath(), cfg); }
 
@@ -203,13 +216,16 @@ function resolveConfiguredRootDir() {
 // Cloud mode has the same rule in fn_project_folder_root_guard (0049) —
 // each layer refuses on its own (S34: refusals are enforced in depth).
 function folderRootRefusal(candidate) {
-  const shape = checkFolderRootShape(candidate);
-  if (!shape.ok) return { error: shape.error };
-  const resolved = shape.resolved;
   // Demo sprint (2026-09-10): inside an open local demo folder the folder IS
   // the boundary — the same rule as the workspace drive below: a project
-  // folder must sit strictly inside it.
+  // folder must sit strictly inside it. (review round 2, N8) Its shape check
+  // is the folder's own: checkFolderRootShape is Windows-only by design (a
+  // NAS root is a UNC or drive path) and refused every project folder on a
+  // Mac laptop, this arm and L8 included.
   const demoRoot = localDemoRootDir();
+  const shape = demoRoot ? checkDemoFolderShape(candidate) : checkFolderRootShape(candidate);
+  if (!shape.ok) return { error: shape.error };
+  const resolved = shape.resolved;
   if (demoRoot) {
     if (resolved.toLowerCase() === demoRoot.toLowerCase()) {
       return { error: 'the project folder cannot be the demo folder itself — pick a folder inside it' };
@@ -263,6 +279,35 @@ function getThumbCacheDir() {
   const dir = path.join(getRabbitDataDir(), 'thumbnails');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   return dir;
+}
+
+// (review round 2, H1/H2) The per-id files under getRabbitDataDir() — rate
+// cards, team members, task templates, the thumbnail cache — joined a
+// client-chosen id RAW; `..%2F` decodes to `../` and walked out of the
+// person's own folder (measured: an arbitrary .json written and unlinked
+// from a browser tab). Contained the way every path is; an id that would
+// leave its directory throws, and the server's tail answers 404.
+function dataFileOrThrow(baseDir, id, ext, what) {
+  const p = dataFilePath(baseDir, id, ext);
+  if (!p) { const err = new Error(`invalid ${what} id`); err.code = 'WILSON_PATH_ESCAPE'; throw err; }
+  return p;
+}
+function entityThumbKind(entityType) {
+  if (!['scene', 'shot', 'level', 'experience'].includes(entityType)) {
+    const err = new Error('invalid entity type'); err.code = 'WILSON_PATH_ESCAPE'; throw err;
+  }
+  return entityType;
+}
+
+// (review round 2, H3) Whether a bundle's stored folder_root (or files_dir)
+// may be RESOLVED: by real path, against the open demo folder — the rule is
+// storedRootAllowed in localDemoRoot.cjs; unchanged when no folder is open.
+function storedRootUsable(root) {
+  const demoRoot = localDemoRootDir();
+  if (!demoRoot) return true;
+  let real = null;
+  try { real = fs.realpathSync.native(root); } catch { real = null; }
+  return storedRootAllowed(demoRoot, real);
 }
 
 // Check if a file extension is an image we can thumbnail
@@ -1284,7 +1329,10 @@ function startLocalServer(distPath) {
 
     function resolveProjectFolder(bundle) {
       const root = bundle?.project?.folder_root;
-      if (root && fs.existsSync(root)) return root;
+      // (review round 2, H3) a stored root is followed only where the person
+      // could have chosen it — inside the open demo folder, or anywhere when
+      // none is open; a copied folder's bundle is somebody else's record.
+      if (root && fs.existsSync(root) && storedRootUsable(root)) return root;
       // Session 34: workspace root (byos) outranks the machine default.
       const rootBase = resolveConfiguredRootDir();
       if (!rootBase) return null;
@@ -1670,10 +1718,18 @@ function startLocalServer(distPath) {
       // moving the root to the database makes relink refuse folders inside
       // the configured root (the exact regression the design warned about).
       if (workspaceRootDir) roots.push(workspaceRootDir);
-      if (bundle.project?.files_dir) roots.push(bundle.project.files_dir);
+      const fd = bundle.project?.files_dir; if (fd && storedRootUsable(fd)) roots.push(fd);
       // isPathInside carries the same root-base rule as the containment
       // guard: a drive/share root must contain its own children (S33).
       return roots.some(root => isPathInside(root, resolved));
+    }
+    // (review round 2, H2) May a bundle's thumbnail_image be opened and
+    // transcoded? The picture the person picked this session, or one under
+    // a folder they chose — never any image on the machine a copied bundle
+    // or a drive-by POST happens to name.
+    function thumbnailSourceAllowed(bundle, projectId, srcPath) {
+      if (userAuthorizedImages.has(path.resolve(String(srcPath)).toLowerCase())) return true;
+      return isUserAuthorizedRelinkDir(bundle, projectId, srcPath);
     }
     // Local twin of the cloud file_events stream (migration 0027): the
     // audit drawer reads the same event vocabulary from bundle.fileEvents.
@@ -1988,7 +2044,7 @@ function startLocalServer(distPath) {
     // create/rename/soft-delete OS folders when assets change.
     function resolveProjectFolderRoot(bundle) {
       const projectRoot = bundle.project?.folder_root;
-      if (projectRoot && fs.existsSync(projectRoot)) return projectRoot;
+      if (projectRoot && fs.existsSync(projectRoot) && storedRootUsable(projectRoot)) return projectRoot; // (review 2, H3)
       // Session 34: workspace root (byos) outranks the machine default.
       const rootBase = resolveConfiguredRootDir();
       if (!rootBase) return null;
@@ -3170,8 +3226,9 @@ function startLocalServer(distPath) {
       if (!asset) return rabbitNotFound(res, 'asset');
       if (!asset.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
 
-      const thumbDir = getThumbCacheDir();
-      const thumbPath = path.join(thumbDir, `asset-${asset.id}.jpg`);
+      // (review round 2, H2) the id is client-written (the assets POST spreads
+      // req.body) and was joined raw onto the cache dir: contained now.
+      const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${asset.id}`, '.jpg', 'asset');
 
       // Serve cached version if it exists and source hasn't changed
       if (fs.existsSync(thumbPath)) {
@@ -3183,6 +3240,10 @@ function startLocalServer(distPath) {
       // Generate from source
       const srcPath = asset.thumbnail_image;
       if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
+      // (review round 2, H2) thumbnail_image is an absolute path the bundle
+      // carries — a copied folder's, or a drive-by POST's; only a picture
+      // under a folder the person chose is opened and transcoded.
+      if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
 
       try {
         await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -3206,8 +3267,7 @@ function startLocalServer(distPath) {
         if (!entity) return rabbitNotFound(res, singular);
         if (!entity.thumbnail_image) return res.status(404).json({ error: 'no thumbnail set' });
 
-        const thumbDir = getThumbCacheDir();
-        const thumbPath = path.join(thumbDir, `${singular}-${entity.id}.jpg`);
+        const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular); // (review 2, H2)
 
         if (fs.existsSync(thumbPath)) {
           res.setHeader('Content-Type', 'image/jpeg');
@@ -3217,6 +3277,7 @@ function startLocalServer(distPath) {
 
         const srcPath = entity.thumbnail_image;
         if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
+        if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
 
         try {
           await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -3334,7 +3395,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function rateCardPath(id) { return path.join(getRateCardsDir(), `${id}.json`); }
+    function rateCardPath(id) { return dataFileOrThrow(getRateCardsDir(), id, '.json', 'rate card'); } // (review 2, H1)
 
     expressApp.get('/api/rabbit/workspaces/:workspaceId/rate-cards', (req, res) => {
       const dir = getRateCardsDir();
@@ -3401,7 +3462,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function teamMemberPath(id) { return path.join(getTeamMembersDir(), `${id}.json`); }
+    function teamMemberPath(id) { return dataFileOrThrow(getTeamMembersDir(), id, '.json', 'team member'); } // (review 2, H1)
 
     expressApp.get('/api/rabbit/workspaces/:workspaceId/team-members', (req, res) => {
       const dir = getTeamMembersDir();
@@ -3435,7 +3496,7 @@ function startLocalServer(distPath) {
       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
       return dir;
     }
-    function taskTemplatePath(id) { return path.join(getTaskTemplatesDir(), `${id}.json`); }
+    function taskTemplatePath(id) { return dataFileOrThrow(getTaskTemplatesDir(), id, '.json', 'task template'); } // (review 2, H1)
 
     // List global templates for a workspace
     expressApp.get('/api/rabbit/workspaces/:workspaceId/task-templates', (req, res) => {
@@ -3524,6 +3585,14 @@ function startLocalServer(distPath) {
       res.sendFile(path.join(distPath, 'index.html'));
     });
 
+    // Demo sprint (2026-09-10, review round 2): an id that would leave its
+    // data directory throws from inside a route (dataFileOrThrow); answered
+    // as not-found, never as a stack trace. Registered LAST on purpose.
+    expressApp.use((err, req, res, next) => {
+      if (err && err.code === 'WILSON_PATH_ESCAPE') return rabbitNotFound(res, 'item');
+      next(err);
+    });
+
     const server = expressApp.listen(0, '127.0.0.1', () => {
       const port = server.address().port;
       resolve({ server, port });
@@ -3538,6 +3607,18 @@ function startLocalServer(distPath) {
 // ═══════════════════════════════════════════════════════════════════
 let mainWindow;
 let localServer;
+
+// Demo sprint (2026-09-10): the ONE definition of "is this request to this
+// app's own loopback server", for the two dev-only cables below. Parsed, not
+// pattern-matched (review round 1, N12): a userinfo trick
+// (`https://127.0.0.1:x@evil.example/`) passed the old regex.
+function isLoopbackRequestUrl(url) {
+  try {
+    const u = new URL(url);
+    return ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
+      || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
+  } catch { return false; }
+}
 
 async function createWindow() {
   const distPath = path.join(__dirname, '..', 'dist');
@@ -3573,17 +3654,20 @@ async function createWindow() {
   // builds.
   if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === '1') {
     mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-      // (review round 1, N12) parsed, not pattern-matched: a userinfo trick
-      // (`https://127.0.0.1:x@evil.example/`) passed the old regex.
-      let local = false;
-      try {
-        const u = new URL(details.url);
-        local = ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
-          || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
-      } catch { local = false; }
-      callback({ cancel: !local });
+      callback({ cancel: !isLoopbackRequestUrl(details.url) });
     });
     console.info('[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled');
+  }
+  // …and the WORSE cable: WILSON_DEV_OFFLINE=stall leaves every non-loopback
+  // request PENDING for ever (the callback is simply never called), which is
+  // what a stalled Supabase round trip looks like from the renderer — the
+  // all-orange boot Audrey saw on 2026-09-10 — so a boot ceiling can be
+  // measured rather than assumed. Ignored in packaged builds.
+  if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === 'stall') {
+    mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      if (isLoopbackRequestUrl(details.url)) callback({ cancel: false });
+    });
+    console.info('[wilson] WILSON_DEV_OFFLINE=stall — every non-loopback request is left pending');
   }
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
@@ -3766,6 +3850,11 @@ ipcMain.handle('local-demo:pick', async () => {
   // localDemoRootDir(), and a pick that is never confirmed authorises nothing
   // else (review round 1, M5).
   demoAuthorizedDirs.add(path.resolve(picked).toLowerCase());
+  // (review round 2, L7) …and its REAL path: open() reports, and the card
+  // re-opens, the folder by real path (M7), so a folder picked through a
+  // junction or symlink must be recognisable in that form too — or "use it
+  // anyway" dead-ends on "pick the folder through the app".
+  try { demoAuthorizedDirs.add(fs.realpathSync.native(picked).replace(/[\\/]+$/, '').toLowerCase()); } catch { /* the pick still counts by its given path */ }
   return { ...localDemo().open(picked, { allowForeign: false }), state: localDemoState() };
 });
 ipcMain.handle('local-demo:open', (_event, opts) => {
@@ -4029,6 +4118,8 @@ ipcMain.handle('rabbit:pick-image', async () => {
     ],
   });
   if (result.canceled || !result.filePaths.length) return null;
+  // (review round 2, H2) the pick IS the authorisation to open this picture
+  userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase());
   return result.filePaths[0];
 });
 
@@ -4038,15 +4129,14 @@ ipcMain.handle('rabbit:generate-asset-thumbnail', async (_event, { assetId, sour
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
-  const thumbDir = getThumbCacheDir();
-  const thumbPath = path.join(thumbDir, `asset-${assetId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
   await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
   return { ok: true, thumbPath };
 });
 
 // Clear a cached asset thumbnail
 ipcMain.handle('rabbit:clear-asset-thumbnail', (_event, { assetId }) => {
-  const thumbPath = path.join(getThumbCacheDir(), `asset-${assetId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `asset-${assetId}`, '.jpg', 'asset'); // (review 2, H2)
   if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
   return { ok: true };
 });
@@ -4056,14 +4146,13 @@ ipcMain.handle('rabbit:generate-entity-thumbnail', async (_event, { entityType, 
   if (!sourcePath || !fs.existsSync(sourcePath)) {
     throw new Error('source image does not exist');
   }
-  const thumbDir = getThumbCacheDir();
-  const thumbPath = path.join(thumbDir, `${entityType}-${entityId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
   await sharp(sourcePath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
   return { ok: true, thumbPath };
 });
 
 ipcMain.handle('rabbit:clear-entity-thumbnail', (_event, { entityType, entityId }) => {
-  const thumbPath = path.join(getThumbCacheDir(), `${entityType}-${entityId}.jpg`);
+  const thumbPath = dataFileOrThrow(getThumbCacheDir(), `${entityThumbKind(entityType)}-${entityId}`, '.jpg', 'entity'); // (review 2, H2)
   if (fs.existsSync(thumbPath)) try { fs.unlinkSync(thumbPath); } catch {}
   return { ok: true };
 });
