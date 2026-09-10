@@ -767,7 +767,8 @@ export default function StorageSection({ isActive, workspaceId }) {
                     This company&rsquo;s Petal storage is not active yet, so new
                     files are not being accepted. Everything already stored still
                     opens and downloads, and invoices, other finance files and
-                    the project manifest still save. Contact Petal to activate it.
+                    the project manifest still save if they are under 25 MB.
+                    Contact Petal to activate it.
                   </span>
                 </div>
               )}
@@ -777,7 +778,19 @@ export default function StorageSection({ isActive, workspaceId }) {
                   rabbit_quota_exempt_path — INVOICES/, FINANCE/ and
                   projects/<id>/PROJECT.json. So reads, downloads and deletes
                   are untouched, and the paperwork a company bills Petal with
-                  keeps saving. Promising a total lockout would send an admin
+                  keeps saving.
+                  🚨 "IF THEY ARE UNDER 25 MB" IS LOAD-BEARING AND IS NOT A
+                  HEDGE. Since 0078 the exemption is BOUNDED BY OBJECT SIZE at
+                  public.rabbit_quota_exempt_max_bytes() — 25 MiB — because a
+                  receipt landing under an INVOICES/ segment (bundle C4) was
+                  otherwise unrefusable at any size while its bytes still
+                  counted against the allowance. Over that bound a money file is
+                  weighed like ordinary media, so on a full or suspended company
+                  it IS refused. Saying it "still saves" without the bound would
+                  be the promise this banner exists not to make.
+                  ⚠️ The figure is duplicated from SQL, as "30 days" already is
+                  below. If Audrey moves the bound, it moves in
+                  rabbit_quota_exempt_max_bytes() and in these two sentences. Promising a total lockout would send an admin
                   hunting for a fault that is not there — and would be the
                   reason they never send the invoice that pays for the bigger
                   plan. */}
@@ -797,9 +810,9 @@ export default function StorageSection({ isActive, workspaceId }) {
                     This company has used all of its Petal storage, so new files
                     are not being accepted until the plan is raised. Everything
                     already stored still opens and downloads, and invoices, other
-                    finance files and the project manifest still save. Deleting
-                    files does not free space straight away — deleted files stay
-                    recoverable for 30 days.
+                    finance files and the project manifest still save if they
+                    are under 25 MB. Deleting files does not free space straight
+                    away — deleted files stay recoverable for 30 days.
                   </span>
                 </div>
               )}

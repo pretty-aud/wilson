@@ -2500,13 +2500,11 @@ are tiny — one invoice PDF per budget line — and `BudgetView`'s picker is
 hole (0037 gates `expenses`, so only money-cleared people reach it), but a
 billing one: a manager can burn a workspace's storage without limit and without
 refusal. **Bounding the exemption by object size is a 0055 change and a pricing
-decision.** ✅ **Audrey ruled on 2026-09-09: BOUND THE EXEMPTION BY SIZE** —
-not cap the picker, and not leave it. So a money path stays quota-exempt only
-below a threshold; above it the object is weighed like any other and can be
-refused. That is a new migration in the 0055 family with its own two review
-rounds and a probe pair (a small money file still exempt; an oversized one
-weighed), and it needs a migration number Track C does not currently hold —
-ask before taking one. It does not block the C1–C4 merge.
+decision.** ✅ **FIXED by migration 0078 on 2026-09-09**, on Audrey's ruling
+of that day: BOUND THE EXEMPTION BY SIZE — not cap the picker, and not leave
+it. A money path stays quota-exempt only below a threshold; above it the object
+is weighed like any other and can be refused. **See §12.10**, which also
+records the enforcement site this paragraph did not know about.
 
 **Why this was a bug and not a gap.** `public.expenses` is one of the five
 tables 0037 gates on `can_access_project_money()`, so only a workspace admin or
@@ -2599,6 +2597,102 @@ re-lists through the adapter and hands back a blob URL, the twin of
 `InvoiceAttachment.handleOpen`. A money file's only surface is the record it
 hangs off — that is the design, and it is now true of receipts as well as
 invoices.
+
+### 12.10 The quota exemption is bounded by size (Track C, migration 0078)
+
+Audrey's ruling, 2026-09-09, on the consequence §12.9 describes: **bound the
+exemption by size**, rather than cap `BudgetView`'s picker. Migration **0078**
+is that bound. Migration number taken with her explicit permission the same day
+— the ledger had assigned 0078 onward to Track D, which has not started; Track
+D now begins at 0079.
+
+**The bound is one function.** `public.rabbit_quota_exempt_max_bytes()` returns
+**26214400** (25 MiB), mirroring how `storage_free_tier_bytes()` (0055) is the
+one definition of the free tier rather than a literal repeated at each site.
+Raising or lowering the bound is a change to that function and nothing else.
+It was chosen against the real populations: `PROJECT.json` measured 2,959 bytes
+on staging, `FINANCE/RATES.json` is kilobytes, an invoice PDF is single-digit
+MB and a phone photograph of a receipt is 2–12 MB. Against what it refuses,
+the `rabbit-files` per-object ceiling is **53687091200 — 50 GiB** (measured on
+dev), so for exempt paths the effective ceiling drops by a factor of 2048.
+
+🚨 **THE EXEMPTION HAS TWO ENFORCEMENT SITES, AND §12.9 NAMED ONE.** This
+was found while building 0078, not while planning it:
+
+1. **`petal_storage_quota_insert`** (0055) — the RESTRICTIVE INSERT policy on
+   `storage.objects`. Arm 2 is now
+   `public.rabbit_quota_exempt_object(name, metadata)`.
+2. **`public.reserve_upload_bytes`** (0073, bundle C1) — which returned NULL
+   early for an exempt path, so nothing was reserved and nothing weighed. It
+   now tests `public.rabbit_quota_exempt_bytes(p_path, p_bytes)`.
+
+Site 2 is the one the client calls, from `supabaseProvider.js`, **before any
+byte moves**. Bounding only site 1 would let a 5 GB receipt reserve nothing,
+upload for ten minutes and be refused at commit — the exact failure bundle C1
+was built to remove. pgTAP suite 77 probe 55 is what catches that: with the
+policy bounded and the reservation left unbounded, it is the only probe that
+goes red (measured as breaker B3).
+
+**The predicate, and why it is shaped this way.** `rabbit_quota_exempt_path`
+(0055) is **unchanged** and is delegated to; it remains the one path
+classifier, and suite 65's probes 13–17 on it stay green. The size axis is a
+second, separately auditable predicate composed over it:
+
+```
+rabbit_quota_exempt_bytes(name, bytes)  = rabbit_quota_exempt_path(name)
+                                          AND COALESCE(bytes, 0) <= rabbit_quota_exempt_max_bytes()
+rabbit_quota_exempt_object(name, md)    = rabbit_quota_exempt_bytes(name, rabbit_object_incoming_bytes(md))
+```
+
+🚨 **`COALESCE(bytes, 0)` IS LOAD-BEARING: AN UNKNOWN SIZE KEEPS THE
+EXEMPTION.** This is the opposite of the intuitive polarity and it is what
+keeps 0055's other two reasons intact — the `FINANCE/RATES.json` mirror and
+the `PROJECT.json` manifest are rewritten on every rates or project change, and
+neither is about size. A bare comparison yields NULL when metadata carries no
+size, and **under a RESTRICTIVE policy a NULL DENIES**, so every such write
+would fail with a symptom indistinguishable from the bound working. Suite 77
+probe 62 is the probe that goes red if someone "tidies" the COALESCE away
+(measured as breaker B2).
+
+Failing open on an unknown size is safe because authorisation happens twice
+(0057): the tus permission phase carries `contentLength`, which a client could
+suppress, but `completeUpload` writes the row with metadata **authored by
+storage-api** including a true `size`. So a forged first phase buys only that
+the bytes move before the refusal — not a bypass. `rabbit_object_incoming_bytes`
+reads both keys, so the bound applies at both phases; suite 77 probe 61 pins
+the `contentLength` arm.
+
+**What this deliberately does NOT do**, stated so it is not rediscovered as a
+defect:
+
+- An oversized money file is **not rejected outright**. It loses the
+  EXEMPTION and becomes subject to the ordinary quota, so it still uploads
+  whenever the company has room. "Bounded" is not "capped"; that is the
+  difference Audrey chose.
+- A money file **under** the bound still consumes the allowance without being
+  refusable, because `workspace_petal_committed_bytes` counts it and gains no
+  exemption here. The asymmetry is deliberate and is now bounded at 25 MiB per
+  object instead of unbounded. Exempting small money files from the METER would
+  raise every company's effective quota, which is a pricing change nobody asked
+  for.
+- The INSERT-only limit of 0055/0057 is unchanged: an upsert reusing an
+  existing key becomes an UPDATE, which this policy does not govern.
+
+**The Admin Terminal copy carries the bound.** `StorageSection.jsx`'s suspended
+and at-ceiling banners said invoices, finance files and the manifest "still
+save"; they now say "still save if they are under 25 MB", because after 0078
+the unqualified sentence is false. ⚠️ The figure is duplicated from SQL, as
+"30 days" already is in the same banners; if the bound moves it moves in
+`rabbit_quota_exempt_max_bytes()` and in those two sentences.
+
+**Verification.** pgTAP suite **77 at 62/62** (probes 54–62 are 0078's), each
+proven by a breaker: **B1** dropping the size axis reddens 55, 60 and 61 — the
+three refusal probes at both sites — and nothing else; **B2** removing the
+COALESCE reddens only 62; **B3** bounding the policy but not the reservation
+reddens only 55. Probe 10 of that suite asserted "a 5 GB invoice is not
+refused" and was true until 0078; it now uses a real invoice's size and says so
+in place, because a probe that silently loses its teeth is how a gate stops
+being a gate.
 
 ## 13. The three tools, the shell, and the agent
 
