@@ -366,11 +366,14 @@ SELECT is(
 -- never reserved") is the same falsified invariant in an APPLIED migration; it
 -- is behaviourally harmless (file_event_is_financial computes the flag from
 -- rabbit_money_key, so an abandoned money upload's certificate is still
--- money-gated) and is corrected in handbook §12.10 rather than by editing 0074.
+-- money-gated). ⚠️ 0074 carries the same falsified invariant TWICE — at its
+-- line 29 as well, where it says a reservation never exists for a money path
+-- and therefore its certificates are never financial. Both are recorded in
+-- 0078's header rather than corrected by editing an applied migration.
 SELECT is(
   public.abandon_upload_reservation(
     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-never-reserved.pdf', 'x'),
-  false, 'a money path UNDER the quota-exemption bound was never reserved (0073, bounded by 0078), so there is nothing to abandon');
+  false, 'this key was never reserved, so there is nothing to abandon — 0073''s exemption, bounded by 0078');
                                                                             -- 28
 
 -- Two more rows for the probes that follow.

@@ -185,9 +185,14 @@
 -- ⚠️ THE BOUND IS STILL DUPLICATED, AND SAYING OTHERWISE WOULD BE THE KIND OF
 -- CLAIM THIS REPO KEEPS FINDING. This function is the one definition the
 -- PREDICATES read, but the figure is also written out in `StorageSection.jsx`'s
--- two banners and as a literal in suite 77's probes 55, 60 and 61. Moving the
--- bound means editing this function FIRST and then those places; suite 77
+-- two banners and as literals throughout suite 77 — probes 54 (12000000, the
+-- control that brackets the bound from below), 55, 57, 60 and 61 (26214401),
+-- 64 (26214400 itself) and 66 (31457280, chosen to sit above it). Moving the
+-- bound means editing this function FIRST and then every one of those; suite 77
 -- probe 64 asserts the value and is what goes red if only the function moves.
+-- ⚠️ Review round 2 found this very list stale in the commit that introduced
+-- it: round 1 wrote "probes 55, 60 and 61" while adding 54, 57 and 66 in the
+-- same change.
 -- The COMMENT on the function said "a change to THIS function and nothing
 -- else"; review round 1 caught that, and it is corrected below.
 --
@@ -253,9 +258,9 @@ COMMENT ON FUNCTION public.rabbit_quota_exempt_max_bytes() IS
   'still skip the Petal storage quota. 25 MiB. Audrey''s ruling: bound the '
   'exemption by size rather than cap the picker. This is the one definition the '
   'PREDICATES read, but the figure is also written out in StorageSection.jsx''s '
-  'two banners and as a literal in pgTAP suite 77 probes 55, 60 and 61; moving '
-  'the bound means editing this function first and then those. Suite 77 probe '
-  '64 asserts the value.';
+  'two banners and as literals in pgTAP suite 77 probes 54, 55, 57, 60, 61, 64 '
+  'and 66; moving the bound means editing this function first and then every '
+  'one of those. Suite 77 probe 64 asserts the value.';
 
 -- ── 2. The bounded exemption, over a KNOWN byte count ───────────────────────
 -- The composition point. `rabbit_quota_exempt_path` answers "is this a path
@@ -492,8 +497,11 @@ COMMENT ON FUNCTION public.reserve_upload_bytes(TEXT, BIGINT) IS
   'Session C1 (0073) / Track C 2026-09-09 (0078): reserve quota for an upload '
   'before the bytes move. Quota-exempt paths return NULL and write no row — '
   'but only up to rabbit_quota_exempt_max_bytes(); over that bound a money '
-  'path is weighed like ordinary media, so the refusal happens at start '
-  'rather than after the transfer.';
+  'path is weighed like ordinary media. The refusal happens at start rather '
+  'than after the transfer ONLY for bodies over 50 MiB, which are the only ones '
+  'that reach this function (RESUMABLE_THRESHOLD_BYTES, resumableUpload.js); '
+  'between the bound and 50 MiB the refusal comes from '
+  'petal_storage_quota_insert at commit. See 0078''s TRAP 1.';
 
 -- =============================================================================
 -- POST-CONDITIONS
@@ -626,6 +634,13 @@ BEGIN
   -- patterns were looser than they read. Matching the catalogue's exact
   -- rendering of the whole arm — the `OR`, the function, and its argument list
   -- — is what makes this an assertion instead of a spelling check.
+  -- ⚠️ ORDER- AND DEPARSE-SENSITIVE BY DESIGN, noted by review round 2. These
+  -- match `pg_get_expr`'s rendering, so a semantically identical policy whose
+  -- arms were reordered, or one deparsed by a session whose search_path does
+  -- not carry `public` (the names would render schema-qualified), would fail a
+  -- CORRECT policy. That is the trade for being able to detect an inversion at
+  -- all; the applying session is Supabase's own, whose search_path is
+  -- `"$user", public`.
   IF strpos(v_check, 'OR rabbit_quota_exempt_object(name, metadata)') = 0 THEN
     RAISE EXCEPTION '0078 post-condition 6a failed: the policy does not carry the bounded exemption arm verbatim (an inverted or re-argued call would land here too). Definition: %', v_check;
   END IF;
@@ -692,7 +707,12 @@ BEGIN
   IF strpos(v_src, 'public.rabbit_quota_exempt_bytes(p_path, p_bytes)') = 0 THEN
     RAISE EXCEPTION '0078 post-condition 9a failed: reserve_upload_bytes does not use the bounded exemption — a 5 GB receipt still reserves nothing';
   END IF;
-  IF strpos(v_src, 'public.rabbit_quota_exempt_path(p_path)') > 0 THEN
+  -- ⚠️ NO `public.` PREFIX ON THIS ONE — review round 2. The function pins
+  -- search_path to public, so a re-introduced UNQUALIFIED
+  -- `IF rabbit_quota_exempt_path(p_path) THEN` would work perfectly and would
+  -- slip past a qualified needle. 9a keeps the prefix because the body is known
+  -- to carry it; this one must catch either spelling.
+  IF strpos(v_src, 'rabbit_quota_exempt_path(p_path)') > 0 THEN
     RAISE EXCEPTION '0078 post-condition 9b failed: reserve_upload_bytes still carries the UNBOUNDED early return';
   END IF;
 
@@ -741,7 +761,7 @@ BEGIN
                        'rabbit_quota_exempt_object')
      AND p.provolatile = 'i' AND p.proparallel = 's';
   IF v_n <> 3 THEN
-    RAISE EXCEPTION '0078 post-condition 11 failed: % of 3 new functions carry the same IMMUTABLE / PARALLEL SAFE labelling as rabbit_quota_exempt_path, which they delegate to', v_n;
+    RAISE EXCEPTION '0078 post-condition 11 failed: % of 3 new functions are IMMUTABLE and PARALLEL SAFE', v_n;
   END IF;
 
   RAISE NOTICE '0078 OK — the quota exemption is bounded at % bytes at BOTH sites (the RESTRICTIVE policy and reserve_upload_bytes); rabbit_quota_exempt_path is unchanged; 8 rabbit_files policies intact.',

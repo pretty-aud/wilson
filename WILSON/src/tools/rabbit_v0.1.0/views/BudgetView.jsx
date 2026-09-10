@@ -2612,7 +2612,10 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         // which is why the flag is passed to the single writer rather than
         // patched onto the row afterwards.
         //
-        // ⚠️ REVIEW ROUND 1 corrected three things in this comment.
+        // ⚠️ BUNDLE C4's REVIEW ROUND 1 corrected three things in this comment.
+        // (Not to be confused with 0078's own review rounds, whose correction
+        // is the ✅ block under (c) below — two different reviews, months of
+        // work apart, both landing in this one comment.)
         // (a) It named `rabbit_files_invoices_*`, a policy family 0042 DROPPED
         //     and replaced with `rabbit_files_money_*` — the same phantom name
         //     that caused the S39 incident recorded in OUTSTANDING.md. The

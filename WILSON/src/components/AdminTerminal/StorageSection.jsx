@@ -774,9 +774,10 @@ export default function StorageSection({ isActive, workspaceId }) {
               )}
 
               {/* 🚨 WORDED TO BE TRUE, NOT TO BE ALARMING. 0055's restrictive
-                  policy is FOR INSERT on `rabbit-files` ONLY, and it exempts
-                  rabbit_quota_exempt_path — INVOICES/, FINANCE/ and
-                  projects/<id>/PROJECT.json. So reads, downloads and deletes
+                  policy is FOR INSERT on `rabbit-files` ONLY, and its
+                  exemption arm — rabbit_quota_exempt_object since 0078,
+                  rabbit_quota_exempt_path before it — covers INVOICES/,
+                  FINANCE/ and projects/<id>/PROJECT.json. So reads, downloads and deletes
                   are untouched, and the paperwork a company bills Petal with
                   keeps saving. Promising a total lockout would send an admin
                   hunting for a fault that is not there — and would be the
@@ -794,10 +795,12 @@ export default function StorageSection({ isActive, workspaceId }) {
                   ⚠️ THE FIGURE IS DUPLICATED, and 0078's own SQL comment used to
                   claim this function was "a change to THIS function and nothing
                   else", which was never true. The bound is written out here, in
-                  the banner below, and as a literal in suite 77's probes. Moving
-                  it means editing rabbit_quota_exempt_max_bytes() FIRST and then
-                  every one of those places — suite 77 probe 64 is what fails if
-                  only the function moves. */}
+                  BOTH banners this comment sits between — the suspended one
+                  above and the at-ceiling one below — and as literals in suite
+                  77's probes 54, 55, 57, 60, 61, 64 and 66. Moving it means
+                  editing rabbit_quota_exempt_max_bytes() FIRST and then every
+                  one of those places — suite 77 probe 64 is what fails if only
+                  the function moves. */}
               {atCeiling && !suspended && (
                 <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
                      style={{ backgroundColor: 'rgba(234, 88, 12, 0.10)', color: '#9a3412' }}>

@@ -1155,9 +1155,8 @@ export function supabaseAdapter() {
       // incident recorded in OUTSTANDING.md, found here for the third time.
       // The money policies key on exactly this third segment, and the four
       // base policies exclude it — so the segment IS the gate for the blob,
-      // while
-      // files.is_financial gates the row. Changing either without the other
-      // opens a hole.
+      // while files.is_financial gates the row. Changing either without the
+      // other opens a hole.
       //
       // 🚨 The case of this string is load-bearing and is matched by
       // migration 0039 with upper(). Audrey asked for the folder to be called

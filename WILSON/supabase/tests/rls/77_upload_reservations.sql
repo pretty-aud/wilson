@@ -48,7 +48,7 @@
 
 BEGIN;
 
-SELECT plan(67);
+SELECT plan(68);
 
 SELECT * FROM tests.rls_setup();
 
@@ -603,7 +603,7 @@ SELECT is(
 -- THREE arms of reserve_upload_bytes (suspension, "used all", "not enough for
 -- this file"), so a bare PT402 would still pass if a regression made the
 -- suspension arm fire. This is the standard probes 60 and 61 already meet, and
--- the standard the file's own comment at probe 25 demands. The workspace is
+-- the standard the file's own comment at probe 27 demands. The workspace is
 -- exactly full, so it is the "used all" arm; pg_size_pretty(10000000) is
 -- '9766 kB'.
 SELECT throws_ok(
@@ -626,16 +626,31 @@ SELECT is(
   'the bound is inclusive — an object exactly at rabbit_quota_exempt_max_bytes() keeps the exemption');
                                                                             -- 56
 
--- 🚨 THE MANIFEST ARM IS BOUNDED TOO, and until review round 1 nothing
--- tested it: every other probe here drives the bound through INVOICES/, so a
--- bound applied only to the money arm would have passed the whole suite. The
--- manifest is 2,959 bytes in the wild (0055's measurement on staging), so this
--- size cannot occur by accident — but `rabbit_quota_exempt_path` is ONE
+-- 🚨 THE MANIFEST ARM IS BOUNDED TOO. What was untested before 0078 is the
+-- OVER-BOUND case: every other probe here drives the bound through INVOICES/,
+-- so a bound applied only to the money arm would have passed the whole suite.
+-- The manifest is 2,959 bytes in the wild (0055's measurement on staging), so
+-- this size cannot occur by accident — but `rabbit_quota_exempt_path` is ONE
 -- predicate over both arms and 0078 bounds the predicate, not the segment.
+--
+-- 🚨 REVIEW ROUND 2 CORRECTED THIS PROBE TWICE OVER, and both corrections
+-- are the point of running a second round. (1) Round 1 REPLACED the manifest's
+-- POSITIVE assertion here — `is(reserve(PROJECT.json, 3000), NULL)` — with this
+-- one and then wrote "until review round 1 nothing tested it", which was false:
+-- the manifest arm WAS tested, positively, at this very probe. That is the
+-- defect probe 10's own note warns about, committed three sections later in the
+-- same file. The positive case is restored as probe 68, at the end, where the
+-- fixture makes it a stronger test than it was here. (2) This probe asserted a
+-- bare PT402 while probe 55's comment — written by the same round — argues at
+-- length that a bare PT402 is not enough. It now carries the sentence, which
+-- also distinguishes the two things it must: a manifest that is correctly
+-- BOUNDED and one that has lost the exemption entirely both fall through to the
+-- quota arm here, so only the message tells the reader which arm answered.
 SELECT throws_ok(
   $$SELECT public.reserve_upload_bytes(
       'projects/aaaa1111-0000-0000-0000-000000000001/PROJECT.json', 26214401)$$,
-  'PT402'::char(5), NULL,
+  'PT402'::char(5),
+  'This company has used all 9766 kB of its Petal cloud storage (uploads in progress count). Contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
   'an oversized PROJECT.json loses the exemption too — the bound is on the predicate, not on the money segment alone');
                                                                             -- 57
 
@@ -674,9 +689,14 @@ SELECT is(
 -- for ten minutes and is refused at the end — which is the exact failure
 -- bundle C1 was built to remove.
 -- ⚠️ Only bodies over 50 MiB take the resumable path that reserves at all
--- (RESUMABLE_THRESHOLD_BYTES, resumableUpload.js; 0073's header §86 states it),
--- so between 25 and 50 MiB it is site 2 alone that refuses, at commit. Site 1
--- is what saves the ten minutes on the large ones.
+-- (RESUMABLE_THRESHOLD_BYTES, resumableUpload.js; 0073's header line 86 states
+-- it), so between 25 and 50 MiB it is `petal_storage_quota_insert` ALONE that
+-- refuses, at commit, and `reserve_upload_bytes` never sees the file.
+-- 🚨 NAMED, NOT NUMBERED — review round 2. 0078's header numbers the policy
+-- site 1 and the reservation site 2; an earlier draft of this note numbered
+-- them the other way round, so the two files contradicted each other about the
+-- same band while each was internally consistent. Neither numbering is wrong;
+-- using the names is what stops the next reader having to work out which.
 
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
@@ -787,8 +807,10 @@ SELECT is(
 -- upload into a permission error rather than a quota decision. And `anon` must
 -- not hold it: anon inherits PUBLIC, so `REVOKE ... FROM PUBLIC` is what makes
 -- that true, and a later `GRANT ... TO anon` was invisible to the whole pgTAP
--- set — 0078's post-condition 10 runs only at apply. Suite 65 probe 40 does
--- exactly this for rabbit_quota_exempt_path.
+-- set — 0078's post-condition 10 runs only at apply. Suite 65 probe 40 pins
+-- the AUTHENTICATED half of this for rabbit_quota_exempt_path; its anon
+-- negative is about a different function, so this probe is the first to assert
+-- both directions for the quota family.
 SELECT ok(
   has_function_privilege('authenticated', 'public.rabbit_quota_exempt_max_bytes()', 'EXECUTE')
   AND has_function_privilege('authenticated', 'public.rabbit_quota_exempt_bytes(text,bigint)', 'EXECUTE')
@@ -838,6 +860,36 @@ SELECT is(
   1,
   'POSITIVE CONTROL for probe 58: the weighed money path DID write a reservation row — before 0078 no money path could');
                                                                             -- 67
+
+-- 🚨 THE MANIFEST'S POSITIVE CASE, RESTORED — review round 2. Round 1
+-- replaced this assertion with probe 57's over-bound one and then claimed the
+-- manifest arm had never been tested. It had. Restored here rather than in
+-- place because the fixture at this point is STRICTER than the one it was
+-- deleted from: the workspace was 10,000,000 of 10,000,000 there, and here it
+-- additionally carries probe 66's 30 MiB reservation. Setting the ceiling back
+-- makes the company massively over its allowance, and the manifest must STILL
+-- be exempt — which is 0055's own reason for the exemption and the thing a
+-- bound must never break.
+UPDATE public.workspace_storage_plans
+   SET quota_bytes = 10000000
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT is(
+  (SELECT public.reserve_upload_bytes(
+     'projects/aaaa1111-0000-0000-0000-000000000001/PROJECT.json', 3000)),
+  NULL::bigint,
+  'the project manifest at its real size is STILL exempt with the company far over its ceiling — 0078 bounded the exemption without breaking what 0055 wrote it for');
+                                                                            -- 68
+
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -126,20 +126,24 @@ works). On the beta before the merge, uploads simply behave as they did.
    paths are exempt from the quota up to 25 MB; the reservation follows the
    same rule.
 
-3. Now upload an invoice **over 25 MB** on the same line, still over quota.
+3. Now upload an invoice of **about 30 MB** (over 25 MB but UNDER 50 MB — the
+   size matters, see below) on the same line, still over quota.
 
-   **Expected:** it is refused, naming the company's storage. Since migration
-   0078 (Audrey's ruling, 2026-09-09) the exemption is bounded by size: above
-   25 MB a money file is weighed like any other.
+   **Expected:** it is refused. Since migration 0078 (Audrey's ruling,
+   2026-09-09) the exemption is bounded by size: above 25 MB a money file is
+   weighed like any other.
+   ⚠️ **Expect an ugly error, not the friendly one.** Below 50 MB the refusal
+   comes from the database as the file lands — a raw message naming
+   `petal_storage_quota_insert` — because the polite "this company has used all
+   its storage" sentence only exists on the reservation path, which bodies under
+   50 MB never take. That is expected here and is not a fault to report.
    ⚠️ It is refused only because the company is OVER QUOTA — with room to spare
    the same file uploads. The bound removes the exemption; it does not cap the
-   picker. ⚠️ Expect the refusal to arrive AFTER the upload appears to run,
-   not before it starts: only bodies over 50 MB reserve space up front, so
-   between 25 and 50 MB the refusal comes from the database as the file lands.
+   picker.
 
    ☐ Small upload behaves as before: yes / no
    ☐ Invoice under 25 MB still allowed over quota: yes / no
-   ☐ Invoice over 25 MB refused over quota: yes / no
+   ☐ ~30 MB invoice refused over quota (ugly error is expected): yes / no
 
 ---
 
