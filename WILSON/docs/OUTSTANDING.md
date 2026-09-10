@@ -1682,3 +1682,14 @@ R.A.B.B.I.T. request is served meanwhile. Would settle it: a bin file added
 from a network drive, the drive disconnected, the Bins tab opened — measure
 the freeze. Fix direction: stat and walk asynchronously (`fs.promises`) with a
 per-root deadline, or skip roots whose drive letter is not mounted.
+
+### Without ffmpeg, an MP4's poster and duration reach the scenes table only after the Bins tab has been opened once in the session
+**MEASURED 2026-09-10** (milestone 2 verification, no `resources/ffmpeg/`).
+The server probe marks a browser-playable MP4 `unavailable` when there is no
+decoder; the renderer's own probe (`bins/binProbeFallback.js`), which fills
+duration and posts a poster, runs once per project from `BinsView`'s post-load
+step. A take assigned from the Scenes tab before Bins has been opened shows a
+film icon in its chip and in the shot's thumbnail slot, and "Use take length"
+is not offered, until Bins is opened (or ffmpeg is installed, which makes the
+server probe and the poster route do it on add). Fix direction: move the
+post-load fallback into the provider's `refreshBins`, which both tabs call.

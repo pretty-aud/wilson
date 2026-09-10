@@ -2721,8 +2721,28 @@ computed state on the list route; relink walks a picked or known folder
 `relinkMatcher`, automatically on open for known roots. The view is
 `views/BinsView.jsx` with `views/bins/*`; the pure logic is `bins/binMedia.js`
 (the vocabulary, mirrored from the server and pinned by a parity test) and
-`bins/binSelectors.js`. Milestone 2 (`bundle.shotTakes`) assigns bin files to
-shots many-to-many and shows them in the scenes table.
+`bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
+assign bin files to shots many-to-many: a row per (shot, file) with a `role`
+(`primary` — one per shot that has any — `part` or `alt`), a `position` and
+`notes`; the routes live under the gated `…/shot-takes` prefix in
+`rabbitBins.cjs` (assign, patch, remove, reorder, and `replace`, the undo
+primitive that puts a shot's rows back verbatim), invariants re-established by
+`normalizeShotTakes` after every write, orphans filtered on read and never
+pruned so undoing a shot or file deletion restores its takes. The provider's
+`assignShotTakes` / `updateShotTake` / `removeShotTakes` / `reorderShotTakes`
+push snapshot undo entries (`replaceShotTakes` both ways); every mutator a
+history op names must be in the `mutationsRef` registry, pinned by
+`state/mutationsRegistry.test.js`. `bins/shotTakeSelectors.js` joins takes to
+files and shots (orphans skipped) and ranks files for a shot's picker.
+`ScenesView.jsx` adds a Takes chip strip per shot row in both content modes
+and on gallery cards, the primary take's poster standing in for an EMPTY shot
+thumbnail only, the ordered takes list in the shot popup (`views/bins/
+ShotTakesPanel.jsx`), the picker (`TakePickerDialog.jsx`, same scene first)
+and a one-click "use take length" (frame_count is never written otherwise).
+`BinsView.jsx` adds "Assign to shot…" (`AssignToShotDialog.jsx`, scene → shot,
+omitted hidden and counted, several shots at once), "Used in shots" on the
+inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
+carries open-in-Scenes / show-in-Bins across the shell's tabs.
 
 ### 13.4 The shell and the shared surfaces
 
