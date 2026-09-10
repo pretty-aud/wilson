@@ -42,6 +42,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  // ── Demo sprint (2026-09-10): the local demo folder ──
+  // One user-chosen folder holds the whole signed-out demo
+  // (electron/localDemoRoot.cjs). `pick` runs the OS dialog; `open`
+  // re-opens a remembered folder from the recent list (or confirms a
+  // just-picked one that holds other files); `close` returns to app data.
+  localDemo: {
+    getState:       ()     => ipcRenderer.invoke('local-demo:get-state'),
+    pick:           ()     => ipcRenderer.invoke('local-demo:pick'),
+    open:           (opts) => ipcRenderer.invoke('local-demo:open', opts),
+    close:          ()     => ipcRenderer.invoke('local-demo:close'),
+    forget:         (opts) => ipcRenderer.invoke('local-demo:forget', opts),
+    openInExplorer: ()     => ipcRenderer.invoke('local-demo:open-in-explorer'),
+  },
+
   // ── RABBIT config bridge ──
   // Supabase credentials are centralised: the shared client in
   // src/cloud/auth/supabaseClient.js is configured by VITE_SUPABASE_URL
