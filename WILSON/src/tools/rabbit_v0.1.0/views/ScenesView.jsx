@@ -343,6 +343,21 @@ export default function ScenesView() {
   // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
   const onNavigate = useCallback((p) => { if (p?.shotId) { setDetailShotId(p.shotId); setDetailSceneId(null) } else if (p?.sceneId) setDetailSceneId(p.sceneId) }, [])
   useNavigateTarget('scenes', onNavigate)
+  // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
+  // them: the provider's history holds every takes mutation (and every
+  // scene and shot edit). Never while typing in a field.
+  useEffect(() => {
+    if (!supportsBins) return
+    const h = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); if (e.shiftKey) ctxRef.current?.redo?.(); else ctxRef.current?.undo?.() }
+      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); ctxRef.current?.redo?.() }
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [supportsBins])
 
   function toggleGroup(key) {
     setCollapsedGroups(prev => {
@@ -1487,8 +1502,8 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     </div>
                     {/* Takes (milestone 2) */}
                     {takes?.supports && (
-                      <span className="w-32 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 26)} max={3}
+                      <span className="w-40 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
                           canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
                       </span>
                     )}
@@ -1734,7 +1749,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
         <span style={{ width: tw }} className="flex-shrink-0" />
         <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
-        {takes?.supports && <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
+        {takes?.supports && <span className="w-44 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
         <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
         <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
         <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
@@ -1904,8 +1919,8 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
 
                     {/* Takes (milestone 2) */}
                     {takes?.supports && (
-                      <span className="w-36 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
-                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 30)} max={3}
+                      <span className="w-44 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
                           canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
                       </span>
                     )}

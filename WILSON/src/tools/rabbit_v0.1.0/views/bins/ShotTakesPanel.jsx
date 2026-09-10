@@ -34,11 +34,13 @@ function NoteInput({ take, canWrite, onUpdate }) {
 
 export function RoleLegend() {
   return (
-    <div className="flex items-center gap-3 flex-wrap text-[9.5px] font-mono" style={{ color: C.dimmer }}>
-      <Info className="w-3 h-3" />
-      {TAKE_ROLES.map(r => (
-        <span key={r} title={TAKE_ROLE_META[r].help}><span style={{ color: TAKE_ROLE_META[r].color }}>{TAKE_ROLE_META[r].label}</span> — {TAKE_ROLE_META[r].help}</span>
-      ))}
+    <div className="flex items-start gap-2 text-[9.5px] font-mono" style={{ color: C.dimmer }}>
+      <Info className="w-3 h-3 flex-shrink-0 mt-px" />
+      <div className="grid gap-x-4 gap-y-0.5" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+        {TAKE_ROLES.map(r => (
+          <span key={r} title={TAKE_ROLE_META[r].help}><span style={{ color: TAKE_ROLE_META[r].color }}>{TAKE_ROLE_META[r].label}</span> — {TAKE_ROLE_META[r].help}</span>
+        ))}
+      </div>
     </div>
   )
 }

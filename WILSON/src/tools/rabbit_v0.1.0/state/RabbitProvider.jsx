@@ -3167,6 +3167,15 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.removeBinFiles   = removeBinFiles;
   mutationsRef.current.restoreBinFiles  = restoreBinFiles;
   mutationsRef.current.reorderBinFiles  = reorderBinFiles;
+  // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
+  // and undo SWALLOWS a throw — a mutator missing from this list fails
+  // silently (measured: Ctrl+Z after an assignment did nothing until
+  // replaceShotTakes was registered here).
+  mutationsRef.current.replaceShotTakes = replaceShotTakes;
+  mutationsRef.current.assignShotTakes  = assignShotTakes;
+  mutationsRef.current.updateShotTake   = updateShotTake;
+  mutationsRef.current.removeShotTakes  = removeShotTakes;
+  mutationsRef.current.reorderShotTakes = reorderShotTakes;
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
