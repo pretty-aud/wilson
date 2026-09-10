@@ -628,6 +628,10 @@ export function localServerAdapter() {
     probeBinFile: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/probe`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
     }),
+    // reveal:true shows the file in Explorer; otherwise the OS default app opens it.
+    openBinFile: (projectId, id, reveal = false) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/open`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reveal }),
+    }),
     postBinFileThumbnail: (projectId, id, base64) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/thumbnail`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base64 }),
     }),

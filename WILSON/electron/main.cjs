@@ -3380,7 +3380,7 @@ function startLocalServer(distPath) {
     require('./rabbitBins.cjs').mountRabbitBins(expressApp, {
       readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
       getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
-      userAuthorizedDirs, dialog, getMainWindow: () => mainWindow,
+      userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
     });
 
     const server = expressApp.listen(0, '127.0.0.1', () => {

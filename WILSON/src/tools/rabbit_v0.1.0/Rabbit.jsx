@@ -51,6 +51,7 @@ import TimelineView, { SettingsPanel, HelpModal, loadRabbitSettings, saveRabbitS
 import TeamView from './views/TeamView'
 import BudgetView from './views/BudgetView'
 import ScenesView from './views/ScenesView'
+import BinsView from './views/BinsView'
 import LevelsView from './views/LevelsView'
 import ExperiencesView from './views/ExperiencesView'
 import { loadHolidays, saveHolidays } from './holidays.js'
@@ -82,7 +83,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
 
   const hiddenTabs = useMemo(() => {
     const hidden = new Set()
-    if (!project?.scenes_enabled) hidden.add('scenes')
+    if (!project?.scenes_enabled) { hidden.add('scenes'); hidden.add('bins') } // bins ride on the scenes toggle (DEMO_BINS_BRIEF §2)
     if (!project?.levels_enabled) hidden.add('levels')
     if (!project?.experiences_enabled) hidden.add('experiences')
     if (!canSeeMoney) hidden.add('budget')
@@ -207,6 +208,7 @@ export default function Rabbit({ currentPage, openSettingsTrigger = 0 } = {}) {
             {activeView === 'team'     && <TeamView           />}
             {activeView === 'tasks'    && <ProjectTasksView   />}
             {activeView === 'scenes'      && <ScenesView />}
+            {activeView === 'bins'        && <BinsView />}
             {activeView === 'levels'      && <LevelsView />}
             {activeView === 'experiences' && <ExperiencesView />}
             {activeView === 'timeline' && <TimelineView settings={settings} patchSettings={patchSettings} holidays={holidays} />}

@@ -258,7 +258,7 @@ function mountRabbitBins(expressApp, deps) {
   const {
     readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
     getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
-    userAuthorizedDirs, dialog, getMainWindow,
+    userAuthorizedDirs, dialog, getMainWindow, shell,
   } = deps;
   for (const k of ['readRabbitBundle', 'writeRabbitBundle', 'rabbitTouch', 'rabbitUpsertInto', 'rabbitRemoveFrom', 'rabbitNotFound', 'getThumbCacheDir', 'generateVideoThumbOnce', 'safeMediaContentType']) {
     if (typeof deps[k] !== 'function') throw new Error(`mountRabbitBins: missing helper ${k}`);
@@ -904,6 +904,30 @@ function mountRabbitBins(expressApp, deps) {
       if (err.code === 'ECONNABORTED' || err.code === 'EPIPE' || res.headersSent) return;
       res.status(err.status || 500).json({ error: 'could not read the file' });
     });
+  });
+
+  // ── Open in the default app / reveal in Explorer ─────────────────────────
+  // The path comes from the ROW, never from the body; a client can only ask
+  // for a file it can already list.
+  expressApp.post(`${P}/bin-files/:id/open`, async (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const row = bundle.binFiles.find(f => f.id === req.params.id);
+    if (!row) return rabbitNotFound(res, 'bin-file');
+    if (!shell) return res.status(503).json({ error: 'no shell in this process', code: 'no_shell' });
+    const reveal = req.body?.reveal === true;
+    let target = row.source_path;
+    if (row.is_sequence && !reveal) { const seq = detectSequence(row.source_path); if (seq) target = seq.middle_frame_path; }
+    if (!(row.is_sequence && reveal ? isDir(target) : isFile(target) || isDir(target))) {
+      return res.status(410).json({ error: 'file missing on disk', code: 'offline' });
+    }
+    try {
+      if (reveal) { shell.showItemInFolder(target); return res.json({ ok: true }); }
+      const err = await shell.openPath(target);
+      if (err) return res.status(422).json({ error: String(err), code: 'open_failed' });
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || 'open failed' });
+    }
   });
 
   // ── Relink ────────────────────────────────────────────────────────────────

@@ -2723,6 +2723,7 @@ export function RabbitProvider({ children }) {
   }, [binsAdapter, activeProjectId]);
 
   const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
+  const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
   const binFileThumbnailUrl = useCallback((id, rev = 0) =>
     (adapterRef.current && typeof adapterRef.current.binFileThumbnailUrl === 'function' && activeProjectId)
       ? adapterRef.current.binFileThumbnailUrl(activeProjectId, id, rev) : null, [activeProjectId]);
@@ -3178,7 +3179,7 @@ export function RabbitProvider({ children }) {
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
-    probeBinFile, probeBinFiles, postBinFileThumbnail, binFileThumbnailUrl, binFileStreamUrl,
+    probeBinFile, probeBinFiles, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
     binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
 
     addScene, updateScene, deleteScene,
@@ -3223,7 +3224,7 @@ export function RabbitProvider({ children }) {
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
     updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
-    probeBinFile, probeBinFiles, postBinFileThumbnail, binFileThumbnailUrl, binFileStreamUrl,
+    probeBinFile, probeBinFiles, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
     binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
