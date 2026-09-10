@@ -151,7 +151,14 @@ describe('main.cjs — every round-two seam reaches its module (source scan)', (
     expect(MAIN).toContain("dataFileOrThrow(getThumbCacheDir(), `${singular}-${entity.id}`, '.jpg', singular)")
     expect((MAIN.match(/dataFileOrThrow\(getThumbCacheDir\(\), `asset-\$\{assetId\}`, '\.jpg', 'asset'\)/g) || []).length).toBe(2)
     expect((MAIN.match(/dataFileOrThrow\(getThumbCacheDir\(\), `\$\{entityThumbKind\(entityType\)\}-\$\{entityId\}`, '\.jpg', 'entity'\)/g) || []).length).toBe(2)
-    expect((MAIN.match(/if \(!isUserAuthorizedRelinkDir\(bundle, req\.params\.projectId, srcPath\)\) return res\.status\(403\)/g) || []).length).toBe(2)
+    expect((MAIN.match(/if \(!thumbnailSourceAllowed\(bundle, req\.params\.projectId, srcPath\)\) return res\.status\(403\)/g) || []).length).toBe(2)
+    // the picked picture itself counts (the renderer stores the path before it
+    // generates the cache, so the first <img> request lands between the two)
+    const helper = MAIN.slice(MAIN.indexOf('function thumbnailSourceAllowed('), MAIN.indexOf('function thumbnailSourceAllowed(') + 400)
+    expect(helper).toContain('userAuthorizedImages.has(path.resolve(String(srcPath)).toLowerCase())')
+    expect(helper).toContain('return isUserAuthorizedRelinkDir(bundle, projectId, srcPath)')
+    const pick = MAIN.slice(MAIN.indexOf("ipcMain.handle('rabbit:pick-image'"), MAIN.indexOf("ipcMain.handle('rabbit:generate-asset-thumbnail'"))
+    expect(pick).toContain('userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase())')
   })
   it('H3: both project-folder resolvers and the relink roots consult storedRootUsable (real path, inside the open folder)', () => {
     expect(MAIN).toContain('if (root && fs.existsSync(root) && storedRootUsable(root)) return root;')

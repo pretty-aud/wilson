@@ -123,6 +123,12 @@ const userAuthorizedDirs = new Set();
 // consent for purpose B, the S14 scope rule. `local-demo:pick` records here
 // and only `local-demo:open` consults it.
 const demoAuthorizedDirs = new Set();
+// (review round 2, H2) Pictures the person picked THIS session through
+// rabbit:pick-image (lowercased resolved file paths). The thumbnail routes
+// open a bundle's thumbnail_image only if it is one of these or sits under a
+// folder the person chose — the renderer stores the path first and generates
+// the cache second, so the first <img> request can arrive between the two.
+const userAuthorizedImages = new Set();
 
 // Session 34: the workspace storage root (workspace_storage.root_path when
 // mode = 'byos'). Main has no Supabase client, so the signed-in renderer
@@ -1717,6 +1723,14 @@ function startLocalServer(distPath) {
       // guard: a drive/share root must contain its own children (S33).
       return roots.some(root => isPathInside(root, resolved));
     }
+    // (review round 2, H2) May a bundle's thumbnail_image be opened and
+    // transcoded? The picture the person picked this session, or one under
+    // a folder they chose — never any image on the machine a copied bundle
+    // or a drive-by POST happens to name.
+    function thumbnailSourceAllowed(bundle, projectId, srcPath) {
+      if (userAuthorizedImages.has(path.resolve(String(srcPath)).toLowerCase())) return true;
+      return isUserAuthorizedRelinkDir(bundle, projectId, srcPath);
+    }
     // Local twin of the cloud file_events stream (migration 0027): the
     // audit drawer reads the same event vocabulary from bundle.fileEvents.
     // NOTE: local files rows hard-delete (no local trash), so the local
@@ -3229,7 +3243,7 @@ function startLocalServer(distPath) {
       // (review round 2, H2) thumbnail_image is an absolute path the bundle
       // carries — a copied folder's, or a drive-by POST's; only a picture
       // under a folder the person chose is opened and transcoded.
-      if (!isUserAuthorizedRelinkDir(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
+      if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' });
 
       try {
         await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -3263,7 +3277,7 @@ function startLocalServer(distPath) {
 
         const srcPath = entity.thumbnail_image;
         if (!fs.existsSync(srcPath)) return res.status(410).json({ error: 'source image missing' });
-        if (!isUserAuthorizedRelinkDir(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
+        if (!thumbnailSourceAllowed(bundle, req.params.projectId, srcPath)) return res.status(403).json({ error: 'source image is outside the folders this app may read' }); // (review 2, H2)
 
         try {
           await sharp(srcPath).resize(512).jpeg({ quality: 85 }).toFile(thumbPath);
@@ -4104,6 +4118,8 @@ ipcMain.handle('rabbit:pick-image', async () => {
     ],
   });
   if (result.canceled || !result.filePaths.length) return null;
+  // (review round 2, H2) the pick IS the authorisation to open this picture
+  userAuthorizedImages.add(path.resolve(result.filePaths[0]).toLowerCase());
   return result.filePaths[0];
 });
 
