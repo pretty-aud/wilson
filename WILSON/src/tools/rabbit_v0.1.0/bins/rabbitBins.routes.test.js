@@ -456,3 +456,28 @@ describe('delete bin', () => {
     expect((await api('/bins/ghost', { method: 'DELETE' })).status).toBe(404)
   })
 })
+
+// ── wiring pin ───────────────────────────────────────────────────────────────
+// Measured on the desktop (2026-09-10): the mount sat AFTER the SPA catch-all
+// `expressApp.get('/{*splat}', …)`, so every GET the module registers answered
+// index.html while POSTs worked — and this file stayed green, because it
+// mounts on a fresh app with no catch-all. Registration ORDER is the contract,
+// so it is pinned on main.cjs's source. The local-demo missing-folder guard
+// (`app.use('/api/rabbit', localDemoMissingGuard)`) must come before the mount
+// so it covers the bin routes too.
+describe('main.cjs wiring', () => {
+  const src = fs.readFileSync(new URL('../../../../electron/main.cjs', import.meta.url), 'utf8')
+  it('mounts the bins routes before the static / SPA fallback', () => {
+    const mount = src.indexOf('mountRabbitBins(')
+    const stat = src.indexOf('express.static(distPath)')
+    const splat = src.indexOf("expressApp.get('/{*splat}'")
+    expect(mount).toBeGreaterThan(0)
+    expect(stat).toBeGreaterThan(mount)
+    expect(splat).toBeGreaterThan(mount)
+  })
+  it('mounts after the local-demo missing-folder guard when that guard exists', () => {
+    const guard = src.indexOf("expressApp.use('/api/rabbit', localDemoMissingGuard)")
+    if (guard < 0) return // not on this branch yet
+    expect(src.indexOf('mountRabbitBins(')).toBeGreaterThan(guard)
+  })
+})
