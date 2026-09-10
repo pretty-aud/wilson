@@ -1670,3 +1670,15 @@ what it attempted, not what it changed.** Of nine settings listed, only two
 were actually off when checked — `Enable email provider` and TOTP. Site URL,
 OTP length, signup and confirm-email were all still original. Reading the live
 state first would have replaced a nine-row restore list with a two-row one.
+
+## Bins (demo sprint, 2026-09-10)
+
+### A disconnected network root can stall the local server while bins open or relink
+**INFERRED.** `electron/rabbitBins.cjs` stats every referenced path on the
+list route and walks known roots (capped at 5000 entries / depth 8) for the
+relink scan, all synchronously on the Express thread. A root on an unplugged
+SMB share makes each `statSync` wait out the network timeout, and no other
+R.A.B.B.I.T. request is served meanwhile. Would settle it: a bin file added
+from a network drive, the drive disconnected, the Bins tab opened — measure
+the freeze. Fix direction: stat and walk asynchronously (`fs.promises`) with a
+per-root deadline, or skip roots whose drive letter is not mounted.

@@ -736,7 +736,12 @@ export default function BinsView() {
       </div>
 
       {/* ── Footer hints ── */}
-      <div className="flex items-center gap-3 px-3 py-1 text-[9px] font-mono flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep }}>
+      {/* Rabbit.jsx draws the adapter status dot at left 10 / bottom 18 (10px)
+          and the presence pill at left 26 / bottom 13, over whatever view is
+          open. The bar is tall enough to hold the dot and the keys start to
+          its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
+      <div className="flex items-center gap-3 pr-3 text-[9px] font-mono flex-shrink-0 flex-wrap"
+        style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
         <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
         <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>
       </div>
