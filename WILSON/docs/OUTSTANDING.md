@@ -80,6 +80,21 @@ NO environment yet" is out of date.
 
 ## Broken features
 
+### O.T.T.E.R. software routes join a route parameter onto `getSoftwareDir()` raw
+**INFERRED from code reading (adversarial review round 2 of the local demo
+folder, 2026-09-10); not yet measured.** The same shape that round measured
+on the R.A.B.B.I.T. per-id routes (fixed the same day with `dataFilePath`):
+`electron/main.cjs` joins `req.params.slug` / `req.params.sub` onto
+`getSoftwareDir()` in the O.T.T.E.R. software routes (the review named lines
+486, 492, 574–595, 600, 618–620, 642, 659, 695–700, 721–726, 762–768, 803–808
+and 883–899 at `1ab8593`), and Express 5 decodes `..%2F` to `../`, so an
+unauthenticated local page can read, write or unlink outside
+`userData/otter-data` — up to and including an open demo folder. Fix shape:
+the same `dataFileOrThrow` the R.A.B.B.I.T. routes use, one line per helper.
+Out of the local-storage item's scope (O.T.T.E.R. stays in userData, brief
+Q2); settle it by copying the routes into a scratch express app the way the
+review's `repro-express.cjs` did.
+
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
 **INFERRED from code reading (2026-09-10), not yet seen failing — the
 measurement needs a session saved on a staging build and a relaunch with

@@ -10,7 +10,10 @@
 //   <folder>/
 //     wilson-demo.json          manifest: format, created, app version, last opened
 //     projects/<slug>/          each project's files (the existing folder_slug layout)
-//     .wilson/rabbit-data/      bundles, files-config, thumbnail cache, rate cards…
+//     .wilson/rabbit-data/      bundles, thumbnail cache, rate cards, team, templates
+//                               (files-config.json stays PER MACHINE, in userData —
+//                               review round 2, M4: a copied folder must not carry
+//                               another machine's files root)
 //
 // main.cjs keeps its helper NAMES AND SIGNATURES — getRabbitDataDir(),
 // getThumbCacheDir(), resolveConfiguredRootDir() — and consults this module
@@ -38,7 +41,7 @@
 
 const nodeFs = require('fs');
 const nodePath = require('path');
-const { isPathInside } = require('./pathContainment.cjs');
+const { isPathInside, makeContainment } = require('./pathContainment.cjs');
 
 const MANIFEST_NAME = 'wilson-demo.json';
 const MANIFEST_KIND = 'wilson-local-demo';
@@ -106,6 +109,22 @@ function layoutFor(root, pathImpl = nodePath) {
     dataDir: pathImpl.join(root, ...DATA_SUBDIRS),
     projectsDir: pathImpl.join(root, PROJECTS_SUBDIR),
   };
+}
+
+// (review round 2, H3) May a bundle's stored folder_root be RESOLVED? Pure;
+// the caller passes the root's REAL path (a junction planted at
+// <folder>/projects/<slug> must not count). Anywhere when no demo folder is
+// open — today's per-machine rule — and strictly inside the open folder,
+// outside its .wilson data dir, otherwise. A copied folder is a bundle
+// somebody else wrote: round one's L9 kept an outside root that still
+// existed, which let C:\Users\Public become a project folder. The record
+// itself is never rewritten; it is simply not followed.
+function storedRootAllowed(demoRoot, realRoot, pathImpl = nodePath) {
+  if (!demoRoot) return true;
+  if (!realRoot) return false;
+  const { isPathInside: inside } = makeContainment(pathImpl);
+  if (keyOf(pathImpl, realRoot) === keyOf(pathImpl, demoRoot)) return false;
+  return inside(demoRoot, realRoot) && !inside(pathImpl.join(demoRoot, DATA_SUBDIRS[0]), realRoot);
 }
 
 function newManifest({ appVersion, now }) {
@@ -225,6 +244,20 @@ function makeLocalDemoRoot({
 
   function isDirectory(p) {
     try { return fs.statSync(p).isDirectory(); } catch { return false; }
+  }
+
+  // (review round 2, M6) The folder can vanish WHILE open — renamed, deleted,
+  // a drive unplugged — and `missing` was only ever computed at launch, so
+  // the resolvers recreated a ghost folder at the old path and wrote into
+  // it without a word. Every root question now checks the folder is still
+  // there and flips to `missing` when it is not; main.cjs's guard then
+  // refuses the local API until the person locates, forgets or closes it.
+  function checkPresence() {
+    if (active && !isDirectory(active)) {
+      log(`[local-demo] folder no longer available: ${active}`);
+      missing = active;
+      active = null;
+    }
   }
 
   // (review round 1, M7) Containment is LEXICAL in pathContainment.cjs; a
@@ -364,6 +397,7 @@ function makeLocalDemoRoot({
   // rather than following it, so a link planted inside projects/ cannot
   // reach outside.
   function reset() {
+    checkPresence();
     if (!active) return { ok: false, error: 'no demo folder is open' };
     const layout = layoutFor(active, path);
     // (review round 1, H2) Only a `projects` directory WILSON itself created
@@ -373,10 +407,13 @@ function makeLocalDemoRoot({
     // when WILSON cannot know.
     const manifest = readJSON(layout.manifestPath);
     const created = manifest && typeof manifest === 'object' ? manifest.created_layout : null;
-    if (!created || created.projects !== true) {
+    // (review round 2, M5) …and the same for .wilson/rabbit-data: H2 recorded
+    // both and checked one. Either pre-existing refuses the WHOLE reset — the
+    // confirm sentence promises "everything WILSON made", nothing else.
+    if (!created || created.projects !== true || created.rabbit_data !== true) {
       return {
         ok: false,
-        error: `${PROJECTS_SUBDIR}${path.sep} existed before WILSON opened this folder (or the folder was made by an older WILSON), so Reset will not delete it. Empty it by hand in Explorer, then reset.`,
+        error: `${PROJECTS_SUBDIR}${path.sep} or ${DATA_SUBDIRS.join(path.sep)}${path.sep} existed before WILSON opened this folder (or the folder was made by an older WILSON), so Reset will not delete them. Empty them by hand in Explorer, then reset.`,
       };
     }
     // Two passes — every target is checked BEFORE anything is removed, so a
@@ -449,6 +486,7 @@ function makeLocalDemoRoot({
   }
 
   function getState() {
+    checkPresence();
     return {
       active,
       missing,
@@ -460,15 +498,17 @@ function makeLocalDemoRoot({
 
   return {
     load, open, inspect, close, forget, reset, getState, isKnownFolder,
-    rootDir: () => active,
+    // Every root question re-checks the folder is still on disk (review
+    // round 2, M6) before answering.
+    rootDir: () => { checkPresence(); return active; },
     // The remembered folder that is not on disk (drive unplugged), or null.
     // main.cjs's local API refuses while this is set (review round 1, M6).
-    missingDir: () => missing,
-    dataDir: () => (active ? layoutFor(active, path).dataDir : null),
-    projectsDir: () => (active ? layoutFor(active, path).projectsDir : null),
+    missingDir: () => { checkPresence(); return missing; },
+    dataDir: () => { checkPresence(); return active ? layoutFor(active, path).dataDir : null; },
+    projectsDir: () => { checkPresence(); return active ? layoutFor(active, path).projectsDir : null; },
     // "is this path inside the open demo folder" — the containment question
     // main.cjs's folderRootRefusal and relink authorisation ask.
-    contains: (p) => !!active && isPathInside(active, p),
+    contains: (p) => { checkPresence(); return !!active && isPathInside(active, p); },
     pointerPath,
   };
 }
@@ -484,6 +524,7 @@ module.exports = {
   layoutFor,
   newManifest,
   checkDemoFolderShape,
+  storedRootAllowed,
   classifyFolder,
   normalizePointer,
   withRecent,

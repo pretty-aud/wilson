@@ -361,14 +361,17 @@ describe('makeLocalDemoRoot — root resolution and the folder lifecycle', () =>
     expect(viaLink.open(link)).toMatchObject({ ok: true })
     expect(viaLink.rootDir().toLowerCase()).toBe(realpathSync.native(real).toLowerCase())
 
-    // a `.wilson` link planted inside a folder, pointing at a victim
+    // a `.wilson` link planted inside an open folder AFTER it was initialised
+    // (so provenance says WILSON made both directories — review 2, M5 now
+    // refuses a pre-existing .wilson on its own), pointing at a victim
     const victim = folder('victim')
     mkdirSync(path.join(victim, 'rabbit-data'), { recursive: true })
     writeFileSync(path.join(victim, 'rabbit-data', 'secret.txt'), 'must survive')
     const planted = folder('planted')
-    symlinkSync(victim, path.join(planted, '.wilson'), linkType)
     const root = make()
-    expect(root.open(planted, { allowForeign: true })).toMatchObject({ ok: true })
+    expect(root.open(planted)).toMatchObject({ ok: true, status: 'initialised' })
+    rmSync(path.join(planted, '.wilson'), { recursive: true, force: true })
+    symlinkSync(victim, path.join(planted, '.wilson'), linkType)
     const r = root.reset()
     expect(r.ok).toBe(false)
     expect(r.error).toMatch(/points outside the demo folder/)

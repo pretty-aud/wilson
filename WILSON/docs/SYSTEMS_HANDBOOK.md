@@ -2274,7 +2274,7 @@ Settings → Storage → *Local demo folder*, remembered per machine, copyable.
 <folder>/
   wilson-demo.json          manifest: format, kind, created_at/with, last_opened_at/with
   projects/<slug>/          the project folders (the existing folder_slug layout)
-  .wilson/rabbit-data/      bundles, files-config, thumbnails, rate cards, team, templates
+  .wilson/rabbit-data/      bundles, thumbnails, rate cards, team, templates
 ```
 
 **Where it lives in code.** `electron/localDemoRoot.cjs` is the whole
@@ -2286,7 +2286,9 @@ NAMES AND SIGNATURES and asks the module where they resolve:
 
 - `getRabbitDataDir()` → `localDemoDataDir() || userData/rabbit-data`.
   Everything that hangs off it follows — `getThumbCacheDir()`, the project
-  bundles, `files-config.json`, rate cards, team members, task templates.
+  bundles, rate cards, team members, task templates. NOT `files-config.json`:
+  that is per-machine configuration and stays in userData (review round 2,
+  M4 — a copied folder must not carry another machine's files root).
 - `resolveConfiguredRootDir()` → `localDemoProjectsDir()` first, then the
   S34 chain (workspace root → machine default). Computed from the open
   folder, never stored, so a copied folder still resolves.
@@ -2301,8 +2303,10 @@ NAMES AND SIGNATURES and asks the module where they resolve:
   else wrote), and rebases a stored `folder_root` that points OUTSIDE the
   open folder **and no longer exists** to `<folder>/projects/<slug>`,
   logging a `relinked` event in the bundle. A live folder elsewhere keeps
-  its pointer (L9): losing the only pointer to real files is worse than a
-  same-machine copy resolving to the original.
+  its pointer (L9) but is NOT followed while a demo folder is open (review
+  round 2, H3: `storedRootUsable` → `storedRootAllowed`, by real path) —
+  the project resolves to `<folder>/projects/<slug>` instead, and the record
+  stays for the day the folder is opened on the machine it came from.
 - `getRabbitProjectDir()` and `DELETE /api/rabbit/projects/:id` contain the
   project id with `resolveContainedFilePath` — Express 5 decodes `..%2F` in
   route params, and the base is now a user-chosen folder.
@@ -2374,6 +2378,24 @@ reload the window. `npm run dev` (browser) cannot run Local Server mode at
 all; a desktop build Audrey can sign into is `npx vite build --mode staging
 && npx electron .` (dev builds point at wilson-dev, where her username is a
 different account). Walkthrough: `docs/walkthroughs/18_local_demo_folder.md`.
+
+**Review round 2 (2026-09-10, `src/lib/localDemoBoundary.test.js`).** The
+verdict was "the boundary does not hold", and every finding was fixed the
+same day: per-id files (rate cards, team members, task templates, the
+thumbnail cache) joined a client-chosen id raw — `dataFilePath` in
+`pathContainment.cjs` now contains them, and an escape is answered 404 by an
+error handler registered after the SPA fallback (H1/H2); a bundle's
+`thumbnail_image` is only opened from under a folder the person chose (H2);
+a stored `folder_root` / `files_dir` outside the open folder is not followed
+even when it exists (H3, above); `files-config.json` is per machine (M4);
+`reset()` refuses when either `projects/` or `.wilson/rabbit-data`
+pre-existed (M5); a folder that vanishes while open flips to *missing* on
+the next root question instead of being recreated (M6, `checkPresence`); a
+pick is recorded by real path too, so a junction-reached foreign folder can
+be confirmed (L7); and inside an open demo folder `folderRootRefusal` uses
+the folder's own posix-capable shape check (N8). Out of scope and recorded
+in `OUTSTANDING.md`: the O.T.T.E.R. software routes join `req.params` onto
+`getSoftwareDir()` the same way.
 
 ## 13. The three tools, the shell, and the agent
 
