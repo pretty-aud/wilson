@@ -552,129 +552,143 @@ Everything below is mapped onto what already exists (measured 2026-09-10 on
 files subsystem (`bundle.managedFiles`, the `managed-files` routes in
 `electron/main.cjs` with `stream` and `thumbnail`, `electron/ffmpeg.cjs`,
 `sharp`), the provider's `optimistic` / `pushHistory` / `showUndoToast`
-pattern, and the `supportsManagedFiles` capability flag. Where Audrey's brief
-and the research pull in different directions the brief wins, and the
-question is listed in §5.
+pattern, the relink matcher (`components/relinkMatcher.js`) and the
+`supportsManagedFiles` capability flag. This section was rewritten after
+Audrey's answers (§6); the first draft proposed copying files into project
+storage, and she chose to reference them where they are.
 
 ### 4.1 Adopted
 
 | Practice | Source | What R.A.B.B.I.T. does |
 |---|---|---|
-| A bin is a container inside the project, not a folder on disk | Premiere §2 (bins live only in the `.prproj`); Avid §1 (bins are `.avb` files separate from media) | `bins` rows in the project. Bin membership is metadata on the bin file; moving a file between bins never moves bytes. |
-| Editors order bins by hand and fake it with numeric prefixes | §2 (`01 - Video`), §3 (`00_Sequences … 40_Misc`) | Bins are a hand-ordered list (`sort_order`, drag to reorder). No prefixes needed. |
-| Bins are organised per shoot day, per scene and per media type, and a template pre-makes them | §3 (Frame.io, FSU, PremiumBeat) | A `kind` on each bin (footage, audio, stills, graphics, vfx, selects, other) and a "starter set" the empty state offers: one bin per media type, or one per existing scene, or one per shoot day (§5 Q6). |
-| The clip's name is separate from the file's name; clips are renamed, files never are | §2 (Name renames the project item, not the file); §3 (rename clips to "Sc 1 Tk 1", keep the camera name in a column; never rename camera files) | `display_name` is Audrey's "name of the shot/still/etc."; `original_name` and the on-disk name are kept verbatim from the camera. The bins routes copy files under their **original filename** (the general managed-file POST renames to `Project_File_v001`, which would destroy `A001C003…` names, so bins use their own create route). |
-| Clip metadata is per instance, so one source can appear twice with different logging | §2 (file vs clip metadata) | "Copy to bin" creates a second `bin_files` row pointing at the **same** `managed_file_id`. No bytes are duplicated; each instance has its own name, flag and notes. |
-| Logging fields are typed at ingest: scene, shot, take, camera, roll, day, description, notes, good | Avid §1 (Scene, Take, Camroll, Soundroll, Comments); Premiere §2 (Scene, Shot, Take, Log Note, Description, Good); §3 (what the assistant types) | Those exact fields on `bin_files`, editable inline and in bulk, entered on the add dialog before the copy starts. |
-| Take numbers belong to the setup, not the scene; slates carry modifiers (PU, SER, MOS, plate) | §3 | `slate` (free text, e.g. `24A`), `take_number`, `take_modifier`. The scene and shot links are separate from the slate text because a slate can name a setup that has no shot row yet. |
-| The technical columns are derived, not typed: duration, start timecode, frame size, fps, codec, file size | Avid §1 (Duration, Start, Video, FPS); Premiere §2 (Media Duration, Video Info, Frame Rate) | Probed once at add: `ffmpeg -i` already runs for `Duration:` (`probeDurationSec`); the same stderr carries `Stream … Video: h264 …, 1920x1080, 23.98 fps` and `timecode :`, so width, height, fps, codec and start timecode cost nothing extra. `sharp` gives stills their size. Without ffmpeg the renderer reads duration and size from a hidden `<video>` for browser-playable files, exactly as the thumbnail fallback does today. |
-| A poster frame per clip; a frame view and a list view | Avid §1 (Frame / Text views); Premiere §2 (Icon / List views) | The existing `managed-files/:id/thumbnail` route (ffmpeg poster, renderer fallback, `sharp` for stills). Grid and table views of a bin, with the same sort and filters. |
-| Review is a three-state flag, plus a self-maintaining selects view | FCP Favorite / Rejected / Unrated; Premiere Good + Search Bin `Good = True`; Avid red bin colour for NG | `review_flag` in `select`, `reject`, `unflagged`, with keys `S`, `R`, `U`; a "Selects" filter across a bin or the whole project rather than a physical selects bin (Premiere's search-bin idea: references, not copies). Optional colour label and rating per §5 Q8. |
-| Sift and sort on every column; search | Avid §1 (Custom Sift, multi-column sort); Premiere §2 (search box, Find, Metadata Sort) | Filter chips for media type, review flag, scene, shot, camera, day; free-text search over name, slate, notes, original name; sortable columns. |
-| Ingest copies verified from the card into project storage; bins per day; duplicates and failures are visible | Premiere §2 (Ingest: Copy, verified); §3 (DIT chain, Processed Clips vs PROBLEMATIC) | Add from an OS file dialog, an OS folder dialog (walk the folder, one row per file, a per-file result line) or drag-and-drop; the copy streams through the existing `rabbit:copy-file` IPC with progress; a file whose copy fails is reported, not half-added; duplicates (same source path already in the project, or same name and size) are reported and skipped unless she says otherwise. |
-| A file whose media is missing is "offline" and says so | Premiere §2 (Status, Offline Properties) | The list route stats each body once and returns `online: false` for a missing file; the row shows it and the preview says "file missing on disk" (the stream route already answers 410). |
-| Multiple takes build one shot; the cut names a primary and alternates | §3 (split edits, multicam groups, circle/hero take, alt takes) | Milestone 2: `shot_takes` with a `role` of `primary`, `part` or `alt` and an order, many-to-many (§5 Q9). |
+| A bin is a container inside the project, not a folder on disk | Premiere §2 (bins live only in the `.prproj`); Avid §1 (bins are `.avb` files separate from media) | `bins` rows in the project. Bin membership is metadata on the bin file; moving a file between bins never touches disk. |
+| Bins nest (Avid folders of bins, Premiere nested bins) and are ordered by hand | §1, §2; §3 numeric prefixes | A tree: `parent_bin_id` plus `sort_order` among siblings; drag to reorder and to nest; three levels is plenty (§1, "over-nesting beyond three levels slows navigation"). |
+| Bins are organised per shoot day, per scene and per media type, from a template | §3 (Frame.io, FSU, PremiumBeat) | A `kind` and a colour on each bin; the empty state offers a starter set (one bin per media type, per existing scene, or per shoot day); importing a folder makes one bin per subfolder, nested as the folders are. |
+| Media is never renamed or moved; the NLE references it | §3 (never rename camera media; sidecars and relinks); Premiere §2 (Media File Path); Avid §1 (Drive column) | **Files are referenced in place.** A bin file records the absolute `source_path`, size and mtime; the app never copies, renames or moves it. "Open in Explorer" reveals the real file. |
+| Offline media is a named state, and relinking is a normal operation | Premiere §2 (Status, Offline); Avid §1 (MEDIA OFFLINE); §3 (relink by name and timecode) | The list route stats every path and returns `online`; offline rows are marked and unpreviewable; *Relink…* re-picks a folder, matches by name and size through the existing matcher, shows the matches, then applies. Known roots (every folder picked or dropped from) are remembered so a re-plugged drive relinks on open without asking. |
+| The clip's name is separate from the file's name | §2 (Name renames the project item, not the file); §3 (rename clips, keep the camera name) | `display_name` is Audrey's "name of the shot/still/etc."; `original_name` stays verbatim. |
+| Clip metadata is per instance | §2 (file vs clip metadata); Avid §1 (duplicate = separate clip, same media); §6 Q11 | "Copy to bin" creates a second `bin_files` row with the same `source_path`; each instance has its own name, flag, colour and notes. Relink and offline state apply to every instance of a path. |
+| A frame sequence is one item | §2 (RED and ARRI folders imported as one clip); §3 (VFX plates as DPX/EXR sequences) | A folder of numbered frames (`shot.####.exr`) is one bin file with `is_sequence`, `sequence_pattern`, `frame_count`; the poster is its middle frame; duration derives from the project fps. Detected when a folder is picked or dropped, offered as "add as one sequence" or "add each file". |
+| Every file carries a visible media-type tag, and tags are how you filter | §2 (Media Type column, Label colours, Search Bins); §6 Q2 | `media_type` (video, still, audio, graphic, vfx, sequence, document, other) shown as a coloured tag chip, editable; free-form `tags` beside it; both filterable. |
+| Logging fields are typed at ingest: scene, shot, take, camera, roll, day, description, notes | Avid §1 (Scene, Take, Camroll, Soundroll, Comments); Premiere §2 (Scene, Shot, Take, Log Note, Description); §3 | Those exact fields on `bin_files`, editable inline and in bulk, with the batch fields on the add dialog. |
+| Take numbers belong to the setup; slates carry modifiers | §3 | `slate` (`24A`), `take_number`, `take_modifier` (`PU`, `SER`, `MOS`…), separate from the scene and shot links, because a slate can name a setup that has no shot row yet. |
+| Filenames carry scene, shot, take and camera and are worth parsing as a suggestion | §3 (`A001C003`, `Scene_Shot_Take`), §6 Q4 | The add dialog parses `12A_3_T4_A`, `SC12A_SH03_TK04`, `24A-3`, `A001C003…` into slate, take, camera and roll suggestions, applied only when accepted, never silently. |
+| Technical columns are read from the file, not typed | Avid §1 (Duration, Start, Video, FPS); Premiere §2 (Media Duration, Video Info, Frame Rate) | Probed once at add: `ffmpeg -i` (already run for `Duration:`) also yields codec, width, height, fps and start timecode; `sharp` reads still sizes; without ffmpeg the renderer reads duration and size from a hidden `<video>` for browser-playable files, as the thumbnail fallback does today. |
+| A poster frame per clip; frame view and list view | Avid §1 (Frame / Text); Premiere §2 (Icon / List) | Grid and table views with the same sort and filters; posters via ffmpeg (video, EXR/DPX frames), `sharp` (stills), or the renderer fallback. |
+| Hover-scrub in the frame view | Premiere §2 (Icon View hover scrub); §6 Q11 | Moving the mouse across a tile scrubs MP4 / WebM through the stream route; other formats keep their poster. |
+| Review is a three-state flag, a colour label, and the director's circle | FCP Favorite / Rejected / Unrated; Premiere Good + labels; Avid Color column; §3 circled takes; §6 Q5 | `review_flag` (`unflagged | select | reject`, keys S R U), `color` (eight labels), `circled` (the director's pick, key C). A "Selects" filter replaces a physical selects bin. No star rating. |
+| Sift, sort and search on every column | Avid §1 (Custom Sift, multi-column sort); Premiere §2 (search, Find, Search Bins) | Filter chips for media type, tag, flag, circled, colour, scene, shot, camera, day, online; free-text search over name, slate, notes, original name, path; sortable columns. |
+| Ingest reports duplicates and failures per file | Premiere §2 (Processed Clips vs left outside); §3; §6 Q9 | The add dialog lists duplicates (same path already in the project; same name and size elsewhere) and lets her skip or add each one; every file gets a result line. |
+| One shot in the cut is built from several takes | §3 (split edits, multicam, hero and alt takes); §6 Q6 | Milestone 2: `shot_takes` with `role` `primary | part | alt`, ordered, many-to-many; a take may serve several shots; the primary's poster fills an empty shot thumbnail. |
 
 ### 4.2 Simplified or left out, and why
 
-- **No nesting for Friday.** Both tools nest, and both communities flatten
-  with numeric prefixes anyway (§2, §3). A hand-ordered flat list gives the
-  ordering without a tree UI. `parent_bin_id` stays in the model, nullable and
-  unused, so nesting is a UI change later, not a migration.
-- **No subclips, markers, script integration or multicam grouping.** Those
-  are editing-time tools (§1 locators and ScriptSync, §2 markers and
-  multicam). Audrey's spec is review and organisation before the edit, and
-  "this is all this feature should have".
-- **No proxies or transcodes.** The desktop plays what Chromium plays
-  (H.264 / AAC MP4, WebM) through the Range-capable stream route; a
-  professional codec gets its poster frame and an honest "preview not
-  available for this format", the state the existing `VideoPreview` already
-  names. Per §5 Q10.
-- **No ALE import, no filename parsing by default.** The NLEs do not parse
-  filenames either; they read the ALE (§3). A conservative parser for the
-  common `Scene_Shot_Take_Camera` shapes is offered as a suggestion on the
-  add dialog, never applied silently (§5 Q7).
-- **Bins are not the deliverables file manager.** `Assets` keeps versions,
-  `v001` naming and the `ASSETS/` mirror. Bin files copy to
-  `BINS/<Bin-Slug>/` under the project root with their original names and
-  are never versioned.
-- **Bytes stay where they were ingested.** Moving a bin file to another bin
-  changes `bin_id` only. Renaming or moving camera media breaks relinks and
-  sidecars (§3), and two bin files may share one managed file, so the disk
-  path is set once at ingest. "Open in Explorer" reveals the real file.
+- **No copying into project storage.** Audrey references files where they
+  are (§6 Q1). The managed-files copy path, `v001` naming and the `ASSETS/`
+  mirror stay the deliverables file manager's job; bins never write to the
+  project folder.
+- **No subclips, markers, script integration or multicam grouping.** Editing-
+  time tools (§1, §2); the spec is review and organisation before the edit.
+- **No proxies or transcodes** (§6 Q7). Chromium plays H.264 / AAC MP4 and
+  WebM through the Range-capable stream; a professional codec gets its poster
+  and "preview not available for this format" plus *Open in default app*.
+- **No ALE import.** The parser above is a suggestion, not a log merge.
+- **No checksum matching** for duplicates or relinks (§6 Q9); name and size,
+  as the existing matcher does.
+- **No deleting bytes.** Removing a bin file removes the reference only; the
+  file on disk is hers (§6 Q10).
 
 ### 4.3 Media types and what a card shows
 
-| `media_type` | Extensions (from the existing `VIDEO_EXTENSIONS` / `THUMB_EXTENSIONS` sets plus audio) | Card |
+| `media_type` | Extensions | Card |
 |---|---|---|
-| `video` | .mp4 .mov .m4v .webm .mkv .avi .mxf .mts .m2ts .r3d .ari .braw .dnx… | poster frame, duration, WxH, fps, codec, slate / take, camera, flag |
-| `still` | .jpg .jpeg .png .gif .webp .tiff .tif .bmp .avif .heic | thumbnail, WxH, flag |
-| `audio` | .wav .aif .aiff .mp3 .flac .m4a .ogg | waveform icon, duration, roll, flag; inline `<audio>` |
-| `graphic` | .psd .ai .svg .eps .pdf(design) | type icon, WxH when readable, flag |
-| `vfx` | .exr .dpx (single or sequence folder), .mov renders | poster when decodable, else icon; frame count for sequences |
-| `document` | .pdf .txt .docx .xlsx .csv (sides, camera reports, sound reports) | type icon, size |
+| `video` | the existing `VIDEO_EXTENSIONS` set (.mp4 .mov .m4v .webm .mkv .avi .mxf .mts .m2ts .r3d .ari .braw .dnx…) | poster, duration, WxH, fps, codec, slate / take, camera, flag, colour |
+| `still` | .jpg .jpeg .png .gif .webp .tiff .tif .bmp .avif .heic | thumbnail, WxH, flag, colour |
+| `sequence` | a folder of numbered .exr .dpx .png .tif .jpg frames | middle-frame poster, frame count and derived duration, pattern |
+| `audio` | .wav .aif .aiff .mp3 .flac .m4a .ogg .bwf | waveform icon, duration, roll; inline `<audio>` |
+| `graphic` | .psd .psb .ai .svg .eps .indd | type icon, WxH when readable |
+| `vfx` | .exr .dpx single frames, .mov / .mxf renders tagged as vfx | poster when decodable, else icon |
+| `document` | .pdf .txt .md .docx .xlsx .csv .rtf | type icon, size |
 | `other` | anything else | type icon, size |
 
-`media_type` is guessed from the extension at add time and editable.
+`media_type` is guessed from the extension at add time and editable; the tag
+chip is its visible form.
 
 ### 4.4 Data model
 
-Local: `bundle.bins`, `bundle.binFiles`, `bundle.shotTakes` (arrays in the
-project bundle, migrated in on read like `scenes` and `shots`). Cloud, if
-built: migration **0079**, pgTAP suite **75**, RLS as scenes/shots, entries in
-`COLUMN_ALLOWLIST` and `RLS_TABLES`.
+Local: `bundle.bins`, `bundle.binFiles`, `bundle.binRoots`,
+`bundle.shotTakes` in the project bundle (created on first use like the
+existing arrays). Cloud, if ever built: migration **0079**, pgTAP suite
+**75**, RLS as scenes/shots, entries in `COLUMN_ALLOWLIST` and `RLS_TABLES`.
 
 **`bins`** — `id`, `project_id`, `workspace_id` (null locally), `name`,
 `description`, `kind` (`footage | audio | stills | graphics | vfx | selects |
-other`), `color` (label colour or null, §5 Q8), `parent_bin_id` (null, reserved),
+other`), `color` (label colour or null), `parent_bin_id` (null at the root),
 `sort_order`, `created_at`, `created_by`, `updated_at`, `updated_by`.
-Justified by §4.1 rows 1–3 and 8.
+Justified by §4.1 rows 1–3.
 
-**`bin_files`** — `id`, `project_id`, `bin_id`, `managed_file_id` (the bytes:
-path, size, mime, thumbnail cache), `display_name`, `media_type` (§4.3),
-`scene_id` (nullable), `shot_id` (nullable; the take's *intended* setup,
-distinct from milestone 2's assignment), `slate`, `take_number`,
-`take_modifier`, `camera`, `roll`, `shoot_day` (date), `description`,
-`notes`, `review_flag` (`unflagged | select | reject`), `rating` (null or 1–5,
-§5 Q8), `color` (§5 Q8), `duration_sec`, `width`, `height`, `fps`, `codec`,
-`timecode_start`, `frame_count` (image sequences and, derived, video),
-`sort_order`, `added_by`, `added_at`, `updated_at`. `size_bytes`,
-`original_name`, `extension` and `mime_type` live on the managed file and are
-joined for display. `online` is computed by the list route, not stored.
-Justified by §4.1 rows 4–7, 9 and 11.
+**`bin_files`** — `id`, `project_id`, `bin_id`, `display_name`,
+`original_name`, `extension`, `mime_type`, `source_path` (absolute; the
+folder for a sequence), `is_sequence`, `sequence_pattern`, `frame_count`,
+`size_bytes`, `mtime`, `media_type` (§4.3), `tags` (string array), `scene_id`
+(nullable), `shot_id` (nullable; the take's *intended* setup, distinct from
+milestone 2's assignment), `slate`, `take_number`, `take_modifier`,
+`camera`, `roll`, `shoot_day` (date), `description`, `notes`, `review_flag`
+(`unflagged | select | reject`), `circled` (boolean), `color` (one of eight or
+null), `duration_sec`, `width`, `height`, `fps`, `codec`, `timecode_start`,
+`probe_status` (`pending | done | failed | unavailable`), `sort_order`,
+`added_by`, `added_at`, `updated_at`. `online` is computed by the list route,
+never stored. Justified by §4.1 rows 4–17.
+
+**`bin_roots`** — `id`, `project_id`, `path`, `label`, `added_at`,
+`last_seen_at`: every folder the user picked or dropped files from, used to
+relink a re-plugged drive on open (§4.1 row 5) and as the authorisation for
+paths reaching the loopback server (§4.5).
 
 **`shot_takes`** (milestone 2) — `id`, `project_id`, `shot_id`,
 `bin_file_id`, `role` (`primary | part | alt`), `position`, `notes`,
-`created_at`, `updated_at`; unique on (`shot_id`, `bin_file_id`). Justified by
-§4.1 row 12.
+`created_at`, `updated_at`; unique on (`shot_id`, `bin_file_id`). Justified
+by §4.1 row 19.
 
-### 4.5 Where the bytes go and how they get there
+### 4.5 Where the bytes stay and how the app reaches them
 
-1. The user picks files (OS dialog, multi-select), a folder (OS dialog), or
-   drops files on a bin. Electron exposes `File.path` on dropped files, so
-   all three produce source paths.
-2. For each path the renderer asks the new `POST …/bins/:binId/files/prepare`
-   route (in `electron/rabbitBins.cjs`) to check duplicates (same source path
-   recorded in the project; same `original_name` and `size_bytes`) and to
-   guess media type. The add dialog shows the batch: name, type, parsed
-   slate suggestion, duplicate warnings, and the logging fields to apply to
-   the whole batch (scene, shoot day, camera).
-3. On confirm, per file: create the managed-file row through the bins create
-   route (original filename preserved, `folder_path = BINS/<Bin-Slug>/`),
-   copy through the existing `rabbit:copy-file` IPC with progress, then
-   `POST …/bin-files/:id/probe` runs ffmpeg or sharp and fills the technical
-   columns and the poster frame (reusing `generateVideoThumbOnce`). A failed
-   copy removes the row and reports the file; a failed probe leaves the row
-   with the columns blank and the card saying so.
-4. The bins list, bin-file list, patch, bulk patch, move, copy, reorder and
-   delete routes live in `rabbitBins.cjs`, mounted from `main.cjs` with one
-   line and handed the bundle helpers it needs rather than copying them.
-   Delete of a bin file that is the last reference to its managed file
-   deletes the body from disk (hard) after a confirmation that names the
-   count; delete of a bin lists what is inside it first.
-5. Everything is behind `ctx.supportsBins`, true only for the Local Server
-   adapter in the desktop app, mirroring `supportsManagedFiles`. The cloud
-   adapter reports not supported and the tab shows an honest empty state.
+1. **Picking.** The bins routes open the OS dialogs themselves
+   (`POST …/bins/pick-files`, `…/pick-folder`), from the main process, so no
+   path is ever typed into a request body by a page; a folder or file the
+   user picked is recorded as a known root. Drag-and-drop gives the renderer
+   the paths through `webUtils.getPathForFile` (Electron 33 removed
+   `File.path`), and the drop's parent folders are recorded as roots too.
+2. **Same-origin only.** Every bins route that takes a path or mutates
+   anything checks `Sec-Fetch-Site: same-origin` (or an `Origin` equal to the
+   server's own), which a drive-by page on another local origin cannot forge.
+   This is the S14/S17 rule ("a body-picked path would let a drive-by request
+   point a project at the user's Documents") applied to references.
+3. **Prepare, then add.** `POST …/bins/:binId/files/prepare` takes the picked
+   paths, expands folders (sequence detection, subfolder → child bin), guesses
+   media types, parses name suggestions and flags duplicates; the add dialog
+   shows the batch; `POST …/bins/:binId/files` adds the confirmed rows and
+   queues probing.
+4. **Probing and posters.** `POST …/bin-files/:id/probe` runs ffmpeg or
+   `sharp` on the source path and fills the technical columns; `GET
+   …/bin-files/:id/thumbnail` serves a poster cached under the thumbnail
+   cache keyed by a hash of the path (instances share it), through
+   `generateVideoThumbOnce` for video and sequences and `sharp` for stills;
+   `POST …/bin-files/:id/thumbnail` accepts a renderer-decoded JPEG (magic
+   number checked) when there is no ffmpeg. `GET …/bin-files/:id/stream`
+   serves the bytes with Range support and an allowlisted Content-Type, and is
+   what the preview panel and hover-scrub use.
+5. **Lists, edits, moves, copies, reorders, removals** are routes in
+   `electron/rabbitBins.cjs`, mounted from `main.cjs` with one line and handed
+   the bundle helpers it needs. Removing a bin file never touches disk.
+6. **Relink.** `POST …/bins/relink-scan {folderPath}` walks a picked folder
+   (bounded) and returns candidates; the renderer matches with
+   `matchMissingFiles`; `POST …/bins/relink-apply {mappings}` rewrites
+   `source_path` for every instance. On open, offline files trigger the same
+   scan over the known roots and exact unique matches apply themselves.
+7. **Capability.** Everything sits behind `ctx.supportsBins`, true only for
+   the Local Server adapter inside the desktop app, mirroring
+   `supportsManagedFiles`; the cloud adapter reports not supported and the
+   tab shows an honest empty state.
 
 ---
 
@@ -733,3 +747,51 @@ Local Server backend comes first (cloud only if time remains), and Friday
     tiles for browser-playable video (Premiere's Icon View), and Avid's
     two-tier practice of an untouched "dailies" bin per day plus scene bins
     of copies, which "copy to bin" as an instance already supports.
+
+---
+
+## 6. Audrey's answers (2026-09-10) and what they settle
+
+Asked in three groups through the question tool; her exact picks, then the
+consequence.
+
+1. **Bytes: reference in place.** Files stay where they are; the app records
+   the absolute path, size and mtime, never copies, renames or moves. Relink
+   and offline states are therefore first-class (§4.1, §4.5). The first draft's
+   copy design is withdrawn.
+2. **Media types: all of video, stills, audio, graphics, VFX renders,
+   documents, plus frame sequences** — "for frame sequences, these will be
+   saved as a folder. have a way to indicate that a frame sequence acts like a
+   single media type. the frame sequence folder should basically be treated as
+   a single file. lets have a tagging system that indicates each media file
+   type." → `sequence` media type, one row per folder, and a media-type tag
+   chip on every file with free tags beside it.
+3. **Structure: starter set, folder import makes bins per subfolder, and
+   nested bins for Friday.** → the bin tree in §4.4.
+4. **Logging: all of slate / take / modifier, camera / roll / day, scene and
+   shot links, and filename parsing as suggestions.**
+5. **Review: select / reject / unflagged (S R U), eight colour labels, and a
+   circled-take mark.** No star rating.
+6. **Milestone 2: any shot not marked omitted; one take may serve several
+   shots; the primary take's poster fills an empty shot thumbnail** (never
+   overwriting one she set; frame count never overwritten, "use take length"
+   offered).
+7. **Previews: none beyond the poster frame and an honest notice for
+   professional codecs.**
+8. **ffmpeg: she copies the winget `ffmpeg.exe` into `resources/ffmpeg/` in
+   her checkout.** Demo footage format and count not stated; the preview path
+   is built for H.264 MP4 / WebM inline and posters for the rest.
+9. **Duplicates: report, and let her choose per file to skip or add anyway**
+   ("for add anyway make sure user can choose to skip it or still add").
+10. **Delete: deleting a bin with files asks whether to move or remove them;
+    undo for every action.** She did not pick "move file to Recycle Bin", so
+    removing a bin file removes the reference only and the file on disk is
+    never touched (the only reading consistent with reference-in-place).
+11. **Extras: hover-scrub on grid tiles for MP4 / WebM, and "copy to bin" as
+    an instance rather than a duplicate.**
+12. **Relink: offline state with relink by re-picking a folder (matches shown
+    before applying), and auto-relink by scanning known roots on open.**
+
+Earlier, through the controller session (2026-09-09): the Local Server
+backend first, cloud only if time remains; Friday 2026-09-11 afternoon for
+both milestones.
