@@ -14,7 +14,7 @@ import { C } from './binUi'
 import BinPoster from './BinPoster'
 import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
 
-export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max = 4, onOpen, canWrite = true, showCount = true, title }) {
+export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max = 4, onOpen, canWrite = true }) {
   const list = entries || []
   const w = Math.round(height * 16 / 9)
   const shown = list.slice(0, max)
@@ -30,7 +30,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
     )
   }
   return (
-    <button type="button" onClick={open} title={title || `${list.length} take${list.length === 1 ? '' : 's'} — click to manage`}
+    <button type="button" onClick={open} title={`${list.length} take${list.length === 1 ? '' : 's'} — click to manage`}
       className="inline-flex items-center gap-1 rounded-sm px-0.5 hover:bg-stone-700/60 transition-colors" style={{ height: height + 4 }}>
       {shown.map(({ take, file }) => (
         <span key={take.id} className="relative inline-block flex-shrink-0" title={`${file.display_name || file.original_name} · ${TAKE_ROLE_META[take.role]?.label || take.role}`}>
@@ -44,7 +44,7 @@ export default function ShotTakeChips({ entries, thumbUrlFor, height = 24, max =
       {extra > 0 && (
         <span className="text-[9px] font-mono px-1 rounded-sm" style={{ color: C.muted, backgroundColor: C.panel, border: `1px solid ${C.line}` }}>+{extra}</span>
       )}
-      {showCount && <span className="text-[9.5px] font-mono tabular-nums ml-0.5" style={{ color: C.muted }}>{list.length}</span>}
+      <span className="text-[9.5px] font-mono tabular-nums ml-0.5" style={{ color: C.muted }}>{list.length}</span>
     </button>
   )
 }

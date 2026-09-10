@@ -656,8 +656,9 @@ export function localServerAdapter() {
     // Shot takes (milestone 2): bin files assigned to shots, many-to-many.
     // Every mutation answers { affectedShotIds, shotTakes } — the FULL row set
     // of the shots it touched, because a role change or a removal renumbers
-    // and re-roles the siblings; the provider replaces those shots' rows.
-    listShotTakes: (projectId) => jfetch(`${BASE}/projects/${projectId}/shot-takes`),
+    // and re-roles the siblings; the provider replaces those shots' rows. The
+    // rows themselves arrive with listBins (`shotTakes`); there is no separate
+    // list method because nothing needs one.
     // assignments: [{ shot_id, bin_file_id, role?, notes? }] → { created, skipped, … }
     assignShotTakes: (projectId, assignments) => jfetch(`${BASE}/projects/${projectId}/shot-takes`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignments }),

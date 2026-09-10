@@ -22,13 +22,20 @@ export const TAKE_ROLE_META = {
   alt:     { label: 'Alt',     short: 'ALT', color: '#a8a29e', help: 'A spare, kept for review; not in the cut.' },
 }
 
-export const byPosition = (a, b) =>
+const byPosition = (a, b) =>
   (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || ''))
 
 /**
  * Map shotId → [{ take, file }] in position order. A take whose file is gone
  * is skipped; the shot's existence is the caller's business (it is iterating
  * shots already).
+ *
+ * Presented the way the server presents a read (rabbitBins.cjs
+ * `presentTakes`): positions renumbered 0..n-1 and exactly one primary — the
+ * first flagged, else the first — so that while a file removal is still
+ * optimistic (its take rows are orphans in state until the next response)
+ * the chips, the panel's summary and the star buttons agree. The take
+ * objects are copies when a field differs; state is never mutated.
  */
 export function takesByShot(shotTakes, binFiles) {
   const files = new Map((binFiles || []).map(f => [f.id, f]))
@@ -38,6 +45,13 @@ export function takesByShot(shotTakes, binFiles) {
     if (!file) continue
     if (!out.has(take.shot_id)) out.set(take.shot_id, [])
     out.get(take.shot_id).push({ take, file })
+  }
+  for (const list of out.values()) {
+    const primary = list.find(e => e.take.role === 'primary') || list[0]
+    list.forEach((e, i) => {
+      const role = e.take.id === primary.take.id ? 'primary' : (e.take.role === 'primary' || !TAKE_ROLES.includes(e.take.role) ? 'alt' : e.take.role)
+      if (e.take.position !== i || e.take.role !== role) e.take = { ...e.take, position: i, role }
+    })
   }
   return out
 }

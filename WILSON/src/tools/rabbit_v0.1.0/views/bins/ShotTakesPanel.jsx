@@ -32,7 +32,7 @@ function NoteInput({ take, canWrite, onUpdate }) {
   )
 }
 
-export function RoleLegend() {
+function RoleLegend() {
   return (
     <div className="flex items-start gap-2 text-[9.5px] font-mono" style={{ color: C.dimmer }}>
       <Info className="w-3 h-3 flex-shrink-0 mt-px" />
@@ -46,8 +46,8 @@ export function RoleLegend() {
 }
 
 export default function ShotTakesPanel({
-  shot, entries, fps, canWrite, thumbUrlFor, binPathFor,
-  onUpdate, onRemove, onReorder, onOpenPicker, onUseLength, compact = false,
+  shot, entries, fps, canWrite, thumbUrlFor, binPathFor, projectId = null,
+  onUpdate, onRemove, onReorder, onOpenPicker, onUseLength,
 }) {
   const list = entries || []
   const primary = primaryOf(list)
@@ -93,7 +93,7 @@ export default function ShotTakesPanel({
               <div key={take.id} className="flex items-start gap-2.5 px-2.5 py-2"
                 style={{ backgroundColor: isPrimary ? 'rgba(234,88,12,0.06)' : C.bg, borderBottom: i < list.length - 1 ? `1px solid ${C.faint}` : 'none', borderLeft: `3px solid ${meta.color}` }}>
                 <span className="text-[10px] font-mono tabular-nums pt-2 w-4 text-right flex-shrink-0" style={{ color: C.dimmer }}>{i + 1}</span>
-                <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={compact ? 56 : 72} height={compact ? 32 : 41} />
+                <BinPoster row={file} src={thumbUrlFor?.(file.id)} width={72} height={41} />
                 <div className="flex-1 min-w-0 flex flex-col gap-1">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="truncate text-[11.5px] font-mono" style={{ color: C.bright }} title={file.display_name || file.original_name}>{file.display_name || file.original_name}</span>
@@ -113,7 +113,7 @@ export default function ShotTakesPanel({
                     <IconBtn Icon={ArrowUp} title="Move up" size={3} disabled={!canWrite || i === 0} onClick={() => move(i, -1)} />
                     <IconBtn Icon={ArrowDown} title="Move down" size={3} disabled={!canWrite || i === list.length - 1} onClick={() => move(i, 1)} />
                     <IconBtn Icon={Star} title={isPrimary ? 'This is the primary take' : 'Make this the primary take'} size={3} active={isPrimary} disabled={!canWrite || isPrimary} onClick={() => onUpdate(take.id, { role: 'primary' })} />
-                    <IconBtn Icon={FolderOpen} title="Show in Bins" size={3} onClick={() => navigateTo({ view: 'bins', fileId: file.id })} />
+                    <IconBtn Icon={FolderOpen} title="Show in Bins" size={3} onClick={() => navigateTo({ view: 'bins', fileId: file.id, projectId })} />
                     <IconBtn Icon={X} title="Unassign from this shot" size={3} danger disabled={!canWrite} onClick={() => onRemove([take.id])} />
                   </div>
                 </div>
@@ -122,7 +122,7 @@ export default function ShotTakesPanel({
           })}
         </div>
       )}
-      {!compact && <RoleLegend />}
+      <RoleLegend />
     </div>
   )
 }

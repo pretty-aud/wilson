@@ -29,18 +29,23 @@ function statusColor(status) {
   }
 }
 
-export default function AssignToShotDialog({ files, scenes, shots, shotTakes, thumbUrlFor, onConfirm, onCancel, busy }) {
+export default function AssignToShotDialog({ files, binFiles, scenes, shots, shotTakes, thumbUrlFor, onConfirm, onCancel, busy }) {
   const fileIds = useMemo(() => new Set((files || []).map(f => f.id)), [files])
+  const liveFiles = useMemo(() => new Set((binFiles || []).map(f => f.id)), [binFiles])
   const preferSceneId = useMemo(() => commonSceneId(files), [files])
   const { groups, hiddenOmitted } = useMemo(() => assignableShotGroups(shots, scenes, { preferSceneId }), [shots, scenes, preferSceneId])
+  // Counted through the live files, like every other consumer: a take whose
+  // file was just removed is an orphan in state until the next response and
+  // must not be counted (adversarial review).
   const takesPerShot = useMemo(() => {
     const out = new Map()
     for (const t of shotTakes || []) {
+      if (binFiles && !liveFiles.has(t.bin_file_id)) continue
       if (!out.has(t.shot_id)) out.set(t.shot_id, { total: 0, ofThese: 0 })
       const o = out.get(t.shot_id); o.total++; if (fileIds.has(t.bin_file_id)) o.ofThese++
     }
     return out
-  }, [shotTakes, fileIds])
+  }, [shotTakes, fileIds, binFiles, liveFiles])
   const [search, setSearch] = useState('')
   const [picked, setPicked] = useState(() => new Set())
   const [role, setRole] = useState('auto')
@@ -80,7 +85,7 @@ export default function AssignToShotDialog({ files, scenes, shots, shotTakes, th
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
         </div>
-        <span className="text-[9.5px] font-mono" style={{ color: C.dimmer }}>tick several to use these takes in more than one shot</span>
+        <span className="text-[9.5px] font-mono" style={{ color: C.dimmer }}>tick several to use these takes in more than one shot · a shot's first take is always its primary</span>
       </div>
 
       <div className="rounded-sm overflow-hidden" style={{ border: `1px solid ${C.line}` }}>

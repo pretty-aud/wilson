@@ -3,10 +3,14 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { createRequire } from 'node:module'
 import {
   takesByShot, primaryOf, takesSummary, usageByFile, usageCounts,
   assignableShotGroups, commonSceneId, matchesShotSearch, rankFilesForShot, takeLengthFrames, TAKE_ROLES,
 } from './shotTakeSelectors.js'
+
+const require = createRequire(import.meta.url)
+const server = require('../../../../electron/rabbitBins.cjs')
 
 const scenes = [
   { id: 'sc2', name: 'Sc 2 Kitchen', scene_number: 2 },
@@ -42,6 +46,19 @@ describe('joins', () => {
     expect(m.get('sh3').length).toBe(1)
     expect(m.get('gone-shot').length).toBe(1) // the shot's existence is the caller's business
     expect(m.has('sh2')).toBe(false)
+  })
+  it('takesByShot presents like the server: positions renumbered, exactly one primary, state untouched', () => {
+    // f1 (the primary of sh1) is gone from the files: the next take must read
+    // as primary and positions must close up — while the rows stay as they were.
+    const rows = takes.map(t => ({ ...t }))
+    const m = takesByShot(rows, files.filter(f => f.id !== 'f1'))
+    expect(m.get('sh1').map(e => [e.take.id, e.take.role, e.take.position])).toEqual([['t1', 'primary', 0]])
+    expect(rows.find(t => t.id === 't1')).toMatchObject({ role: 'alt', position: 1 })
+    // Two claimants (a restored orphan beside a promoted take): the first by position wins, the other reads alt.
+    const two = [{ id: 'a', shot_id: 's', bin_file_id: 'f1', role: 'primary', position: 0 }, { id: 'b', shot_id: 's', bin_file_id: 'f2', role: 'primary', position: 2 }, { id: 'c', shot_id: 's', bin_file_id: 'f3', role: 'part', position: 5 }]
+    expect(takesByShot(two, files).get('s').map(e => [e.take.id, e.take.role, e.take.position])).toEqual([['a', 'primary', 0], ['b', 'alt', 1], ['c', 'part', 2]])
+    // And the server's own presentation agrees row for row.
+    expect(server.presentTakes(two).map(t => [t.id, t.role, t.position])).toEqual([['a', 'primary', 0], ['b', 'alt', 1], ['c', 'part', 2]])
   })
   it('primaryOf prefers the flagged row and falls back to the first', () => {
     const m = takesByShot(takes, files)
@@ -106,7 +123,8 @@ describe('take length', () => {
     expect(takeLengthFrames({ duration_sec: 0.01 }, 24)).toBe(1)
     expect(takeLengthFrames(null, 24)).toBeNull()
   })
-  it('the role vocabulary matches the server', () => {
+  it('the role vocabulary matches the server (ESM here, CJS there, agreement by test)', () => {
+    expect(TAKE_ROLES).toEqual(server.TAKE_ROLES)
     expect(TAKE_ROLES).toEqual(['primary', 'part', 'alt'])
   })
 })

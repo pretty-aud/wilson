@@ -102,7 +102,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
         </div>
       </div>
       <div className="mt-2 text-[9.5px] font-mono leading-relaxed" style={{ color: C.dimmer }}>
-        Files stay in their bins; a take is a link. A file may be assigned to several shots. Roles: {TAKE_ROLES.map(r => `${TAKE_ROLE_META[r].label} — ${TAKE_ROLE_META[r].help}`).join(' ')}
+        Files stay in their bins; a take is a link. A file may be assigned to several shots.{!hasPrimary ? ' This shot has no primary yet: its first take becomes the primary whatever role is chosen.' : ''} Roles: {TAKE_ROLES.map(r => `${TAKE_ROLE_META[r].label} — ${TAKE_ROLE_META[r].help}`).join(' ')}
       </div>
     </Modal>
   )

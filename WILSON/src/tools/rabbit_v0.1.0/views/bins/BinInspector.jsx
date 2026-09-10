@@ -27,14 +27,19 @@ function useDraft(value, key) {
   return [draft, setDraft]
 }
 
+// The header is a row of SIBLINGS — the toggle button and the optional
+// right-hand action — never a button inside a button (invalid HTML; React
+// warns and browsers may split the DOM, so the inner click lands on the toggle).
 function Section({ title, children, open = true, onToggle, right = null }) {
   return (
     <div style={{ borderBottom: `1px solid ${C.line}` }}>
-      <button type="button" onClick={onToggle} className="w-full flex items-center gap-1.5 px-3 py-2 text-left">
-        {onToggle ? (open ? <ChevronDown className="w-3 h-3" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3" style={{ color: C.dim }} />) : null}
-        <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1" style={{ color: C.dim }}>{title}</span>
+      <div className="flex items-center gap-1.5 pr-2">
+        <button type="button" onClick={onToggle} className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">
+          {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
+          <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
+        </button>
         {right}
-      </button>
+      </div>
       {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
     </div>
   )
@@ -44,7 +49,7 @@ export default function BinInspector({
   rows, scenes, shots, fps, canWrite, ffmpeg, thumbUrlFor, streamUrlFor,
   onPatch, onOpen, onProbe, onRemove, binPathFor, width = 320,
   // Shot takes (milestone 2): usage is Map fileId → [{ take, shot, scene }].
-  usage = null, onAssign = null, onUnassign = null,
+  usage = null, onAssign = null, onUnassign = null, projectId = null,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -151,7 +156,7 @@ export default function BinInspector({
                       <span className="px-1 rounded-sm text-[8.5px] uppercase tracking-wider flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
                         {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
                       </span>
-                      <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id })} />
+                      <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id, projectId })} />
                       {canWrite && onUnassign && <IconBtn Icon={X} title="Unassign from this shot" size={3} danger onClick={() => onUnassign([take.id])} />}
                     </div>
                   )

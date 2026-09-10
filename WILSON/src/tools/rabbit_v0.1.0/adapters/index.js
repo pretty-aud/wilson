@@ -237,8 +237,9 @@ import { googleDriveAdapter } from './googleDriveAdapter';
 // Shot takes (milestone 2): bin files assigned to shots, many-to-many, ordered,
 // with a role (primary | part | alt) and notes; `bundle.shotTakes`. Every
 // mutation answers { affectedShotIds, shotTakes } — the full row set of the
-// shots it touched — because siblings are re-roled and renumbered.
-//   listShotTakes(projectId)                       → { shotTakes } (live rows only: shot and file both exist)
+// shots it touched — because siblings are re-roled and renumbered. The rows
+// arrive with listBins (`shotTakes`, live rows only: shot and file both exist,
+// presented with positions 0..n-1 and exactly one primary per shot).
 //   assignShotTakes(projectId, [{ shot_id, bin_file_id, role?, notes? }]) → { created, skipped, … }
 //   updateShotTake(projectId, id, { role?, notes?, position? }) → { take, … }
 //   removeShotTakes(projectId, ids)                → { removed, … }

@@ -176,12 +176,21 @@ export function Menu({ x, y, items, onClose, minWidth = 200 }) {
   )
 }
 
+// Open modals, bottom to top. Escape closes only the TOPMOST one (adversarial
+// review: the take picker over the takes dialog closed both). Registered once
+// per mount so a re-render of a lower modal cannot move it to the top.
+const modalStack = []
+
 export function Modal({ title, children, footer, onClose, width = 640, subtitle = null, busy = false }) {
+  const onCloseRef = useRef(onClose); onCloseRef.current = onClose
+  const busyRef = useRef(busy); busyRef.current = busy
   useEffect(() => {
-    const key = (e) => { if (e.key === 'Escape' && !busy) onClose?.() }
+    const id = {}
+    modalStack.push(id)
+    const key = (e) => { if (e.key === 'Escape' && !busyRef.current && modalStack[modalStack.length - 1] === id) onCloseRef.current?.() }
     document.addEventListener('keydown', key)
-    return () => document.removeEventListener('keydown', key)
-  }, [onClose, busy])
+    return () => { document.removeEventListener('keydown', key); const i = modalStack.indexOf(id); if (i >= 0) modalStack.splice(i, 1) }
+  }, [])
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center" style={{ backgroundColor: 'rgba(12,10,9,0.72)' }}
       onMouseDown={e => { if (e.target === e.currentTarget && !busy) onClose?.() }}>

@@ -314,13 +314,17 @@ export default function BinsView() {
     try { await ctx.removeShotTakes(takeIds) } catch (e) { say(e?.message || String(e), 'error') }
   }, [ctx, say])
   // "Show in Bins" from a shot's takes lands on the file, selected, in its bin.
+  // Declined (false) until the file is in state, so a request made before the
+  // list landed is retried, not lost.
   const onNavigate = useCallback((p) => {
-    const f = p?.fileId ? files.find(x => x.id === p.fileId) : null
-    if (!f) return
+    if (!p?.fileId) return true
+    const f = files.find(x => x.id === p.fileId)
+    if (!f) return false
     setCurrentBinId(f.bin_id); setIncludeNested(true); setSearch(''); setFilters(EMPTY_FILTERS)
     setSelection(new Set([f.id])); setCurrentId(f.id); anchorRef.current = f.id
+    return true
   }, [files])
-  useNavigateTarget('bins', onNavigate)
+  useNavigateTarget('bins', onNavigate, projectId)
 
   // ── Adding files ──
   const addPathsTo = useCallback(async (binId, paths) => {
@@ -781,7 +785,7 @@ export default function BinsView() {
         <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
           onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
-          usage={usage} onAssign={openAssign} onUnassign={unassign} />
+          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} />
       </div>
 
       {/* ── Footer hints ── */}
@@ -806,7 +810,7 @@ export default function BinsView() {
           onClose={() => setRelinkOpen(false)} />
       )}
       {assignDlg && (
-        <AssignToShotDialog files={assignDlg} scenes={scenes} shots={shots} shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy}
+        <AssignToShotDialog files={assignDlg} binFiles={files} scenes={scenes} shots={shots} shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy}
           onConfirm={confirmAssign} onCancel={() => !assignBusy && setAssignDlg(null)} />
       )}
     </div>

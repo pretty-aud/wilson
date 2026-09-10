@@ -2785,9 +2785,14 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, shotTakes: replaceTakeRows(prev.shotTakes, res.affectedShotIds, res.shotTakes) }));
   };
 
+  // Every mutator below captures the project it was called for and drops its
+  // response if the project changed during the await (the refreshBins rule):
+  // project B must not gain project A's rows.
   const replaceShotTakes = useCallback(async (shotIds, rows) => {
     const a = binsAdapter();
-    const res = await a.replaceShotTakes(activeProjectId, shotIds, rows);
+    const pid = activeProjectId;
+    const res = await a.replaceShotTakes(pid, shotIds, rows);
+    if (activeProjectIdRef.current !== pid) return res;
     applyTakeResponse(res);
     return res;
   }, [binsAdapter, activeProjectId]);
@@ -2800,11 +2805,13 @@ export function RabbitProvider({ children }) {
   // assignments: [{ shot_id, bin_file_id, role?, notes? }]
   const assignShotTakes = useCallback(async (assignments) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const list = (assignments || []).filter(x => x && x.shot_id && x.bin_file_id);
     if (!list.length) return { created: [], skipped: [], affectedShotIds: [], shotTakes: [] };
     const shotIds = [...new Set(list.map(x => x.shot_id))];
     const before = snapshotTakes(shotIds);
-    const res = await a.assignShotTakes(activeProjectId, list);
+    const res = await a.assignShotTakes(pid, list);
+    if (activeProjectIdRef.current !== pid) return res;
     applyTakeResponse(res);
     if (res?.created?.length) pushTakeHistory(shotIds, before, res.shotTakes || []);
     return res;
@@ -2813,18 +2820,22 @@ export function RabbitProvider({ children }) {
   // patch: { role?, notes?, position? }
   const updateShotTake = useCallback(async (id, patch) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const row = (bundleRef.current.shotTakes || []).find(t => t.id === id);
-    const shotIds = row ? [row.shot_id] : [];
-    const before = snapshotTakes(shotIds);
-    const res = await a.updateShotTake(activeProjectId, id, patch);
+    const before = row ? snapshotTakes([row.shot_id]) : null;
+    const res = await a.updateShotTake(pid, id, patch);
+    if (activeProjectIdRef.current !== pid) return res;
     applyTakeResponse(res);
-    const affected = res?.affectedShotIds || shotIds;
-    if (affected.length) pushTakeHistory(affected, before, res.shotTakes || []);
+    // No row in state means no honest snapshot; an entry whose `before` is
+    // empty would undo an edit by wiping the shot (adversarial review). Apply
+    // the response and push nothing.
+    if (row && res?.affectedShotIds?.length) pushTakeHistory(res.affectedShotIds, before, res.shotTakes || []);
     return res;
   }, [binsAdapter, activeProjectId]);
 
-  const removeShotTakes = useCallback(async (ids, { quiet = false } = {}) => {
+  const removeShotTakes = useCallback(async (ids) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const set = new Set(ids || []);
     const rows = (bundleRef.current.shotTakes || []).filter(t => set.has(t.id));
     if (!rows.length) return { removed: [], affectedShotIds: [], shotTakes: [] };
@@ -2832,13 +2843,14 @@ export function RabbitProvider({ children }) {
     const before = snapshotTakes(shotIds);
     const res = await optimistic(
       prev => ({ ...prev, shotTakes: (prev.shotTakes || []).filter(t => !set.has(t.id)) }),
-      () => a.removeShotTakes(activeProjectId, [...set]),
+      () => a.removeShotTakes(pid, [...set]),
     );
+    if (activeProjectIdRef.current !== pid) return res;
     applyTakeResponse(res);
     const removed = res?.removed || [];
     if (removed.length) {
       const token = pushTakeHistory(res.affectedShotIds || shotIds, before, res.shotTakes || []);
-      if (token != null && !quiet) {
+      if (token != null) {
         const shot = bundleRef.current.shots.find(s => s.id === shotIds[0]);
         const where = shotIds.length === 1 && shot ? ` from "${shot.name || 'Untitled shot'}"` : '';
         showUndoToast(removed.length === 1 ? `Unassigned 1 take${where}` : `Unassigned ${removed.length} takes${where}`, () => undoHistoryEntry(token));
@@ -2849,12 +2861,14 @@ export function RabbitProvider({ children }) {
 
   const reorderShotTakes = useCallback(async (shotId, ids) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const before = snapshotTakes([shotId]);
     const pos = new Map((ids || []).map((id, i) => [id, i]));
     const res = await optimistic(
       prev => ({ ...prev, shotTakes: (prev.shotTakes || []).map(t => pos.has(t.id) ? { ...t, position: pos.get(t.id) } : t) }),
-      () => a.reorderShotTakes(activeProjectId, shotId, ids),
+      () => a.reorderShotTakes(pid, shotId, ids),
     );
+    if (activeProjectIdRef.current !== pid) return res;
     applyTakeResponse(res);
     pushTakeHistory([shotId], before, res?.shotTakes || []);
     return res;

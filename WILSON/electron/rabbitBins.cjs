@@ -390,7 +390,7 @@ function mountRabbitBins(expressApp, deps) {
       bins: bundle.bins,
       binFiles: bundle.binFiles.map(withOnline),
       binRoots: bundle.binRoots,
-      shotTakes: liveTakes(bundle).slice().sort(byPosition),
+      shotTakes: presentTakes(liveTakes(bundle)),
       ffmpeg: ffmpeg.hasFfmpeg(),
     });
   });
@@ -1088,6 +1088,18 @@ function mountRabbitBins(expressApp, deps) {
   // leaves its rows on disk, so an undo that restores the shot or the file
   // brings its takes back with it. `liveTakes` is what every response carries.
   //
+  // 🚨 The invariants are re-established on READ as well as on write
+  // (adversarial review, HIGH). The bin-file routes above change what is
+  // live without touching this array — removing the primary's file left a
+  // shot with no primary, and restoring it after another take had been
+  // promoted left it with two — so every response passes the live rows
+  // through `presentTakes`, which renumbers 0..n-1 and keeps exactly one
+  // primary WITHOUT writing: the rows on disk stay verbatim, which is what
+  // makes undoing a removal exact. The one thing a write does to orphans is
+  // demote an orphan primary once a live take is promoted in its place, so
+  // that the restored file comes back as an alt beside the take the editor
+  // chose meanwhile, not as a second primary.
+  //
   // `replace` is the undo primitive: the provider snapshots the rows of the
   // shots a mutation touches and hands them back verbatim to undo, so undo is
   // exact whatever the mutation did to siblings (a promoted primary, shifted
@@ -1114,15 +1126,23 @@ function mountRabbitBins(expressApp, deps) {
       const role = r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role);
       if (r.position !== i || r.role !== role) { r.position = i; r.role = role; r.updated_at = now(); }
     });
+    // An orphan (its file removed) that still says primary would come back as
+    // a second primary when the file is restored; the live take chosen
+    // meanwhile wins. Orphans keep their positions: a restored take lands in
+    // the slot it had (ties by creation time), not at the end.
+    const live = new Set(rows.map(r => r.id));
+    for (const t of bundle.shotTakes) {
+      if (t.shot_id === shotId && !live.has(t.id) && t.role === 'primary') { t.role = 'alt'; t.updated_at = now(); }
+    }
   }
   function takeResponse(bundle, shotIds, extra = {}) {
     const affected = [...new Set(shotIds)];
-    return { ...extra, affectedShotIds: affected, shotTakes: takesOf(bundle, affected) };
+    return { ...extra, affectedShotIds: affected, shotTakes: presentTakes(takesOf(bundle, affected)) };
   }
 
   expressApp.get(`${P}/shot-takes`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
-    res.json({ shotTakes: liveTakes(bundle).slice().sort(byPosition) });
+    res.json({ shotTakes: presentTakes(liveTakes(bundle)) });
   });
 
   // Assign: several files to one shot, one file to several shots, or any
@@ -1238,7 +1258,12 @@ function mountRabbitBins(expressApp, deps) {
     if (!shotIds.length) return res.status(400).json({ error: 'shotIds required' });
     const shotSet = new Set(shotIds);
     for (const id of shotSet) if (!(bundle.shots || []).some(s => s.id === id)) return res.status(400).json({ error: `shot ${id} not found`, code: 'shot_not_found' });
-    const remaining = bundle.shotTakes.filter(t => !shotSet.has(t.shot_id));
+    // Only the LIVE rows of the named shots are replaced. An orphan — its
+    // file removed since — stays on disk (adversarial review, HIGH: the first
+    // draft dropped it, so "remove a file, undo any take edit, undo the
+    // removal" lost the assignment for good).
+    const fileIds = new Set(bundle.binFiles.map(f => f.id));
+    const remaining = bundle.shotTakes.filter(t => !shotSet.has(t.shot_id) || !fileIds.has(t.bin_file_id));
     const usedIds = new Set(remaining.map(t => t.id));
     const seen = new Set(); const clean = [];
     for (const r of rows) {
@@ -1265,10 +1290,37 @@ function mountRabbitBins(expressApp, deps) {
 const TAKE_ROLES = ['primary', 'part', 'alt'];
 const byPosition = (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || ''));
 
+/**
+ * The live rows of any number of shots as a response should show them: per
+ * shot, in (position, created_at) order, renumbered 0..n-1, with exactly one
+ * primary — the first row flagged primary, else the first row; other
+ * claimants read as alt. PURE: returns copies, never touches the rows or
+ * the bundle. The renderer's takesByShot applies the same rule to its own
+ * state (bins/shotTakeSelectors.js), so the two agree while a removal is
+ * still optimistic.
+ */
+function presentTakes(rows) {
+  const byShot = new Map();
+  for (const t of rows || []) {
+    if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, []);
+    byShot.get(t.shot_id).push(t);
+  }
+  const out = [];
+  for (const list of byShot.values()) {
+    list.sort(byPosition);
+    const primary = list.find(r => r.role === 'primary') || list[0];
+    list.forEach((r, i) => {
+      const role = r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role);
+      out.push(r.position === i && r.role === role ? r : { ...r, position: i, role });
+    });
+  }
+  return out;
+}
+
 module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
-  guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor,
+  guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
   MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };

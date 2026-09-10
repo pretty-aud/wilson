@@ -307,7 +307,9 @@ export default function ScenesView() {
   useEffect(() => {
     const c = ctxRef.current
     if (!supportsBins || !project?.id || c?.binsInfo?.loadedFor === project.id) return
-    c?.refreshBins?.().catch(() => {})
+    // Named, not swallowed: without the list the chips show whatever
+    // loadProject left in state, with no posters and no online flags.
+    c?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`))
   }, [supportsBins, project?.id])
   const takeFail = (err, what) => { console.error(`Failed to ${what}:`, err); setTakesNotice(`Could not ${what}: ${err?.message || err}`) }
   const handleAssignTakes = useCallback(async (shotId, fileIds, role) => {
@@ -336,13 +338,24 @@ export default function ScenesView() {
   }, [ctx])
   const takesApi = useMemo(() => ({
     supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canWriteProject && supportsBins,
-    open: setTakesShotId, openPicker: setPickerShotId, binPathFor,
+    open: setTakesShotId, openPicker: setPickerShotId, binPathFor, projectId: project?.id || null,
     onUpdate: handleUpdateTake, onRemove: handleRemoveTakes, onReorder: handleReorderTakes, onUseLength: handleUseTakeLength,
     notice: takesNotice, clearNotice: () => setTakesNotice(null),
-  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
+  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
   // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
-  const onNavigate = useCallback((p) => { if (p?.shotId) { setDetailShotId(p.shotId); setDetailSceneId(null) } else if (p?.sceneId) setDetailSceneId(p.sceneId) }, [])
-  useNavigateTarget('scenes', onNavigate)
+  // Declined (false) until the shot is in state, so the request is retried
+  // rather than lost; a payload for another project is dropped by the hook.
+  const onNavigate = useCallback((p) => {
+    if (p?.shotId) {
+      if (!shots.some(s => s.id === p.shotId)) return false
+      setDetailShotId(p.shotId); setDetailSceneId(null)
+    } else if (p?.sceneId) {
+      if (!scenes.some(s => s.id === p.sceneId)) return false
+      setDetailSceneId(p.sceneId)
+    }
+    return true
+  }, [shots, scenes])
+  useNavigateTarget('scenes', onNavigate, project?.id || null)
   // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
   // them: the provider's history holds every takes mutation (and every
   // scene and shot edit). Never while typing in a field.
@@ -1093,7 +1106,7 @@ export default function ScenesView() {
         if (!shot) return null
         return (
           <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
-            entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor}
+            entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
             onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
             onOpenPicker={() => setPickerShotId(shot.id)}>
             {takesNotice && <div className="mt-2 text-[10.5px] font-mono" style={{ color: '#f59e0b' }}>{takesNotice}</div>}
@@ -1106,7 +1119,7 @@ export default function ScenesView() {
         const entries = takesByShotMap.get(shot.id) || []
         return (
           <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
-            assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.length > 0} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+            assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
             onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
         )
       })()}
@@ -3023,7 +3036,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                   <button type="button" onClick={takes.clearNotice} className="p-0.5 rounded-sm hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
                 </div>
               )}
-              <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor}
+              <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor} projectId={takes.projectId}
                 onUpdate={takes.onUpdate} onRemove={takes.onRemove} onReorder={takes.onReorder} onUseLength={takes.onUseLength}
                 onOpenPicker={() => takes.openPicker(shot.id)} />
             </div>
