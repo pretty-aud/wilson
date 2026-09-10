@@ -43,6 +43,8 @@ const EXPECTED_KEYS = [
   // would be reset to [] by the EMPTY_BUNDLE spread and the whole tree would
   // vanish on every project switch.
   'folders',
+  // The bin system (demo 2026-09-11): same trap, four more keys.
+  'bins', 'binFiles', 'binRoots', 'shotTakes',
 ]
 
 /** A server bundle with one identifiable row in every collection. */

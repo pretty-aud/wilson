@@ -116,6 +116,13 @@ export function localServerAdapter() {
         // missing key reset the array — real data loss on every reload,
         // project switch and realtime refetch.
         milestones:      bundle.milestones || [],
+        // The bin system (demo 2026-09-11) — same reason as every key above.
+        // `binFiles` here carry no `online` flag (the bundle is read raw); the
+        // provider refreshes through listBins, whose route stats every path.
+        bins:            bundle.bins || [],
+        binFiles:        bundle.binFiles || [],
+        binRoots:        bundle.binRoots || [],
+        shotTakes:       bundle.shotTakes || [],
       };
     },
 
@@ -561,5 +568,83 @@ export function localServerAdapter() {
     // so callers can wire it the same way as Supabase without
     // branching on adapter mode.
     subscribeProjectChanges: () => () => {},
+
+    // --- bins ---
+    //
+    // The bin system (demo 2026-09-11, docs/BINS_DESIGN.md). Local Server
+    // ONLY: bin files are references to paths on this machine, the dialogs
+    // open in the main process, and the bytes are served by the loopback
+    // server. Neither the Supabase nor the Drive adapter defines any of
+    // these; the provider feature-detects `listBins` and exposes
+    // `supportsBins`. Every method takes projectId first.
+    listBins: (projectId) => jfetch(`${BASE}/projects/${projectId}/bins`),
+    createBin: (projectId, bin) => jfetch(`${BASE}/projects/${projectId}/bins`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bin),
+    }),
+    updateBin: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/bins/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    // mode 'move' needs target (the bin that receives the files); 'remove'
+    // drops the references. Returns { removedBins, movedFiles, removedFiles }.
+    deleteBin: (projectId, id, { mode = 'remove', target = null } = {}) =>
+      jfetch(`${BASE}/projects/${projectId}/bins/${id}?mode=${mode}${target ? `&target=${encodeURIComponent(target)}` : ''}`, { method: 'DELETE' }),
+    reorderBins: (projectId, order) => jfetch(`${BASE}/projects/${projectId}/bins/reorder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order }),
+    }),
+    pickBinFiles: (projectId) => jfetch(`${BASE}/projects/${projectId}/bins/pick-files`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    pickBinFolder: (projectId, title) => jfetch(`${BASE}/projects/${projectId}/bins/pick-folder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title }),
+    }),
+    prepareBinFiles: (projectId, paths) => jfetch(`${BASE}/projects/${projectId}/bins/prepare`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ paths }),
+    }),
+    addBinFiles: (projectId, binId, items, createSubBins = true) =>
+      jfetch(`${BASE}/projects/${projectId}/bins/${binId}/files`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, createSubBins }),
+      }),
+    updateBinFile: (projectId, id, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+    }),
+    bulkUpdateBinFiles: (projectId, ids, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/bulk`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, patch }),
+    }),
+    moveBinFiles: (projectId, ids, binId) => jfetch(`${BASE}/projects/${projectId}/bin-files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, binId }),
+    }),
+    copyBinFiles: (projectId, ids, binId) => jfetch(`${BASE}/projects/${projectId}/bin-files/copy`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, binId }),
+    }),
+    removeBinFiles: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/bin-files/remove`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    restoreBinFiles: (projectId, rows) => jfetch(`${BASE}/projects/${projectId}/bin-files/restore`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }),
+    }),
+    reorderBinFiles: (projectId, ids) => jfetch(`${BASE}/projects/${projectId}/bin-files/reorder`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    }),
+    probeBinFile: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/probe`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+    }),
+    postBinFileThumbnail: (projectId, id, base64) => jfetch(`${BASE}/projects/${projectId}/bin-files/${id}/thumbnail`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ base64 }),
+    }),
+    // URL builders, not fetches: <img>, <video> and <audio> take a src.
+    binFileThumbnailUrl: (projectId, id, rev = 0) =>
+      `${BASE}/projects/${projectId}/bin-files/${id}/thumbnail${rev ? `?v=${rev}` : ''}`,
+    binFileStreamUrl: (projectId, id, { probe = false } = {}) =>
+      `${BASE}/projects/${projectId}/bin-files/${id}/stream${probe ? '?probe=1' : ''}`,
+    binRelinkScan: (projectId, folderPath = null) => jfetch(`${BASE}/projects/${projectId}/bins/relink-scan`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(folderPath ? { folderPath } : {}),
+    }),
+    binRelinkApply: (projectId, mappings) => jfetch(`${BASE}/projects/${projectId}/bins/relink-apply`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mappings }),
+    }),
+    addBinRoot: (projectId, path, label) => jfetch(`${BASE}/projects/${projectId}/bins/roots`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path, label }),
+    }),
+    removeBinRoot: (projectId, id) => jfetch(`${BASE}/projects/${projectId}/bins/roots/${id}`, { method: 'DELETE' }),
   };
 }

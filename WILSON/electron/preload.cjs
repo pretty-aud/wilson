@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // ── Cloud session bridge ──
 // Persists the Supabase session via main process safeStorage (Electron's
@@ -81,5 +81,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('rabbit:copy-progress', handler);
       return () => ipcRenderer.removeListener('rabbit:copy-progress', handler);
     },
+    // Bins (demo 2026-09-11): the absolute path of a File the user DROPPED on
+    // the window. Electron 33 removed the nonstandard `File.path`; this is the
+    // supported way, and it only exists in the preload. Returns '' when the
+    // File did not come from disk (a paste, a fetch).
+    getPathForFile: (file) => { try { return webUtils.getPathForFile(file) || ''; } catch { return ''; } },
   },
 });
