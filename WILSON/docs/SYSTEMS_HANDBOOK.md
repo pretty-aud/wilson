@@ -2676,6 +2676,32 @@ entity attachments, all three adapters, plus the FileAudit drawer) and
 `SHOTS/`, driven through Electron IPC and available only on
 `localServerAdapter`).
 
+**Bins** (demo 2026-09-11, `docs/BINS_DESIGN.md`): the tab beside Scenes,
+visible under the same `scenes_enabled` toggle, Local Server only
+(`ctx.supportsBins`). A bin is a container inside the project — a tree
+(`bundle.bins`, `parent_bin_id`, hand-ordered) with a kind and a colour — and
+a bin file (`bundle.binFiles`) is a **reference** to a file where it sits on
+the machine (`source_path`), never copied, renamed or moved; a folder of
+numbered frames is one row (`is_sequence`); "copy to bin" makes a second row
+on the same path (an instance). Each row carries the logging an assistant
+editor types (display name, slate, take and modifier, camera, roll, shoot day,
+scene and shot links, tags, description, notes), the review marks
+(`review_flag` select / reject / unflagged, `circled`, an eight-colour label)
+and the technical columns read once by `ffmpeg -i` or `sharp`
+(`electron/ffmpeg.cjs` `probeMediaInfo`). `electron/rabbitBins.cjs` holds every
+route (bins, bin-files, prepare / add, probe, poster, stream, relink, roots),
+mounted from `main.cjs` with its helpers injected and gated to same-origin
+requests because every route takes or serves a path; the OS dialogs open in
+the main process through the same routes, and dropped files reach the
+renderer through `webUtils.getPathForFile` in the preload. Offline is a
+computed state on the list route; relink walks a picked or known folder
+(`bundle.binRoots`) and matches by name and size through the existing
+`relinkMatcher`, automatically on open for known roots. The view is
+`views/BinsView.jsx` with `views/bins/*`; the pure logic is `bins/binMedia.js`
+(the vocabulary, mirrored from the server and pinned by a parity test) and
+`bins/binSelectors.js`. Milestone 2 (`bundle.shotTakes`) assigns bin files to
+shots many-to-many and shows them in the scenes table.
+
 ### 13.4 The shell and the shared surfaces
 
 **The model: every page rendered, one visible.** `renderAllPages()` mounts all

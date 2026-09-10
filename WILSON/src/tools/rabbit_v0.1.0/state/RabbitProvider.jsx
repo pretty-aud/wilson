@@ -108,6 +108,12 @@ const EMPTY_BUNDLE = {
   // means every adapter's loadProject must return it — see the pointer above
   // and adapters/loadProjectBundle.test.js, which fails when one does not.
   folders:        [],
+  // The bin system (demo 2026-09-11, docs/BINS_DESIGN.md §4.4). Same rule:
+  // every adapter's loadProject returns these or the spread resets them.
+  bins:           [],
+  binFiles:       [],
+  binRoots:       [],
+  shotTakes:      [],
 };
 
 function indexById(rows) {
@@ -2391,6 +2397,340 @@ export function RabbitProvider({ children }) {
     setBundle(prev => ({ ...prev, managedFiles: files }));
   }, [activeProjectId]);
 
+  // ── Bins (demo 2026-09-11, docs/BINS_DESIGN.md) ─────────────
+  //
+  // Local Server only, like managed files: the adapter methods exist on that
+  // adapter and nowhere else, so every callback feature-detects and throws a
+  // sentence rather than a TypeError. State lives in the bundle (bins,
+  // binFiles, binRoots) so project switches and realtime refetches reset it
+  // the same way as everything else. History entries call through
+  // mutationsRef so undo always reaches the latest mutator; pushHistory is
+  // suspended while an undo runs, so the mutators may push unconditionally.
+  const binsAdapter = useCallback(() => {
+    if (!adapterRef.current) throw new Error('no adapter');
+    if (!activeProjectId) throw new Error('no project');
+    if (typeof adapterRef.current.listBins !== 'function') {
+      throw new Error('Bins require the Local Server backend');
+    }
+    return adapterRef.current;
+  }, [activeProjectId]);
+
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0 });
+
+  const mergeRows = (rows, incoming) => {
+    const byId = new Map((rows || []).map(r => [r.id, r]));
+    for (const r of incoming || []) byId.set(r.id, { ...(byId.get(r.id) || {}), ...r });
+    return [...byId.values()];
+  };
+
+  const refreshBins = useCallback(async () => {
+    if (!adapterRef.current || !activeProjectId) return null;
+    if (typeof adapterRef.current.listBins !== 'function') return null;
+    const projectId = activeProjectId;
+    const data = await adapterRef.current.listBins(projectId);
+    // The project may have been switched during the await.
+    if (activeProjectIdRef.current !== projectId) return data;
+    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [] }));
+    setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
+    return data;
+  }, [activeProjectId]);
+
+  const addBin = useCallback(async (bin) => {
+    const a = binsAdapter();
+    const created = await a.createBin(activeProjectId, { id: bin.id || uuidv4(), ...bin });
+    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, [created]) }));
+    pushHistory({
+      undoOps: [() => mutationsRef.current.deleteBin(created.id, { mode: 'remove' })],
+      redoOps: [() => mutationsRef.current.addBin(created)],
+    });
+    return created;
+  }, [binsAdapter, activeProjectId]);
+
+  const updateBin = useCallback(async (id, patch) => {
+    const a = binsAdapter();
+    const old = bundleRef.current.bins.find(b => b.id === id);
+    const oldValues = {};
+    if (old) for (const k of Object.keys(patch)) oldValues[k] = old[k];
+    const result = await optimistic(
+      prev => ({ ...prev, bins: prev.bins.map(b => b.id === id ? { ...b, ...patch } : b) }),
+      () => a.updateBin(activeProjectId, id, patch),
+    );
+    if (old) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateBin(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateBin(id, patch)],
+      });
+    }
+    return result;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const restoreBinFiles = useCallback(async (rows) => {
+    const a = binsAdapter();
+    const res = await a.restoreBinFiles(activeProjectId, rows);
+    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.restored) }));
+    return res.restored;
+  }, [binsAdapter, activeProjectId]);
+
+  // mode 'move' (with target) re-homes the files of the bin and its children;
+  // 'remove' drops the references. Undo re-creates the bins (parents first,
+  // same ids) and puts every file back where it was.
+  const deleteBin = useCallback(async (id, { mode = 'remove', target = null } = {}) => {
+    const a = binsAdapter();
+    const res = await a.deleteBin(activeProjectId, id, { mode, target });
+    const removedIds = new Set((res.removedBins || []).map(b => b.id));
+    const moved = new Map((res.movedFiles || []).map(m => [m.id, m]));
+    setBundle(prev => ({
+      ...prev,
+      bins: prev.bins.filter(b => !removedIds.has(b.id)),
+      binFiles: mode === 'move'
+        ? prev.binFiles.map(f => moved.has(f.id) ? { ...f, bin_id: target } : f)
+        : prev.binFiles.filter(f => !removedIds.has(f.bin_id)),
+    }));
+    const removedBins = res.removedBins || [];
+    const token = pushHistory({
+      undoOps: [async () => {
+        // Parents before children so every parent_bin_id resolves.
+        const order = [];
+        const pending = [...removedBins];
+        const have = new Set(bundleRef.current.bins.map(b => b.id));
+        while (pending.length) {
+          const idx = pending.findIndex(b => !b.parent_bin_id || have.has(b.parent_bin_id) || removedIds.has(b.parent_bin_id) && order.some(o => o.id === b.parent_bin_id));
+          const next = pending.splice(idx < 0 ? 0 : idx, 1)[0];
+          order.push(next); have.add(next.id);
+        }
+        for (const b of order) await mutationsRef.current.addBin(b);
+        if (mode === 'move') {
+          const byFrom = new Map();
+          for (const m of res.movedFiles || []) { if (!byFrom.has(m.from)) byFrom.set(m.from, []); byFrom.get(m.from).push(m.id); }
+          for (const [from, ids] of byFrom) await mutationsRef.current.moveBinFiles(ids, from);
+        } else if ((res.removedFiles || []).length) {
+          await mutationsRef.current.restoreBinFiles(res.removedFiles);
+        }
+      }],
+      redoOps: [() => mutationsRef.current.deleteBin(id, { mode, target })],
+    });
+    const bin = removedBins.find(b => b.id === id);
+    if (token != null && bin) {
+      const n = mode === 'move' ? (res.movedFiles || []).length : (res.removedFiles || []).length;
+      const what = n ? (mode === 'move' ? `, ${n} file${n === 1 ? '' : 's'} moved` : `, ${n} file${n === 1 ? '' : 's'} removed`) : '';
+      showUndoToast(`Deleted bin "${bin.name}"${what}`, () => undoHistoryEntry(token));
+    }
+    return res;
+  }, [binsAdapter, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  const reorderBins = useCallback(async (order) => {
+    const a = binsAdapter();
+    const before = bundleRef.current.bins.map(b => ({ id: b.id, parent_bin_id: b.parent_bin_id || null, sort_order: b.sort_order }));
+    const byId = new Map(order.map(o => [o.id, o]));
+    const result = await optimistic(
+      prev => ({ ...prev, bins: prev.bins.map(b => byId.has(b.id) ? { ...b, parent_bin_id: byId.get(b.id).parent_bin_id || null, sort_order: byId.get(b.id).sort_order } : b) }),
+      () => a.reorderBins(activeProjectId, order),
+    );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.reorderBins(before.filter(b => byId.has(b.id)))],
+      redoOps: [() => mutationsRef.current.reorderBins(order)],
+    });
+    return result;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const pickBinFiles = useCallback(() => binsAdapter().pickBinFiles(activeProjectId), [binsAdapter, activeProjectId]);
+  const pickBinFolder = useCallback((title) => binsAdapter().pickBinFolder(activeProjectId, title), [binsAdapter, activeProjectId]);
+  const prepareBinFiles = useCallback((paths, opts) => binsAdapter().prepareBinFiles(activeProjectId, paths, opts), [binsAdapter, activeProjectId]);
+
+  const probeBinFile = useCallback(async (id) => {
+    const a = binsAdapter();
+    const row = await a.probeBinFile(activeProjectId, id);
+    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    return row;
+  }, [binsAdapter, activeProjectId]);
+
+  // Probes run two at a time in the background; an offline or failing row is
+  // marked and skipped, never retried in a loop. `binsInfo.probing` is what
+  // the view shows while it runs.
+  const probeBinFiles = useCallback(async (ids) => {
+    const queue = [...(ids || [])];
+    if (!queue.length) return;
+    setBinsInfo(i => ({ ...i, probing: i.probing + queue.length }));
+    const worker = async () => {
+      while (queue.length) {
+        const id = queue.shift();
+        try { await probeBinFile(id); }
+        catch (err) {
+          setBundle(prev => ({ ...prev, binFiles: prev.binFiles.map(f => f.id === id ? { ...f, probe_status: /offline|410/.test(String(err?.message)) ? 'pending' : 'failed' } : f) }));
+        }
+        finally { setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - 1) })); }
+      }
+    };
+    await Promise.all([worker(), worker()]);
+  }, [probeBinFile]);
+
+  const removeBinFiles = useCallback(async (ids, { quiet = false } = {}) => {
+    const a = binsAdapter();
+    const set = new Set(ids);
+    const res = await optimistic(
+      prev => ({ ...prev, binFiles: prev.binFiles.filter(f => !set.has(f.id)) }),
+      () => a.removeBinFiles(activeProjectId, ids),
+    );
+    const removed = res.removed || [];
+    if (removed.length) {
+      const token = pushHistory({
+        undoOps: [() => mutationsRef.current.restoreBinFiles(removed)],
+        redoOps: [() => mutationsRef.current.removeBinFiles(removed.map(r => r.id), { quiet: true })],
+      });
+      if (token != null && !quiet) {
+        showUndoToast(removed.length === 1
+          ? `Removed "${removed[0].display_name || removed[0].original_name}" from the bin`
+          : `Removed ${removed.length} files from the bin`, () => undoHistoryEntry(token));
+      }
+    }
+    return removed;
+  }, [binsAdapter, optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  const addBinFiles = useCallback(async (binId, items, createSubBins = true) => {
+    const a = binsAdapter();
+    const res = await a.addBinFiles(activeProjectId, binId, items, createSubBins);
+    const created = res.created || [];
+    const bins = res.bins || [];
+    setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeRows(prev.binFiles, created) }));
+    if (created.length) {
+      pushHistory({
+        undoOps: [async () => {
+          await mutationsRef.current.removeBinFiles(created.map(r => r.id), { quiet: true });
+          for (const b of [...bins].reverse()) await mutationsRef.current.deleteBin(b.id, { mode: 'remove' });
+        }],
+        redoOps: [async () => {
+          for (const b of bins) await mutationsRef.current.addBin(b);
+          await mutationsRef.current.restoreBinFiles(created);
+        }],
+      });
+      // Not awaited: the rows are saved; the columns fill in as they arrive.
+      probeBinFiles(created.filter(r => r.online !== false).map(r => r.id)).catch(() => {});
+    }
+    return res;
+  }, [binsAdapter, activeProjectId, probeBinFiles]);
+
+  const updateBinFile = useCallback(async (id, patch) => {
+    const a = binsAdapter();
+    const old = bundleRef.current.binFiles.find(f => f.id === id);
+    const oldValues = {};
+    if (old) for (const k of Object.keys(patch)) oldValues[k] = old[k];
+    const result = await optimistic(
+      prev => ({ ...prev, binFiles: prev.binFiles.map(f => f.id === id ? { ...f, ...patch } : f) }),
+      () => a.updateBinFile(activeProjectId, id, patch),
+    );
+    if (result) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [result]) }));
+    if (old) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.updateBinFile(id, oldValues)],
+        redoOps: [() => mutationsRef.current.updateBinFile(id, patch)],
+      });
+    }
+    return result;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const bulkUpdateBinFiles = useCallback(async (ids, patch) => {
+    const a = binsAdapter();
+    const set = new Set(ids);
+    const olds = bundleRef.current.binFiles.filter(f => set.has(f.id)).map(f => {
+      const o = { id: f.id }; for (const k of Object.keys(patch)) o[k] = f[k]; return o;
+    });
+    const res = await optimistic(
+      prev => ({ ...prev, binFiles: prev.binFiles.map(f => set.has(f.id) ? { ...f, ...patch } : f) }),
+      () => a.bulkUpdateBinFiles(activeProjectId, ids, patch),
+    );
+    if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    if (olds.length) {
+      pushHistory({
+        undoOps: [async () => { for (const o of olds) { const { id, ...values } = o; await mutationsRef.current.updateBinFile(id, values); } }],
+        redoOps: [() => mutationsRef.current.bulkUpdateBinFiles(ids, patch)],
+      });
+    }
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const moveBinFiles = useCallback(async (ids, binId) => {
+    const a = binsAdapter();
+    const set = new Set(ids);
+    const before = bundleRef.current.binFiles.filter(f => set.has(f.id)).map(f => ({ id: f.id, from: f.bin_id }));
+    const res = await optimistic(
+      prev => ({ ...prev, binFiles: prev.binFiles.map(f => set.has(f.id) ? { ...f, bin_id: binId } : f) }),
+      () => a.moveBinFiles(activeProjectId, ids, binId),
+    );
+    if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.binFiles) }));
+    if (before.length) {
+      pushHistory({
+        undoOps: [async () => {
+          const byFrom = new Map();
+          for (const m of before) { if (!byFrom.has(m.from)) byFrom.set(m.from, []); byFrom.get(m.from).push(m.id); }
+          for (const [from, list] of byFrom) await mutationsRef.current.moveBinFiles(list, from);
+        }],
+        redoOps: [() => mutationsRef.current.moveBinFiles(ids, binId)],
+      });
+    }
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const copyBinFiles = useCallback(async (ids, binId) => {
+    const a = binsAdapter();
+    const res = await a.copyBinFiles(activeProjectId, ids, binId);
+    const created = res.created || [];
+    setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, created) }));
+    if (created.length) {
+      pushHistory({
+        undoOps: [() => mutationsRef.current.removeBinFiles(created.map(r => r.id), { quiet: true })],
+        redoOps: [() => mutationsRef.current.restoreBinFiles(created)],
+      });
+    }
+    return created;
+  }, [binsAdapter, activeProjectId]);
+
+  const reorderBinFiles = useCallback(async (ids) => {
+    const a = binsAdapter();
+    const set = new Set(ids);
+    const before = bundleRef.current.binFiles.filter(f => set.has(f.id)).sort((x, y) => (x.sort_order || 0) - (y.sort_order || 0)).map(f => f.id);
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    const result = await optimistic(
+      prev => ({ ...prev, binFiles: prev.binFiles.map(f => pos.has(f.id) ? { ...f, sort_order: pos.get(f.id) } : f) }),
+      () => a.reorderBinFiles(activeProjectId, ids),
+    );
+    pushHistory({
+      undoOps: [() => mutationsRef.current.reorderBinFiles(before)],
+      redoOps: [() => mutationsRef.current.reorderBinFiles(ids)],
+    });
+    return result;
+  }, [binsAdapter, optimistic, activeProjectId]);
+
+  const binRelinkScan = useCallback((folderPath = null) => binsAdapter().binRelinkScan(activeProjectId, folderPath), [binsAdapter, activeProjectId]);
+
+  // A repair, not an edit: no history entry. The rows come back online and
+  // their posters are re-requested by the view through the rev counter.
+  const binRelinkApply = useCallback(async (mappings) => {
+    const a = binsAdapter();
+    const res = await a.binRelinkApply(activeProjectId, mappings);
+    if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const addBinRoot = useCallback(async (path, label) => {
+    const res = await binsAdapter().addBinRoot(activeProjectId, path, label);
+    setBundle(prev => ({ ...prev, binRoots: res.binRoots || prev.binRoots }));
+    return res;
+  }, [binsAdapter, activeProjectId]);
+  const removeBinRoot = useCallback(async (id) => {
+    const res = await binsAdapter().removeBinRoot(activeProjectId, id);
+    setBundle(prev => ({ ...prev, binRoots: res.binRoots || prev.binRoots }));
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const postBinFileThumbnail = useCallback((id, base64) => binsAdapter().postBinFileThumbnail(activeProjectId, id, base64), [binsAdapter, activeProjectId]);
+  const openBinFile = useCallback((id, reveal = false) => binsAdapter().openBinFile(activeProjectId, id, reveal), [binsAdapter, activeProjectId]);
+  const binFileThumbnailUrl = useCallback((id, rev = 0) =>
+    (adapterRef.current && typeof adapterRef.current.binFileThumbnailUrl === 'function' && activeProjectId)
+      ? adapterRef.current.binFileThumbnailUrl(activeProjectId, id, rev) : null, [activeProjectId]);
+  const binFileStreamUrl = useCallback((id, opts) =>
+    (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
+      ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+
   // ── Ingestion runs ──────────────────────────────────────
   // The actual chunked pipeline lives in intake/pipeline.js (Commit 10).
   // The provider only owns the *lifecycle*: start (create run row),
@@ -2685,6 +3025,19 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.addMilestone     = addMilestone;
   mutationsRef.current.updateMilestone  = updateMilestone;
   mutationsRef.current.deleteMilestone  = deleteMilestone;
+  // Bins (demo 2026-09-11): every mutator a history entry can call.
+  mutationsRef.current.addBin           = addBin;
+  mutationsRef.current.updateBin        = updateBin;
+  mutationsRef.current.deleteBin        = deleteBin;
+  mutationsRef.current.reorderBins      = reorderBins;
+  mutationsRef.current.addBinFiles      = addBinFiles;
+  mutationsRef.current.updateBinFile    = updateBinFile;
+  mutationsRef.current.bulkUpdateBinFiles = bulkUpdateBinFiles;
+  mutationsRef.current.moveBinFiles     = moveBinFiles;
+  mutationsRef.current.copyBinFiles     = copyBinFiles;
+  mutationsRef.current.removeBinFiles   = removeBinFiles;
+  mutationsRef.current.restoreBinFiles  = restoreBinFiles;
+  mutationsRef.current.reorderBinFiles  = reorderBinFiles;
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -2740,6 +3093,11 @@ export function RabbitProvider({ children }) {
     projectTeam:     bundle.projectTeam || [],
     scenes:          bundle.scenes || [],
     shots:           bundle.shots || [],
+    // The bin system (demo 2026-09-11).
+    bins:            bundle.bins || [],
+    binFiles:        bundle.binFiles || [],
+    binRoots:        bundle.binRoots || [],
+    shotTakes:       bundle.shotTakes || [],
     levels:          bundle.levels || [],
     experiences:     bundle.experiences || [],
     milestones:      bundle.milestones || [],
@@ -2817,6 +3175,18 @@ export function RabbitProvider({ children }) {
     supportsManagedFiles:
       adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
 
+    // The bin system (demo 2026-09-11). Same two conditions as managed files
+    // and for the same reason: the adapter methods exist on local_server
+    // only, and the picker dialogs and dropped-file paths need the desktop.
+    supportsBins:
+      adapterMode === 'local_server' && !!globalThis.window?.electronAPI?.rabbit,
+    binsInfo,
+    refreshBins, addBin, updateBin, deleteBin, reorderBins,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
+    probeBinFile, probeBinFiles, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
+    binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
+
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
     addLevel, updateLevel, deleteLevel,
@@ -2856,6 +3226,11 @@ export function RabbitProvider({ children }) {
     uploadFile, markFileCoreDefiner, patchFile, deleteFile, downloadFile, thumbnailUrls, fileUrl,
     downloadUrl,
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
+    binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
+    pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
+    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
+    probeBinFile, probeBinFiles, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
+    binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
     addLevel, updateLevel, deleteLevel,

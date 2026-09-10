@@ -207,6 +207,35 @@ import { googleDriveAdapter } from './googleDriveAdapter';
  *   shape and opts contract as subscribeProjectChanges.
  */
 
+// --- bins ---
+//
+// The bin system (demo 2026-09-11, docs/BINS_DESIGN.md §4). LOCAL SERVER
+// ONLY, and feature-detected: the provider checks `typeof adapter.listBins ===
+// 'function'` and exposes `supportsBins`; the Supabase and Drive adapters
+// define none of these, and the Bins tab shows an honest empty state there.
+// Bin files are REFERENCES to paths on this machine (never copied); the OS
+// dialogs open in the main process; the bytes and posters are served by the
+// loopback server. Every method takes projectId first.
+//
+//   listBins(projectId)                          → { bins, binFiles (with `online`), binRoots, ffmpeg }
+//   createBin(projectId, bin) / updateBin(projectId, id, patch)
+//   deleteBin(projectId, id, { mode: 'move'|'remove', target })
+//                                                → { removedBins, movedFiles, removedFiles }
+//   reorderBins(projectId, [{ id, parent_bin_id, sort_order }])
+//   pickBinFiles(projectId) → { paths, canceled } ; pickBinFolder(projectId, title) → { path, canceled }
+//   prepareBinFiles(projectId, paths)            → { items, folders, truncated } (the add dialog's plan)
+//   addBinFiles(projectId, binId, items, createSubBins) → { created, bins, results }
+//   updateBinFile(projectId, id, patch) ; bulkUpdateBinFiles(projectId, ids, patch) → { updated }
+//   moveBinFiles / copyBinFiles(projectId, ids, binId) ; removeBinFiles(projectId, ids) → { removed }
+//   restoreBinFiles(projectId, rows) → { restored } ; reorderBinFiles(projectId, ids)
+//   probeBinFile(projectId, id) → the row with its technical columns filled
+//   binFileThumbnailUrl(projectId, id, rev) / binFileStreamUrl(projectId, id, { probe })  (URLs, not fetches)
+//   postBinFileThumbnail(projectId, id, base64)  (the renderer decoded a frame; no ffmpeg)
+//   binRelinkScan(projectId, folderPath?) → { offline, candidates, truncated } ; binRelinkApply(projectId, mappings)
+//   addBinRoot(projectId, path, label) / removeBinRoot(projectId, id)
+//
+// Milestone 2 (shot takes) adds listShotTakes / setShotTakes to this block.
+
 /** @type {Record<string, () => RabbitAdapter>} */
 const ADAPTERS = {
   supabase:     supabaseAdapter,

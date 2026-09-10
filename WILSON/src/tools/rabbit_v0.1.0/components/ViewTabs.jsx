@@ -12,7 +12,7 @@
 
 import {
   Sparkles, FileText, Boxes, GanttChart, DollarSign, Users, ListChecks,
-  Film, Gamepad2,
+  Film, Gamepad2, Clapperboard,
 } from 'lucide-react'
 
 export const RABBIT_VIEWS = [
@@ -24,6 +24,9 @@ export const RABBIT_VIEWS = [
   { id: 'budget',      label: 'Budget',       Icon: DollarSign },
   { id: 'assets',      label: 'Assets',       Icon: Boxes      },
   { id: 'scenes',      label: 'Scenes',       Icon: Film       },
+  // The bin system (demo 2026-09-11): visible under the same condition as
+  // Scenes (project.scenes_enabled), hidden with it in Rabbit.jsx.
+  { id: 'bins',        label: 'Bins',         Icon: Clapperboard },
   { id: 'levels',      label: 'Levels',       Icon: Gamepad2   },
   { id: 'experiences', label: 'Experiences',   Icon: Sparkles   },
 ]

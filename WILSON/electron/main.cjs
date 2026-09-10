@@ -3505,6 +3505,19 @@ function startLocalServer(distPath) {
       }
     });
 
+    // ── The bin system (demo 2026-09-11) — electron/rabbitBins.cjs ────────────
+    // Mounted with its helpers INJECTED: they are closures over this server
+    // (readRabbitBundle reconciles on read, generateVideoThumbOnce dedupes
+    // ffmpeg runs), so passing them is the alternative to copying them.
+    // 🚨 BEFORE the static/SPA fallback below: '/{*splat}' answers every
+    // request that reaches it, so a route mounted after it never runs
+    // (measured: every bins route 404'd with send's NotFoundError).
+    require('./rabbitBins.cjs').mountRabbitBins(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitUpsertInto, rabbitRemoveFrom, rabbitNotFound,
+      getThumbCacheDir, generateVideoThumbOnce, safeMediaContentType,
+      userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
+    });
+
     // ── Static file serving (SPA fallback) ──
     expressApp.use(express.static(distPath));
     expressApp.get('/{*splat}', (req, res) => {
