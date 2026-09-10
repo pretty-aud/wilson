@@ -88,15 +88,26 @@ unexpired sign-in when the auth server cannot be reached — is a small change
 to `hydrateSupabase` in `src/cloud/auth/supabaseClient.js`; it is a policy
 decision, asked in the hand-off, not built.)
 
-To rehearse without unplugging anything (dev builds only):
+To rehearse without unplugging anything (dev builds only), from `WILSON\` in
+PowerShell:
 
-```bash
-set WILSON_DEV_OFFLINE=1 && npm run electron:dev
+```powershell
+npx vite build --mode staging; $env:WILSON_DEV_OFFLINE = '1'; npx electron .
 ```
 
 Every request that is not to the app's own local server is cancelled before
 it leaves the window. The terminal shows
 `[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled`.
+`Remove-Item Env:\WILSON_DEV_OFFLINE` turns it off again. (In cmd.exe the
+form is `set WILSON_DEV_OFFLINE=1&& npx electron .` with NO space before the
+`&&` — with the space the value becomes `1 ` and the switch does nothing.)
+
+The worse cable, a network that answers nothing: `$env:WILSON_DEV_OFFLINE =
+'stall'` leaves every cloud request pending for ever. With a saved sign-in
+this used to be an all-orange window — the session restore waited on a token
+refresh that never returned, measured on your own app on 2026-09-10 — and it
+is now bounded by the same 15-second ceiling as the sign-in screen's own
+steps, so the sign-in screen appears within it either way.
 
 ---
 

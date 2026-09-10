@@ -3526,6 +3526,18 @@ function startLocalServer(distPath) {
 let mainWindow;
 let localServer;
 
+// Demo sprint (2026-09-10): the ONE definition of "is this request to this
+// app's own loopback server", for the two dev-only cables below. Parsed, not
+// pattern-matched (review round 1, N12): a userinfo trick
+// (`https://127.0.0.1:x@evil.example/`) passed the old regex.
+function isLoopbackRequestUrl(url) {
+  try {
+    const u = new URL(url);
+    return ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
+      || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
+  } catch { return false; }
+}
+
 async function createWindow() {
   const distPath = path.join(__dirname, '..', 'dist');
 
@@ -3560,17 +3572,20 @@ async function createWindow() {
   // builds.
   if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === '1') {
     mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
-      // (review round 1, N12) parsed, not pattern-matched: a userinfo trick
-      // (`https://127.0.0.1:x@evil.example/`) passed the old regex.
-      let local = false;
-      try {
-        const u = new URL(details.url);
-        local = ['devtools:', 'chrome-extension:', 'data:', 'blob:', 'about:'].includes(u.protocol)
-          || (['http:', 'https:', 'ws:', 'wss:'].includes(u.protocol) && u.hostname === '127.0.0.1');
-      } catch { local = false; }
-      callback({ cancel: !local });
+      callback({ cancel: !isLoopbackRequestUrl(details.url) });
     });
     console.info('[wilson] WILSON_DEV_OFFLINE=1 — every non-loopback request is cancelled');
+  }
+  // …and the WORSE cable: WILSON_DEV_OFFLINE=stall leaves every non-loopback
+  // request PENDING for ever (the callback is simply never called), which is
+  // what a stalled Supabase round trip looks like from the renderer — the
+  // all-orange boot Audrey saw on 2026-09-10 — so a boot ceiling can be
+  // measured rather than assumed. Ignored in packaged builds.
+  if (!app.isPackaged && process.env.WILSON_DEV_OFFLINE === 'stall') {
+    mainWindow.webContents.session.webRequest.onBeforeRequest((details, callback) => {
+      if (isLoopbackRequestUrl(details.url)) callback({ cancel: false });
+    });
+    console.info('[wilson] WILSON_DEV_OFFLINE=stall — every non-loopback request is left pending');
   }
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);

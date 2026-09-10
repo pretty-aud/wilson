@@ -140,10 +140,18 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
   it('the DEV-ONLY knobs are gated on !app.isPackaged, and the offline matcher parses the URL (review 1, N12)', () => {
     expect(mainCjs).toMatch(/!app\.isPackaged && process\.env\.WILSON_USER_DATA/)
     expect(mainCjs).toMatch(/!app\.isPackaged && process\.env\.WILSON_DEV_OFFLINE === '1'/)
-    const offline = mainCjs.slice(mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === '1'"), mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === '1'") + 900)
-    expect(offline).toContain('new URL(details.url)')
-    expect(offline).toContain("u.hostname === '127.0.0.1'")
-    expect(offline).not.toMatch(/\/\^\(https\?:/)
+    expect(mainCjs).toMatch(/!app\.isPackaged && process\.env\.WILSON_DEV_OFFLINE === 'stall'/)
+    // ONE definition of "is this request loopback", shared by both cables
+    const helper = mainCjs.slice(mainCjs.indexOf('function isLoopbackRequestUrl('), mainCjs.indexOf('function isLoopbackRequestUrl(') + 700)
+    expect(helper).toContain('new URL(url)')
+    expect(helper).toContain("u.hostname === '127.0.0.1'")
+    expect(helper).not.toMatch(/\/\^\(https\?:/)
+    const cancel = mainCjs.slice(mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === '1'"), mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === 'stall'"))
+    expect(cancel).toContain('callback({ cancel: !isLoopbackRequestUrl(details.url) })')
+    // the stall arm answers loopback and NOTHING else — never a cancel, never a late callback
+    const stall = mainCjs.slice(mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === 'stall'"), mainCjs.indexOf("process.env.WILSON_DEV_OFFLINE === 'stall'") + 700)
+    expect(stall).toContain('if (isLoopbackRequestUrl(details.url)) callback({ cancel: false })')
+    expect(stall).not.toContain('cancel: true')
   })
 })
 
@@ -158,6 +166,17 @@ describe('the sign-in gate stays (Audrey, 2026-09-10)', () => {
   })
   it('the client exposes no "door" for a boot path to consult', () => {
     expect(client).not.toMatch(/DoorOpen/)
+  })
+  // Audrey, 2026-09-10: her own app opened as an all-orange window — a
+  // 2026-09-07 session whose refresh stalled, and nothing renders until the
+  // restore returns. The restore is bounded like every await in LoginScreen.
+  it('the session restore at boot is BOUNDED, so the sign-in screen appears within the auth ceiling', () => {
+    const fn = appJsx.slice(appJsx.indexOf('async function checkSessionValid()'), appJsx.indexOf('const EASE ='))
+    expect(fn).toContain("withTimeout(hydrateSupabase(saved), AUTH_TIMEOUT_MS, 'session restore')")
+    expect(fn).toContain('return null')
+    expect(fn).not.toContain('await hydrateSupabase(saved);')
+    // its own import line: petKnowledgeWiring.test.js (otter, not edited here) pins the withTimeout import verbatim
+    expect(appJsx).toMatch(/import \{ AUTH_TIMEOUT_MS \} from '\.\/cloud\/auth\/withTimeout'/)
   })
 })
 
