@@ -2258,6 +2258,97 @@ carries the install and which build to download. Packaged by
 - **`.ts` is deliberately NOT a video extension.** MPEG transport streams use
   it and so does every TypeScript file; this tool sees far more of the latter.
 
+### 12.8 The local demo folder (demo sprint, 2026-09-10)
+
+Audrey, 2026-09-08: *"for demo-ing i need the ability to use the system and
+not need a server or a cloud solution. I want to be able to setup a local
+folder on my local storage just to demo the system."* And on 2026-09-10,
+after the first cut put an entry on the sign-in screen: *"remove the work
+locally button at login. user still needs to login no matter what."*
+
+**What it is.** ONE user-chosen folder that holds everything R.A.B.B.I.T.
+writes on the desktop in Local Server mode — chosen after sign-in from
+Settings → Storage → *Local demo folder*, remembered per machine, copyable.
+
+```
+<folder>/
+  wilson-demo.json          manifest: format, kind, created_at/with, last_opened_at/with
+  projects/<slug>/          the project folders (the existing folder_slug layout)
+  .wilson/rabbit-data/      bundles, files-config, thumbnails, rate cards, team, templates
+```
+
+**Where it lives in code.** `electron/localDemoRoot.cjs` is the whole
+model, pure and unit-tested (`src/lib/localDemoRoot.test.js`, real temp
+folders): `makeLocalDemoRoot({ userDataDir, appVersion })` →
+`load / open / close / forget / getState / isKnownFolder / contains /
+rootDir / dataDir / projectsDir`. `electron/main.cjs` keeps its helper
+NAMES AND SIGNATURES and asks the module where they resolve:
+
+- `getRabbitDataDir()` → `localDemoDataDir() || userData/rabbit-data`.
+  Everything that hangs off it follows — `getThumbCacheDir()`, the project
+  bundles, `files-config.json`, rate cards, team members, task templates.
+- `resolveConfiguredRootDir()` → `localDemoProjectsDir()` first, then the
+  S34 chain (workspace root → machine default). Computed from the open
+  folder, never stored, so a copied folder still resolves.
+- `folderRootRefusal()` treats the open folder as the boundary (a project
+  folder must sit strictly inside it), ahead of the workspace-root arm.
+- `isUserAuthorizedRelinkDir()` counts the open folder as user-chosen (it
+  was picked in the OS dialog, or remembered from that pick).
+- `readRabbitBundle()` rebases a stored `folder_root` that points OUTSIDE
+  the open folder to `<folder>/projects/<slug>` on read. The project POST
+  writes `folder_root` absolute, so without this a folder moved or copied
+  elsewhere kept pointing at where it used to be — and on the same machine
+  the old copy still exists, so the `existsSync` fallback never fired.
+
+**The adopt / initialise / ask rule** (`classifyFolder`): a folder with a
+current manifest is adopted (never reinitialised); an empty folder (OS
+litter ignored) is initialised; a folder holding other files, or a manifest
+that cannot be read, ASKS — `open()` returns `needsConfirm` and writes
+nothing until the caller passes `allowForeign: true`; a manifest from a
+newer WILSON is refused with a sentence.
+
+**Per machine:** `userData/local-demo.json` = `{ activeFolder, recent[] }`
+(eight most recent, case-folded dedupe). `load()` runs FIRST in
+`app.whenReady()`, before the legacy cleanups derive a data dir. A
+remembered folder that is not on disk is reported as `missing` — the card
+shows *Locate it… / Forget it* — and is NEVER silently replaced by userData.
+
+**The IPC** (`local-demo:get-state / pick / open / close / forget /
+open-in-explorer`, preload `electronAPI.localDemo`): IPC, not Express, for
+the S34 reason — the Express server answers any local origin, and a drive-by
+page must not repoint where the machine keeps its data. `open` accepts only a
+folder the user picked in the OS dialog THIS session (`userAuthorizedDirs`,
+the S14 mechanism) or one `local-demo.json` already remembers.
+
+**The renderer** (`src/components/local/localDemoClient.js`,
+`StorageConnections.jsx`): the card shows the open folder in full with
+*Change folder… / Open in Explorer / Close folder* and the recent folders
+with *Open / Forget*; the old per-machine *Project files root* line stays
+only while no folder is open. Opening or closing a folder pins
+`otter-settings.rabbit.adapterMode = 'local_server'` (clearing
+`activeProjectId`) and RELOADS the window — RabbitProvider boots once per
+root; WorkspaceSwitcher's precedent. The machine-root gate (S34,
+TPN-AUTH-009: admins only while signed in to a workspace) covers every
+repoint. `localDemoWiring.test.js` pins every seam to its caller, and pins
+that `LoginScreen.jsx` and `App.jsx` carry nothing of this feature.
+
+**What stays in userData on purpose:** the pet, O.T.T.E.R.'s library and
+settings (including the adapter-mode switch itself), agent skills, the
+encrypted session. Local Server projects already in userData are not moved
+when a folder is opened; adoption, if wanted, is an explicit action.
+
+**Dev-only knobs** (both gated on `!app.isPackaged`): `WILSON_USER_DATA=<dir>`
+points a second instance at a scratch userData; `WILSON_DEV_OFFLINE=1`
+cancels every non-loopback request in `createWindow` — the "cable pulled"
+measurement.
+
+**Limits, stated.** Sign-in is required, so offline use needs a session
+saved while online; a token older than about an hour cannot be refreshed
+offline and the app lands on the sign-in screen. Open/close reload the
+window. `npm run dev` (browser) cannot run Local Server mode at all — the
+demo runs from `npm run electron:dev`. Walkthrough:
+`docs/walkthroughs/18_local_demo_folder.md`.
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
