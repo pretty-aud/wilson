@@ -2361,12 +2361,19 @@ points a second instance at a scratch userData; `WILSON_DEV_OFFLINE=1`
 cancels every non-loopback request in `createWindow` — the "cable pulled"
 measurement.
 
-**Limits, stated.** Sign-in is required, so offline use needs a session
-saved while online; a token older than about an hour cannot be refreshed
-offline and the app lands on the sign-in screen. Open/close reload the
-window. `npm run dev` (browser) cannot run Local Server mode at all — the
-demo runs from `npm run electron:dev`. Walkthrough:
-`docs/walkthroughs/18_local_demo_folder.md`.
+**Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
+server however fresh the saved sign-in: restoring it goes through
+`supabase.auth.setSession()`, and `@supabase/auth-js` 2.101.1
+(`GoTrueClient._setSession`) confirms an unexpired token with a `_getUser`
+request, so an offline launch lands on the sign-in screen (corrected
+2026-09-10; `OUTSTANDING.md` carries the fix shape). An OPEN window keeps
+its session in memory: a refresh that fails with a network error keeps the
+session (`_callRefreshToken` removes it only on a non-retryable error), so
+after about an hour only the cloud features report unavailable. Open/close
+reload the window. `npm run dev` (browser) cannot run Local Server mode at
+all; a desktop build Audrey can sign into is `npx vite build --mode staging
+&& npx electron .` (dev builds point at wilson-dev, where her username is a
+different account). Walkthrough: `docs/walkthroughs/18_local_demo_folder.md`.
 
 ## 13. The three tools, the shell, and the agent
 
