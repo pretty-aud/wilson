@@ -611,8 +611,9 @@ export function localServerAdapter() {
     bulkUpdateBinFiles: (projectId, ids, patch) => jfetch(`${BASE}/projects/${projectId}/bin-files/bulk`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, patch }),
     }),
-    moveBinFiles: (projectId, ids, binId) => jfetch(`${BASE}/projects/${projectId}/bin-files/move`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, binId }),
+    // sortOrders (optional, { id: n }): an undo puts rows back at their old positions.
+    moveBinFiles: (projectId, ids, binId, sortOrders = null) => jfetch(`${BASE}/projects/${projectId}/bin-files/move`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sortOrders ? { ids, binId, sortOrders } : { ids, binId }),
     }),
     copyBinFiles: (projectId, ids, binId) => jfetch(`${BASE}/projects/${projectId}/bin-files/copy`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, binId }),

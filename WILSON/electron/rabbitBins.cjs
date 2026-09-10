@@ -23,9 +23,9 @@
 // bytes at one. A drive-by page on another local origin cannot forge
 // `Sec-Fetch-Site: same-origin` or its `Origin`, so that is the gate — the
 // S14/S17 rule ("a body-picked path would let a drive-by request point a
-// project at the user's Documents") applied to references. Non-browser
-// clients (the unit tests, curl) carry neither header and are the machine's
-// own processes, which already have the files.
+// project at the user's Documents") applied to references. A request with
+// NEITHER header is refused too: a local process is not the user (the unit
+// tests send the header the renderer sends).
 //
 // 🚨 `fetch` resolves for every status here. Every error is a JSON body with
 // `error` and, where a caller branches on it, a `code`.
@@ -100,8 +100,11 @@ function pathKey(p) {
   const r = path.resolve(String(p || ''));
   return process.platform === 'win32' ? r.toLowerCase() : r;
 }
-function thumbKeyFor(sourcePath) {
-  return 'bin-' + crypto.createHash('sha1').update(pathKey(sourcePath)).digest('hex') + '.jpg';
+// Keyed by path AND modification time (adversarial review): a file re-exported
+// to the same path changes mtime and gets a fresh poster; instances of one
+// file share the key, and a relink (new path, new mtime) invalidates it.
+function thumbKeyFor(sourcePath, mtime = '') {
+  return 'bin-' + crypto.createHash('sha1').update(pathKey(sourcePath) + '|' + String(mtime || '')).digest('hex') + '.jpg';
 }
 
 // ── Filename suggestions ──────────────────────────────────────────────────────
@@ -121,7 +124,11 @@ const DATE_RE = /(?:^|[_\-\s.])((?:19|20)\d{2})[-_]?(\d{2})[-_]?(\d{2})(?=$|[_\-
 
 function parseNameSuggestions(fileName) {
   const base = String(fileName || '').replace(/\.[A-Za-z0-9]{1,12}$/, '');
-  const out = { slate: null, scene_hint: null, shot_hint: null, take_number: null, take_modifier: null, camera: null, roll: null, shoot_day: null };
+  // confidence is 'high' only when an explicit marker was read (a T/TK/take
+  // or SH/shot token, a camera clip name, a date); a bare "12A" or "2026" is
+  // 'low' and the add dialog leaves it unticked (adversarial review: ordinary
+  // names like render_2160p_h264 used to arrive pre-ticked with a slate).
+  const out = { slate: null, scene_hint: null, shot_hint: null, take_number: null, take_modifier: null, camera: null, roll: null, shoot_day: null, confidence: 'low' };
   if (!base) return out;
   const cam = CAMERA_CLIP_RE.exec(base);
   if (cam) {
@@ -144,19 +151,26 @@ function parseNameSuggestions(fileName) {
   const tokens = base.split(/[_\-\s.]+/).filter(Boolean);
   let sceneIdx = -1;
   let explicitTake = false;
+  let explicit = !!cam || !!date;
+  // A bare scene/setup or roll token is only read when something else in the
+  // name says this is a slate: an explicit take/shot/scene marker, a camera
+  // clip name, or a numeric token right after it (12A_3, 24A-3).
+  const hasMarker = tokens.some(t => /^(?:sc|scene)\d|^(?:sh|shot)\d|^(?:t|tk|take)\d{1,3}$|^(pu|ser|mos)$/i.test(t));
   tokens.forEach((raw, i) => {
     const t = raw.toLowerCase();
     let m;
-    if ((m = /^(?:sc|scene)(\d{1,4}[a-z]{0,2})$/.exec(t)) && out.scene_hint == null) { out.scene_hint = m[1].toUpperCase(); sceneIdx = i; return; }
-    if ((m = /^(?:sh|shot)(\d{1,4})$/.exec(t)) && out.shot_hint == null) { out.shot_hint = String(Number(m[1])); return; }
-    if ((m = /^(?:t|tk|take)(\d{1,3})$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); explicitTake = true; return; }
-    if (/^(pu|ser|mos)$/.test(t) && out.take_modifier == null) { out.take_modifier = t.toUpperCase(); return; }
-    if (/^[a-h]$/.test(t) && i > 0 && out.camera == null) { out.camera = t.toUpperCase(); return; }
-    if (/^[a-h]\d{3}$/.test(t) && out.roll == null && !cam) { out.roll = t.toUpperCase(); return; }
-    // A bare scene+setup token: digits with up to two trailing letters, e.g.
-    // 12A. Only the FIRST such token, and never one that is the camera roll.
-    if ((m = /^(\d{1,4})([a-z]{1,2})$/.exec(t)) && out.scene_hint == null && !cam) { out.scene_hint = (m[1] + m[2]).toUpperCase(); sceneIdx = i; return; }
-    if (/^\d{1,4}$/.test(t) && out.scene_hint == null && i === 0 && !cam && !date) { out.scene_hint = t; sceneIdx = i; return; }
+    if ((m = /^(?:sc|scene)(\d{1,4}[a-z]{0,2})$/.exec(t)) && out.scene_hint == null) { out.scene_hint = m[1].toUpperCase(); sceneIdx = i; explicit = true; return; }
+    if ((m = /^(?:sh|shot)(\d{1,4})$/.exec(t)) && out.shot_hint == null) { out.shot_hint = String(Number(m[1])); explicit = true; return; }
+    if ((m = /^(?:t|tk|take)(\d{1,3})$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); explicitTake = true; explicit = true; return; }
+    if (/^(pu|ser|mos)$/.test(t) && out.take_modifier == null) { out.take_modifier = t.toUpperCase(); explicit = true; return; }
+    if (/^[a-h]$/.test(t) && i > 0 && out.camera == null && (hasMarker || sceneIdx >= 0)) { out.camera = t.toUpperCase(); return; }
+    if (/^[a-h]\d{3}$/.test(t) && out.roll == null && !cam && hasMarker) { out.roll = t.toUpperCase(); return; }
+    // A bare scene+setup token (12A) or a bare leading number (24): only when
+    // a marker exists elsewhere or a numeric token follows it (12A_3, 24A-3).
+    const next = tokens[i + 1];
+    const corroborated = hasMarker || (next != null && /^\d{1,3}$/.test(next));
+    if ((m = /^(\d{1,4})([a-z]{1,2})$/.exec(t)) && out.scene_hint == null && !cam && corroborated) { out.scene_hint = (m[1] + m[2]).toUpperCase(); sceneIdx = i; return; }
+    if (/^\d{1,4}$/.test(t) && out.scene_hint == null && i === 0 && !cam && !date && corroborated) { out.scene_hint = t; sceneIdx = i; return; }
   });
   // A bare number right after the scene token: the shot when an explicit take
   // follows (12A_3_T4), otherwise the take (24A-3).
@@ -168,11 +182,12 @@ function parseNameSuggestions(fileName) {
     }
   }
   if (out.scene_hint) out.slate = out.scene_hint;
+  if (explicit || (out.slate && (out.take_number != null || out.shot_hint != null))) out.confidence = 'high';
   return out;
 }
 
 // ── Frame sequences ───────────────────────────────────────────────────────────
-const FRAME_RE = /^(.*?)([._-]?)(\d{2,8})(\.[A-Za-z0-9]{1,5})$/;
+const FRAME_RE = /^(.*?)([._-]?)(\d{1,8})(\.[A-Za-z0-9]{1,5})$/;
 
 /**
  * If `dir` holds a numbered frame sequence, describe it; else null. A
@@ -182,16 +197,23 @@ const FRAME_RE = /^(.*?)([._-]?)(\d{2,8})(\.[A-Za-z0-9]{1,5})$/;
 function detectSequence(dir) {
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return null; }
-  const files = entries.filter(e => e.isFile() && !e.name.startsWith('.'));
-  if (files.length < 2) return null;
+  const all = entries.filter(e => e.isFile() && !e.name.startsWith('.'));
+  if (all.length < 2) return null;
   if (entries.some(e => e.isDirectory() && !e.name.startsWith('.'))) return null;
+  // A few sidecars beside the frames (Thumbs.db, a render log, an .md5) do
+  // not stop the folder being a sequence (adversarial review): files whose
+  // extension is not a frame type are set aside and reported, up to a small
+  // minority. Anything more, or a second frame series, and it is a folder.
+  const files = all.filter(e => SEQUENCE_EXTS.has(extOf(e.name)));
+  const sidecars = all.length - files.length;
+  if (files.length < 2) return null;
+  if (sidecars > Math.max(2, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
   let prefix = null; let sep = ''; let ext = null; let width = null;
   const frames = [];
   for (const f of files) {
     const m = FRAME_RE.exec(f.name);
     if (!m) return null;
     const e = m[4].toLowerCase();
-    if (!SEQUENCE_EXTS.has(e)) return null;
     if (prefix === null) { prefix = m[1]; sep = m[2]; ext = e; width = m[3].length; }
     else if (m[1] !== prefix || e !== ext) return null;
     frames.push({ name: f.name, n: Number(m[3]) });
@@ -210,6 +232,7 @@ function detectSequence(dir) {
     first_frame: first,
     last_frame: last,
     missing_frames: Math.max(0, (last - first + 1) - frames.length),
+    sidecars,
     middle_frame_path: path.join(dir, frames[Math.floor(frames.length / 2)].name),
     size_bytes: sizeBytes,
     mtime: mtime ? new Date(mtime).toISOString() : null,
@@ -268,11 +291,18 @@ function mountRabbitBins(expressApp, deps) {
   const now = () => new Date().toISOString();
 
   // ── the gate ──
+  // 🚨 FAIL CLOSED (adversarial review, HIGH). The first draft allowed a
+  // request that carried neither header on the theory that only a local
+  // process could send one — but a local process is not the user (a
+  // postinstall script, an extension host, a container on host networking),
+  // and pre-Fetch-Metadata browsers send neither on a cross-origin <img>.
+  // The renderer always carries `Sec-Fetch-Site: same-origin`; that is the
+  // one caller these routes serve. Tests send that header explicitly.
   function isSameOrigin(req) {
     const site = req.headers['sec-fetch-site'];
     if (site) return site === 'same-origin';
     const origin = req.headers.origin;
-    if (!origin) return true; // no browser sent this
+    if (!origin) return false;
     const host = req.headers.host;
     return host ? (origin === `http://${host}` || origin === `https://${host}`) : false;
   }
@@ -303,10 +333,15 @@ function mountRabbitBins(expressApp, deps) {
     const online = row.is_sequence ? isDir(p) : isFile(p);
     return { ...row, online };
   }
+  // 🚨 Bin roots live in the BUNDLE only (adversarial review, HIGH). The first
+  // draft also added them to `userAuthorizedDirs`, the process-global set the
+  // managed-files relink and folder-root code treat as "folders the user
+  // picked through the OS dialog" — so a request body could have authorised a
+  // whole drive for a different subsystem. isAuthorizedDir below reads the
+  // bundle's roots itself; the Set is only ever filled by the pick routes.
   function rememberRoot(bundle, projectId, dir, label) {
     if (!dir) return;
     const key = pathKey(dir);
-    authorized.add(key);
     // A root already covered by a recorded ancestor is not recorded again.
     const covered = bundle.binRoots.some(r => {
       const rk = pathKey(r.path);
@@ -400,7 +435,7 @@ function mountRabbitBins(expressApp, deps) {
       if (wouldCycle(bundle, req.params.id, patch.parent_bin_id)) return res.status(400).json({ error: 'a bin cannot be inside itself' });
     }
     bundle.bins[idx] = { ...bundle.bins[idx], ...patch, id: req.params.id, updated_at: now() };
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json(bundle.bins[idx]);
   });
 
@@ -425,7 +460,7 @@ function mountRabbitBins(expressApp, deps) {
     const movedFiles = []; const removedFiles = [];
     if (mode === 'move') {
       let order = nextSortOrder(bundle.binFiles.filter(f => f.bin_id === target));
-      for (const f of affected) { movedFiles.push({ id: f.id, from: f.bin_id, sort_order: f.sort_order }); f.bin_id = target; f.sort_order = order++; f.updated_at = now(); }
+      for (const f of affected) { const ns = order++; movedFiles.push({ id: f.id, from: f.bin_id, sort_order: f.sort_order, new_sort_order: ns }); f.bin_id = target; f.sort_order = ns; f.updated_at = now(); }
     } else {
       for (const f of affected) removedFiles.push(f);
       bundle.binFiles = bundle.binFiles.filter(f => !ids.has(f.bin_id));
@@ -460,7 +495,7 @@ function mountRabbitBins(expressApp, deps) {
         return res.status(400).json({ error: 'a bin cannot be inside itself' });
       }
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ ok: true, bins: bundle.bins });
   });
 
@@ -524,7 +559,7 @@ function mountRabbitBins(expressApp, deps) {
       size_bytes: seq.size_bytes, mtime: seq.mtime,
       media_type: 'sequence',
       display_name: name,
-      sequence: { pattern: seq.pattern, frame_count: seq.frame_count, first_frame: seq.first_frame, last_frame: seq.last_frame, missing_frames: seq.missing_frames },
+      sequence: { pattern: seq.pattern, frame_count: seq.frame_count, first_frame: seq.first_frame, last_frame: seq.last_frame, missing_frames: seq.missing_frames, sidecars: seq.sidecars || 0 },
       suggestions: parseNameSuggestions(name),
       duplicate: samePath ? { reason: 'same_path', existing_id: samePath.id, existing_bin_id: samePath.bin_id, existing_bin_name: (bundle.bins.find(b => b.id === samePath.bin_id) || {}).name || null } : null,
       sub_bin: subBin || null,
@@ -653,13 +688,20 @@ function mountRabbitBins(expressApp, deps) {
       bundle.binFiles.push(row);
       created.push(row);
       results.push({ source_path: src, status: 'added', id: row.id, bin_id: targetBin });
-      rememberRoot(bundle, req.params.projectId, isSeq ? path.dirname(src) : path.dirname(src));
+      // The folder the item was added from: a file's folder, or a sequence
+      // folder's parent (the sequence folder IS the item).
+      rememberRoot(bundle, req.params.projectId, path.dirname(src));
     }
     writeRabbitBundle(req.params.projectId, bundle);
     res.json({ created: created.map(withOnline), bins: createdBins, results });
   });
 
   // ── Bin-file edits ────────────────────────────────────────────────────────
+  // Metadata writes below use `touch: false` (adversarial review, MEDIUM):
+  // a flag, a colour or a reorder must not stamp project.updated_at (the
+  // projects list sorts by it) or rewrite the five folder-mirror files, which
+  // do not contain bins anyway. Adding files and creating or deleting bins are
+  // structural and keep the default.
   expressApp.patch(`${P}/bin-files/:id`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const idx = bundle.binFiles.findIndex(f => f.id === req.params.id);
@@ -677,7 +719,7 @@ function mountRabbitBins(expressApp, deps) {
     }
     if ('sort_order' in body) patch.sort_order = Number(body.sort_order) || 0;
     bundle.binFiles[idx] = { ...bundle.binFiles[idx], ...patch, id: req.params.id, updated_at: now() };
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json(withOnline(bundle.binFiles[idx]));
   });
 
@@ -694,7 +736,7 @@ function mountRabbitBins(expressApp, deps) {
       bundle.binFiles[i] = { ...bundle.binFiles[i], ...patch, updated_at: now() };
       updated.push(withOnline(bundle.binFiles[i]));
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ updated });
   });
 
@@ -704,14 +746,18 @@ function mountRabbitBins(expressApp, deps) {
     if (!ids.length) return res.status(400).json({ error: 'ids required' });
     if (!bundle.bins.some(b => b.id === binId)) return res.status(400).json({ error: 'bin not found' });
     let order = nextSortOrder(bundle.binFiles.filter(f => f.bin_id === binId));
+    // Optional per-id sort orders (an undo putting rows back where they were).
+    const wanted = req.body?.sortOrders && typeof req.body.sortOrders === 'object' ? req.body.sortOrders : null;
     const moved = [];
     for (const id of ids) {
       const f = bundle.binFiles.find(x => x.id === id);
       if (!f) continue;
       moved.push({ id: f.id, from: f.bin_id, sort_order: f.sort_order });
-      f.bin_id = binId; f.sort_order = order++; f.updated_at = now();
+      f.bin_id = binId;
+      f.sort_order = wanted && Number.isFinite(Number(wanted[id])) ? Number(wanted[id]) : order++;
+      f.updated_at = now();
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ moved, binFiles: bundle.binFiles.filter(f => ids.includes(f.id)).map(withOnline) });
   });
 
@@ -729,7 +775,7 @@ function mountRabbitBins(expressApp, deps) {
       const row = { ...f, id: crypto.randomUUID(), bin_id: binId, sort_order: order++, added_at: now(), created_at: now(), updated_at: now() };
       bundle.binFiles.push(row); created.push(withOnline(row));
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ created });
   });
 
@@ -741,7 +787,7 @@ function mountRabbitBins(expressApp, deps) {
     if (!ids.size) return res.status(400).json({ error: 'ids required' });
     const removed = bundle.binFiles.filter(f => ids.has(f.id));
     bundle.binFiles = bundle.binFiles.filter(f => !ids.has(f.id));
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ removed });
   });
 
@@ -758,7 +804,7 @@ function mountRabbitBins(expressApp, deps) {
       rabbitUpsertInto(bundle.binFiles, row);
       restored.push(withOnline(row));
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ restored });
   });
 
@@ -767,7 +813,7 @@ function mountRabbitBins(expressApp, deps) {
     const ids = idsOf(req.body);
     if (!ids.length) return res.status(400).json({ error: 'ids required' });
     ids.forEach((id, i) => { const f = bundle.binFiles.find(x => x.id === id); if (f) { f.sort_order = i; f.updated_at = now(); } });
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ ok: true });
   });
 
@@ -838,7 +884,7 @@ function mountRabbitBins(expressApp, deps) {
     const bundle = load(req, res); if (!bundle) return;
     const row = bundle.binFiles.find(f => f.id === req.params.id);
     if (!row) return rabbitNotFound(res, 'bin-file');
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
     if (exists(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
     if (!(row.is_sequence ? isDir(row.source_path) : isFile(row.source_path))) {
@@ -888,7 +934,7 @@ function mountRabbitBins(expressApp, deps) {
     if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
     if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
     if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
     try { fs.writeFileSync(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
@@ -955,7 +1001,11 @@ function mountRabbitBins(expressApp, deps) {
     if (!isAuthorizedDir(bundle, folderPath)) return res.status(403).json({ error: 'folder must be chosen with the folder picker or be a known root', code: 'unauthorized_folder' });
     if (!isDir(folderPath)) return res.status(400).json({ error: 'folderPath is not a directory', code: 'not_a_directory' });
     const candidates = [];
+    // Same caps as prepare (adversarial review, HIGH): this walk runs on the
+    // main thread of the only server the app has, and the view scans every
+    // known root on open — an uncapped walk of a big drive froze everything.
     const { truncated } = walkFolder(folderPath, {
+      maxEntries: 5000, maxDepth: 8,
       onDir: (abs, rel) => {
         const seq = detectSequence(abs);
         if (seq) { candidates.push({ relPath: rel, name: path.basename(abs), size: null, abs, is_sequence: true }); return false; }
@@ -989,9 +1039,9 @@ function mountRabbitBins(expressApp, deps) {
         if (!f.is_sequence) { try { const st = fs.statSync(newPath); f.size_bytes = st.size; f.mtime = st.mtime.toISOString(); } catch { /* keep */ } }
         updated.push(withOnline(f));
       }
-      rememberRoot(bundle, req.params.projectId, row.is_sequence ? path.dirname(newPath) : path.dirname(newPath));
+      rememberRoot(bundle, req.params.projectId, path.dirname(newPath));
     }
-    writeRabbitBundle(req.params.projectId, bundle);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ updated, failed });
   });
 

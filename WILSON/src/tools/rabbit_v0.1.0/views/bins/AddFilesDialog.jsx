@@ -27,11 +27,16 @@ function suggestionText(s) {
 }
 
 export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel, busy, progress }) {
+  // A suggestion starts ticked only when the parser read an explicit marker
+  // (T4, SH03, a camera clip name, a date): 'high' confidence. A bare "12A"
+  // or "4K" is shown but left unticked (adversarial review: ordinary names
+  // used to arrive pre-ticked with a fabricated slate).
   const initial = useMemo(() => (plan?.items || []).map(it => ({
     ...it,
     include: it.status === 'ok' && !it.duplicate,
-    apply: !!(it.suggestions && (it.suggestions.slate || it.suggestions.take_number || it.suggestions.camera || it.suggestions.roll || it.suggestions.shoot_day)),
+    apply: it.suggestions?.confidence === 'high',
   })), [plan])
+  const RENDER_CAP = 500
   const [items, setItems] = useState(initial)
   const [batch, setBatch] = useState({ scene_id: null, shoot_day: '', camera: '', roll: '', tags: '' })
   const anySub = items.some(i => i.sub_bin)
@@ -103,7 +108,12 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
           <span /><span className="px-1 py-1.5">Name</span><span className="px-1">Type</span><span className="px-1">Size</span><span className="px-1">From the name</span><span className="px-1">Folder</span>
         </div>
         <div className="max-h-[46vh] overflow-y-auto">
-          {items.map((it, idx) => {
+          {items.length > RENDER_CAP && (
+            <div className="px-3 py-1.5 text-[10px] font-mono" style={{ color: C.amber, borderBottom: `1px solid ${C.faint}` }}>
+              Showing the first {RENDER_CAP} of {items.length}. The rest are added with their defaults (ticked unless duplicate or missing); use Tick all / Untick all to change them together.
+            </div>
+          )}
+          {items.slice(0, RENDER_CAP).map((it, idx) => {
             const disabled = it.status !== 'ok'
             const sug = suggestionText(it.suggestions)
             return (
@@ -113,7 +123,7 @@ export default function AddFilesDialog({ bin, plan, scenes, onConfirm, onCancel,
                   <TextInput value={it.display_name} onChange={v => set(idx, { display_name: v })} disabled={disabled} className="!py-0.5" />
                   <div className="truncate text-[9px] font-mono mt-0.5 flex items-center gap-1" style={{ color: it.duplicate ? C.amber : C.dimmer }} title={it.source_path}>
                     {it.kind === 'sequence' && <Layers className="w-2.5 h-2.5" />}
-                    {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}` : ''}
+                    {it.original_name}{it.kind === 'sequence' && it.sequence ? ` · ${it.sequence.frame_count} frames (${it.sequence.pattern})${it.sequence.missing_frames ? `, ${it.sequence.missing_frames} missing` : ''}${it.sequence.sidecars ? `, ${it.sequence.sidecars} sidecar file${it.sequence.sidecars === 1 ? '' : 's'} set aside` : ''}` : ''}
                     {disabled && ' · missing on disk'}
                     {it.duplicate && ` · already in ${it.duplicate.existing_bin_name ? `"${it.duplicate.existing_bin_name}"` : 'the project'}${it.duplicate.reason === 'same_name_size' ? ' (same name and size)' : ''}`}
                   </div>

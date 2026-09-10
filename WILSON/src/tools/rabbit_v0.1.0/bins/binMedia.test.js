@@ -152,3 +152,48 @@ describe('detectSequence (server)', () => {
     expect(server.detectSequence(path.join(root, 'nope'))).toBeNull()
   })
 })
+
+describe('parseNameSuggestions: ordinary names stay ordinary (adversarial review)', () => {
+  const p = server.parseNameSuggestions
+  it('render and delivery names get no slate, roll or camera', () => {
+    expect(p('render_2160p_h264.mp4')).toMatchObject({ slate: null, roll: null, camera: null, confidence: 'low' })
+    expect(p('4K_master.mov')).toMatchObject({ slate: null, confidence: 'low' })
+    expect(p('2026_budget_v1.xlsx')).toMatchObject({ slate: null, shoot_day: null, confidence: 'low' })
+    expect(p('interview_b_roll.mp4')).toMatchObject({ camera: null })
+  })
+  it('explicit markers are high confidence; a bare slate with a take is too', () => {
+    expect(p('12A_3_T4_A.mov').confidence).toBe('high')
+    expect(p('SC12A_SH03_TK04.mp4').confidence).toBe('high')
+    expect(p('A001C003_240612_R1AB.mov').confidence).toBe('high')
+    expect(p('24A-3.mov')).toMatchObject({ slate: '24A', take_number: 3, confidence: 'high' })
+    expect(p('12A.mov')).toMatchObject({ slate: null, confidence: 'low' })
+  })
+})
+
+describe('detectSequence tolerates a few sidecars (adversarial review)', () => {
+  let root
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-bins-side-'))
+    fs.mkdirSync(path.join(root, 'ok'))
+    for (let i = 1; i <= 20; i++) fs.writeFileSync(path.join(root, 'ok', `shot.${String(i).padStart(4, '0')}.exr`), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'ok', 'Thumbs.db'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'ok', 'render.log'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'toomany'))
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'toomany', `shot.${i}.exr`), Buffer.from('x'))
+    for (let i = 1; i <= 3; i++) fs.writeFileSync(path.join(root, 'toomany', `note${i}.txt`), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'onedigit'))
+    fs.writeFileSync(path.join(root, 'onedigit', 's.9.exr'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'onedigit', 's.10.exr'), Buffer.from('x'))
+  })
+  afterAll(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* temp */ } })
+  it('two sidecars among twenty frames are set aside and reported', () => {
+    const s = server.detectSequence(path.join(root, 'ok'))
+    expect(s).toMatchObject({ frame_count: 20, sidecars: 2, pattern: 'shot.####.exr' })
+  })
+  it('three notes beside four frames is a folder, not a sequence', () => {
+    expect(server.detectSequence(path.join(root, 'toomany'))).toBeNull()
+  })
+  it('single-digit frame numbers count', () => {
+    expect(server.detectSequence(path.join(root, 'onedigit'))).toMatchObject({ frame_count: 2, first_frame: 9, last_frame: 10 })
+  })
+})

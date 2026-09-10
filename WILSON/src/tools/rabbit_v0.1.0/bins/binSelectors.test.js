@@ -120,3 +120,23 @@ describe('stats and values', () => {
     expect(rangeIds(ids, 'zz', 'b')).toEqual(['b'])
   })
 })
+
+describe('sort with many nulls (adversarial review)', () => {
+  it('rows sharing a null still fall back to manual order, never NaN', () => {
+    const rows = [
+      { id: 'a', take_number: null, sort_order: 3, display_name: 'a' },
+      { id: 'b', take_number: null, sort_order: 1, display_name: 'b' },
+      { id: 'c', take_number: 2, sort_order: 9, display_name: 'c' },
+      { id: 'd', take_number: null, sort_order: 0, display_name: 'd' },
+    ]
+    expect(sortBinFiles(rows, { field: 'take_number' }).map(r => r.id)).toEqual(['d', 'b', 'a', 'c'])
+    // Every duration undefined: the tie-break is manual order, flipped for desc.
+    expect(sortBinFiles(rows, { field: 'duration_sec', dir: 'desc' }).map(r => r.id)).toEqual(['c', 'a', 'b', 'd'])
+  })
+  it('countsByBin survives a parent cycle on disk without looping or double counting', () => {
+    const cyc = [{ id: 'x', parent_bin_id: 'y', sort_order: 0 }, { id: 'y', parent_bin_id: 'x', sort_order: 0 }]
+    const c = countsByBin(cyc, [{ id: 'f', bin_id: 'x' }])
+    expect(Number.isFinite(c.get('x')) && Number.isFinite(c.get('y'))).toBe(true)
+    expect(Math.max(c.get('x'), c.get('y'))).toBe(1)
+  })
+})

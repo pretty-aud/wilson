@@ -64,7 +64,10 @@ const dialog = { showOpenDialog: async () => nextDialog }
 
 const J = (body) => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
 const PATCH = (body) => ({ method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
-const api = (p, init) => fetch(`${base}/api/rabbit/projects/${PID}${p}`, init)
+// `api` sends what the renderer sends (Sec-Fetch-Site: same-origin); `raw`
+// sends exactly the headers given, for the gate's own tests.
+const raw = (p, init) => fetch(`${base}/api/rabbit/projects/${PID}${p}`, init)
+const api = (p, init = {}) => raw(p, { ...init, headers: { 'sec-fetch-site': 'same-origin', ...(init.headers || {}) } })
 
 beforeAll(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'wilson-bins-routes-'))
@@ -110,22 +113,29 @@ const media = () => path.join(root, 'media')
 
 // ── the gate ─────────────────────────────────────────────────────────────────
 describe('same-origin gate', () => {
-  it('a cross-site browser request is refused with a named code', async () => {
-    const r = await api('/bins', { headers: { 'sec-fetch-site': 'cross-site' } })
+  it('a cross-site browser request is refused with a named code, on both prefixes', async () => {
+    const r = await raw('/bins', { headers: { 'sec-fetch-site': 'cross-site' } })
     expect(r.status).toBe(403)
     expect((await r.json()).code).toBe('cross_origin')
+    expect((await raw('/bin-files/x/stream', { headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(403)
+    expect((await raw('/bin-files/x/thumbnail', { headers: { 'sec-fetch-site': 'same-site' } })).status).toBe(403)
+    expect((await raw('/bins', { headers: { 'sec-fetch-site': 'none' } })).status).toBe(403)
   })
   it('an Origin that is not the server is refused', async () => {
-    const r = await api('/bins', { headers: { origin: 'http://evil.localhost:1' } })
+    const r = await raw('/bins', { headers: { origin: 'http://evil.localhost:1' } })
     expect(r.status).toBe(403)
   })
-  it('the renderer (same-origin) and non-browser clients pass', async () => {
-    expect((await api('/bins', { headers: { 'sec-fetch-site': 'same-origin' } })).status).toBe(200)
-    expect((await api('/bins', { headers: { origin: base } })).status).toBe(200)
-    expect((await api('/bins')).status).toBe(200)
+  it('a request with neither header is refused too (adversarial review: a local process is not the user)', async () => {
+    expect((await raw('/bins')).status).toBe(403)
+    expect((await raw('/bins/prepare', J({ paths: ['C:\\Users'] }))).status).toBe(403)
+    expect((await raw('/bin-files/x/stream')).status).toBe(403)
+  })
+  it('the renderer passes, by Sec-Fetch-Site or by its own Origin', async () => {
+    expect((await raw('/bins', { headers: { 'sec-fetch-site': 'same-origin' } })).status).toBe(200)
+    expect((await raw('/bins', { headers: { origin: base } })).status).toBe(200)
   })
   it('an unknown project is a 404 JSON body', async () => {
-    const r = await fetch(`${base}/api/rabbit/projects/nope/bins`)
+    const r = await fetch(`${base}/api/rabbit/projects/nope/bins`, { headers: { 'sec-fetch-site': 'same-origin' } })
     expect(r.status).toBe(404)
     expect((await r.json()).error).toMatch(/not found/)
   })
@@ -235,6 +245,28 @@ describe('pick, prepare, add', () => {
     expect(roots.length).toBeGreaterThan(0)
     expect(roots.some(x => path.resolve(x.path) === path.resolve(media()))).toBe(true)
   })
+  it('prepare flags a duplicate by path and by name+size, and add still accepts it (Q9: skip or add anyway)', async () => {
+    const twin = path.join(media(), 'twin'); fs.mkdirSync(twin, { recursive: true })
+    fs.copyFileSync(path.join(media(), 'clip.mp4'), path.join(twin, 'clip.mp4'))
+    const plan = await (await api('/bins/prepare', J({ paths: [path.join(media(), 'clip.mp4'), path.join(twin, 'clip.mp4')] }))).json()
+    const byPath = plan.items.find(i => i.source_path === path.join(media(), 'clip.mp4'))
+    const byName = plan.items.find(i => i.source_path === path.join(twin, 'clip.mp4'))
+    expect(byPath.duplicate).toMatchObject({ reason: 'same_path', existing_bin_name: 'Dailies' })
+    expect(byName.duplicate).toMatchObject({ reason: 'same_name_size' })
+    const r = await (await api(`/bins/${dailies.id}/files`, J({ items: [byPath] }))).json()
+    expect(r.results[0].status).toBe('added')
+    expect(r.created[0].source_path).toBe(byPath.source_path)
+    await api('/bin-files/remove', J({ ids: [r.created[0].id] }))
+  })
+  it('roots are recorded in the bundle only, never in the process-wide authorised set', async () => {
+    const before = userAuthorizedDirs.size
+    // A folder OUTSIDE every recorded root (twin sits under media, which the
+    // add already recorded, so it would be covered and not re-recorded).
+    const elsewhere = path.join(root, 'elsewhere'); fs.mkdirSync(elsewhere, { recursive: true })
+    const r = await (await api('/bins/roots', J({ path: elsewhere }))).json()
+    expect(r.binRoots.some(x => path.resolve(x.path) === path.resolve(elsewhere))).toBe(true)
+    expect(userAuthorizedDirs.size).toBe(before)
+  })
   it('add refuses an unknown bin and an empty batch', async () => {
     expect((await api('/bins/ghost/files', J({ items: [{ source_path: path.join(media(), 'still.png') }] }))).status).toBe(404)
     expect((await api(`/bins/${dailies.id}/files`, J({ items: [] }))).status).toBe(400)
@@ -271,6 +303,10 @@ describe('bin-file edits', () => {
     expect(cp.created[0].id).not.toBe(find('clip.mp4').id)
     expect(cp.created[0].source_path).toBe(find('clip.mp4').source_path)
     expect((await api('/bin-files/move', J({ ids: [still.id], binId: 'ghost' }))).status).toBe(400)
+    // An undo hands the original order back and it is honoured.
+    const back = await (await api('/bin-files/move', J({ ids: [still.id], binId: dailies.id, sortOrders: { [still.id]: 41 } }))).json()
+    expect(back.binFiles[0]).toMatchObject({ bin_id: dailies.id, sort_order: 41 })
+    await api('/bin-files/move', J({ ids: [still.id], binId: sceneBin.id }))
     const ro = await api('/bin-files/reorder', J({ ids: [cp.created[0].id, still.id] }))
     expect(ro.status).toBe(200)
     const files = (await (await api('/bins')).json()).binFiles
@@ -325,10 +361,14 @@ describe('thumbnail', () => {
     expect(bytes[0]).toBe(0xff)
     expect(fs.readdirSync(thumbDir).some(n => n.startsWith('bin-'))).toBe(true)
   })
-  it('a sequence poster is its middle frame', async () => {
+  it('a sequence poster is its middle frame, and HEAD answers like GET without a body', async () => {
     const seq = added.created.find(f => f.is_sequence)
     const r = await api(`/bin-files/${seq.id}/thumbnail`)
     expect(r.status).toBe(200)
+    const h = await api(`/bin-files/${seq.id}/thumbnail`, { method: 'HEAD' })
+    expect(h.status).toBe(200)
+    expect(h.headers.get('content-type')).toMatch(/image\/jpeg/)
+    expect((await h.arrayBuffer()).byteLength).toBe(0)
   })
   it('an undecodable video is a named code; audio is 415 unsupported_type', async () => {
     const v = await api(`/bin-files/${find('clip.mp4').id}/thumbnail`)

@@ -40,7 +40,8 @@ import {
   descendantIds, countsByBin, binPathLabel, filterBinFiles, sortBinFiles, SORT_FIELDS, EMPTY_FILTERS,
   activeFilterCount, binStats, distinctValues, stepId, rangeIds,
 } from '../bins/binSelectors'
-import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes } from '../bins/binMedia'
+import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes, previewKindFor } from '../bins/binMedia'
+import { probeInBrowser } from '../bins/binProbeFallback'
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -113,7 +114,44 @@ export default function BinsView() {
     finally { setLoading(false) }
   }, [supports, projectId, refreshBins])
 
-  useEffect(() => { load() }, [load])
+  // After a load, once per project: rows left `pending` (the app closed mid-add)
+  // are probed again, and rows the server could not read (`unavailable`: no
+  // ffmpeg) that Chromium can decode itself get their columns and a poster
+  // from the renderer (bins/binProbeFallback.js). Bounded, sequential, and a
+  // failure marks the row rather than retrying forever.
+  // 🚨 ctx through a ref: its identity changes on every provider state update,
+  // and a load effect that depended on it would refetch forever.
+  const ctxRef = useRef(ctx)
+  ctxRef.current = ctx
+  const postLoadRef = useRef(null)
+  const afterLoad = useCallback(async (data) => {
+    const c = ctxRef.current
+    if (!data || !c || postLoadRef.current === projectId) return
+    postLoadRef.current = projectId
+    const rows = data.binFiles || []
+    const pending = rows.filter(f => f.probe_status === 'pending' && f.online !== false).map(f => f.id)
+    if (pending.length) c.probeBinFiles?.(pending).catch(() => {})
+    const fallback = rows.filter(f => f.probe_status === 'unavailable' && f.online !== false && ['video', 'audio', 'image'].includes(previewKindFor(f))).slice(0, 40)
+    for (const f of fallback) {
+      if (postLoadRef.current !== projectId) return
+      const kind = previewKindFor(f)
+      const src = c.binFileStreamUrl?.(f.id, { probe: true })
+      if (!src) continue
+      try {
+        const r = await probeInBrowser(kind, src)
+        const patch = {}
+        if (r.duration_sec) patch.duration_sec = r.duration_sec
+        if (r.width) patch.width = r.width
+        if (r.height) patch.height = r.height
+        await ctxRef.current.applyBinFileProbe(f.id, patch)
+        if (r.jpegBase64) { await ctxRef.current.postBinFileThumbnail(f.id, r.jpegBase64); setThumbRev(v => v + 1) }
+      } catch {
+        await ctxRef.current.applyBinFileProbe(f.id, { probe_status: 'failed' }).catch(() => {})
+      }
+    }
+  }, [projectId])
+
+  useEffect(() => { load().then(afterLoad) }, [load, afterLoad])
 
   // ── Auto-relink on open (Q12): scan every known root once per project ──
   const binRelinkScan = ctx?.binRelinkScan

@@ -61,11 +61,13 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
     if (!match) return
     const mappings = match.proposals.map(p => ({ id: p.id, newPath: absFor(p.newPath) })).filter(m => m.newPath)
     for (const a of match.ambiguous) { const rel = choices[a.id]; if (rel) { const abs = absFor(rel); if (abs) mappings.push({ id: a.id, newPath: abs }) } }
-    if (!mappings.length) return
+    // Never a silent no-op: a button that says "Relink 5" and does nothing
+    // is the failure the review named.
+    if (!mappings.length) { setError('No match could be resolved to a path in that folder. Scan again.'); return }
     setPhase('applying'); setError(null)
     try {
       const res = await onApply(mappings)
-      setResult(res); setPhase('done')
+      setResult({ ...res, sent: mappings.length }); setPhase('done')
     } catch (e) { setError(e?.message || String(e)); setPhase('review') }
   }
 
@@ -81,7 +83,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
       </>}>
       {phase === 'done' && result ? (
         <div className="flex flex-col gap-2 text-[11px] font-mono" style={{ color: C.text }}>
-          <div className="flex items-center gap-2" style={{ color: C.green }}><Check className="w-4 h-4" /> {result.updated?.length || 0} file{(result.updated?.length || 0) === 1 ? '' : 's'} relinked{(result.updated?.length || 0) > mappingsCount(result) ? ' (instances included)' : ''}.</div>
+          <div className="flex items-center gap-2" style={{ color: C.green }}><Check className="w-4 h-4" /> {result.updated?.length || 0} file{(result.updated?.length || 0) === 1 ? '' : 's'} relinked{(result.updated?.length || 0) > (result.sent || 0) ? ' (instances included)' : ''}.</div>
           {result.failed?.length > 0 && <div style={{ color: C.amber }}>{result.failed.length} could not be relinked: {result.failed.map(f => f.reason).join(', ')}.</div>}
         </div>
       ) : (
@@ -132,4 +134,3 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
   )
 }
 
-function mappingsCount(result) { return result?.updated?.length || 0 }
