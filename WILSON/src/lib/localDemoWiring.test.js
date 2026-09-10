@@ -17,7 +17,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { describeLocalState, folderLeaf } from '../components/local/localDemoClient'
+import { describeLocalState, folderLeaf, resetConfirmText, planDemoProject, seedDemoProject } from '../components/local/localDemoClient'
 
 const read = (rel) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8')
 
@@ -86,7 +86,7 @@ describe('main.cjs — the data-root layer is root-aware through ONE module', ()
     expect(ready.indexOf('localDemo().load()')).toBeLessThan(ready.indexOf('cleanupLegacySupabaseConfig()'))
   })
   it('every IPC handler the bridge exposes is registered, and open is gated on a user pick', () => {
-    for (const ch of ['get-state', 'pick', 'open', 'close', 'forget', 'open-in-explorer']) {
+    for (const ch of ['get-state', 'pick', 'open', 'close', 'forget', 'reset', 'open-in-explorer']) {
       expect(mainCjs).toContain(`ipcMain.handle('local-demo:${ch}'`)
       expect(preloadCjs).toContain(`ipcRenderer.invoke('local-demo:${ch}'`)
     }
@@ -143,6 +143,52 @@ describe('the Storage card — the one way in, and every seam has its caller', (
     expect(storageConnections).toContain('await demo.close()')
     expect(storageConnections).toContain('Change folder…')
     expect(storageConnections).not.toContain('wilsonSignOut')
+  })
+})
+
+describe('demo comfort (brief §3.4) — reset names what it deletes; the seed is the shape ScenesView writes', () => {
+  it('the card confirms a reset with the folder and both subtrees named, then reloads', () => {
+    expect(storageConnections).toContain('window.confirm(resetConfirmText(demoState.active))')
+    expect(storageConnections).toContain('await demo.reset()')
+    const text = resetConfirmText('D:\\Demos\\Friday')
+    expect(text).toContain('"Friday"')
+    expect(text).toContain('D:\\Demos\\Friday\\projects')
+    expect(text).toContain('D:\\Demos\\Friday\\.wilson\\rabbit-data')
+    expect(text).toMatch(/Nothing outside this folder is touched/)
+    expect(resetConfirmText('/Volumes/Drive/demo')).toContain('/Volumes/Drive/demo/projects')
+  })
+  it('the card seeds through the provider and the adapter, gated on Local Server', () => {
+    expect(storageConnections).toContain("rabbit?.adapterMode === 'local_server'")
+    expect(storageConnections).toContain('seedDemoProject({ createProject: rabbit.createProject, adapter: rabbit.getAdapter?.() })')
+  })
+  it('planDemoProject: scenes on, two scenes, five shots, every shot on a scene, numbered per scene', () => {
+    let n = 0
+    const plan = planDemoProject({ newId: () => `id-${++n}` })
+    expect(plan.project).toMatchObject({ id: 'id-1', scenes_enabled: true, status: 'active' })
+    expect(plan.scenes).toHaveLength(2)
+    expect(plan.shots).toHaveLength(5)
+    for (const s of plan.scenes) expect(s).toMatchObject({ project_id: 'id-1', status: 'not_started', type: 'interior' })
+    const sceneIds = new Set(plan.scenes.map(s => s.id))
+    for (const s of plan.shots) {
+      expect(sceneIds.has(s.scene_id)).toBe(true)
+      expect(s).toMatchObject({ project_id: 'id-1', status: 'not_started', type: 'other', frame_count: 0 })
+    }
+    expect(plan.shots.filter(s => s.scene_id === plan.scenes[0].id).map(s => s.shot_number)).toEqual([1, 2, 3])
+    expect(plan.shots.filter(s => s.scene_id === plan.scenes[1].id).map(s => s.shot_number)).toEqual([1, 2])
+  })
+  it('seedDemoProject writes the project first, then scenes, then shots, all under the created id', async () => {
+    const writes = []
+    const createProject = async (p) => { writes.push(['project', p.id]); return { ...p, id: 'created-id' } }
+    const adapter = {
+      upsertScene: async (s) => { writes.push(['scene', s.project_id]); return s },
+      upsertShot: async (s) => { writes.push(['shot', s.project_id]); return s },
+    }
+    const r = await seedDemoProject({ createProject, adapter })
+    expect(r).toMatchObject({ id: 'created-id', scenes: 2, shots: 5 })
+    expect(writes[0][0]).toBe('project')
+    expect(writes.slice(1, 3).every(w => w[0] === 'scene' && w[1] === 'created-id')).toBe(true)
+    expect(writes.slice(3).every(w => w[0] === 'shot' && w[1] === 'created-id')).toBe(true)
+    await expect(seedDemoProject({ createProject, adapter: {} })).rejects.toThrow(/cannot seed/)
   })
 })
 

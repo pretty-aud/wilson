@@ -272,6 +272,39 @@ describe('makeLocalDemoRoot — root resolution and the folder lifecycle', () =>
     expect(next.getState()).toMatchObject({ active: null, missing: null, recent: [] })
   })
 
+  it('reset() empties projects/ and .wilson/rabbit-data and NOTHING else; refused with no folder open', () => {
+    const root = make()
+    expect(root.reset()).toMatchObject({ ok: false })
+
+    const dir = folder('with-stuff')
+    writeFileSync(path.join(dir, 'IMG_0001.jpg'), 'keep me')
+    root.open(dir, { allowForeign: true })
+    const layout = layoutFor(dir)
+    // WILSON content that must go
+    mkdirSync(path.join(layout.projectsDir, 'Friday-Demo', 'ASSETS'), { recursive: true })
+    writeFileSync(path.join(layout.projectsDir, 'Friday-Demo', 'ASSETS', 'a.txt'), 'x')
+    mkdirSync(path.join(layout.dataDir, 'projects', 'p1'), { recursive: true })
+    writeFileSync(path.join(layout.dataDir, 'projects', 'p1', 'project.json'), '{}')
+    mkdirSync(path.join(layout.dataDir, 'thumbnails'), { recursive: true })
+    // things beside it that must survive
+    writeFileSync(path.join(dir, '.wilson', 'notes.txt'), 'mine')
+    const before = JSON.parse(readFileSync(layout.manifestPath, 'utf8'))
+
+    const r = root.reset()
+    expect(r.ok).toBe(true)
+    expect(r.removed).toEqual([layout.projectsDir, layout.dataDir])
+    expect(readdirSync(layout.projectsDir)).toEqual([])
+    expect(readdirSync(layout.dataDir)).toEqual([])
+    expect(readFileSync(path.join(dir, 'IMG_0001.jpg'), 'utf8')).toBe('keep me')
+    expect(readFileSync(path.join(dir, '.wilson', 'notes.txt'), 'utf8')).toBe('mine')
+    const after = JSON.parse(readFileSync(layout.manifestPath, 'utf8'))
+    expect(after.created_at).toBe(before.created_at)
+    expect(typeof after.last_reset_at).toBe('string')
+    // still open, same roots
+    expect(root.rootDir()).toBe(dir)
+    expect(root.dataDir()).toBe(layout.dataDir)
+  })
+
   it('switching folders keeps both in the recent list, newest first, and moves the roots', () => {
     const root = make()
     const a = folder('first'), b = folder('second')

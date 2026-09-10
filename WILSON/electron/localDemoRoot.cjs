@@ -328,6 +328,46 @@ function makeLocalDemoRoot({
     return getState();
   }
 
+  // Empty the open folder's WILSON content — projects/ and .wilson/rabbit-data
+  // — and NOTHING else: files a person keeps beside them (the "foreign" case),
+  // anything else under .wilson/, and the manifest all survive. Refuses when
+  // no folder is open. Every path removed is checked to sit strictly inside
+  // the open folder before rmSync; rmSync unlinks a symlink or junction
+  // rather than following it, so a link planted inside projects/ cannot
+  // reach outside.
+  function reset() {
+    if (!active) return { ok: false, error: 'no demo folder is open' };
+    const layout = layoutFor(active, path);
+    const targets = [layout.projectsDir, layout.dataDir];
+    const removed = [];
+    for (const t of targets) {
+      if (!isPathInside(active, t) || keyOf(path, t) === keyOf(path, active)) {
+        return { ok: false, error: 'refusing to delete outside the demo folder' };
+      }
+      try {
+        if (fs.existsSync(t)) {
+          fs.rmSync(t, { recursive: true, force: true });
+          removed.push(t);
+        }
+      } catch (err) {
+        return { ok: false, error: `could not remove ${t}: ${err.message}` };
+      }
+    }
+    try {
+      ensureLayout(active);
+      const manifest = readJSON(layout.manifestPath);
+      const stamp = now();
+      writeJSON(layout.manifestPath, {
+        ...(manifest && typeof manifest === 'object' ? manifest : newManifest({ appVersion, now: stamp })),
+        last_reset_at: stamp,
+      });
+    } catch (err) {
+      return { ok: false, error: `the folder could not be re-initialised: ${err.message}`, removed };
+    }
+    log(`[local-demo] reset: ${active}`);
+    return { ok: true, folder: active, removed };
+  }
+
   function forget(candidate) {
     const k = keyOf(path, candidate);
     if (active && keyOf(path, active) === k) return { ok: false, error: 'close the folder before forgetting it' };
@@ -360,7 +400,7 @@ function makeLocalDemoRoot({
   }
 
   return {
-    load, open, inspect, close, forget, getState, isKnownFolder,
+    load, open, inspect, close, forget, reset, getState, isKnownFolder,
     rootDir: () => active,
     dataDir: () => (active ? layoutFor(active, path).dataDir : null),
     projectsDir: () => (active ? layoutFor(active, path).projectsDir : null),

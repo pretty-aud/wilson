@@ -108,3 +108,78 @@ export async function reopenLocalFolder(bridge, folder) {
 export function reloadApp() {
   window.location.reload()
 }
+
+// ── Demo comfort (brief §3.4): reset, and the seeded demo project ────────────
+
+/** The confirmation the Storage card shows before a reset — names the folder
+ *  and exactly what goes. Pure so the sentence is tested. */
+export function resetConfirmText(folder) {
+  const sep = String(folder).includes('\\') ? '\\' : '/'
+  return `Reset the demo folder "${folderLeaf(folder)}"?\n\n`
+    + 'This deletes everything under:\n'
+    + `  ${folder}${sep}projects\n`
+    + `  ${folder}${sep}.wilson${sep}rabbit-data\n\n`
+    + 'Every project and file WILSON made in this folder is gone for good. '
+    + 'Nothing outside this folder is touched, and the folder stays open.'
+}
+
+export const DEMO_PROJECT_TITLE = 'Friday Demo'
+
+/**
+ * The rows a person would make by hand for the demo: a project with scenes
+ * and shots turned on, two scenes, five shots — the shapes ScenesView writes
+ * (handleNewScene / handleNewShot) so its table reads them unchanged. Pure
+ * over `newId` so the plan is tested; `seedDemoProject` writes it.
+ *
+ * ⚠️ Placeholder content until Audrey answers brief §6 question 4 (what the
+ * sample should be, which footage folder Friday uses).
+ */
+export function planDemoProject({ title = DEMO_PROJECT_TITLE, newId } = {}) {
+  const projectId = newId()
+  const project = {
+    id: projectId,
+    title,
+    description: 'Seeded for the demo. Scenes and shots are on; the Bins tab lands here.',
+    status: 'active',
+    scenes_enabled: true,
+    documents: [],
+    visualAssets: [],
+  }
+  const scenes = [
+    { id: newId(), project_id: projectId, name: 'SC01 Exterior, morning', scene_number: 1, status: 'not_started', type: 'interior', sort_order: 0 },
+    { id: newId(), project_id: projectId, name: 'SC02 Interview', scene_number: 2, status: 'not_started', type: 'interior', sort_order: 1 },
+  ]
+  const specs = [
+    [0, 'Wide establishing'], [0, 'Medium, walk in'], [0, 'Close-up, hands'],
+    [1, 'Two-shot'], [1, 'Insert, notes'],
+  ]
+  const perScene = new Map()
+  const shots = specs.map(([sceneIdx, label], i) => {
+    const scene = scenes[sceneIdx]
+    const n = (perScene.get(scene.id) || 0) + 1
+    perScene.set(scene.id, n)
+    return {
+      id: newId(), project_id: projectId, scene_id: scene.id,
+      name: `${scene.name.slice(0, 4)} SH${String(n).padStart(2, '0')} ${label}`,
+      shot_number: n, status: 'not_started', type: 'other', frame_count: 0, sort_order: i,
+    }
+  })
+  return { project, scenes, shots }
+}
+
+/**
+ * Write the plan through the SAME paths the views use: the provider's
+ * createProject (index entry + folder rows) and the adapter's scene / shot
+ * upserts (the local routes, so SCENES/ and SHOTS/ folders are made). Only
+ * the Local Server adapter has these; the caller gates on adapterMode.
+ */
+export async function seedDemoProject({ createProject, adapter, title } = {}) {
+  if (typeof createProject !== 'function') throw new Error('R.A.B.B.I.T. is not ready')
+  if (!adapter?.upsertScene || !adapter?.upsertShot) throw new Error('this storage backend cannot seed a demo project')
+  const plan = planDemoProject({ title, newId: () => crypto.randomUUID() })
+  const created = await createProject(plan.project)
+  const projectId = created?.id || plan.project.id
+  for (const s of plan.scenes) await adapter.upsertScene({ ...s, project_id: projectId })
+  for (const s of plan.shots) await adapter.upsertShot({ ...s, project_id: projectId })
+  return { id: projectId, title: created?.title || plan.project.title, scenes: plan.scenes.length, shots: plan.shots.length }
+}

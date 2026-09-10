@@ -3707,6 +3707,13 @@ ipcMain.handle('local-demo:forget', (_event, opts) => {
   const r = localDemo().forget(folder);
   return { ok: !!r.ok, error: r.error || null, state: localDemoState() };
 });
+// Demo comfort (brief §3.4): empty the open folder's WILSON content —
+// projects/ and .wilson/rabbit-data — and nothing else; never outside it.
+// The renderer confirms with the folder named and reloads afterwards.
+ipcMain.handle('local-demo:reset', () => {
+  const r = localDemo().reset();
+  return { ...r, state: localDemoState() };
+});
 ipcMain.handle('local-demo:open-in-explorer', async () => {
   const root = localDemoRootDir();
   if (!root) return { ok: false, error: 'no demo folder is open' };

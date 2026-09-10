@@ -23,13 +23,15 @@
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { FolderOpen, Cloud, HardDrive, Unplug, ExternalLink, X } from 'lucide-react'
+import { FolderOpen, Cloud, HardDrive, Unplug, ExternalLink, X, Sparkles, RotateCcw } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import GatedAction from '../../permissions/GatedAction'
 import { LIGHT_INK } from '../lightSurface'
+import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import {
   localDemoBridge, describeLocalState, folderLeaf,
   pickLocalFolder, reopenLocalFolder, reloadApp,
+  resetConfirmText, seedDemoProject,
 } from '../local/localDemoClient'
 
 const SUPABASE_HOST = (() => {
@@ -101,6 +103,12 @@ export default function StorageConnections() {
     : 'Only a workspace admin can change this computer’s storage folder while signed in to a company workspace.'
   const bridge = typeof window !== 'undefined' ? window.electronAPI?.rabbit : null
   const demo = localDemoBridge()
+  // The seeded demo project writes through R.A.B.B.I.T.'s own provider and
+  // adapter (brief §3.4); null outside the provider, and only the Local
+  // Server adapter can seed.
+  const rabbit = useRabbit()
+  const canSeed = !!rabbit?.createProject && rabbit?.adapterMode === 'local_server'
+  const [seedStatus, setSeedStatus] = useState('')
   const [localPath, setLocalPath] = useState(null)
   const [driveConnected, setDriveConnected] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -219,6 +227,38 @@ export default function StorageConnections() {
     } catch { /* nothing to show */ }
   }, [demo])
 
+  // ── demo comfort (brief §3.4) ────────────────────────────────────────
+  const resetDemoFolder = useCallback(async () => {
+    if (!canEditMachineRoot) return
+    if (!demo?.reset || busy || !demoState?.active) return
+    if (!window.confirm(resetConfirmText(demoState.active))) return
+    setBusy(true)
+    setDemoError('')
+    try {
+      const r = await demo.reset()
+      if (!r?.ok) { setDemoError(r?.error || 'the folder could not be reset'); setBusy(false); return }
+      reloadApp()
+    } catch (err) {
+      finishDemo({ done: false, error: err?.message || 'the folder could not be reset' })
+    }
+  }, [demo, busy, canEditMachineRoot, demoState, finishDemo])
+
+  const createDemoProject = useCallback(async () => {
+    if (!canSeed || busy) return
+    setBusy(true)
+    setDemoError('')
+    setSeedStatus('')
+    try {
+      const r = await seedDemoProject({ createProject: rabbit.createProject, adapter: rabbit.getAdapter?.() })
+      await rabbit.refreshProjectsIndex?.()
+      await rabbit.setActiveProject?.(r.id)
+      if (mountedRef.current) setSeedStatus(`Created "${r.title}" with ${r.scenes} scenes and ${r.shots} shots. Open it from PROJECTS.`)
+    } catch (err) {
+      if (mountedRef.current) setDemoError(err?.message || 'the demo project could not be created')
+    }
+    if (mountedRef.current) setBusy(false)
+  }, [canSeed, busy, rabbit])
+
   const view = describeLocalState(demoState)
   const others = view.recent.filter(r => r.path !== view.folder)
   const appDataRabbit = demoState?.appDataDir ? `${demoState.appDataDir}\\rabbit-data` : 'this computer’s app data'
@@ -293,6 +333,23 @@ export default function StorageConnections() {
                   </SmallButton>
                 </GatedAction>
               </div>
+              {/* Demo comfort (brief §3.4): a seeded project to land on, and
+                  a reset that names the folder and what it deletes. */}
+              <div className="flex items-center gap-2 flex-wrap" data-local-card="comfort">
+                <GatedAction allowed={canSeed} reason={rabbit ? 'Switch the Storage Backend to Local Server to seed a demo project.' : 'R.A.B.B.I.T. is not ready.'}>
+                  <SmallButton icon={Sparkles} style={{ ...QUIET_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={createDemoProject}>
+                    Create demo project
+                  </SmallButton>
+                </GatedAction>
+                <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
+                  <SmallButton icon={RotateCcw} style={{ ...DANGER_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={resetDemoFolder}>
+                    Reset demo folder…
+                  </SmallButton>
+                </GatedAction>
+              </div>
+              {seedStatus && (
+                <div className="text-[11px] font-bold" style={{ color: '#166534' }}>{seedStatus}</div>
+              )}
             </div>
           )}
 

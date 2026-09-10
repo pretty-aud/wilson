@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     open:           (opts) => ipcRenderer.invoke('local-demo:open', opts),
     close:          ()     => ipcRenderer.invoke('local-demo:close'),
     forget:         (opts) => ipcRenderer.invoke('local-demo:forget', opts),
+    reset:          ()     => ipcRenderer.invoke('local-demo:reset'),
     openInExplorer: ()     => ipcRenderer.invoke('local-demo:open-in-explorer'),
   },
 
