@@ -46,8 +46,8 @@
 --   * `BudgetView`'s receipt picker is `<input type="file" multiple>` with no
 --     `accept` and no size cap, so nothing on the client narrows it either.
 --   * pgTAP suite 77 probe 10 asserts, as a statement of the intended design,
---     that a **5 GB invoice is not refused**. That probe is corrected by this
---     migration's companion commit; it was true and is now wrong on purpose.
+--     that a **5 GB invoice is not refused**. That probe is corrected in THIS
+--     commit, alongside this file; it was true and is now wrong on purpose.
 --
 -- ── 🚨 TRAP 1: THE EXEMPTION HAS TWO ENFORCEMENT SITES, NOT ONE ──────────────
 -- The C4 hand-off named one (the policy). There are two, and fixing only the
@@ -65,22 +65,78 @@
 -- remove ("the second is refused at start, not after ten minutes", the C1 test
 -- plan). Both sites are bounded here, by ONE predicate, in this one file.
 --
+-- 🚨 BUT "BEFORE ANY BYTES MOVE" IS TRUE ONLY ABOVE 50 MiB, AND THIS BOUND IS
+-- 25 MiB. Review round 1 found this and it is a real limit, not a quibble.
+-- `reserveUpload` is called INSIDE `if (shouldUseResumable(body))`, and
+-- `RESUMABLE_THRESHOLD_BYTES` is 52_428_800 (`resumableUpload.js`); 0073's own
+-- header says it in one line — "Only the RESUMABLE path reserves (bodies above
+-- 50 MiB)". So a money file in (25 MiB, 50 MiB] loses the exemption, is never
+-- offered to site 2 at all, transfers in full, and is refused by site 1 at
+-- commit. That band gets exactly the after-the-transfer refusal this trap says
+-- site 2 prevents.
+--
+-- It is accepted rather than fixed, and the reasoning is stated so the next
+-- session does not have to re-derive it:
+--   * the bound's PURPOSE is billing exposure, and it binds correctly at both
+--     sites — only the TIMING of the refusal differs in that band;
+--   * a 25-50 MiB upload is seconds, not the ten minutes C1 was about;
+--   * ordinary media under 50 MiB has ALWAYS been weighed only at commit, so
+--     this is the system's existing behaviour, not a new hole;
+--   * the alternatives are worse: raising the bound to 50 MiB doubles the
+--     billing exposure to buy a cosmetic improvement, and reserving on the
+--     standard PUT path is a client change well outside this migration.
+-- Walkthrough 13 now tells the tester to expect the refusal as the file lands
+-- rather than before it starts, so the script cannot fail for the wrong reason.
+--
 -- ── 🚨 TRAP 2: AN UNKNOWN SIZE MUST KEEP THE EXEMPTION, NOT LOSE IT ──────────
 -- This is the polarity that decides whether this migration is safe, and it is
 -- the opposite of the intuitive one.
 --
--- 0055's own header gives THREE reasons for the exemption, and only the first
--- is about size:
+-- 🚨 QUOTED CORRECTLY THIS TIME. Review round 1 caught the first draft of this
+-- header misreading 0055, and the misreading mattered, because it hid the one
+-- reason this migration actually overrides. 0055's THREE reasons all belong to
+-- the MONEY arm, and it calls the third decisive:
 --   * money paths are tiny;
 --   * `FINANCE/RATES.json` is a MIRROR that RabbitProvider rewrites whenever
 --     rates change, so blocking it surfaces as a silent settings-save failure
 --     in an unrelated subsystem;
---   * `projects/<id>/PROJECT.json` is WILSON's own bookkeeping, rewritten on
---     every project change; blocking it corrupts the folder view rather than
---     saving any bytes.
+--   * **invoices are the paperwork by which a company pays Petal — locking
+--     them out of billing for exceeding a MEDIA quota punishes the wrong
+--     thing.** ("and the third is the decisive one", 0055.)
+-- The project manifest is a FOURTH, separate exemption bullet in 0055, not one
+-- of the three.
 --
--- Reasons two and three are NOT about size and must survive intact. So the
--- rule here is: **exempt unless we positively know the object is too big.**
+-- 🚨 SO THIS MIGRATION DOES OVERRIDE REASON THREE, ABOVE THE BOUND, AND OWES AN
+-- ARGUMENT FOR IT. Here it is. Reason three protects a company's ability to
+-- send the paperwork that pays Petal. A genuine invoice or receipt is single-
+-- digit MB; 25 MiB is several times the largest realistic one, so the
+-- paperwork is never locked out in practice. What reason three was never meant
+-- to protect is a 50 GiB object under an `INVOICES/` segment — and because
+-- `workspace_petal_committed_bytes` counts those bytes with no matching
+-- exemption, such an object does not merely go unrefused, it consumes the
+-- allowance that refuses the company's ordinary media. Left unbounded, reason
+-- three stops protecting billing and starts breaking the product it was
+-- written to keep working. Above the bound the file is still WEIGHED, not
+-- rejected: with room to spare it uploads.
+--
+-- ⚠️ AND THE BOUND IS APPLIED TO THE MIRROR AND MANIFEST ARMS TOO, because
+-- `rabbit_quota_exempt_path` is ONE predicate and this file bounds the
+-- predicate rather than the segment. That is a deliberate choice with a cost,
+-- stated rather than hidden: the FIRST INSERT of a `PROJECT.json` or
+-- `FINANCE/RATES.json` larger than 25 MiB on a full or suspended workspace
+-- would be refused, which is the "corrupted folder view" 0055 wrote its
+-- exemption to prevent. The exposure is small and bounded — the manifest
+-- measured 2,959 bytes on staging, the mirror is kilobytes, both are written
+-- by WILSON rather than by a person, and after the first write the manifest is
+-- an upsert, i.e. an UPDATE this INSERT-only policy does not govern. A
+-- machine-written bookkeeping file that reached 25 MiB would be a defect worth
+-- surfacing rather than silently exempting. Suite 77 probe 57 pins this
+-- behaviour deliberately; if Audrey would rather the manifest and mirror stay
+-- unbounded, the change is to split the predicate, and that probe is where to
+-- start.
+--
+-- The rule is therefore: **exempt unless we positively know the object is too
+-- big.**
 -- `COALESCE(p_bytes, 0)` is what implements it — an unknown size coalesces to
 -- zero, which is under any bound, so the exemption is retained. A bare
 -- comparison would yield NULL, and under a RESTRICTIVE policy A NULL DENIES:
@@ -113,7 +169,9 @@
 --     makes the classifier answer two questions and makes neither auditable.
 --   * pgTAP suite 65 pins it directly at probes 13–17 (NULL is false; the
 --     manifest, INVOICES/ and FINANCE/ are true; `dailies.mov` and a depth-4
---     asset key are false) and suite 65 probe 24 pins its EXECUTE grant. Those
+--     asset key are false) and suite 65 probe 40 pins its EXECUTE grant — NOT
+--     probe 24, which is about avatars not being metered; the first draft of
+--     this header named it, and review round 1 caught it. Those
 --     probes are about paths and stay exactly as they are, green, untouched.
 -- So the classifier is kept and DELEGATED TO, and the size axis is a second,
 -- separately auditable predicate composed over it.
@@ -123,6 +181,15 @@
 -- `public.rabbit_quota_exempt_max_bytes()`, mirroring how
 -- `public.storage_free_tier_bytes()` (0055) is the one definition of the free
 -- tier rather than a literal repeated at each site.
+--
+-- ⚠️ THE BOUND IS STILL DUPLICATED, AND SAYING OTHERWISE WOULD BE THE KIND OF
+-- CLAIM THIS REPO KEEPS FINDING. This function is the one definition the
+-- PREDICATES read, but the figure is also written out in `StorageSection.jsx`'s
+-- two banners and as a literal in suite 77's probes 55, 60 and 61. Moving the
+-- bound means editing this function FIRST and then those places; suite 77
+-- probe 64 asserts the value and is what goes red if only the function moves.
+-- The COMMENT on the function said "a change to THIS function and nothing
+-- else"; review round 1 caught that, and it is corrected below.
 --
 -- Chosen against the real populations, all of which stay comfortably exempt:
 --   * `PROJECT.json` measured 2,959 bytes on staging (0055's own measurement).
@@ -153,10 +220,14 @@
 -- ── WHY THERE IS NO row_security_active() GUARD IN THIS FILE ─────────────────
 -- 0076 needed one because its evidence was ROW COUNTS from a backfill over
 -- FORCE-RLS tables, and a non-bypassing role would have counted zero and
--- reported success. This migration writes no rows and counts none. Its
--- evidence is DDL and the behaviour of IMMUTABLE functions, both of which are
--- role-independent, and every post-condition below is a direct evaluation
--- rather than a count. Said explicitly so the omission reads as a decision.
+-- reported success. This migration writes no application rows at all.
+-- ⚠️ THE FIRST DRAFT SAID "counts none", AND THAT WAS FALSE — post-conditions 8
+-- and 11 below are both `count(*)`. Review round 1 caught it. The decision
+-- stands on the true reason instead: both of those count SYSTEM CATALOGUES
+-- (`pg_policies`, `pg_proc`), which no RLS policy filters and which every role
+-- reads alike, and every other post-condition is a direct evaluation of an
+-- IMMUTABLE function. Nothing here can report success over a table it could
+-- not see, which is the hazard `row_security_active()` exists to catch.
 --
 -- =============================================================================
 -- STATEMENTS
@@ -180,8 +251,11 @@ GRANT EXECUTE ON FUNCTION public.rabbit_quota_exempt_max_bytes()
 COMMENT ON FUNCTION public.rabbit_quota_exempt_max_bytes() IS
   'Track C 2026-09-09: the largest object that a quota-exempt path may be and '
   'still skip the Petal storage quota. 25 MiB. Audrey''s ruling: bound the '
-  'exemption by size rather than cap the picker. Raising or lowering the bound '
-  'is a change to THIS function and nothing else.';
+  'exemption by size rather than cap the picker. This is the one definition the '
+  'PREDICATES read, but the figure is also written out in StorageSection.jsx''s '
+  'two banners and as a literal in pgTAP suite 77 probes 55, 60 and 61; moving '
+  'the bound means editing this function first and then those. Suite 77 probe '
+  '64 asserts the value.';
 
 -- ── 2. The bounded exemption, over a KNOWN byte count ───────────────────────
 -- The composition point. `rabbit_quota_exempt_path` answers "is this a path
@@ -283,8 +357,14 @@ COMMENT ON POLICY petal_storage_quota_insert ON storage.objects IS
 
 -- ── 5. The reservation site ─────────────────────────────────────────────────
 -- 🚨 THE SECOND ENFORCEMENT SITE (TRAP 1). Reproduced from the live definition
--- on dev with exactly ONE line changed — the exemption test — so that a money
--- path over the bound is reserved and weighed instead of returning NULL.
+-- on dev with exactly ONE EXECUTABLE line changed — the exemption test — so
+-- that a money path over the bound is reserved and weighed instead of
+-- returning NULL. ⚠️ Precisely: the executable diff against 0073 is that one
+-- line; the comment above it grew, the signature is on one line instead of
+-- three, and the clause renders as `SET search_path TO 'public'` because that
+-- is how the catalogue prints what 0073 wrote as `= public`. Same proconfig,
+-- same behaviour. Post-condition 9 reads `prosrc`, which includes comments, so
+-- the distinction is worth stating rather than leaving to be rediscovered.
 --
 -- `p_bytes` is guaranteed NOT NULL and > 0 by the 22023 guard above the
 -- exemption test, so at THIS site the size is always known and TRAP 2's
@@ -429,6 +509,8 @@ DECLARE
   v_check   TEXT;
   v_src     TEXT;
   v_n       INT;
+  v_secdef  BOOLEAN;
+  v_conf    TEXT[];
 BEGIN
   -- 1. The bound exists, is positive, and is the value this file documents.
   IF public.rabbit_quota_exempt_max_bytes() IS DISTINCT FROM 26214400::bigint THEN
@@ -537,24 +619,39 @@ BEGIN
   --    in BOTH directions: the bounded predicate is present AND the unbounded
   --    one is gone. Presence alone would pass if someone left both arms in,
   --    which ORs the hole straight back open.
-  IF v_check NOT LIKE '%rabbit_quota_exempt_object%' THEN
-    RAISE EXCEPTION '0078 post-condition 6a failed: the policy does not use the bounded exemption. Definition: %', v_check;
+  -- 🚨 strpos, NOT LIKE, AND THE WHOLE RENDERED ARM — review round 1.
+  -- `%rabbit_quota_exempt_object%` passes just as happily for
+  -- `NOT public.rabbit_quota_exempt_object(name, metadata)`, which inverts the
+  -- gate; and in LIKE an underscore is a single-character WILDCARD, so those
+  -- patterns were looser than they read. Matching the catalogue's exact
+  -- rendering of the whole arm — the `OR`, the function, and its argument list
+  -- — is what makes this an assertion instead of a spelling check.
+  IF strpos(v_check, 'OR rabbit_quota_exempt_object(name, metadata)') = 0 THEN
+    RAISE EXCEPTION '0078 post-condition 6a failed: the policy does not carry the bounded exemption arm verbatim (an inverted or re-argued call would land here too). Definition: %', v_check;
   END IF;
-  IF v_check LIKE '%rabbit_quota_exempt_path%' THEN
+  IF strpos(v_check, 'rabbit_quota_exempt_path') > 0 THEN
     RAISE EXCEPTION '0078 post-condition 6b failed: the policy still carries the UNBOUNDED exemption arm, which ORs the hole back open. Definition: %', v_check;
   END IF;
 
   -- 7. The self-limiting arm survives. Three buckets share storage.objects and
   --    a RESTRICTIVE policy is evaluated for every INSERT into it.
-  IF v_check NOT LIKE '%rabbit-files%' THEN
-    RAISE EXCEPTION '0078 post-condition 7 failed: the bucket self-limiting arm is gone — avatars and thumbnails will start failing. Definition: %', v_check;
+  -- 🚨 THE ARM AS RENDERED, INCLUDING ITS OPERATOR. `%rabbit-files%` was
+  -- true of `bucket_id = 'rabbit-files'` — the exact inversion the comment
+  -- above this policy says would start refusing avatar uploads with an RLS
+  -- error naming the wrong bucket. Review round 1.
+  IF strpos(v_check, '(bucket_id <> ''rabbit-files''::text)') = 0 THEN
+    RAISE EXCEPTION '0078 post-condition 7 failed: the bucket self-limiting arm is missing or inverted — avatars and thumbnails will start failing. Definition: %', v_check;
   END IF;
 
   -- 8. The neighbour count 0053's post-condition 7 and suite 63 probe 7 assert.
+  -- ⚠️ `rabbit\_files%` — the underscore is ESCAPED. Unescaped it is a
+  -- single-character wildcard, so the pattern read as `rabbit?files%`. It
+  -- counts the same 8 today; it is stricter, and the looser form is inherited
+  -- from 0053 and suites 63/65 rather than invented here.
   SELECT count(*)::int INTO v_n
     FROM pg_policies
    WHERE schemaname = 'storage' AND tablename = 'objects'
-     AND policyname LIKE 'rabbit_files%';
+     AND policyname LIKE 'rabbit\_files%';
   IF v_n <> 8 THEN
     RAISE EXCEPTION '0078 post-condition 8 failed: % policies named rabbit_files%%, expected 8', v_n;
   END IF;
@@ -562,16 +659,40 @@ BEGIN
   -- 9. 🚨 THE SECOND ENFORCEMENT SITE (TRAP 1), asserted the same way and in
   --    both directions. Reading prosrc is what distinguishes "the function was
   --    replaced" from "the function still exists".
-  SELECT p.prosrc INTO v_src
+  -- 🚨 pronargs = 2 — review round 1. Without it, `SELECT ... INTO` takes
+  -- ONE ARBITRARY ROW if an overload is ever added, and the assertions below
+  -- would then be made about a function nobody called.
+  SELECT p.prosrc, p.prosecdef, p.proconfig
+    INTO v_src, v_secdef, v_conf
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-   WHERE n.nspname = 'public' AND p.proname = 'reserve_upload_bytes';
+   WHERE n.nspname = 'public' AND p.proname = 'reserve_upload_bytes'
+     AND p.pronargs = 2;
   IF v_src IS NULL THEN
-    RAISE EXCEPTION '0078 post-condition 9 failed: reserve_upload_bytes is missing';
+    RAISE EXCEPTION '0078 post-condition 9 failed: reserve_upload_bytes(text,bigint) is missing';
   END IF;
-  IF v_src NOT LIKE '%rabbit_quota_exempt_bytes(p_path, p_bytes)%' THEN
+  -- 🚨 THIS FILE RETYPES A 100-LINE SECURITY DEFINER FUNCTION, and until
+  -- review round 1 its entire evidence was two LIKE probes. A retype that
+  -- silently dropped SECURITY DEFINER would make the function run as its
+  -- invoker: `projects` and `workspace_storage_plans` are RLS-protected, the
+  -- lookups would return nothing, and every reservation would fail as "you
+  -- cannot write to this project". A dropped search_path is the classic
+  -- SECURITY DEFINER hijack. Neither was dropped; the point is that nothing
+  -- here would have said so.
+  IF NOT v_secdef THEN
+    RAISE EXCEPTION '0078 post-condition 9c failed: reserve_upload_bytes lost SECURITY DEFINER';
+  END IF;
+  IF v_conf IS NULL OR NOT (v_conf @> ARRAY['search_path=public']) THEN
+    RAISE EXCEPTION '0078 post-condition 9d failed: reserve_upload_bytes lost its pinned search_path; proconfig is %', v_conf;
+  END IF;
+  -- The three error codes the client and suite 77 both key on: 42501 for an
+  -- authorisation refusal, 22023 for a malformed request, PT402 for the quota.
+  IF strpos(v_src, '42501') = 0 OR strpos(v_src, '22023') = 0 OR strpos(v_src, 'PT402') = 0 THEN
+    RAISE EXCEPTION '0078 post-condition 9e failed: reserve_upload_bytes no longer raises all three of 42501 / 22023 / PT402';
+  END IF;
+  IF strpos(v_src, 'public.rabbit_quota_exempt_bytes(p_path, p_bytes)') = 0 THEN
     RAISE EXCEPTION '0078 post-condition 9a failed: reserve_upload_bytes does not use the bounded exemption — a 5 GB receipt still reserves nothing';
   END IF;
-  IF v_src LIKE '%rabbit_quota_exempt_path(p_path)%' THEN
+  IF strpos(v_src, 'public.rabbit_quota_exempt_path(p_path)') > 0 THEN
     RAISE EXCEPTION '0078 post-condition 9b failed: reserve_upload_bytes still carries the UNBOUNDED early return';
   END IF;
 
@@ -585,15 +706,34 @@ BEGIN
      OR NOT has_function_privilege('authenticated', 'public.rabbit_quota_exempt_object(text,jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION '0078 post-condition 10a failed: authenticated cannot execute one of the new functions — every upload would fail';
   END IF;
+  -- service_role runs storage-gc, teardown and every Edge Function admin path.
+  -- It has rolbypassrls so the POLICY does not apply to it, but these functions
+  -- are ordinary calls and a missing grant would break those paths. Review
+  -- round 1 noted the omission.
+  IF NOT has_function_privilege('service_role', 'public.rabbit_quota_exempt_max_bytes()', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.rabbit_quota_exempt_bytes(text,bigint)', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.rabbit_quota_exempt_object(text,jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION '0078 post-condition 10c failed: service_role cannot execute one of the new functions';
+  END IF;
   IF has_function_privilege('anon', 'public.rabbit_quota_exempt_bytes(text,bigint)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.rabbit_quota_exempt_object(text,jsonb)', 'EXECUTE')
      OR has_function_privilege('anon', 'public.rabbit_quota_exempt_max_bytes()', 'EXECUTE') THEN
     RAISE EXCEPTION '0078 post-condition 10b failed: anon can execute a quota function';
   END IF;
 
-  -- 11. Volatility. A policy expression is evaluated per row; all three must be
-  --     IMMUTABLE and PARALLEL SAFE like the 0055/0057 neighbours they sit
-  --     beside, or the planner loses options on every storage write.
+  -- 11. Volatility, asserted as CONSISTENCY WITH THE CHAIN rather than as a
+  --     correctness property — review round 1, and this needs saying plainly.
+  --     ⚠️ `storage.foldername` is proparallel = 'u' (PARALLEL UNSAFE) on dev,
+  --     measured 2026-09-09, and so is `public.fn_try_uuid`. Yet
+  --     `rabbit_money_segment` (0042) and `rabbit_quota_exempt_path` (0055) are
+  --     both labelled PARALLEL SAFE while calling it. That mislabel is
+  --     PRE-EXISTING and three functions deep; the new functions here inherit
+  --     it by delegating to that chain. Diverging unilaterally would be its own
+  --     inconsistency and would change planning for every storage write, so
+  --     the labels match the neighbours and the discrepancy is RECORDED instead
+  --     of asserted away. It is harmless in practice — foldername is a pure
+  --     string split — but it is a real labelling defect somebody should fix
+  --     across 0042/0055 together, not here.
   SELECT count(*)::int INTO v_n
     FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public'
@@ -601,7 +741,7 @@ BEGIN
                        'rabbit_quota_exempt_object')
      AND p.provolatile = 'i' AND p.proparallel = 's';
   IF v_n <> 3 THEN
-    RAISE EXCEPTION '0078 post-condition 11 failed: % of 3 new functions are IMMUTABLE PARALLEL SAFE', v_n;
+    RAISE EXCEPTION '0078 post-condition 11 failed: % of 3 new functions carry the same IMMUTABLE / PARALLEL SAFE labelling as rabbit_quota_exempt_path, which they delegate to', v_n;
   END IF;
 
   RAISE NOTICE '0078 OK — the quota exemption is bounded at % bytes at BOTH sites (the RESTRICTIVE policy and reserve_upload_bytes); rabbit_quota_exempt_path is unchanged; 8 rabbit_files policies intact.',

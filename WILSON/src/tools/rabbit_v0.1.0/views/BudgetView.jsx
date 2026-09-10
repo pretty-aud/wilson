@@ -2625,10 +2625,15 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
         //     the INVOICES segment is exempt from the Petal storage quota
         //     (0055's rabbit_quota_exempt_path short-circuits the RESTRICTIVE
         //     petal_storage_quota_insert), while the meter still counts the
-        //     bytes. So a receipt can never be refused for quota, and the
-        //     picker below takes `multiple` files with no accept and no size
-        //     cap. Not a security hole — 0037 gates `expenses` — but a billing
-        //     one. Handbook §12.9; bounding it is Audrey's call, not a fix.
+        //     bytes. The picker below takes `multiple` files with no accept
+        //     and no size cap, so until 0078 a receipt could not be refused
+        //     for quota AT ANY SIZE. Not a security hole — 0037 gates
+        //     `expenses` — but a billing one.
+        //     ✅ BOUNDED BY 0078, on Audrey's ruling of 2026-09-09: the
+        //     exemption now holds only up to rabbit_quota_exempt_max_bytes()
+        //     (25 MiB). Above it a receipt is WEIGHED like ordinary media —
+        //     still uploadable while the company has room, refusable when it
+        //     does not. Handbook §12.10.
         //
         // What was here before was `{ type: 'expense' }`, and `scope.type` is
         // read by NOTHING — not this adapter, not localServerAdapter, not the

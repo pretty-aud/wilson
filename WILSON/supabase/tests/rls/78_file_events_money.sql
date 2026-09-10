@@ -356,10 +356,21 @@ SELECT is(
   false, 'a second abandon of the same key finds nothing open and returns false');
                                                                             -- 27
 
+-- ⚠️ "A MONEY PATH IS NEVER RESERVED" STOPPED BEING TRUE AT 0078, which bounds
+-- the quota exemption by object size: a money path OVER
+-- rabbit_quota_exempt_max_bytes() is weighed, reserves, and can therefore be
+-- abandoned. This probe still holds because 1-never-reserved.pdf was never
+-- reserved by this suite, but the reason is the key, not the segment. The
+-- over-bound case is suite 77 probes 66 and 67. 🚨 `0074`'s own comment beside
+-- `abandon_upload_reservation` ("Always false in practice — a money path is
+-- never reserved") is the same falsified invariant in an APPLIED migration; it
+-- is behaviourally harmless (file_event_is_financial computes the flag from
+-- rabbit_money_key, so an abandoned money upload's certificate is still
+-- money-gated) and is corrected in handbook §12.10 rather than by editing 0074.
 SELECT is(
   public.abandon_upload_reservation(
     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/1-never-reserved.pdf', 'x'),
-  false, 'a money path was never reserved (0073 exempts it), so there is nothing to abandon');
+  false, 'a money path UNDER the quota-exemption bound was never reserved (0073, bounded by 0078), so there is nothing to abandon');
                                                                             -- 28
 
 -- Two more rows for the probes that follow.

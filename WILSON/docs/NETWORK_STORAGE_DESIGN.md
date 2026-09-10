@@ -831,8 +831,10 @@ S42 is blocked on S41 in the master plan's sequence table.
 >    GRANT: it ORs into the permissive set and admits a write
 >    `rabbit_files_money_insert` was refusing. Suite 65's plain-member probe goes
 >    green-to-red. One keyword re-creates what 0038 shipped and 0039 closed.
-> 3. **The gate EXEMPTS money paths and the project manifest**, which this
->    section did not anticipate. `FINANCE/RATES.json` is a mirror rewritten on
+> 3. **The gate EXEMPTS money paths and the project manifest** — since 0078,
+>    only up to `rabbit_quota_exempt_max_bytes()` (25 MiB); above that a money
+>    file is weighed like ordinary media, and an unknown size keeps the
+>    exemption. Handbook §12.10. This section did not anticipate any of it. `FINANCE/RATES.json` is a mirror rewritten on
 >    every rates change, so blocking it turns a quota state into a silent
 >    settings-save failure in an unrelated subsystem; invoices are how a company
 >    pays Petal; and the manifest is WILSON's own bookkeeping. ⚠️ The manifest

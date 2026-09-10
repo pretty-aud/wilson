@@ -48,7 +48,7 @@
 
 BEGIN;
 
-SELECT plan(62);
+SELECT plan(67);
 
 SELECT * FROM tests.rls_setup();
 
@@ -131,9 +131,16 @@ SELECT is(
 -- ⚠️ THIS PROBE ASSERTED A 5 GB INVOICE UNTIL 0078, and said so in its own
 -- message. That was a true statement of the design and it is now wrong ON
 -- PURPOSE: Audrey's ruling of 2026-09-09 bounds the exemption by object size,
--- so the figure here is a real invoice's and the 5 GB case has become probe 55,
--- where it is refused. Changed rather than deleted, because a probe that
--- silently loses its teeth is how a gate stops being a gate.
+-- so the figure here is a real invoice's. Changed rather than deleted, because
+-- a probe that silently loses its teeth is how a gate stops being a gate.
+-- ⚠️ WHERE THE 5 GB CASE WENT — review round 1 corrected this note, which had
+-- said "probe 55". It did not go to probe 55: that is a full workspace, where
+-- ANY weighed file is refused. A large money file at a workspace WITH ROOM is
+-- probe 66, and the point there is that it is ACCEPTED — losing the exemption
+-- means being weighed, not being rejected. Keeping it here as a `is(... NULL)`
+-- was impossible: at the free tier (5 GiB, 0057) a 5 GB invoice now RESERVES
+-- and returns an id, so the old assertion would have failed for the right
+-- reason and told the reader nothing.
 SELECT is(
   (SELECT public.reserve_upload_bytes(
      'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv1/1-invoice.pdf', 4000)),
@@ -562,9 +569,11 @@ SELECT is(
 -- against the allowance that refuses ordinary media. Not a security hole (0037
 -- gates `expenses`); a billing one.
 --
--- 🚨 THE WORKSPACE IS FULL HERE — quota 10,000,000, used 10,000,000, which
--- probe 53 has just asserted. That is what makes this whole section mean
--- anything: every probe below is decided by the exemption and by nothing else.
+-- 🚨 THE WORKSPACE IS FULL FOR SECTIONS 10 AND 11 — quota 10,000,000, used
+-- 10,000,000, which probe 53 has just asserted. That is what makes them mean
+-- anything: every probe there is decided by the exemption and nothing else.
+-- Section 12 then gives the workspace room back, which is where "weighed" is
+-- told apart from "rejected".
 
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
@@ -574,27 +583,41 @@ SELECT set_config('request.jwt.claims', jsonb_build_object(
 SET LOCAL ROLE authenticated;
 
 -- PRESENCE CONTROL for the pair. 0078 must not close the door 0055 opened
--- deliberately: a real invoice is small, the company is out of space, and it
--- still reserves nothing and is refused by nothing.
+-- deliberately: the company is out of space and a real receipt still reserves
+-- nothing and is refused by nothing.
+-- 🚨 12 MB, NOT 4 KB — review round 1. A 4 KB control brackets the bound
+-- from so far below that any bound in [4000, 26214400] would satisfy it. The
+-- migration header justifies 25 MiB against "a phone photograph of a receipt is
+-- 2-12 MB", so the control is sized at the TOP of the population the bound was
+-- chosen to protect. Now a bound set carelessly low fails HERE.
 SELECT is(
   (SELECT public.reserve_upload_bytes(
-     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv9/9-small.pdf', 4000)),
+     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv9/9-small.pdf', 12000000)),
   NULL::bigint,
-  'PRESENCE CONTROL: a small invoice is still quota-exempt and reservation-exempt on a FULL workspace');
+  'PRESENCE CONTROL: a 12 MB receipt — the top of the population 25 MiB was chosen for — is still quota-exempt and reservation-exempt on a FULL workspace');
                                                                             -- 54
 
 -- 🚨 THE HEADLINE OF 0078. The same path shape, the same caller, the same
 -- instant — only the size differs, and now it is refused BEFORE ANY BYTE MOVES.
+-- 🚨 THE SENTENCE, NOT JUST THE SQLSTATE — review round 1. PT402 is raised by
+-- THREE arms of reserve_upload_bytes (suspension, "used all", "not enough for
+-- this file"), so a bare PT402 would still pass if a regression made the
+-- suspension arm fire. This is the standard probes 60 and 61 already meet, and
+-- the standard the file's own comment at probe 25 demands. The workspace is
+-- exactly full, so it is the "used all" arm; pg_size_pretty(10000000) is
+-- '9766 kB'.
 SELECT throws_ok(
   $$SELECT public.reserve_upload_bytes(
       'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv9/9-huge.pdf', 26214401)$$,
-  'PT402'::char(5), NULL,
-  '🚨 THE HEADLINE: a money file one byte over rabbit_quota_exempt_max_bytes() is WEIGHED and REFUSED at START — before 0078 no receipt could be refused at any size');
+  'PT402'::char(5),
+  'This company has used all 9766 kB of its Petal cloud storage (uploads in progress count). Contact Petal to raise the plan — deleting files does not free space straight away, because deleted files stay recoverable for 30 days.',
+  '🚨 THE HEADLINE: a money file one byte over rabbit_quota_exempt_max_bytes() is WEIGHED and REFUSED at START, by the quota arm by its own sentence — before 0078 no receipt could be refused at any size');
                                                                             -- 55
 
 -- Exactly ON the bound keeps the exemption: a ceiling, not a wall. Written
--- against the function rather than the literal, so the probe follows the bound
--- if Audrey moves it.
+-- against the function rather than the literal, so it follows the bound if
+-- Audrey moves it. ⚠️ That also makes it blind to the bound's VALUE — probe 64
+-- is what pins that.
 SELECT is(
   (SELECT public.reserve_upload_bytes(
      'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv9/9-edge.pdf',
@@ -603,27 +626,41 @@ SELECT is(
   'the bound is inclusive — an object exactly at rabbit_quota_exempt_max_bytes() keeps the exemption');
                                                                             -- 56
 
--- The manifest arm rides the same predicate. PROJECT.json measured 2,959 bytes
--- on staging; blocking it would surface as a broken folder view, not a saved
--- byte, which is the second of 0055's three reasons for the exemption.
-SELECT is(
-  (SELECT public.reserve_upload_bytes(
-     'projects/aaaa1111-0000-0000-0000-000000000001/PROJECT.json', 3000)),
-  NULL::bigint,
-  'the project manifest is still exempt on a full workspace');               -- 57
+-- 🚨 THE MANIFEST ARM IS BOUNDED TOO, and until review round 1 nothing
+-- tested it: every other probe here drives the bound through INVOICES/, so a
+-- bound applied only to the money arm would have passed the whole suite. The
+-- manifest is 2,959 bytes in the wild (0055's measurement on staging), so this
+-- size cannot occur by accident — but `rabbit_quota_exempt_path` is ONE
+-- predicate over both arms and 0078 bounds the predicate, not the segment.
+SELECT throws_ok(
+  $$SELECT public.reserve_upload_bytes(
+      'projects/aaaa1111-0000-0000-0000-000000000001/PROJECT.json', 26214401)$$,
+  'PT402'::char(5), NULL,
+  'an oversized PROJECT.json loses the exemption too — the bound is on the predicate, not on the money segment alone');
+                                                                            -- 57
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
 
--- 🚨 A REFUSAL MUST LEAVE NOTHING BEHIND. If the oversized invoice had
--- written its reservation row before raising, the workspace would be
--- permanently over-reserved by a file that never uploaded — and the 24-hour
--- expiry would be the only thing that ever released it.
+-- 🚨 SCOPED TO THE FIXTURE WORKSPACE — review round 1. This file's header
+-- requires it of every Postgres-side count, and 0078 is exactly what makes an
+-- unscoped one decay: money paths could never produce a reservation row before,
+-- and now an oversized one does (probe 66). The first real 30 MB receipt on
+-- hosted dev would have turned an unscoped count permanently red.
+--
+-- ⚠️ AND THE CLAIM IS NARROWER THAN IT WAS. Round 1 wrote "no exempt or REFUSED
+-- money call wrote a row". The refused half is not observable from here:
+-- throws_ok runs its statement inside an exception handler, which is a
+-- subtransaction, so anything probe 55 or 57 wrote is rolled back to the
+-- savepoint before this runs — the probe would stay green even if
+-- reserve_upload_bytes wrote its row BEFORE raising. Only the exempt half is
+-- asserted, and it is said plainly rather than overclaimed.
 SELECT is(
   (SELECT count(*)::int FROM public.upload_reservations
-    WHERE storage_path LIKE '%INVOICES%' OR storage_path LIKE '%PROJECT.json'),
+    WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+      AND (storage_path LIKE '%INVOICES%' OR storage_path LIKE '%PROJECT.json')),
   0,
-  'no exempt or refused money call wrote a reservation row — the refusal is a raise, not a row');
+  'the EXEMPT money calls wrote no reservation row — an exemption is a silent skip, not a row with released_at set');
                                                                             -- 58
 
 -- ══ 11. 🚨 THE SAME BOUND AT THE OTHER ENFORCEMENT SITE ════════════════
@@ -633,9 +670,13 @@ SELECT is(
 --      below, at commit.
 -- 🚨 BOUNDING ONLY ONE WOULD BE WORSE THAN BOUNDING NEITHER. Bound the
 -- reservation alone and the policy admits at commit what the reservation
--- refused. Bound the policy alone and a 5 GB receipt reserves nothing, uploads
+-- refused. Bound the policy alone and a large receipt reserves nothing, uploads
 -- for ten minutes and is refused at the end — which is the exact failure
 -- bundle C1 was built to remove.
+-- ⚠️ Only bodies over 50 MiB take the resumable path that reserves at all
+-- (RESUMABLE_THRESHOLD_BYTES, resumableUpload.js; 0073's header §86 states it),
+-- so between 25 and 50 MiB it is site 2 alone that refuses, at commit. Site 1
+-- is what saves the ten minutes on the large ones.
 
 SELECT set_config('request.jwt.claims', jsonb_build_object(
   'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
@@ -658,7 +699,8 @@ SELECT lives_ok(
 -- refusing, which turns the probe's claim into an argument instead of an
 -- assertion. Here it matters twice over, because `rabbit_files_money_insert`
 -- would refuse this same INSERT for a non-money caller and the probe would
--- look identical.
+-- look identical. Probe 59 is what rules that out: same role, same claims, same
+-- path shape, admitted.
 SELECT throws_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
     VALUES ('rabbit-files',
@@ -683,11 +725,37 @@ SELECT throws_ok(
   'the bound applies at the tus permission phase too, where the size arrives as contentLength');
                                                                             -- 61
 
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- 🚨 THE PRECONDITION THAT MAKES PROBE 63 MEAN ANYTHING — review round 1.
+-- Probe 63 asserts an object with no size KEEPS the exemption. For it to be
+-- able to go red at all, the policy's THIRD arm must be failing at this moment:
+-- with a NULL incoming size `rabbit_petal_storage_ok` takes its UNWEIGHED
+-- branch (`committed + reserved < quota`), and if that branch were true the
+-- insert would be admitted by arm 3 no matter what arm 2 answered. Asserted
+-- rather than left to the fixture's arithmetic, which clears the line by only
+-- 4,000 bytes and which probe 53 does not establish.
+SELECT is(
+  public.rabbit_petal_storage_ok(
+    'aaaa1111-0000-0000-0000-000000000001'::uuid, NULL::bigint, NULL::text),
+  false,
+  'PRECONDITION for probe 63: with an unknown size the quota gate''s own unweighed branch is already false, so arm 3 cannot be what admits the next insert');
+                                                                            -- 62
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
 -- 🚨 AND THE POLARITY THAT KEEPS THE MIRROR WRITABLE. An absent size must
 -- KEEP the exemption. `COALESCE(bytes, 0)` is what implements it; a bare
 -- comparison would yield NULL and a NULL DENIES here, so every rates-mirror and
 -- manifest write with no metadata would start failing. This probe is the one
--- that goes red if someone "tidies" that COALESCE away.
+-- that goes red if someone "tidies" that COALESCE away — and probe 62 above is
+-- what guarantees it can.
 SELECT lives_ok(
   $$INSERT INTO storage.objects (bucket_id, name, owner_id, metadata)
     VALUES ('rabbit-files',
@@ -695,10 +763,81 @@ SELECT lives_ok(
             'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
             '{"mimetype":"application/json"}'::jsonb)$$,
   '🚨 an object with NO size in its metadata KEEPS the exemption — the rates mirror is never blocked by absent metadata');
-                                                                            -- 62
+                                                                            -- 63
 
 SELECT set_config('request.jwt.claims', '', true);
 RESET ROLE;
+
+-- ══ 12. 🚨 WHAT NO PROBE PINNED UNTIL REVIEW ROUND 1 ═══════════════════
+
+-- 🚨 THE BOUND'S VALUE. Every other probe here is written against
+-- rabbit_quota_exempt_max_bytes(), which is right for following the bound and
+-- means the whole suite is BLIND to what the bound is: probe 56 compares the
+-- function against itself. A later migration doing CREATE OR REPLACE on it with
+-- 5 MB would leave this file 67/67 green while every phone photograph of a
+-- receipt — the population the migration header names — started being refused.
+-- 0078's post-condition 1 asserts this too, but it runs once, at apply.
+SELECT is(
+  public.rabbit_quota_exempt_max_bytes(), 26214400::bigint,
+  'the bound is 25 MiB — moving it is a deliberate act that must edit this probe, the function and the Admin Terminal copy together');
+                                                                            -- 64
+
+-- 🚨 THE GRANTS ON THE THREE NEW FUNCTIONS, in both directions. A policy
+-- expression runs as the INVOKER, so `authenticated` losing EXECUTE turns every
+-- upload into a permission error rather than a quota decision. And `anon` must
+-- not hold it: anon inherits PUBLIC, so `REVOKE ... FROM PUBLIC` is what makes
+-- that true, and a later `GRANT ... TO anon` was invisible to the whole pgTAP
+-- set — 0078's post-condition 10 runs only at apply. Suite 65 probe 40 does
+-- exactly this for rabbit_quota_exempt_path.
+SELECT ok(
+  has_function_privilege('authenticated', 'public.rabbit_quota_exempt_max_bytes()', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'public.rabbit_quota_exempt_bytes(text,bigint)', 'EXECUTE')
+  AND has_function_privilege('authenticated', 'public.rabbit_quota_exempt_object(text,jsonb)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.rabbit_quota_exempt_max_bytes()', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.rabbit_quota_exempt_bytes(text,bigint)', 'EXECUTE')
+  AND NOT has_function_privilege('anon', 'public.rabbit_quota_exempt_object(text,jsonb)', 'EXECUTE'),
+  'authenticated executes all three new quota functions and anon executes none of them');
+                                                                            -- 65
+
+-- 🚨 BOUNDED IS NOT CAPPED, AND NOTHING PROVED IT UNTIL NOW. Every refusal
+-- probe above runs at a FULL workspace, where losing the exemption and being
+-- rejected look identical. Audrey's ruling was to bound the exemption, NOT to
+-- cap the picker: an oversized money file must still upload whenever the
+-- company has room. Give the room back and it must be ACCEPTED — and it must
+-- RESERVE, which is the observable difference from the old behaviour, where an
+-- INVOICES/ path returned NULL at any size.
+UPDATE public.workspace_storage_plans
+   SET quota_bytes = 10000000000
+ WHERE workspace_id = '11111111-1111-1111-1111-111111111111';
+
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SET LOCAL ROLE authenticated;
+
+SELECT ok(
+  (SELECT public.reserve_upload_bytes(
+     'projects/aaaa1111-0000-0000-0000-000000000001/INVOICES/inv9/9-room.pdf', 31457280))
+  IS NOT NULL,
+  '🚨 BOUNDED, NOT CAPPED: a 30 MiB receipt at a workspace WITH ROOM is accepted — it lost the exemption and was WEIGHED, not rejected');
+                                                                            -- 66
+
+SELECT set_config('request.jwt.claims', '', true);
+RESET ROLE;
+
+-- The positive control for probe 58's negative: an oversized money path really
+-- does write a reservation row, which is why probe 58 had to be scoped and why
+-- an unscoped count would decay on a real environment.
+SELECT is(
+  (SELECT count(*)::int FROM public.upload_reservations
+    WHERE workspace_id = '11111111-1111-1111-1111-111111111111'
+      AND storage_path LIKE '%INVOICES%'
+      AND released_at IS NULL),
+  1,
+  'POSITIVE CONTROL for probe 58: the weighed money path DID write a reservation row — before 0078 no money path could');
+                                                                            -- 67
 
 SELECT * FROM finish();
 ROLLBACK;

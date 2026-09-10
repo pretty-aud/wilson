@@ -1512,23 +1512,6 @@ non-zero wherever receipts predate 0076.
    literal defect this entry marks fixed. New desktop uploads are gated
    correctly; only the existing ones are stranded.
 
-✅ **CLOSED by migration 0078 (2026-09-09) — a receipt was exempt from the
-Petal storage quota at any size, and the exemption is now bounded.**
-`rabbit_quota_exempt_path` (0055) exempted any money segment from the
-RESTRICTIVE `petal_storage_quota_insert`, so a receipt under `INVOICES/` could
-never be refused — while `workspace_petal_committed_bytes` still counted its
-bytes against the allowance that refuses ordinary media. Not a security hole
-(0037 gates `expenses`), but a billing one, and the measured ceiling was the
-bucket's own **50 GiB** per object. Audrey ruled: **bound the exemption by
-size**, not cap the picker. 0078 adds
-`public.rabbit_quota_exempt_max_bytes()` — 25 MiB — and applies it at **both**
-enforcement sites: the policy, and `reserve_upload_bytes` (0073), which
-§12.9 did not know about and which is the one the client calls before any byte
-moves. Above the bound a money file is weighed like ordinary media and can be
-refused; below it nothing changes. An **unknown** size keeps the exemption, so
-the `FINANCE/RATES.json` mirror and the `PROJECT.json` manifest are never
-blocked by absent metadata. Suite 77 **62/62**, three breakers. Handbook
-§12.10.
 
 ---
 

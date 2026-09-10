@@ -1148,9 +1148,14 @@ export function supabaseAdapter() {
       const client = await requireClient();
       // Session 24: `INVOICES` is a RESERVED path segment, and the check
       // comes first so a financial file can never be filed under another
-      // entity. Storage policy `rabbit_files_invoices_select` keys on exactly
-      // this third segment, and the three base rabbit-files policies exclude
-      // it — so the segment IS the gate for the blob, while
+      // entity. 🚨 THE POLICY FAMILY IS `rabbit_files_money_*`, NOT
+      // `rabbit_files_invoices_*`: 0042 dropped the invoices name, and there
+      // are FOUR base rabbit-files policies, not three — eight in total, which
+      // is what 0042's own post-condition asserts. The phantom name is the S39
+      // incident recorded in OUTSTANDING.md, found here for the third time.
+      // The money policies key on exactly this third segment, and the four
+      // base policies exclude it — so the segment IS the gate for the blob,
+      // while
       // files.is_financial gates the row. Changing either without the other
       // opens a hole.
       //

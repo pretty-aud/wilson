@@ -3739,6 +3739,14 @@ of a session — this section is limits by design, that file is faults.
   ⚠️ The manifest exemption tests the FILENAME as well as the depth: `[3] IS
   NULL` alone would let `projects/<id>/dailies.mov` through, a whole object at a
   time.
+  ✅ **BOUNDED BY SIZE since 0078** (Audrey's ruling, 2026-09-09): the exemption
+  holds only up to `rabbit_quota_exempt_max_bytes()` — 25 MiB — at BOTH
+  enforcement sites (the policy and `reserve_upload_bytes`). Above it a money
+  file is weighed like ordinary media: still uploadable with room to spare,
+  refusable without. An UNKNOWN size keeps the exemption, so the mirror and the
+  manifest are never blocked by absent metadata. ⚠️ The bound is applied to the
+  manifest and mirror arms too, not only to invoices — see §12.10 for why that
+  is acceptable and what it costs. §12.10.
 - ✅ **The predicate WEIGHS the incoming object: `used + incoming <= quota`
   (0057).** S41 shipped `used < quota` deliberately, and it was right while the
   per-object cap was 50 MB — the overshoot was bounded and trivial. At 50 GiB

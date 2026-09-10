@@ -778,7 +778,10 @@ export default function StorageSection({ isActive, workspaceId }) {
                   rabbit_quota_exempt_path — INVOICES/, FINANCE/ and
                   projects/<id>/PROJECT.json. So reads, downloads and deletes
                   are untouched, and the paperwork a company bills Petal with
-                  keeps saving.
+                  keeps saving. Promising a total lockout would send an admin
+                  hunting for a fault that is not there — and would be the
+                  reason they never send the invoice that pays for the bigger
+                  plan.
                   🚨 "IF THEY ARE UNDER 25 MB" IS LOAD-BEARING AND IS NOT A
                   HEDGE. Since 0078 the exemption is BOUNDED BY OBJECT SIZE at
                   public.rabbit_quota_exempt_max_bytes() — 25 MiB — because a
@@ -788,12 +791,13 @@ export default function StorageSection({ isActive, workspaceId }) {
                   weighed like ordinary media, so on a full or suspended company
                   it IS refused. Saying it "still saves" without the bound would
                   be the promise this banner exists not to make.
-                  ⚠️ The figure is duplicated from SQL, as "30 days" already is
-                  below. If Audrey moves the bound, it moves in
-                  rabbit_quota_exempt_max_bytes() and in these two sentences. Promising a total lockout would send an admin
-                  hunting for a fault that is not there — and would be the
-                  reason they never send the invoice that pays for the bigger
-                  plan. */}
+                  ⚠️ THE FIGURE IS DUPLICATED, and 0078's own SQL comment used to
+                  claim this function was "a change to THIS function and nothing
+                  else", which was never true. The bound is written out here, in
+                  the banner below, and as a literal in suite 77's probes. Moving
+                  it means editing rabbit_quota_exempt_max_bytes() FIRST and then
+                  every one of those places — suite 77 probe 64 is what fails if
+                  only the function moves. */}
               {atCeiling && !suspended && (
                 <div className="flex items-start gap-1.5 p-2 rounded-sm text-[11px] leading-relaxed"
                      style={{ backgroundColor: 'rgba(234, 88, 12, 0.10)', color: '#9a3412' }}>
