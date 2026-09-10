@@ -71,11 +71,22 @@ working from the folder — the local server is an in-app Express server on
 Anything that needs the cloud (AI, the pet's account sync, the Admin
 Terminal, cloud storage) reports unavailable rather than hanging.
 
-**The one limit, stated plainly:** the saved sign-in is a token that expires
-after about an hour and can only be renewed online. If the app is launched
-offline more than an hour after the last online session, it shows the sign-in
-screen and cannot get past it. So on the demo machine: sign in shortly before
-going offline, and do not close the app between then and the demo.
+**The one limit, stated plainly (corrected 2026-09-10):** a LAUNCH needs the
+auth server, however fresh the saved sign-in is. Restoring a saved session asks
+Supabase to confirm the account first (`@supabase/auth-js` 2.101.1,
+`GoTrueClient._setSession`: the `_getUser` request it makes for a token that
+has *not* expired), and offline that request fails, so the app shows the
+sign-in screen and cannot get past it — a minute after signing in as much as
+a day after. Once the app is OPEN the session lives in memory: R.A.B.B.I.T.
+keeps working from the folder, and after about an hour (when the token can no
+longer be renewed) only the cloud features — AI, account sync, the Admin
+Terminal — report unavailable. So on the demo machine: **sign in while
+online, then pull the cable, and do not close the app** between then and the
+demo. If the app has to be relaunched, reconnect first, launch, sign in, then
+disconnect again. (An offline-tolerant launch — open the shell on a saved,
+unexpired sign-in when the auth server cannot be reached — is a small change
+to `hydrateSupabase` in `src/cloud/auth/supabaseClient.js`; it is a policy
+decision, asked in the hand-off, not built.)
 
 To rehearse without unplugging anything (dev builds only):
 

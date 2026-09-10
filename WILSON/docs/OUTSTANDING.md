@@ -80,6 +80,25 @@ NO environment yet" is out of date.
 
 ## Broken features
 
+### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
+**INFERRED from code reading (2026-09-10), not yet seen failing — the
+measurement needs a session saved on a staging build and a relaunch with
+`WILSON_DEV_OFFLINE=1`.** `checkSessionValid()` (App.jsx) restores the saved
+session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
+`@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
+(GET `/auth/v1/user`) for a token that has NOT expired
+(`dist/main/GoTrueClient.js` line 2815); an unreachable auth server turns that
+into an error, `hydrateSupabase` returns null, and the boot lands on the
+sign-in screen with no way through. The demo script's step 6 ("close and
+relaunch … pull the cable at any point") therefore holds only when the
+relaunch happens online; walkthrough 18 "The cable pulled" says so. Fix
+shape (a policy decision, asked in the local-storage hand-off): in
+`hydrateSupabase`, when the saved token is unexpired and `setSession` fails
+with a retryable fetch error, return the saved session so the shell opens
+offline; cloud calls then fail honestly and the Storage card follows
+solo-user rules until the next online launch. Owner: the local-storage
+session (`demo/local-storage`).
+
 ### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
 **REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause
 read from the code, not yet measured in a browser.** `MfaEnrollGate` renders
