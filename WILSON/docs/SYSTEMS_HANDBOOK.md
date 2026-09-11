@@ -2725,6 +2725,15 @@ computed state on the list route; relink walks a picked or known folder
 the add route from `prepare`'s `roots`, a covering folder replacing the ones
 under it, forgettable from the relink dialog) and matches by name and size
 through the existing `relinkMatcher`, automatically on open for known roots.
+After a relink the provider reads every relinked row again in the background
+(`rowsToReprobeAfterRelink`, both relink paths land in `binRelinkApply`):
+the poster cache is keyed by path + mtime, so under the new path there is no
+poster until a probe draws one, and without a decoder only the renderer's
+probe can. That probe waits for a presented frame after its seek and draws a
+blank frame again, a second further in if it stays black (`isBlankFrame`) —
+`seeked` alone drew black posters under load. The add dialog's name
+suggestions (`parseNameSuggestions`) read a modifier glued to the take
+(`24A_2_T3PU_B` → take 3 PU of shot 2, `24A-3PU` → take 3 PU).
 Every failure the adapter throws carries the route's `status` and `code`.
 The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
 drop are bound on the document while the tab is mounted, so they survive
