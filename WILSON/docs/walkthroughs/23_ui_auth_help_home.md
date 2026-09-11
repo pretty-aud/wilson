@@ -34,9 +34,10 @@ steps 5 onward. Screenshots of everything below are in
 | 5 | Set `VITE_DEV_AUTOLOGIN=tester`, restart, and look at **Home**. | The six labels are **16px, weight 600, sentence case**, in the same black, in Geist — they were 14px bold uppercase with wide tracking, which is the same typographic object as every table header in the app. Layout, icons, spacing, the six buttons and the Resources column are untouched. `d2-home-*.png`. **See decision 1 below.** |
 | 6 | Menu → **RESOURCES** → **HELP**. Click **Wilson**, then **About Wilson**. | The sidebar's brown panel is gone: items are black on the page's own orange with one hairline down its right edge, and each tool shows the subtitle it has always defined and never rendered. Body copy is 14px and **stops at 72 characters** — it ran to about 190. The cards are the warm well instead of the white cards you have twice asked us to stop using. Bullets are real list markers, so a wrapped line starts under the text instead of under the bullet. `d2-help-wilson-*.png`. |
 | 7 | Still in Help, click **D.O.G.** | **This section still looks like the old one**, and that is expected: D.O.G.'s and O.T.T.E.R.'s help content lives in their own files and belongs to their lane, not this one. Help's own chrome, the Project Manager section and the Wilson section are what this bundle restyled. `d2-help-1440x900.png` shows the seam. |
-| 8 | **System Settings → Profile**, and look at the two-factor panel. | Its section heading and the workspace switcher's above it are now the same object — they were two copies of one hand-typed string, and there are 43 of those in the app. The explanatory paragraph is 14px sentence case; it was **10px uppercase**, which the review called the least readable block of text in the application. The QR code keeps its white border on purpose — every other white surface in the app is gone, but a scannable code is not a UI surface. |
+| 8 | **System Settings → Profile**, and look at the two-factor panel. | Its section heading and the workspace switcher's above it are now the same object — they were two copies of one hand-typed string, and there were 43 of those in the app when this session started. The explanatory paragraph is 14px sentence case; it was **10px uppercase**, which the review called the least readable block of text in the application. The QR code keeps its white border on purpose — every other white surface in the app is gone, but a scannable code is not a UI surface. |
 | 9 | If you can reach it: **Team Members → Invite User**. | The invite card is the shared dialog now, so it matches every other dialog in the app rather than being a pale card of its own. Escape closes it, a click outside closes it, and it locks while it is sending — all three are what it did before or what you ruled in. **One difference:** with the cursor in a field, the first Escape clears that field and the second closes the dialog. That is the kit's rule (Escape in a field means "undo this edit"), and it is deliberate. |
-| 10 | Optional: `npx vitest run`. | **112 files, 2,2xx tests, green.** `authContrast.test.js` went from 10 cases to 50 — every new ink measured on the surface it actually sits on, each with a control that proves the threshold means something. A new `authSelectors.test.js` checks that every text and label the Playwright suite selects on still exists, because Playwright itself cannot run without a live server and a test account. |
+| 10 | Look at the **orange bars on the sign-in screen** against the old build. | **They are thinner.** At the default 900px-tall window they were 216px; they are 178px now. That is not taste — the MFA enrolment gate is the tallest thing the shell has to hold (529px measured), it was never in the shell's own list of screens, and at the old height it spilled 30px onto each bar at every window under about 1060px tall. The bars now take exactly the room the tallest screen needs and no more, and above a 1046px-tall window nothing changed at all. **See decision 5.** |
+| 11 | Optional: `npx vitest run`. | **112 files, 2,243 tests, green** (2,136 before this session). `authContrast.test.js` went from **10 cases to 50** — every new ink measured on the surface it actually sits on, each with a control that proves the threshold means something. A new `authSelectors.test.js` adds **67**: it checks that every text and label the Playwright suite selects on still exists in the one file that renders it, because Playwright itself cannot run here without a live server and a test account, and six of its cases delete an element from a copy of the source to prove the check actually goes red. |
 
 ---
 
@@ -64,7 +65,15 @@ Both are one token. Both numbers are in the test already.
 now dominate; 24px would restore the proportion. Icon size is not type, so it
 was not touched. Yours if you want it.
 
-**4. The degraded-model banner's new home.** It is a dark strip now, above the
+**4. The sign-in bars are thinner on a short window (step 10).** The number is
+derived, not chosen: the well has to clear 529px because that is the measured
+height of the MFA enrolment gate, the screen every admin is forced through. If
+you would rather keep the old proportion and accept that gate spilling onto
+the bars on a laptop screen, it is one number in `AuthShell.jsx` and the
+comment above it shows the arithmetic for either choice. Nothing changes on a
+tall monitor either way.
+
+**5. The degraded-model banner's new home.** It is a dark strip now, above the
 orange bar, because on the orange it measured 1.34:1 and there is no readable
 amber on orange. It is the first thing in the app to use the shared Banner. If
 a dark strip above the orange frame reads wrong to you, say so — the
