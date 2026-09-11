@@ -102,7 +102,11 @@ const FOCUSABLE = [
 export function focusableWithin(node) {
   if (!node) return []
   return [...node.querySelectorAll(FOCUSABLE)].filter((el) => {
-    if (el.disabled) return false
+    // 🚨 `:disabled`, not `el.disabled`. The PROPERTY is only true on the
+    // element that carries the attribute; a control inside
+    // `<fieldset disabled>` reports `disabled === false` while the browser
+    // skips it and `:disabled` matches it. Measured in Chromium.
+    if (el.matches(':disabled')) return false
     const ti = el.getAttribute('tabindex')
     if (ti != null && Number(ti) < 0) return false
     // `closest` matches the element itself as well as its ancestors, so this

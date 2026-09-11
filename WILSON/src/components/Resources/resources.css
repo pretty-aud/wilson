@@ -1021,8 +1021,14 @@
 
   /* -- The totals rows ---------------------------------------------------
      PER CURRENCY: these rows can carry different currencies and one figure
-     summed across them would be true of nothing. Kit request in the hand-off:
-     they belong in a `<tfoot>`, which the shared Table has no slot for. */
+     summed across them would be true of nothing.
+     ✅ F3 gave the shared Table a `foot` slot and the page now uses it, so
+     these rows are in a real `<tfoot>`. ⚠️ THE BLOCK BELOW IS DEAD CODE:
+     the kit's `.ui-table tfoot > .ui-tr > .ui-td` is (0,3,1) against this
+     (0,2,0) and declares the same four values, so nothing here reaches the
+     page any more. It is left in place rather than deleted mid-session
+     because `resources.css` is lane C's; delete it next time you open the
+     file. */
   .rc-total-row > .ui-td {
     border-top: 1px solid var(--color-rule);
     border-bottom: 0;

@@ -65,6 +65,22 @@ describe('focusableWithin', () => {
     expect(focusableWithin(host).map((el) => el.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f'])
   })
 
+  it('🚨 a control inside <fieldset disabled> is skipped, which `el.disabled` misses', () => {
+    // The PROPERTY is only true on the element carrying the attribute: a
+    // control inside a disabled fieldset reports `disabled === false` while
+    // the browser skips it and `:disabled` matches it. `GatedAction` and any
+    // form that mutes a section while it saves reach for exactly this.
+    const host = mount(`
+      <fieldset disabled><button id="grouped">x</button><input id="grouped-input" /></fieldset>
+      <button id="live">y</button>
+    `)
+    const grouped = host.querySelector('#grouped')
+    // The control, which is the whole reason the predicate had to change:
+    expect(grouped.disabled).toBe(false)
+    expect(grouped.matches(':disabled')).toBe(true)
+    expect(focusableWithin(host).map((el) => el.id)).toEqual(['live'])
+  })
+
   it('skips what cannot take focus: disabled, hidden, aria-hidden, tabindex -1, hidden inputs', () => {
     const host = mount(`
       <button id="keep">keep</button>

@@ -169,8 +169,13 @@ describe('Button on the light ground (D1 kit request 4, D2 K7 and K8)', () => {
     // the outlined trio, and no third rule can take the fill back off. The
     // first cut pinned one exact line-break spelling of the trio, which any
     // reformatting would have slipped past.
-    const hits = css.match(/\.ui-btn\[data-surface="light"\]\[data-variant="danger"\]/g) || []
-    expect(hits).toHaveLength(2)
+    // Attribute order does not matter to CSS, so it must not matter here
+    // either: `[data-variant="danger"][data-surface="light"]` selects exactly
+    // the same elements and the first cut of this control would have missed
+    // it. Count every `.ui-btn` rule that names BOTH, whichever way round.
+    const both = (css.match(/\.ui-btn(?:\[[^\]]+\])+/g) || []).filter(
+      (sel) => sel.includes('[data-surface="light"]') && sel.includes('[data-variant="danger"]'))
+    expect(both, `light danger selectors found: ${both.join(' | ')}`).toHaveLength(2)
   })
 
   it('a light DISABLED button differs in FORM, and its rule comes after the danger fill', () => {

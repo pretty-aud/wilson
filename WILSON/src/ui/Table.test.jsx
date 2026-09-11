@@ -208,15 +208,23 @@ describe('Table', () => {
     expect(sticky, 'no :only-child sticky rule').not.toBeNull()
     expect(sticky[0]).toContain('position: sticky')
     expect(sticky[0]).toContain('bottom: 0')
-    // The control: the unqualified rule must NOT stick, or the guard is a
-    // second rule that changes nothing.
-    const base = css.match(/\.ui-table tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)[0]
-    expect(base).not.toContain('position: sticky')
-    // 🚨 The DECLARATION, not the substring: this block legitimately carries
-    // `border-bottom: 0`, and the first cut of this assertion matched that
+    // 🚨 The control is over EVERY tfoot rule, not just the unqualified one.
+    // Asserting that one particular block is not sticky leaves every other
+    // way of writing it open, and the defect this guards against —
+    // `position: sticky` reaching more than one footer row — can be
+    // reintroduced in any rule at all. So: exactly one tfoot rule in the file
+    // sticks, and it is the `:only-child` one.
+    const footRules = css.match(/\n  [^\n{]*tfoot[^\n{]*\{[^}]*\}/g) || []
+    expect(footRules.length, 'no tfoot rules found at all').toBeGreaterThan(1)
+    const stickyOnes = footRules.filter((r) => /position:\s*sticky/.test(r))
+    expect(stickyOnes, `sticky tfoot rules: ${stickyOnes.join(' || ')}`).toHaveLength(1)
+    expect(stickyOnes[0]).toContain(':only-child')
+    // …and `bottom` as a DECLARATION, not as the tail of `border-bottom`,
+    // appears only there. The first cut of this matched `border-bottom: 0`
     // and failed for a reason that had nothing to do with stickiness.
-    expect(base).not.toMatch(/(^|[;{])\s*bottom:\s*0/m)
-    expect(base).toMatch(/border-bottom:\s*0/)
+    const bottomOnes = footRules.filter((r) => /(^|[;{])\s*bottom:\s*0/m.test(r))
+    expect(bottomOnes).toHaveLength(1)
+    expect(bottomOnes[0]).toContain(':only-child')
     // …and `bottom` is on the CELLS, because a <tr> is not a positioning box.
     expect(css).not.toMatch(/\.ui-table tfoot > \.ui-tr[^>{]*\{[^}]*position: sticky/)
 
