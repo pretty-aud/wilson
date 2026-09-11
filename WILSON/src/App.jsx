@@ -24,6 +24,7 @@ import SettingsPage from './components/SettingsPage'
 import Projects from './components/Projects'
 import RateCardPage from './components/RateCard'
 import TeamMembersPage from './components/TeamMembers/TeamMembersPage'
+import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'
 import DashboardPage from './components/Dashboard/DashboardPage'
 import AdminTerminalPage from './components/AdminTerminal/AdminTerminalPage'
 import HelpPage from './components/HelpPage'
@@ -101,6 +102,7 @@ const PAGE_TITLES = {
   'project-manager': 'PROJECTS',
   'rate-card': 'RATE CARD',
   'team-members': 'TEAM MEMBERS',
+  'project-files': 'FILES',
   dashboard: 'DASHBOARD',
   'admin-terminal': 'ADMIN TERMINAL',
   help: 'HELP',
@@ -1722,6 +1724,9 @@ export default function App() {
       { id: 'project-manager', label: 'PROJECTS' },
       { id: 'rate-card',       label: 'RATE CARD' },
       { id: 'team-members',    label: 'TEAM MEMBERS' },
+      // Demo 2026-09-11 (Audrey): every folder and file of a project, as a
+      // table and as Finder-style columns — components/Resources/.
+      { id: 'project-files',   label: 'FILES' },
       // Session 9: admin-only surface — filtered from the ARRAY (not hidden
       // per-button) so keyboard/mouse share one list.
       ...(perms.role === 'admin' ? [{ id: 'admin-terminal', label: 'ADMIN TERMINAL' }] : []),
@@ -1804,6 +1809,9 @@ export default function App() {
       <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <TeamMembersPage />
       </div>
+      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-files' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+        {currentPage === 'project-files' && <ProjectFilesExplorer />}
+      </div>
       <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <DashboardPage />
       </div>
@@ -1881,7 +1889,7 @@ export default function App() {
       );
     }
 
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
+    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'project-files' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
       const pageLabel = PAGE_TITLES[currentPage] || currentPage;
       return (
         <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>

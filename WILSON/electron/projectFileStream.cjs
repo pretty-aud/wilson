@@ -50,6 +50,20 @@ function parseSize(raw) {
   return Number.isFinite(n) && n >= 0 ? Math.floor(n) : null;
 }
 
+// Demo 2026-09-11: the file's own facts (storage/mediaMetadata.js) — a
+// duration in seconds and the source's modified time — accepted only in the
+// shapes the renderer sends; anything else is null, never an error.
+function parseDuration(raw) {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 1000) / 1000 : null;
+}
+function parseIsoDate(raw) {
+  if (typeof raw !== 'string' || !raw) return null;
+  const t = Date.parse(raw);
+  return Number.isFinite(t) ? new Date(t).toISOString() : null;
+}
+
 function mountProjectFileStream(expressApp, {
   readRabbitBundle,
   writeRabbitBundle,
@@ -76,6 +90,8 @@ function mountProjectFileStream(expressApp, {
     const mimeType = typeof req.query.mimeType === 'string' && req.query.mimeType ? req.query.mimeType : null;
     const sizeBytes = parseSize(req.query.sizeBytes);
     const scope = parseScope(req.query.scope);
+    const durationSec = parseDuration(req.query.durationSec);
+    const sourceModifiedAt = parseIsoDate(req.query.sourceModifiedAt);
 
     const fileId = uuidv4();
     // The same sanitiser the POST uses: stored_name is joined under the
@@ -143,6 +159,9 @@ function mountProjectFileStream(expressApp, {
         is_core_definer:  !!scope.isCoreDefiner,
         is_financial:     isFinancial,
         uploaded_at:      new Date().toISOString(),
+        // 0081's two columns, mirrored on the local row (demo 2026-09-11).
+        duration_sec:       durationSec,
+        source_modified_at: sourceModifiedAt,
       });
       fresh.files.push(row);
       rabbitLogFileEvent(fresh, {
@@ -162,4 +181,4 @@ function mountProjectFileStream(expressApp, {
   });
 }
 
-module.exports = { mountProjectFileStream, parseScope, parseSize, ROUTE };
+module.exports = { mountProjectFileStream, parseScope, parseSize, parseDuration, parseIsoDate, ROUTE };

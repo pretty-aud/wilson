@@ -212,7 +212,13 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
    have (the tracks'), and `db push` refuses or needs `--include-all` and
    `migration repair`. Re-link to wilson-dev afterwards if she wants
    (`--project-ref eqjzmnvkrakroyqxfsvw`). Until 0072 is there the checkbox
-   is absent and nothing else differs.
+   is absent and nothing else differs. **And 0081** (files.duration_sec,
+   files.source_modified_at — nullable, no policy change), same shape:
+   ```
+   supabase db query --linked -f supabase\migrations\0081_file_media_metadata.sql
+   ```
+   Without it the FILES page still works; the two columns stay empty for
+   cloud rows (the local rows carry them regardless).
 2. **Her rehearsal report** of walkthrough 18 "Private projects" P1–P7, on
    the `out-private` exe or her checkout at `16346fa`+ (`git pull
    --ff-only`, `npx vite build --mode staging`, `npx electron .`).

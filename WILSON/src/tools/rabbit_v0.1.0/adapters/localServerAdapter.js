@@ -13,6 +13,7 @@
 // roughly 37 MB of file: Audrey's "[localServer] HTTP 413" adding one clip.
 
 import { streamPutJson } from '../storage/localServerProvider';
+import { describeSourceFile } from '../storage/mediaMetadata';
 
 const BASE = '/api/rabbit';
 
@@ -190,11 +191,17 @@ export function localServerAdapter() {
     // 'uploaded' event as the base64 POST it replaces (which stays mounted
     // for anything else that calls it). `onProgress` rides XHR when given.
     async uploadFile(projectId, scope, file, opts = {}) {
+      // Demo 2026-09-11: the file's own facts ride along — duration (audio
+      // / video, read by a media element, best-effort) and the source's
+      // modified time — so the local row says the same as the cloud row.
+      const facts = await describeSourceFile(file);
       const q = new URLSearchParams({
         name:      file?.name || 'file',
         mimeType:  file?.type || '',
         sizeBytes: file?.size == null ? '' : String(file.size),
         scope:     JSON.stringify(scope || {}),
+        durationSec:      facts.durationSec == null ? '' : String(facts.durationSec),
+        sourceModifiedAt: facts.sourceModifiedAt || '',
       });
       try {
         const row = await streamPutJson(`${BASE}/projects/${projectId}/files-stream?${q}`, file, {

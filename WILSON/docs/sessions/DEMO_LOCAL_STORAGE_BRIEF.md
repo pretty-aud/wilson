@@ -321,3 +321,13 @@ and, asked whether that was next week's build: *"i need it tonight"*.
 **Before it shows on staging:** migration 0072 must be applied there
 (hand-off 4 §6 has the command). Until then the checkbox is absent and
 nothing else is different. Walkthrough 18's last section is the click-by-click.
+
+**Also that night, ~00:50 → 01:40 (her words in hand-off 4 §4):** the
+Local Server upload now STREAMS (`electron/projectFileStream.cjs` — her
+"[localServer] HTTP 413" adding a clip); every file row records its own
+duration (audio/video, read by the renderer as the file is added) and its
+source's modified time (migration `0081_file_media_metadata.sql`, mirrored
+on the local row); and **RESOURCES → FILES** (`components/Resources/`,
+walkthrough 19) shows a chosen project's folders and files as one sortable
+table and as Finder-style columns, with every detail per file. 0081 is
+applied with the same command shape as 0072 (hand-off 4 §6).

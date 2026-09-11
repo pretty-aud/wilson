@@ -17,7 +17,7 @@ import path from 'node:path'
 import express from 'express'
 
 const require = createRequire(import.meta.url)
-const { mountProjectFileStream, parseScope, parseSize } = require('../../../../electron/projectFileStream.cjs')
+const { mountProjectFileStream, parseScope, parseSize, parseDuration, parseIsoDate } = require('../../../../electron/projectFileStream.cjs')
 const { randomUUID } = require('node:crypto')
 
 const PID = 'p-stream-1'
@@ -74,6 +74,13 @@ describe('parseScope / parseSize', () => {
     expect(parseSize('')).toBe(null)
     expect(parseSize('-1')).toBe(null)
     expect(parseSize('abc')).toBe(null)
+    expect(parseDuration('92.4567')).toBe(92.457)
+    expect(parseDuration('0')).toBe(null)
+    expect(parseDuration('')).toBe(null)
+    expect(parseDuration('x')).toBe(null)
+    expect(parseIsoDate('2026-09-10T12:00:00Z')).toBe('2026-09-10T12:00:00.000Z')
+    expect(parseIsoDate('not a date')).toBe(null)
+    expect(parseIsoDate('')).toBe(null)
   })
 })
 
@@ -82,13 +89,14 @@ describe('PUT …/files-stream', () => {
     const big = Buffer.alloc(64 * 1024 * 1024, 7) // 64 MB > the 50mb json cap
     big.write('HEAD', 0)
     big.write('TAIL', big.length - 4)
-    const r = await put(PID, { name: 'Legend Road S01E01.mov', mimeType: 'video/quicktime', sizeBytes: String(big.length), scope: JSON.stringify({ kind: 'source' }) }, big)
+    const r = await put(PID, { name: 'Legend Road S01E01.mov', mimeType: 'video/quicktime', sizeBytes: String(big.length), scope: JSON.stringify({ kind: 'source' }), durationSec: '92.457', sourceModifiedAt: '2026-09-10T12:00:00.000Z' }, big)
     expect(r.status).toBe(200)
     const row = await r.json()
     expect(row).toMatchObject({
       project_id: PID, name: 'Legend Road S01E01.mov', mime_type: 'video/quicktime',
       size_bytes: big.length, storage_provider: 'local_server', kind: 'source',
       is_core_definer: false, is_financial: false, phase_id: null, asset_id: null, task_id: null,
+      duration_sec: 92.457, source_modified_at: '2026-09-10T12:00:00.000Z',
     })
     expect(row.storage_path).toBe(`${row.id}-Legend_Road_S01E01.mov`)
     expect(row.uploaded_at).toBeTruthy()
@@ -119,6 +127,8 @@ describe('PUT …/files-stream', () => {
     const row = await r.json()
     expect(row.size_bytes).toBe(5)
     expect(row.mime_type).toBe(null)
+    expect(row.duration_sec).toBe(null)
+    expect(row.source_modified_at).toBe(null)
     expect(row.storage_path).toBe(`${row.id}-.._.._evil_name_.png`)
     expect(fs.existsSync(path.join(filesDir, row.storage_path))).toBe(true)
     expect(fs.existsSync(path.join(root, 'evil name?.png'))).toBe(false)

@@ -67,6 +67,7 @@ import {
 import { createSupabaseStorageProvider } from '../storage/supabaseProvider';
 import { createS3StorageProvider } from '../storage/s3Provider';
 import { createLocalServerStorageProvider } from '../storage/localServerProvider';
+import { describeSourceFile } from '../storage/mediaMetadata';
 import {
   generateThumbnail, thumbnailKeyFor, putThumbnailTo, removeThumbnailFrom,
   signedThumbnailUrls,
@@ -112,6 +113,7 @@ export function resetSupabaseAdapter() {
   lastError    = null;
   lastSyncAt   = null;
   privateColumnKnown = null;
+  fileMetaKnown = null;
 }
 
 // ───────────────────────────────────────────────────────────────
@@ -206,6 +208,22 @@ async function privateProjectsAvailable(client) {
   }
   // Any other failure (network, RLS) says nothing about the column: answer
   // "not now" and probe again next time.
+  return false;
+}
+// Demo 2026-09-11 (Audrey: "the name of the file, file type, creation date
+// and time, file size, if its an audio or video file the duration as well"):
+// files.duration_sec / files.source_modified_at arrive with migration 0081
+// and are probed the same way — a client ahead of the database writes the
+// row exactly as before.
+let fileMetaKnown = null;
+async function fileMetaAvailable(client) {
+  if (fileMetaKnown !== null) return fileMetaKnown;
+  const { error } = await client.from('files').select('duration_sec').limit(1);
+  if (!error) { fileMetaKnown = true; return true; }
+  if (error.code === '42703' || /duration_sec/.test(error.message || '')) {
+    fileMetaKnown = false;
+    return false;
+  }
   return false;
 }
 async function projectIsPrivate(client, projectId) {
@@ -464,6 +482,8 @@ const FILE_COLUMNS = new Set([
   'storage_provider', 'storage_path', 'thumbnail_url',
   'kind', 'is_core_definer', 'is_financial',
   'uploaded_at',
+  // 0081 (demo 2026-09-11) — the file's own duration and modified time.
+  'duration_sec', 'source_modified_at',
   'created_at', 'created_by', 'updated_at', 'updated_by',
   'last_updated_at', 'last_updated_by', 'deleted_at', 'deleted_by',
 ]);
@@ -1399,6 +1419,15 @@ export function supabaseAdapter() {
         // readable.
         is_financial:     !!scope.financial,
       };
+      // Demo 2026-09-11: the file's own facts — its source's modified time
+      // and, for audio/video, its duration (storage/mediaMetadata.js,
+      // bounded and best-effort) — where 0081 has landed. Read from the
+      // File we already hold, never by downloading anything back.
+      if (await fileMetaAvailable(client)) {
+        const facts = await describeSourceFile(file);
+        row.duration_sec = facts.durationSec;
+        row.source_modified_at = facts.sourceModifiedAt;
+      }
       const ins = await client.from('files').insert(row).select().single();
       if (ins.error) {
         // The blob landed but the row didn't — remove our own object so a
