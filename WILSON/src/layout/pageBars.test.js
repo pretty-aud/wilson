@@ -25,6 +25,9 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { PAGE_BARS, HOME_BAR_HEIGHT } from './pageBars'
 
 // Resolve `min(Apx, max(Bpx, (100vh - Cpx) * S))` at a given viewport height.
@@ -48,13 +51,48 @@ const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
   settings: [200, 150], 'project-manager': [200, 150], 'rate-card': [200, 150],
-  'team-members': [200, 150], dashboard: [200, 150], 'admin-terminal': [200, 150],
+  'team-members': [200, 150], 'project-files': [200, 150], dashboard: [200, 150],
+  'admin-terminal': [200, 150],
   help: [140, 100],
+}
+
+// Every page App.jsx can show. Until F2's PAGES registry derives PAGE_BARS
+// from one list, this is read from App.jsx's PAGE_TITLES so a page added
+// there without a bars entry fails HERE instead of silently rendering in
+// Home's 268/268 chrome (which is exactly what 'project-files' did for three
+// weeks — review F-R04).
+function pageIdsFromAppSource() {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const src = readFileSync(resolve(here, '../App.jsx'), 'utf8')
+  const m = src.match(/const PAGE_TITLES\s*=\s*\{([\s\S]*?)\n\}/)
+  if (!m) throw new Error('PAGE_TITLES not found in App.jsx')
+  return [...m[1].matchAll(/^\s*'?([a-z-]+)'?\s*:/gm)].map((x) => x[1])
 }
 
 describe('page bar geometry', () => {
   it('covers every page, and every page in the table is asserted here', () => {
     expect(Object.keys(PAGE_BARS).sort()).toEqual(Object.keys(RESTING).sort())
+  })
+
+  it('covers every page App.jsx can show (the Files-page bug, F-R04, cannot recur)', () => {
+    const ids = pageIdsFromAppSource()
+    expect(ids.length).toBeGreaterThanOrEqual(12)
+    expect(ids).toContain('project-files')
+    for (const id of ids) {
+      expect(PAGE_BARS[id], `PAGE_BARS is missing '${id}'`).toBeDefined()
+    }
+    // The control: a page that is not in the table is caught, not defaulted.
+    expect(PAGE_BARS['not-a-page']).toBeUndefined()
+  })
+
+  it('the Files page takes the resource-class geometry (Q8a), not Home\'s', () => {
+    for (const v of VIEWPORTS) {
+      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS.settings.top, v))
+      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS.settings.bottom, v))
+    }
+    // At rest it returns ~186px of field to the densest table (268+268 vs 200+150).
+    const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
+    expect(rest('home') - rest('project-files')).toBeCloseTo(186, 5)
   })
 
   it('never exceeds the resting height, at any viewport', () => {

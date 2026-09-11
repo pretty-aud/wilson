@@ -94,6 +94,12 @@ export const PAGE_BARS = {
   'project-manager':  bars(200, 150),
   'rate-card':        bars(200, 150),
   'team-members':     bars(200, 150),
+  // UI overhaul F1 (2026-09-11), review F-R04 / plan Q8(a): 'project-files'
+  // was in PAGE_TITLES, the nav list and the OR chain but never here, so the
+  // densest table in the app rendered inside Home's 268/268 chrome and lost
+  // about 400px of field. The resource-class geometry, like its neighbours;
+  // Q8(b) (120/80 for the class, or the tool geometry for Files) is Audrey's.
+  'project-files':    bars(200, 150),
   dashboard:          bars(200, 150),
   'admin-terminal':   bars(200, 150),
   help:               bars(140, 100),
