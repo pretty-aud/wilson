@@ -89,21 +89,31 @@ const DEFAULT_DEPARTMENTS = [
 // here rather than emerging from whichever cell happened to be longest. The
 // widths of the columns a view hides are never rendered; the browser
 // redistributes the remainder.
-// 🚨 These sum to 100% in the WIDEST view (Admin: every column, plus the 56px
-// action slot), which is the only view where the sum can be wrong. Declared
-// widths that add up to 112% are not declared at all — the browser reconciles
-// them and every column lands somewhere other than where it was written. The
-// narrower views come in under 100 and share the remainder, which is the
-// intended behaviour rather than a rounding accident.
+// 🚨 These sum to EXACTLY 100 in the widest view — every column, Admin — and
+// `tmColumnTotal` in the test file computes that from this object for all
+// three views, because a declared width that over-sums is not declared at all:
+// `table-layout: fixed` hands the excess back to the browser to reconcile and
+// every column lands somewhere other than where it was written. An earlier cut
+// summed to 112, a second to 109, and both carried a comment claiming 100.
+// The number is checked now rather than asserted.
 //
-// The floors matter as much as the shares: Department holds "Physical
-// Production" and Role holds "Manager" inside a <select>, and a <select> has
-// no `text-overflow` — it hard-clips mid-word instead of eliding.
+// The action column is a share rather than 56px for the same reason: a stray
+// pixel value in a percentage table is a sum nobody can add up.
+//
+// The narrower views come in under 100 (Manager 86, User 75) and the browser
+// shares the remainder, which is the intended behaviour.
+//
+// Department carries the widest real string ("Physical Production") inside a
+// <select>, and a <select> has no `text-overflow` — it hard-clips mid-word
+// rather than eliding. It takes the largest share of any data column for that
+// reason, and both selects carry a `title` so a clipped value is still
+// readable on hover.
 const COL = {
-  member: '18%', username: '9%', title: '12%', department: '12%',
-  pronouns: '7%', fullTime: '6%', role: '9%', email: '12%',
-  status: '7%', rate: '8%', projects: '9%', actions: '56px',
+  member: '16%', username: '8%', title: '11%', department: '14%',
+  pronouns: '5%', fullTime: '5%', role: '10%', email: '10%',
+  status: '5%', rate: '6%', projects: '6%', actions: '4%',
 }
+export const TM_COLUMN_WIDTHS = COL
 
 function formatMoney(value, currency) {
   if (value == null || value === '' || Number.isNaN(Number(value))) return null
@@ -427,6 +437,10 @@ export default function TeamMembersPage() {
         id={ROSTER_PANEL_ID}
         role={availableViews.length > 1 ? 'tabpanel' : undefined}
         aria-label={availableViews.length > 1 ? `${ROLE_LABELS[activeView] || activeView} view` : undefined}
+        // A tabpanel with no focusable descendant needs its own tab stop, or a
+        // keyboard user moves from the last tab straight past it. The loading
+        // and empty branches are exactly that; the table brings its own.
+        tabIndex={availableViews.length > 1 && (loading || filtered.length === 0) ? 0 : undefined}
       >
         {pageError && <Banner tone="danger" Icon={AlertTriangle}>{pageError}</Banner>}
         {/* No dismiss control: this strip did not have one, and adding one is
@@ -630,6 +644,7 @@ function MemberRow({
             options={departments.map(d => ({ value: d, label: d }))}
             onChange={(department) => onUpdate({ department: department || null })}
             aria-label={`Department for ${who}`}
+            title={member.department || undefined}
           />
         ) : (
           <ReadValue value={member.department} />
@@ -676,6 +691,7 @@ function MemberRow({
                 ]}
                 onChange={onSetRole}
                 aria-label={`Role for ${who}`}
+                title={ROLE_LABELS[member.app_role] || member.app_role || undefined}
               />
             )}
           </PermissionGate>

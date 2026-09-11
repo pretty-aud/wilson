@@ -9,7 +9,7 @@
 // underneath reads as a caption belonging to the next tile along.
 // =============================================================================
 
-import { statusMeta } from './StatusDot'
+import { statusMeta, STATUS_TONES } from './StatusDot'
 
 export function Stat({
   label,
@@ -23,6 +23,12 @@ export function Stat({
   ...rest
 }) {
   const tone = deltaTone || (deltaStatus ? statusMeta(deltaStatus).tone : 'neutral')
+  // Every tone has a rule in index.css; one that does not renders the fallback
+  // ink and silently loses its meaning, which is the defect this component
+  // already shipped once through `--status-color`.
+  if (import.meta.env?.DEV && !STATUS_TONES.includes(tone)) {
+    console.error(`Stat: unknown tone "${tone}" — use one of ${STATUS_TONES.join(', ')}`)
+  }
   return (
     <div className={`ui-stat ${className}`.trim()} data-surface={surface} {...rest}>
       <div className="ui-stat-label">{label}</div>

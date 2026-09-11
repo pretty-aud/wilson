@@ -124,9 +124,20 @@ describe('every exported component has a caller, or is on the list', () => {
   // rendered by ToastProvider, and StatusDot by StatusBadge. Both are proven
   // on a real screen through their wrapper, and giving either a second,
   // direct caller on the worked example would be decoration.
+  // 🚨 Comments and string literals are stripped FIRST. Without this, Table,
+  // Th, Td and Row were "called" by the usage example in their own file's
+  // header comment, and Loading by a console.error string — so the four
+  // components F2 exists to deliver would have passed this guard with every
+  // real caller deleted. A guard a comment can satisfy is not a guard.
+  const stripText = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``')
   for (const f of readdirSync(here)) {
     if (!/\.(js|jsx)$/.test(f) || /\.test\./.test(f) || f === 'index.js') continue
-    const src = readFileSync(join(here, f), 'utf8')
+    const src = stripText(readFileSync(join(here, f), 'utf8'))
     for (const name of COMPONENTS) {
       // The boundary matters: `<StatusDot` starts with `<Stat`, so a plain
       // `includes` marked Stat as called by StatusBadge and hid a genuinely
@@ -146,12 +157,20 @@ describe('every exported component has a caller, or is on the list', () => {
     }
   })
 
-  it('the control: a name that is definitely called is definitely detected', () => {
-    // If the import scan silently matched nothing, both assertions above would
-    // pass by accident with every component "uncalled" — except that the first
-    // one would then fail. This pins the scan itself against a known caller.
-    expect(imported.has('Table'), 'the import scan found nothing at all').toBe(true)
-    expect(imported.has('PageHeader')).toBe(true)
+  it('the control: a real caller is detected and a commented-out one is not', () => {
+    // `PageHeader` has no self-reference anywhere in the kit, so it can only
+    // be in the set because the IMPORT scan found App.jsx. (`Table` would not
+    // do: it appears in its own header comment, which is the false positive
+    // this control exists to rule out.)
+    expect(imported.has('PageHeader'), 'the import scan found nothing at all').toBe(true)
     expect(imported.size).toBeGreaterThan(15)
+
+    // The text-stripper, against the exact shapes that fooled it: a usage
+    // example in a doc comment, a block comment, and a string literal.
+    expect(stripText('// <Drawer width="lg" />')).not.toContain('<Drawer')
+    expect(stripText('/* <Panel /> */')).not.toContain('<Panel')
+    expect(stripText("console.error('render <Loading /> instead')")).not.toContain('<Loading')
+    // …and it must not eat real JSX while doing it.
+    expect(stripText('return (<Panel width="sm">x</Panel>)')).toContain('<Panel')
   })
 })

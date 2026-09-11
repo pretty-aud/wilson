@@ -59,9 +59,14 @@ describe('Drawer', () => {
     expect(css).toContain(':root { --titlebar-offset: 0px; }')
     expect(css).toContain('.electron-app { --titlebar-offset: var(--titlebar); }')
     expect(css).toMatch(/\.ui-drawer \{[^}]*top: var\(--titlebar-offset\);/)
-    // The control: no literal pixel offset anywhere in the drawer's rules.
-    const rules = css.slice(css.indexOf('.ui-drawer {'), css.indexOf('.ui-stat {'))
-    expect(rules).not.toMatch(/top:\s*32px/)
+    // The control: no literal pixel offset in the drawer's OWN rule. Bounded
+    // by that rule's closing brace, not by another component's block — a
+    // slice that ends at `.ui-stat {` returns '' the moment the kit's CSS is
+    // reordered, and an empty string satisfies every `not.toContain`.
+    const from = css.indexOf('.ui-drawer {')
+    const rule = css.slice(from, css.indexOf('}', from))
+    expect(rule).toContain('top: var(--titlebar-offset);')
+    expect(rule).not.toMatch(/top:\s*\d+px/)
   })
 
   it('writes no inline style: side, width and surface are all data', () => {

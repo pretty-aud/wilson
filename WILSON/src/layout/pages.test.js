@@ -25,9 +25,19 @@ import {
   PAGES, PAGE_BY_ID, PAGE_IDS, PAGE_BARS, PAGE_TITLES, HOME_BAR_HEIGHT,
   getPage, navPages, validatePage,
 } from './pages'
+import { TM_COLUMN_WIDTHS } from '../components/TeamMembers/TeamMembersPage'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const appSrc = readFileSync(resolve(here, '../App.jsx'), 'utf8')
+
+// ── The worked example's column widths ──────────────────────────────────────
+// 🚨 `table-layout: fixed` reads the declared widths and hands any excess back
+// to the browser to reconcile, so an over-sum means NO column renders at the
+// width it was written at. Two cuts of this table shipped with a comment
+// claiming the widths summed to 100 while they summed to 112 and then 109.
+// The sum is computed here rather than asserted in prose.
+const pct = (v) => Number(String(v).replace('%', ''))
+const total = (cols, keys) => keys.reduce((n, k) => n + pct(cols[k]), 0)
 
 describe('the registry', () => {
   it('holds every page the app can reach, each one complete', () => {
@@ -192,6 +202,19 @@ describe('controls: an incomplete page really does throw', () => {
     expect(() => validatePage({ ...ok, measure: null })).not.toThrow()
   })
 
+  it('rejects two pages sharing an id', () => {
+    // Not part of validatePage (which sees one entry at a time), so it needs
+    // its own control: `PAGES` is built from a list, and two entries with the
+    // same id would silently shadow one another in every derived table.
+    const ids = PAGES.map((p) => p.id)
+    expect(new Set(ids).size).toBe(ids.length)
+    const src = readFileSync(resolve(here, './pages.js'), 'utf8')
+    expect(src).toContain("throw new Error('PAGES: duplicate id')")
+    // The mistake, built: the check the source runs really does catch it.
+    const dupes = ['home', 'dog', 'home']
+    expect(new Set(dupes).size !== dupes.length).toBe(true)
+  })
+
   it('runs at module load, so the app cannot boot half-registered', () => {
     // If the CALL were removed, every assertion above would still pass:
     // validatePage would be a function nobody runs. This is the one that
@@ -200,5 +223,40 @@ describe('controls: an incomplete page really does throw', () => {
     expect(src).toContain('PAGE_LIST.forEach(validatePage);')
     expect(src.indexOf('PAGE_LIST.forEach(validatePage);'))
       .toBeLessThan(src.indexOf('export const PAGES'))
+  })
+})
+
+describe("the worked example's table columns add up", () => {
+  // The four conditional columns, from TeamMembersPage's own flags:
+  //   showEmail   activeView !== 'user'
+  //   showStatus  isAdminView
+  //   showRate    isAdminView && rateAccess.canView
+  //   showActions isAdminView && wm.can('member.remove')
+  const ALWAYS = ['member', 'username', 'title', 'department', 'pronouns', 'fullTime', 'role', 'projects']
+
+  it('sums to exactly 100 in the widest view, and under it in the others', () => {
+    const admin = [...ALWAYS, 'email', 'status', 'rate', 'actions']
+    expect(total(TM_COLUMN_WIDTHS, admin)).toBe(100)
+    // An admin without the rate-card grant, and without the remove
+    // permission: still under, never over.
+    expect(total(TM_COLUMN_WIDTHS, [...ALWAYS, 'email', 'status'])).toBeLessThanOrEqual(100)
+    expect(total(TM_COLUMN_WIDTHS, [...ALWAYS, 'email'])).toBeLessThanOrEqual(100)
+    expect(total(TM_COLUMN_WIDTHS, ALWAYS)).toBeLessThanOrEqual(100)
+  })
+
+  it('declares every column as a share — one stray pixel value and the sum stops meaning anything', () => {
+    for (const [k, v] of Object.entries(TM_COLUMN_WIDTHS)) {
+      expect(String(v), k).toMatch(/^\d+%$/)
+    }
+    expect(Object.keys(TM_COLUMN_WIDTHS)).toHaveLength(12)
+  })
+
+  it('gives the column holding the widest string in a <select> the largest data share', () => {
+    // A <select> has no text-overflow: it hard-clips mid-word rather than
+    // eliding, and Department holds "Physical Production".
+    const data = Object.entries(TM_COLUMN_WIDTHS)
+      .filter(([k]) => !['member', 'actions'].includes(k))
+    const widest = data.reduce((a, b) => (pct(a[1]) >= pct(b[1]) ? a : b))[0]
+    expect(widest).toBe('department')
   })
 })

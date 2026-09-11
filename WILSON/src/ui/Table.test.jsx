@@ -100,12 +100,36 @@ describe('Table', () => {
 
   // 🚨 The selected fill has to out-specify the hover fill, or a table that
   // is both selectable and clickable loses its selection under the pointer.
-  it('keeps the selected fill on hover (specificity, not source order alone)', () => {
-    const sel = css.indexOf('.ui-tr[data-selected][data-selected] > .ui-td')
-    const hov = css.indexOf('.ui-tr[data-interactive]:hover > .ui-td')
-    expect(sel, 'the doubled-attribute selected rule is missing').toBeGreaterThan(-1)
-    // Equal specificity (0,4,0) and declared later, so it wins.
-    expect(sel).toBeGreaterThan(hov)
+  // ON BOTH SURFACES: the light hover rule is scoped through the table and so
+  // is (0,6,0), which a (0,4,0) selected rule loses to — and the three light
+  // data pages (Files, Projects, Rate Card) are exactly the tables this
+  // component is scheduled for.
+  it('keeps the selected fill on hover, on both surfaces', () => {
+    const at = (sel) => {
+      const i = css.indexOf(sel)
+      expect(i, `missing rule: ${sel}`).toBeGreaterThan(-1)
+      return i
+    }
+    // dark: equal specificity (0,4,0), declared later
+    expect(at('.ui-tr[data-selected][data-selected] > .ui-td'))
+      .toBeGreaterThan(at('.ui-tr[data-interactive]:hover > .ui-td'))
+    // light: equal specificity (0,6,0), declared later
+    expect(at('.ui-table[data-surface="light"] .ui-tr[data-selected][data-selected] > .ui-td'))
+      .toBeGreaterThan(at('.ui-table[data-surface="light"] .ui-tr[data-interactive]:hover > .ui-td'))
+  })
+
+  // 🚨 `highlighted` must not be the hover token. It was, on both surfaces —
+  // so a standing role rendered identically to "the row your mouse is on",
+  // and hover on a highlighted row was invisible. It is an edge now, and the
+  // selection edge is declared after it so a row that is both reads selected.
+  it('draws a highlighted row as an edge, never as the hover fill', () => {
+    const hi = css.indexOf('.ui-tr[data-highlighted] > .ui-td:first-child')
+    const sel = css.indexOf('.ui-tr[data-selected] > .ui-td:first-child')
+    expect(hi).toBeGreaterThan(-1)
+    expect(sel).toBeGreaterThan(hi)
+    // The control: no background-color rule for the highlight at all, on
+    // either surface — that is what made it collide with hover.
+    expect(css).not.toMatch(/\.ui-tr\[data-highlighted\][^{]*\{[^}]*background-color/)
   })
 
   it('takes `dense` from the view and the light surface from the page', () => {
