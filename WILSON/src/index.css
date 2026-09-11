@@ -460,6 +460,52 @@ select option {
    tokens.test.js asserts no reduced-motion rule reaches them.
    ═══════════════════════════════════════════════════════════════ */
 @layer components {
+  /* ── PageHeader ─────────────────────────────────────────────────────────
+     56px, the one gutter, one title size. On the orange frame the title is
+     white (20px at 600 is large text: 3.56:1 clears 3:1) and the subtitle is
+     the ink (4.91:1) — it shipped as `text-orange-200` at 2.63:1. See
+     PageHeader.jsx for the full note. */
+  .ui-page-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    height: var(--page-header);
+    padding: 0 var(--spacing-gutter);
+    flex-shrink: 0;
+  }
+  .ui-page-header-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+  .ui-page-header-title {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    color: var(--color-on-fill);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-page-header-subtitle {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-page-header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
   /* ── Button ────────────────────────────────────────────────────────── */
   .ui-btn {
     display: inline-flex;
@@ -573,6 +619,12 @@ select option {
   .ui-iconbtn[data-danger="true"] { color: var(--color-danger); }
   .ui-iconbtn[data-surface="light"] { color: var(--color-ink-light); }
   .ui-iconbtn[data-surface="light"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-ink-light); }
+  /* The orange frame is a surface of its own (F2: PageHeader's hamburger
+     lives there). `dark` would put ink-2 — a grey — on orange, which is the
+     one thing the colour rule forbids; a 24px glyph in white measures 3.56:1
+     and clears the 3:1 non-text threshold. */
+  .ui-iconbtn[data-surface="chrome"] { color: var(--color-on-fill); }
+  .ui-iconbtn[data-surface="chrome"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-on-fill); }
   .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
 
   /* ── Input, TextArea, Select: one well per page class ──────────────── */
@@ -990,10 +1042,27 @@ select option {
      sub-column is open) resolved in ONE place — see the note at `navState`
      in App.jsx for why that single resolution is load-bearing. */
   .wilson-nav-item {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    /* C6: white on #ea580c measures 3.56:1 and is permitted ONLY at 19px bold
+       and above. The strip used to be 16px bold white — the largest piece of
+       illegal text in the app. At the H1 step (20px / 600) it is large text
+       and clears 3:1; sentence case and the scale's own tracking replace
+       `uppercase tracking-[0.2em]` (Q2). */
+    color: var(--color-on-fill);
     opacity: 1;
-    transition: opacity var(--duration-response) ease;
+    transition: color var(--duration-state) ease-out, opacity var(--duration-response) ease;
   }
-  .wilson-nav-item[data-state="hover"]  { opacity: 0.7; }
+  /* Plan §3.4: "Nav hover moves from an opacity value to a named hover ink, so
+     the colour rule stops needing an exception." Black on the frame is 4.91:1,
+     so hover RAISES contrast instead of fading the label toward its ground. */
+  .wilson-nav-item[data-state="hover"] { color: var(--color-ink-light); }
+  /* `dimmed` is not hover: it fades the main column while the resources
+     sub-column is open, which is what tells you which column is live (Audrey,
+     Session 43 — "it should work the same"). It stays an opacity because it is
+     a de-emphasis of a whole column, not an ink choice. */
   .wilson-nav-item[data-state="dimmed"] { opacity: 0.35; }
 
   /* ── Team Members, the state extraction (F2, first commit on this file) ──

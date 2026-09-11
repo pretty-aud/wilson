@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "wilson-dev-f2",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "C:/Users/Audrey/Documents/My_Work/Dev_Work/wilson/WILSON/.claude/worktrees/suspicious-goodall-4bf2b6/WILSON", "--", "--port", "5223"],
+      "port": 5223
+    }
+  ]
+}

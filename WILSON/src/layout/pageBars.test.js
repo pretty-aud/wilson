@@ -25,10 +25,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
-import { PAGE_BARS, HOME_BAR_HEIGHT } from './pageBars'
+import { PAGE_BARS, HOME_BAR_HEIGHT, PAGES, PAGE_TITLES } from './pages'
 
 // Resolve `min(Apx, max(Bpx, (100vh - Cpx) * S))` at a given viewport height.
 // Deliberately strict: an expression it does not recognise throws rather than
@@ -56,31 +53,29 @@ const RESTING = {
   help: [140, 100],
 }
 
-// Every page App.jsx can show. Until F2's PAGES registry derives PAGE_BARS
-// from one list, this is read from App.jsx's PAGE_TITLES so a page added
-// there without a bars entry fails HERE instead of silently rendering in
-// Home's 268/268 chrome (which is exactly what 'project-files' did for three
-// weeks — review F-R04).
-function pageIdsFromAppSource() {
-  const here = dirname(fileURLToPath(import.meta.url))
-  const src = readFileSync(resolve(here, '../App.jsx'), 'utf8')
-  const m = src.match(/const PAGE_TITLES\s*=\s*\{([\s\S]*?)\n\}/)
-  if (!m) throw new Error('PAGE_TITLES not found in App.jsx')
-  return [...m[1].matchAll(/^\s*'?([a-z-]+)'?\s*:/gm)].map((x) => x[1])
-}
-
 describe('page bar geometry', () => {
   it('covers every page, and every page in the table is asserted here', () => {
     expect(Object.keys(PAGE_BARS).sort()).toEqual(Object.keys(RESTING).sort())
   })
 
-  it('covers every page App.jsx can show (the Files-page bug, F-R04, cannot recur)', () => {
-    const ids = pageIdsFromAppSource()
+  // 🚨 F2 replaced this test's MECHANISM, not its subject. It used to read
+  // App.jsx as text and scrape PAGE_TITLES out of it, because the two lists
+  // were genuinely separate and could genuinely disagree — which is how
+  // 'project-files' came to sit in three of the four lists (review F-R04 /
+  // F32). They are one list now, so the scrape is gone and the property is
+  // asserted where it lives. The control the scrape needed moved with it:
+  // `pages.test.js` proves a page with no geometry THROWS at module load.
+  it('covers every page the shell can show (the Files-page bug, F-R04, cannot recur)', () => {
+    const ids = PAGES.map((p) => p.id)
     expect(ids.length).toBeGreaterThanOrEqual(12)
     expect(ids).toContain('project-files')
     for (const id of ids) {
       expect(PAGE_BARS[id], `PAGE_BARS is missing '${id}'`).toBeDefined()
+      expect(PAGE_TITLES[id], `PAGE_TITLES is missing '${id}'`).toBeTruthy()
     }
+    // Both derived tables ARE the registry — not a superset kept beside it.
+    expect(Object.keys(PAGE_BARS)).toEqual(ids)
+    expect(Object.keys(PAGE_TITLES)).toEqual(ids)
     // The control: a page that is not in the table is caught, not defaulted.
     expect(PAGE_BARS['not-a-page']).toBeUndefined()
   })

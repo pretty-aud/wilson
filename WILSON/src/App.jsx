@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
+import { PageHeader, IconButton } from './ui'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
@@ -16,7 +17,7 @@ import { loadModelSources, migrateLegacyUserModelPrefs } from './lib/modelSource
 import { loadPet, savePetData, loadOtterSettings, saveOtterSettings } from './lib/localData'
 import { canCreateNewEgg, mintEggFrom } from './lib/petLifecycle'
 import { createCoalescingSave } from './lib/coalescingSave'
-import { PAGE_BARS } from './layout/pageBars'
+import { PAGES, PAGE_BARS, PAGE_TITLES, getPage, navPages } from './layout/pages'
 import { resolveUserPet, saveCloudPet, mirrorPetToCache,
          resolveUserSettings, mirrorSettingsToCache, setUserStateOwner } from './lib/userState'
 import Home from './components/Home'
@@ -93,22 +94,33 @@ function PetCompanionWithAgent(props) {
   )
 }
 
-const PAGE_TITLES = {
-  home: 'HOME',
-  dog: 'D.O.G.',
-  otter: 'O.T.T.E.R.',
-  rabbit: 'R.A.B.B.I.T.',
-  settings: 'SYSTEM SETTINGS',
-  'project-manager': 'PROJECTS',
-  'rate-card': 'RATE CARD',
-  'team-members': 'TEAM MEMBERS',
-  'project-files': 'FILES',
-  dashboard: 'DASHBOARD',
-  'admin-terminal': 'ADMIN TERMINAL',
-  help: 'HELP',
-};
+// PAGE_TITLES, PAGE_BARS, the nav columns and the header's chrome all derive
+// from ONE registry now — `src/layout/pages.js`. This table was the first of
+// the three hand-maintained lists a new page had to be added to, and the one
+// the Files page WAS added to while missing the bar table (review F32 / F-R04).
 
 const COMPRESSED = { top: 'calc(50vh - 20px)', bottom: 'calc(50vh - 20px)' };
+
+// One page wrapper for all twelve pages (F2). The scroll class and the focus
+// / caret / selection scope both come from the registry's `surface`, so the
+// scroll classes stop doing double duty as the surface scope (F1 hand-off §7)
+// and a page cannot be dark in one and light in the other.
+//
+// 🚨 Module level, NOT inside App. A component declared inside a render is a
+// new type on every render, so React unmounts and remounts its subtree — and
+// the entire reason every page is rendered at once is to PRESERVE that state.
+function PageSurface({ id, currentPage, overflow = 'auto', children }) {
+  const page = getPage(id);
+  return (
+    <div
+      className={page.surface === 'dark' ? 'wilson-dark-scroll' : 'wilson-light-scroll'}
+      data-surface={page.surface}
+      style={{ display: currentPage === id ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow }}
+    >
+      {children}
+    </div>
+  );
+}
 
 // Phase 6: the ceiling on reading the courses for one chat message. Generous
 // enough that a cold index build over a real library finishes (it is bounded-
@@ -1645,12 +1657,16 @@ export default function App() {
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Page flags
+  // Page flags. `isDarkPage` and the header's shape are the registry's answer
+  // now, not a hand-kept list: Team Members is the first page on the Q1 dark
+  // ground that is NOT a tool, and the two used to be the same condition.
+  const page = getPage(currentPage) || getPage('home');
   const isDog = currentPage === 'dog';
   const isOtter = currentPage === 'otter';
   const isRabbit = currentPage === 'rabbit';
   const isHome = currentPage === 'home';
-  const isDarkPage = isDog || isOtter || isRabbit;
+  const isToolPage = page.chrome === 'tool';
+  const isDarkPage = page.surface === 'dark';
   const hasNavMenu = !isHome; // All non-home pages get a hamburger + nav strip
 
   // Bottom offset for pet sprite — positions it above the bottom bar.
@@ -1717,58 +1733,70 @@ export default function App() {
   const closeNavAndGo = (page) => { setShowNavMenu(false); setNavResourcesOpen(false); navigateTo(page); };
   const closeNavAndTrigger = (setter) => { setShowNavMenu(false); setNavResourcesOpen(false); setter(prev => prev + 1); };
 
-  // Main nav strip: always includes HOME + tools + RESOURCES trigger + SYSTEM SETTINGS
-  // (context-aware: omits whichever page the user is currently on)
+  // ── The nav strip, from the registry (F2) ────────────────────────────────
+  // Both columns' PAGES come from `src/layout/pages.js` — one list, in its own
+  // order, filtered for the page you are on and for the admin-only surface
+  // (filtered from the ARRAY, not hidden per button, so keyboard and mouse
+  // share one list — Session 9). The two items that are NOT pages are
+  // assembled around them here: the tool's own settings TRIGGER and the
+  // RESOURCES toggle.
+  //
+  // Q7, ruled: the tool's item and the app's both read "SETTINGS", side by
+  // side in the same column. They are now "Tool settings" and "App settings".
+  // Copy only — every action is the one it was.
+  //
+  // The strip is GROUPED: destinations above the hairline, the two settings
+  // and the resources toggle below. A separator is not a control (C1); it is
+  // Proximity doing the work eleven equal-weight peers were asking the reader
+  // to do (Hick's law — the strip is the app's whole navigation).
   const getNavStripItems = () => {
-    const items = [];
-    items.push({ label: 'HOME', action: () => closeNavAndGo('home') });
+    const primary = navPages('primary', { currentPage });
+    const appSettings = primary.find(p => p.id === 'settings');
+    const items = primary
+      .filter(p => p.id !== 'settings')
+      .map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-    if (currentPage !== 'dog')    items.push({ label: 'D.O.G.',    action: () => closeNavAndGo('dog') });
-    if (currentPage !== 'otter')  items.push({ label: 'O.T.T.E.R.',  action: () => closeNavAndGo('otter') });
-    if (currentPage !== 'rabbit') items.push({ label: 'R.A.B.B.I.T.', action: () => closeNavAndGo('rabbit') });
-    if (currentPage !== 'dashboard') items.push({ label: 'DASHBOARD', action: () => closeNavAndGo('dashboard') });
+    const toolSettingsTrigger =
+      isDog ? setOpenSettingsTrigger :
+      isOtter ? setOpenOtterSettingsTrigger :
+      isRabbit ? setOpenRabbitSettingsTrigger : null;
 
-    // Page-specific SETTINGS for tool pages
-    if (isDog)    items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenSettingsTrigger) });
-    if (isOtter)  items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenOtterSettingsTrigger) });
-    if (isRabbit) items.push({ label: 'SETTINGS', action: () => closeNavAndTrigger(setOpenRabbitSettingsTrigger) });
-
-    // RESOURCES trigger (toggles sub-column; no direct navigation)
-    items.push({ label: 'RESOURCES', isResourcesTrigger: true });
-
-    // SYSTEM SETTINGS (hide when already on Settings)
-    if (currentPage !== 'settings') {
-      items.push({ label: 'SYSTEM SETTINGS', action: () => closeNavAndGo('settings') });
+    const tail = [];
+    if (toolSettingsTrigger) {
+      tail.push({ label: 'Tool settings', action: () => closeNavAndTrigger(toolSettingsTrigger) });
+    }
+    // RESOURCES trigger (toggles the sub-column; no direct navigation)
+    tail.push({ label: 'Resources', isResourcesTrigger: true });
+    if (appSettings) {
+      tail.push({ label: appSettings.navLabel, action: () => closeNavAndGo(appSettings.id) });
     }
 
-    return items;
+    return [...items, { separator: true }, ...tail];
   };
 
   // Sub-column items shown when RESOURCES is expanded
-  const getResourcesNavItems = () => {
-    const all = [
-      { id: 'project-manager', label: 'PROJECTS' },
-      { id: 'rate-card',       label: 'RATE CARD' },
-      { id: 'team-members',    label: 'TEAM MEMBERS' },
-      // Demo 2026-09-11 (Audrey): every folder and file of a project, as a
-      // table and as Finder-style columns — components/Resources/.
-      { id: 'project-files',   label: 'FILES' },
-      // Session 9: admin-only surface — filtered from the ARRAY (not hidden
-      // per-button) so keyboard/mouse share one list.
-      ...(perms.role === 'admin' ? [{ id: 'admin-terminal', label: 'ADMIN TERMINAL' }] : []),
-      { id: 'help',            label: 'HELP' },
-    ];
-    return all
-      .filter(i => i.id !== currentPage)
-      .map(i => ({ label: i.label, action: () => closeNavAndGo(i.id) }));
-  };
+  const getResourcesNavItems = () => navPages('resources', {
+    currentPage,
+    isAdmin: perms.role === 'admin',
+  }).map(p => ({ label: p.navLabel, action: () => closeNavAndGo(p.id) }));
 
-  const getNavStripHeight = () => {
-    const mainCount = getNavStripItems().length;
-    const resCount = getResourcesNavItems().length;
-    const count = Math.max(mainCount, resCount);
-    return count * 24 + (count - 1) * 16 + 48;
+  // 🚨 The 24 here was an ASSUMED line box for 16px type (review, nav finding)
+  // and would have been wrong the moment the size changed — which is this
+  // commit. It is now the H1 step's own box: 20px x 1.2 = 24px, named, beside
+  // the value it is derived from. Each column is measured separately and the
+  // taller one sets the strip, rather than one count standing for both.
+  const NAV_ITEM_PX = 24;   // --text-h1 (20px) x --text-h1--line-height (1.2)
+  const NAV_GAP_PX = 16;
+  const NAV_PAD_PX = 24;    // the one page gutter, top and bottom
+  const columnHeight = (rows) => {
+    if (rows.length === 0) return 0;
+    const content = rows.reduce((h, r) => h + (r.separator ? 1 : NAV_ITEM_PX), 0);
+    return content + (rows.length - 1) * NAV_GAP_PX + 2 * NAV_PAD_PX;
   };
+  const getNavStripHeight = () => Math.max(
+    columnHeight(getNavStripItems()),
+    columnHeight(getResourcesNavItems()),
+  );
 
   // Determine bar heights based on transition state
   const isCompressed = transitionState === 'compressing' || transitionState === 'title-hold';
@@ -1783,10 +1811,10 @@ export default function App() {
   // Render ALL pages simultaneously — hide inactive ones to preserve state
   const renderAllPages = () => (
     <>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      <PageSurface id="home" currentPage={currentPage}>
         <Home onNavigate={navigateTo} currentPage={currentPage} />
-      </div>
-      <div className="wilson-dark-scroll" style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="dog" currentPage={currentPage} overflow="hidden">
         <DeckOutlineGenerator
           onNavigate={navigateTo}
           showNavMenu={showNavMenu}
@@ -1794,24 +1822,24 @@ export default function App() {
           openSettingsTrigger={openSettingsTrigger}
           zoomLevel={zoomLevel}
         />
-      </div>
-      <div className="wilson-dark-scroll" style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="otter" currentPage={currentPage} overflow="hidden">
         <Otter
           onNavigate={navigateTo}
           currentPage={currentPage}
           openSettingsTrigger={openOtterSettingsTrigger}
           onContextChange={setOtterContext}
         />
-      </div>
-      <div className="wilson-dark-scroll" style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="rabbit" currentPage={currentPage} overflow="hidden">
         <Rabbit
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
           currentPage={currentPage}
           openSettingsTrigger={openRabbitSettingsTrigger}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'settings' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="settings" currentPage={currentPage}>
         <SettingsPageWithAgent
           petData={petData}
           onPetModeToggle={handlePetModeToggle}
@@ -1825,113 +1853,62 @@ export default function App() {
           newPetStatus={newPetStatus}
           newPetPending={newPetPending}
         />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-manager' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="project-manager" currentPage={currentPage}>
         <Projects onNavigate={navigateTo} />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'rate-card' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="rate-card" currentPage={currentPage}>
         <RateCardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'team-members' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="team-members" currentPage={currentPage}>
         <TeamMembersPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'project-files' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      </PageSurface>
+      <PageSurface id="project-files" currentPage={currentPage} overflow="hidden">
         {currentPage === 'project-files' && <ProjectFilesExplorer />}
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'dashboard' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="dashboard" currentPage={currentPage}>
         <DashboardPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'admin-terminal' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="admin-terminal" currentPage={currentPage}>
         <AdminTerminalPage />
-      </div>
-      <div className="wilson-light-scroll" style={{ display: currentPage === 'help' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
+      </PageSurface>
+      <PageSurface id="help" currentPage={currentPage}>
         <HelpPage />
-      </div>
+      </PageSurface>
     </>
   );
 
-  // What to show in the top bar
+  // ── The one page header (F2; plan §4, review F32) ────────────────────────
+  // This was FOUR blocks: three byte-identical tool headers differing only in
+  // two strings, and an eight-way OR chain listing the pages that get the
+  // plain header — a list a new page had to be added to by hand, and the
+  // third of the three lists 'project-files' had to appear in. Both are the
+  // registry's `chrome` field now.
   const renderTopBarContent = () => {
-    if (isDog) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">D.O.G.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Deck Outline Generator</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
+    if (page.chrome === 'none') return null; // Home — no bar content
 
-    if (isOtter) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">O.T.T.E.R.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">On-demand Training & Technical Education Resource</p>
-            </div>
-          </div>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
+    return (
+      <PageHeader
+        title={page.title}
+        subtitle={page.subtitle}
+        leading={page.chrome === 'tool' ? (
+          <img
+            src={`${import.meta.env.BASE_URL}logo.png`}
+            alt=""
+            className="h-[43.1px] w-auto brightness-0 invert"
+          />
+        ) : null}
+        actions={(
+          <IconButton
+            icon={Menu}
             title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (isRabbit) {
-      return (
-        <div className="flex items-center justify-between w-full h-full px-4 pb-3">
-          <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Logo" className="h-[43.1px] w-auto brightness-0 invert" />
-            <div>
-              <h1 className="text-[24px] font-bold tracking-tight uppercase leading-tight text-white">R.A.B.B.I.T.</h1>
-              <p className="text-orange-200 text-xs tracking-wide">Resource Allocation, Budgeting & Breakdown Intake Tool</p>
-            </div>
-          </div>
-          <button
+            surface="chrome"
+            aria-expanded={showNavMenu}
             onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    if (currentPage === 'settings' || currentPage === 'project-manager' || currentPage === 'rate-card' || currentPage === 'team-members' || currentPage === 'project-files' || currentPage === 'dashboard' || currentPage === 'admin-terminal' || currentPage === 'help') {
-      const pageLabel = PAGE_TITLES[currentPage] || currentPage;
-      return (
-        <div className="flex items-center justify-between w-full px-6" style={{ paddingBottom: '12px' }}>
-          <h1 className="text-[20px] font-bold tracking-tight uppercase text-white">{pageLabel}</h1>
-          <button
-            onClick={() => setShowNavMenu(prev => !prev)}
-            className="p-2 hover:bg-orange-700 rounded-sm transition-colors text-white"
-            title="Navigation"
-          >
-            <Menu className="w-6 h-6" />
-          </button>
-        </div>
-      );
-    }
-
-    return null; // Home page — no bar content
+          />
+        )}
+      />
+    );
   };
 
   return (
@@ -1983,7 +1960,11 @@ export default function App() {
             alignItems: 'center',
             justifyContent: 'flex-end',
             gap: '48px',
-            paddingRight: '48px',
+            // ONE page gutter (plan §3.3). The strip was right-aligned at 48px
+            // while the hamburger that opens it sits at 24px, so every item
+            // slid out 24px short of the control that summoned it — the two
+            // never lined up on any page.
+            paddingRight: 'var(--spacing-gutter)',
             zIndex: 9,
           }}>
             {/* Resources sub-column — slides in from the left of the main strip */}
@@ -2003,9 +1984,9 @@ export default function App() {
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="wilson-nav-item text-white font-bold uppercase tracking-[0.2em]"
+                  className="wilson-nav-item"
                   data-state={navState(`res:${item.label}`, false)}
-                  style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
+                  style={{ whiteSpace: 'nowrap' }}
                   {...navStateProps(`res:${item.label}`)}
                 >
                   {item.label}
@@ -2020,7 +2001,18 @@ export default function App() {
               alignItems: 'flex-end',
               gap: '16px',
             }}>
-              {getNavStripItems().map((item) => {
+              {getNavStripItems().map((item, i) => {
+                // The group break: a hairline in the frame's own ink, not a
+                // control and not a heading — see getNavStripItems.
+                if (item.separator) {
+                  return (
+                    <div
+                      key={`sep-${i}`}
+                      aria-hidden="true"
+                      style={{ height: '1px', width: '96px', backgroundColor: 'rgba(28,25,23,0.35)' }}
+                    />
+                  );
+                }
                 const isTrigger = item.isResourcesTrigger;
                 const dimmed = navResourcesOpen && !isTrigger;
                 return (
@@ -2038,9 +2030,9 @@ export default function App() {
                       }
                       item.action();
                     }}
-                    className="wilson-nav-item text-white font-bold uppercase tracking-[0.2em]"
+                    className="wilson-nav-item"
                     data-state={navState(`main:${item.label}`, dimmed)}
-                    style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
+                    style={{ whiteSpace: 'nowrap' }}
                     {...navStateProps(`main:${item.label}`)}
                   >
                     {item.label}
@@ -2050,8 +2042,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* ===== Dark page border — when on DOG or OTTER page and idle ===== */}
-          {isDarkPage && !isAnimating && (
+          {/* ===== Tool page border — the band under the bars, tools only ===== */}
+          {isToolPage && !isAnimating && (
             <div style={{ height: '4px', backgroundColor: '#44403c', flexShrink: 0 }} />
           )}
 
@@ -2114,7 +2106,12 @@ export default function App() {
               // that instant is precisely this window).
               // A blocked click retries; a swallowed one is just lost.
               pointerEvents: isAnimating ? 'none' : 'auto',
-              padding: (isDarkPage || currentPage === 'help') ? 0 : '3vh 0',
+              // Plan §3.3: nothing in `vh`. This was `3vh 0` — 27px at 900px
+              // tall and 21px at 700 — so the app's one vertical rhythm
+              // changed with the window. A tool owns its whole field (0), and
+              // Help paints its own two-column shell; every other page takes
+              // the one 24px gutter.
+              padding: (isToolPage || currentPage === 'help') ? 0 : 'var(--spacing-gutter) 0',
               display: 'flex',
               flexDirection: 'column',
             }}>

@@ -16,6 +16,7 @@
 export * from './tokens'
 export * from './contrast'
 export * from './overlay'
+export { PageHeader } from './PageHeader'
 export { Button, BUTTON_VARIANTS, BUTTON_SIZES } from './Button'
 export { IconButton } from './IconButton'
 export { Switch } from './Switch'

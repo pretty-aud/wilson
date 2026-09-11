@@ -79,39 +79,24 @@ function barSide(capPx, totalPx) {
 }
 
 // `top` and `bottom` are the resting heights on a tall display — i.e. the caps.
-function bars(top, bottom) {
+//
+// Exported for `pages.js`, which owns the per-page table: geometry is defined
+// here, ASSIGNED there, so a page and its bars are written in one place
+// (UI overhaul F2, review F32).
+export function bars(top, bottom) {
   const total = top + bottom;
   return { top: barSide(top, total), bottom: barSide(bottom, total) };
 }
 
-// Bar height configs per page. Content fills whatever space remains between.
-export const PAGE_BARS = {
-  home:               bars(268, 268),
-  dog:                bars(95, 8),
-  otter:              bars(95, 8),
-  rabbit:             bars(95, 8),
-  settings:           bars(200, 150),
-  'project-manager':  bars(200, 150),
-  'rate-card':        bars(200, 150),
-  'team-members':     bars(200, 150),
-  // UI overhaul F1 (2026-09-11), review F-R04 / plan Q8(a): 'project-files'
-  // was in PAGE_TITLES, the nav list and the OR chain but never here, so the
-  // densest table in the app rendered inside Home's 268/268 chrome and lost
-  // about 400px of field. The resource-class geometry, like its neighbours;
-  // Q8(b) (120/80 for the class, or the tool geometry for Files) is Audrey's.
-  'project-files':    bars(200, 150),
-  dashboard:          bars(200, 150),
-  'admin-terminal':   bars(200, 150),
-  help:               bars(140, 100),
-};
-
-// 🚨 THE SIGN-IN SEAM. AuthShell's reveal settles its bars at this exact value
-// and App's `playWelcome` picks them straight up from there, so the two
-// animations read as one continuous movement: the bars close, say WELCOME, and
-// open onto Home. It was a literal '268px' in AuthShell and a literal '268px'
-// in App's PAGE_BARS table — two copies of one number, and the first thing
-// anyone sees after signing in is the two disagreeing.
+// ── The per-page table moved to `pages.js` (UI overhaul F2, review F32) ──────
 //
-// Same reason Session 43 made TRANSITION a shared constant. One definition,
-// both consumers.
-export const HOME_BAR_HEIGHT = PAGE_BARS.home.top;
+// It lived here as its own object, and a page could be added to App.jsx's
+// PAGE_TITLES, to the nav and to the header's OR chain while silently missing
+// from this table — which is exactly what 'project-files' did for three weeks
+// (review F-R04). The table is now DERIVED from the one page registry, where
+// a missing `bars` throws at module load.
+//
+// `PAGE_BARS` and `HOME_BAR_HEIGHT` are exported from `./pages`. This file
+// keeps the geometry and its rationale, which is what the three properties
+// above are about; `pageBars.test.js` still proves them, against the derived
+// table.

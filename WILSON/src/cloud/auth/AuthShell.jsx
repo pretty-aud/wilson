@@ -42,7 +42,7 @@
 // =============================================================================
 
 import { forwardRef, useState, useEffect, useRef } from 'react'
-import { HOME_BAR_HEIGHT } from '../../layout/pageBars'
+import { HOME_BAR_HEIGHT } from '../../layout/pages'
 
 // Timings — the intro's rhythm (see header note on their origin).
 const LOGO_FADE_IN_MS   = 1200
@@ -55,7 +55,7 @@ const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
 // Home's bars at, or the bars visibly jump at the moment the user arrives —
 // the first thing anyone sees after signing in. Phase 4 made that height
 // viewport-responsive, so a copied '268px' would now be wrong on any short
-// screen. See the seam note in src/layout/pageBars.js.
+// screen. See the seam note in src/layout/pages.js.
 const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // Split-phase bar height. Session 43 re-derived it from 28vh, because §A1
 // changed the content it has to clear and a stale justification is how the
