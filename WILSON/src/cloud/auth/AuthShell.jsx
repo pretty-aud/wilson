@@ -111,17 +111,30 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // The answer is the idiom pageBars.js already uses for exactly this problem:
 // cap the bar, and let a short window take the room it needs.
 //
-//   min(24vh, (100vh − 480px) / 2)
+//   min(24vh, max(0px, (100vh − 480px) / 2))
+//
+// The `max(0px, …)` is not decoration: below a 480px-tall viewport the
+// subtraction goes NEGATIVE, a negative `height` is an invalid declaration,
+// and an invalid declaration is DROPPED — the bar would silently keep whatever
+// height it had from the previous phase (50vh) and swallow the form. Electron's
+// floor is 700px so the desktop app never reaches it, but the web build opens
+// in whatever window the browser gives it. Clamped, the bars simply vanish and
+// the content takes the whole viewport, which is the most room available and
+// the right way to run out of it. Same `min(cap, max(floor, …))` shape
+// pageBars.js uses, for the same reason.
 //
 // 480px is the measured 463.67 rounded up onto the 4px scale with ~16px of
 // slack. The cap keeps the proportion Audrey chose wherever it fits, and the
 // second term takes exactly the room a short window needs and no more.
 //
-// Re-measured in the running app after the change (same run, same method):
+// Re-measured in the running app after the change, in the split phase, at five
+// viewport heights (Playwright, deviceScaleFactor 1):
 //
-//   H=900  → bar 210.00px (23.33vh), well 480px, headroom 16.33px ✓
-//   H=700  → bar 110.00px (15.71vh), well 480px, headroom 16.33px ✓
-//   H≥1200 → 24vh wins and nothing changes
+//   H=1300 → bar 312px, well 676px   the 24vh cap wins; nothing changed
+//   H=900  → bar 210px, well 480px   6px thinner than a flat 24vh
+//   H=700  → bar 110px, well 480px   the minimum window; 16.33px of headroom
+//   H=500  → bar  10px, well 480px   still the full content height
+//   H=420  → bar   0px, well 420px   clamped; the bars vanish, nothing clips
 //
 // At 900 the bar is 6px thinner than a flat 24vh, which is imperceptible; at
 // 700 it is the difference between a screen that fits and one that clips.
@@ -129,7 +142,7 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // 🚨 Do NOT solve a future overflow by adding a second set of bars in a child
 // (Session 43 §A4). Change THIS expression, and re-measure the way the block
 // above records.
-const SPLIT_BAR_HEIGHT  = 'min(24vh, calc((100vh - 480px) / 2))'
+const SPLIT_BAR_HEIGHT  = 'min(24vh, max(0px, calc((100vh - 480px) / 2)))'
 
 // The shell's own two surfaces, from the token module rather than re-typed:
 // `signal` is the bar orange and `ground-light` is the well the content sits
