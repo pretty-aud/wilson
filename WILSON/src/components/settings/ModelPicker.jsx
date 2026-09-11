@@ -85,9 +85,10 @@ export default function ModelPicker({ registryKey, disabled = false }) {
   return (
     <div className="mb-2">
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] font-bold uppercase tracking-wide text-stone-500">
-          Model
-        </span>
+        {/* DARK surface: this control has no caller in Settings — its only
+            four call sites are on D.O.G.'s Prompts tab. text-stone-500 was
+            #78716c, 3.65:1 on #1c1917; ink-2 measures 8.49:1. */}
+        <span className="s-mp-label">Model</span>
         <select
           value={chosen}
           onChange={(e) => apply(e.target.value)}
@@ -125,15 +126,13 @@ export default function ModelPicker({ registryKey, disabled = false }) {
         )}
       </div>
 
-      <p className="text-[10px] text-stone-500 mt-1">
-        Used by <span className="text-stone-400">{entry.label}</span>
+      <p className="s-mp-note">
+        Used by <em>{entry.label}</em>
         {' · '}
         {isDefault
           ? `currently ${effective}`
           : (
-            <span className="text-orange-400/80">
-              using {nameOf(effective)} — default is {defaultLabel}
-            </span>
+            <em>using {nameOf(effective)} — default is {defaultLabel}</em>
           )}
         {entry.effort && (
           <>
@@ -146,14 +145,14 @@ export default function ModelPicker({ registryKey, disabled = false }) {
       </p>
 
       {models.length === 0 && (
-        <p className="text-[10px] text-amber-500/80 mt-1">
+        <p className="s-mp-note">
           No models are available to choose from
           {error ? ` — ${error}` : ' — ask your WILSON operator to approve one'}.
           Generation still uses the default.
         </p>
       )}
       {error && models.length > 0 && (
-        <p className="text-[10px] text-red-400/80 mt-1">{error}</p>
+        <p className="s-mp-note" role="alert">{error}</p>
       )}
     </div>
   )

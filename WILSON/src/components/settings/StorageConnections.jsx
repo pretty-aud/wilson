@@ -26,7 +26,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { FolderOpen, Cloud, HardDrive, Unplug, ExternalLink, X, Sparkles, RotateCcw } from 'lucide-react'
 import { usePermissions } from '../../permissions'
 import GatedAction from '../../permissions/GatedAction'
-import { LIGHT_INK } from '../lightSurface'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 // 🚨 `pickLocalFolder` is imported under a DIFFERENT name on purpose. This
 // component already had a `pickLocalFolder` callback (the per-machine files
@@ -40,6 +39,8 @@ import {
   resetConfirmText, seedDemoProject,
 } from '../local/localDemoClient'
 import './settings.css'
+import { Section, Group, Row } from './SettingsChrome'
+import { Button } from '../../ui'
 
 const SUPABASE_HOST = (() => {
   try { return new URL(import.meta.env.VITE_SUPABASE_URL).host } catch { return null }
@@ -49,17 +50,18 @@ function Dot({ on }) {
   return <span className="s-conn-dot inline-block w-2 h-2 rounded-full flex-shrink-0" data-on={!!on} />
 }
 
+// One card per provider (Law of Common Region). The title is the 14px card
+// step, not the 16px section step: a card sits INSIDE a section, and when the
+// two shared a size the card title collided with the section title above it.
 function Card({ icon: Icon, title, connected, children }) {
   return (
-    <div className="p-3 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)' }}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <Icon className="w-4 h-4" style={{ color: LIGHT_INK }} />
-        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>
-          {title}
-        </span>
+    <div className="s-well">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className="w-4 h-4" aria-hidden="true" />
+        <span className="s-card-title">{title}</span>
         <Dot on={connected} />
       </div>
-      {children}
+      <div className="flex flex-col gap-2">{children}</div>
     </div>
   )
 }
@@ -83,24 +85,27 @@ function Card({ icon: Icon, title, connected, children }) {
 // is preserved here and closed in the restyle, where `opacity` as the
 // disabled spelling is replaced by the one token plan §3.1 defines (ink at
 // 52 percent plus cursor:not-allowed).
+// Now the kit Button, so this card stops being its own button language (C8).
+// `variant` maps onto the kit's: primary is the one filled action per region,
+// quiet is secondary, danger is danger. The `busy` prop is gone with the
+// opacity spelling of "disabled" that plan §3.1 bans — `disabled` alone now
+// carries it, through the kit's one disabled token, which also fixes the
+// three buttons that used to stay at full strength while seven dimmed.
+const VARIANTS = { primary: 'primary', quiet: 'secondary', danger: 'danger' }
+
 function SmallButton({ icon: Icon, children, variant = 'quiet', busy = false, ...rest }) {
   return (
-    <button
-      type="button"
-      className="s-sc-btn flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm disabled:cursor-default"
-      data-variant={variant}
-      data-busy={!!busy}
-      {...rest}
-    >
-      {Icon && <Icon className="w-3 h-3" />} {children}
-    </button>
+    <Button surface="light" size="sm" variant={VARIANTS[variant]} Icon={Icon} {...rest}>
+      {children}
+    </Button>
   )
 }
 
-// A path is a fact: monospace, full, wraps anywhere, never truncated.
+// A path is a fact: monospace, full, wraps anywhere, never truncated. One of
+// the seven mono uses S43 leaves standing on this surface.
 function PathLine({ children, title }) {
   return (
-    <div className="text-[11px] font-mono break-all leading-snug" style={{ color: '#1c1917' }} title={title}>
+    <div className="s-data s-row-desc break-all" title={title}>
       {children}
     </div>
   )
@@ -282,20 +287,15 @@ export default function StorageConnections() {
   const appDataRabbit = demoState?.appDataDir ? `${demoState.appDataDir}\\rabbit-data` : 'this computer’s app data'
 
   return (
-    <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-        Storage Connections
-      </h2>
-      <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-        Connection details for each backend on this machine. AWS S3 and
-        Hetzner arrive after v1.0 through one S3-compatible adapter.
-      </p>
-
-      <div className="flex flex-col gap-2">
+    <Section
+      title="Storage connections"
+      description="Connection details for each backend on this machine. AWS S3 and Hetzner arrive after v1.0 through one S3-compatible adapter."
+    >
+      <div className="flex flex-col gap-3">
         <Card icon={Cloud} title="Supabase (company cloud)" connected={!!perms.workspaceId}>
-          <div className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
+          <div className="s-row-desc">
             {perms.workspaceId
-              ? <>Signed in · {SUPABASE_HOST ?? 'host unknown'}</>
+              ? <>Signed in · <span className="s-data">{SUPABASE_HOST ?? 'host unknown'}</span></>
               : 'Not signed in on this machine.'}
           </div>
         </Card>
@@ -306,9 +306,7 @@ export default function StorageConnections() {
             its original meaning: green only once a folder is open. */}
         <Card icon={HardDrive} title="Local demo folder" connected={!!demo && view.mode === 'active'}>
           {!demo && (
-            <div className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
-              Managed by the desktop app — unavailable in the browser.
-            </div>
+            <p className="s-row-desc">Managed by the desktop app — unavailable in the browser.</p>
           )}
 
           {/* Audrey, 2026-09-11: "in settings just clarify that it is only
@@ -316,7 +314,7 @@ export default function StorageConnections() {
               other[s]" — and the rule behind it: databases stay in Supabase,
               only media goes local. Every state of the card carries it. */}
           {demo && (
-            <div className="text-[11px]" style={{ color: '#7c2d12' }} data-local-card="demo-only">
+            <div className="s-row-desc" data-local-card="demo-only">
               <b>For demos only.</b> Nothing stored on this computer can be shared with anyone. Databases stay in Supabase; local storage is for media. In Supabase mode a <b>private project</b> keeps its media here{demoState?.mediaRoot ? ':' : '.'}
             </div>
           )}
@@ -326,7 +324,7 @@ export default function StorageConnections() {
 
           {demo && confirm && (
             <div className="flex flex-col gap-2" data-local-card="confirm">
-              <div className="text-[11px]" style={{ color: '#1c1917' }}>
+              <div className="s-row-desc">
                 {confirm.kind === 'corrupt'
                   ? 'This folder has a demo file that cannot be read.'
                   : `This folder already holds ${confirm.count} item${confirm.count === 1 ? '' : 's'}.`}
@@ -346,12 +344,12 @@ export default function StorageConnections() {
           {demo && !confirm && view.mode === 'active' && (
             <div className="flex flex-col gap-2" data-local-card="active">
               <PathLine title={view.folder}>{view.folder}</PathLine>
-              <div className="text-[11px]" style={{ color: '#1c1917' }}>
+              <p className="s-row-desc">
                 In Local Server mode, projects, files and thumbnails live in this folder; in Supabase mode, private projects’ media does. Copy the whole folder to carry the demo to another computer.
-              </div>
+              </p>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" disabled={busy} onClick={chooseDemoFolder}>
                     Change folder…
                   </SmallButton>
                 </GatedAction>
@@ -359,7 +357,7 @@ export default function StorageConnections() {
                   Open in Explorer
                 </SmallButton>
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={X} variant="quiet" busy={busy} disabled={busy} onClick={closeDemoFolder}>
+                  <SmallButton icon={X} variant="quiet" disabled={busy} onClick={closeDemoFolder}>
                     Close folder
                   </SmallButton>
                 </GatedAction>
@@ -368,31 +366,32 @@ export default function StorageConnections() {
                   a reset that names the folder and what it deletes. */}
               <div className="flex items-center gap-2 flex-wrap" data-local-card="comfort">
                 <GatedAction allowed={canSeed} reason={rabbit ? 'Switch the Storage Backend to Local Server to seed a demo project.' : 'R.A.B.B.I.T. is not ready.'}>
-                  <SmallButton icon={Sparkles} variant="quiet" busy={busy} disabled={busy} onClick={createDemoProject}>
+                  <SmallButton icon={Sparkles} variant="quiet" disabled={busy} onClick={createDemoProject}>
                     Create demo project
                   </SmallButton>
                 </GatedAction>
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={RotateCcw} variant="danger" busy={busy} disabled={busy} onClick={resetDemoFolder}>
+                  <SmallButton icon={RotateCcw} variant="danger" disabled={busy} onClick={resetDemoFolder}>
                     Reset demo folder…
                   </SmallButton>
                 </GatedAction>
               </div>
+              {/* S10: this measured 3.70:1 on the ground. */}
               {seedStatus && (
-                <div className="text-[11px] font-bold" style={{ color: '#166534' }}>{seedStatus}</div>
+                <p className="s-feedback" data-tone="ok" role="status">{seedStatus}</p>
               )}
             </div>
           )}
 
           {demo && !confirm && view.mode === 'missing' && (
             <div className="flex flex-col gap-2" data-local-card="missing">
-              <div className="text-[11px] font-bold" style={{ color: '#991b1b' }}>
+              <p className="s-feedback" data-tone="error" role="alert">
                 Your demo folder is not available. Plug the drive in, or point WILSON at it again.
-              </div>
+              </p>
               <PathLine title={view.folder}>{view.folder}</PathLine>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" disabled={busy} onClick={chooseDemoFolder}>
                     Locate it…
                   </SmallButton>
                 </GatedAction>
@@ -405,13 +404,13 @@ export default function StorageConnections() {
 
           {demo && !confirm && view.mode === 'none' && (
             <div className="flex flex-col gap-2" data-local-card="none">
-              <div className="text-[11px]" style={{ color: '#1c1917' }}>
+              <p className="s-row-desc">
                 No demo folder is open. Projects live in this computer’s app data:
-              </div>
+              </p>
               <PathLine>{appDataRabbit}</PathLine>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" disabled={busy} onClick={chooseDemoFolder}>
                     Choose a demo folder…
                   </SmallButton>
                 </GatedAction>
@@ -421,14 +420,14 @@ export default function StorageConnections() {
 
           {demo && !confirm && others.length > 0 && (
             <div className="mt-2 flex flex-col gap-1" data-local-card="recent">
-              <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>Recent folders</div>
+              <span className="s-eyebrow">Recent folders</span>
               {others.map((r) => (
                 <div key={r.path} className="flex items-center gap-2 flex-wrap">
-                  <span className="text-[11px] font-mono break-all" style={{ color: '#1c1917' }} title={r.path}>
+                  <span className="s-data s-row-desc break-all" title={r.path}>
                     <b>{folderLeaf(r.path)}</b> · {r.path}
                   </span>
                   <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                    <SmallButton variant="quiet" busy={busy} disabled={busy} onClick={() => reopenDemoFolder(r.path)}>Open</SmallButton>
+                    <SmallButton variant="quiet" disabled={busy} onClick={() => reopenDemoFolder(r.path)}>Open</SmallButton>
                   </GatedAction>
                   <SmallButton variant="quiet" disabled={busy} onClick={() => forgetDemoFolder(r.path)}>Forget</SmallButton>
                 </div>
@@ -437,49 +436,61 @@ export default function StorageConnections() {
           )}
 
           {demo && demoError && (
-            <div className="mt-2 text-[11px] font-bold" style={{ color: '#991b1b' }}>{demoError}</div>
+            <p className="s-feedback" data-tone="error" role="alert">{demoError}</p>
           )}
 
           {/* The per-machine files root — the fallback the resolution chain lands
               on when NO demo folder is open (project folder_root → workspace
               root → this). Hidden while a folder is open: its projects/
               subfolder is the root then, computed rather than stored. */}
+          {/* S15: this control and the one on the General tab write the same
+              `defaultRootDir`, and used to do it in two visual languages — a
+              bordered panel with a mono block and three chunky uppercase
+              buttons there, a hairline row with an 11px truncated path and one
+              button here. Same row contract now, so they read as one setting
+              shown twice rather than two settings that happen to agree.
+              Neither is deleted: a source-text count in workspaceRootWiring
+              holds the General one in place. */}
           {bridge && view.mode !== 'active' && (
-            <div className="mt-3 pt-2 flex items-center gap-2 flex-wrap" style={{ borderTop: '1px solid rgba(28,25,23,0.15)' }}>
-              <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: LIGHT_INK }}>Project files root</span>
-              <span className="text-[11px] font-mono truncate" style={{ color: '#1c1917', maxWidth: 320 }} title={localPath ?? undefined}>
-                {localPath || 'Default app-data folder'}
-              </span>
+            <div className="s-row" style={{ marginTop: '8px' }}>
+              <div className="s-row-label">
+                <span className="s-label">Project files root</span>
+                <div className="s-data s-row-desc break-all" title={localPath ?? undefined}>
+                  {localPath || 'Default app-data folder'}
+                </div>
+              </div>
+              <div className="s-row-control">
               {bridge?.pickDirectory && (
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
                   {/* Was a hand-rolled copy of SmallButton's exact markup and
                       DARK_BTN's exact values, written out again. Same
                       component now, so the files root and the demo folder
                       stop being two buttons that only look alike. */}
-                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={pickLocalFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" disabled={busy} onClick={pickLocalFolder}>
                     Change folder
                   </SmallButton>
                 </GatedAction>
               )}
+              </div>
             </div>
           )}
         </Card>
 
         <Card icon={Cloud} title="Google Drive" connected={driveConnected}>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
+            <span className="s-row-desc flex-1">
               {bridge
-                ? (driveConnected ? 'Connected on this machine.' : 'Not connected — configure from the RABBIT Drive setup.')
+                ? (driveConnected ? 'Connected on this machine.' : 'Not connected — configure from the R.A.B.B.I.T. Drive setup.')
                 : 'Managed by the desktop app.'}
             </span>
             {driveConnected && bridge?.clearGdrive && (
-              <SmallButton icon={Unplug} variant="danger" busy={busy} disabled={busy} onClick={disconnectDrive}>
+              <SmallButton icon={Unplug} variant="danger" disabled={busy} onClick={disconnectDrive}>
                 Disconnect
               </SmallButton>
             )}
           </div>
         </Card>
       </div>
-    </div>
+    </Section>
   )
 }
