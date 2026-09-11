@@ -312,12 +312,13 @@ export default function StorageConnections() {
       failPending(err?.message || 'the folder could not be reset')
     }
   }, [demo, busy, canEditMachineRoot, demoState, failPending])
-  // If the folder goes away under an open reset dialog (a bridge refresh, a
-  // Forget that answers with a new state), the dialog's own guard unmounts
-  // it; the slot must clear with it or the card is left "confirming" with no
-  // dialog on screen (review round 1).
+  // If the folder goes away under an open close or reset dialog (a bridge
+  // refresh, a Forget that answers with a new state), the dialog's own guard
+  // unmounts it; the slot must clear with it or the card is left
+  // "confirming" with no dialog on screen (review round 1; round 2 asked
+  // for the close dialog to take the same guard, or it would name "").
   useEffect(() => {
-    if (pending === 'reset' && !demoState?.active) closePending()
+    if ((pending === 'reset' || pending === 'close') && !demoState?.active) closePending()
   }, [pending, demoState, closePending])
 
   const createDemoProject = useCallback(async () => {
@@ -582,7 +583,7 @@ export default function StorageConnections() {
         </Dialog>
       )}
 
-      {pending === 'close' && (
+      {pending === 'close' && demoState?.active && (
         <Dialog
           title="Close demo folder"
           width="confirm"

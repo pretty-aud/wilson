@@ -181,11 +181,12 @@ describe('page bar geometry', () => {
     })
 
     // The gain depends on the window: the 200/150 row only reaches its caps
-    // from 890px tall, Home from 1076px. So the headline "150px" is true on a
-    // 900px-tall Electron window (a 14-inch Air) and above; in a browser on
-    // the same machine (~860px) it is 120px; at the 700px minimum both shapes
-    // are floored by the same budget and the gain is 0.
-    it('returns 150px of field against the 200/150 class from 890px tall, 120px at 860, 0 at 700', () => {
+    // from 891px tall (the knee is 540 + 200 / 0.5714 = 890.02), Home from
+    // 1076px. So the headline "150px" is true on a 900px-tall Electron window
+    // (a 14-inch Air) and above; in a browser on the same machine (~860px) it
+    // is 120px; at the 700px minimum both shapes are floored by the same
+    // budget and the gain is 0. "336px against Home" holds from 1076px up.
+    it('returns 150px of field against the 200/150 class from 891px tall, 120px at 860, 0 at 700', () => {
       expect(restAt('project-manager', 1440) - restAt('settings', 1440)).toBeCloseTo(150, 5)
       expect(restAt('project-manager', 900) - restAt('settings', 900)).toBeCloseTo(150, 5)
       expect(restAt('project-manager', 860) - restAt('settings', 860)).toBeCloseTo(120, 2)
@@ -223,16 +224,20 @@ describe('page bar geometry', () => {
       }
     })
 
-    // CONTROLS. (a) The numbers above come from the table, not from the
-    // evaluator: the 200/150 shape resolves to a different value through the
-    // same code, so a stale table cannot pass the cases above by accident.
-    // (b) The floor is real, not decorative: one viewport below the knee
-    // where the share alone would give 48px and the 54px floor (0.45 × 120)
-    // is what resolves instead — the case review round 1 found the previous
-    // control could not see (a floor ratio up to 0.8 passed unnoticed).
-    it('controls: the 200/150 shape does not resolve to 120, and the 54px floor beats the share below the knee', () => {
-      expect(resolveAt(bars(200, 150).top, 1440)).toBeCloseTo(200, 5)
-      expect(resolveAt(bars(200, 150).top, 1440)).not.toBeCloseTo(120, 5)
+    // CONTROLS. (a) The three rows really are NOT the 200/150 shape any more:
+    // the rival shape built through the real generator must differ from the
+    // table's own strings, so a stale table (the mutant that puts 200/150
+    // back on all three rows) goes red here on its own, not only through the
+    // numeric cases above (review round 2's matrix). (b) The floor is real,
+    // not decorative: one viewport below the knee where the share alone would
+    // give 48px and the 54px floor (0.45 × 120) is what resolves instead —
+    // the case review round 1 found the previous control could not see (a
+    // floor ratio up to 0.8 passed unnoticed).
+    it('controls: the table is not the 200/150 shape, and the 54px floor beats the share below the knee', () => {
+      for (const page of NO_LANE) {
+        expect(PAGE_BARS[page].top, `${page}.top`).not.toBe(bars(200, 150).top)
+        expect(PAGE_BARS[page].bottom, `${page}.bottom`).not.toBe(bars(200, 150).bottom)
+      }
       expect((620 - 540) * 0.6).toBeCloseTo(48, 5)
       expect(resolveAt(bars(120, 80).top, 620)).toBeCloseTo(54, 5)
       expect(resolveAt(bars(120, 80).bottom, 620)).toBeCloseTo(36, 5)

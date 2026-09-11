@@ -196,21 +196,28 @@ describe('the Storage card: reset the demo folder', () => {
 
   // jsdom does not enforce `inert`, so a click can still reach the Forget
   // button behind the backdrop here — which is exactly the case the guard
-  // exists for: the folder goes away under the open dialog.
-  it('when the folder goes away under the open dialog, the dialog AND the confirming state go with it', async () => {
+  // exists for: the folder goes away under the open dialog. The load-bearing
+  // line is the `[inert]` one: the dialog's own render guard unmounts it
+  // either way, and only a cleared `pending` un-inerts the card. (Under the
+  // real GatedAction a denied control renders its own `inert` span, so
+  // `[inert]` is unambiguous only because GatedAction is mocked here.)
+  it.each([
+    ['Reset demo folder', /Reset demo folder/, 'reset'],
+    ['Close demo folder', /Close folder/, 'close'],
+  ])('when the folder goes away under the open %s dialog, the dialog AND the confirming state go with it', async (title, trigger, action) => {
     const { localDemo } = installBridges()
     localDemo.getState = vi.fn(async () => ({ active: FOLDER, recent: [{ path: 'E:\\Other' }] }))
     localDemo.forget = vi.fn(async () => ({ ok: true, state: { active: null, recent: [] } }))
     const { container } = render(<StorageConnections />)
-    fireEvent.click(await screen.findByRole('button', { name: /Reset demo folder/ }))
-    expect(dialogNamed('Reset demo folder')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: trigger }))
+    expect(dialogNamed(title)).toBeTruthy()
     expect(container.querySelector('[inert]')).not.toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Forget' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     // The slot cleared with the dialog: the card is no longer inert and the
     // next dialog opens clean.
     await waitFor(() => expect(container.querySelector('[inert]')).toBeNull())
-    expect(localDemo.reset).not.toHaveBeenCalled()
+    expect(localDemo[action]).not.toHaveBeenCalled()
     expect(reloadApp).not.toHaveBeenCalled()
   })
 })
@@ -240,10 +247,13 @@ describe('the Storage card: disconnect Google Drive', () => {
 // DepartmentRow is a private function inside SettingsPage.jsx, and mounting
 // SettingsPage would mean mounting the app. The pin: the same Dialog, the
 // same width, the old wording, the danger variant, and no native confirm
-// left on either file. The negative pin is the CALL form, `window.confirm(`
-// with its paren (D1 hand-off §5, trap 2): a comment that names the old API
-// without the paren neither satisfies nor fails it; one that spells the call
-// out does fail it, so describe, never quote.
+// left on either file. Source-text pins cannot tell code from prose (D1
+// hand-off §5, trap 2), in both directions: the negative pin is the CALL
+// form, `window.confirm(` with its paren, so a comment naming the old API
+// without the paren neither satisfies nor fails it, and one that spells the
+// call out does fail it; the positive pin on the danger button could be
+// satisfied by a comment quoting it, so a second assertion refuses any
+// comment line that carries the pattern. Describe, never quote.
 describe('the Teams tab: remove a department, and no native confirm anywhere on the surface', () => {
   const here = dirname(fileURLToPath(import.meta.url))
   const settingsPage = readFileSync(join(here, '../SettingsPage.jsx'), 'utf8')
@@ -253,10 +263,13 @@ describe('the Teams tab: remove a department, and no native confirm anywhere on 
   it('DepartmentRow asks in a confirm-width danger Dialog with the old wording', () => {
     expect(departmentRow).toContain('Remove department "{name}"?')
     expect(departmentRow).toMatch(/<Dialog\s[\s\S]{0,80}title="Remove department"[\s\S]{0,60}width="confirm"/)
-    // The danger button is the one that calls onRemove; the statement order
-    // inside its handler is not pinned (both orders are correct under React
-    // 19 batching — review round 1 traced the removal of a middle row).
-    expect(departmentRow).toMatch(/<Button variant="danger"[^>]*onClick=\{\(\) => \{[^}]*onRemove\(\)[^}]*\}\}>/)
+    // The danger button is the one whose handler calls onRemove; neither the
+    // statement order nor the handler's shape is pinned (both orders are
+    // correct under React 19 batching — review round 1 traced the removal of
+    // a middle row; round 2 found the earlier shape-pin went red for four
+    // correct refactors).
+    expect(departmentRow).toMatch(/<Button variant="danger"[^>]*onClick=\{[\s\S]{0,120}?onRemove\(/)
+    expect(departmentRow).not.toMatch(/\/[/*][^\n]*variant="danger"/)   // no comment may quote the pattern
     expect(departmentRow).toContain('onClick={() => setRemoveConfirm(true)}')
   })
 
