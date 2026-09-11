@@ -7,6 +7,7 @@
 // the project. Persisted under settings.rabbit.defaultCurrency.
 
 import { useEffect, useState } from 'react'
+import './settings.css'
 
 const CURRENCIES = [
   { code: 'USD', label: 'US Dollar',          symbol: '$' },
@@ -85,8 +86,8 @@ export default function CurrencyPicker({ value, onChange }) {
               key={c.code}
               type="button"
               onClick={() => { onChange(c.code); setOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-2 text-left text-xs font-mono hover:bg-stone-800 transition-colors"
-              style={{ color: c.code === current.code ? '#f4a261' : '#fde8d0' }}
+              className="s-cur-option w-full flex items-center gap-3 px-4 py-2 text-left text-xs font-mono transition-colors"
+              data-current={c.code === current.code}
             >
               <span className="w-8 text-orange-300">{c.symbol}</span>
               <span className="w-12">{c.code}</span>

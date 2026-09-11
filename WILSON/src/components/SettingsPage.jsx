@@ -28,7 +28,28 @@ import GatedAction from '../permissions/GatedAction'
 // near the bottom paint #1c1917 and keep their greys.
 import { LIGHT_INK, LIGHT_RULE } from './lightSurface'
 import { canCreateNewEgg } from '../lib/petLifecycle'
+// UI overhaul D1 (2026-09-11): every hover / selected / on / tone state on
+// this surface moved out of inline style ternaries and out of two
+// onMouseEnter/onMouseLeave handlers into data attributes resolved here. An
+// inline style beats a hover: class, so the two cannot coexist — see the
+// file header for why this had to be its own commit.
+import './settings/settings.css'
 
+
+/**
+ * The pet card's status word, as one named tone per state rather than the
+ * six-branch nested colour ternary it used to be inline. Kept next to the
+ * component (not in the pet's own modules) because it is Settings chrome:
+ * plan §2 Q20 puts this card in scope and leaves PetCompanion.jsx, the
+ * sprites and every pet keyframe untouched (C5).
+ */
+function petStateTone(state) {
+  if (state === 'dead' || state === 'starving') return 'danger'
+  if (state === 'hungry') return 'warning'
+  if (state === 'lonely') return 'lonely'
+  if (state === 'sleeping') return 'sleeping'
+  return 'ok'
+}
 
 export default function SettingsPage({
   petData, onPetModeToggle, onDifficultyChange, onPetReset, onNewPet,
@@ -334,12 +355,8 @@ export default function SettingsPage({
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className="px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-t-sm transition-colors"
-                style={{
-                  backgroundColor: activeTab === tab.key ? 'rgba(120, 70, 30, 0.55)' : 'transparent',
-                  color: activeTab === tab.key ? '#ffffff' : LIGHT_INK,
-                  borderBottom: activeTab === tab.key ? '2px solid #f97316' : '2px solid transparent',
-                }}
+                className="s-tab px-5 py-2 text-xs font-bold uppercase tracking-widest rounded-t-sm transition-colors"
+                data-active={activeTab === tab.key}
               >
                 {tab.label}
               </button>
@@ -415,14 +432,11 @@ export default function SettingsPage({
                             {petData.gender === 'female' ? 'F' : 'M'} / {breedLabel} / {form}
                           </span>
                         </div>
-                        <span className="text-xs uppercase font-bold tracking-wider" style={{
-                          color: petData.state === 'dead' ? '#ef4444' :
-                                 petData.state === 'starving' ? '#ef4444' :
-                                 petData.state === 'hungry' ? '#f59e0b' :
-                                 petData.state === 'lonely' ? '#8b5cf6' :
-                                 petData.state === 'sleeping' ? '#6b7280' :
-                                 '#22c55e'
-                        }}>
+                        {/* The six-value colour ladder was a nested ternary
+                            inline; it is now one named tone per state. Two of
+                            the six (#8b5cf6 violet, #6b7280 cool grey) are
+                            cool hues on a warm-only palette — S11. */}
+                        <span className="s-pet-state text-xs uppercase font-bold tracking-wider" data-tone={petStateTone(petData.state)}>
                           {petData.state}
                         </span>
                       </div>
@@ -458,11 +472,8 @@ export default function SettingsPage({
                       </div>
                       <button
                         onClick={() => onPetModeToggle(!petData.petMode)}
-                        className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                        style={{
-                          backgroundColor: petData.petMode ? '#f97316' : '#44403c',
-                          color: petData.petMode ? '#fff' : LIGHT_INK,
-                        }}
+                        className="s-toggle px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
+                        data-on={!!petData.petMode}
                       >
                         {petData.petMode ? 'ON' : 'OFF'}
                       </button>
@@ -480,11 +491,8 @@ export default function SettingsPage({
                             <button
                               key={d}
                               onClick={() => onDifficultyChange(d)}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                              style={{
-                                backgroundColor: petData.difficulty === d ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                                color: petData.difficulty === d ? '#fff' : LIGHT_INK,
-                              }}
+                              className="s-seg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                              data-selected={petData.difficulty === d}
                             >
                               {d}
                             </button>
@@ -499,28 +507,16 @@ export default function SettingsPage({
                       <div className="flex gap-2">
                         <button
                           onClick={() => setPetResetConfirm(true)}
-                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors border"
-                          style={{
-                            backgroundColor: 'transparent',
-                            color: '#1c1917',
-                            borderColor: '#44403c',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
+                          className="s-danger-btn px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                          data-tone="danger"
                         >
                           Reset History
                         </button>
                         {isGhost && (
                           <button
                             onClick={() => setNewPetConfirm(true)}
-                            className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors border"
-                            style={{
-                              backgroundColor: 'transparent',
-                              color: '#1c1917',
-                              borderColor: '#44403c',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.borderColor = '#f97316'; e.currentTarget.style.color = '#f97316'; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = '#44403c'; e.currentTarget.style.color = '#1c1917'; }}
+                            className="s-danger-btn px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                            data-tone="signal"
                           >
                             {/* ⚠️ NO pending label or `disabled` here, deliberately.
                                 A first pass added both and they were DEAD CODE: the
@@ -556,14 +552,8 @@ export default function SettingsPage({
                         <div
                           role="status"
                           aria-live="polite"
-                          className="mt-3 px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
-                          style={
-                            newPetPending
-                              ? { borderColor: LIGHT_RULE, color: LIGHT_INK, backgroundColor: 'rgba(120, 70, 30, 0.08)' }
-                              : newPetStatus.ok
-                                ? { borderColor: '#14532d', color: LIGHT_INK, backgroundColor: 'rgba(21, 128, 61, 0.10)' }
-                                : { borderColor: '#7f1d1d', color: LIGHT_INK, backgroundColor: 'rgba(185, 28, 28, 0.10)' }
-                          }
+                          className="s-status mt-3 px-3 py-2 rounded-sm border text-[10px] font-mono leading-relaxed"
+                          data-state={newPetPending ? 'pending' : newPetStatus.ok ? 'ok' : 'error'}
                         >
                           {newPetPending ? 'Creating a new egg…' : newPetStatus.message}
                         </div>
@@ -707,19 +697,10 @@ export default function SettingsPage({
                         type="button"
                         disabled={adapterSwitching || active || unavailableOnWeb}
                         onClick={() => handleRabbitAdapterSwitch(mode)}
-                        className="flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
-                        style={{
-                          backgroundColor: active ? 'rgba(234, 88, 12, 0.18)' : 'rgba(120, 70, 30, 0.18)',
-                          border: `2px solid ${active ? '#ea580c' : 'transparent'}`,
-                        }}
+                        className="s-adapter flex items-start gap-2 px-3 py-2 text-left rounded-sm transition-colors disabled:cursor-default"
+                        data-selected={active}
                       >
-                        <span
-                          className="mt-0.5 w-3 h-3 rounded-full flex-shrink-0"
-                          style={{
-                            backgroundColor: active ? '#ea580c' : 'transparent',
-                            border: '2px solid #7c2d12',
-                          }}
-                        />
+                        <span className="s-adapter-dot mt-0.5 w-3 h-3 rounded-full flex-shrink-0" />
                         <div className="flex flex-col">
                           <span className="text-[12px] font-mono font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                             {label}
@@ -728,18 +709,12 @@ export default function SettingsPage({
                                 Say so — this badge is the whole difference
                                 between "connected" and "dead". */}
                             {active && (
-                              <span
-                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
-                                style={{ backgroundColor: '#dcfce7', color: '#166534', border: '1px solid #166534' }}
-                              >
+                              <span className="s-badge ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal" data-badge="in-use">
                                 In use
                               </span>
                             )}
                             {!writes && (
-                              <span
-                                className="ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal"
-                                style={{ backgroundColor: '#fee2e2', color: '#991b1b', border: '1px solid #991b1b' }}
-                              >
+                              <span className="s-badge ml-2 px-1.5 py-0.5 text-[9px] rounded-sm normal-case tracking-normal" data-badge="read-only">
                                 Read only
                               </span>
                             )}
@@ -751,10 +726,7 @@ export default function SettingsPage({
                   })}
                 </div>
                 <div className="mt-2 flex items-center gap-2">
-                  <span
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: rabbitCtx?.adapterStatus?.online ? '#22c55e' : '#ef4444' }}
-                  />
+                  <span className="s-online-dot w-2 h-2 rounded-full" data-online={!!rabbitCtx?.adapterStatus?.online} />
                   <span className="text-[11px] font-mono" style={{ color: '#1c1917' }}>
                     {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
                     {rabbitCtx?.adapterStatus?.error && ` — ${rabbitCtx.adapterStatus.error}`}
@@ -931,11 +903,8 @@ export default function SettingsPage({
                     </div>
                     <button
                       onClick={() => onAgentEnabledChange(!agentEnabled)}
-                      className="px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
-                      style={{
-                        backgroundColor: agentEnabled ? '#f97316' : '#44403c',
-                        color: agentEnabled ? '#fff' : LIGHT_INK,
-                      }}
+                      className="s-toggle px-4 py-1.5 text-xs font-bold uppercase tracking-wider rounded-sm transition-colors"
+                      data-on={!!agentEnabled}
                     >
                       {agentEnabled ? 'ON' : 'OFF'}
                     </button>
@@ -957,11 +926,8 @@ export default function SettingsPage({
                           <button
                             key={opt.key}
                             onClick={() => onAutoApproveChange(opt.key)}
-                            className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                            style={{
-                              backgroundColor: autoApprove === opt.key ? '#f97316' : 'rgba(120, 70, 30, 0.45)',
-                              color: autoApprove === opt.key ? '#fff' : LIGHT_INK,
-                            }}
+                            className="s-seg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                            data-selected={autoApprove === opt.key}
                           >
                             {opt.label}
                           </button>
@@ -1015,11 +981,8 @@ export default function SettingsPage({
                                 </span>
                                 <button
                                   onClick={() => handleToggleLock(sub.slug)}
-                                  className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm transition-colors"
-                                  style={{
-                                    backgroundColor: isLocked ? '#ef4444' : 'rgba(120, 70, 30, 0.45)',
-                                    color: isLocked ? '#fff' : LIGHT_INK,
-                                  }}
+                                  className="s-lock px-2 py-0.5 text-[10px] font-bold uppercase rounded-sm transition-colors"
+                                  data-locked={!!isLocked}
                                 >
                                   {isLocked ? 'Unlock' : 'Lock'}
                                 </button>
@@ -1173,10 +1136,7 @@ function DepartmentRow({ name, onRename, onRemove }) {
   }
 
   return (
-    <div
-      className="flex items-center gap-2 px-3 py-2 rounded-sm transition-colors hover:bg-stone-200/40"
-      style={{ backgroundColor: 'rgba(120, 70, 30, 0.12)' }}
-    >
+    <div className="s-dept-row flex items-center gap-2 px-3 py-2 rounded-sm transition-colors">
       {editing ? (
         <input
           autoFocus
@@ -1194,7 +1154,7 @@ function DepartmentRow({ name, onRename, onRemove }) {
         <button
           type="button"
           onClick={() => { setDraft(name); setEditing(true) }}
-          className="flex-1 text-left text-xs font-mono px-2 py-1 rounded-sm hover:bg-stone-200 transition-colors"
+          className="s-dept-name flex-1 text-left text-xs font-mono px-2 py-1 rounded-sm transition-colors"
           style={{ color: '#1c1917' }}
         >
           {name}
@@ -1205,8 +1165,7 @@ function DepartmentRow({ name, onRename, onRemove }) {
         onClick={() => {
           if (window.confirm(`Remove department "${name}"?`)) onRemove()
         }}
-        className="p-1 rounded-sm hover:bg-stone-300 transition-colors"
-        style={{ color: '#dc2626' }}
+        className="s-dept-remove p-1 rounded-sm transition-colors"
         title="Remove department"
       >
         <span className="text-sm font-mono">&times;</span>

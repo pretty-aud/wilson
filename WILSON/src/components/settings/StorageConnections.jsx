@@ -39,18 +39,14 @@ import {
   pickLocalFolder as pickDemoFolder, reopenLocalFolder, reloadApp,
   resetConfirmText, seedDemoProject,
 } from '../local/localDemoClient'
+import './settings.css'
 
 const SUPABASE_HOST = (() => {
   try { return new URL(import.meta.env.VITE_SUPABASE_URL).host } catch { return null }
 })()
 
 function Dot({ on }) {
-  return (
-    <span
-      className="inline-block w-2 h-2 rounded-full flex-shrink-0"
-      style={{ backgroundColor: on ? '#22c55e' : 'rgba(28, 25, 23, 0.45)' }}
-    />
-  )
+  return <span className="s-conn-dot inline-block w-2 h-2 rounded-full flex-shrink-0" data-on={!!on} />
 }
 
 function Card({ icon: Icon, title, connected, children }) {
@@ -68,16 +64,32 @@ function Card({ icon: Icon, title, connected, children }) {
   )
 }
 
-const DARK_BTN = { backgroundColor: '#1c1917', color: '#f4a261' }
-const QUIET_BTN = { backgroundColor: 'rgba(28,25,23,0.08)', color: '#1c1917', border: '1px solid rgba(28,25,23,0.35)' }
-const DANGER_BTN = { color: '#dc2626', backgroundColor: 'rgba(220,38,38,0.08)' }
-
-function SmallButton({ icon: Icon, children, style, ...rest }) {
+// UI overhaul D1 (2026-09-11): DARK_BTN / QUIET_BTN / DANGER_BTN used to be
+// three private style objects spread into `style` at fourteen call sites,
+// seven of them as `{ ...X, opacity: busy ? 0.6 : 1 }`. Two problems came
+// with that shape and both are fixed here rather than restyled around:
+//
+//   1. An inline background beats any `hover:` class, so these buttons could
+//      never have a hover state at all.
+//   2. Three of the fourteen (Open in Explorer, Forget it, Forget) passed the
+//      bare object with `disabled={busy}` and NO opacity, so three buttons
+//      stayed at full strength while seven dimmed — the same disabled state
+//      drawn two ways in one card.
+//
+// `variant` and `busy` are now props, so every call site spells the same
+// thing and the values live in settings.css. ⚠️ The `busy` prop is passed at
+// exactly the seven sites that already dimmed, NOT at the other three: this
+// commit is a state extraction and has to be provably inert, so the defect
+// is preserved here and closed in the restyle, where `opacity` as the
+// disabled spelling is replaced by the one token plan §3.1 defines (ink at
+// 52 percent plus cursor:not-allowed).
+function SmallButton({ icon: Icon, children, variant = 'quiet', busy = false, ...rest }) {
   return (
     <button
       type="button"
-      className="flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm disabled:cursor-default"
-      style={style}
+      className="s-sc-btn flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm disabled:cursor-default"
+      data-variant={variant}
+      data-busy={!!busy}
       {...rest}
     >
       {Icon && <Icon className="w-3 h-3" />} {children}
@@ -325,8 +337,8 @@ export default function StorageConnections() {
                 <PathLine>{confirm.entries.slice(0, 6).join(', ')}{confirm.count > 6 ? ', …' : ''}</PathLine>
               )}
               <div className="flex items-center gap-2 flex-wrap">
-                <SmallButton style={DARK_BTN} onClick={() => answerConfirm(true)}>Use this folder</SmallButton>
-                <SmallButton style={QUIET_BTN} onClick={() => answerConfirm(false)}>Choose another</SmallButton>
+                <SmallButton variant="primary" onClick={() => answerConfirm(true)}>Use this folder</SmallButton>
+                <SmallButton variant="quiet" onClick={() => answerConfirm(false)}>Choose another</SmallButton>
               </div>
             </div>
           )}
@@ -339,15 +351,15 @@ export default function StorageConnections() {
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} style={{ ...DARK_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
                     Change folder…
                   </SmallButton>
                 </GatedAction>
-                <SmallButton icon={ExternalLink} style={QUIET_BTN} disabled={busy} onClick={openDemoInExplorer}>
+                <SmallButton icon={ExternalLink} variant="quiet" disabled={busy} onClick={openDemoInExplorer}>
                   Open in Explorer
                 </SmallButton>
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={X} style={{ ...QUIET_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={closeDemoFolder}>
+                  <SmallButton icon={X} variant="quiet" busy={busy} disabled={busy} onClick={closeDemoFolder}>
                     Close folder
                   </SmallButton>
                 </GatedAction>
@@ -356,12 +368,12 @@ export default function StorageConnections() {
                   a reset that names the folder and what it deletes. */}
               <div className="flex items-center gap-2 flex-wrap" data-local-card="comfort">
                 <GatedAction allowed={canSeed} reason={rabbit ? 'Switch the Storage Backend to Local Server to seed a demo project.' : 'R.A.B.B.I.T. is not ready.'}>
-                  <SmallButton icon={Sparkles} style={{ ...QUIET_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={createDemoProject}>
+                  <SmallButton icon={Sparkles} variant="quiet" busy={busy} disabled={busy} onClick={createDemoProject}>
                     Create demo project
                   </SmallButton>
                 </GatedAction>
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={RotateCcw} style={{ ...DANGER_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={resetDemoFolder}>
+                  <SmallButton icon={RotateCcw} variant="danger" busy={busy} disabled={busy} onClick={resetDemoFolder}>
                     Reset demo folder…
                   </SmallButton>
                 </GatedAction>
@@ -380,11 +392,11 @@ export default function StorageConnections() {
               <PathLine title={view.folder}>{view.folder}</PathLine>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} style={{ ...DARK_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
                     Locate it…
                   </SmallButton>
                 </GatedAction>
-                <SmallButton icon={X} style={QUIET_BTN} disabled={busy} onClick={() => forgetDemoFolder(view.folder)}>
+                <SmallButton icon={X} variant="quiet" disabled={busy} onClick={() => forgetDemoFolder(view.folder)}>
                   Forget it
                 </SmallButton>
               </div>
@@ -399,7 +411,7 @@ export default function StorageConnections() {
               <PathLine>{appDataRabbit}</PathLine>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <SmallButton icon={FolderOpen} style={{ ...DARK_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={chooseDemoFolder}>
+                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={chooseDemoFolder}>
                     Choose a demo folder…
                   </SmallButton>
                 </GatedAction>
@@ -416,9 +428,9 @@ export default function StorageConnections() {
                     <b>{folderLeaf(r.path)}</b> · {r.path}
                   </span>
                   <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                    <SmallButton style={{ ...QUIET_BTN, opacity: busy ? 0.6 : 1 }} disabled={busy} onClick={() => reopenDemoFolder(r.path)}>Open</SmallButton>
+                    <SmallButton variant="quiet" busy={busy} disabled={busy} onClick={() => reopenDemoFolder(r.path)}>Open</SmallButton>
                   </GatedAction>
-                  <SmallButton style={QUIET_BTN} disabled={busy} onClick={() => forgetDemoFolder(r.path)}>Forget</SmallButton>
+                  <SmallButton variant="quiet" disabled={busy} onClick={() => forgetDemoFolder(r.path)}>Forget</SmallButton>
                 </div>
               ))}
             </div>
@@ -440,15 +452,13 @@ export default function StorageConnections() {
               </span>
               {bridge?.pickDirectory && (
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>
-                  <button
-                    type="button"
-                    onClick={pickLocalFolder}
-                    disabled={busy}
-                    className="flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm"
-                    style={{ backgroundColor: '#1c1917', color: '#f4a261', opacity: busy ? 0.6 : 1 }}
-                  >
-                    <FolderOpen className="w-3 h-3" /> Change folder
-                  </button>
+                  {/* Was a hand-rolled copy of SmallButton's exact markup and
+                      DARK_BTN's exact values, written out again. Same
+                      component now, so the files root and the demo folder
+                      stop being two buttons that only look alike. */}
+                  <SmallButton icon={FolderOpen} variant="primary" busy={busy} disabled={busy} onClick={pickLocalFolder}>
+                    Change folder
+                  </SmallButton>
                 </GatedAction>
               )}
             </div>
@@ -463,15 +473,9 @@ export default function StorageConnections() {
                 : 'Managed by the desktop app.'}
             </span>
             {driveConnected && bridge?.clearGdrive && (
-              <button
-                type="button"
-                onClick={disconnectDrive}
-                disabled={busy}
-                className="flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded-sm"
-                style={{ ...DANGER_BTN, opacity: busy ? 0.6 : 1 }}
-              >
-                <Unplug className="w-3 h-3" /> Disconnect
-              </button>
+              <SmallButton icon={Unplug} variant="danger" busy={busy} disabled={busy} onClick={disconnectDrive}>
+                Disconnect
+              </SmallButton>
             )}
           </div>
         </Card>

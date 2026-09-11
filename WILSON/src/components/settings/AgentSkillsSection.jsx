@@ -25,6 +25,7 @@
 
 import { useState } from 'react'
 import { AGENT_SKILL_REGISTRY, AGENT_SKILL_TOOLS, defaultAgentSkillsState } from './agentSkillRegistry'
+import './settings.css'
 
 export default function AgentSkillsSection({
   value,
@@ -186,15 +187,9 @@ function ToolBlock({
             <button
               key={skill.id}
               onClick={() => onToggle(skill.id)}
-              className="w-full flex items-start gap-3 px-2 py-2 text-left rounded-sm transition-colors hover:bg-stone-800/30"
+              className="s-skill-row w-full flex items-start gap-3 px-2 py-2 text-left rounded-sm transition-colors"
             >
-              <span
-                className="flex-shrink-0 w-4 h-4 mt-0.5 flex items-center justify-center rounded-sm border"
-                style={{
-                  backgroundColor: isOn ? '#f97316' : 'transparent',
-                  borderColor:    isOn ? '#f97316' : '#44403c',
-                }}
-              >
+              <span className="s-skill-box flex-shrink-0 w-4 h-4 mt-0.5 flex items-center justify-center rounded-sm" data-on={isOn}>
                 {isOn && <span className="text-[10px] text-white font-bold">✓</span>}
               </span>
               <span className="flex-1">

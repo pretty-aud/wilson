@@ -1,0 +1,362 @@
+/* ═══════════════════════════════════════════════════════════════
+   System Settings — extracted state (UI overhaul D1, 2026-09-11)
+
+   🚨 WHY THIS FILE EXISTS. Every visual state on this surface — hover,
+   selected, active, on/off, busy, disabled, tone — used to live in an inline
+   `style={{}}` ternary or in a className template literal, and two of them
+   lived in `onMouseEnter`/`onMouseLeave` handlers that wrote
+   `e.currentTarget.style` directly. An inline style beats a `hover:` class no
+   matter what the class says, so a class-based restyle written next to a
+   surviving inline style silently drops the state. That is plan §1's fourth
+   cause and risk 4, and the Settings review's own Risk 3.
+
+   So state moved here first, as `data-*` attributes plus CSS, with every
+   branch enumerated as a named variant — BEFORE any visual work, in its own
+   commit, with the values unchanged. This file is therefore deliberately
+   ugly on arrival: it is a faithful transcription of what the surface
+   already looked like. The restyle commits that follow change the values
+   here, in one place, instead of in forty JSX ternaries.
+
+   `@layer components` on purpose, exactly as `src/ui/`'s own rules are: an
+   UNLAYERED rule in a CSS file beats every Tailwind utility regardless of
+   specificity, so a caller could never add a layout utility on top. Layered,
+   utilities still win for layout and this file still wins for state.
+
+   Settings is a light page (`#f4a261`, plan §2 Q1 option A) and `#1c1917` is
+   its only ink (C6). No white, cream or pale grey surface may appear here
+   (C9). Colours below that break those rules are the ones the restyle
+   commits remove; they are transcribed unchanged so this commit is provably
+   inert.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+
+  /* ── Tab bar ──────────────────────────────────────────────────────────
+     Three simultaneous active signals (fill, ink flip to #ffffff, a 2px
+     #f97316 underline) — S31. The white label measures 4.05:1 on the
+     composited well; a later commit replaces all three with one underline. */
+  .s-tab {
+    background-color: transparent;
+    color: #1c1917;
+    border-bottom: 2px solid transparent;
+  }
+  .s-tab[data-active='true'] {
+    background-color: rgba(120, 70, 30, 0.55);
+    color: #ffffff;
+    border-bottom-color: #f97316;
+  }
+
+  /* ── The pet card's status word ───────────────────────────────────────
+     Was a six-branch nested ternary inline. `lonely` and `sleeping` are a
+     violet and a cool grey on a palette whose own rule is "warm over cool,
+     no blues, no cyans" — S11. Transcribed unchanged here; the restyle
+     resolves all five to the page's single ink, because Q1 option A draws no
+     status colour on the light ground at all. */
+  .s-pet-state[data-tone='danger']   { color: #ef4444; }
+  .s-pet-state[data-tone='warning']  { color: #f59e0b; }
+  .s-pet-state[data-tone='lonely']   { color: #8b5cf6; }
+  .s-pet-state[data-tone='sleeping'] { color: #6b7280; }
+  .s-pet-state[data-tone='ok']       { color: #22c55e; }
+
+  /* ── The two-state toggle button (pet mode, agent mode) ──────────────
+     Not the kit Switch: F1's Switch has no light track rule, so its off
+     state is ink-3 grey and its on state is #ea580c on #f4a261 at about
+     1.06:1. Recorded as a kit request; these stay buttons until it lands. */
+  .s-toggle {
+    background-color: #44403c;
+    color: #1c1917;
+  }
+  .s-toggle[data-on='true'] {
+    background-color: #f97316;
+    color: #ffffff;
+  }
+
+  /* ── Segmented groups (difficulty, auto-approve) ─────────────────── */
+  .s-seg {
+    background-color: rgba(120, 70, 30, 0.45);
+    color: #1c1917;
+  }
+  .s-seg[data-selected='true'] {
+    background-color: #f97316;
+    color: #ffffff;
+  }
+
+  /* ── The two pet danger-zone buttons ─────────────────────────────────
+     🚨 These carried the ONLY JS-driven hover on the surface: paired
+     onMouseEnter/onMouseLeave handlers writing style.borderColor and
+     style.color. Both handlers are deleted; the state is these two rules.
+     Deleting only one side would have left a hover that never reverts. */
+  .s-danger-btn {
+    background-color: transparent;
+    color: #1c1917;
+    border: 1px solid #44403c;
+  }
+  .s-danger-btn[data-tone='danger']:hover {
+    border-color: #ef4444;
+    color: #ef4444;
+  }
+  .s-danger-btn[data-tone='signal']:hover {
+    border-color: #f97316;
+    color: #f97316;
+  }
+
+  /* ── The new-pet status block ─────────────────────────────────────────
+     The review calls this the best-built feedback element in the app
+     (role=status, aria-live, three states on one component, measured
+     contrast in its header comment). Its three inline branches become
+     three named variants; the measured inks are unchanged. */
+  .s-status[data-state='pending'] {
+    border-color: rgba(28, 25, 23, 0.22);
+    color: #1c1917;
+    background-color: rgba(120, 70, 30, 0.08);
+  }
+  .s-status[data-state='ok'] {
+    border-color: #14532d;
+    color: #1c1917;
+    background-color: rgba(21, 128, 61, 0.10);
+  }
+  .s-status[data-state='error'] {
+    border-color: #7f1d1d;
+    color: #1c1917;
+    background-color: rgba(185, 28, 28, 0.10);
+  }
+
+  /* ── Adapter (storage backend) radio rows ────────────────────────── */
+  .s-adapter {
+    background-color: rgba(120, 70, 30, 0.18);
+    border: 2px solid transparent;
+  }
+  .s-adapter[data-selected='true'] {
+    background-color: rgba(234, 88, 12, 0.18);
+    border-color: #ea580c;
+  }
+  .s-adapter-dot {
+    background-color: transparent;
+    border: 2px solid #7c2d12;
+  }
+  .s-adapter[data-selected='true'] .s-adapter-dot {
+    background-color: #ea580c;
+  }
+
+  /* ── The two adapter badges (S9: the only near-white fills here) ──── */
+  .s-badge[data-badge='in-use'] {
+    background-color: #dcfce7;
+    color: #166534;
+    border: 1px solid #166534;
+  }
+  .s-badge[data-badge='read-only'] {
+    background-color: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #991b1b;
+  }
+
+  /* ── Connection dots ──────────────────────────────────────────────── */
+  .s-online-dot {
+    background-color: #ef4444;
+  }
+  .s-online-dot[data-online='true'] {
+    background-color: #22c55e;
+  }
+  .s-conn-dot {
+    background-color: rgba(28, 25, 23, 0.45);
+  }
+  .s-conn-dot[data-on='true'] {
+    background-color: #22c55e;
+  }
+
+  /* ── Subject lock toggle ──────────────────────────────────────────── */
+  .s-lock {
+    background-color: rgba(120, 70, 30, 0.45);
+    color: #1c1917;
+  }
+  .s-lock[data-locked='true'] {
+    background-color: #ef4444;
+    color: #ffffff;
+  }
+
+  /* ── Department rows ──────────────────────────────────────────────────
+     S44: three different hovers inside one 40px row, all of them a cool
+     stone that does not exist on this page. Transcribed as three named
+     variants so a later commit can collapse them to one token. */
+  .s-dept-row {
+    background-color: rgba(120, 70, 30, 0.12);
+  }
+  .s-dept-row:hover {
+    background-color: rgba(231, 229, 228, 0.4);
+  }
+  .s-dept-name:hover {
+    background-color: #e7e5e4;
+  }
+  .s-dept-remove {
+    color: #dc2626;
+  }
+  .s-dept-remove:hover {
+    background-color: #d6d3d1;
+  }
+
+  /* ── Agent-skills checkbox rows ───────────────────────────────────────
+     A dark hover (bg-stone-800/30) on a light surface — S44's fourth
+     invented hover. */
+  .s-skill-row:hover {
+    background-color: rgba(41, 37, 36, 0.3);
+  }
+  .s-skill-box {
+    background-color: transparent;
+    border: 1px solid #44403c;
+  }
+  .s-skill-box[data-on='true'] {
+    background-color: #f97316;
+    border-color: #f97316;
+  }
+
+  /* ── Sign-out and its confirm row ─────────────────────────────────────
+     hover:bg-red-50 and hover:bg-stone-100 are both near-white, so both
+     break C9. Named here; replaced in the restyle. */
+  .s-quiet-btn[data-tone='danger'] {
+    background-color: transparent;
+    border: 1px solid #b91c1c;
+    color: #991b1b;
+  }
+  .s-quiet-btn[data-tone='danger']:hover {
+    background-color: #fef2f2;
+  }
+  .s-quiet-btn[data-tone='neutral'] {
+    background-color: transparent;
+    border: 1px solid #57534e;
+    color: #292524;
+  }
+  .s-quiet-btn[data-tone='neutral']:hover {
+    background-color: #f5f5f4;
+  }
+
+  /* ── StorageConnections' three private button tokens ──────────────────
+     DARK_BTN / QUIET_BTN / DANGER_BTN were spread into `style` at fourteen
+     call sites, several as `{ ...X, opacity: busy ? 0.6 : 1 }`. The opacity
+     spelling of "disabled" is banned by plan §3.1 (one disabled token: ink
+     at 52% plus cursor:not-allowed), so `busy` becomes `data-busy` here and
+     a later commit gives it the real token. */
+  .s-sc-btn[data-variant='primary'] {
+    background-color: #1c1917;
+    color: #f4a261;
+  }
+  .s-sc-btn[data-variant='quiet'] {
+    background-color: rgba(28, 25, 23, 0.08);
+    color: #1c1917;
+    border: 1px solid rgba(28, 25, 23, 0.35);
+  }
+  .s-sc-btn[data-variant='danger'] {
+    background-color: rgba(220, 38, 38, 0.08);
+    color: #dc2626;
+  }
+  .s-sc-btn[data-busy='true'] {
+    opacity: 0.6;
+  }
+
+  /* ── Model rows ───────────────────────────────────────────────────── */
+  .s-model-row {
+    background-color: transparent;
+    border-top: 1px solid rgba(28, 25, 23, 0.22);
+  }
+  .s-model-row:first-child {
+    border-top: none;
+  }
+  .s-model-row[data-overridden='true'] {
+    background-color: rgba(234, 88, 12, 0.05);
+  }
+
+  /* ── ModelPicker — the one DARK control in this folder ─────────────────
+     🚨 It has no caller in Settings. Its only four call sites are in
+     DeckOutlineGenerator.jsx, on D.O.G.'s dark Prompts tab (review S39,
+     Risk 5: "a blanket light-surface restyle of src/components/settings/
+     will break it"). It therefore takes the DARK tokens, and lane A must
+     not re-skin it. */
+  .s-mp-select {
+    background-color: #0c0a09;
+    border: 2px solid #57534e;
+    color: #fb923c;
+  }
+  .s-mp-select[data-disabled='true'] {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  /* `focus:border-orange-500` was part of the className template literal that
+     also carried the disabled branch; splitting the two kept it. */
+  .s-mp-select:focus {
+    border-color: #f97316;
+  }
+  .s-mp-reset {
+    color: #fb923c;
+  }
+  .s-mp-reset:hover {
+    color: #fdba74;
+  }
+  .s-mp-reset[data-disabled='true'] {
+    color: #57534e;
+    cursor: not-allowed;
+  }
+
+  /* ── The two migration panels ─────────────────────────────────────────
+     One MigrateButton contract, transcribed once and used by both panels
+     (they are deliberately the same shape — Jakob's Law, per
+     OtterMigrationPanel's own header). */
+  .s-migrate-btn {
+    background-color: rgba(120, 70, 30, 0.18);
+    color: #1c1917;
+    border: 2px solid transparent;
+  }
+  .s-migrate-btn[data-variant='primary'] {
+    background-color: #ea580c;
+    color: #ffffff;
+    border-color: #ea580c;
+  }
+  .s-migrate-btn:disabled {
+    opacity: 0.5;
+  }
+  .s-report-cell[data-tone='inserted'] {
+    color: #166534;
+  }
+  .s-report-cell[data-tone='skipped'] {
+    color: #1c1917;
+  }
+  .s-report-cell[data-tone='failed'] {
+    color: #1c1917;
+  }
+  .s-report-cell[data-tone='failed'][data-failed='true'] {
+    color: #991b1b;
+  }
+
+  /* ── CurrencyPicker's option list ─────────────────────────────────────
+     A dark floating panel opened from a light page. The panel itself is
+     legitimate (Dialog, Menu and Toast are dark by design); the ink ternary
+     and the hover were inline. */
+  .s-cur-option {
+    color: #fde8d0;
+  }
+  .s-cur-option[data-current='true'] {
+    color: #f4a261;
+  }
+  .s-cur-option:hover {
+    background-color: #292524;
+  }
+
+  /* ── ProfileSection's one block that plays three parts ────────────────
+     S27: loading, empty and error are the same element with only an ink
+     flip between them. The flip is named here so the restyle can give the
+     error its own treatment and stop "nothing here" and "it broke" looking
+     identical. */
+  .s-profile-empty[data-tone='neutral'] {
+    color: #1c1917;
+  }
+  .s-profile-empty[data-tone='error'] {
+    color: #dc2626;
+  }
+
+  /* ── VersionPanel's busy check button ─────────────────────────────── */
+  .s-version-btn {
+    background-color: #1c1917;
+    color: #f4a261;
+  }
+  .s-version-btn[data-busy='true'] {
+    opacity: 0.6;
+  }
+}

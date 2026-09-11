@@ -24,6 +24,7 @@ import { usePermissions } from '../../permissions/usePermissions'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import { loadOtterSettings } from '../../lib/localData'
 import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -285,7 +286,7 @@ export default function ProfileSection({ onSaved }) {
   }
   if (!row) {
     return (
-      <div className="py-8 text-xs font-mono italic" style={{ color: error ? '#dc2626' : LIGHT_INK }}>
+      <div className="s-profile-empty py-8 text-xs font-mono italic" data-tone={error ? 'error' : 'neutral'}>
         {error || 'No cloud profile found — sign in to a workspace to edit your profile.'}
       </div>
     )

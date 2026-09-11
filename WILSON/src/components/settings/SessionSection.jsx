@@ -22,6 +22,7 @@ import { useCallback, useState } from 'react'
 import { LogOut } from 'lucide-react'
 import { usePermissions } from '../../permissions/usePermissions'
 import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
 
 export default function SessionSection() {
   const perms = usePermissions()
@@ -71,8 +72,8 @@ export default function SessionSection() {
             <button
               type="button"
               onClick={() => setConfirming(true)}
-              className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-red-700 text-red-800 hover:bg-red-50 inline-flex items-center gap-2"
-              style={{ backgroundColor: 'transparent' }}
+              className="s-quiet-btn px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors inline-flex items-center gap-2"
+              data-tone="danger"
             >
               <LogOut size={13} />
               Sign out
@@ -84,8 +85,8 @@ export default function SessionSection() {
                 type="button"
                 onClick={handleSignOut}
                 disabled={busy}
-                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-red-700 text-red-800 hover:bg-red-50 disabled:opacity-50"
-                style={{ backgroundColor: 'transparent' }}
+                className="s-quiet-btn px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                data-tone="danger"
               >
                 {busy ? 'Signing out…' : 'Sign out'}
               </button>
@@ -93,8 +94,8 @@ export default function SessionSection() {
                 type="button"
                 onClick={() => setConfirming(false)}
                 disabled={busy}
-                className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors border border-stone-600 text-stone-800 hover:bg-stone-100 disabled:opacity-50"
-                style={{ backgroundColor: 'transparent' }}
+                className="s-quiet-btn px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+                data-tone="neutral"
               >
                 Cancel
               </button>

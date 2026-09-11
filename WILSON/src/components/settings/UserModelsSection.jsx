@@ -39,6 +39,7 @@ import {
   setUserModelOverride, loadModelSources,
 } from '../../lib/modelSources'
 import { LIGHT_INK, LIGHT_RULE } from '../lightSurface'
+import './settings.css'
 
 /** Which tier supplies this key's value, and what it is. */
 function provenance(key, tier, sources, builtin) {
@@ -147,7 +148,7 @@ export default function UserModelsSection() {
         <div key={tool} className="mb-4">
           <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>{tool}</div>
           <div className="rounded-sm" style={{ border: `1px solid ${LIGHT_RULE}` }}>
-            {entries.map((entry, i) => {
+            {entries.map((entry) => {
               const mine = sources.user?.[entry.key] ?? ''
               const busy = busyKey === entry.key
               const err = rowError[entry.key]
@@ -164,11 +165,8 @@ export default function UserModelsSection() {
               return (
                 <div
                   key={entry.key}
-                  className="px-3 py-2"
-                  style={{
-                    borderTop: i === 0 ? 'none' : `1px solid ${LIGHT_RULE}`,
-                    backgroundColor: mine ? 'rgba(234, 88, 12, 0.05)' : 'transparent',
-                  }}
+                  className="s-model-row px-3 py-2"
+                  data-overridden={!!mine}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>

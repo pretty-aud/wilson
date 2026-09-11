@@ -14,6 +14,7 @@ import {
   installUpdate, onUpdateStatus,
 } from '../../cloud/updates'
 import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
 
 const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
@@ -105,11 +106,8 @@ export default function VersionPanel() {
             type="button"
             onClick={check}
             disabled={busy || status.state === 'checking'}
-            className="flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-sm"
-            style={{
-              backgroundColor: '#1c1917', color: '#f4a261',
-              opacity: (busy || status.state === 'checking') ? 0.6 : 1,
-            }}
+            className="s-version-btn flex items-center gap-1.5 text-xs font-mono px-3 py-1.5 rounded-sm"
+            data-busy={busy || status.state === 'checking'}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${(busy || status.state === 'checking') ? 'animate-spin' : ''}`} />
             Check for updates

@@ -31,6 +31,7 @@ import {
   cachedApprovedModels,
   setUserModelOverride,
 } from '../../lib/modelSources'
+import './settings.css'
 
 export default function ModelPicker({ registryKey, disabled = false }) {
   const entry = BY_KEY[registryKey]
@@ -92,9 +93,8 @@ export default function ModelPicker({ registryKey, disabled = false }) {
           onChange={(e) => apply(e.target.value)}
           disabled={disabled || busy}
           title={entry.hint || entry.label}
-          className={`px-2 py-1 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400
-            text-[11px] font-mono focus:border-orange-500
-            ${disabled || busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+          className="s-mp-select px-2 py-1 rounded-sm text-[11px] font-mono"
+          data-disabled={disabled || busy}
         >
           {/* Empty value = inherit, so a user who never touches this keeps
               getting whatever the default becomes rather than being pinned to
@@ -117,9 +117,8 @@ export default function ModelPicker({ registryKey, disabled = false }) {
             type="button"
             onClick={() => apply('')}
             disabled={disabled || busy}
-            className={`text-[10px] ${disabled || busy
-              ? 'text-stone-600 cursor-not-allowed'
-              : 'text-orange-400 hover:text-orange-300'}`}
+            className="s-mp-reset text-[10px]"
+            data-disabled={disabled || busy}
           >
             Reset to default
           </button>

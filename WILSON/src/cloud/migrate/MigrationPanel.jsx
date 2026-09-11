@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../auth/supabaseClient'
 import { runMigration } from './runMigration'
-import { LIGHT_INK } from '../../components/lightSurface'
+import '../../components/settings/settings.css'
 
 export default function MigrationPanel() {
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(null)
@@ -151,13 +151,8 @@ function MigrateButton({ children, onClick, disabled, primary }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider rounded-sm transition-colors disabled:cursor-default"
-      style={{
-        backgroundColor: primary ? '#ea580c' : 'rgba(120, 70, 30, 0.18)',
-        color: primary ? '#fff' : '#1c1917',
-        border: primary ? '2px solid #ea580c' : '2px solid transparent',
-        opacity: disabled ? 0.5 : 1,
-      }}
+      className="s-migrate-btn px-3 py-1.5 text-[11px] font-mono font-bold uppercase tracking-wider rounded-sm transition-colors disabled:cursor-default"
+      data-variant={primary ? 'primary' : 'quiet'}
     >
       {children}
     </button>
@@ -169,9 +164,9 @@ function ReportTable({ r }) {
     <tr>
       <td className="pr-3 py-0.5">{label}</td>
       <td className="px-2 text-right">{bucket.total}</td>
-      <td className="px-2 text-right" style={{ color: '#166534' }}>{bucket.inserted}</td>
-      <td className="px-2 text-right" style={{ color: LIGHT_INK }}>{bucket.skipped}</td>
-      <td className="px-2 text-right" style={{ color: bucket.failed ? '#991b1b' : LIGHT_INK }}>{bucket.failed}</td>
+      <td className="s-report-cell px-2 text-right" data-tone="inserted">{bucket.inserted}</td>
+      <td className="s-report-cell px-2 text-right" data-tone="skipped">{bucket.skipped}</td>
+      <td className="s-report-cell px-2 text-right" data-tone="failed" data-failed={!!bucket.failed}>{bucket.failed}</td>
     </tr>
   )
   return (
