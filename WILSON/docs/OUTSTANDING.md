@@ -96,9 +96,14 @@ Q2); settle it by copying the routes into a scratch express app the way the
 review's `repro-express.cjs` did.
 
 ### An offline launch cannot get past the sign-in screen, however fresh the saved sign-in
-**INFERRED from code reading (2026-09-10), not yet seen failing — the
-measurement needs a session saved on a staging build and a relaunch with
-`WILSON_DEV_OFFLINE=1`.** `checkSessionValid()` (App.jsx) restores the saved
+**MEASURED 2026-09-10 22:41 — a staging build at `b8c2bed`, Audrey's real
+sign-in saved on a test window, relaunched with `WILSON_DEV_OFFLINE=1`: the
+`GET /auth/v1/user` is cancelled 10 ms after the page loads (`[wilson]
+setSession failed: Failed to fetch`) and the sign-in screen is up 4.5 s after
+the page loads, the same as a signed-out launch; with `=stall` the restore
+times out at 15.0 s (`session restore timed out after 15000ms`) and the
+sign-in screen follows 4.3 s later — never an orange window.**
+`checkSessionValid()` (App.jsx) restores the saved
 session through `hydrateSupabase()` → `supabase.auth.setSession()`, and
 `@supabase/auth-js` 2.101.1 `GoTrueClient._setSession` calls `_getUser()`
 (GET `/auth/v1/user`) for a token that has NOT expired
@@ -112,7 +117,11 @@ shape (a policy decision, asked in the local-storage hand-off): in
 with a retryable fetch error, return the saved session so the shell opens
 offline; cloud calls then fail honestly and the Storage card follows
 solo-user rules until the next online launch. Owner: the local-storage
-session (`demo/local-storage`).
+session (`demo/local-storage`). **2026-09-10, later:** Audrey chose cloud data
+for part 1 of the demo (`DEMO_LOCAL_STORAGE_BRIEF.md` §7), so an offline
+LAUNCH is no longer a Friday requirement and the offline-tolerant launch is
+not being built; the bounded restore (`c5e5a77`) stands, measured above. The
+limit itself stands and is stated in walkthrough 18 "The cable pulled".
 
 ### The two-factor enrolment screen overflows the sign-in shell's band at laptop heights
 **REPORTED by Audrey (2026-09-07, screenshot at roughly 824px tall); cause

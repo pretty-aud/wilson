@@ -2363,7 +2363,23 @@ when a folder is opened; adoption, if wanted, is an explicit action.
 **Dev-only knobs** (both gated on `!app.isPackaged`): `WILSON_USER_DATA=<dir>`
 points a second instance at a scratch userData; `WILSON_DEV_OFFLINE=1`
 cancels every non-loopback request in `createWindow` — the "cable pulled"
-measurement.
+measurement; `WILSON_DEV_OFFLINE=stall` leaves them pending instead, the
+stalled network. The session restore at boot is bounded to 15 s
+(`withTimeout`, `c5e5a77`); measured 2026-09-10 on a staging build with a
+real saved sign-in: `=1` fails the restore in 10 ms and the sign-in screen is
+up 4.5 s after the page loads, `=stall` times out at 15.0 s and the sign-in
+screen follows 4.3 s later — never an orange window.
+
+**Not this feature (Audrey, 2026-09-10, after the build):** *"local file
+storage should be solely for media and files, database entries and data
+should still be cloud based."* Cloud rows with local file bodies exist in no
+mode — Supabase mode refuses uploads for a workspace on its own server, NAS
+or local folder (S36, `supabaseAdapter.js` `uploadFile`), and managed files,
+thumbnails on disk and the bins are `local_server`-only. The folder above
+moves the DATA local; it stays for the Friday demo, which runs in two parts
+(`DEMO_LOCAL_STORAGE_BRIEF.md` §7). The target model is the `network`
+provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
+session.
 
 **Limits, stated.** Sign-in is required, and a LAUNCH needs the auth
 server however fresh the saved sign-in: restoring it goes through

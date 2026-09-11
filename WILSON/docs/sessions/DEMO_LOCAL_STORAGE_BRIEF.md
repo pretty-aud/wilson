@@ -219,3 +219,50 @@ into this worktree's `WILSON/` (never commit it). No `supabase link`.
 5. Should she be able to switch between several demo folders (recent list)?
 6. Does the demo run on this workstation only, or also on a laptop — if a
    laptop, which OS, so the folder-copy path is tested on it?
+
+---
+
+## 7. Audrey's clarification and decision, 2026-09-10 (after §3 was built)
+
+Seen in a signed-in staging test window whose fresh app data defaulted the
+Storage Backend to Local Server, so her cloud projects did not show. Verbatim:
+
+> cloud access is not working. projects and databases are not showing up.
+>
+> to clarify, local file storage should be solely for media and files,
+> database entries and data should still be cloud based. only file storage is
+> local with local selected
+
+**What that means against the code (measured 2026-09-10):**
+
+- The model she describes — rows in Supabase, file bodies on a local folder —
+  exists in NO mode. Supabase mode sends bodies to the Petal cloud bucket (or
+  S3); a workspace on its own server, NAS or local folder (`workspace_storage`
+  mode `byos`, provider `network`, including the Admin Terminal's
+  "this computer's folder" `root_kind = 'local'`) is REFUSED for uploads in
+  cloud mode by the S36 decision in `supabaseAdapter.js` `uploadFile` ("add
+  files from the desktop app in Local Server mode"). Managed files, thumbnails
+  on disk, the bins and the demo folder are `local_server`-only
+  (`supportsManagedFiles`, `supportsBins` in `RabbitProvider.jsx`).
+- §1–§3 of this brief followed her 2026-09-08 words ("not need a server or a
+  cloud solution"), so the folder as built moves the DATA under it and pins
+  Local Server when a folder is opened — the opposite of the clarification.
+  It stays for Friday (below); it is not the target design.
+- The target design is the second half of the `network` provider
+  (`docs/NETWORK_STORAGE_DESIGN.md` §4a2b): `files.storage_provider =
+  'local_server'` per row, `workspace_storage.provider = 'network'` with the
+  chosen root, and the cloud adapter's upload / read / thumbnail / delete
+  paths routing bodies through the desktop's Express server under that root
+  (the registry already states `NEW_BODY_GOES_TO[network] = LOCAL_SERVER`,
+  `storage/index.js`). The bins would need cloud rows of their own.
+  Adapter-level, more than a day: a dedicated session after Friday, not this
+  sprint.
+
+**Her decision for Friday — option 1 of three, "two parts, nothing new
+built":** part 1 in Supabase mode shows her real projects and databases;
+part 2 switches the Storage Backend to Local Server in Settings → Storage and
+shows the demo folder and the bins there. Both states persist. Walkthrough 18
+"How Friday runs" is the rehearsal. Declined: (2) Local Server only, with a
+one-time copy of her cloud projects into the folder; (3) Supabase only, no
+folder and no bins. The offline-tolerant launch (hand-off 2 §6 item 3) is
+dropped: part 1 needs the cloud anyway.
