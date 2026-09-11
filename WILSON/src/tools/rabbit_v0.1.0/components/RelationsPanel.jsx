@@ -289,7 +289,7 @@ function AssetPickerOverlay({ assets, onPick, onClose }) {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search assets…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }}
             autoFocus />
         </div>
@@ -415,7 +415,7 @@ export function NewTaskSidePopup({
           <SideLabel>Title *</SideLabel>
           <input type="text" value={draft.title} onChange={e => upd({ title: e.target.value })}
             placeholder="Task title…" autoFocus
-            className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
         </div>
 
@@ -424,7 +424,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Status</SideLabel>
             <select value={draft.status} onChange={e => upd({ status: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
               {TASK_STATUSES_LIST.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -432,7 +432,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Priority</SideLabel>
             <select value={draft.priority} onChange={e => upd({ priority: e.target.value })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {PRIORITIES_LIST.map(p => <option key={p} value={p}>{fmt(p)}</option>)}
             </select>
@@ -444,7 +444,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Asset</SideLabel>
             <select value={draft.asset_id || ''} onChange={e => upd({ asset_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.asset_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {assets.map(a => <option key={a.id} value={a.id}>{a.name || 'Untitled'}</option>)}
@@ -453,7 +453,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Phase</SideLabel>
             <select value={draft.phase_id || ''} onChange={e => upd({ phase_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -467,7 +467,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Scene</SideLabel>
               <select value={draft.scene_id || ''} onChange={e => upd({ scene_id: e.target.value || null, shot_id: null })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.scene_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'scene'}>
                 <option value="">--</option>
@@ -477,7 +477,7 @@ export function NewTaskSidePopup({
             <div>
               <SideLabel>Shot</SideLabel>
               <select value={draft.shot_id || ''} onChange={e => upd({ shot_id: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.shot_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                 disabled={entityType === 'shot'}>
                 <option value="">--</option>
@@ -494,7 +494,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Level</SideLabel>
                 <select value={draft.level_id || ''} onChange={e => upd({ level_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.level_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'level'}>
                   <option value="">--</option>
@@ -506,7 +506,7 @@ export function NewTaskSidePopup({
               <div>
                 <SideLabel>Experience</SideLabel>
                 <select value={draft.experience_id || ''} onChange={e => upd({ experience_id: e.target.value || null })}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.experience_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
                   disabled={entityType === 'experience'}>
                   <option value="">--</option>
@@ -522,7 +522,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Assignee</SideLabel>
             <select value={draft.assignee_id || ''} onChange={e => upd({ assignee_id: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assignee_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {projectMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -531,7 +531,7 @@ export function NewTaskSidePopup({
           <div>
             <SideLabel>Role</SideLabel>
             <select value={draft.assigned_role_slug || ''} onChange={e => upd({ assigned_role_slug: e.target.value || null })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: draft.assigned_role_slug ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
               <option value="">--</option>
               {roleEntries.map(r => <option key={r.role_slug} value={r.role_slug}>{r.role_label}</option>)}
@@ -545,20 +545,20 @@ export function NewTaskSidePopup({
             <SideLabel>Bid days</SideLabel>
             <input type="number" value={draft.bid_days ?? ''} min={0} step={0.5}
               onChange={e => { const n = parseFloat(e.target.value); upd({ bid_days: isNaN(n) ? null : n }) }}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="--" />
           </div>
           <div>
             <SideLabel>Start</SideLabel>
             <input type="date" value={draft.start_date || ''} onChange={e => upd({ start_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
           <div>
             <SideLabel>End</SideLabel>
             <input type="date" value={draft.end_date || ''} onChange={e => upd({ end_date: e.target.value || '' })}
-              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }} />
           </div>
         </div>
@@ -568,7 +568,7 @@ export function NewTaskSidePopup({
           <SideLabel>Description</SideLabel>
           <textarea value={draft.description} onChange={e => upd({ description: e.target.value })}
             rows={3}
-            className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+            className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
             style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
             placeholder="Task description…" />
         </div>
@@ -1033,7 +1033,7 @@ export function RelationPickerPopup({
             <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search…"
-              className="flex-1 px-2 py-1.5 text-[11px] font-mono bg-transparent focus:outline-none"
+              className="flex-1 px-2 py-1.5 text-[11px] font-mono bg-transparent"
               style={{ color: '#d6d3d1' }}
               autoFocus />
           </div>

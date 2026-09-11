@@ -185,7 +185,7 @@ export default function CompanySection({ isActive, wm }) {
             value={nameDraft}
             onChange={(e) => setNameDraft(e.target.value.slice(0, 80))}
             disabled={!ws || saving}
-            className="flex-1 px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="flex-1 px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={lightInputStyle}
           />
           <button
@@ -291,7 +291,7 @@ export default function CompanySection({ isActive, wm }) {
             onChange={(e) => setNewDept(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') addDepartment() }}
             placeholder="Add a department..."
-            className="flex-1 max-w-xs px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="flex-1 max-w-xs px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={lightInputStyle}
           />
           <button

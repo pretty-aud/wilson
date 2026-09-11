@@ -413,7 +413,7 @@ function TemplateEditor({ template, onUpdate, onClose, readOnly = false }) {
               }}
               onKeyDown={e => { if (e.key === 'Escape') { setDescDraft(template.description || ''); setEditingDesc(false) } }}
               rows={2}
-              className="w-full px-2 py-1 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+              className="w-full px-2 py-1 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             />
           ) : (
@@ -536,7 +536,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           value={task.role_slug || ''}
           disabled={readOnly}
           onChange={e => onUpdate({ role_slug: e.target.value || '' })}
-          className="w-full px-1 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
+          className="w-full px-1 py-0.5 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500 hover:bg-stone-700/40 transition-colors"
           style={{ backgroundColor: 'transparent', color: task.role_slug ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}>
           <option value="">--</option>
           {DEFAULT_ROLES.map(r => <option key={r} value={r}>{fmt(r)}</option>)}
@@ -552,7 +552,7 @@ function TemplateTaskRow({ task, allTasks, taskById, onUpdate, onDelete, readOnl
           value={task.bid_days ?? ''}
           disabled={readOnly}
           onChange={e => onUpdate({ bid_days: parseFloat(e.target.value) || 0 })}
-          className="w-full px-1 py-0.5 text-[11px] font-mono text-center rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="w-full px-1 py-0.5 text-[11px] font-mono text-center rounded focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#f4a261', border: '1px solid transparent' }}
         />
       </div>
@@ -672,7 +672,7 @@ function TemplateScope({ template, projects, onUpdate, readOnly = false }) {
           value={template.project_id || ''}
           disabled={readOnly}
           onChange={e => onUpdate({ project_id: e.target.value || null })}
-          className="px-1 py-0.5 text-[10px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="px-1 py-0.5 text-[10px] font-mono rounded focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: 120 }}>
           <option value="">--</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.title || 'Untitled'}</option>)}
@@ -705,7 +705,7 @@ function TemplateName({ template, onUpdate, readOnly = false }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(template.name); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-[11px] font-mono font-bold rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-0.5 text-[11px] font-mono font-bold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -738,7 +738,7 @@ function EditableText({ value, placeholder, onCommit, readOnly = false }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-0.5 text-[11px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-0.5 text-[11px] font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )

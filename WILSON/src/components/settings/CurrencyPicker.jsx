@@ -56,7 +56,7 @@ export default function CurrencyPicker({ value, onChange }) {
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full flex items-center justify-between px-4 py-3 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
         style={inputStyle}
       >
         <span>
@@ -76,7 +76,7 @@ export default function CurrencyPicker({ value, onChange }) {
             value={filter}
             onChange={e => setFilter(e.target.value)}
             placeholder="Search currency…"
-            className="w-full px-3 py-2 text-xs font-mono border-b focus:outline-none"
+            className="w-full px-3 py-2 text-xs font-mono border-b"
             style={{ ...inputStyle, borderColor: '#44403c' }}
             autoFocus
           />

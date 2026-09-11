@@ -179,7 +179,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
           disabled={busy}
           rows={3}
           placeholder="Paste emails — commas, spaces or new lines"
-          className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+          className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
           style={fieldStyle}
         />
         {invalid.length > 0 && (
@@ -203,7 +203,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
                     value={row.username}
                     disabled={busy || row.status === 'ok'}
                     onChange={(e) => patchRow(row.email, { username: e.target.value.toLowerCase().slice(0, 32), status: row.status === 'failed' ? 'queued' : row.status, error: null })}
-                    className="w-36 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-36 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ ...fieldStyle, border: usernameOk ? fieldStyle.border : '1px solid #dc2626' }}
                     aria-label={`Username for ${row.email}`}
                   />
@@ -211,7 +211,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
                     value={row.role}
                     disabled={busy || row.status === 'ok'}
                     onChange={(e) => patchRow(row.email, { role: e.target.value })}
-                    className="px-1.5 py-1 text-[11px] font-mono rounded-sm focus:outline-none cursor-pointer"
+                    className="px-1.5 py-1 text-[11px] font-mono rounded-sm cursor-pointer"
                     style={fieldStyle}
                     aria-label={`Role for ${row.email}`}
                   >

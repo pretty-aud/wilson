@@ -253,7 +253,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <FormField label="Project name" required>
               <input type="text" autoFocus value={draft.title} onChange={e => patch('title', e.target.value)}
                 placeholder="e.g. Nike — Summer Campaign"
-                className="w-full px-3 py-2.5 text-[13px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2.5 text-[13px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             </FormField>
 
@@ -261,13 +261,13 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <FormField label="Client / Studio">
                 <input type="text" value={draft.client_name} onChange={e => patch('client_name', e.target.value)}
                   placeholder="Company name"
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
               </FormField>
               <FormField label="Project code">
                 <input type="text" value={draft.project_code} onChange={e => patch('project_code', e.target.value.toUpperCase())}
                   placeholder="PROJ"
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
               </FormField>
             </div>
@@ -275,7 +275,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Project type">
                 <select value={draft.project_type} onChange={e => patch('project_type', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.project_type ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">Select type...</option>
                   {TYPE_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -283,7 +283,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               </FormField>
               <FormField label="Project tier">
                 <select value={draft.project_tier} onChange={e => patch('project_tier', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.project_tier ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">Select tier...</option>
                   {TIER_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -294,12 +294,12 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Start date">
                 <input type="date" value={draft.start_date} onChange={e => patch('start_date', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </FormField>
               <FormField label="End date">
                 <input type="date" value={draft.end_date} onChange={e => patch('end_date', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.end_date ? '#f4a261' : '#57534e', border: '1px solid #44403c', colorScheme: 'dark' }} />
               </FormField>
             </div>
@@ -310,7 +310,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-2 gap-4">
               <FormField label="Director">
                 <select value={draft.director_id} onChange={e => patch('director_id', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.director_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">Select director...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
@@ -318,7 +318,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               </FormField>
               <FormField label="Producer">
                 <select value={draft.producer_id} onChange={e => patch('producer_id', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.producer_id ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   <option value="">Select producer...</option>
                   {(tm.members || []).map(m => <option key={m.id} value={m.id}>{m.name}{m.title ? ` — ${m.title}` : ''}</option>)}
@@ -332,7 +332,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
             <div className="grid grid-cols-3 gap-4">
               <FormField label="Currency">
                 <select value={draft.budget_currency} onChange={e => patch('budget_currency', e.target.value)}
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
                   {CURRENCY_OPTIONS.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -340,7 +340,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <FormField label="Budget total">
                 <input type="number" value={draft.budget_total} onChange={e => patch('budget_total', e.target.value)}
                   placeholder="0"
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
               </FormField>
               <div />
@@ -350,13 +350,13 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <FormField label="Margin %">
                 <input type="number" value={draft.budget_margin_pct} onChange={e => patch('budget_margin_pct', e.target.value)}
                   placeholder="0" min="0" max="100" step="0.5"
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
               </FormField>
               <FormField label="Contingency %">
                 <input type="number" value={draft.budget_contingency_pct} onChange={e => patch('budget_contingency_pct', e.target.value)}
                   placeholder="0" min="0" max="100" step="0.5"
-                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
               </FormField>
               <div className="flex flex-col gap-1">
@@ -370,7 +370,7 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
                     {draft.budget_agency_enabled && (
                       <input type="number" value={draft.budget_agency_pct} onChange={e => patch('budget_agency_pct', e.target.value)}
                         placeholder="20" min="0" max="100" step="0.5"
-                        className="w-20 px-2 py-1.5 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        className="w-20 px-2 py-1.5 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
                     )}
                   </div>
@@ -385,14 +385,14 @@ function NewProjectForm({ createProject, onCreated, onCancel }) {
               <textarea value={draft.description} onChange={e => patch('description', e.target.value)}
                 placeholder="Brief project description..."
                 rows={3}
-                className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                 style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             </FormField>
             <FormField label="Notes">
               <textarea value={draft.notes} onChange={e => patch('notes', e.target.value)}
                 placeholder="Internal notes..."
                 rows={2}
-                className="w-full px-3 py-2 text-[12px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                className="w-full px-3 py-2 text-[12px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                 style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             </FormField>
           </SectionCard>

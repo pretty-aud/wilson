@@ -349,7 +349,7 @@ export default function ProjectsPage({ onNavigate }) {
             onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
             placeholder="Enter project title..."
             autoFocus
-            className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           />
           {privateOk && (

@@ -148,7 +148,7 @@ function BinNode({ bin, depth, hasChildren, isExpanded, onToggle, count, offline
           onClick={e => e.stopPropagation()}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); onRename(draft.trim() || bin.name) } if (e.key === 'Escape') { e.preventDefault(); onRenameCancel() } }}
           onBlur={() => onRename(draft.trim() || bin.name)}
-          className="flex-1 min-w-0 px-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="flex-1 min-w-0 px-1 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
       ) : (
         <span className="flex-1 truncate" title={bin.description || bin.name}>{bin.name || 'Untitled'}</span>

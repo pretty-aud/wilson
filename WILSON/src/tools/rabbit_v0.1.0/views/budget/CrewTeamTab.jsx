@@ -99,7 +99,7 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
       <div className="flex flex-col gap-0.5">
         <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
         <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
           autoFocus />
       </div>
@@ -107,7 +107,7 @@ function ActualPopover({ pos, actual, colLabel, memberName, currency, projectId,
         <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
         <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)}
           placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
       </div>
       <InvoiceAttachment
@@ -177,7 +177,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
@@ -189,7 +189,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
@@ -539,7 +539,7 @@ export default function CrewTeamTab({
                           }
                         }}
                         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }}
-                        className="w-full bg-transparent outline-none text-[9.5px] font-mono truncate mt-0.5"
+                        className="w-full bg-transparent text-[9.5px] font-mono truncate mt-0.5"
                         style={{ color: '#fb923c' }}
                       />
                     )}

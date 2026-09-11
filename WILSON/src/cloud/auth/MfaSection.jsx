@@ -205,7 +205,7 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         onChange={(e) => setCode(e.target.value.replace(/[^0-9\s]/g, ''))}
         placeholder="000000"
         aria-label="Authenticator code"
-        className="px-3 py-2 text-sm font-mono rounded-sm focus:outline-none text-center"
+        className="px-3 py-2 text-sm font-mono rounded-sm text-center"
         style={{
           letterSpacing: '0.35em',
           width: 160,

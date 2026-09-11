@@ -142,7 +142,7 @@ export default function ProjectFilesExplorer() {
         <select
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
-          className="px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', minWidth: 240 }}
           aria-label="Project"
         >
@@ -160,7 +160,7 @@ export default function ProjectFilesExplorer() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Filter by name or path…"
-          className="px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', minWidth: 220 }}
           aria-label="Filter"
         />

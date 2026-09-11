@@ -93,7 +93,7 @@ export default function NewTaskPopup({
   }
 
   const labelCls = 'text-[9.5px] font-mono uppercase tracking-wider mb-1 block'
-  const fieldCls = 'w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500'
+  const fieldCls = 'w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500'
   const fieldStyle = { backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }
 
   return (

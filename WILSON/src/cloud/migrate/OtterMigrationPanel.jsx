@@ -119,7 +119,7 @@ export default function OtterMigrationPanel() {
           value={visibility}
           onChange={(e) => setVisibility(e.target.value)}
           disabled={busy}
-          className="px-3 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-3 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
         >
           <option value="personal">Just for me (recommended)</option>

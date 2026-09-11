@@ -106,7 +106,7 @@ function Row({ row, cols, template, selected, current, innerRef, thumbUrl, binNa
                   onClick={e => e.stopPropagation()} onDoubleClick={e => e.stopPropagation()}
                   onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commit() } if (e.key === 'Escape') { e.preventDefault(); onRenameEnd?.() } e.stopPropagation() }}
                   onBlur={commit}
-                  className="w-full px-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-1 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: C.panel, color: C.bright, border: `1px solid ${C.line}` }} />
               ) : (
                 <div className="truncate text-[11.5px]" style={{ color: row.online === false ? C.dim : C.bright }} title={row.display_name}>{row.display_name || row.original_name}</div>

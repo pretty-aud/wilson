@@ -46,7 +46,7 @@ const L = {
   surface:     'rgba(255, 255, 255, 0.45)',
 }
 
-const inputClass = 'px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+const inputClass = 'px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
 const SAVE_DEBOUNCE_MS = 1200
 
 const SORTS = [

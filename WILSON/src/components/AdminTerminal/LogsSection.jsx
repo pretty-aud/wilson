@@ -194,7 +194,7 @@ export default function LogsSection({ isActive, workspaceId }) {
             <select
               value={typeFilter}
               onChange={(e) => setTypeFilter(e.target.value)}
-              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
               style={lightSelectStyle}
             >
               <option value="">All types</option>
@@ -203,7 +203,7 @@ export default function LogsSection({ isActive, workspaceId }) {
             <select
               value={sevFilter}
               onChange={(e) => setSevFilter(e.target.value)}
-              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+              className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
               style={lightSelectStyle}
             >
               <option value="">All severities</option>

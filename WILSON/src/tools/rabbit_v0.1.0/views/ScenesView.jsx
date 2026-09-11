@@ -760,7 +760,7 @@ export default function ScenesView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 150 }}>
             <option value="">Sort…</option>
             {(contentMode === 'shots' ? SHOT_SORTABLE_FIELDS : SORTABLE_FIELDS).map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -776,13 +776,13 @@ export default function ScenesView() {
         <div style={{ width: 1, height: 16, backgroundColor: '#292524' }} />
         {contentMode === 'scenes' ? (
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
             {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
         ) : (
           <select value={shotGroupBy} onChange={e => setShotGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: shotGroupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c', width: 170 }}>
             {SHOT_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -861,7 +861,7 @@ export default function ScenesView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -951,7 +951,7 @@ export default function ScenesView() {
       {showSaveDialog && (
         <div className="px-4 py-2.5 flex items-center gap-2 flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-48"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 w-48"
             style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
@@ -1360,7 +1360,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.status || 'not_started'}
                   onChange={e => ctx?.updateScene?.(sc.id, { status: e.target.value })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{
                     color: statusColor(sc.status),
                     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1376,7 +1376,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.time_of_day || ''}
                   onChange={e => ctx?.updateScene?.(sc.id, { time_of_day: e.target.value || null })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{ color: sc.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                   onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                   onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1391,7 +1391,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 <select
                   value={sc.type || 'interior'}
                   onChange={e => ctx?.updateScene?.(sc.id, { type: e.target.value })}
-                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                  className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                   style={{ color: '#a8a29e', border: '1px solid transparent' }}
                   onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                   onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -1537,7 +1537,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Status */}
                     <span className="w-36 flex justify-center flex-shrink-0">
                       <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: statusColor(shot.status), backgroundColor: 'rgba(0,0,0,0.3)', border: `1px solid ${statusColor(shot.status)}30` }}>
                         {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                       </select>
@@ -1545,7 +1545,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Time of Day */}
                     <span className="w-28 flex justify-center flex-shrink-0">
                       <select value={shot.time_of_day || ''} onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1556,7 +1556,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Type */}
                     <span className="w-20 flex justify-center flex-shrink-0">
                       <select value={shot.type || 'other'} onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: '#78716c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1571,7 +1571,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                         <ChevronDown className="w-3 h-3 flex-shrink-0 ml-0.5" style={{ color: '#57534e' }} />
                       </span>
                       <select value={shot.framing || ''} onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
                         style={{ color: 'transparent', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1582,7 +1582,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     {/* Camera Movement */}
                     <span className="w-28 flex justify-center flex-shrink-0">
                       <select value={shot.camera_movement || ''} onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1603,7 +1603,7 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                     <span className="w-20 flex justify-center flex-shrink-0">
                       <input type="number" min={0} value={shot.frame_count ?? ''}
                         onChange={e => { const n = parseInt(e.target.value, 10); ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 }) }}
-                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
+                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 tabular-nums"
                         style={{ color: '#a8a29e', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
@@ -1957,7 +1957,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.status || 'not_started'}
                         onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{
                           color: statusColor(shot.status),
                           backgroundColor: 'rgba(0,0,0,0.3)',
@@ -1972,7 +1972,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.time_of_day || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { time_of_day: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.time_of_day ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -1986,7 +1986,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.type || 'other'}
                         onChange={e => ctx?.updateShot?.(shot.id, { type: e.target.value })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: '#a8a29e', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -2004,7 +2004,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.framing || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { framing: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer appearance-none"
                         style={{ color: 'transparent', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -2018,7 +2018,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                       <select
                         value={shot.camera_movement || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { camera_movement: e.target.value || null })}
-                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+                        className="w-full px-1 py-0.5 text-[10.5px] font-mono uppercase rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
                         style={{ color: shot.camera_movement ? '#a8a29e' : '#44403c', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}>
@@ -2052,7 +2052,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                           const n = parseInt(e.target.value, 10)
                           ctx?.updateShot?.(shot.id, { frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
                         }}
-                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 tabular-nums"
+                        className="w-16 px-1 py-0.5 text-[12.5px] font-mono text-center rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 tabular-nums"
                         style={{ color: '#a8a29e', border: '1px solid transparent' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { if (document.activeElement !== e.target) e.target.style.borderColor = 'transparent' }}
@@ -2068,7 +2068,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         type="date"
                         value={shot.start_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { start_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500"
                         style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -2081,7 +2081,7 @@ function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, 
                         type="date"
                         value={shot.end_date || ''}
                         onChange={e => ctx?.updateShot?.(shot.id, { end_date: e.target.value || null })}
-                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500"
+                        className="px-1 py-0.5 text-[10.5px] font-mono rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500"
                         style={{ color: '#a8a29e', border: '1px solid transparent', colorScheme: 'dark' }}
                         onMouseEnter={e => { e.target.style.borderColor = '#44403c' }}
                         onMouseLeave={e => { e.target.style.borderColor = 'transparent' }}
@@ -2427,7 +2427,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={scene.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -2435,7 +2435,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div>
               <FieldLabel>Type</FieldLabel>
               <select value={scene.type || 'interior'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                 {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
               </select>
@@ -2443,7 +2443,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             <div>
               <FieldLabel>Time of Day</FieldLabel>
               <select value={scene.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: scene.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">—</option>
                 {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -2455,7 +2455,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                 const n = parseInt(e.target.value, 10)
                 if (Number.isFinite(n) && n >= 0) handleUpdate({ scene_number: n })
               }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             </div>
             <div>
@@ -2493,7 +2493,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                 type="date"
                 value={scene.start_date || ''}
                 onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -2503,7 +2503,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
                 type="date"
                 value={scene.end_date || ''}
                 onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -2515,7 +2515,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -2544,7 +2544,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -2866,7 +2866,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={shot.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {SCENE_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -2874,7 +2874,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <div>
               <FieldLabel>Type</FieldLabel>
               <select value={shot.type || 'other'} onChange={e => handleUpdate({ type: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                 {SCENE_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
               </select>
@@ -2882,7 +2882,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <div>
               <FieldLabel>Time of Day</FieldLabel>
               <select value={shot.time_of_day || ''} onChange={e => handleUpdate({ time_of_day: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: shot.time_of_day ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">—</option>
                 {TIME_OF_DAY_OPTIONS.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
@@ -2894,7 +2894,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 const n = parseInt(e.target.value, 10)
                 if (Number.isFinite(n) && n >= 0) handleUpdate({ shot_number: n })
               }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             </div>
             <div>
@@ -2903,7 +2903,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 const n = parseInt(e.target.value, 10)
                 handleUpdate({ frame_count: Number.isFinite(n) && n >= 0 ? n : 0 })
               }}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
                 placeholder="0" />
             </div>
@@ -2921,7 +2921,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <div>
               <FieldLabel>Framing</FieldLabel>
               <select value={shot.framing || ''} onChange={e => handleUpdate({ framing: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: shot.framing ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">—</option>
                 {FRAMING_OPTIONS.map(f => <option key={f.abbr} value={f.abbr}>{f.label}</option>)}
@@ -2930,7 +2930,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             <div>
               <FieldLabel>Camera Movement</FieldLabel>
               <select value={shot.camera_movement || ''} onChange={e => handleUpdate({ camera_movement: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: shot.camera_movement ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">—</option>
                 {CAMERA_MOVEMENT_OPTIONS.map(c => <option key={c.abbr} value={c.abbr}>{c.abbr} — {c.label}</option>)}
@@ -2954,7 +2954,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 type="date"
                 value={shot.start_date || ''}
                 onChange={e => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -2964,7 +2964,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
                 type="date"
                 value={shot.end_date || ''}
                 onChange={e => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', colorScheme: 'dark' }}
               />
             </div>
@@ -2976,7 +2976,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -3005,7 +3005,7 @@ function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries,
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm resize-none focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -3155,26 +3155,26 @@ function SceneFilterPanel({ filters, filterFields, onAdd, onUpdate, onRemove, on
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {fields.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">Select…</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-32"
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 w-32"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}
                   placeholder="value…" />
               )
@@ -3266,7 +3266,7 @@ function SceneSavedViewsDropdown({ views, onLoad, onDelete, onSaveRequest }) {
 function SceneBulkSelect({ label, options, onPick }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value) { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none cursor-pointer"
+      className="px-2 py-0.5 text-[9.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent cursor-pointer"
       style={{ color: '#a8a29e', border: '1px solid #44403c' }}>
       <option value="" disabled>{label}</option>
       {options.map(o => <option key={o} value={o}>{fmt(o)}</option>)}
@@ -3293,7 +3293,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md', color }) {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className={`w-full bg-transparent focus:outline-none font-mono ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
+        className={`w-full bg-transparent font-mono ${size === 'xs' ? 'text-[9.5px]' : size === 'sm' ? 'text-[11.5px]' : 'text-[12.5px]'}`}
         style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
         onClick={e => e.stopPropagation()}
       />
@@ -3329,7 +3329,7 @@ function PopupInlineText({ value, placeholder, onCommit }) {
           if (e.key === 'Enter') { if (draft !== value) onCommit(draft); setEditing(false) }
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className="w-full bg-transparent focus:outline-none text-[13.5px] font-mono"
+        className="w-full bg-transparent text-[13.5px] font-mono"
         style={{ color: '#f4a261', borderBottom: '1px solid #fb923c' }}
       />
     )

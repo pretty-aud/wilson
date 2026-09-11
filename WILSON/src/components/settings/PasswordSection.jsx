@@ -124,7 +124,7 @@ export default function PasswordSection() {
   }, [busy, password, confirm])
 
   const inputStyle = { backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }
-  const inputClass = 'w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+  const inputClass = 'w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
   const labelClass = 'block text-[11px] font-bold uppercase tracking-wider mb-1.5'
 
   return (

@@ -109,13 +109,13 @@ function ActualPopover({ pos, actual, colLabel, lineName, currency, projectId, o
       <div className="flex flex-col gap-0.5">
         <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Amount ({currency})</label>
         <input type="number" step="any" value={value} onChange={e => setValue(e.target.value)}
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
       </div>
       <div className="flex flex-col gap-0.5">
         <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#78716c' }}>Invoice #</label>
         <input type="text" value={invoice} onChange={e => setInvoice(e.target.value)} placeholder="INV-001"
-          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
       </div>
       <InvoiceAttachment
@@ -171,7 +171,7 @@ function InlineCell({ value, onChange, type = 'text', placeholder, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261', textAlign: type === 'number' ? 'right' : 'left' }}
       />
     )
@@ -225,7 +225,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
@@ -235,7 +235,7 @@ function MarginContPopover({ pos, marginPct, contPct, bidTotal, defaultMargin, d
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
@@ -475,7 +475,7 @@ export default function TalentTab({ budgetHook, project, expenses, currency }) {
                   <div style={{ width: W_TTYPE, backgroundColor: '#1c1917' }} className="px-1 py-2 flex items-center">
                     <select value={line.talent_type || 'actor'}
                       onChange={e => updateLine(line.id, { talent_type: e.target.value })}
-                      className="w-full px-1 py-0.5 text-[10px] font-mono rounded-sm cursor-pointer focus:outline-none focus:ring-1 focus:ring-orange-500 appearance-none"
+                      className="w-full px-1 py-0.5 text-[10px] font-mono rounded-sm cursor-pointer focus:ring-1 focus:ring-orange-500 appearance-none"
                       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: '#d6d3d1' }}>
                       {TALENT_TYPE_OPTIONS.map(t => (
                         <option key={t.value} value={t.value}>{t.label}</option>
@@ -678,7 +678,7 @@ function TalentDetailField({ label, value, placeholder, onChange, wide }) {
       {editing ? (
         <input ref={ref} type="text" value={draft} onChange={e => setDraft(e.target.value)}
           onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') setEditing(false) }}
-          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#d6d3d1' }} />
       ) : (
         <button type="button" onClick={start}

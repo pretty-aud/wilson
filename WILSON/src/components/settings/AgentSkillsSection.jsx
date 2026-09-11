@@ -158,7 +158,7 @@ function ToolBlock({
           onChange={(e) => onPromptChange(e.target.value)}
           rows={10}
           spellCheck={false}
-          className="w-full px-3 py-2 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+          className="w-full px-3 py-2 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: 'none', lineHeight: '1.5' }}
         />
       </div>

@@ -48,7 +48,7 @@ const L = {
   columnBg:    'rgba(120, 70, 30, 0.18)',
 }
 
-const inputClass = 'px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500'
+const inputClass = 'px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
 const labelClass = 'text-[11px] font-bold uppercase tracking-wider'
 
 function fmtDate(d) {
@@ -76,7 +76,7 @@ function StatusSelect({ value, onChange, disabled }) {
         disabled={disabled}
         onChange={e => onChange(e.target.value)}
         onClick={e => e.stopPropagation()}
-        className="text-xs font-mono bg-transparent focus:outline-none cursor-pointer"
+        className="text-xs font-mono bg-transparent cursor-pointer"
         style={{ color: L.text, border: 'none' }}
       >
         {TASK_STATUSES.map(s => <option key={s} value={s}>{fmt(s)}</option>)}
@@ -92,7 +92,7 @@ function PrioritySelect({ value, onChange, disabled }) {
       disabled={disabled}
       onChange={e => onChange(e.target.value)}
       onClick={e => e.stopPropagation()}
-      className="text-xs font-mono bg-transparent focus:outline-none cursor-pointer"
+      className="text-xs font-mono bg-transparent cursor-pointer"
       style={{ color: priorityColor(value), border: 'none', fontWeight: 700 }}
     >
       {PRIORITIES.map(p => <option key={p} value={p} style={{ color: L.text }}>{fmt(p)}</option>)}

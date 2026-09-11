@@ -93,7 +93,7 @@ export default function ModelPicker({ registryKey, disabled = false }) {
           disabled={disabled || busy}
           title={entry.hint || entry.label}
           className={`px-2 py-1 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400
-            text-[11px] font-mono focus:outline-none focus:border-orange-500
+            text-[11px] font-mono focus:border-orange-500
             ${disabled || busy ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
         >
           {/* Empty value = inherit, so a user who never touches this keeps

@@ -157,7 +157,7 @@ export default function UsersSection({ wm }) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search username, name, email..."
-              className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={lightInputStyle}
             />
             {search && (
@@ -453,7 +453,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
           <select
             value={member.app_role}
             onChange={(e) => wm.setRole(member.user_id, e.target.value).catch(() => {})}
-            className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
             style={{ backgroundColor: 'transparent', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
           >
             <option value="user">User</option>

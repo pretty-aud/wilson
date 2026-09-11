@@ -1012,7 +1012,7 @@ export default function FileManager({
                             if (e.key === 'Enter') handleSaveNotes(f.id)
                             if (e.key === 'Escape') setEditingNotes(null)
                           }}
-                          className="flex-1 px-1 py-0.5 text-[9px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                          className="flex-1 px-1 py-0.5 text-[9px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                         />
                         <button onClick={() => handleSaveNotes(f.id)} className="p-0.5 hover:bg-stone-700 rounded-sm" style={{ color: '#86efac' }}>

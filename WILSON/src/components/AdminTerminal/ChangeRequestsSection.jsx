@@ -432,7 +432,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             value={note}
                             onChange={(e) => setNote(e.target.value)}
                             placeholder="What should change before you would approve this?"
-                            className="w-full h-16 px-2 py-1.5 text-[11px] font-mono rounded-sm resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                            className="w-full h-16 px-2 py-1.5 text-[11px] font-mono rounded-sm resize-none focus:ring-2 focus:ring-orange-500"
                             style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0', border: 'none' }}
                           />
                           <div className="flex gap-2 mt-2">

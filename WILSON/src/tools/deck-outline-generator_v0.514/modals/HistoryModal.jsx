@@ -240,7 +240,7 @@ ${contentBody}
                     type="text"
                     value={projectName}
                     onChange={(e) => setProjectName(e.target.value)}
-                    className="flex-1 px-2.5 py-1.5 bg-transparent text-xs font-mono text-orange-400 focus:outline-none"
+                    className="flex-1 px-2.5 py-1.5 bg-transparent text-xs font-mono text-orange-400"
                     placeholder="Deck"
                     spellCheck={false}
                   />
@@ -333,7 +333,7 @@ ${contentBody}
                   <select
                     value={imgPromptModel}
                     onChange={(e) => setImgPromptModel(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 cursor-pointer"
+                    className="w-full px-3 py-1.5 bg-stone-900 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:border-orange-500 cursor-pointer"
                   >
                     <option value="midjourney">Midjourney</option>
                     <option value="flux">Flux</option>

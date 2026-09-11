@@ -465,7 +465,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                       value={pick}
                       onChange={e => setPick(e.target.value)}
                       disabled={!!busy || candidates.length === 0}
-                      className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-2 py-1 text-[11px] focus:border-orange-500 focus:outline-none disabled:opacity-50"
+                      className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-2 py-1 text-[11px] focus:border-orange-500 disabled:opacity-50"
                     >
                       <option value="">
                         {candidates.length === 0 ? 'Everyone already has access' : 'Choose someone…'}
@@ -580,7 +580,7 @@ export default function ShareCourseDialog({ course, role, userId, onClose, onCou
                     onChange={e => setPitch(e.target.value)}
                     disabled={nomBusy}
                     placeholder="Why should this be the company's official course on this topic?"
-                    className="w-full h-20 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600 disabled:opacity-60"
+                    className="w-full h-20 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] resize-none focus:border-orange-500 placeholder-stone-600 disabled:opacity-60"
                   />
                   <div className="flex justify-between items-center mt-1 mb-2">
                     <span className="text-stone-600 text-[10px]">

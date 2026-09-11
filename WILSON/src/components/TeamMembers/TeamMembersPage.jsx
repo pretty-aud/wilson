@@ -333,7 +333,7 @@ export default function TeamMembersPage() {
         <select
           value={deptFilter}
           onChange={(e) => setDeptFilter(e.target.value)}
-          className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={inputStyle}
         >
           <option value="">All departments</option>
@@ -346,7 +346,7 @@ export default function TeamMembersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search members..."
-            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={inputStyle}
           />
           {search && (
@@ -947,7 +947,7 @@ function InlineLightText({ value, onCommit, placeholder }) {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
       />
     )
@@ -972,7 +972,7 @@ function InlineLightSelect({ value, options, onCommit }) {
     <select
       value={value}
       onChange={(e) => onCommit(e.target.value)}
-      className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+      className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
     >
       {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}

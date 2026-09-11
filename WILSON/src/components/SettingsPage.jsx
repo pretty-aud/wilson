@@ -805,7 +805,7 @@ export default function SettingsPage({
                   <select
                     value={rabbitDefaultRateCardId || ''}
                     onChange={(e) => handleRabbitDefaultRateCardChange(e.target.value)}
-                    className="px-4 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                    className="px-4 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
                     style={{
                       backgroundColor: 'rgba(120, 70, 30, 0.55)',
                       color: '#fde8d0',
@@ -868,7 +868,7 @@ export default function SettingsPage({
                     onChange={(e) => setNewDeptName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment() }}
                     placeholder="New department name..."
-                    className="flex-1 px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="flex-1 px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={inputStyle}
                   />
                   <button
@@ -1076,7 +1076,7 @@ export default function SettingsPage({
                         <textarea
                           value={agentPromptDraft}
                           onChange={e => setAgentPromptDraft(e.target.value)}
-                          className="w-full h-48 px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                          className="w-full h-48 px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
                           style={inputStyle}
                         />
                       ) : (
@@ -1187,7 +1187,7 @@ function DepartmentRow({ name, onRename, onRemove }) {
             if (e.key === 'Enter') commit()
             if (e.key === 'Escape') { setDraft(name); setEditing(false) }
           }}
-          className="flex-1 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          className="flex-1 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
           style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: '1px solid #d6d3d1' }}
         />
       ) : (

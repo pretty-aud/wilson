@@ -93,7 +93,7 @@ function EditCell({
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className={`w-full px-2 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
+        className={`w-full px-2 py-1.5 text-xs rounded-sm focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
         style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: align }}
       />
     )
@@ -154,7 +154,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
-          className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
         <button
@@ -249,7 +249,7 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
             value={filter}
             onChange={e => setFilter(e.target.value)}
             placeholder="Search..."
-            className="w-full px-3 py-2 text-xs font-mono focus:outline-none"
+            className="w-full px-3 py-2 text-xs font-mono"
             style={{ borderBottom: '1px solid #f4a261', color: '#1c1917' }}
             autoFocus
           />
@@ -288,7 +288,7 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
     <select
       value={value || ''}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-xs rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
+      className="w-full px-1 py-1.5 text-xs rounded-sm focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -304,7 +304,7 @@ function TierSelect({ value, onChange, readOnly = false }) {
       value={value || ''}
       disabled={readOnly}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
+      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
       style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
     >
       <option value="">—</option>
@@ -348,7 +348,7 @@ function DeptDefaultInput({ label, value, onChange }) {
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
-          className="w-14 px-1 py-0.5 text-[10px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+          className="w-14 px-1 py-0.5 text-[10px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
           style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
         />
       </div>

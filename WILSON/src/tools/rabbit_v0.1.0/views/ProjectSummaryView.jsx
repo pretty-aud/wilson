@@ -1222,7 +1222,7 @@ function SettingsToggle({ checked, onChange }) {
     <button
       type="button"
       onClick={() => onChange(!checked)}
-      className="relative flex-shrink-0 transition-colors focus:outline-none"
+      className="relative flex-shrink-0 transition-colors"
       style={{
         width: 36, height: 20, borderRadius: 10,
         backgroundColor: checked ? '#ea580c' : '#44403c',
@@ -1248,7 +1248,7 @@ function SettingsInput({ value, onChange, placeholder, size }) {
       type="text" value={value} onChange={e => onChange(e.target.value)}
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
-      className={`w-full font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-sm font-semibold' : 'px-3 py-2 text-xs'}`}
+      className={`w-full font-mono rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors ${lg ? 'px-4 py-2.5 text-sm font-semibold' : 'px-3 py-2 text-xs'}`}
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1261,7 +1261,7 @@ function SettingsTextarea({ value, onChange, placeholder }) {
       onBlur={e => onChange(e.target.value.trim())}
       placeholder={placeholder}
       rows={2}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md resize-y focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-xs font-mono rounded-md resize-y focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1271,7 +1271,7 @@ function SettingsSelect({ value, options, labels, onChange, allowEmpty }) {
   return (
     <select
       value={value} onChange={e => onChange(e.target.value)}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     >
       {allowEmpty && <option value="">{allowEmpty}</option>}
@@ -1285,7 +1285,7 @@ function SettingsDateInput({ value, onChange }) {
   return (
     <input
       type="date" value={display} onChange={e => onChange(e.target.value ? new Date(e.target.value).toISOString() : null)}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1', colorScheme: 'dark' }}
     />
   )
@@ -1296,7 +1296,7 @@ function SettingsNumberInput({ value, onChange, placeholder, min, max }) {
     <input
       type="number" value={value} onChange={e => onChange(e.target.value)}
       placeholder={placeholder} min={min} max={max}
-      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:outline-none focus:ring-1 focus:ring-orange-500/50 transition-colors"
+      className="w-full px-3 py-2 text-xs font-mono rounded-md focus:ring-1 focus:ring-orange-500/50 transition-colors"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }}
     />
   )
@@ -1393,7 +1393,7 @@ function StatusDropdown({ status, onChange }) {
       <select
         value={current}
         onChange={e => onChange(e.target.value)}
-        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-[11px] font-mono uppercase tracking-wider rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+        className="appearance-none cursor-pointer pl-2.5 pr-6 py-1 text-[11px] font-mono uppercase tracking-wider rounded-sm focus:ring-1 focus:ring-orange-500"
         style={{ color: '#fff7ed', backgroundColor: color, border: `1px solid ${color}` }}
       >
         {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}

@@ -350,7 +350,7 @@ export default function TeamView() {
           <select
             value={r.role || 'member'}
             onChange={(e) => handleRoleChange(r.id, e.target.value)}
-            className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+            className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
             style={{
               backgroundColor: roleColor.bg,
               color: roleColor.fg,
@@ -372,7 +372,7 @@ export default function TeamView() {
             type="date"
             value={r.start_date || ''}
             onChange={(e) => handleDateChange(r.id, 'start_date', e.target.value)}
-            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{
               backgroundColor: '#1c1917',
               color: r.start_date ? '#a8a29e' : '#57534e',
@@ -386,7 +386,7 @@ export default function TeamView() {
             type="date"
             value={r.end_date || ''}
             onChange={(e) => handleDateChange(r.id, 'end_date', e.target.value)}
-            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="text-[11.5px] font-mono px-1.5 py-0.5 rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{
               backgroundColor: '#1c1917',
               color: r.end_date ? '#a8a29e' : '#57534e',
@@ -452,7 +452,7 @@ export default function TeamView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {TEAM_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -470,7 +470,7 @@ export default function TeamView() {
 
         {/* Group */}
         <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {TEAM_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -487,7 +487,7 @@ export default function TeamView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search members…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -574,7 +574,7 @@ export default function TeamView() {
             <input autoFocus value={saveName} onChange={e => setSaveName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
               placeholder="View name…"
-              className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mb-3"
+              className="w-full px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 mb-3"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowSaveDialog(false)}
@@ -743,7 +743,7 @@ function ProjectMembersPanel({ ctx }) {
                   onChange={e => { setSearch(e.target.value); setPickerOpen(true) }}
                   onFocus={() => setPickerOpen(true)}
                   placeholder="Add member — search the workspace directory…"
-                  className="flex-1 py-1.5 text-[11.5px] font-mono bg-transparent focus:outline-none"
+                  className="flex-1 py-1.5 text-[11.5px] font-mono bg-transparent"
                   style={{ color: '#d6d3d1' }}
                 />
               </div>
@@ -815,7 +815,7 @@ function ProjectMembersPanel({ ctx }) {
                       <select
                         value={role}
                         onChange={e => handleSeatRoleChange(pm.user_id, e.target.value)}
-                        className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                        className="px-1.5 py-0.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
                         style={{ backgroundColor: roleColor.bg, color: roleColor.fg, border: `1px solid ${roleColor.border}` }}
                       >
                         {PROJECT_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -937,7 +937,7 @@ function MemberPickerModal({ members, loading, onConfirm, onClose }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, email, or department..."
-            className="flex-1 px-2 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           />
           {filtered.length > 0 && (
@@ -1096,26 +1096,26 @@ function TeamFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {TEAM_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">Select…</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-32"
+                  className="px-2 py-1.5 text-[10.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 w-32"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}
                   placeholder="value…" />
               )

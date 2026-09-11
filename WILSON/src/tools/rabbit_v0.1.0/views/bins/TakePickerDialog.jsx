@@ -53,7 +53,7 @@ export default function TakePickerDialog({ shot, scene, files, bins, assignedFil
         <div className="relative">
           <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
           <input autoFocus value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-            className="pl-6 pr-6 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-64"
+            className="pl-6 pr-6 py-1.5 text-[11px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 w-64"
             style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
             onKeyDown={e => { if (e.key === 'Escape' && search) { e.stopPropagation(); setSearch('') } }} />
           {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}

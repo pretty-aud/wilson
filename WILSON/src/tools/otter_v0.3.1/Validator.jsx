@@ -611,7 +611,7 @@ export default function Validator({ softwareList, activeSoftwareSlug, softwareCa
             <select
               value={scope}
               onChange={(e) => setScope(e.target.value)}
-              className="bg-stone-700 text-stone-200 text-sm border border-stone-600 rounded-sm px-3 py-1.5 focus:outline-none focus:border-orange-500"
+              className="bg-stone-700 text-stone-200 text-sm border border-stone-600 rounded-sm px-3 py-1.5 focus:border-orange-500"
             >
               <option value="full">Full Validation</option>
               <option value="targeted">Targeted Validation</option>

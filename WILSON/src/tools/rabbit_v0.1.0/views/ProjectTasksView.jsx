@@ -551,7 +551,7 @@ export default function ProjectTasksView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -571,7 +571,7 @@ export default function ProjectTasksView() {
         {/* Group */}
         <select value={viewMode === 'kanban' ? kanbanGroup : groupBy}
           onChange={e => viewMode === 'kanban' ? setKanbanGroup(e.target.value) : setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: (viewMode === 'kanban' ? kanbanGroup : groupBy) ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -613,7 +613,7 @@ export default function ProjectTasksView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search tasks…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -742,7 +742,7 @@ export default function ProjectTasksView() {
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)}
@@ -766,7 +766,7 @@ export default function ProjectTasksView() {
             <input autoFocus type="text" value={newPhaseName} onChange={e => setNewPhaseName(e.target.value)}
               placeholder="Phase name..."
               onKeyDown={e => { if (e.key === 'Enter') handleCreatePhase() }}
-              className="px-3 py-2 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowPhaseCreate(false)}
@@ -844,19 +844,19 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -864,7 +864,7 @@ function FilterPanel({ filters, assets, phases, members, onAdd, onUpdate, onRemo
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#d6d3d1', border: '1px solid #44403c' }} />
               )
             )}
@@ -1144,7 +1144,7 @@ function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1243,7 +1243,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 onChange={e => ctx?.updatePhase?.(phase.id, { start_date: e.target.value || null })}
                 onClick={e => e.stopPropagation()}
                 readOnly={!canWrite} disabled={!canWrite}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#292524', color: phase.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
               <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: '#78716c' }}>End</span>
@@ -1253,7 +1253,7 @@ function TaskGroup({ group, groupBy, columns, assets, phases, members, assetById
                 onChange={e => ctx?.updatePhase?.(phase.id, { end_date: e.target.value || null })}
                 readOnly={!canWrite} disabled={!canWrite}
                 onClick={e => e.stopPropagation()}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#292524', color: phase.end_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c', width: 120 }}
               />
             </div>
@@ -1321,7 +1321,7 @@ function PhaseInlineEdit({ value, onCommit, accent, readOnly = false }) {
         onBlur={commit}
         onClick={e => e.stopPropagation()}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="px-1.5 py-0.5 text-[12.5px] font-mono uppercase tracking-wider font-bold rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="px-1.5 py-0.5 text-[12.5px] font-mono uppercase tracking-wider font-bold rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', color: accent, border: '1px solid #44403c', minWidth: 80 }}
       />
     )
@@ -1395,7 +1395,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                   onChange={e => setLocalTitle(e.target.value)}
                   onBlur={commitTitle}
                   onKeyDown={e => { if (e.key === 'Enter') commitTitle(); if (e.key === 'Escape') { setLocalTitle(milestone.title); setEditTitle(false) } }}
-                  className="flex-1 px-1 py-0.5 text-[12.5px] font-mono font-semibold rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="flex-1 px-1 py-0.5 text-[12.5px] font-mono font-semibold rounded focus:ring-1 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               ) : (
@@ -1423,7 +1423,7 @@ function MilestoneRow({ milestone, columns, ctx, canWrite }) {
                     onChange={e => setLocalDate(e.target.value)}
                     onBlur={commitDate}
                     onKeyDown={e => { if (e.key === 'Enter') commitDate(); if (e.key === 'Escape') { setLocalDate(milestone.date); setEditDate(false) } }}
-                    className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full px-1 py-0.5 text-[11.5px] font-mono rounded focus:ring-1 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 ) : (
@@ -1770,7 +1770,7 @@ function KanbanColumn({ group, kanbanGroup, assets, phases, members, assetById, 
             placeholder="+ Add task..."
             onKeyDown={e => { if (e.key === 'Enter') commitAdd(); if (e.key === 'Escape') { setAddTitle(''); inputRef.current?.blur() } }}
             onBlur={commitAdd}
-            className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-1 focus:ring-orange-500 transition-all"
+            className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:ring-1 focus:ring-orange-500 transition-all"
             style={{
               color: '#a8a29e',
               backgroundColor: 'transparent',
@@ -1904,7 +1904,7 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-1 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-1 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }

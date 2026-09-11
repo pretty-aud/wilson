@@ -629,7 +629,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                   }
                 }}
                 disabled={isActive}
-                className="relative w-8 h-4 rounded-full transition-colors focus:outline-none"
+                className="relative w-8 h-4 rounded-full transition-colors"
                 style={{ backgroundColor: agencyEnabled ? '#ea580c' : '#44403c', cursor: isFinal ? 'not-allowed' : 'pointer' }}
               >
                 <span className="absolute top-[2px] left-0 rounded-full w-3 h-3 transition-transform"
@@ -682,7 +682,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               value={project?.budget_actual_column_mode || 'fortnightly'}
               onChange={e => updateProjectField('budget_actual_column_mode', e.target.value)}
               disabled={isActive}
-              className="px-2 py-1 text-xs font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-2 py-1 text-xs font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
             >
               {COLUMN_MODES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -695,7 +695,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
                 if (Number.isFinite(n) && n > 0 && n <= 100) updateProjectField('budget_actual_column_count', n)
               }}
               disabled={isActive}
-              className="w-12 px-2 py-1 text-xs font-mono rounded-sm text-center focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="w-12 px-2 py-1 text-xs font-mono rounded-sm text-center focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
             />
             <span className="text-[11.5px] font-mono" style={{ color: '#78716c' }}>cols</span>
@@ -732,7 +732,7 @@ function SummaryTab({ ctx, project, variance, budget, tasks, roleRates, missingR
               onKeyDown={e => { if (e.key === 'Enter') createBidVersion() }}
               placeholder="e.g. Bid v1 — initial estimate"
               disabled={isActive || versionBusy}
-              className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }}
             />
           </div>
@@ -1195,7 +1195,7 @@ function PctInput({ label, value, onChange, disabled }) {
                 if (e.key === 'Enter') { e.preventDefault(); commit() }
                 else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
               }}
-              className="w-full px-2 py-1.5 text-sm font-mono font-bold rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2 py-1.5 text-sm font-mono font-bold rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #ea580c', color: '#f4a261', textAlign: 'right' }}
             />
             <span className="absolute right-2 text-xs font-mono pointer-events-none" style={{ color: '#78716c' }}>%</span>
@@ -1279,7 +1279,7 @@ function WaterfallRow({ label, pct, amount, currency, onPctChange, disabled }) {
               if (e.key === 'Enter') { e.preventDefault(); commit() }
               else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
             }}
-            className="w-16 px-2 py-0.5 text-[13.5px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="w-16 px-2 py-0.5 text-[13.5px] font-mono font-bold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
           />
         ) : (
@@ -1333,7 +1333,7 @@ function InlinePct({ value, onChange, disabled }) {
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className="w-14 px-1.5 py-0.5 text-[11.5px] font-mono font-bold rounded-sm text-right focus:outline-none focus:ring-1 focus:ring-orange-500"
+        className="w-14 px-1.5 py-0.5 text-[11.5px] font-mono font-bold rounded-sm text-right focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: '#292524', border: '1px solid #ea580c', color: '#f4a261' }}
       />
     )
@@ -2165,7 +2165,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div className="flex items-center gap-1.5">
           <ArrowUpDown className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
             <option value="">No sort</option>
             {EXPENSE_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -2185,7 +2185,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
         <div className="flex items-center gap-1.5">
           <Layers className="w-3.5 h-3.5" style={{ color: '#78716c' }} />
           <select value={groupBy} onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}>
             {EXPENSE_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
           </select>
@@ -2210,7 +2210,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
           <Search className="w-3.5 h-3.5 flex-shrink-0" style={{ color: '#78716c' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search expenses..."
-            className="flex-1 px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            className="flex-1 px-2.5 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#a8a29e' }}><X className="w-3.5 h-3.5" /></button>
@@ -2326,7 +2326,7 @@ function ExpensesTab({ ctx, project, phases, assets, tasks, expensesHook, curren
             <span className="text-[13.5px] font-mono uppercase tracking-wider font-bold" style={{ color: '#fb923c' }}>Save current view</span>
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..." onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)} className="px-4 py-1.5 text-[11.5px] font-mono rounded-sm hover:bg-stone-700 transition-colors" style={{ color: '#a8a29e', border: '1px solid #44403c' }}>Cancel</button>
@@ -2412,7 +2412,7 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={margin} onChange={e => setMargin(e.target.value)}
             placeholder={String(defaultMargin)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} autoFocus />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(marginAmt, currency)}</span>
         </div>
@@ -2422,7 +2422,7 @@ function ExpenseMarginContPopover({ pos, marginPct, contPct, estimatedCost, defa
         <div className="flex items-center gap-2">
           <input type="number" step="0.5" min="0" max="100" value={cont} onChange={e => setCont(e.target.value)}
             placeholder={String(defaultCont)}
-            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+            className="flex-1 px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#f4a261' }} />
           <span className="text-[10.5px] font-mono" style={{ color: '#fb923c' }}>+{fmtCurrency(contAmt, currency)}</span>
         </div>
@@ -2463,19 +2463,19 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
           <div key={i} className="flex items-center gap-2">
             <span className="text-[10.5px] font-mono uppercase font-semibold" style={{ color: '#78716c', width: 40 }}>{i === 0 ? 'Where' : 'And'}</span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {EXPENSE_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -2483,7 +2483,7 @@ function ExpenseFilterPanel({ filters, phases, assets, tasks, onAdd, onUpdate, o
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -2652,7 +2652,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
           <div className="flex flex-col gap-1">
             <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Title *</label>
             <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Software License, Equipment Rental" autoFocus
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
@@ -2661,13 +2661,13 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
             <div className="flex flex-col gap-1 flex-1">
               <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Estimated Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={estimatedCost} onChange={e => setEstimatedCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-1">
               <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Actual Cost ({currency})</label>
               <input type="number" step="0.01" min="0" value={actualCost} onChange={e => setActualCost(e.target.value)} placeholder="0.00"
-                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
             <div className="flex flex-col gap-1 flex-shrink-0" style={{ minWidth: 100 }}>
@@ -2686,7 +2686,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
           <div className="flex flex-col gap-1" style={{ maxWidth: 220 }}>
             <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Purchase Date</label>
             <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
@@ -2694,7 +2694,7 @@ function ExpensePopup({ expense, phases, assets, tasks, projectId, ctx, currency
           <div className="flex flex-col gap-1">
             <label className="text-[9.5px] font-mono uppercase tracking-widest" style={{ color: '#fb923c' }}>Description / Reason</label>
             <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Why was this expense incurred?" rows={3}
-              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 resize-none"
+              className="px-3 py-2 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
           </div>
 
@@ -2785,7 +2785,7 @@ function RelationPicker({ label, icon, items, selectedIds, onChange, nameKey }) 
           {items.length > 5 && (
             <div className="p-1.5 border-b border-stone-700">
               <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder={`Search ${label.toLowerCase()}...`} autoFocus
-                className="w-full px-2 py-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2 py-1 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#d6d3d1' }} />
             </div>
           )}
@@ -2908,7 +2908,7 @@ function Select({ value, onChange, options, colorFn }) {
     <select
       value={value}
       onChange={e => onChange(e.target.value)}
-      className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+      className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
       style={{ backgroundColor: '#292524', border: '1px solid #44403c', color: colorFn ? colorFn(value) : '#d6d3d1' }}
     >
       {options.map(o => <option key={o.value} value={o.value} style={colorFn ? { color: colorFn(o.value) } : undefined}>{o.label}</option>)}

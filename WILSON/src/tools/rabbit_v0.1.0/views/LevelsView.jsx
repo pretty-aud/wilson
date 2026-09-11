@@ -290,7 +290,7 @@ export default function LevelsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -307,7 +307,7 @@ export default function LevelsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -362,7 +362,7 @@ export default function LevelsView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')}
@@ -395,7 +395,7 @@ export default function LevelsView() {
       {showSaveDialog && (
         <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917' }}>
           <input type="text" value={saveName} onChange={e => setSaveName(e.target.value)} placeholder="View name..."
-            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            className="px-2.5 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-48"
             style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}
             onKeyDown={e => { if (e.key === 'Enter') saveCurrentView(); if (e.key === 'Escape') setShowSaveDialog(false) }}
             autoFocus />
@@ -567,7 +567,7 @@ function LevelTable({ levels, assetCountByLevel, taskCountByLevel, ctx, onOpenDe
             <select
               value={lv.status || 'not_started'}
               onChange={e => ctx?.updateLevel?.(lv.id, { status: e.target.value })}
-              className="px-1.5 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+              className="px-1.5 py-0.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm bg-transparent focus:ring-1 focus:ring-orange-500 cursor-pointer"
               style={{
                 color: statusColor(lv.status),
                 backgroundColor: 'rgba(0,0,0,0.3)',
@@ -843,7 +843,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             <div>
               <FieldLabel>Status</FieldLabel>
               <select value={level.status || 'not_started'} onChange={e => handleUpdate({ status: e.target.value })}
-                className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: sc, border: '1px solid #44403c' }}>
                 {LEVEL_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
               </select>
@@ -862,7 +862,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                 type="date"
                 value={level.start_date || ''}
                 onChange={(e) => handleUpdate({ start_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -875,7 +875,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
                 type="date"
                 value={level.end_date || ''}
                 onChange={(e) => handleUpdate({ end_date: e.target.value || null })}
-                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2.5 py-1.5 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                 style={{
                   backgroundColor: '#1c1917', color: '#d6d3d1',
                   border: '1px solid #44403c', colorScheme: 'dark',
@@ -890,7 +890,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             {editingDesc ? (
               <div>
                 <textarea value={descDraft} onChange={e => setDescDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 80 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -919,7 +919,7 @@ function LevelDetailPopup({ levelId, ctx, assetCountByLevel, taskCountByLevel, p
             {editingNotes ? (
               <div>
                 <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)}
-                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-[12.5px] font-mono rounded resize-none focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c', minHeight: 60 }}
                   autoFocus />
                 <div className="flex gap-2 mt-1">
@@ -1036,13 +1036,13 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
           <div>
             <FieldLabel>Name <span style={{ color: '#ef4444' }}>*</span></FieldLabel>
             <input type="text" value={name} onChange={e => setName(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} autoFocus />
           </div>
           <div>
             <FieldLabel>Status</FieldLabel>
             <select value={status} onChange={e => setStatus(e.target.value)}
-              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: statusColor(status), border: '1px solid #44403c' }}>
               {LEVEL_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
             </select>
@@ -1050,7 +1050,7 @@ function CreateLevelPopup({ ctx, levelsCount, onClose }) {
           <div>
             <FieldLabel>Description</FieldLabel>
             <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
-              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-none"
+              className="w-full px-2.5 py-1.5 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-none"
               style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               placeholder="Description..." />
           </div>
@@ -1113,19 +1113,19 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {LEVEL_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1133,7 +1133,7 @@ function LevelFilterPanel({ filters, onAdd, onUpdate, onRemove, onClose }) {
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -1214,7 +1214,7 @@ function SavedViewsDropdown({ views, onLoad, onDelete, onSave }) {
 function BulkSelect({ label, options, labels, onPick, allowEmpty }) {
   return (
     <select defaultValue="" onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}>
       <option value="" disabled>{label}</option>
       {allowEmpty && <option value="">None</option>}
@@ -1243,7 +1243,7 @@ function InlineText({ value, placeholder, onCommit, size = 'md' }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className={`w-full ${textSize} font-mono px-1.5 py-0.5 rounded focus:outline-none focus:ring-1 focus:ring-orange-500`}
+        className={`w-full ${textSize} font-mono px-1.5 py-0.5 rounded focus:ring-1 focus:ring-orange-500`}
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
@@ -1273,7 +1273,7 @@ function PopupInlineText({ value, placeholder, onCommit }) {
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full text-[13.5px] font-mono px-2.5 py-1.5 rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full text-[13.5px] font-mono px-2.5 py-1.5 rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }

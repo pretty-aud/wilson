@@ -724,13 +724,13 @@ export default function BinsView() {
               <div className="relative">
                 <Search className="w-3 h-3 absolute left-2 top-1/2 -translate-y-1/2" style={{ color: C.dim }} />
                 <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name, slate, notes, path…"
-                  className="pl-6 pr-6 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500 w-56"
+                  className="pl-6 pr-6 py-1.5 text-[11px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500 w-56"
                   style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}
                   onKeyDown={e => { if (e.key === 'Escape') { setSearch(''); e.currentTarget.blur() } e.stopPropagation() }} />
                 {search && <button type="button" onClick={() => setSearch('')} className="absolute right-1.5 top-1/2 -translate-y-1/2" style={{ color: C.dim }}><X className="w-3 h-3" /></button>}
               </div>
               <select value={sort.field} onChange={e => setSort(s => ({ ...s, field: e.target.value }))} title="Sort by"
-                className="py-1.5 px-2 text-[10.5px] font-mono rounded-sm focus:outline-none" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
+                className="py-1.5 px-2 text-[10.5px] font-mono rounded-sm" style={{ backgroundColor: C.panel, color: C.text, border: `1px solid ${C.line}` }}>
                 {SORT_FIELDS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
               </select>
               <IconBtn Icon={sort.dir === 'desc' ? ArrowDown : ArrowUp} title={sort.dir === 'desc' ? 'Descending' : 'Ascending'} onClick={() => setSort(s => ({ ...s, dir: s.dir === 'desc' ? 'asc' : 'desc' }))} />
@@ -875,7 +875,7 @@ function RenameBar({ row, onCommit, onCancel }) {
       <span className="text-[9.5px] font-mono uppercase tracking-wider" style={{ color: C.dim }}>Rename</span>
       <input autoFocus value={v} onChange={e => setV(e.target.value)}
         onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') { const t = v.trim(); if (t) onCommit(t); else onCancel() } if (e.key === 'Escape') onCancel() }}
-        className="flex-1 px-2 py-1 text-[11.5px] font-mono rounded-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+        className="flex-1 px-2 py-1 text-[11.5px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
         style={{ backgroundColor: C.deep, color: C.bright, border: `1px solid ${C.line}` }} />
       <span className="text-[9.5px] font-mono truncate" style={{ color: C.dimmer, maxWidth: 240 }}>{row.original_name}</span>
       <Btn small primary onClick={() => { const t = v.trim(); if (t) onCommit(t); else onCancel() }}>Save</Btn>

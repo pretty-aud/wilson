@@ -256,7 +256,7 @@ export default function ChangeRequestDialog({ course, standardName, onClose }) {
                       onChange={e => setSummary(e.target.value)}
                       disabled={busy}
                       placeholder="e.g. The keyboard shortcuts section is out of date since 4.2 — I corrected the modifier keys and added the new snapping tools."
-                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-sm resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
+                      className="w-full h-36 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-3 text-sm resize-none focus:border-orange-500 placeholder-stone-600"
                     />
                     <div className="flex justify-between mt-1">
                       <span className="text-stone-600 text-[10px]">

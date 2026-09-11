@@ -397,7 +397,7 @@ export default function ProjectAssetsView() {
         {/* Sort */}
         <div className="flex items-center gap-1">
           <select value={sortField} onChange={e => setSortField(e.target.value)}
-            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+            className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
             style={{ backgroundColor: '#292524', color: sortField ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
             <option value="">Sort…</option>
             {ASSET_SORTABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
@@ -417,7 +417,7 @@ export default function ProjectAssetsView() {
         {/* Group */}
         <select value={groupBy}
           onChange={e => setGroupBy(e.target.value)}
-          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm focus:outline-none cursor-pointer"
+          className="px-2 py-1.5 text-[10.5px] font-mono uppercase tracking-wider rounded-sm cursor-pointer"
           style={{ backgroundColor: '#292524', color: groupBy ? '#fb923c' : '#78716c', border: '1px solid #44403c' }}>
           {ASSET_GROUPABLE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
         </select>
@@ -477,7 +477,7 @@ export default function ProjectAssetsView() {
           <Search className="w-3 h-3 ml-2 flex-shrink-0" style={{ color: '#57534e' }} />
           <input type="text" value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search assets…"
-            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent focus:outline-none"
+            className="flex-1 px-2 py-1.5 text-[10.5px] font-mono bg-transparent"
             style={{ color: '#d6d3d1' }} />
           {search && (
             <button type="button" onClick={() => setSearch('')} className="p-1 mr-0.5 hover:bg-stone-700 rounded transition-colors" style={{ color: '#78716c' }}>
@@ -594,7 +594,7 @@ export default function ProjectAssetsView() {
             <input autoFocus type="text" value={saveName} onChange={e => setSaveName(e.target.value)}
               placeholder="View name..."
               onKeyDown={e => { if (e.key === 'Enter') saveCurrentView() }}
-              className="px-3 py-2 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-3 py-2 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
             <div className="flex gap-2 justify-end">
               <button type="button" onClick={() => setShowSaveDialog(false)}
@@ -679,19 +679,19 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
               {i === 0 ? 'Where' : 'And'}
             </span>
             <select value={f.field} onChange={e => onUpdate(i, { field: e.target.value, value: '' })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ASSET_FILTER_FIELDS.map(ff => <option key={ff.value} value={ff.value}>{ff.label}</option>)}
             </select>
             <select value={f.op} onChange={e => onUpdate(i, { op: e.target.value })}
-              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
               style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
               {ops.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
             {needsValue && (
               type === 'select' ? (
                 <select value={f.value} onChange={e => onUpdate(i, { value: e.target.value })}
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }}>
                   <option value="">-- select --</option>
                   {getOptions(f).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -699,7 +699,7 @@ function AssetFilterPanel({ filters, phases, onAdd, onUpdate, onRemove, onClose 
               ) : (
                 <input type="text" value={f.value || ''} onChange={e => onUpdate(i, { value: e.target.value })}
                   placeholder="value..."
-                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-36"
+                  className="px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-36"
                   style={{ backgroundColor: '#292524', color: '#f4a261', border: '1px solid #44403c' }} />
               )
             )}
@@ -972,7 +972,7 @@ function AssetBulkSelect({ label, options, labels, onPick, allowEmpty }) {
     <select
       defaultValue=""
       onChange={e => { if (e.target.value !== '') { onPick(e.target.value); e.target.value = '' } }}
-      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:outline-none focus:ring-1 focus:ring-orange-500 cursor-pointer"
+      className="px-2 py-1 text-[10.5px] font-mono uppercase rounded focus:ring-1 focus:ring-orange-500 cursor-pointer"
       style={{ backgroundColor: '#1c1917', border: '1px solid #44403c', color: '#a8a29e' }}
     >
       <option value="" disabled>{label}</option>
@@ -1084,7 +1084,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             value={asset.start_date || ''}
             onChange={e => onUpdate({ start_date: e.target.value || null })}
             readOnly={readOnly} disabled={readOnly}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.start_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1095,7 +1095,7 @@ function AssetRow({ asset, columns, phases, phaseLabel, taskCount, warning, rowH
             value={asset.due_date || ''}
             onChange={e => onUpdate({ due_date: e.target.value || null })}
             readOnly={readOnly} disabled={readOnly}
-            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
+            className="px-1 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 w-full hover:bg-stone-700/40 transition-colors disabled:cursor-not-allowed"
             style={{ backgroundColor: 'transparent', color: asset.due_date ? '#d6d3d1' : '#57534e', border: '1px solid transparent' }}
           />
         )
@@ -1518,7 +1518,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                 value={draft.name}
                 onChange={e => patch({ name: e.target.value })}
                 placeholder="Asset name..."
-                className="w-full px-3 py-2 text-[12.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-3 py-2 text-[12.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
               />
             </div>
@@ -1528,7 +1528,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
               <div>
                 <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Type</label>
                 <select value={draft.type} onChange={e => patch({ type: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   {ASSET_TYPES.map(t => <option key={t} value={t}>{fmt(t)}</option>)}
                 </select>
@@ -1536,7 +1536,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
               <div>
                 <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Status</label>
                 <select value={draft.status} onChange={e => patch({ status: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: statusColor(draft.status), border: '1px solid #44403c' }}>
                   {ASSET_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
                 </select>
@@ -1547,7 +1547,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
             <div>
               <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Phase</label>
               <select value={draft.phase_id} onChange={e => patch({ phase_id: e.target.value })}
-                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: draft.phase_id ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">-- No phase --</option>
                 {phases.map(p => <option key={p.id} value={p.id}>{p.name || 'Untitled'}</option>)}
@@ -1559,14 +1559,14 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
               <div>
                 <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Start Date</label>
                 <input type="date" value={draft.start_date} onChange={e => patch({ start_date: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.start_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
                 />
               </div>
               <div>
                 <label className="text-[9.5px] font-mono uppercase tracking-wider mb-1 block" style={{ color: '#78716c' }}>Due Date</label>
                 <input type="date" value={draft.due_date} onChange={e => patch({ due_date: e.target.value })}
-                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: draft.due_date ? '#d6d3d1' : '#57534e', border: '1px solid #44403c' }}
                 />
               </div>
@@ -1580,7 +1580,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
                 onChange={e => patch({ description: e.target.value })}
                 rows={2}
                 placeholder="Optional description..."
-                className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                className="w-full px-3 py-2 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                 style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
               />
             </div>
@@ -1591,7 +1591,7 @@ function NewAssetPopup({ ctx, phases, onCreated, onClose }) {
               <select
                 value={selectedTemplateId}
                 onChange={e => setSelectedTemplateId(e.target.value)}
-                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="w-full px-2 py-1.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: selectedTemplateId ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                 <option value="">-- No template --</option>
                 {projectTemplates.map(tmpl => {
@@ -1922,7 +1922,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                   value=""
                   onChange={e => handleApplyTemplate(e.target.value)}
                   disabled={applyingTemplate}
-                  className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}>
                   <option value="">{applyingTemplate ? 'Applying...' : '\u2014 Apply template'}</option>
                   {projectTemplates.map(tmpl => (
@@ -1936,7 +1936,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 type="date"
                 value={asset.start_date || ''}
                 onChange={e => handleUpdateAsset({ start_date: e.target.value || null })}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: asset.start_date ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
               />
             </PropField>
@@ -1945,7 +1945,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                 type="date"
                 value={asset.due_date || ''}
                 onChange={e => handleUpdateAsset({ due_date: e.target.value || null })}
-                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+                className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
                 style={{ backgroundColor: '#1c1917', color: asset.due_date ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}
               />
             </PropField>
@@ -1966,7 +1966,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
                       if (e.key === 'Escape') { setDescDraft(asset.description || ''); setEditingDesc(false) }
                     }}
                     rows={3}
-                    className="w-full px-2 py-1 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                    className="w-full px-2 py-1 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500 resize-y"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 ) : (
@@ -1988,7 +1988,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.scenes_enabled && (
               <PropField label="Scenes">
                 <button onClick={() => setShowScenePicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none text-left"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.scene_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.scene_ids?.length || 0) > 0 ? `${asset.scene_ids.length} scene(s)` : '--'}
                 </button>
@@ -1997,7 +1997,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.scenes_enabled && (
               <PropField label="Shots">
                 <button onClick={() => setShowShotPicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none text-left"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.shot_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.shot_ids?.length || 0) > 0 ? `${asset.shot_ids.length} shot(s)` : '--'}
                 </button>
@@ -2006,7 +2006,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.levels_enabled && (
               <PropField label="Levels">
                 <button onClick={() => setShowLevelPicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none text-left"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.level_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.level_ids?.length || 0) > 0 ? `${asset.level_ids.length} level(s)` : '--'}
                 </button>
@@ -2015,7 +2015,7 @@ function AssetDetailPopup({ asset, tasks, phase, ctx, thumbRevision, onThumbChan
             {project?.experiences_enabled && (
               <PropField label="Experiences">
                 <button onClick={() => setShowExperiencePicker(true)}
-                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded focus:outline-none text-left"
+                  className="w-full px-2.5 py-1.5 text-[12px] font-mono rounded text-left"
                   style={{ backgroundColor: '#1c1917', color: (asset.experience_ids?.length || 0) > 0 ? '#f4a261' : '#57534e', border: '1px solid #44403c' }}>
                   {(asset.experience_ids?.length || 0) > 0 ? `${asset.experience_ids.length} experience(s)` : '--'}
                 </button>
@@ -2161,7 +2161,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.status || 'waiting_to_start'}
           onChange={(e) => onUpdateTask({ status: e.target.value })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: sc, border: '1px solid transparent' }}
         >
           {TASK_STATUSES.map(s => <option key={s} value={s} style={{ color: statusColor(s) }}>{fmt(s)}</option>)}
@@ -2176,7 +2176,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.assignee_id || ''}
           onChange={(e) => onUpdateTask({ assignee_id: e.target.value || null })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: '#d6d3d1', border: '1px solid transparent', maxWidth: '120px' }}
         >
           <option value="">--</option>
@@ -2189,7 +2189,7 @@ function TaskRowInPopup({ task, projectMembers, memberById, onUpdateTask }) {
         <select
           value={task.reviewer_id || ''}
           onChange={(e) => onUpdateTask({ reviewer_id: e.target.value || null })}
-          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+          className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500 cursor-pointer"
           style={{ backgroundColor: 'transparent', color: '#a78bfa', border: '1px solid transparent', maxWidth: '120px' }}
         >
           <option value="">--</option>
@@ -2265,7 +2265,7 @@ function InlineText({ value, onCommit, placeholder, readOnly = false }) {
           if (e.key === 'Enter') commit()
           if (e.key === 'Escape') { setDraft(value); setEditing(false) }
         }}
-        className="w-full px-1 py-0.5 text-xs font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1 py-0.5 text-xs font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
       />
     )
@@ -2305,7 +2305,7 @@ function CellInlineText({ value, placeholder, onCommit, readOnly = false }) {
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setDraft(value); setEditing(false) } }}
-        className="w-full px-1.5 py-1 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+        className="w-full px-1.5 py-1 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
         style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }} />
     )
   }
@@ -2325,7 +2325,7 @@ function InlineSelect({ value, options, onCommit, tone }) {
     <select
       value={value}
       onChange={(e) => onCommit(e.target.value)}
-      className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:outline-none focus:ring-2 focus:ring-orange-500"
+      className="px-1.5 py-0.5 text-[11.5px] font-mono rounded focus:ring-2 focus:ring-orange-500"
       style={{
         backgroundColor: colors.bg,
         color: colors.fg,

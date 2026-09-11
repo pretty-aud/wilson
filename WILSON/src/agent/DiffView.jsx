@@ -109,7 +109,7 @@ export default function DiffView({
               onChange={e => setEditInstruction(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter' && editInstruction.trim()) { onEdit(editInstruction); setEditMode(false); setEditInstruction(''); } }}
               placeholder="Tell the agent what to change..."
-              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-orange-500"
+              className="flex-1 bg-stone-800 text-stone-200 border border-stone-600 rounded-sm px-3 py-1.5 text-sm font-mono focus:border-orange-500"
               autoFocus
             />
             <button

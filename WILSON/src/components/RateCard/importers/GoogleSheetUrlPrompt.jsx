@@ -100,7 +100,7 @@ export default function GoogleSheetUrlPrompt({ open, busy, onClose, onSubmit }) 
             placeholder="https://docs.google.com/spreadsheets/d/…"
             disabled={busy}
             autoFocus
-            className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-700"
+            className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-700"
             style={{
               backgroundColor: '#fff',
               color: '#1c1917',

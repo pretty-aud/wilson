@@ -182,7 +182,7 @@ export default function ModelsSection({ isActive }) {
                       disabled={busy || models.length === 0}
                       onChange={(e) => apply(entry.key, e.target.value)}
                       title={entry.hint || entry.label}
-                      className="px-2 py-1 text-[11px] rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                      className="px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
                       style={{ border: '1px solid #d6d3d1', color: '#1c1917', minWidth: '190px' }}
                     >
                       <option value="">Inherit ({labelFor(inherited)})</option>

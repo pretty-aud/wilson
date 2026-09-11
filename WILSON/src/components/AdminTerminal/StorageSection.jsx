@@ -888,7 +888,7 @@ export default function StorageSection({ isActive, workspaceId }) {
               onChange={e => { setRootDraft(e.target.value); if (refusal || notice) resetRootFlow() }}
               placeholder="\\server\share\Projects"
               disabled={saving || probing || !!loadError}
-              className="flex-1 min-w-[260px] px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+              className="flex-1 min-w-[260px] px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
               style={lightInputStyle}
             />
             {bridge?.pickDirectory && (
@@ -1035,7 +1035,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      onChange={e => setS3Draft(d => ({ ...d, endpoint: e.target.value }))}
                      placeholder="https://s3.us-west-004.backblazeb2.com"
                      disabled={saving || testing || !!loadError}
-                     className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                     className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                      style={lightInputStyle} />
             </label>
             <div className="flex gap-2 flex-wrap">
@@ -1045,7 +1045,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, region: e.target.value }))}
                        placeholder="us-east-1 · us-west-004 · auto"
                        disabled={saving || testing || !!loadError}
-                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                        style={lightInputStyle} />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
@@ -1054,7 +1054,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, bucket: e.target.value }))}
                        placeholder="studio-media"
                        disabled={saving || testing || !!loadError}
-                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                        style={lightInputStyle} />
               </label>
               <label className="flex flex-col gap-1 flex-1 min-w-[160px]">
@@ -1065,7 +1065,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                        onChange={e => setS3Draft(d => ({ ...d, prefix: e.target.value }))}
                        placeholder="wilson"
                        disabled={saving || testing || !!loadError}
-                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                       className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                        style={lightInputStyle} />
               </label>
             </div>
@@ -1075,7 +1075,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      onChange={e => setS3Draft(d => ({ ...d, accessKeyId: e.target.value }))}
                      placeholder="AKIA…"
                      disabled={saving || testing || !!loadError}
-                     className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                     className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                      style={lightInputStyle} />
             </label>
             <label className="flex items-center gap-2 text-[11px]" style={{ color: LIGHT_INK }}>
@@ -1122,7 +1122,7 @@ export default function StorageSection({ isActive, workspaceId }) {
                      placeholder={secretHint ? 'enter a new secret to replace it' : 'the secret half of the key pair'}
                      autoComplete="off"
                      disabled={savingSecret || clearingSecret || testing || !!loadError}
-                     className="flex-1 min-w-[260px] px-2 py-1.5 text-[11px] font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                     className="flex-1 min-w-[260px] px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                      style={lightInputStyle} />
               <button type="button" onClick={saveSecret}
                       disabled={savingSecret || clearingSecret || testing || !secretDraft.trim() || !!loadError}

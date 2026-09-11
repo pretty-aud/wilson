@@ -4195,7 +4195,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Alpha Delivery"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4205,7 +4205,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.date}
                     onChange={(e) => patch('date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-amber-500"
                     style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4226,7 +4226,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#f59e0b', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase — project-level)</option>
@@ -4239,7 +4239,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="What does this milestone mark?"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-amber-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4253,7 +4253,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Hero Character Model"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4263,7 +4263,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4272,7 +4272,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.due_date || ''}
                     onChange={(e) => patch('due_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4282,7 +4282,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status || 'not_started'}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4302,7 +4302,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     value={draft.type || ''}
                     onChange={(e) => patch('type', e.target.value)}
                     placeholder="e.g. 3D Model, Texture"
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4311,7 +4311,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4324,7 +4324,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.description || ''}
                   onChange={(e) => patch('description', e.target.value)}
                   placeholder="Asset description"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#a8a29e', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4338,7 +4338,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.name}
                   onChange={(e) => patch('name', e.target.value)}
                   placeholder="e.g. Pre-production"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4346,7 +4346,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.parent_phase_id || ''}
                   onChange={(e) => patch('parent_phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(top-level)</option>
@@ -4362,7 +4362,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4372,7 +4372,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     required
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4388,7 +4388,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.status || 'not_started'}
                   onChange={(e) => patch('status', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="not_started" style={{ color: '#a8a29e' }}>Not started</option>
@@ -4402,7 +4402,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   rows={3}
                   value={draft.description}
                   onChange={(e) => patch('description', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 resize-y"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
                   style={{ backgroundColor: '#1c1917', color: '#d6d3d1', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4416,7 +4416,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   value={draft.title}
                   onChange={(e) => patch('title', e.target.value)}
                   placeholder="e.g. Storyboard pass 1"
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 />
               </Field>
@@ -4424,7 +4424,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.phase_id || ''}
                   onChange={(e) => patch('phase_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no phase)</option>
@@ -4437,7 +4437,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                 <select
                   value={draft.asset_id || ''}
                   onChange={(e) => patch('asset_id', e.target.value)}
-                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                   style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                 >
                   <option value="">(no asset — task lives directly under the phase)</option>
@@ -4458,7 +4458,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.scene_id || ''}
                       onChange={(e) => { patch('scene_id', e.target.value); patch('shot_id', '') }}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no scene)</option>
@@ -4469,7 +4469,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     <select
                       value={draft.shot_id || ''}
                       onChange={(e) => patch('shot_id', e.target.value)}
-                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                       style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                     >
                       <option value="">(no shot)</option>
@@ -4484,7 +4484,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.level_id || ''}
                     onChange={(e) => patch('level_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no level)</option>
@@ -4497,7 +4497,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.experience_id || ''}
                     onChange={(e) => patch('experience_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">(no experience)</option>
@@ -4511,7 +4511,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.start_date || ''}
                     onChange={(e) => patch('start_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4520,7 +4520,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     type="date"
                     value={draft.end_date || ''}
                     onChange={(e) => patch('end_date', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4533,7 +4533,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                     step="0.5"
                     value={draft.bid_days}
                     onChange={(e) => patch('bid_days', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   />
                 </Field>
@@ -4541,7 +4541,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.assignee_id || ''}
                     onChange={(e) => patch('assignee_id', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="">-- unassigned --</option>
@@ -4556,7 +4556,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.priority}
                     onChange={(e) => patch('priority', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="low" style={{ color: '#a8a29e' }}>Low</option>
@@ -4569,7 +4569,7 @@ function TaskEditor({ editor, assets, phases, ctx, onClose, canWrite = true, wri
                   <select
                     value={draft.status}
                     onChange={(e) => patch('status', e.target.value)}
-                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    className="w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
                   >
                     <option value="waiting_to_start" style={{ color: '#a8a29e' }}>Waiting to start</option>
@@ -5057,14 +5057,14 @@ function HolidaysEditor({ holidays, onChange }) {
           type="date"
           value={newDate}
           onChange={(e) => setNewDate(e.target.value)}
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:border-orange-500"
         />
         <input
           type="text"
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           placeholder="Holiday name"
-          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:outline-none focus:border-orange-500 flex-1 min-w-0"
+          className="px-2 py-1 bg-stone-950 border border-stone-600 rounded-sm text-[11.5px] font-mono text-stone-300 focus:border-orange-500 flex-1 min-w-0"
         />
         <button
           type="button"
@@ -5389,7 +5389,7 @@ export function SettingsPanel({ settings, patchSettings, settingsTab, setSetting
                           setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))
                         }
                         disabled={promptsLocked}
-                        className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
+                        className={`w-full h-48 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:border-orange-500 resize-none ${promptsLocked ? 'cursor-not-allowed' : ''}`}
                       />
                       <div className="flex gap-3 mt-1">
                         <button

@@ -190,7 +190,7 @@ export default function UserModelsSection() {
                       disabled={busy || models.length === 0}
                       onChange={(e) => apply(entry.key, e.target.value)}
                       title={entry.hint || entry.label}
-                      className="px-2 py-1 text-[11px] rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                      className="px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
                       style={{ border: `1px solid ${LIGHT_RULE}`, color: LIGHT_INK, minWidth: '190px' }}
                     >
                       <option value="">Inherit ({labelFor(withoutMe.model)})</option>
