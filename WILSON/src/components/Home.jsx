@@ -26,7 +26,7 @@ const MAIN_ITEMS = [
   // Session 8: the personal cross-tool surface, below the tools.
   { id: 'dashboard',        label: 'Dashboard',        Icon: LayoutDashboard },
   { id: RESOURCES_SENTINEL, label: 'Resources',        Icon: BookOpen },
-  { id: 'settings',         label: 'System Settings',  Icon: Settings },
+  { id: 'settings',         label: 'App settings',  Icon: Settings },
 ]
 
 const RESOURCES_ITEMS = [
@@ -61,13 +61,22 @@ const RESOURCES_ITEMS_ADMIN = [
 // and it is one string, twice — the walkthrough (docs/walkthroughs/
 // 23_ui_auth_help_home.md, decision 1) puts it to her with the revert.
 //
-// The hover fill below is Q19 and is DELIBERATELY UNTOUCHED. Measured: it
+// Audrey, 2026-09-11 (walkthroughs 21 and 23, answered the next morning):
+// Home is ALL CAPITALS ("make sure its all capitals in the home page"), by
+// `uppercase` on the two label spans so the label strings the e2e selector
+// guard pins stay as written; the word is "App settings" on Home too; the
+// icons shrink to 24px so the 16px labels lead; the hover keeps the white
+// label on a DARKER fill ("whatever looks more visually appealing and
+// stand[s] out clearly"). The fill was rgba(154,100,56,0.65), where white
+// measured 3.52:1 — the history of that measurement is below.
+//
+// The hover fill below WAS Q19 and untouched until that ruling. Measured: it
 // composites to #ba7a46, where the white label is 3.52:1 and fails while the
 // resting black is 8.48:1 — so the state being read is the less legible one.
 // Both fixes are one token (black label, 4.96:1; or a darker fill) and both
 // ratios are asserted in authContrast.test.js so whichever she picks has a
 // control the day it lands. NAV_DESTINATIONS belongs to the shell session.
-const HIGHLIGHT_BG = 'rgba(154, 100, 56, 0.65)'
+const HIGHLIGHT_BG = 'rgba(120, 70, 30, 0.8)'
 const MAIN_PADDING = 'clamp(2rem, 20%, 16rem)'
 const RESOURCES_PADDING = 'clamp(1rem, 3%, 2.5rem)'
 const EASE_CURVE = 'cubic-bezier(0.4, 0, 0.2, 1)'
@@ -241,11 +250,11 @@ export default function Home({ onNavigate, currentPage }) {
               }}
             >
               <Icon
-                className="w-8 h-8 transition-colors duration-200 flex-shrink-0"
+                className="w-6 h-6 transition-colors duration-200 flex-shrink-0"
                 style={{ color: highlighted ? '#fff' : '#1c1917' }}
               />
               <span
-                className="text-h2 transition-colors duration-200"
+                className="text-h2 uppercase tracking-[0.06em] transition-colors duration-200"
                 style={{ color: highlighted ? '#fff' : '#1c1917' }}
               >
                 {item.label}
@@ -315,11 +324,11 @@ export default function Home({ onNavigate, currentPage }) {
                 }}
               >
                 <Icon
-                  className="w-8 h-8 transition-colors duration-200 flex-shrink-0"
+                  className="w-6 h-6 transition-colors duration-200 flex-shrink-0"
                   style={{ color: highlighted ? '#fff' : '#1c1917' }}
                 />
                 <span
-                  className="text-h2 transition-colors duration-200"
+                  className="text-h2 uppercase tracking-[0.06em] transition-colors duration-200"
                   style={{ color: highlighted ? '#fff' : '#1c1917' }}
                 >
                   {item.label}
