@@ -1,6 +1,9 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { Tabs } from './Tabs'
 
 afterEach(cleanup)
@@ -107,5 +110,21 @@ describe('Tabs: item title', () => {
     expect(internal.disabled).toBe(true)
     // A tab with nothing to explain carries no title attribute at all.
     expect(screen.getByRole('tab', { name: 'General' }).hasAttribute('title')).toBe(false)
+  })
+
+  it('the caller that filed the request passes one', () => {
+    // C1 filed this because the Rate card's disabled Internal tab had an
+    // explanation and nowhere to put it. A prop with no call site closes
+    // nothing, so the call site is asserted here rather than assumed.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../components/RateCard/RateCardPage.jsx'), 'utf8')
+    // Read the ONE item object, so the assertion cannot be satisfied by a
+    // `title` somewhere else in a 600-line page.
+    const item = src.slice(src.indexOf("id: 'internal',"))
+    const body = item.slice(0, item.indexOf('\n    },'))
+    expect(body).toContain('disabled: !internalCard')
+    expect(body).toMatch(/title: internalCard \? undefined : '[^']+'/)
+    // The control: the item really is the tab item, not a coincidence.
+    expect(body).toContain("label: 'Internal'")
   })
 })

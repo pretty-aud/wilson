@@ -117,6 +117,19 @@ describe('Button: loading (D2 kit request K3)', () => {
     expect(b.querySelector('.ui-spinner').getAttribute('aria-hidden')).toBe('true')
   })
 
+  it('the worked example really passes it — a prop with no call site closes nothing', () => {
+    // D2 filed K3 for five auth surfaces; F3 adopted it on the kit's own
+    // worked example rather than editing a finished lane's files, and this
+    // is where that claim is checked rather than asserted in a hand-off.
+    const src = readFileSync(
+      resolve(dirname(fileURLToPath(import.meta.url)), '../components/TeamMembers/TeamMembersPage.jsx'), 'utf8')
+    expect(src).toContain('loading={busy}')
+    expect(src).toContain('loadingLabel=')
+    // The control: the old spelling is gone, so the two cannot both be there
+    // and the button cannot be disabled twice by two mechanisms.
+    expect(src).not.toContain("{busy ? 'Saving…'")
+  })
+
   it('not loading is exactly as before: no spinner, no aria-busy, the icon back', () => {
     render(<Button loading={false} loadingLabel="Saving" Icon={Glyph}>Save</Button>)
     const b = screen.getByRole('button', { name: 'Save' })
@@ -172,8 +185,20 @@ describe('Button on the light ground (D1 kit request 4, D2 K7 and K8)', () => {
 
   it('the press is one state duration, and reduced motion removes it rather than shortening it', () => {
     expect(css).toContain('.ui-btn:active:not(:disabled) { transform: scale(0.98); }')
-    expect(css).toMatch(/\.ui-btn \{[\s\S]*?transition:[^;]*transform var\(--duration-state\)/)
-    const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'))
-    expect(rm).toContain('.ui-btn:active:not(:disabled) { transform: none; }')
+    // 🚨 Inside the `.ui-btn` BLOCK. The first cut was
+    // `/\.ui-btn \{[\s\S]*?transition:[^;]*transform/`, and `[\s\S]*?` walks
+    // through as many closing braces as it likes — it was matching a
+    // `transform` transition on `.ui-switch-knob` 267 lines further down, so
+    // deleting the press transition entirely left the test green.
+    const block = css.match(/\n  \.ui-btn \{([^}]*)\}/)
+    expect(block, 'no .ui-btn block in index.css').not.toBeNull()
+    expect(block[1]).toMatch(/transition:[^;]*transform var\(--duration-state\)/)
+    // …and the reduced-motion block is the KIT's, not the first one in the
+    // file: `.auth-step` opens one 1,200 lines earlier, so slicing from the
+    // first match and reading to EOF proves nothing about which block the
+    // rule is in.
+    const rm = css.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\n  \.ui-btn,[\s\S]*?\n\}/)
+    expect(rm, 'no kit reduced-motion block').not.toBeNull()
+    expect(rm[0]).toContain('.ui-btn:active:not(:disabled) { transform: none; }')
   })
 })

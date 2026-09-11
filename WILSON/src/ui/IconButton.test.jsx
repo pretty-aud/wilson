@@ -57,8 +57,14 @@ describe('IconButton: disabled on a light surface (D1 kit request 4)', () => {
     const rule = css.match(/\.ui-iconbtn\[data-surface="light"\]:disabled \{[^}]*\}/)
     expect(rule, 'no light disabled icon-button rule in index.css').not.toBeNull()
     expect(rule[0]).toContain('color: var(--color-ink-light)')
-    expect(css.indexOf('.ui-iconbtn[data-surface="light"]:disabled'))
-      .toBeGreaterThan(css.indexOf('.ui-iconbtn:disabled'))
+    // 🚨 SPECIFICITY is what settles it, so that is what is asserted. The
+    // first cut asserted SOURCE ORDER, which is inert: this selector is
+    // (0,3,0) against the base rule's (0,2,0) and wins wherever it sits, so
+    // moving it above the base rule — the change the assertion pretended to
+    // catch — leaves the page correct and the test green.
+    const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
+    expect(units('.ui-iconbtn[data-surface="light"]:disabled')).toBe(3)
+    expect(units('.ui-iconbtn:disabled')).toBe(2)
   })
 
   it('the orange frame gets the same treatment, where a grey is forbidden outright', () => {

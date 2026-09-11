@@ -62,6 +62,12 @@ describe('Chip on the light ground', () => {
 
   it('the count and the hover take the one ink too, not the dark-side pair', () => {
     expect(css).toMatch(/\.ui-chip\[data-surface="light"\]:hover:not\(:disabled\) \{[^}]*color: var\(--color-ink-light\)/)
-    expect(css).toContain('.ui-chip[data-surface="light"] .ui-chip-count')
+    // The DECLARATION, not the selector: `.ui-chip-count` is `ink-3` on dark,
+    // which is 1.68:1 here, and a test that only proves the selector was
+    // typed would pass with the grey left in it.
+    const count = css.match(/\.ui-chip\[data-surface="light"\] \.ui-chip-count,[\s\S]{0,120}?\{[^}]*\}/)
+    expect(count, 'no light chip-count rule').not.toBeNull()
+    expect(count[0]).toContain('color: var(--color-ink-light)')
+    expect(count[0]).not.toContain('--color-ink-3')
   })
 })

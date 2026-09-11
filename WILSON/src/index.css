@@ -752,12 +752,13 @@ select option {
   .ui-iconbtn[data-surface="chrome"] { color: var(--color-on-fill); }
   .ui-iconbtn[data-surface="chrome"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-on-fill); }
   .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
-  /* 🚨 ORDER, not specificity (D1 kit request 4). `.ui-iconbtn:disabled` and
-     `.ui-iconbtn[data-surface="light"]` are both (0,2,0), and the disabled
-     rule is written later — so on a light page every disabled icon button
-     resolved to `ink-3`, a grey, which measures 1.68:1 on `#f4a261`. The
-     control that is telling you it cannot be used was the one you could not
-     see. These two rules carry the extra unit that settles it.
+  /* 🚨 The DEFECT was order; the FIX is specificity (D1 kit request 4).
+     `.ui-iconbtn:disabled` and `.ui-iconbtn[data-surface="light"]` are both
+     (0,2,0) and the disabled rule is written later, so on a light page every
+     disabled icon button resolved to `ink-3`, a grey, which measures 1.68:1
+     on `#f4a261` — the control telling you it cannot be used was the one you
+     could not see. These two rules are (0,3,0), so they win wherever they sit
+     in the file; the test asserts the count, not the position.
      The glyph has no fill and no edge to change, so on light the state reads
      from the cursor and the dead hover alone; that is the honest limit of an
      icon-only control on a one-ink ground, and it is recorded rather than
@@ -804,8 +805,9 @@ select option {
      fields, but `+` does not know which way the parent lays its children
      out: measured, a side-by-side Start/End pair got 16px of top margin on
      "End", which pushed it down and stretched "Start" to cover the gap, so
-     neither edge lined up with anything. `.pj-pair` and `.tm-rate-pair` both
-     carried a local reset for it.
+     neither edge lined up with anything. `.pj-pair` carried a local reset for
+     it; `.tm-rate-pair` carried the DEFECT, unreset, which is why F3 adopted
+     this class there and measured the result.
      `.ui-field-row` is the horizontal container, and it is a RULE rather
      than a component on purpose (C2 KR-3's point): the caller already has a
      flex row there, and what it was missing was a name the kit knows. The
@@ -820,7 +822,12 @@ select option {
      no caller ever wants otherwise. */
   .ui-field-row { display: flex; align-items: flex-start; gap: 16px; }
   .ui-field-row > .ui-field { min-width: 0; }
-  .ui-field-row > .ui-field + .ui-field { margin-top: 0; }
+  /* Two selectors because there are two stack rules to stand down, and the
+     inline one is (0,4,0): `.ui-field[data-inline="true"] + .ui-field[data-inline="true"]`
+     carries 8px, and a single-class reset at (0,3,0) loses to it, so a row of
+     INLINE fields kept its top margin and nothing here said so. */
+  .ui-field-row > .ui-field + .ui-field,
+  .ui-field-row > .ui-field[data-inline="true"] + .ui-field[data-inline="true"] { margin-top: 0; }
   /* The other half of the same defect, and the same answer. A parent that
      lays its fields out with `gap` gets the margin ON TOP of the gap: C1
      measured 32px down one column of a form and 16px down the other, side by
@@ -829,7 +836,8 @@ select option {
      flow — `InviteMemberDialog`'s bare <form> is the one caller that has it —
      so a parent that owns the spacing says so and the margin stands down. */
   .ui-field-stack { display: flex; flex-direction: column; gap: 16px; }
-  .ui-field-stack > .ui-field + .ui-field { margin-top: 0; }
+  .ui-field-stack > .ui-field + .ui-field,
+  .ui-field-stack > .ui-field[data-inline="true"] + .ui-field[data-inline="true"] { margin-top: 0; }
   .ui-field-label {
     font-size: var(--text-label);
     line-height: 1.3;
@@ -1048,9 +1056,13 @@ select option {
     background-color: var(--color-paper-recessed);
   }
   /* Kbd on a light page (D1 kit request 4: it had no `surface` at all).
-     Help is a light page and Help is where the keys are documented, so a
-     `paper-recessed` key cap was a black chip floating on orange. The light
-     cap is the ground's own inert well with the one ink: 6.90:1. */
+     ⚠️ NO CALLER YET, and the obvious one does not exist: Help renders no
+     `Kbd` today (grepped — the only caller in the app is the Bins footer bar,
+     which is dark and which Q10 removes in B6). The prop and this rule exist
+     because Help is a light page and Help is where a key WOULD be written
+     down, and because a `paper-recessed` cap is a black chip on orange.
+     Whoever puts the first key on a light page gets 6.90:1 instead of a
+     judgement call. */
   .ui-kbd[data-surface="light"] {
     color: var(--color-ink-light);
     background-color: var(--color-well-light);
@@ -1430,28 +1442,39 @@ select option {
   .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
   .ui-table[data-surface="light"] .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-light); font-style: italic; }
 
-  /* ── tfoot: the summary, pinned to the bottom of the scroller ──────────
+  /* ── tfoot: the summary ────────────────────────────────────────────────
      The mirror of the sticky head, and opaque for the same reason (R06): a
-     transparent sticky band lets the rows scroll through it. `bottom: 0` on
-     the cells rather than the row, because a <tr> is not a positioning box.
+     transparent sticky band lets the rows scroll through it.
      No hover, no selection — a total is not a row you can pick. */
   .ui-table tfoot > .ui-tr > .ui-td {
-    position: sticky;
-    bottom: 0;
-    z-index: 1;
     border-top: 1px solid var(--color-rule);
     border-bottom: 0;
     background-color: var(--color-paper-raised);
     font-weight: 600;
     color: var(--color-ink);
   }
+  /* 🚨 STICKY ONLY WHEN THERE IS ONE ROW, and that is a real limit, not a
+     shortcut. `position: sticky; bottom: 0` pins each cell independently, so
+     a footer with TWO rows pins both to the same line and the second covers
+     the first — the rate card summarises per currency, so a card with USD
+     and GBP in it would have shown one average and hidden the other. CSS
+     cannot offset row N by the heights of the rows below it without knowing
+     them, and `nth-last-child` arithmetic only holds while every row is
+     exactly one row tall, which a wrapped label breaks. So one row sticks
+     and a multi-row footer scrolls with the body, keeping the element, the
+     rule above it and the announcement, which is the rest of what a <tfoot>
+     was asked for. `bottom` is on the cells rather than the row because a
+     <tr> is not a positioning box. */
+  .ui-table tfoot > .ui-tr:only-child > .ui-td {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+  }
   .ui-table[data-surface="light"] tfoot > .ui-tr > .ui-td {
     border-top-color: var(--color-rule-light);
     background-color: var(--color-surface-light-solid);
     color: var(--color-ink-light);
   }
-  .ui-table tfoot > .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-paper-raised); }
-  .ui-table[data-surface="light"] tfoot > .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-surface-light-solid); }
 
   /* ── Toolbar ────────────────────────────────────────────────────────── */
   .ui-toolbar {

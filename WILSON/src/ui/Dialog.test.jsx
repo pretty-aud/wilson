@@ -3,7 +3,12 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { StrictMode } from 'react'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { overlayOpen, focusableWithin, _resetOverlaysForTests } from './overlay'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 beforeEach(() => _resetOverlaysForTests())
@@ -26,6 +31,26 @@ describe('Dialog', () => {
     const alert = screen.getByRole('alert')
     expect(alert.closest('.ui-dialog-foot')).not.toBeNull()
     expect(alert.textContent).toContain('Network is down')
+  })
+
+  it('the footer error WRAPS, clamped, and keeps the whole message on its title (K5)', () => {
+    // `white-space: nowrap` cut every failure the footer reported to about
+    // six words and an ellipsis — the half that says what went wrong, not the
+    // half that says what to do. Both auth dialogs worked around it with a
+    // Banner in the body.
+    const long = 'The workspace refused the change because your session expired; sign in again and retry.'
+    render(<Dialog title="Save" onClose={() => {}} error={long}>body</Dialog>)
+    const span = screen.getByRole('alert').querySelector('span')
+    expect(span.getAttribute('title')).toBe(long)
+    const rule = css.match(/\.ui-dialog-error > span \{[^}]*\}/)
+    expect(rule, 'no .ui-dialog-error > span rule in index.css').not.toBeNull()
+    expect(rule[0]).not.toContain('white-space: nowrap')
+    expect(rule[0]).toContain('white-space: normal')
+    // Clamped, so a stack trace cannot push the buttons off a 700px window.
+    expect(rule[0]).toMatch(/line-clamp: 3/)
+    // The icon stops centring itself against three lines of text.
+    const wrap = css.match(/\.ui-dialog-error \{[^}]*\}/)
+    expect(wrap[0]).toContain('align-items: flex-start')
   })
 
   it('Q17 (ruled): Escape closes and the X closes on every Dialog; the backdrop only when asked', () => {
@@ -126,22 +151,19 @@ describe('Dialog', () => {
   })
 
   it('focuses the surface itself when the dialog holds nothing focusable', () => {
-    render(<Dialog title="Note" onClose={() => {}}>just a message</Dialog>)
-    // Even the Close button is gone here: this dialog is rendered without one
-    // only in principle, so instead assert the fallback target EXISTS and is
-    // not a tab stop. (The real dialog always has Close — see the control.)
+    // A BUSY dialog is the real case: the busy lock disables Close, so there
+    // is genuinely nothing inside to focus. The first cut of this test
+    // hand-built a div and proved only that `.focus()` works on a tabindex
+    // of -1, which was never in doubt.
+    render(<Dialog title="Saving" onClose={() => {}} busy>just a message</Dialog>)
     const d = screen.getByRole('dialog')
     expect(d.getAttribute('tabindex')).toBe('-1')
-    cleanup()
-    // The control for the fallback path itself, with the header removed.
-    const host = document.createElement('div')
-    host.innerHTML = '<div tabindex="-1" id="surface"><p>no controls</p></div>'
-    document.body.appendChild(host)
-    const surface = host.querySelector('#surface')
-    expect(focusableWithin(surface)).toEqual([])
-    surface.focus()
-    expect(document.activeElement).toBe(surface)
-    document.body.removeChild(host)
+    expect(screen.getByRole('button', { name: 'Close' }).disabled).toBe(true)
+    expect(focusableWithin(d)).toEqual([])
+    expect(document.activeElement).toBe(d)
+    // And Tab stays on it rather than walking out to the page behind.
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(d)
   })
 
   it('traps Tab: forwards off the last control and back to the first, and Shift+Tab the other way', () => {

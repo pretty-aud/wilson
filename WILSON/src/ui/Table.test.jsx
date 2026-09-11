@@ -174,20 +174,53 @@ describe('Table', () => {
     expect(basic().container.querySelector('tfoot')).toBeNull()
   })
 
-  it('the tfoot sticks to the bottom and is opaque, the mirror of the sticky head', () => {
+  it('the tfoot is opaque, the mirror of the sticky head', () => {
     // R06's bug in the other direction: a transparent sticky band lets the
     // rows scroll through it and read as garbage.
     const rule = css.match(/\.ui-table tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)
     expect(rule, 'no tfoot rule in index.css').not.toBeNull()
-    expect(rule[0]).toContain('position: sticky')
-    expect(rule[0]).toContain('bottom: 0')
     expect(rule[0]).toContain('background-color: var(--color-paper-raised)')
+    expect(rule[0]).toContain('border-top: 1px solid var(--color-rule)')
     // The light surface gets its own opaque fill, not the dark one.
     const light = css.match(/\.ui-table\[data-surface="light"\] tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)
     expect(light, 'no light tfoot rule').not.toBeNull()
     expect(light[0]).toContain('var(--color-surface-light-solid)')
-    // The control: `bottom` is on the CELLS, because a <tr> is not a
-    // positioning box and a rule written on the row would do nothing.
-    expect(css).not.toMatch(/\.ui-table tfoot > \.ui-tr \{[^}]*position: sticky/)
+  })
+
+  it('🚨 only a ONE-row footer sticks: two pinned rows would cover each other', () => {
+    // `position: sticky; bottom: 0` pins each cell independently. The rate
+    // card summarises per currency, so a card holding USD and GBP has two
+    // footer rows — and both would pin to the same line, showing one average
+    // and hiding the other. CSS cannot offset a row by the heights of the
+    // rows below it, so one row sticks and a multi-row footer scrolls.
+    const sticky = css.match(/\.ui-table tfoot > \.ui-tr:only-child > \.ui-td \{[^}]*\}/)
+    expect(sticky, 'no :only-child sticky rule').not.toBeNull()
+    expect(sticky[0]).toContain('position: sticky')
+    expect(sticky[0]).toContain('bottom: 0')
+    // The control: the unqualified rule must NOT stick, or the guard is a
+    // second rule that changes nothing.
+    const base = css.match(/\.ui-table tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)[0]
+    expect(base).not.toContain('position: sticky')
+    // 🚨 The DECLARATION, not the substring: this block legitimately carries
+    // `border-bottom: 0`, and the first cut of this assertion matched that
+    // and failed for a reason that had nothing to do with stickiness.
+    expect(base).not.toMatch(/(^|[;{])\s*bottom:\s*0/m)
+    expect(base).toMatch(/border-bottom:\s*0/)
+    // …and `bottom` is on the CELLS, because a <tr> is not a positioning box.
+    expect(css).not.toMatch(/\.ui-table tfoot > \.ui-tr[^>{]*\{[^}]*position: sticky/)
+
+    // Two footer rows render as two rows, in order.
+    const { container } = basic({
+      foot: (
+        <>
+          <Row><Td colSpan={1}>Average USD</Td><Td numeric>1300</Td></Row>
+          <Row><Td colSpan={1}>Average GBP</Td><Td numeric>1100</Td></Row>
+        </>
+      ),
+    })
+    const rows = container.querySelectorAll('tfoot tr')
+    expect(rows.length).toBe(2)
+    expect(rows[0].textContent).toContain('USD')
+    expect(rows[1].textContent).toContain('GBP')
   })
 })

@@ -47,7 +47,14 @@ describe('Field spacing: the parent says which way it stacks', () => {
       </div>,
     )
     expect(container.querySelectorAll('.ui-field-row > .ui-field').length).toBe(2)
-    expect(css).toContain('.ui-field-row > .ui-field + .ui-field { margin-top: 0; }')
+    // BOTH stack rules have to stand down, and the inline one is (0,4,0):
+    // `.ui-field[data-inline="true"] + .ui-field[data-inline="true"]` carries
+    // 8px, so a single-class reset at (0,3,0) loses to it and a row of inline
+    // fields kept its top margin.
+    const reset = css.match(/\.ui-field-row > \.ui-field \+ \.ui-field,[\s\S]{0,160}?\{[^}]*\}/)
+    expect(reset, 'no .ui-field-row margin reset').not.toBeNull()
+    expect(reset[0]).toContain('margin-top: 0')
+    expect(reset[0]).toContain('[data-inline="true"] + .ui-field[data-inline="true"]')
     const row = css.match(/\.ui-field-row \{[^}]*\}/)
     expect(row, 'no .ui-field-row rule in index.css').not.toBeNull()
     expect(row[0]).toContain('display: flex')
@@ -72,7 +79,10 @@ describe('Field spacing: the parent says which way it stacks', () => {
     // Measured by C1: 32px down one column of a form and 16px down the other,
     // on the same form, because splitting one column into groups broke the
     // sibling adjacency there and nowhere else.
-    expect(css).toContain('.ui-field-stack > .ui-field + .ui-field { margin-top: 0; }')
+    const reset = css.match(/\.ui-field-stack > \.ui-field \+ \.ui-field,[\s\S]{0,160}?\{[^}]*\}/)
+    expect(reset, 'no .ui-field-stack margin reset').not.toBeNull()
+    expect(reset[0]).toContain('margin-top: 0')
+    expect(reset[0]).toContain('[data-inline="true"] + .ui-field[data-inline="true"]')
     const stack = css.match(/\.ui-field-stack \{[^}]*\}/)
     expect(stack, 'no .ui-field-stack rule in index.css').not.toBeNull()
     expect(stack[0]).toContain('flex-direction: column')

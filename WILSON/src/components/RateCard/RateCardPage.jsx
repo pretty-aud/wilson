@@ -258,13 +258,12 @@ export default function RateCardPage() {
       id: 'internal',
       label: 'Internal',
       disabled: !internalCard,
-      // 🚨 KIT REQUEST (hand-off): `Tabs` items take `disabled` and `count`
-      // but not `title`, and the disabled Internal tab carried a `title`
-      // explaining WHY it was dead — Audrey's own complaint ("when i press
-      // internal i am not seeing the internal one"). Rather than lose the
-      // explanation to a tooltip the kit cannot render, the page says it in
-      // the flow, where it is visible before the click rather than after a
-      // hover. `src/ui/` is Foundation's.
+      // F3 closed C1's kit request 2: `Tabs` items take a `title` now, so the
+      // explanation is back on the tab itself. The Banner below stays — it is
+      // visible before the click rather than after a hover, which is the
+      // better half of the answer; this is the half a keyboard user and a
+      // hover both get.
+      title: internalCard ? undefined : 'No internal rate card on this workspace yet',
       //
       // entries are RLS-empty when restricted — the badge would falsely flag
       // every member as unrated

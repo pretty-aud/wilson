@@ -67,8 +67,15 @@ describe('Toolbar: every child is 28px, including a tab bar', () => {
   })
 
   it('the selector is specific enough to beat .ui-tab own height', () => {
-    // `.ui-tab { height: var(--control-md) }` is (0,1,0); the toolbar rule is
-    // (0,2,0), so it wins on specificity rather than on source order.
-    expect(css).toMatch(/\.ui-tab \{[\s\S]*?height: var\(--control-md\)/)
+    // `.ui-tab { height: var(--control-md) }` is (0,1,0); `.ui-toolbar .ui-tab`
+    // is (0,2,0), so it wins on specificity rather than on source order.
+    // 🚨 Read the `.ui-tab` BLOCK, not a lazy span from its selector: the
+    // first cut used `[\s\S]*?` and would have matched `height:
+    // var(--control-md)` in any later rule.
+    const tab = css.match(/\n  \.ui-tab \{([^}]*)\}/)
+    expect(tab, 'no .ui-tab block in index.css').not.toBeNull()
+    expect(tab[1]).toContain('height: var(--control-md)')
+    const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
+    expect(units('.ui-toolbar .ui-tab')).toBeGreaterThan(units('.ui-tab'))
   })
 })

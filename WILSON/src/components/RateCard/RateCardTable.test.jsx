@@ -307,6 +307,23 @@ describe('the summary row', () => {
     expect(labels[1]).toMatch(/^Average · USD · 2 rates$/)
   })
 
+  it('lives in a real <tfoot>, not at the end of the body (F3 closed C1 kit request 3)', () => {
+    mount()
+    const rows = [...document.querySelectorAll('tr.rc-total-row')]
+    expect(rows).toHaveLength(2)
+    for (const r of rows) {
+      expect(r.closest('tfoot'), 'a summary row is still inside the tbody').not.toBeNull()
+      expect(r.closest('tbody')).toBeNull()
+    }
+    // The element order the browser and a screen reader both rely on.
+    const table = document.querySelector('table.ui-table')
+    expect([...table.children].map(el => el.tagName)).toEqual(['THEAD', 'TBODY', 'TFOOT'])
+    // 🚨 TWO rows is exactly the case that must NOT be sticky: `bottom: 0`
+    // pins every cell to the same line, so a two-currency card would show one
+    // average and cover the other. The kit sticks `:only-child` only.
+    expect(document.querySelectorAll('tfoot tr').length).toBe(2)
+  })
+
   it('averages the day rate and the computed total of its own currency only', () => {
     mount()
     const usd = [...document.querySelectorAll('tr.rc-total-row')]
