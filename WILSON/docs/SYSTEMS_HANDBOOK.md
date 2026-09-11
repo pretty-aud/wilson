@@ -2710,7 +2710,11 @@ editor types (display name, slate, take and modifier, camera, roll, shoot day,
 scene and shot links, tags, description, notes), the review marks
 (`review_flag` select / reject / unflagged, `circled`, an eight-colour label)
 and the technical columns read once by `ffmpeg -i` or `sharp`
-(`electron/ffmpeg.cjs` `probeMediaInfo`). `electron/rabbitBins.cjs` holds every
+(`electron/ffmpeg.cjs` `probeMediaInfo`) — or, with no decoder on the
+machine, by the renderer's own hidden `<video>` / `<audio>` / `<img>`
+(`bins/binProbeFallback.js`), which the provider runs wherever the server
+answers `unavailable` and once per project after `refreshBins`, so a poster
+reaches the Scenes tab's chips without Bins being opened. `electron/rabbitBins.cjs` holds every
 route (bins, bin-files, prepare / add, probe, poster, stream, relink, roots),
 mounted from `main.cjs` with its helpers injected and gated to same-origin
 requests because every route takes or serves a path; the OS dialogs open in

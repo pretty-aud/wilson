@@ -197,3 +197,30 @@ describe('detectSequence tolerates a few sidecars (adversarial review)', () => {
     expect(server.detectSequence(path.join(root, 'onedigit'))).toMatchObject({ frame_count: 2, first_frame: 9, last_frame: 10 })
   })
 })
+
+// The provider runs the renderer's own probe for exactly these rows (review
+// round 2: it used to run from the Bins tab's post-load step over the rows as
+// loaded, so a row still pending at load, an MP4 added on the tab, or a take
+// assigned from Scenes kept its icon until the next visit to Bins).
+describe('needsBrowserProbe', () => {
+  const row = (over) => ({ id: 'f', extension: '.mp4', media_type: 'video', probe_status: 'unavailable', online: true, is_sequence: false, ...over })
+  it('an MP4, WebM, WAV or PNG the server had no decoder for', () => {
+    expect(renderer.needsBrowserProbe(row())).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.webm' }))).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.wav', media_type: 'audio' }))).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.png', media_type: 'still' }))).toBe(true)
+  })
+  it('never for a row the server read, is still reading, or gave up on', () => {
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'done' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'pending' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'failed' }))).toBe(false)
+  })
+  it('never for an offline row, a poster-only format, a sequence or a document', () => {
+    expect(renderer.needsBrowserProbe(row({ online: false }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.mov' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.mxf' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.png', media_type: 'sequence', is_sequence: true }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.pdf', media_type: 'document' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(null)).toBe(false)
+  })
+})

@@ -40,8 +40,7 @@ import {
   descendantIds, countsByBin, binPathLabel, filterBinFiles, sortBinFiles, SORT_FIELDS, EMPTY_FILTERS,
   activeFilterCount, binStats, distinctValues, stepId, rangeIds,
 } from '../bins/binSelectors'
-import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes, previewKindFor } from '../bins/binMedia'
-import { probeInBrowser } from '../bins/binProbeFallback'
+import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes } from '../bins/binMedia'
 // Shot takes (milestone 2): "Assign to shot…" from a file's menu, the selection
 // bar and the inspector; "used in" on the inspector; a badge on tiles and rows.
 import AssignToShotDialog from './bins/AssignToShotDialog'
@@ -122,44 +121,13 @@ export default function BinsView() {
     finally { setLoading(false) }
   }, [supports, projectId, refreshBins])
 
-  // After a load, once per project: rows left `pending` (the app closed mid-add)
-  // are probed again, and rows the server could not read (`unavailable`: no
-  // ffmpeg) that Chromium can decode itself get their columns and a poster
-  // from the renderer (bins/binProbeFallback.js). Bounded, sequential, and a
-  // failure marks the row rather than retrying forever.
-  // 🚨 ctx through a ref: its identity changes on every provider state update,
-  // and a load effect that depended on it would refetch forever.
-  const ctxRef = useRef(ctx)
-  ctxRef.current = ctx
-  const postLoadRef = useRef(null)
-  const afterLoad = useCallback(async (data) => {
-    const c = ctxRef.current
-    if (!data || !c || postLoadRef.current === projectId) return
-    postLoadRef.current = projectId
-    const rows = data.binFiles || []
-    const pending = rows.filter(f => f.probe_status === 'pending' && f.online !== false).map(f => f.id)
-    if (pending.length) c.probeBinFiles?.(pending).catch(() => {})
-    const fallback = rows.filter(f => f.probe_status === 'unavailable' && f.online !== false && ['video', 'audio', 'image'].includes(previewKindFor(f))).slice(0, 40)
-    for (const f of fallback) {
-      if (postLoadRef.current !== projectId) return
-      const kind = previewKindFor(f)
-      const src = c.binFileStreamUrl?.(f.id, { probe: true })
-      if (!src) continue
-      try {
-        const r = await probeInBrowser(kind, src)
-        const patch = {}
-        if (r.duration_sec) patch.duration_sec = r.duration_sec
-        if (r.width) patch.width = r.width
-        if (r.height) patch.height = r.height
-        await ctxRef.current.applyBinFileProbe(f.id, patch)
-        if (r.jpegBase64) { await ctxRef.current.postBinFileThumbnail(f.id, r.jpegBase64); setThumbRev(v => v + 1) }
-      } catch {
-        await ctxRef.current.applyBinFileProbe(f.id, { probe_status: 'failed' }).catch(() => {})
-      }
-    }
-  }, [projectId])
-
-  useEffect(() => { load().then(afterLoad) }, [load, afterLoad])
+  // The once-per-project pass after a load — pending rows re-probed, the
+  // renderer's own probe for rows the server has no decoder for — lives in
+  // the provider's refreshBins (browserProbe there), so it runs whichever tab
+  // asked for the list; posters it posts reach this tab through
+  // binsInfo.posterRev in thumbUrlFor. 🚨 The load effect must not depend on
+  // ctx: its identity changes on every provider state update.
+  useEffect(() => { load() }, [load])
 
   // ── Auto-relink on open (Q12): scan every known root once per project ──
   const binRelinkScan = ctx?.binRelinkScan
@@ -234,7 +202,9 @@ export default function BinsView() {
     if (currentId && !orderedIds.includes(currentId)) setCurrentId(null)
   }, [orderedIds, currentId])
 
-  const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev), [ctx, thumbRev])
+  // thumbRev: this tab's own bumps (a relink, a re-probe); posterRev: posters
+  // the provider's browser probe posted, from any tab.
+  const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev + (ctx?.binsInfo?.posterRev || 0)), [ctx, thumbRev])
   const streamUrlFor = useCallback((id) => ctx?.binFileStreamUrl?.(id), [ctx])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
 

@@ -297,7 +297,9 @@ export default function ScenesView() {
   const [pickerShotId, setPickerShotId] = useState(null)   // the picker, from the dialog or the popup
   const [takesBusy, setTakesBusy] = useState(false)
   const [takesNotice, setTakesNotice] = useState(null)
-  const takeThumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id) || null, [ctx])
+  // posterRev: a poster the provider's browser probe posted after the chip
+  // first asked (no ffmpeg) changes the URL, so the icon becomes the frame.
+  const takeThumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, ctx?.binsInfo?.posterRev || 0) || null, [ctx])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
   // Posters and the `online` flag come from the bins list route; load it once
   // per project so the chips are right even if the Bins tab was never opened.

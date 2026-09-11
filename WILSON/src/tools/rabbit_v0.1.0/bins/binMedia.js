@@ -93,6 +93,19 @@ export function previewKindFor(row) {
   return 'none'
 }
 
+/**
+ * Should the renderer probe this row itself? The server marks a row
+ * `unavailable` when it has no decoder for it; if Chromium can decode the
+ * file, a hidden <video> / <audio> / <img> fills the columns and, for video,
+ * draws the poster (bins/binProbeFallback.js, run by the provider). Never for
+ * a pending, done or failed row, never for an offline one, never for a format
+ * the browser cannot open (a poster-only MOV, a sequence, a document).
+ */
+export function needsBrowserProbe(row) {
+  if (!row || row.probe_status !== 'unavailable' || row.online === false) return false
+  return ['video', 'audio', 'image'].includes(previewKindFor(row))
+}
+
 /** True when a tile can hover-scrub (Chromium decodes it and it is not a still). */
 export function canHoverScrub(row) {
   return previewKindFor(row) === 'video'

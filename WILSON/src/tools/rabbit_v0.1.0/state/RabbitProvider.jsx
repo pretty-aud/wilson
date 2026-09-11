@@ -51,6 +51,8 @@ import {
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
+import { probeInBrowser } from '../bins/binProbeFallback';
+import { previewKindFor, needsBrowserProbe } from '../bins/binMedia';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -2415,7 +2417,16 @@ export function RabbitProvider({ children }) {
     return adapterRef.current;
   }, [activeProjectId]);
 
-  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0 });
+  // `posterRev` counts posters the renderer's own probe posted, so every
+  // <img> built from binFileThumbnailUrl(id, rev) re-requests a poster that
+  // arrived after it first failed (BinPoster remembers WHICH src failed).
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0 });
+  // The renderer's own probe and the once-per-project pass are defined below
+  // (they need the URL and PATCH helpers); refreshBins and probeBinFile reach
+  // them through refs — the mutationsRef pattern.
+  const browserProbeRef = useRef(null);
+  const browserProbeSweepRef = useRef(null);
+  const browserProbeSweptRef = useRef(null);
 
   const mergeRows = (rows, incoming) => {
     const byId = new Map((rows || []).map(r => [r.id, r]));
@@ -2432,6 +2443,14 @@ export function RabbitProvider({ children }) {
     if (activeProjectIdRef.current !== projectId) return data;
     setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [], shotTakes: data.shotTakes || prev.shotTakes || [] }));
     setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
+    // Once per project per session, from HERE and not from a tab: rows left
+    // pending (the app closed mid-add) are probed again and rows the server
+    // has no decoder for get the renderer's probe, so a take assigned on the
+    // Scenes tab has its poster and length without Bins ever being opened.
+    if (browserProbeSweptRef.current !== projectId) {
+      browserProbeSweptRef.current = projectId;
+      Promise.resolve(browserProbeSweepRef.current?.(data.binFiles || [], projectId)).catch(() => {});
+    }
     return data;
   }, [activeProjectId]);
 
@@ -2546,8 +2565,18 @@ export function RabbitProvider({ children }) {
 
   const probeBinFile = useCallback(async (id) => {
     const a = binsAdapter();
-    const row = await a.probeBinFile(activeProjectId, id);
+    const pid = activeProjectId;
+    const row = await a.probeBinFile(pid, id);
+    // The project may have been switched during the await (the refreshBins
+    // rule): project B must not receive project A's row.
+    if (activeProjectIdRef.current !== pid) return row;
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    // No decoder on this machine: the renderer's own probe, right where the
+    // verdict lands (after an add, a re-probe, "Read columns again").
+    if (needsBrowserProbe(row)) {
+      const done = await browserProbeRef.current?.(row);
+      if (done) return done;
+    }
     return row;
   }, [binsAdapter, activeProjectId]);
 
@@ -2761,6 +2790,67 @@ export function RabbitProvider({ children }) {
   const binFileStreamUrl = useCallback((id, opts) =>
     (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
       ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+
+  // ── The renderer's own probe (no ffmpeg on this machine) ──
+  // Chromium decodes H.264 MP4 / WebM, the common audio formats and images: a
+  // row the server marked `unavailable` gets its columns from a hidden
+  // <video> / <audio> / <img> and, for video, the frame it drew as its poster
+  // (bins/binProbeFallback.js; needsBrowserProbe in bins/binMedia.js decides).
+  // 🚨 It runs HERE, where the server's verdict lands — after an add, after a
+  // re-probe of a pending row, and once per project after the list loads —
+  // not from a tab's mount. Review round 2, MEASURED: the Bins tab ran it only
+  // from its post-load step over the rows AS LOADED, so rows still pending at
+  // load kept their icons for the whole session, an MP4 added on the tab got
+  // its poster only on the next visit, and a take assigned from Scenes had no
+  // poster until Bins had been opened. A machine write, so no history entry.
+  const browserProbe = useCallback(async (row) => {
+    if (!needsBrowserProbe(row)) return null;
+    const pid = activeProjectId;
+    const src = binFileStreamUrl(row.id, { probe: true });
+    if (!src) return null;
+    try {
+      const r = await probeInBrowser(previewKindFor(row), src);
+      if (activeProjectIdRef.current !== pid) return null;
+      const patch = {};
+      if (r.duration_sec) patch.duration_sec = r.duration_sec;
+      if (r.width) patch.width = r.width;
+      if (r.height) patch.height = r.height;
+      const done = await applyBinFileProbe(row.id, patch);
+      if (r.jpegBase64) {
+        await postBinFileThumbnail(row.id, r.jpegBase64);
+        setBinsInfo(i => ({ ...i, posterRev: i.posterRev + 1 }));
+      }
+      return done;
+    } catch {
+      if (activeProjectIdRef.current !== pid) return null;
+      return applyBinFileProbe(row.id, { probe_status: 'failed' }).catch(() => null);
+    }
+  }, [activeProjectId, binFileStreamUrl, applyBinFileProbe, postBinFileThumbnail]);
+  browserProbeRef.current = browserProbe;
+
+  // The once-per-project pass refreshBins starts: pending rows go to the
+  // server (an `unavailable` answer comes back through probeBinFile, which
+  // runs browserProbe itself), then the rows already marked unavailable,
+  // sequentially and bounded, each counted in `probing` so the Bins header
+  // says "reading N" while it runs. Stops when the project changes.
+  const browserProbeSweep = useCallback(async (rows, projectId) => {
+    const pending = (rows || []).filter(f => f.probe_status === 'pending' && f.online !== false).map(f => f.id);
+    if (pending.length) probeBinFiles(pending).catch(() => {});
+    const queue = (rows || []).filter(needsBrowserProbe).slice(0, 40);
+    if (!queue.length) return;
+    let left = queue.length;
+    setBinsInfo(i => ({ ...i, probing: i.probing + left }));
+    try {
+      for (const row of queue) {
+        if (activeProjectIdRef.current !== projectId) break;
+        try { await browserProbe(row); }
+        finally { left--; setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - 1) })); }
+      }
+    } finally {
+      if (left > 0) setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - left) }));
+    }
+  }, [probeBinFiles, browserProbe]);
+  browserProbeSweepRef.current = browserProbeSweep;
 
   // ── Shot takes (milestone 2, docs/BINS_DESIGN.md §4.4 and §6 Q6) ──
   //

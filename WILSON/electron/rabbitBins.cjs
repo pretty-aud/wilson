@@ -903,7 +903,12 @@ function mountRabbitBins(expressApp, deps) {
     if (stillLike || (row.is_sequence && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(row.extension))) {
       try {
         const sharp = require('sharp');
-        await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toFile(thumbPath);
+        // Through a buffer and Node's fs, not libvips's own writer: libvips
+        // cannot open a path past MAX_PATH on Windows (measured, review round
+        // 2: a 268-character cache path answered "unable to open for write"
+        // while the same source read fine), Node's fs can.
+        const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+        fs.writeFileSync(thumbPath, buf);
         res.setHeader('Content-Type', 'image/jpeg');
         return res.sendFile(thumbPath);
       } catch (err) {
