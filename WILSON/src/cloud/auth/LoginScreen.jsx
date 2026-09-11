@@ -70,7 +70,9 @@ import AuthShell, {
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
   AUTH_LINK_STYLE,
+  AUTH_LINK_BUSY_STYLE,
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
@@ -560,15 +562,23 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   }
   const submitStyle = {
     ...AUTH_BUTTON_STYLE,
-    cursor: busy ? 'default' : 'pointer',
-    opacity: busy ? 0.55 : 1,
-    transition: `opacity 150ms ease-out, transform 100ms ease-out`,
+    ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
+    transition: `opacity 150ms ease-out`,
   }
-  const press = {
-    onMouseDown: (e) => !busy && (e.currentTarget.style.transform = 'scale(0.98)'),
-    onMouseUp:   (e) => (e.currentTarget.style.transform = 'scale(1)'),
-    onMouseLeave:(e) => (e.currentTarget.style.transform = 'scale(1)'),
-  }
+  // AUTH-21. The press effect used to be three handlers writing
+  // `transform: scale(0.98)` straight onto the DOM node. Nothing survives
+  // that: a class-based Button cannot carry it forward, and the node keeps
+  // whatever the last handler wrote even after React re-renders.
+  //
+  // `active:scale-[0.98]` is the same 2 percent, in CSS, on the element's own
+  // :active — so it needs no handler, cannot be left stuck at 0.98 by a
+  // mouse-up the element never received, and survives the restyle. The
+  // 100ms transform tween left with the handlers; an instant press reads
+  // crisper and has no state to unwind.
+  //
+  // Its permanent home is `.ui-btn:active` in the kit (hand-off kit request
+  // K1); this is the one-utility stand-in until that lands app-wide.
+  const PRESS_CLASS = 'active:scale-[0.98]'
 
   return (
     <AuthShell
@@ -617,7 +627,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Checking…' : 'Continue'}
             </button>
           </form>
@@ -658,7 +668,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
 
@@ -674,7 +684,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 type="button"
                 onClick={handleChangeCompany}
                 disabled={busy}
-                style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+                style={{ ...AUTH_LINK_STYLE, ...(busy ? AUTH_LINK_BUSY_STYLE : null) }}
               >
                 Change company
               </button>
@@ -685,7 +695,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                     type="button"
                     onClick={onForgotPassword}
                     disabled={busy}
-                    style={{ ...AUTH_LINK_STYLE, opacity: busy ? 0.5 : 1, cursor: busy ? 'default' : 'pointer' }}
+                    style={{ ...AUTH_LINK_STYLE, ...(busy ? AUTH_LINK_BUSY_STYLE : null) }}
                   >
                     Forgot password?
                   </button>
@@ -714,7 +724,7 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
             <div style={AUTH_HINT_STYLE}>
               ENTER THE 6-DIGIT CODE FROM YOUR AUTHENTICATOR APP
             </div>
-            <button type="submit" disabled={busy} style={submitStyle} {...press}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={submitStyle}>
               {busy ? 'Verifying…' : 'Verify'}
             </button>
           </form>
@@ -742,7 +752,6 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                         fontSize: '15px',
                         background: 'transparent',
                         border: 'none',
-                        cursor: busy ? 'default' : 'pointer',
                         width: '100%',
                         textAlign: 'left',
                         padding: '4px 8px',

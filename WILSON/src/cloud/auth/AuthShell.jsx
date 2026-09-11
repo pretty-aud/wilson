@@ -555,6 +555,24 @@ export const AUTH_ERROR_STYLE = {
   color: AUTH_ERROR_INK,
 }
 
+// ── Named state variants (UI overhaul D2, the state-extraction commit) ──────
+// Busy was written as an inline ternary beside every auth button: 0.55 on the
+// five submits, 0.5 on the two link buttons, 0.6 on the MFA gate. Three values
+// for one state, each re-typed per file, and an inline `opacity` BEATS any
+// class a later restyle writes — that is the Bins dead-hover bug (plan §1).
+//
+// The branch is a named object now, so the state is one thing with one value
+// and a restyle cannot silently drop it. The numbers below are the ones that
+// were already on screen: this commit is provably visual-neutral, and the
+// token swap is the commit after it.
+//
+// The cursor half is redundant with the global `:disabled` rule in index.css
+// once a button carries `disabled`, and every one of these already does; it is
+// kept here only until the values move, so that this commit changes nothing a
+// screenshot can see.
+export const AUTH_BUTTON_BUSY_STYLE = { opacity: 0.55, cursor: 'default' }
+export const AUTH_LINK_BUSY_STYLE = { opacity: 0.5, cursor: 'default' }
+
 // A label + its control, spaced by the within-field gap. Every auth field on
 // every auth surface goes through this so the pairing can never drift.
 export function AuthField({ label, children }) {

@@ -40,6 +40,7 @@ import AuthShell, {
   AUTH_TEXT_STYLE,
   AUTH_TITLE_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
   AUTH_GAP_BETWEEN_FIELDS,
@@ -199,8 +200,7 @@ export default function ResetPasswordWizard({ onDone }) {
   // Session 43 §A7: field + button styling comes from AuthShell.
   const primaryButton = (isBusy) => ({
     ...AUTH_BUTTON_STYLE,
-    cursor: isBusy ? 'default' : 'pointer',
-    opacity: isBusy ? 0.55 : 1,
+    ...(isBusy ? AUTH_BUTTON_BUSY_STYLE : null),
   })
 
   return (

@@ -84,13 +84,9 @@ export default function HelpPage() {
                   {/* Tool Toggle Header */}
                   <button
                     onClick={() => toggleTool(tool.id)}
-                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors"
-                    style={{
-                      borderBottom: '1px solid rgba(0,0,0,0.08)',
-                      backgroundColor: isExpanded ? 'rgba(0,0,0,0.1)' : 'transparent',
-                    }}
-                    onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)' }}
-                    onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.backgroundColor = 'transparent' }}
+                    data-state={isExpanded ? 'expanded' : 'collapsed'}
+                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 transition-colors data-[state=collapsed]:hover:bg-[rgba(0,0,0,0.06)] data-[state=expanded]:bg-[rgba(0,0,0,0.1)]"
+                    style={{ borderBottom: '1px solid rgba(0,0,0,0.08)' }}
                   >
                     {isExpanded
                       ? <ChevronDown className="w-3 h-3 text-white flex-shrink-0" />
@@ -108,17 +104,14 @@ export default function HelpPage() {
                         <button
                           key={item.id}
                           onClick={() => setActivePage(item.id)}
-                          className="w-full text-left py-1.5 text-[11px] transition-colors"
+                          data-state={activePage === item.id ? 'active' : 'idle'}
+                          className="w-full text-left py-1.5 text-[11px] transition-colors data-[state=idle]:text-[rgba(255,255,255,0.55)] data-[state=idle]:hover:text-[rgba(255,255,255,0.8)] data-[state=idle]:hover:bg-[rgba(0,0,0,0.06)] data-[state=active]:text-white data-[state=active]:bg-[rgba(0,0,0,0.1)]"
                           style={{
                             paddingLeft: '24px',
                             paddingRight: '8px',
-                            color: activePage === item.id ? '#fff' : 'rgba(255,255,255,0.55)',
                             fontWeight: activePage === item.id ? 'bold' : 'normal',
                             borderLeft: activePage === item.id ? '2px solid #fff' : '2px solid transparent',
-                            backgroundColor: activePage === item.id ? 'rgba(0,0,0,0.1)' : 'transparent',
                           }}
-                          onMouseEnter={(e) => { if (activePage !== item.id) { e.currentTarget.style.color = 'rgba(255,255,255,0.8)'; e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.06)' } }}
-                          onMouseLeave={(e) => { if (activePage !== item.id) { e.currentTarget.style.color = 'rgba(255,255,255,0.55)'; e.currentTarget.style.backgroundColor = 'transparent' } }}
                         >
                           {item.label}
                         </button>

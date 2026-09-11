@@ -25,6 +25,7 @@ import AuthShell, {
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
   AUTH_LINK_STYLE,
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
@@ -158,11 +159,8 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
             <button
               type="submit"
               disabled={busy}
-              style={{
-                ...AUTH_BUTTON_STYLE,
-                cursor: busy ? 'default' : 'pointer',
-                opacity: busy ? 0.55 : 1,
-              }}
+              className="active:scale-[0.98]"
+              style={{ ...AUTH_BUTTON_STYLE, ...(busy ? AUTH_BUTTON_BUSY_STYLE : null) }}
             >
               {busy ? 'Sending…' : 'Send reset link'}
             </button>

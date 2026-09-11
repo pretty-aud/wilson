@@ -37,6 +37,7 @@ import AuthShell, {
   AUTH_TITLE_STYLE,
   AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE,
+  AUTH_BUTTON_BUSY_STYLE,
   AUTH_BUTTON_QUIET_STYLE,
   AUTH_HINT_STYLE,
   AUTH_ERROR_STYLE,
@@ -258,11 +259,11 @@ export default function NewUserWelcome({ onComplete, membership }) {
           <button
             type="submit"
             disabled={busy}
+            className="active:scale-[0.98]"
             style={{
               ...AUTH_BUTTON_STYLE,
               marginTop: '2px',
-              cursor: busy ? 'default' : 'pointer',
-              opacity: busy ? 0.55 : 1,
+              ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
             }}
           >
             {busy ? 'Saving…' : 'Get started'}

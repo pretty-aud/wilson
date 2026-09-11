@@ -17,7 +17,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ShieldCheck, ShieldOff, Copy, Check } from 'lucide-react'
 import { supabase } from './supabaseClient'
-import AuthShell, { AUTH_TEXT_STYLE, AUTH_INK, AUTH_ERROR_INK, AUTH_LINK_STYLE } from './AuthShell'
+import AuthShell, {
+  AUTH_TEXT_STYLE, AUTH_INK, AUTH_ERROR_INK, AUTH_LINK_STYLE, AUTH_BUTTON_BUSY_STYLE,
+} from './AuthShell'
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
@@ -51,6 +53,8 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
   const [error, setError] = useState(null)
   const [copied, setCopied] = useState(false)
   const startedRef = useRef(false)
+  // One name for the one state the submit button has (see its style below).
+  const locked = phase === 'verifying' || phase === 'enrolled'
 
   const begin = useCallback(async () => {
     setPhase('loading')
@@ -225,8 +229,8 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
       {error && <div className="text-[11px] font-mono" style={{ color: dark ? AUTH_ERROR_INK : '#dc2626' }}>{error}</div>}
       <button
         type="submit"
-        disabled={phase === 'verifying' || phase === 'enrolled'}
-        className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm"
+        disabled={locked}
+        className="text-xs font-bold uppercase tracking-widest px-5 py-2 rounded-sm active:scale-[0.98]"
         style={{
           // "Authenticate" is one of the two buttons Audrey named. Matches
           // AUTH_BUTTON_STYLE exactly on the auth overlay — #c2410c, white
@@ -236,8 +240,12 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
           color: dark ? '#fff' : '#fff7ed',
           border: dark ? 'none' : '1px solid #c2410c',
           borderRadius: dark ? '6px' : undefined,
-          opacity: phase === 'verifying' || phase === 'enrolled' ? 0.6 : 1,
-          cursor: phase === 'verifying' || phase === 'enrolled' ? 'default' : 'pointer',
+          // `locked` names the branch once. It was written out three times as
+          // `phase === 'verifying' || phase === 'enrolled'` — twice inside an
+          // inline style, where an opacity beats any class a restyle writes —
+          // and the third value (0.6) was a third spelling of one state that
+          // the rest of the family spells 0.55 and 0.5.
+          ...(locked ? AUTH_BUTTON_BUSY_STYLE : null),
         }}
       >
         {phase === 'enrolled' ? 'MFA active ✓' : phase === 'verifying' ? 'Activating…' : 'Activate MFA'}
