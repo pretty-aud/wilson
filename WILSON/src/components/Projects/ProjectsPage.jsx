@@ -28,8 +28,9 @@ import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
-import { LIGHT_INK } from '../lightSurface'
+import { Banner, Button, Field, Input } from '../../ui'
 import { hasLocalServer } from '../../lib/localData'
+import '../Resources/resources.css'
 
 function newFileId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -335,58 +336,60 @@ export default function ProjectsPage({ onNavigate }) {
   }, [activeProject, updateActive, cloudFiles, ctx, loadCloudFiles])
 
   // ── Create prompt view ────────────────────────────────────
+  //
+  // UI overhaul C1. Tokens and kit components only, the shape untouched:
+  // Track C carries +207 lines on this file unmerged (plan Q13), so the merge
+  // must conflict on lines rather than on structure. One field, one checkbox,
+  // two buttons, one error — exactly as before.
+  //
+  // The title is gone from here too (F-R06): the orange bar already says
+  // "Projects". The field was a BLACK well (`#1c1917` with `#f4a261` text) on
+  // the light orange page, which is one of the two the review named as the
+  // clearest sign the page class was fighting the page (F-R08); on `paper` it
+  // is simply the one input. `#ea580c` with white measured 3.56:1 and is now
+  // `signal-fill` (5.18:1, Q16); `#44403c`/`#a8a29e` and `text-red-400` go
+  // with it (F-R14).
   if (view === 'create') {
     return (
-      <div className="h-full flex items-center justify-center px-8">
-        <div className="w-full max-w-md">
-          <h2 className="text-lg font-bold uppercase tracking-widest mb-6 text-center" style={{ color: LIGHT_INK }}>
-            Create New Project
-          </h2>
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
-            placeholder="Enter project title..."
-            autoFocus
-            className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
-          />
+      <div className="rs-page pj-create">
+        <div className="pj-create-inner">
+          <Field label="Project title">
+            <Input
+              value={newTitle}
+              onChange={setNewTitle}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateProject() }}
+              placeholder="Enter a project title"
+              autoFocus
+            />
+          </Field>
           {privateOk && (
-            <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: LIGHT_INK }} data-private-project>
+            <label className="pj-private" data-private-project>
               <input
                 type="checkbox"
                 checked={newPrivate}
                 onChange={(e) => setNewPrivate(e.target.checked)}
-                className="mt-0.5"
               />
               <span>
-                <b>Private project.</b> Only you (and workspace admins) can see it, and its media is stored on this computer — not in the cloud — so it cannot be shared. Its database stays in Supabase. For demos.
+                <strong>Private project.</strong> Only you (and workspace admins) can see it, and its media is stored on this computer — not in the cloud — so it cannot be shared. Its database stays in Supabase. For demos.
               </span>
             </label>
           )}
-          <div className="flex gap-3 mt-4">
-            <button
+          <div className="pj-create-actions">
+            <Button
+              variant="ghost"
               onClick={() => { setView('list'); setNewTitle(''); setNewPrivate(false) }}
-              className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
-              style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={handleCreateProject}
               disabled={busy || !newTitle.trim()}
-              className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors disabled:opacity-40"
-              style={{ backgroundColor: '#ea580c', color: '#fff' }}
             >
-              {busy ? 'Creating...' : 'Create'}
-            </button>
+              {busy ? 'Creating…' : 'Create project'}
+            </Button>
           </div>
-          {saveError && (
-            <div className="mt-3 text-xs text-red-400 px-3 py-2 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #991b1b' }}>
-              {saveError}
-            </div>
-          )}
+          {saveError && <Banner tone="danger">{saveError}</Banner>}
         </div>
       </div>
     )

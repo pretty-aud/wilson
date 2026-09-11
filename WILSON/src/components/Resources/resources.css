@@ -1,30 +1,40 @@
 /* ═══════════════════════════════════════════════════════════════
    RESOURCES — Files, Projects, Rate Card
-   UI overhaul C1 (lane C), 2026-09-11 — COMMIT 1: THE STATE EXTRACTION
+   UI overhaul C1 (lane C), 2026-09-11
 
    The three pages under the RESOURCES nav column share one review file
    (`docs/design/review/resources.md`) and one lane, so they share one
    stylesheet. Team Members is the fourth page in that column; it is F2's
    worked example and its rules live in `src/index.css` beside the kit.
 
-   🚨 THIS COMMIT CHANGES NOTHING VISUALLY, ON PURPOSE.
+   ── HOW THIS FILE WAS BUILT, IN TWO COMMITS ─────────────────────────────
 
-   Every hover / selected / active / disabled / dragging / editing / ghost
-   state on these three pages moves out of an inline `style` ternary — and out
-   of the four `onMouseEnter` / `onMouseLeave` handlers that wrote
-   `e.currentTarget.style` directly — into a `data-*` attribute resolved here.
-   Every value below is TRANSCRIBED UNCHANGED from the source it came from,
-   with the line it came from named. The next commit replaces them with the
-   `@theme` tokens; this one exists so that replacement cannot silently drop a
-   branch nobody enumerated.
+   FIRST, "the state extraction", a commit with no visual change in it: every
+   hover / selected / active / disabled / dragging / editing / ghost branch on
+   these three pages moved out of an inline `style` ternary — and out of the
+   four `onMouseEnter` / `onMouseLeave` handlers that wrote
+   `e.currentTarget.style` directly — into a `data-*` attribute resolved here,
+   with the values transcribed unchanged and the line each came from named.
 
-   Why it has to come first (plan §1, risk 4; review Risk 4): an inline style
+   Why it had to come first (plan §1, risk 4; review Risk 4): an inline style
    beats a `hover:` class at any specificity, so a class-based restyle written
    beside a surviving inline style silently drops the state. Two states on
-   this surface had already been lost that way before this pass — the Files
-   table and the Files column list have no hover at all (F-R11), and the
-   Projects list's hover could never answer `:focus-within` because it lived
-   in JS (F-R20).
+   this surface had already been lost that way — the Files table and the Files
+   column list had no hover at all (F-R11), and the Projects list's hover
+   could never answer `:focus-within` because it lived in JS (F-R20). The
+   defect turned up again while doing the extraction itself:
+   `ProjectDetailPanel`'s `L.select` carried `color` inline, so the extracted
+   rule could never have won until `color` left the style object.
+
+   SECOND, this file's current state: those transcribed values are gone and
+   the three pages are on the dark `paper` ground (Q1 option A), which is what
+   makes status colour legible at all — on `#f4a261` the greens measured
+   1.33:1 and the reds 1.10:1 (F-R02, F-R19).
+
+   🚨 NO HEX IS WRITTEN IN THIS FILE. Plan §3, C8: a colour that is not in
+   `@theme` does not exist. The one exception is a black scrim at 14 percent
+   for a hover ON the orange department bar, where the ink is the fill's, not
+   the page's — it is a shade of the fill rather than a colour.
 
    🚨 `@layer` IS NAMED ON THE FIRST LINE, BEFORE ANY RULE. A layer's place in
    the cascade is fixed where it is FIRST named, not where its rules are
@@ -325,129 +335,734 @@
     color: var(--color-ink-3);
   }
 
-  /* ═══ PROJECTS — ProjectListPanel.jsx ═════════════════════════════════ */
+  /* === PROJECTS ======================================================== */
 
-  /* was the row's inline zebra at :140 PLUS the two handlers at :145-146 that
-     wrote `e.currentTarget.style.backgroundColor` on enter and restored the
-     zebra on leave. In JS the hover could only ever answer a mouse; as a rule
-     it can answer `:focus-within` too, which is what F-R20 asks for. */
-  .pl-row[data-zebra="a"] { background-color: rgba(120, 70, 30, 0.12); }
-  .pl-row[data-zebra="b"] { background-color: rgba(120, 70, 30, 0.22); }
-  .pl-row:hover,
-  .pl-row:focus-within { background-color: rgba(120, 70, 30, 0.38); }
+  /* The one line of help copy the list keeps. F-R06 deleted the duplicated
+     TITLE, not the page's own explanation of itself. */
+  .rs-lede {
+    margin: 0;
+    max-width: var(--measure-reading);
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rs-lede code {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--color-ink);
+  }
 
-  /* was the delete button's two handlers at :230-231, which wrote
-     `e.currentTarget.style.color` directly */
-  .pl-del { color: #9a6438; }
-  .pl-del:hover,
-  .pl-del:focus-visible { color: #ef4444; }
+  .pl-card { flex: 1; min-height: 0; }
+  .pj-title-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .pj-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 
-  /* was the status select's `color:` ternary at :186 — 1.33:1 and 1.10:1 as
-     measured (F-R02), transcribed here unchanged and replaced next commit */
-  .pl-status[data-status="active"] { color: #16a34a; }
-  .pl-status[data-status="inactive"] { color: #dc2626; }
+  /* -- The status column -------------------------------------------------
+     F-R02, the worst measured defect on the surface: `#16a34a` / `#dc2626` on
+     `rgba(120,70,30,0.5)` over a zebra row over `#f4a261` composited to
+     1.33:1 and 1.10:1, at 12px bold uppercase, and it was the view's only
+     colour-coded signal. On `paper` the semantic tokens measure. The SELECT
+     is still the control and the WORD still carries the state; the ink only
+     reinforces it. Inactive takes the third ink rather than a red: a project
+     that is not running is neutral, not in error. */
+  .pl-status[data-status="active"] { color: var(--color-success); }
+  .pl-status[data-status="inactive"] { color: var(--color-ink-3); }
+  .pl-status option { color: var(--color-ink); }
 
-  /* ═══ PROJECTS — ProjectDetailPanel.jsx ═══════════════════════════════ */
+  .pj-scroll { overflow-y: auto; }
+  .pj-form {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-gutter);
+  }
+  .pj-form-col { display: flex; flex-direction: column; gap: 16px; }
+  .pj-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pj-budget { display: grid; grid-template-columns: 1fr 96px; gap: 12px; }
+  /* 1280x700 is Electron's floor and the plan's second checkpoint; the
+     two-column form is the first thing that stops fitting there. */
+  @media (max-width: 900px) {
+    .pj-form { grid-template-columns: 1fr; }
+  }
+  .pj-form .ui-field-label > svg { width: var(--icon-sm); height: var(--icon-sm); }
 
-  /* was the drop zone at :353-362. FOUR properties were conditional at once:
-     the border colour and background on `isDragging`, and the padding and
-     margin-bottom on `fileCount` — under `transition: all`, which is why the
-     first upload animated two layout properties (F-R30). */
-  .pd-drop {
-    border: 2px dashed rgba(120, 70, 30, 0.45);
-    border-radius: 4px;
-    padding: 24px 32px;
+  /* The section rhythm F-R25 asked for: one hairline, 32px above and 24px
+     below, replacing a symmetric 28px margin on a 2px translucent brown rule
+     that read as a smudge rather than a line. `SectionTitle` draws the
+     hairline; this is the gap around it. */
+  .pj-section { margin-top: 32px; display: flex; flex-direction: column; gap: 12px; }
+
+  /* -- The drop zone -----------------------------------------------------
+     F-R30: `transition: all 0.15s` sat on a container whose padding AND
+     margin were both conditional on `fileCount`, so the first successful
+     upload animated two layout properties and shifted everything below it by
+     28px. Named properties only, and ONE padding and ONE icon size for both
+     states, so the jump does not exist to be animated. */
+  .pj-drop {
+    display: block;
+    width: 100%;
+    border: 1px dashed var(--color-rule);
+    border-radius: var(--radius-control);
+    padding: 16px var(--spacing-gutter);
     text-align: center;
     cursor: pointer;
-    margin-bottom: 0;
     background-color: transparent;
-    transition: all 0.15s ease;
+    color: var(--color-ink-2);
+    transition: background-color var(--duration-state) ease-out,
+                border-color var(--duration-state) ease-out,
+                color var(--duration-state) ease-out;
   }
-  .pd-drop[data-has-files] { padding: 12px 24px; margin-bottom: 16px; }
-  .pd-drop[data-dragging] {
-    border-color: #ea580c;
-    background-color: rgba(234, 88, 12, 0.08);
+  .pj-drop:hover { border-color: var(--color-ink-3); color: var(--color-ink); }
+  .pj-drop[data-dragging] {
+    border-color: var(--color-signal);
+    background-color: var(--color-signal-tint);
+    color: var(--color-ink);
   }
-  .pd-drop-icon { color: #9a6438; margin: 0 auto 6px; }
-  .pd-drop[data-dragging] .pd-drop-icon { color: #ea580c; }
-  .pd-drop-text { font-size: 13px; color: #7c4f1f; }
-  .pd-drop[data-dragging] .pd-drop-text { color: #ea580c; }
+  .pj-drop-icon { width: var(--icon-md); height: var(--icon-md); margin: 0 auto 6px; display: block; }
+  .pj-drop-text { font-size: var(--text-dense); line-height: var(--text-dense--line-height); }
 
-  /* was the two role selects' `color:` ternary at :189 and :208 — the
-     placeholder state borrowed LIGHT_INK while a chosen value used #fde8d0.
-     🚨 `color` also had to LEAVE `L.select`, or the surviving inline value
-     would beat every rule below it — which is the whole defect this commit
-     exists to prevent, met on the first file. The fourth select (currency)
-     has no state and takes the class only for the base ink. */
-  .pd-select { color: #fde8d0; }
-  .pd-select[data-empty] { color: #1c1917; }
+  /* -- The folder tree readout -------------------------------------------
+     F-R31: entity folders were de-emphasised with `opacity: 0.85`, which on a
+     coloured ground produces a blend toward the ground -- the grey-on-orange
+     mechanism the rule bans, reached by another route -- in `#5c3415`, a
+     sixth brown ink on a surface meant to have one. Weight carries the root;
+     the paddingLeft indent stays, because it is the one thing there that
+     works. */
+  .pj-tree {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: 1.7;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    padding: 10px var(--cell-pad-x);
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .pj-tree-row { white-space: nowrap; }
+  .pj-tree-row[data-kind="root"] { font-weight: 600; color: var(--color-ink); }
+  .pj-tree-label { color: var(--color-ink-3); }
 
-  /* was the status select's `color:` ternary at :228 */
-  .pd-status[data-status="active"] { color: #22c55e; }
-  .pd-status[data-status="inactive"] { color: #ef4444; }
+  .pj-path {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    padding: 8px var(--cell-pad-x);
+    overflow-wrap: anywhere;
+  }
 
-  /* was the folder row's `opacity` and `fontWeight` at :448-453 — an opacity
-     on a coloured ground is a blend toward the ground, which is the
-     grey-on-orange mechanism arrived at by another route (F-R31) */
-  .pd-tree-row { opacity: 1; font-weight: 400; }
-  .pd-tree-row[data-kind="entity"] { opacity: 0.85; }
-  .pd-tree-row[data-kind="root"] { font-weight: 700; }
+  .pj-meta {
+    display: flex;
+    gap: 16px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  .pj-meta-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-ink-2); }
 
-  /* ═══ RATE CARD — RateCardPage.jsx ════════════════════════════════════ */
+  /* -- The danger region -------------------------------------------------
+     F-R28 / Hick's #6: Back, Open in RABBIT and Delete Project were the same
+     button at the same size, so the detail view had no primary action at all,
+     and Delete sat at the bottom after a divider identical to every other
+     divider on the page. Bounded, with a Label eyebrow and a heavier gap than
+     any other section, so the eye stops counting it among the navigation. */
+  .pj-danger {
+    margin-top: 32px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .pj-danger-eyebrow {
+    flex-basis: 100%;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .pj-danger-question {
+    margin-right: auto;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
 
-  /* was `tabStyle(type)` at :199-210 plus the disabled branch's inline
-     `cursor` and `opacity` at :255. The active tab's ink (#7c2d12, 4.54:1) is
-     LIGHTER than the inactive tab's (#451a03, ~7:1), so the selection is
-     carried by the fill while the ink runs backwards (F-R22). */
-  .rc-tab {
+  /* -- The create view ---------------------------------------------------*/
+  .pj-create { align-items: center; justify-content: center; padding: var(--spacing-gutter); }
+  .pj-create-inner { width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 16px; }
+  .pj-create-actions { display: flex; gap: 12px; }
+  .pj-create-actions > * { flex: 1; }
+  .pj-private {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    cursor: pointer;
+  }
+  .pj-private input { margin-top: 3px; accent-color: var(--color-signal); flex-shrink: 0; }
+  .pj-private strong { color: var(--color-ink); font-weight: 600; }
+
+  /* === RATE CARD ======================================================= */
+
+  .rs-body-flush { padding-bottom: 0; flex: 0 0 auto; }
+
+  .rc-body { display: flex; flex: 1; min-height: 0; }
+  .rc-side {
+    width: var(--panel-md);
+    flex-shrink: 0;
+    border-right: 1px solid var(--color-rule);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .rc-side-head {
+    display: flex;
+    align-items: center;
+    height: var(--panel-header);
+    flex-shrink: 0;
+    padding: 0 var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rc-side-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .rc-side-eyebrow {
+    margin-top: 4px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rc-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+  /* Panel copy was 11px mono with `leading-relaxed` in five places; it is the
+     Dense body step in the sans, which is what body copy is (F-R17, F-R18). */
+  .rc-note {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+
+  .rc-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rc-stats-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .rc-stat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rc-stat-row > span:first-child { display: inline-flex; align-items: center; }
+  .rc-stat-value {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  /* Status colour works at all only because the page moved to `paper` (Q1):
+     on `#f4a261` the green measured 2.43:1 and was unreadable (F-R19). The
+     WORD carries the state in both rows; the ink reinforces it. */
+  .rc-stat-value[data-tone="ok"] { color: var(--color-success); }
+  .rc-stat-value[data-tone="warn"],
+  .rs-toolbar-glyph[data-tone="warn"] { color: var(--color-warning); }
+
+  /* The importer cards: one hairline instead of a 2px `#f4a261` frame, and a
+     sentence-case H3 label instead of 12px mono uppercase tracked. */
+  .rc-importer {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    width: 100%;
+    padding: 12px;
+    text-align: left;
     background-color: transparent;
-    color: #451a03;
-    border: 1px solid transparent;
-    border-bottom: 1px solid transparent;
-    margin-bottom: -2px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out,
+                border-color var(--duration-state) ease-out;
   }
-  .rc-tab[data-active] {
-    background-color: rgba(120, 70, 30, 0.18);
-    color: #7c2d12;
-    border-color: #7c2d12;
-    border-bottom-color: rgba(120, 70, 30, 0.18);
+  .rc-importer:hover:not(:disabled) { background-color: var(--color-hover); border-color: var(--color-ink-3); }
+  .rc-importer:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .rc-importer > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; margin-top: 1px; color: var(--color-ink-3); }
+  .rc-importer-label {
+    display: block;
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
   }
-  .rc-tab[data-disabled] { cursor: not-allowed; opacity: 0.55; }
+  .rc-importer-note {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
 
-  /* was ImporterCard's inline `opacity: disabled ? 0.6 : 1` at :556 */
-  .rc-importer { opacity: 1; }
-  .rc-importer[data-disabled] { opacity: 0.6; }
+  /* -- The table shell ---------------------------------------------------*/
+  .rc-table-wrap {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    gap: 12px;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+  .rc-card { flex: 1; min-height: 0; }
 
-  /* ═══ RATE CARD — RateCardTable.jsx ═══════════════════════════════════ */
+  /* -- The department group bar ------------------------------------------
+     Audrey, 2026-08-10: "make the yellow team bars in the internal page a
+     dark orange ... stick to our color palette." `#c2410c` carrying white at
+     5.18:1 is the one status fill on this surface the review measured and
+     kept, and it is `signal-fill` app-wide now (Q16).
 
-  /* was the ghost row's `style={isGhost ? {…} : undefined}` at :717 and the
-     draft row's identical inline fill at :882 */
-  .rc-row[data-ghost] { background-color: rgba(120, 70, 30, 0.18); }
+     Alignment list #10: the bar spanned all eleven columns with its own 12px
+     inset, so the group label did not line up with the Role column it names.
+     The inset IS the cell inset now. */
+  .rc-dept-cell { padding: 0; border-bottom: 1px solid var(--color-rule); }
+  .rc-dept {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: var(--row-dense);
+    padding: 0 var(--cell-pad-x);
+    background-color: var(--color-signal-fill);
+  }
+  .rc-dept-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: var(--color-on-fill);
+  }
+  .rc-dept-toggle > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .rc-dept-name {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-on-fill);
+  }
+  .rc-dept-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-on-fill);
+  }
+  .rc-dept-defaults { margin-left: auto; display: flex; align-items: center; gap: 16px; }
 
-  /* was the total cell's `color:` ternary at :829 — #166534 measures 3.46:1
-     on this page class (F-R19) */
-  .rc-total { color: #1c1917; }
-  .rc-total[data-positive] { color: #166534; }
+  /* -- The cells ---------------------------------------------------------
+     F-R09, the worst alignment defect on the surface: `th` padded 6px 4px,
+     `td` padded 1px 2px, and every inner control added its own 8px or 4px, so
+     each of eleven column labels sat 6px left of its own data and the row
+     height came from a child's `minHeight: 28px`. The Table owns the 8px/12px
+     cell; every control here is padded to ZERO and fills it. */
+  .rc-cell {
+    display: block;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-control);
+    font: inherit;
+    color: var(--color-ink);
+    text-align: left;
+    cursor: text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-cell[data-align="right"] { text-align: right; }
+  .rc-cell[data-align="center"] { text-align: center; }
+  .rc-cell[data-numeric] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .rc-cell:hover:not([data-readonly]) { background-color: var(--color-hover); }
+  .rc-cell[data-readonly] { cursor: default; }
+  .rc-cell-placeholder { color: var(--color-ink-3); }
 
-  /* was the currency option's `color:` ternary at :262 */
-  .rc-currency-option { color: #1c1917; }
-  .rc-currency-option[data-current] { color: #ea580c; }
-
-  /* was the %/$ toggle's inline `opacity: 0.45` at :193 — a 45% opacity ink
-     on a coloured ground is the banned third ink by another mechanism, and
-     the control it dims is a 16x14px target 2px from a different action
-     (F-R21) */
-  .rc-comp-type { color: #7c2d12; opacity: 0.45; line-height: 1; }
-
-  /* EditCell and RateCompCell return TWO DIFFERENT JSX branches for display
-     and editing, and the editing one is what the user is looking at while
-     typing. Both are named here so the restyle cannot convert one and leave
-     the other (review Risk 1). */
-  .rc-cell { color: #1c1917; }
+  /* The EDITING branch. It is what the user looks at WHILE TYPING, and the
+     review's Risk 1 is a restyle that converts only the display branch and
+     leaves this one unstyled. Same width and same inset as the display
+     branch, so the cell does not move when it opens. */
   .rc-cell-input {
-    background-color: rgba(120, 70, 30, 0.18);
-    color: #1c1917;
-    border: 1px solid #ea580c;
+    display: block;
+    width: 100%;
+    padding: 0;
+    background-color: var(--color-paper);
+    border: 0;
+    border-radius: var(--radius-control);
+    box-shadow: inset 0 0 0 1px var(--color-signal);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--text-dense);
   }
-  .rc-cell-placeholder { color: #7c2d12; opacity: 0.4; }
+  .rc-cell-input[data-align="right"] { text-align: right; }
+  .rc-cell-input[data-numeric] { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+  /* -- Burden / overhead -------------------------------------------------
+     F-R21 / Hick's #4: a 9px, 45%-opacity %/$ toggle with roughly a 16x14px
+     hit area sat 2px from a different action, on every row, and a mis-click
+     silently changed a rate from a percentage to a dollar amount on a
+     financial record. Both controls stay and both behaviours stay: the toggle
+     takes a reserved 28px slot at the cell's right edge, 8px clear of the
+     value, at the Label step in full-strength ink. */
+  .rc-comp { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .rc-comp-value { flex: 1; min-width: 0; }
+  .rc-comp-type {
+    flex: 0 0 var(--control-sm);
+    width: var(--control-sm);
+    height: var(--control-sm);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: none;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    color: var(--color-ink-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    font-weight: var(--text-label--font-weight);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .rc-comp-type:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  .rc-comp-derived {
+    display: block;
+    margin-top: 2px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    text-align: right;
+    /* clear of the reserved toggle slot, so the derived figure lines up under
+       the value it derives from rather than under the toggle beside it */
+    padding-right: calc(var(--control-sm) + 8px);
+  }
+
+  /* -- Currency ----------------------------------------------------------*/
+  .rc-currency { position: relative; }
+  .rc-currency-face {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-currency-face:hover { background-color: var(--color-hover); }
+  .rc-currency-symbol { color: var(--color-ink-3); flex-shrink: 0; }
+  .rc-currency-menu {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 4px);
+    right: 0;
+    width: 240px;
+    max-height: 264px;
+    overflow: auto;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+  .rc-currency-search {
+    width: 100%;
+    padding: 8px 12px;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    color: var(--color-ink);
+    font-size: var(--text-dense);
+  }
+  .rc-currency-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 12px;
+    text-align: left;
+    background: none;
+    border: 0;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-currency-option:hover { background-color: var(--color-hover); }
+  .rc-currency-option[data-current] { color: var(--color-signal); }
+  .rc-currency-code { width: 40px; flex-shrink: 0; }
+  .rc-currency-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--color-ink-3); }
+  .rc-currency-empty { padding: 8px 12px; font-size: var(--text-dense); color: var(--color-ink-3); }
+
+  /* -- The inline selects ------------------------------------------------
+     Alignment list #2 in its other home: a select that adds its own padding
+     inside a cell that already has some starts 4 to 6px right of every plain
+     cell above and below it, so the editable columns announce themselves by a
+     ragged left edge rather than by an affordance. */
+  .rc-select {
+    width: 100%;
+    padding: 0;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--text-dense);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-select:hover:not(:disabled) { background-color: var(--color-hover); }
+  .rc-select:disabled { color: var(--color-ink-2); cursor: default; }
+
+  /* -- The rows ----------------------------------------------------------*/
+  /* A ghost row is a team member with no rate yet, and a draft row is the
+     one you type a new rate into. Both are "not an entry yet", which is a
+     quiet wash and NOT the selected treatment: a row that looks selected and
+     is not is worse than no marking (the shared Row's own note). */
+  .rc-row[data-ghost] > .ui-td,
+  .rc-row[data-draft] > .ui-td { background-color: var(--color-skeleton); }
+  .rc-member { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .rc-member-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rc-member-title {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--text-caption);
+    color: var(--color-ink-3);
+  }
+  .rc-member-warn { flex-shrink: 0; width: var(--icon-sm); height: var(--icon-sm); color: var(--color-warning); }
+  .rc-total { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  /* Weight, not a green. `#166534` measured 3.46:1 and was one of the three
+     greens the review pinned as failing controls (F-R19). */
+  .rc-total[data-positive] { font-weight: 600; color: var(--color-ink); }
+  .rc-draft-note {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
+
+  /* -- The totals rows ---------------------------------------------------
+     PER CURRENCY: these rows can carry different currencies and one figure
+     summed across them would be true of nothing. Kit request in the hand-off:
+     they belong in a `<tfoot>`, which the shared Table has no slot for. */
+  .rc-total-row > .ui-td {
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 0;
+    background-color: var(--color-paper-raised);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .rc-total-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+
+  /* -- Department defaults panel -----------------------------------------*/
+  .rc-defaults {
+    flex-shrink: 0;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rc-defaults-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    height: var(--toolbar);
+    padding: 0 var(--cell-pad-x);
+    background: none;
+    border: 0;
+    border-radius: var(--radius-control);
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-defaults-toggle:hover { background-color: var(--color-hover); }
+  .rc-defaults-toggle > svg { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
+  .rc-defaults-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+  }
+  .rc-defaults-toggle .rs-count { margin-left: auto; }
+  .rc-defaults-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+    padding: 0 var(--cell-pad-x) 12px;
+  }
+  .rc-defaults-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .rc-defaults-dept {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rc-defaults-pair { display: flex; align-items: center; gap: 12px; }
+
+  .rc-dd {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-sm);
+    padding: 0 6px;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .rc-dd:hover { background-color: var(--color-hover); }
+  .rc-dd-label {
+    font-size: var(--text-label);
+    letter-spacing: var(--text-label--letter-spacing);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .rc-dd-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  /* On the department bar the ink is the one the FILL carries (white at
+     5.18:1 on `signal-fill`), not the page's. */
+  .rc-dept .rc-dd:hover { background-color: rgb(0 0 0 / 0.14); }
+  .rc-dept .rc-dd-label,
+  .rc-dept .rc-dd-value { color: var(--color-on-fill); }
+  .rc-dd-input {
+    width: 56px;
+    padding: 0 4px;
+    background-color: var(--color-paper);
+    border: 0;
+    border-radius: var(--radius-control);
+    box-shadow: inset 0 0 0 1px var(--color-signal);
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--text-dense);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  /* -- The import preview ------------------------------------------------*/
+  .rc-preview { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+  .rc-preview-status {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rc-preview-status > span { display: inline-flex; align-items: center; gap: 6px; }
+  .rc-preview-status > span > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .rc-preview-status > span[data-tone="danger"] { color: var(--color-danger); }
+  .rc-preview-status > span[data-tone="warning"] { color: var(--color-warning); }
+  .rc-preview-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .rc-preview-card { flex: 1; min-height: 0; max-height: 46vh; }
+  .rc-preview-file {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 380px;
+    direction: rtl;
+    text-align: left;
+  }
+  .rc-errors {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    max-height: 96px;
+    overflow: auto;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rc-url-note {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+  }
+  .rc-url-note strong { color: var(--color-ink); font-weight: 600; }
 }
