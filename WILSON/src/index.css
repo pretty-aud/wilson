@@ -977,6 +977,65 @@ select option {
     flex-shrink: 0;
   }
   @keyframes ui-spin { to { transform: rotate(360deg); } }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     SHELL — App.jsx's own chrome (F2). Not kit components: one app renders
+     these, so they keep the `wilson-` prefix the scroll and chrome scopes
+     already use. Everything here is a STATE that used to be an inline value
+     computed from a useState hook (plan §1: an inline style beats a class,
+     so a class-based restyle written next to one silently does nothing).
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* Nav strip items. Hover and `dimmed` (the main column while the resources
+     sub-column is open) resolved in ONE place — see the note at `navState`
+     in App.jsx for why that single resolution is load-bearing. */
+  .wilson-nav-item {
+    opacity: 1;
+    transition: opacity var(--duration-response) ease;
+  }
+  .wilson-nav-item[data-state="hover"]  { opacity: 0.7; }
+  .wilson-nav-item[data-state="dimmed"] { opacity: 0.35; }
+
+  /* ── Team Members, the state extraction (F2, first commit on this file) ──
+     Every state below was an inline ternary, a `hover:` utility a sibling
+     inline style beat, or a direct `e.currentTarget.style` mutation. They
+     are enumerated here as named variants BEFORE the page is rebuilt on the
+     kit, which is the point of the pre-step: a branch that is not named here
+     is a branch the rebuild would have dropped in silence.
+
+     These rules reproduce the CURRENT look exactly — same values, same
+     durations. The rebuild commit re-points them at tokens. */
+  .tm-row { transition: background-color var(--duration-state) ease-out; }
+  /* Deactivated: `opacity: 0.5` on the whole row. Kept verbatim here; the
+     rebuild replaces it with the ink token (opacity is banned as a state,
+     plan §3.1) — which is exactly the sort of thing that has to be visible
+     as a named variant first. */
+  .tm-row[data-inactive="true"] { opacity: 0.5; }
+  .tm-row[data-highlighted="true"] { background-color: rgba(244, 162, 97, 0.14); }
+
+  /* The inline title editor's hover: was two `e.currentTarget.style`
+     mutations, so it could never be restyled from CSS at all. */
+  .tm-inline-edit { background-color: transparent; transition: background-color var(--duration-state) ease-out; }
+  .tm-inline-edit:hover, .tm-inline-edit:focus-visible { background-color: var(--color-well-light); }
+
+  /* Rate cell and the row action buttons: `hover:bg-stone-200` — a near-white
+     fill on the light orange page (C9) that only ever resolved because no
+     inline background sat beside it. */
+  .tm-cell-btn { background-color: transparent; transition: background-color var(--duration-state) ease-out; }
+  .tm-cell-btn:hover, .tm-cell-btn:focus-visible { background-color: var(--color-well-light); }
+
+  /* Saved-view segmented control: the SELECTED state was a two-branch inline
+     style object. A dark island on the light page, so it takes `paper` and
+     the light ground as its ink — the same two values it always had, now
+     named. (The member Active/Inactive pill is NOT here: that is a data
+     branch, not an interaction state, and the rebuild turns it into
+     StatusBadge rather than a second hand-drawn pill.) */
+  .tm-view-btn[data-active="false"] { background-color: transparent; color: var(--color-ink-light); }
+  .tm-view-btn[data-active="true"]  { background-color: var(--color-paper); color: var(--color-ground-light); }
+
+  /* Disabled: was `disabled:opacity-40` in four places (banned, plan §3.1;
+     named here, retired in the rebuild). */
+  .tm-disable-opacity:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 /* Reduced motion, scoped to the kit's own classes. 🚨 Never a `*` rule here:
@@ -984,7 +1043,8 @@ select option {
    an indeterminate progress indicator has no end state to jump to. */
 @media (prefers-reduced-motion: reduce) {
   .ui-btn, .ui-iconbtn, .ui-input, .ui-chip, .ui-menu-item,
-  .ui-switch-track, .ui-switch-knob {
+  .ui-switch-track, .ui-switch-knob,
+  .wilson-nav-item, .tm-inline-edit, .tm-row, .tm-cell-btn {
     transition-duration: 0.01ms;
   }
   .ui-toast { animation: none; }

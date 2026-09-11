@@ -1695,7 +1695,16 @@ export default function App() {
   // dark orange, as an interactive state on large bold type — not content
   // text on an orange surface. Do not remove it while enforcing the colour
   // rule.
-  const navOpacity = (key, dimmed) => (dimmed ? 0.35 : (navHovered === key ? 0.7 : 1));
+  //
+  // ── UI overhaul F2, the state extraction (plan §5) ──────────────────────
+  // The resolution above is right and stays; what changed is WHERE it lands.
+  // It used to be an inline `opacity` computed from `navHovered`, and an
+  // inline value beats any class — which is the whole defect this comment
+  // documents, one step removed. The state is now a single data attribute
+  // and the two values live in `.wilson-nav-item[data-state]` in index.css,
+  // so hover and dimmed STILL resolve in exactly one place (the property
+  // that mattered) and a later restyle can reach them from a stylesheet.
+  const navState = (key, dimmed) => (dimmed ? 'dimmed' : (navHovered === key ? 'hover' : 'rest'));
   // `hover:` is mouse-only and this nav is keyboard-reachable, so focus feeds
   // the same state rather than leaving a keyboard user with no feedback.
   const navStateProps = (key) => ({
@@ -1994,13 +2003,9 @@ export default function App() {
                 <button
                   key={item.label}
                   onClick={item.action}
-                  className="text-white font-bold uppercase tracking-[0.2em]"
-                  style={{
-                    fontSize: '16px',
-                    whiteSpace: 'nowrap',
-                    opacity: navOpacity(`res:${item.label}`, false),
-                    transition: 'opacity 200ms ease',
-                  }}
+                  className="wilson-nav-item text-white font-bold uppercase tracking-[0.2em]"
+                  data-state={navState(`res:${item.label}`, false)}
+                  style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
                   {...navStateProps(`res:${item.label}`)}
                 >
                   {item.label}
@@ -2033,14 +2038,9 @@ export default function App() {
                       }
                       item.action();
                     }}
-                    className="font-bold uppercase tracking-[0.2em]"
-                    style={{
-                      fontSize: '16px',
-                      whiteSpace: 'nowrap',
-                      color: '#fff',
-                      opacity: navOpacity(`main:${item.label}`, dimmed),
-                      transition: 'opacity 200ms ease',
-                    }}
+                    className="wilson-nav-item text-white font-bold uppercase tracking-[0.2em]"
+                    data-state={navState(`main:${item.label}`, dimmed)}
+                    style={{ fontSize: '16px', whiteSpace: 'nowrap' }}
                     {...navStateProps(`main:${item.label}`)}
                   >
                     {item.label}

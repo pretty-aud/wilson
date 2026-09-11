@@ -25,7 +25,7 @@ import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
 // RATE MODAL are deliberately untouched: that modal paints #1c1917, and a
 // grey on dark stone was never the problem.
 import {
-  LIGHT_INK, LIGHT_RULE, LIGHT_WELL,
+  LIGHT_INK, LIGHT_RULE,
   LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW, LIGHT_TABLE_HEAD_CELL,
 } from '../lightSurface'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
@@ -325,7 +325,7 @@ export default function TeamMembersPage() {
           onClick={handleExportRoster}
           disabled={filtered.length === 0}
           title={filtered.length === 0 ? 'No members in the current view' : 'Export the current view as CSV'}
-          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+          className="tm-disable-opacity flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
           style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: LIGHT_INK }}
         >
           <Download className="w-3 h-3" /> Export
@@ -523,11 +523,12 @@ function MemberRow({
   // §10-B: producers / creative directors get a highlighted row + badge.
   const highlighted = !inactive && staffBadges.length > 0
   return (
-    <tr style={{
-      borderBottom: `1px solid ${LIGHT_RULE}`,
-      opacity: inactive ? 0.5 : 1,
-      backgroundColor: highlighted ? 'rgba(244, 162, 97, 0.14)' : undefined,
-    }}>
+    <tr
+      className="tm-row"
+      data-inactive={inactive}
+      data-highlighted={highlighted}
+      style={{ borderBottom: `1px solid ${LIGHT_RULE}` }}
+    >
       <TdLight>
         <div className="flex items-center gap-2">
           <Avatar member={member} />
@@ -670,7 +671,7 @@ function MemberRow({
             <button
               type="button"
               onClick={onReactivate}
-              className="p-1 rounded-sm hover:bg-stone-200 transition-colors"
+              className="tm-cell-btn p-1 rounded-sm"
               title="Reactivate member"
               style={{ color: '#15803d' }}
             >
@@ -680,7 +681,7 @@ function MemberRow({
             <button
               type="button"
               onClick={onDeactivate}
-              className="p-1 rounded-sm hover:bg-stone-200 transition-colors"
+              className="tm-cell-btn p-1 rounded-sm"
               title="Deactivate member"
               style={{ color: '#dc2626' }}
             >
@@ -750,7 +751,7 @@ function RateCell({ entry, editable, onEdit }) {
     <button
       type="button"
       onClick={onEdit}
-      className="text-xs font-mono text-left hover:bg-stone-200 px-1 py-0.5 rounded-sm transition-colors"
+      className="tm-cell-btn text-xs font-mono text-left px-1 py-0.5 rounded-sm"
       style={{ color: '#1c1917' }}
       title="Edit rate card entry"
     >
@@ -897,7 +898,7 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
             type="button"
             onClick={phase === 'confirm' ? () => setPhase('form') : onCancel}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="tm-disable-opacity px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
           >
             {phase === 'confirm' ? 'Back' : 'Cancel'}
@@ -906,7 +907,7 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
             type="button"
             onClick={phase === 'confirm' ? confirm : toConfirm}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="tm-disable-opacity px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             {busy ? 'Saving…' : phase === 'confirm' ? 'Confirm change' : 'Review'}
@@ -956,10 +957,8 @@ function InlineLightText({ value, onCommit, placeholder }) {
     <button
       type="button"
       onClick={() => { setDraft(value); setEditing(true) }}
-      className={`text-xs font-mono text-left w-full truncate px-1 py-0.5 rounded-sm transition-colors${value ? '' : ' italic'}`}
+      className={`tm-inline-edit text-xs font-mono text-left w-full truncate px-1 py-0.5 rounded-sm${value ? '' : ' italic'}`}
       style={{ color: LIGHT_INK }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = LIGHT_WELL }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
     >
       {value || placeholder || '--'}
     </button>
