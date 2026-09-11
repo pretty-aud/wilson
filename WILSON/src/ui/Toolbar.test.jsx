@@ -75,7 +75,12 @@ describe('Toolbar: every child is 28px, including a tab bar', () => {
     const tab = css.match(/\n  \.ui-tab \{([^}]*)\}/)
     expect(tab, 'no .ui-tab block in index.css').not.toBeNull()
     expect(tab[1]).toContain('height: var(--control-md)')
+    // 🚨 Read the winning selector OUT OF THE STYLESHEET, for the same
+    // reason: a unit count over a string literal in the test is a fact about
+    // the test.
     const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
-    expect(units('.ui-toolbar .ui-tab')).toBeGreaterThan(units('.ui-tab'))
+    const winner = css.match(/(\.ui-toolbar \.ui-tab) \{/)
+    expect(winner, 'the toolbar tab rule is not its own selector any more').not.toBeNull()
+    expect(units(winner[1])).toBeGreaterThan(units('.ui-tab'))
   })
 })

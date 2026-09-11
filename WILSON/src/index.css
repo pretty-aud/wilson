@@ -388,7 +388,14 @@ html {
      never `opacity-30/40/50`. The colour half lives on the kit's classes
      below (`.ui-btn:disabled` and friends); the cursor is global so the ~60
      hand-rolled `disabled:cursor-not-allowed` utilities become redundant
-     rather than wrong. */
+     rather than wrong — for a control with no cursor of its own.
+     🚨 IT DOES NOT REACH THE KIT. This rule is in `@layer base` and every
+     kit control sets `cursor: pointer` in `@layer components`, a LATER
+     layer, which wins whatever the selectors say. Measured in Chromium at
+     F3: disabled `.ui-btn`, `.ui-iconbtn`, `.ui-chip` and the Switch track
+     all reported `pointer`. Each of those now repeats the declaration in its
+     own `:disabled` rule, and any NEW kit control that sets a cursor has to
+     do the same. */
   :disabled,
   [aria-disabled="true"] {
     cursor: not-allowed;
@@ -895,7 +902,13 @@ select option {
     transition: transform var(--duration-state) ease-out;
   }
   .ui-switch[data-checked="true"] .ui-switch-knob { transform: translateX(16px); }
-  .ui-switch[data-disabled="true"] { cursor: not-allowed; }
+  /* Both, and the second is the one that matters: the wrapper is a <span>
+     with no cursor of its own, while `.ui-switch-track` — the button you
+     actually point at — sets `cursor: pointer` in this same layer. Measured
+     before this line: a disabled Switch's track reported `pointer`. Same
+     defect as the three controls above, one element further in. */
+  .ui-switch[data-disabled="true"],
+  .ui-switch[data-disabled="true"] > .ui-switch-track { cursor: not-allowed; }
   .ui-switch[data-disabled="true"] > .ui-switch-track { background-color: color-mix(in srgb, var(--color-ink-3) 50%, transparent); }
   .ui-switch-label { font-size: var(--text-body); line-height: 1.5; color: var(--color-ink); }
   .ui-switch[data-surface="light"] .ui-switch-label { color: var(--color-ink-light); }
@@ -1003,7 +1016,6 @@ select option {
      than papered over with an opacity (§3.1 bans that spelling). */
   .ui-chip[data-surface="light"] .ui-chip-count,
   .ui-chip[data-surface="light"][data-active="true"] .ui-chip-count { color: var(--color-ink-light); }
-  .ui-chip[data-surface="light"]:disabled .ui-chip-count { color: var(--color-ink-light); }
   .ui-badge {
     display: inline-flex;
     align-items: center;

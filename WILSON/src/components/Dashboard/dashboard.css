@@ -743,11 +743,19 @@
     /* 🚨 F3 keyed `color-scheme` on `data-surface`, and this is the one place
        in the app where `data-surface="light"` is a LIE about the ground: the
        panel is mounted on `paper` and stamps the light family on ten kit
-       controls because it has no `surface` prop yet (KR-1). Without this line
-       its Department select and its three disabled inputs would ask the
-       browser for LIGHT native chrome on a near-black page, which is the
-       near-white panel C9 forbids arriving by the exact route F3 closed
-       everywhere else. One line, and it goes when KR-1 lands. */
+       controls because it has no `surface` prop yet (KR-1). Its Department
+       select would otherwise ask the browser for LIGHT native chrome on a
+       near-black page — the near-white panel C9 forbids, arriving by the
+       exact route F3 closed everywhere else. It goes when KR-1 lands.
+       ⚠️ INHERITANCE IS NOT ENOUGH HERE, and the first cut of this was
+       therefore inert. `color-scheme: dark` on this wrapper alone reaches
+       the plain inputs, which carry no `data-surface` of their own — but the
+       kit's `Select` stamps `data-surface="light"` on the <select> ITSELF,
+       so `[data-surface="light"] { color-scheme: light }` MATCHES that
+       element and a matching declaration beats an inherited one whatever the
+       ancestor says. Measured on the Dashboard before the second selector
+       was added: wrapper `dark`, input `dark`, select `light`. The descendant
+       selector below is (0,2,0) against the kit rule's (0,1,0). */
     color-scheme: dark;
     --color-ink-light: var(--color-ink);
     --color-rule-light: var(--color-rule);
@@ -758,6 +766,8 @@
     --color-scroll-thumb-light: var(--color-scroll-thumb);
     --color-scroll-thumb-light-hover: var(--color-scroll-thumb-hover);
   }
+  /* The half inheritance cannot do — see the note above. */
+  .dash-profile-bridge [data-surface="light"] { color-scheme: dark; }
 
   /* Reduced motion. Scoped per class, never as a blanket rule: the pet
      keyframes live in index.css and a blanket `animation: none` would kill

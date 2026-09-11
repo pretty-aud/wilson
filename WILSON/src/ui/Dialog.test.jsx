@@ -90,6 +90,12 @@ describe('Dialog', () => {
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(closeB).toHaveBeenCalledTimes(1)
     expect(closeA).not.toHaveBeenCalled()
+    // 🚨 AND A'S GUARD WAS NEVER ASKED, which is the assertion that separates
+    // "A did not hear the key" from "A heard it and its guard refused". The
+    // first cut asserted only that `closeA` was not called, which an
+    // always-refusing guard satisfies with `isTopModal` deleted.
+    expect(guard, 'the lower dialog answered Escape').not.toHaveBeenCalled()
+
     // A's own X asks the guard, which refuses.
     fireEvent.click(screen.getAllByRole('button', { name: 'Close' })[0])
     expect(guard).toHaveBeenCalled()
@@ -162,8 +168,13 @@ describe('Dialog', () => {
     expect(screen.getByRole('button', { name: 'Close' }).disabled).toBe(true)
     expect(focusableWithin(d)).toEqual([])
     expect(document.activeElement).toBe(d)
-    // And Tab stays on it rather than walking out to the page behind.
-    fireEvent.keyDown(document, { key: 'Tab' })
+    // 🚨 And Tab is PREVENTED, which is the assertion that can fail. The
+    // first cut checked `activeElement === d` after the key — but focus is
+    // already on `d`, so `node.focus()` is a no-op and the assertion held
+    // whether or not the trap did anything at all.
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(e)
+    expect(e.defaultPrevented, 'Tab was not trapped in a dialog with nothing focusable').toBe(true)
     expect(document.activeElement).toBe(d)
   })
 

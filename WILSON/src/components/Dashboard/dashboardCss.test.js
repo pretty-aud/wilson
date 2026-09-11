@@ -194,6 +194,39 @@ describe('the state extraction left no inline branch behind', () => {
   })
 })
 
+describe('the profile bridge tells the browser which ground it is really on', () => {
+  it('🚨 reaches the stamped SELECT, which inheritance cannot', () => {
+    // F3 keyed `color-scheme` on `data-surface`, and this panel is the one
+    // place where `data-surface="light"` is a lie about the ground: it is
+    // mounted on `paper` and stamps the light family on ten kit controls
+    // because it has no `surface` prop yet (KR-1). The wrapper declaration
+    // alone reaches the plain inputs — but the kit's `Select` stamps
+    // `data-surface="light"` on the <select> ITSELF, and a matching
+    // declaration beats an inherited one however far up the ancestor is.
+    // MEASURED on the Dashboard with only the wrapper rule: wrapper `dark`,
+    // input `dark`, select `light` — the near-white picker C9 forbids.
+    const wrapper = code(dashboardCss).match(/\.dash-profile-bridge \{[^}]*\}/)
+    expect(wrapper, 'no .dash-profile-bridge rule').not.toBeNull()
+    expect(wrapper[0]).toContain('color-scheme: dark')
+    // The half that is not inheritance:
+    expect(code(dashboardCss)).toMatch(/\.dash-profile-bridge \[data-surface="light"\] \{[^}]*color-scheme: dark/)
+  })
+
+  it('the descendant selector out-specifies the kit rule it has to beat', () => {
+    // `.dash-profile-bridge [data-surface="light"]` is (0,2,0);
+    // `[data-surface="light"]` in index.css is (0,1,0). Read BOTH selectors
+    // out of the stylesheets rather than retyping them here, because a
+    // specificity assertion computed from a string literal in the test
+    // proves something about the test.
+    const mine = code(dashboardCss).match(/(\.dash-profile-bridge \[data-surface="light"\])\s*\{[^}]*color-scheme/)
+    expect(mine, 'no bridge color-scheme selector').not.toBeNull()
+    const kitRule = code(indexCss).match(/(\[data-surface="light"\]) \{ color-scheme: light; \}/)
+    expect(kitRule, 'no kit light color-scheme rule').not.toBeNull()
+    const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
+    expect(units(mine[1])).toBeGreaterThan(units(kitRule[1]))
+  })
+})
+
 describe('the task table declares its own grid', () => {
   it('🚨 the column widths sum to EXACTLY 100', () => {
     // `table-layout: fixed` hands any excess back to the browser to

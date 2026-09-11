@@ -62,9 +62,15 @@ describe('IconButton: disabled on a light surface (D1 kit request 4)', () => {
     // (0,3,0) against the base rule's (0,2,0) and wins wherever it sits, so
     // moving it above the base rule — the change the assertion pretended to
     // catch — leaves the page correct and the test green.
+    // 🚨 Both selectors are read OUT OF THE STYLESHEET. Counting units of a
+    // string typed in the test proves something about the test: rename the
+    // rule in index.css and the assertion sails on.
     const units = (sel) => (sel.match(/\.[\w-]+|\[[^\]]+\]|:[a-z-]+(?!\()/g) || []).length
-    expect(units('.ui-iconbtn[data-surface="light"]:disabled')).toBe(3)
-    expect(units('.ui-iconbtn:disabled')).toBe(2)
+    const mine = css.match(/(\.ui-iconbtn\[data-surface="light"\]:disabled) \{/)
+    const base = css.match(/\n  (\.ui-iconbtn:disabled) \{/)
+    expect(mine, 'no light disabled selector in index.css').not.toBeNull()
+    expect(base, 'no base disabled selector in index.css').not.toBeNull()
+    expect(units(mine[1])).toBeGreaterThan(units(base[1]))
   })
 
   it('the orange frame gets the same treatment, where a grey is forbidden outright', () => {

@@ -87,6 +87,22 @@ describe('focusableWithin', () => {
     expect(focusableWithin(host).map((el) => el.id)).toEqual(['visible'])
   })
 
+  it('🚨 `inert` too — it is the spelling a modal is most likely to meet', () => {
+    // `inert` takes a whole subtree out of the tab order, out of hit testing
+    // and out of the a11y tree at once, and it is the attribute a caller
+    // reaches for to mute a section of a dialog while it saves. A focusable
+    // list that keeps those controls makes the trap's `last` an element the
+    // browser never reaches, and the wrap stops firing.
+    const host = mount(`
+      <div inert><button id="muted">x</button><input id="also-muted" /></div>
+      <button id="live">y</button>
+    `)
+    expect(focusableWithin(host).map((el) => el.id)).toEqual(['live'])
+    // …and on the element itself, not only an ancestor.
+    const own = mount('<button id="a">a</button><button id="b" inert>b</button>')
+    expect(focusableWithin(own).map((el) => el.id)).toEqual(['a'])
+  })
+
   it('skips what CSS has hidden, where the environment can tell — and does not need to', () => {
     // `display: none` and `visibility: hidden` take an element out of the tab
     // order, and a Tailwind `hidden` class is the common spelling in this
@@ -101,8 +117,23 @@ describe('focusableWithin', () => {
     // that jsdom cannot evaluate. Without this the line is unreachable in
     // every test and the break-it pass says so: reverting it stayed green.
     expect(b.checkVisibility).toBeUndefined()
-    Object.defineProperty(b, 'checkVisibility', { value: () => false, configurable: true })
+    const seen = []
+    Object.defineProperty(b, 'checkVisibility', {
+      value: (opts) => { seen.push(opts); return false },
+      configurable: true,
+    })
     expect(focusableWithin(host).map((el) => el.id)).toEqual(['a'])
+
+    // 🚨 THE OPTIONS, not just the answer. `visibilityProperty: true` is the
+    // half of this that matters — `visibility: hidden` takes an element out
+    // of the tab order and the default call would miss it — and
+    // `opacityProperty` must stay OFF, because `opacity: 0` is how
+    // HoverActions hides row controls WITHOUT untabbing them, which is the
+    // dead end Q17(b) exists to fix. A stub that ignores its argument proves
+    // only that a stub was called.
+    expect(seen).toHaveLength(1)
+    expect(seen[0]).toEqual({ visibilityProperty: true })
+    expect(seen[0].opacityProperty).toBeUndefined()
 
     // …and an element the environment reports as visible stays in.
     Object.defineProperty(b, 'checkVisibility', { value: () => true, configurable: true })

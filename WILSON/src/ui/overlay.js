@@ -104,7 +104,10 @@ export function focusableWithin(node) {
     // is spelled and its controls are not reachable either. The first cut
     // tested the element separately first, which could never decide anything
     // this did not already decide.
-    if (el.closest('[hidden],[aria-hidden="true"]')) return false
+    // `inert` is the third spelling and it is the one a modal is most likely
+    // to meet: it takes a whole subtree out of the tab order, out of hit
+    // testing and out of the a11y tree at once.
+    if (el.closest('[hidden],[aria-hidden="true"],[inert]')) return false
     // 🚨 CSS visibility, where the environment allows it. `display: none` and
     // `visibility: hidden` take an element out of the tab order and neither
     // is visible in the DOM — a Tailwind `hidden` class is the common case in

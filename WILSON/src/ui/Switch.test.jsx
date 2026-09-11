@@ -68,6 +68,21 @@ describe('Switch on the light ground', () => {
     expect(off).not.toContain('border:')
   })
 
+  it('🚨 a disabled Switch says not-allowed on the TRACK, which is what you point at', () => {
+    // The wrapper is a <span> with no cursor of its own; `.ui-switch-track`
+    // is the button, and it sets `cursor: pointer` in the SAME layer. The
+    // global `:disabled { cursor: not-allowed }` is in `@layer base`, which
+    // `@layer components` beats whatever the selectors say. Measured in
+    // Chromium before this: a disabled Switch's track reported `pointer`.
+    const rule = css.match(/\.ui-switch\[data-disabled="true"\],\r?\n\s*\.ui-switch\[data-disabled="true"\] > \.ui-switch-track \{[^}]*\}/)
+    expect(rule, 'the disabled cursor does not reach the track').not.toBeNull()
+    expect(rule[0]).toContain('cursor: not-allowed')
+    // The control: the track really does claim `pointer` at rest, which is
+    // why repeating the declaration is necessary rather than decorative.
+    const track = css.match(/\n  \.ui-switch-track \{([^}]*)\}/)
+    expect(track[1]).toContain('cursor: pointer')
+  })
+
   it('the disabled rules come after the checked ones, because they tie at (0,4,x)', () => {
     expect(css.indexOf('.ui-switch[data-surface="light"][data-disabled="true"] > .ui-switch-track'))
       .toBeGreaterThan(css.indexOf('.ui-switch[data-surface="light"][data-checked="true"] > .ui-switch-track'))
