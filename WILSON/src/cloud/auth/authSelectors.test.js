@@ -9,6 +9,28 @@
 // step). `page.getByText(/^LOGIN$/)` was case-SENSITIVE, so "Login" would
 // have walked straight past it.
 //
+// ── The F2/D1 merge (this file's second re-derivation) ─────────────────────
+//
+// D2 then merged the shell work, which moved the things several of these pins
+// named. Nothing here was loosened for it; every pin was re-derived:
+//
+//   · The page titles left App.jsx for the `src/layout/pages.js` REGISTRY, as
+//     `{ id, title, … }` records. `PAGE_TITLES` is derived there now, not
+//     declared, and F2 sentence-cased every title ('HOME' → 'Home').
+//   · The page `<h1>` left App.jsx for `src/ui/PageHeader.jsx`, so no page
+//     title is a text node in the file that used to own it.
+//   · `Invite User` became `Invite user` in TeamMembersPage.jsx.
+//   · D1's `src/components/settings/ProfileSection.jsx` added
+//     `aria-label="Username"` and `aria-label="Email"`, which the e2e suite
+//     also selects on — a NEW cross-file label collision, recorded at the
+//     bottom as hazard (d) with the reason it is not biting CI yet.
+//
+// Every e2e selector these touch is case-INSENSITIVE (`/^HOME$/i`,
+// `/invite user/i`, and `getByRole('heading', { name: 'DASHBOARD' })`, whose
+// accessible-name match is case-insensitive substring without `exact: true`),
+// so the sentence-casing did NOT break Playwright. It broke this file's belief
+// about WHERE each string lives, which is the thing it exists to state.
+//
 // 🚨 Playwright cannot run here. It needs a live server and the probe admin's
 // password, so the fix the plan prescribes — "source-text tests are updated in
 // the same commit as the source they pin" — has no way to prove itself. This
@@ -46,6 +68,8 @@
 //   aria     an `aria-label=` attribute            — accessible name ONLY,
 //            never visible text, so it can never satisfy a getByText
 //   table    a value in a declared string table    PAGE_TITLES.dashboard
+//            — the mechanism is intact and still proved by a control, but F2
+//            left it with nothing to point at: see RENDER_TABLES below.
 //
 // Import paths, route ids, className strings, comparison operands
 // (`authMode === 'login'`) and comments are not any of those, so none of them
@@ -63,17 +87,24 @@
 //     render sites in that file, so deleting one, adding one, or adding a
 //     second identical copy all fail.
 //  3. The heading selectors are matched against `<h1>`/`<h2>` content
-//     specifically: O.T.T.E.R. against the wordmark's text node, DASHBOARD
-//     against the PAGE_TITLES value that `<h1>{pageLabel}</h1>` renders.
-//  4. Five MUTATION controls actually delete the rendering element from a copy
+//     specifically. Since F2, NEITHER of the two is a text node any more —
+//     both titles are declared in `src/layout/pages.js` and reach the screen
+//     through `<h1 className="ui-page-header-title">{title}</h1>` in
+//     `src/ui/PageHeader.jsx`, which App.jsx feeds from the registry. So what
+//     is pinned is the CHAIN: the registry still holds exactly this value, a
+//     component still renders that value into a heading, and the shell still
+//     joins the two. Each of the three links has its own mutation control, so
+//     none of them can rot into a comment.
+//  4. Six MUTATION controls actually delete the rendering element from a copy
 //     of the source, re-run the harvest, and assert the check goes red. "This
 //     test would catch a break" is an assertion here, not a claim.
 //  5. Everything uncheckable is named in `SKIPPED_EXPECTED`, and a per-spec
 //     coverage test compares `getBy*(` call sites against checked + skipped.
 //
 // It still does not run a browser, so it cannot prove a selector resolves to
-// exactly ONE element in a live DOM. The three known strict-mode hazards are
-// recorded at the bottom with the condition that keeps each one harmless.
+// exactly ONE element in a live DOM. The four known strict-mode hazards are
+// recorded at the bottom with the condition that keeps each one harmless —
+// (d) is the one the F2/D1 merge introduced.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -121,11 +152,21 @@ const NAME_ONLY_ATTRS = new Set(['aria-label'])
 const VISIBLE_PROPS = new Set(['label', 'title'])
 const COMPARISON = new Set(['===', '!==', '==', '!=', '<', '>', '<=', '>='])
 
-// String tables a file renders through an expression. Declared, not guessed:
-// App.jsx's page title is `<h1>{pageLabel}</h1>` and `pageLabel` is
-// `PAGE_TITLES[currentPage]`, so PAGE_TITLES' VALUES are rendered text while
-// its KEYS ('dashboard', 'home') are route ids that are not.
-const RENDER_TABLES = { 'src/App.jsx': ['PAGE_TITLES'] }
+// String tables a file renders through an expression. Declared, not guessed.
+// It used to hold `'src/App.jsx': ['PAGE_TITLES']` — App.jsx's page title was
+// `<h1>{pageLabel}</h1>` with `pageLabel = PAGE_TITLES[currentPage]`, so that
+// object literal's VALUES were rendered text while its KEYS ('dashboard',
+// 'home') were route ids that are not.
+//
+// 🚨 F2 emptied this, and the empty map is the honest state, not an oversight.
+// `PAGE_TITLES` is no longer a hand-typed object anywhere: `src/layout/pages.js`
+// DERIVES it (`Object.fromEntries(PAGES.map(…))`) from the page records, so the
+// title strings are already `title:` object properties — `prop[title]` sites,
+// which VISIBLE_PROPS harvests directly. That is a STRICTLY stronger provenance
+// than `table` was: `table` had to be opted into per file by name, whereas a
+// `title:` property is recognised wherever it is written. The mechanism stays
+// for the next hand-written table and is kept honest by its own control below.
+const RENDER_TABLES = {}
 
 function eachNode(node, visit, parent = null) {
   if (!node || typeof node !== 'object') return
@@ -401,13 +442,22 @@ const ROLE_SELECTORS  = roleSelectors()
 // `aria`, because an aria-label is an accessible name and getByText cannot see
 // it. `kind: 'name'` is a getByRole name, which an aria-label CAN supply.
 const SELECTOR_HOME = {
-  // The page title `<h1>{pageLabel}</h1>` (PAGE_TITLES.home) and the nav strip
-  // item. Both are real DOM text on the home page; the route id 'home' is not
-  // a render site and no longer enters the corpus.
+  // ── MOVED BY F2 ──────────────────────────────────────────────────────────
+  // This was TWO strings in App.jsx: `PAGE_TITLES.home = 'HOME'` and the nav
+  // strip's hand-pushed `{ label: 'HOME', … }` (old App.jsx:96 and :1715).
+  // The registry collapsed them into ONE — `title: 'Home'` in
+  // src/layout/pages.js — because the strip now maps `p.navLabel`, which
+  // defaults to `p.title`, and the transition title reads the derived
+  // PAGE_TITLES. App.jsx does not contain the letters HOME anywhere any more,
+  // so pinning it there would pin nothing.
+  //
+  // The case changed with the file (Q2 sentence case). All five call sites —
+  // auth.spec.ts:62/93/154 and web-path.spec.ts:38/50 — select `/^HOME$/i`,
+  // case-INSENSITIVE, so this is not a Playwright break, only a move.
   '/^HOME$/i': {
-    file: 'src/App.jsx',
+    file: 'src/layout/pages.js',
     kind: 'text',
-    sites: ['table[PAGE_TITLES]:HOME', 'prop[label]:HOME'],
+    sites: ['prop[title]:Home'],
   },
 
   '/^login$/i': {
@@ -459,16 +509,24 @@ const SELECTOR_HOME = {
 
   // auth.spec.ts and web-path.spec.ts reach these through
   // `.filter({ has: getByRole('img') })`, and only the Home tiles carry an
-  // icon — App.jsx's nav strip buttons are text-only (App.jsx:2044-2046). So
-  // the owner is Home.jsx's tile table, not the nav.
+  // icon — App.jsx's nav strip buttons render bare `{item.label}` and nothing
+  // else (App.jsx:2034-2055, the `getNavStripItems().map` block F2 rewrote).
+  // So the owner is Home.jsx's tile table, not the nav.
+  //
+  // F2 left Home.jsx's tile labels alone — they are still 'Resources',
+  // 'Team Members' and 'Dashboard' — so these three pins are unchanged.
   "'Resources'": { file: 'src/components/Home.jsx', kind: 'name', sites: ['prop[label]:Resources'] },
   '/team members/i': { file: 'src/components/Home.jsx', kind: 'name', sites: ['prop[label]:Team Members'] },
   '/dashboard/i': { file: 'src/components/Home.jsx', kind: 'name', sites: ['prop[label]:Dashboard'] },
 
+  // F2 sentence-cased the button: `Invite User` → `Invite user`. The file did
+  // not move, only the case, and auth.spec.ts:100 selects `/invite user/i` —
+  // case-INSENSITIVE — so Playwright is unaffected. Recorded verbatim so the
+  // NEXT rename is caught: `toEqual` on the exact site, not `toContain`.
   '/invite user/i': {
     file: 'src/components/TeamMembers/TeamMembersPage.jsx',
     kind: 'name',
-    sites: ['jsxText:Invite User'],
+    sites: ['jsxText:Invite user'],
   },
 
   '/send invite/i': {
@@ -516,31 +574,71 @@ const SELECTOR_HOME = {
 // the import path './components/Dashboard/DashboardPage' and the route-id
 // literal 'dashboard' satisfy getByRole('heading', { name: 'DASHBOARD' }).
 //
-//   headings  — text nodes directly inside an <h1>/<h2>, filtered by the
-//               selector; recorded exactly.
-//   via       — for a heading whose content is an expression: the identifier
-//               the <h1> renders, the table it is read from, and the exact
-//               table values the selector matches.
-const HEADING_HOME = {
-  // <h1 …>O.T.T.E.R.</h1> — the wordmark on the tool's own screen.
-  "'O.T.T.E.R.'": { file: 'src/App.jsx', headings: ['O.T.T.E.R.'] },
+//   file      the file that DECLARES the heading's text.
+//   headings  — text nodes directly inside an <h1>/<h2> in that file, filtered
+//               by the selector; recorded exactly. Empty for a chain.
+//   via       — for a heading whose content arrives as an expression, the rest
+//               of the chain, one field per link (see below).
+//
+// ── Why both entries are chains now (F2) ────────────────────────────────────
+//
+// Before the merge both lived in App.jsx: the O.T.T.E.R. wordmark was a literal
+// `<h1 …>O.T.T.E.R.</h1>` (old App.jsx:1873) and the page title was
+// `<h1>{pageLabel}</h1>` with `pageLabel = PAGE_TITLES[currentPage]` (old
+// App.jsx:1910). F2 deleted BOTH. App.jsx now has exactly one heading of its
+// own — the quit dialog's `<h2 …>Close WILSON</h2>` (App.jsx:2276-2284) — and
+// every page title, wordmark included, travels the same three-link path:
+//
+//   1. DECLARED   src/layout/pages.js   { id: 'otter', title: 'O.T.T.E.R.' }
+//   2. RENDERED   src/ui/PageHeader.jsx <h1 …>{title}</h1>
+//   3. WIRED      src/App.jsx           <PageHeader title={page.title} …>,
+//                                       page = getPage(currentPage)
+//
+// One link is not enough on its own: the registry alone is a data file nothing
+// need read, PageHeader alone renders whatever it is handed, and the wiring
+// alone proves nothing about the string. So all three are asserted, and each
+// has a mutation control below. This is the same shape as the old `via` (the
+// <h1>, the binding, the value) with the links spread across three files
+// instead of one — which is the only thing F2 actually changed about it.
+const CHAIN = {
+  renderedBy: 'src/ui/PageHeader.jsx',
+  expr: 'title',
+  wiredIn: 'src/App.jsx',
+  // Exact source fragments, so a rename of `page` or of the `title` prop is a
+  // failure here rather than a Playwright log. `<PageHeader` proves the
+  // component is still mounted at all.
+  wiring: ['<PageHeader', 'title={page.title}', 'const page = getPage(currentPage)'],
+}
 
-  // <h1 …>{pageLabel}</h1>, pageLabel = PAGE_TITLES[currentPage] (App.jsx:1910).
-  // No text node to match, so the chain is asserted instead: the <h1> still
-  // renders {pageLabel}, pageLabel still comes from PAGE_TITLES, and
-  // PAGE_TITLES still holds exactly this value for the name.
-  "'DASHBOARD'": {
-    file: 'src/App.jsx',
+const HEADING_HOME = {
+  // web-path.spec.ts:31 — the wordmark on the tool's own screen, now the
+  // `otter` page record's title. Still the literal 'O.T.T.E.R.', dots and all.
+  "'O.T.T.E.R.'": {
+    file: 'src/layout/pages.js',
     headings: [],
-    via: { expr: 'pageLabel', table: 'PAGE_TITLES', values: ['table[PAGE_TITLES]:DASHBOARD'] },
+    via: { ...CHAIN, sites: ['prop[title]:O.T.T.E.R.'] },
+  },
+
+  // web-path.spec.ts:45. F2 sentence-cased this to 'Dashboard'. The selector
+  // is `getByRole('heading', { name: 'DASHBOARD' })` with no `exact: true`,
+  // and an accessible name without `exact` matches as a case-INSENSITIVE
+  // substring, so 'DASHBOARD' still resolves to 'Dashboard' in a browser —
+  // roleSelectors() models exactly that, which is why this pin can record the
+  // sentence-case value without lowering anything.
+  "'DASHBOARD'": {
+    file: 'src/layout/pages.js',
+    headings: [],
+    via: { ...CHAIN, sites: ['prop[title]:Dashboard'] },
   },
 }
 
-// ── Pre-existing strict-mode ambiguities ───────────────────────────────────
-// NOT introduced by this session; both predate the D2 restyle (the pre-D2
-// title was the literal `NEW PASSWORD`, and the two reset inputs have carried
-// these aria-labels since the wizard was written). Recorded so a THIRD one
-// fails this suite instead of arriving in a Playwright log.
+// ── Known strict-mode ambiguities ──────────────────────────────────────────
+// (a), (b) and (c) are NOT introduced by this session; all three predate the
+// D2 restyle (the pre-D2 title was the literal `NEW PASSWORD`, and the two
+// reset inputs have carried these aria-labels since the wizard was written).
+// (d) IS new — the F2/D1 merge brought it in, and it is written out at the
+// same length as the others rather than filed as a footnote. Recorded so a
+// FIFTH one fails this suite instead of arriving in a Playwright log.
 //
 //  a. getByLabel('New password') — Playwright matches an accessible name as a
 //     case-insensitive SUBSTRING, so it also selects the input labelled
@@ -562,12 +660,69 @@ const HEADING_HOME = {
 //     LoginScreen and ResetPasswordWizard are mutually exclusive branches of
 //     that one state value, so the wizard's inputs are not in the DOM.
 //
-// The third ambiguity — getByText(/^NEW PASSWORD$/i) matching both the
-// wizard's title and its AuthField label — is asserted separately below,
-// because it is a text collision inside one file rather than a label one.
+//  c. getByText(/^NEW PASSWORD$/i) matching both the wizard's title and its
+//     AuthField label — asserted separately below, because it is a text
+//     collision inside one file rather than a label one.
+//
+//  d. 🚨 NEW, and the only one of the four this merge introduced.
+//     getByLabel('Email') and getByLabel('Username') are no longer unique
+//     ANYWHERE IN THE SIGNED-IN APP. D1's ProfileSection.jsx carries both
+//     labels, and — unlike the two `open`-gated dialogs that already shared
+//     them — it is MOUNTED on every authed page, not just on Settings:
+//
+//       App.jsx renders every page at once and hides the inactive ones with
+//       `display: currentPage === id ? 'flex' : 'none'` (PageSurface), so
+//       <DashboardPage /> is in the DOM from the moment `authed` flips.
+//       DashboardPage keeps all three of its tabs mounted on purpose ("the
+//       notes editor must not lose its Y.Doc") and hides the profile one with
+//       `display: tab === 'profile' ? 'block' : 'none'`, so ProfileSection —
+//       and its two inputs — mount with it, as soon as the member row loads.
+//
+//     Playwright's strict mode counts MATCHED NODES, not visible ones, so
+//     `getByLabel('Email').fill(…)` on TeamMembersPage resolves to two
+//     elements and throws. `{ exact: true }` does NOT fix this one — both
+//     labels are already exactly 'Email' / 'Username'; the fix is to scope
+//     the locator to the dialog (`page.getByRole('dialog').getByLabel(…)`),
+//     which is a spec edit and not this session's file.
+//     Why it is harmless today: every getByLabel that runs while `authed` is
+//     true is in auth.spec.ts scenario 2 (:102-103), which opens with
+//     `test.skip(SKIP_EMAIL, …)` — the same gate as (a). Every OTHER
+//     getByLabel in the suite runs pre-auth: authFlow.ts's three are on
+//     LoginScreen before sign-in, scenario 3's Username is on the forgot
+//     wizard after `page.goto('/')`, and its New password / Confirm pair are
+//     on the recovery screen, which is `authMode === 'recovery'` — and App.jsx
+//     mounts the whole page shell only under `{authed && …}`, so none of them
+//     can see ProfileSection at all. The mount chain is asserted below; if a
+//     lane ever makes DashboardPage lazy-mount the way project-files does,
+//     that control fails and this note gets revisited.
 const KNOWN_LABEL_COLLISIONS = [
   { selector: "getByLabel('New password')", alsoMatches: ['Confirm new password'] },
   { selector: "getByLabel('Password')", alsoMatches: ['Confirm new password', 'New password'] },
+]
+
+// Hazard (d) in the form the suite can check: a selected aria-label declared
+// in more than one file. (a)/(b)/KNOWN_LABEL_COLLISIONS are about label VALUES
+// being substrings of one another, which is a different failure and misses
+// this one entirely — 'Email' is a substring of nothing.
+const KNOWN_LABEL_SITE_COLLISIONS = [
+  {
+    selector: "getByLabel('Email')",
+    declaredIn: [
+      'src/cloud/auth/InviteMemberDialog.jsx',
+      'src/components/AdminTerminal/CreateUserDialog.jsx',
+      'src/components/settings/ProfileSection.jsx',
+    ],
+  },
+  {
+    selector: "getByLabel('Username')",
+    declaredIn: [
+      'src/cloud/auth/ForgotPasswordWizard.jsx',
+      'src/cloud/auth/InviteMemberDialog.jsx',
+      'src/cloud/auth/LoginScreen.jsx',
+      'src/components/AdminTerminal/CreateUserDialog.jsx',
+      'src/components/settings/ProfileSection.jsx',
+    ],
+  },
 ]
 
 // Every aria-label the specs select on, and the files that declare it. A
@@ -576,19 +731,25 @@ const KNOWN_LABEL_COLLISIONS = [
 const LABEL_SITES_EXPECTED = {
   Company: ['src/cloud/auth/LoginScreen.jsx'],
   // Two dialogs, each gated on its own `open` prop and living on different
-  // pages (TeamMembersPage / AdminTerminal).
+  // pages (TeamMembersPage / AdminTerminal) — plus, since D1's Settings work,
+  // the profile editor. 🚨 That third one is NOT gated the way the other two
+  // are: see hazard (d) at the bottom. It is recorded here because it is
+  // real, not because it is safe.
   Email: [
     'src/cloud/auth/InviteMemberDialog.jsx',
     'src/components/AdminTerminal/CreateUserDialog.jsx',
+    'src/components/settings/ProfileSection.jsx',
   ],
   Password: ['src/cloud/auth/LoginScreen.jsx'],
   // The two auth screens are mutually exclusive `authMode` branches; the two
-  // dialogs are `open`-gated and on different pages.
+  // dialogs are `open`-gated and on different pages. ProfileSection is the
+  // fifth and the one that co-mounts — hazard (d).
   Username: [
     'src/cloud/auth/ForgotPasswordWizard.jsx',
     'src/cloud/auth/InviteMemberDialog.jsx',
     'src/cloud/auth/LoginScreen.jsx',
     'src/components/AdminTerminal/CreateUserDialog.jsx',
+    'src/components/settings/ProfileSection.jsx',
   ],
   'Confirm new password': ['src/cloud/auth/ResetPasswordWizard.jsx'],
   'New password': ['src/cloud/auth/ResetPasswordWizard.jsx'],
@@ -701,11 +862,32 @@ describe('the e2e suite still has something to select', () => {
     expect(app.raw).toContain('./components/Dashboard/DashboardPage')   // the import path
     expect(app.raw).toContain("=== 'login'")                            // the authMode compare
     expect(app.sites.some((s) => s.value === './components/Dashboard/DashboardPage')).toBe(false)
-    expect(app.sites.some((s) => s.kind !== 'table' && /^login$/i.test(s.value))).toBe(false)
+    expect(app.sites.some((s) => /^login$/i.test(s.value))).toBe(false)
     // And the aria-label is harvested, but as `aria` — not as visible text.
     const rpw = BY_FILE.get('src/cloud/auth/ResetPasswordWizard.jsx')
     expect(rpw.sites.some((s) => s.kind === 'aria' && s.value === 'New password')).toBe(true)
     expect(rpw.sites.some((s) => s.kind !== 'aria' && s.value === 'New password')).toBe(true)
+  })
+
+  it('the control: the `table` provenance still works, though nothing uses it', () => {
+    // RENDER_TABLES is empty since F2 (see its comment), so no file in src/
+    // exercises the `table` branch any more. Left untested it would rot, and
+    // the next hand-written string table would opt into a mechanism that had
+    // quietly stopped working — which is the same class of silent hole as a
+    // skipped selector. Exercised on a synthetic source instead, including the
+    // part that matters: a table's KEYS are route ids and never render.
+    const src = `const PAGE_TITLES = { dashboard: 'DASHBOARD', home: 'HOME' }
+const Other = { dashboard: 'NOT A TABLE' }
+const A = () => <h1>{pageLabel}</h1>`
+    const { sites, headingExpr } = renderSites(src, ['PAGE_TITLES'])
+    expect(sites.map(siteLabel)).toEqual(['table[PAGE_TITLES]:DASHBOARD', 'table[PAGE_TITLES]:HOME'])
+    expect(headingExpr).toEqual(['pageLabel'])
+    // Not opted in → not harvested; and the keys are absent either way.
+    expect(renderSites(src, []).sites).toEqual([])
+    expect(sites.some((s) => s.value === 'dashboard')).toBe(false)
+    // …and headingFacts still surfaces the table values a heading pin reads.
+    expect(headingFacts(src, "'DASHBOARD'", ['PAGE_TITLES']).tableValues)
+      .toEqual(['table[PAGE_TITLES]:DASHBOARD'])
   })
 })
 
@@ -739,14 +921,41 @@ describe('every selector in the suite names the file that renders it', () => {
     '%s',
     (_n, source, { file, headings, via }) => {
       const entry = BY_FILE.get(file)
+      expect(entry, `${file} is not a source file this test reads`).toBeTruthy()
       const facts = headingFacts(entry.code, source, RENDER_TABLES[file] ?? [])
       expect(facts.headings, `${source} <h1>/<h2> text nodes`).toEqual(headings)
-      if (via) {
-        expect(facts.exprs, `no <h1>/<h2> renders {${via.expr}}`).toContain(via.expr)
-        expect(entry.code, `${via.expr} is no longer read from ${via.table}`).toContain(`${via.expr} = ${via.table}[`)
-        expect(facts.tableValues, `${via.table} no longer holds this name`).toEqual(via.values)
-      } else {
+
+      if (!via) {
+        // A heading whose text is a literal in its own file still gets the
+        // direct check — no entry needs it today, and the branch stays so that
+        // the next one is not tempted into a chain it does not have.
         expect(headings.length, `${source} must match an <h1>/<h2> text node`).toBeGreaterThan(0)
+        return
+      }
+
+      // Link 1 — the declaring file still holds EXACTLY this value, in the
+      // recorded provenance. Equality, not containment: a rename, a deletion
+      // and a second copy each change this list.
+      expect(
+        pinnedSites(entry.code, source, RENDER_TABLES[file] ?? []),
+        `${file} no longer declares this heading's text`,
+      ).toEqual(via.sites)
+
+      // Link 2 — a component still renders that value into an <h1>/<h2>.
+      // `toEqual`, so deleting PageHeader's <h1> fails here even though two
+      // other files in src/ also render an `<h1>{title}</h1>`.
+      const renderer = BY_FILE.get(via.renderedBy)
+      expect(renderer, `${via.renderedBy} is not a source file this test reads`).toBeTruthy()
+      expect(
+        renderSites(renderer.code).headingExpr,
+        `no <h1>/<h2> in ${via.renderedBy} renders {${via.expr}}`,
+      ).toEqual([via.expr])
+
+      // Link 3 — the shell still hands one to the other.
+      const shell = BY_FILE.get(via.wiredIn)
+      expect(shell, `${via.wiredIn} is not a source file this test reads`).toBeTruthy()
+      for (const fragment of via.wiring) {
+        expect(shell.code, `${via.wiredIn} no longer contains ${fragment}`).toContain(fragment)
       }
     },
   )
@@ -816,25 +1025,51 @@ describe('the mutation controls: deleting the element really does turn this red'
     expect(after.filter((s) => s.startsWith('jsxText'))).toEqual([])
   })
 
-  it("R2 #1b — deleting App.jsx's PAGE_TITLES entry breaks the DASHBOARD heading", () => {
-    // Round 1 stayed green because './components/Dashboard/DashboardPage'
-    // contains the word.
-    const app = BY_FILE.get('src/App.jsx')
+  it("R2 #1b — deleting the registry's Dashboard title breaks the DASHBOARD heading", () => {
+    // LINK 1 of the chain. This used to delete `dashboard: 'DASHBOARD',` from
+    // App.jsx's PAGE_TITLES; F2 moved the declaration to the page registry, so
+    // the mutation moved with it. Round 1 stayed green through this because
+    // './components/Dashboard/DashboardPage' contains the word — which is
+    // still in App.jsx, and still does not count. Asserted below rather than
+    // claimed, because that import is the exact over-match this file exists
+    // to have closed.
+    const pages = BY_FILE.get('src/layout/pages.js')
     const via = HEADING_HOME["'DASHBOARD'"].via
-    const mutated = removeLineWith(app.code, "dashboard: 'DASHBOARD',")
-    const after = headingFacts(mutated, "'DASHBOARD'", RENDER_TABLES['src/App.jsx'])
-    expect(after.tableValues).not.toEqual(via.values)
-    expect(after.tableValues).toEqual([])
-    // The import path is still there and still does not count.
-    expect(mutated).toContain('./components/Dashboard/DashboardPage')
+    const mutated = removeLineWith(pages.code, "title: 'Dashboard',")
+    const after = pinnedSites(mutated, "'DASHBOARD'", RENDER_TABLES['src/layout/pages.js'] ?? [])
+    expect(after).not.toEqual(via.sites)
+    expect(after).toEqual([])
+
+    const app = BY_FILE.get('src/App.jsx')
+    expect(app.code).toContain('./components/Dashboard/DashboardPage')
+    expect(pinnedSites(app.code, "'DASHBOARD'"), 'App.jsx renders nothing named DASHBOARD').toEqual([])
   })
 
-  it('R2 #1c — deleting the <h1> breaks the DASHBOARD heading too', () => {
-    // The other half of the chain: PAGE_TITLES only renders because
-    // <h1>{pageLabel}</h1> renders it.
+  it('R2 #1c — deleting PageHeader\'s <h1> breaks the DASHBOARD heading too', () => {
+    // LINK 2. The registry only renders because something renders it, and
+    // since F2 that something is one <h1> in one file, shared by every page
+    // header in the app. Deleting it silences all of them at once.
+    const header = BY_FILE.get('src/ui/PageHeader.jsx')
+    expect(renderSites(header.code).headingExpr).toEqual(['title'])
+    const mutated = removeLineWith(header.code, '<h1 className="ui-page-header-title">{title}</h1>')
+    expect(renderSites(mutated).headingExpr).toEqual([])
+    // The registry still holds the value; with no heading it is data on disk.
+    expect(pinnedSites(BY_FILE.get('src/layout/pages.js').code, "'DASHBOARD'")).toEqual(["prop[title]:Dashboard"])
+  })
+
+  it('R2 #1f — deleting App.jsx\'s title={page.title} breaks the chain', () => {
+    // LINK 3, and the link that did not exist before F2. Both other links can
+    // be perfect while the shell hands PageHeader something else entirely —
+    // a literal, the route id, nothing at all — and no assertion on either
+    // file alone would notice.
     const app = BY_FILE.get('src/App.jsx')
-    const mutated = removeLineWith(app.code, '{pageLabel}</h1>')
-    expect(headingFacts(mutated, "'DASHBOARD'", RENDER_TABLES['src/App.jsx']).exprs).not.toContain('pageLabel')
+    const wiring = HEADING_HOME["'DASHBOARD'"].via.wiring
+    const mutated = removeLineWith(app.code, 'title={page.title}')
+    expect(wiring.filter((f) => !mutated.includes(f))).toEqual(['title={page.title}'])
+    // …and the two links that are not the wiring are untouched, so this
+    // control fails for its own reason and not by collateral.
+    expect(mutated).toContain('<PageHeader')
+    expect(mutated).toContain('const page = getPage(currentPage)')
   })
 
   it('R2 #1d — deleting the login title breaks /^login$/i', () => {
@@ -846,11 +1081,23 @@ describe('the mutation controls: deleting the element really does turn this red'
   })
 
   it('R2 #1e — deleting the O.T.T.E.R. wordmark breaks its heading', () => {
-    const mutated = removeLineWith(BY_FILE.get('src/App.jsx').code, '>O.T.T.E.R.</h1>')
-    const after = headingFacts(mutated, "'O.T.T.E.R.'", RENDER_TABLES['src/App.jsx'])
-    expect(after.headings).toEqual([])
-    // The nav item and PAGE_TITLES still spell it; neither is a heading.
-    expect(renderSites(mutated, RENDER_TABLES['src/App.jsx']).sites.some((s) => s.value === 'O.T.T.E.R.')).toBe(true)
+    // The wordmark was a literal `<h1 …>O.T.T.E.R.</h1>` in App.jsx, so this
+    // control used to delete that line. F2 deleted it for real: the wordmark
+    // is the `otter` page record's title now and reaches the same <h1> as
+    // every other page title, so the mutation is link 1 of its chain.
+    const pages = BY_FILE.get('src/layout/pages.js')
+    const mutated = removeLineWith(pages.code, "title: 'O.T.T.E.R.',")
+    expect(pinnedSites(mutated, "'O.T.T.E.R.'")).toEqual([])
+    // Nine other files in src/ still spell the wordmark — Home's tile label
+    // among them — and not one of them is this heading. That is the whole
+    // point of pinning the declaring file rather than the corpus.
+    const elsewhere = FILES.filter((f) => f.path !== 'src/layout/pages.js'
+      && f.sites.some((s) => s.value.includes('O.T.T.E.R.')))
+    expect(elsewhere.length).toBeGreaterThan(1)
+    expect(elsewhere.map((f) => f.path)).toContain('src/components/Home.jsx')
+    // And PageHeader's <h1> survives the mutation — it renders {title}, and
+    // there is simply no longer a title for it to render here.
+    expect(renderSites(BY_FILE.get('src/ui/PageHeader.jsx').code).headingExpr).toEqual(['title'])
   })
 
   it('R2 #2 — renaming LoginScreen\'s "Sign in" breaks /sign in/i', () => {
@@ -924,9 +1171,11 @@ describe('the extractors see every selector shape the suite uses', () => {
     // `getByText('Invite sent', { exact: true })` would have been checked as a
     // case-insensitive SUBSTRING — looser than Playwright, which is the class
     // of over-match this whole file exists to close. No spec uses it yet, and
-    // the fix this file recommends for the label collisions is exactly that
-    // edit, so the extractors are run over a synthetic spec instead. Passing
-    // the list and the skip sink in means nothing the other tests read moves.
+    // the fix this file recommends for the SUBSTRING collisions (a) and (b) is
+    // exactly that edit — hazard (d) needs a scoped locator instead, since its
+    // two labels are already equal, not merely overlapping — so the extractors
+    // are run over a synthetic spec. Passing the list and the skip sink in
+    // means nothing the other tests read moves.
     const synthetic = [{
       name: 'synthetic.ts',
       text: [
@@ -998,10 +1247,13 @@ describe('nothing in the suite is skipped silently', () => {
   })
 })
 
-describe("known Playwright strict-mode ambiguities (pre-existing, not this session's)", () => {
+describe('known Playwright strict-mode ambiguities ((a)-(c) pre-existing, (d) from the F2/D1 merge)', () => {
   it('the aria-label substring collisions are exactly the recorded set', () => {
     // Playwright's getByLabel is case-insensitive SUBSTRING matching unless
     // `exact: true`, so a label that is a substring of another selects both.
+    // D1's new labels (Display name, Pronouns, Title, Department, Role) add no
+    // new substring overlap, which is why this set is unchanged by the merge —
+    // the merge's collision is (d), a same-VALUE one, checked next.
     const selected = [...new Set(LABEL_SELECTORS.map((s) => s.label))].sort()
     const derived = []
     for (const label of selected) {
@@ -1011,6 +1263,80 @@ describe("known Playwright strict-mode ambiguities (pre-existing, not this sessi
       if (also.length) derived.push({ selector: `getByLabel('${label}')`, alsoMatches: also })
     }
     expect(derived).toEqual(KNOWN_LABEL_COLLISIONS)
+  })
+
+  it('(d) the selected aria-labels declared in MORE THAN ONE file are exactly the recorded set', () => {
+    // The other axis: one label value, several declaring files. Derived from
+    // the same harvest as LABEL_SITES_EXPECTED, so a sixth file reusing
+    // 'Username' shows up here as a collision and not merely as a longer list.
+    const selected = [...new Set(LABEL_SELECTORS.map((s) => s.label))].sort()
+    const derived = selected
+      .map((label) => ({ selector: `getByLabel('${label}')`, declaredIn: ARIA_LABEL_SITES.get(label) ?? [] }))
+      .filter((c) => c.declaredIn.length > 1)
+    expect(derived).toEqual(KNOWN_LABEL_SITE_COLLISIONS)
+  })
+
+  it('(d) the control: the profile editor really is mounted on every authed page', () => {
+    // What turns (d) from "two files spell the same label" into a real strict-
+    // mode violation. Each link is a source fragment, so a lane that changes
+    // any of them fails here and the hazard note gets re-derived rather than
+    // quietly going stale.
+    const app = CODE_BY_FILE.get('src/App.jsx')
+    const dash = CODE_BY_FILE.get('src/components/Dashboard/DashboardPage.jsx')
+    const profile = CODE_BY_FILE.get('src/components/settings/ProfileSection.jsx')
+
+    // 1. The page shell exists only while signed in — which is why every
+    //    PRE-auth getByLabel in the suite is untouched by this.
+    expect(app).toContain('{authed && (')
+    // 2. Inside it, every page is mounted and the inactive ones are HIDDEN,
+    //    not unmounted. `project-files` is the one page that opted out, and it
+    //    is here as the contrast: opting out is possible, and Dashboard has
+    //    not done it.
+    expect(app).toContain("display: currentPage === id ? 'flex' : 'none'")
+    expect(app).toContain('<DashboardPage />')
+    expect(app).toContain("{currentPage === 'project-files' && <ProjectFilesExplorer />}")
+    // 3. DashboardPage keeps all three tabs mounted on purpose, so its profile
+    //    tab is in the DOM whatever tab is selected…
+    expect(dash).toContain("display: tab === 'profile' ? 'block' : 'none'")
+    expect(dash).toContain('<ProfileSection />')
+    // 4. …and that profile tab is the one carrying the two colliding labels.
+    expect(profile).toContain('aria-label="Username"')
+    expect(profile).toContain('aria-label="Email"')
+
+    // The contrast that proves step 3 is the load-bearing one: SettingsPage
+    // mounts the SAME component behind a real conditional, so Settings alone
+    // would never have collided with anything.
+    expect(CODE_BY_FILE.get('src/components/SettingsPage.jsx')).toContain("{activeTab === 'profile' && (")
+  })
+
+  it('(d) the control: every getByLabel that runs while signed in is behind the email gate', () => {
+    // The condition that keeps (d) harmless in CI, stated as a check rather
+    // than as prose. auth.spec.ts scenario 2 is the only place a getByLabel
+    // runs after a completed sign-in, and it opens with test.skip(SKIP_EMAIL).
+    // Everything else is pre-auth: authFlow.ts's three are on LoginScreen, and
+    // scenario 3's are on the forgot wizard and the recovery screen, neither
+    // of which mounts the page shell.
+    const auth = specs.find((s) => s.name === 'auth.spec.ts').text
+    const flow = specs.find((s) => s.name === 'authFlow.ts').text
+    const web = specs.find((s) => s.name === 'web-path.spec.ts').text
+
+    // web-path.spec.ts selects no labels of its own — all of its sign-in goes
+    // through authFlow — so it cannot reach this hazard at all.
+    expect([...web.matchAll(/getByLabel\(/g)].length).toBe(0)
+    // Company, the Username visibility wait, Username.fill, Password.fill —
+    // all four inside clearCompanyStep/signInHere, all on LoginScreen.
+    expect([...flow.matchAll(/getByLabel\(/g)].length).toBe(4)
+
+    // In auth.spec.ts, every getByLabel must sit after a `test.skip(SKIP_EMAIL`
+    // in its own scenario. Scenario 1 — the one lane that signs in and is NOT
+    // skipped — must contain none.
+    const scenarios = auth.split(/^test\(/m).slice(1)
+    const unskipped = scenarios.filter((s) => !s.includes('test.skip(SKIP_EMAIL,'))
+    expect(unskipped.length, 'exactly one scenario runs without the email gate').toBe(1)
+    expect(
+      [...unskipped[0].matchAll(/getByLabel\(/g)].length,
+      'a getByLabel appeared in the ungated scenario — hazard (d) is now LIVE in CI',
+    ).toBe(0)
   })
 
   it("getByText(/^NEW PASSWORD$/i) still matches the wizard's title AND its field label", () => {
@@ -1026,7 +1352,8 @@ describe("known Playwright strict-mode ambiguities (pre-existing, not this sessi
     // the spec has not made yet) — only the title is mounted, so the locator
     // resolves to one element and the assertion returns. It stops being
     // harmless the moment anything makes the form stage render before that
-    // first poll. Same PLAYWRIGHT_SKIP_EMAIL=1 gate as (a) and (b) above.
+    // first poll. Same PLAYWRIGHT_SKIP_EMAIL=1 gate as (a) and (d) — (b) is
+    // the one held harmless by mutual exclusion rather than by the gate.
     //
     // The offsets below are the real ones: stripComments() blanks comment
     // characters in place rather than deleting them, so indices into the

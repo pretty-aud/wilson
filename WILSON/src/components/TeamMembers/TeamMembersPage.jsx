@@ -14,20 +14,52 @@
 // view and are additionally gated by rate_card.view / rate_card.edit.
 // All edits are enforced DB-side (RLS + the 0010 guard trigger); the UI
 // checks are presentation only.
+//
+// ── UI overhaul F2: this page is the kit's WORKED EXAMPLE ────────────────────
+//
+// Two jobs beyond the restyle:
+//
+//  1. It is the first page on the Q1 dark ground. Audrey ruled the six DATA
+//     pages off `#f4a261` and onto the same `paper` the three tools use, so
+//     the ecosystem reads as one app and — the part that actually matters
+//     here — so that STATUS COLOUR works at all. On the light orange the
+//     greens and reds measure 1.4:1 to 3.1:1, which is why this page drew
+//     "Active" in a green nobody could read and everything else in one ink.
+//
+//  2. Every component in the kit that had no caller after F1 gets a real one
+//     here, and none of them is invented: Badge is the producer/director
+//     markers this page already drew, StatusBadge is the Active/Inactive pill
+//     it already drew, Banner is the two error strips, Loading is the state
+//     that used to say "Loading..." in the same italic as "No matches", and
+//     EmptyState is that second one. A component with no caller is a
+//     component nobody has tested against a real screen (plan risk 11: ten
+//     features have shipped in this repo with no caller at all).
+//
+// What did NOT change: every column, every filter, every permission gate,
+// every edit, the CSV export's column rules, the invite flow and the
+// two-phase rate confirmation. Three things are deliberately different and
+// each is sanctioned in the plan:
+//
+//   · The in-page <h1> is gone. The orange bar's PageHeader already says
+//     "Team members"; rendering it twice is the divergence the review names
+//     (F32's inventory: "Files renders its title twice").
+//   · `window.confirm` for a deactivation is now a Dialog (plan §4: Dialog
+//     "replaces 64 overlays and five window.confirm"). Same words, same two
+//     outcomes, same single click to confirm.
+//   · The hand-rolled rate modal is that same Dialog, so it inherits Escape,
+//     the modal stack and the busy lock (Q17) instead of its own partial copy.
+// ============================================================
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Users, Search, Trash2, X, UserPlus, Eye, RotateCcw, Download,
+  Users, Search, Trash2, X, UserPlus, Eye, RotateCcw, Download, AlertTriangle,
 } from 'lucide-react'
 import { downloadCsv, exportDateStamp } from '../../lib/csvExport'
-// Session 43 §B — light-page tokens. This page renders on #f4a261, where the
-// whole stone ramp measures between 1.4:1 and 3.7:1. The greys inside the
-// RATE MODAL are deliberately untouched: that modal paints #1c1917, and a
-// grey on dark stone was never the problem.
 import {
-  LIGHT_INK, LIGHT_RULE, LIGHT_WELL,
-  LIGHT_TABLE_FRAME, LIGHT_TABLE_HEAD_ROW, LIGHT_TABLE_HEAD_CELL,
-} from '../lightSurface'
+  Badge, Banner, Button, Card, Dialog, EmptyState, Field, HoverActions,
+  IconButton, Input, Loading, Row, Select, StatusBadge, Table, Tabs, Td, Th,
+  Toolbar, useToast,
+} from '../../ui'
 import { useWorkspaceMembers, isOwnAvatarUrl } from './useWorkspaceMembers'
 import { useRateCard, computeEntryTotal } from '../RateCard/useRateCard'
 import { useRateCardAccess } from '../RateCard/useRateCardAccess'
@@ -46,12 +78,42 @@ const VIEWS = [
   { key: 'user',    label: 'User' },
 ]
 const ROLE_LABELS = { admin: 'Admin', manager: 'Manager', user: 'User' }
+const ROSTER_PANEL_ID = 'tm-roster-panel'
 
 const DEFAULT_DEPARTMENTS = [
   'CG Art', 'Production', 'Creatives', 'Post', 'QA',
   'Audio', 'Physical Production', 'Development', 'Executive', 'Operations',
 ]
 
+// `table-layout: fixed` reads the header row, so the columns are DECLARED
+// here rather than emerging from whichever cell happened to be longest. The
+// widths of the columns a view hides are never rendered; the browser
+// redistributes the remainder.
+// 🚨 These sum to EXACTLY 100 in the widest view — every column, Admin — and
+// `tmColumnTotal` in the test file computes that from this object for all
+// three views, because a declared width that over-sums is not declared at all:
+// `table-layout: fixed` hands the excess back to the browser to reconcile and
+// every column lands somewhere other than where it was written. An earlier cut
+// summed to 112, a second to 109, and both carried a comment claiming 100.
+// The number is checked now rather than asserted.
+//
+// The action column is a share rather than 56px for the same reason: a stray
+// pixel value in a percentage table is a sum nobody can add up.
+//
+// The narrower views come in under 100 (Manager 86, User 75) and the browser
+// shares the remainder, which is the intended behaviour.
+//
+// Department carries the widest real string ("Physical Production") inside a
+// <select>, and a <select> has no `text-overflow` — it hard-clips mid-word
+// rather than eliding. It takes the largest share of any data column for that
+// reason, and both selects carry a `title` so a clipped value is still
+// readable on hover.
+const COL = {
+  member: '16%', username: '8%', title: '11%', department: '14%',
+  pronouns: '5%', fullTime: '5%', role: '10%', email: '10%',
+  status: '5%', rate: '6%', projects: '6%', actions: '4%',
+}
+export const TM_COLUMN_WIDTHS = COL
 
 function formatMoney(value, currency) {
   if (value == null || value === '' || Number.isNaN(Number(value))) return null
@@ -67,12 +129,17 @@ function formatMoney(value, currency) {
 export default function TeamMembersPage() {
   const wm = useWorkspaceMembers()
   const rc = useRateCard()
+  const toast = useToast()
 
   const [search, setSearch] = useState('')
   const [deptFilter, setDeptFilter] = useState('')
   const [departments, setDepartments] = useState([])
   const [inviteOpen, setInviteOpen] = useState(false)
   const [rateModal, setRateModal] = useState(null) // { member, entry } | null
+  // The deactivation confirm. It was `window.confirm`, which blocks the whole
+  // renderer, cannot be styled, and on Windows announces itself as
+  // "localhost says".
+  const [confirmDeactivate, setConfirmDeactivate] = useState(null)
   const [view, setView] = useState(() => {
     try { return localStorage.getItem(VIEW_STORAGE_KEY) || '' } catch { return '' }
   })
@@ -248,13 +315,8 @@ export default function TeamMembersPage() {
         || (m.title || '').toLowerCase().includes(s))
   }, [wm.members, search, deptFilter, isAdminView])
 
-  const inputStyle = {
-    backgroundColor: 'rgba(120, 70, 30, 0.55)',
-    color: '#fde8d0',
-    border: 'none',
-  }
-
   const pageError = wm.error || (showRate ? rc.error : null)
+  const loading = (wm.loading || !wm.ready) && !wm.members.length
 
   // ── Roster CSV export (Session 14, Block B) ──
   // Exports EXACTLY the current view: same rows (filters + active-view
@@ -275,130 +337,157 @@ export default function TeamMembersPage() {
     // user_id, not id: directory rows have no id field — the screen keys
     // rate entries the same way (adversarial review, S14).
     if (showRate) cols.push({ key: 'wage', header: 'Wage', map: (m) => entryByUserId.get(m.user_id)?.wage ?? '' })
-    downloadCsv(`team-roster-${exportDateStamp()}.csv`, filtered, cols)
+    const name = `team-roster-${exportDateStamp()}.csv`
+    downloadCsv(name, filtered, cols)
+    // F2: the export was the one action on this page that reported nothing
+    // at all — the file appeared, or it did not. Naming it is FEEDBACK, not
+    // a control: no click does anything new, and nothing is hidden behind it.
+    toast.push({
+      tone: 'success',
+      title: 'Roster exported',
+      body: `${filtered.length} member${filtered.length === 1 ? '' : 's'} to ${name}`,
+    })
+  }
+
+  function runSetActive(member, active) {
+    setAdminError(null)
+    adminSetActive(member.user_id, active).then((res) => {
+      if (res.ok) { wm.reload(); return }
+      // Session 9: the Edge Function adds token revocation + last-admin
+      // protection. Fall back to the direct update ONLY when the function
+      // isn't deployed (bare 404) — a 404 with { error: 'not_found' } is a
+      // real business error, and a network failure must not silently skip
+      // the revocation the confirm dialog just promised.
+      if (isMissingFunction(res)) {
+        wm.setActive(member.user_id, active).catch(() => {})
+        return
+      }
+      setAdminError(res.data.friendly)
+    })
   }
 
   return (
-    <div className="h-full flex flex-col" style={{ maxWidth: '1080px', margin: '0 auto', width: '100%', padding: '2rem 2rem' }}>
-      <div className="flex items-center gap-3 mb-6">
-        <Users className="w-6 h-6" style={{ color: '#1c1917' }} />
-        <h1 className="text-lg font-bold uppercase tracking-widest" style={{ color: '#1c1917' }}>
-          Team Members
-        </h1>
-      </div>
-
-      {/* Toolbar */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        {/* Saved views — only the views at or below your role */}
+    <div className="tm-page">
+      <Toolbar
+        wrap
+        right={(
+          <span className="tm-count">
+            {filtered.length} member{filtered.length === 1 ? '' : 's'}
+          </span>
+        )}
+      >
+        {/* Saved views — only the views at or below your role. Three mutually
+            exclusive filtered views of one table IS a tab bar; it was a
+            segmented control with its own two-branch inline style. */}
         {availableViews.length > 1 && (
-          <div className="flex items-center gap-1 rounded-sm p-0.5" style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)' }}>
-            <Eye className="w-3 h-3 ml-1" style={{ color: LIGHT_INK }} />
-            {availableViews.map(v => (
-              <button
-                key={v.key}
-                type="button"
-                onClick={() => pickView(v.key)}
-                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                style={activeView === v.key
-                  ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                  : { backgroundColor: 'transparent', color: LIGHT_INK }}
-              >
-                {v.label}
-              </button>
-            ))}
-          </div>
+          <>
+            <Eye className="tm-toolbar-glyph" aria-hidden="true" />
+            <Tabs
+              label="Saved views"
+              panelId={ROSTER_PANEL_ID}
+              items={availableViews.map(v => ({ id: v.key, label: v.label }))}
+              value={activeView}
+              onChange={pickView}
+            />
+          </>
         )}
         <PermissionGate requires="member.invite">
-          <button
-            type="button"
-            onClick={() => setInviteOpen(true)}
-            className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
-          >
-            <UserPlus className="w-3 h-3" /> Invite User
-          </button>
+          <Button variant="primary" size="sm" onClick={() => setInviteOpen(true)}>
+            <UserPlus aria-hidden="true" /> Invite user
+          </Button>
         </PermissionGate>
         {/* Export the current view (Session 14) — columns follow the view
             flags, so this can never widen what the screen already shows. */}
-        <button
-          type="button"
+        <Button
+          size="sm"
           onClick={handleExportRoster}
           disabled={filtered.length === 0}
           title={filtered.length === 0 ? 'No members in the current view' : 'Export the current view as CSV'}
-          className="flex items-center gap-1 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-          style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: LIGHT_INK }}
         >
-          <Download className="w-3 h-3" /> Export
-        </button>
-        <select
+          <Download aria-hidden="true" /> Export
+        </Button>
+        <Select
+          size="sm"
           value={deptFilter}
-          onChange={(e) => setDeptFilter(e.target.value)}
-          className="px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
-          style={inputStyle}
-        >
-          <option value="">All departments</option>
-          {allDepts.map(d => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <div className="flex items-center gap-1 flex-1 max-w-xs">
-          <Search className="w-3 h-3" style={{ color: LIGHT_INK }} />
-          <input
-            type="text"
+          onChange={(v) => setDeptFilter(v ?? '')}
+          placeholder="All departments"
+          options={allDepts.map(d => ({ value: d, label: d }))}
+          aria-label="Filter by department"
+        />
+        <span className="tm-search">
+          <Search className="tm-toolbar-glyph" aria-hidden="true" />
+          <Input
+            size="sm"
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search members..."
-            className="flex-1 px-2 py-1.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-            style={inputStyle}
+            onChange={setSearch}
+            placeholder="Search members"
+            aria-label="Search members"
           />
           {search && (
-            <button type="button" onClick={() => setSearch('')} className="p-0.5" style={{ color: LIGHT_INK }}>
-              <X className="w-3 h-3" />
-            </button>
+            <IconButton icon={X} size="sm" title="Clear search" onClick={() => setSearch('')} />
           )}
-        </div>
-        <span className="text-[10px] font-mono uppercase tracking-wider ml-auto" style={{ color: LIGHT_INK }}>
-          {filtered.length} member{filtered.length === 1 ? '' : 's'}
         </span>
-      </div>
+      </Toolbar>
 
-      {/* Table */}
-      {(wm.loading || !wm.ready) && !wm.members.length ? (
-        <div className="flex items-center justify-center py-20">
-          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>Loading...</span>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 gap-3">
-          <Users className="w-8 h-8" style={{ color: LIGHT_INK }} />
-          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }}>
-            {wm.members.length === 0 ? 'No members yet. Invite your first teammate.' : 'No matches.'}
-          </span>
-        </div>
-      ) : (
-        // §B1 — "there is a white box and white header for the box that doesnt
-        // fit the visual language." It was a #d6d3d1 frame around a #e7e5e4
-        // header: a near-white card dropped onto the orange page. The REGION
-        // is kept (Law of Common Region) and the card is not — a hairline in
-        // the page's own ink plus a warm well for the header group do the same
-        // job and cost no new colour. Table structure, columns, sort and
-        // inline edit are unchanged.
-        <div className="overflow-auto flex-1 rounded-sm" style={LIGHT_TABLE_FRAME}>
-          <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-            <thead>
-              <tr style={LIGHT_TABLE_HEAD_ROW}>
-                <ThLight>Member</ThLight>
-                <ThLight>Username</ThLight>
-                <ThLight>Title</ThLight>
-                <ThLight>Department</ThLight>
-                <ThLight>Pronouns</ThLight>
-                <ThLight>Full-time</ThLight>
-                <ThLight>Role</ThLight>
-                {showEmail && <ThLight>Email</ThLight>}
-                {showStatus && <ThLight>Status</ThLight>}
-                {showRate && <ThLight>Day Rate</ThLight>}
-                <ThLight>Projects</ThLight>
-                {showActions && <ThLight />}
-              </tr>
-            </thead>
-            <tbody>
+      {/* The region the saved-view tabs switch. `tabpanel` plus the id the
+          tabs point at with aria-controls, so the tablist is a promise the
+          page keeps rather than a role with nothing behind it. */}
+      <div
+        className="tm-body"
+        id={ROSTER_PANEL_ID}
+        role={availableViews.length > 1 ? 'tabpanel' : undefined}
+        aria-label={availableViews.length > 1 ? `${ROLE_LABELS[activeView] || activeView} view` : undefined}
+        // A tabpanel with no focusable descendant needs its own tab stop, or a
+        // keyboard user moves from the last tab straight past it. The loading
+        // and empty branches are exactly that; the table brings its own.
+        tabIndex={availableViews.length > 1 && (loading || filtered.length === 0) ? 0 : undefined}
+      >
+        {pageError && <Banner tone="danger" Icon={AlertTriangle}>{pageError}</Banner>}
+        {/* No dismiss control: this strip did not have one, and adding one is
+            a new control (C1). It still clears on the next action, as before. */}
+        {adminError && <Banner tone="danger" Icon={AlertTriangle}>{adminError}</Banner>}
+
+        {/* Loading and empty were the same picture in the same italic — which
+            is the difference between "not yet" and "nothing here". */}
+        {loading ? (
+          <Loading rows={8} columns={7} label="Loading the roster" />
+        ) : filtered.length === 0 ? (
+          // No action slot: the Invite control is in the toolbar directly
+          // above, and a second copy of it is a NEW control under C1 even
+          // though it would only do what the first one does.
+          <EmptyState
+            Icon={Users}
+            title={wm.members.length === 0 ? 'No members yet' : 'No matches'}
+            body={wm.members.length === 0
+              ? 'Invite your first teammate to this workspace.'
+              : 'No member matches the current search and filters.'}
+          />
+        ) : (
+          // §B1 — "there is a white box and white header for the box that
+          // doesnt fit the visual language." It was a #d6d3d1 frame around a
+          // #e7e5e4 header: a near-white card on the orange page (C9). The
+          // REGION is kept (Law of Common Region) and is a Card now; the
+          // table pads its own cells, so the card does not pad.
+          <Card pad={false} className="tm-table-card">
+            <Table
+              aria-label="Workspace members"
+              head={(
+                <Row>
+                  <Th width={COL.member}>Member</Th>
+                  <Th width={COL.username}>Username</Th>
+                  <Th width={COL.title}>Title</Th>
+                  <Th width={COL.department}>Department</Th>
+                  <Th width={COL.pronouns}>Pronouns</Th>
+                  <Th width={COL.fullTime}>Full-time</Th>
+                  <Th width={COL.role}>Role</Th>
+                  {showEmail && <Th width={COL.email}>Email</Th>}
+                  {showStatus && <Th width={COL.status}>Status</Th>}
+                  {showRate && <Th width={COL.rate} numeric>Day rate</Th>}
+                  <Th width={COL.projects}>Projects</Th>
+                  {showActions && <Th width={COL.actions}><span className="tm-sr">Actions</span></Th>}
+                </Row>
+              )}
+            >
               {filtered.map(m => (
                 <MemberRow
                   key={m.user_id}
@@ -418,53 +507,14 @@ export default function TeamMembersPage() {
                   onUpdate={(patch) => wm.updateMember(m.user_id, patch).catch(() => {})}
                   onSetRole={(app_role) => wm.setRole(m.user_id, app_role).catch(() => {})}
                   onEditRate={() => setRateModal({ member: m, entry: entryByUserId.get(m.user_id) || null })}
-                  onDeactivate={() => {
-                    // Session 9: the Edge Function adds token revocation +
-                    // last-admin protection. Fall back to the direct update
-                    // ONLY when the function isn't deployed (bare 404) —
-                    // a 404 with { error: 'not_found' } is a real business
-                    // error, and a network failure must not silently skip
-                    // the revocation the confirm dialog just promised.
-                    if (!window.confirm(`Deactivate "${m.display_name || m.username}"? Access cuts immediately; they are signed out everywhere within the hour.`)) return
-                    setAdminError(null)
-                    adminSetActive(m.user_id, false).then((res) => {
-                      if (res.ok) { wm.reload(); return }
-                      if (isMissingFunction(res)) {
-                        wm.setActive(m.user_id, false).catch(() => {})
-                        return
-                      }
-                      setAdminError(res.data.friendly)
-                    })
-                  }}
-                  onReactivate={() => {
-                    setAdminError(null)
-                    adminSetActive(m.user_id, true).then((res) => {
-                      if (res.ok) { wm.reload(); return }
-                      if (isMissingFunction(res)) {
-                        wm.setActive(m.user_id, true).catch(() => {})
-                        return
-                      }
-                      setAdminError(res.data.friendly)
-                    })
-                  }}
+                  onDeactivate={() => setConfirmDeactivate(m)}
+                  onReactivate={() => runSetActive(m, true)}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {pageError && (
-        <div className="mt-2 text-xs font-mono" style={{ color: '#dc2626' }}>
-          {pageError}
-        </div>
-      )}
-
-      {adminError && (
-        <div className="mt-2 text-xs font-mono px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.1)', color: '#dc2626' }}>
-          {adminError}
-        </div>
-      )}
+            </Table>
+          </Card>
+        )}
+      </div>
 
       <InviteMemberDialog
         open={inviteOpen}
@@ -476,6 +526,33 @@ export default function TeamMembersPage() {
           wm.injectMember(resp)
         }}
       />
+
+      {confirmDeactivate && (
+        <Dialog
+          title="Deactivate member"
+          width="confirm"
+          onClose={() => setConfirmDeactivate(null)}
+          footer={(
+            <>
+              <Button onClick={() => setConfirmDeactivate(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  runSetActive(confirmDeactivate, false)
+                  setConfirmDeactivate(null)
+                }}
+              >
+                Deactivate
+              </Button>
+            </>
+          )}
+        >
+          {/* The words are window.confirm's, unchanged — they are a promise
+              about token revocation, and the fallback path depends on it. */}
+          Deactivate &ldquo;{confirmDeactivate.display_name || confirmDeactivate.username}&rdquo;?
+          {' '}Access cuts immediately; they are signed out everywhere within the hour.
+        </Dialog>
+      )}
 
       {rateModal && (
         <RateCardEditorModal
@@ -522,238 +599,176 @@ function MemberRow({
   const inactive = !member.is_active
   // §10-B: producers / creative directors get a highlighted row + badge.
   const highlighted = !inactive && staffBadges.length > 0
+  const who = member.display_name || member.username
   return (
-    <tr style={{
-      borderBottom: `1px solid ${LIGHT_RULE}`,
-      opacity: inactive ? 0.5 : 1,
-      backgroundColor: highlighted ? 'rgba(244, 162, 97, 0.14)' : undefined,
-    }}>
-      <TdLight>
-        <div className="flex items-center gap-2">
+    // `highlighted`, not `selected`: these rows carry a standing role, they
+    // are not a selection the user made, and the kit draws the two
+    // differently on purpose.
+    <Row inactive={inactive} highlighted={highlighted}>
+      <Td>
+        <span className="tm-member">
           <Avatar member={member} />
-          <span className="text-xs font-mono truncate" style={{ color: '#1c1917' }}>
-            {member.display_name || member.username || '--'}
-          </span>
+          {/* `title` because the name is the one cell whose tail may elide
+              when a row carries both staff badges. */}
+          <span className="tm-name" title={who || undefined}>{who || '--'}</span>
           {staffBadges.map(b => (
-            <span
+            <Badge
               key={b}
-              className="text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm flex-shrink-0"
-              style={{ backgroundColor: '#f4a261', color: '#7c2d12' }}
               title={b === 'PRODUCER' ? 'Producer on at least one project' : 'Director on at least one project'}
             >
-              {b}
-            </span>
+              {b === 'PRODUCER' ? 'Producer' : 'Director'}
+            </Badge>
           ))}
-          {isSelf && (
-            <span className="text-[9px] font-bold uppercase tracking-wider px-1 rounded-sm" style={{ backgroundColor: '#ea580c', color: '#fff' }}>
-              you
-            </span>
-          )}
-        </div>
-      </TdLight>
-      <TdLight>
-        <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>{member.username}</span>
-      </TdLight>
-      <TdLight>
+          {isSelf && <Badge title="This is you">You</Badge>}
+        </span>
+      </Td>
+      <Td>{member.username}</Td>
+      <Td>
         {canEditProfile ? (
-          <InlineLightText value={member.title || ''} onCommit={(title) => onUpdate({ title: title || null })} placeholder="Title" />
-        ) : (
-          <ReadCell value={member.title} />
-        )}
-      </TdLight>
-      <TdLight>
-        {canEditProfile ? (
-          <InlineLightSelect
-            value={member.department || ''}
-            options={[{ value: '', label: '--' }, ...departments.map(d => ({ value: d, label: d }))]}
-            onCommit={(department) => onUpdate({ department: department || null })}
+          <InlineText
+            value={member.title || ''}
+            onCommit={(title) => onUpdate({ title: title || null })}
+            placeholder="Title"
+            label={`Title for ${who}`}
           />
         ) : (
-          <ReadCell value={member.department} />
+          <ReadValue value={member.title} />
         )}
-      </TdLight>
-      <TdLight>
-        <ReadCell value={member.pronouns} />
-      </TdLight>
+      </Td>
+      <Td>
+        {canEditProfile ? (
+          <Select
+            size="sm"
+            value={member.department || ''}
+            placeholder="--"
+            options={departments.map(d => ({ value: d, label: d }))}
+            onChange={(department) => onUpdate({ department: department || null })}
+            aria-label={`Department for ${who}`}
+            title={member.department || undefined}
+          />
+        ) : (
+          <ReadValue value={member.department} />
+        )}
+      </Td>
+      <Td><ReadValue value={member.pronouns} /></Td>
       {/* Salaried staff or hired in (0059). Admin-only, and enforced DB-side
           by fn_ws_members_prevent_self_role_change — a member who could set
           this would choose which cost model they are billed under. The gate
           here is presentation; the trigger is the control. */}
-      <TdLight>
+      <Td>
         <PermissionGate
           requires="member.role.change"
-          fallback={(
-            <span className="text-xs font-mono" style={{ color: LIGHT_INK }}>
-              {member.is_full_time ? 'Yes' : 'No'}
-            </span>
-          )}
+          fallback={<span>{member.is_full_time ? 'Yes' : 'No'}</span>}
         >
           <input
             type="checkbox"
+            className="tm-check"
             checked={!!member.is_full_time}
             onChange={(e) => onUpdate({ is_full_time: e.target.checked })}
-            aria-label={`${member.display_name || member.username} is full-time staff`}
+            aria-label={`${who} is full-time staff`}
             title="Full-time staff populate the internal rate card"
-            style={{ accentColor: '#c2410c', width: '14px', height: '14px', cursor: 'pointer' }}
           />
         </PermissionGate>
-      </TdLight>
-      <TdLight>
+      </Td>
+      <Td>
         {roleEditable ? (
           <PermissionGate
             requires="member.role.change"
-            fallback={<RolePill role={member.app_role} />}
+            fallback={<span>{ROLE_LABELS[member.app_role] || member.app_role || '--'}</span>}
           >
             {isSelf ? (
               <span title="Ask another admin to change your role.">
-                <RolePill role={member.app_role} />
+                {ROLE_LABELS[member.app_role] || member.app_role || '--'}
               </span>
             ) : (
-              <InlineLightSelect
+              <Select
+                size="sm"
                 value={member.app_role}
                 options={[
                   { value: 'user',    label: 'User' },
                   { value: 'manager', label: 'Manager' },
                   { value: 'admin',   label: 'Admin' },
                 ]}
-                onCommit={onSetRole}
+                onChange={onSetRole}
+                aria-label={`Role for ${who}`}
+                title={ROLE_LABELS[member.app_role] || member.app_role || undefined}
               />
             )}
           </PermissionGate>
         ) : (
-          <RolePill role={member.app_role} />
+          <span>{ROLE_LABELS[member.app_role] || member.app_role || '--'}</span>
         )}
-      </TdLight>
-      {showEmail && (
-        <TdLight>
-          <ReadCell value={member.email} muted />
-        </TdLight>
-      )}
+      </Td>
+      {showEmail && <Td title={member.email || undefined}><ReadValue value={member.email} /></Td>}
       {showStatus && (
-        <TdLight>
-          <span
-            className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-sm"
-            style={inactive
-              ? { backgroundColor: 'rgba(120, 70, 30, 0.12)', color: LIGHT_INK }
-              : { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#15803d' }}
-          >
-            {inactive ? 'Inactive' : 'Active'}
-          </span>
-        </TdLight>
+        <Td>
+          {/* ONE semantic source. This was a two-branch inline style with a
+              green that exists nowhere else in the app; on the dark ground
+              the status tones are legible, which is half of why Q1 moved
+              this page. */}
+          <StatusBadge status={inactive ? 'offline' : 'active'} label={inactive ? 'Inactive' : 'Active'} />
+        </Td>
       )}
       {showRate && (
-        <TdLight>
+        <Td numeric>
           <RateCell entry={rateEntry} editable={canEditRate} onEdit={onEditRate} />
-        </TdLight>
+        </Td>
       )}
-      <TdLight>
+      <Td title={assignedProjects.length ? assignedProjects.join(', ') : 'No project assignments'}>
         {/* §10-E: live project assignments (project_members via the
             workspace channel). */}
         {assignedProjects.length > 0 ? (
-          <span
-            className="text-xs font-mono"
-            style={{ color: '#1c1917' }}
-            title={assignedProjects.join(', ')}
-          >
+          <>
             {assignedProjects.slice(0, 2).join(', ')}
             {assignedProjects.length > 2 ? ` +${assignedProjects.length - 2}` : ''}
-          </span>
+          </>
         ) : (
-          <span className="text-xs font-mono italic" style={{ color: LIGHT_INK }} title="No project assignments">
-            --
-          </span>
+          <span className="tm-empty-value">--</span>
         )}
-      </TdLight>
+      </Td>
       {showActions && (
-        <TdLight>
-          {inactive ? (
-            <button
-              type="button"
-              onClick={onReactivate}
-              className="p-1 rounded-sm hover:bg-stone-200 transition-colors"
-              title="Reactivate member"
-              style={{ color: '#15803d' }}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          ) : isSelf ? null : (
-            <button
-              type="button"
-              onClick={onDeactivate}
-              className="p-1 rounded-sm hover:bg-stone-200 transition-colors"
-              title="Deactivate member"
-              style={{ color: '#dc2626' }}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </TdLight>
+        <Td align="right">
+          {/* Q17(b): revealed on hover AND on focus-within. These were
+              permanently visible — 200 pieces of chrome on a 200-row roster —
+              and hiding them behind hover WITHOUT the focus reveal would have
+              turned each into a keyboard dead end. */}
+          <HoverActions>
+            {inactive ? (
+              <IconButton icon={RotateCcw} size="sm" title={`Reactivate ${who}`} onClick={onReactivate} />
+            ) : isSelf ? null : (
+              <IconButton icon={Trash2} size="sm" danger title={`Deactivate ${who}`} onClick={onDeactivate} />
+            )}
+          </HoverActions>
+        </Td>
       )}
-    </tr>
+    </Row>
   )
 }
 
 function Avatar({ member }) {
   const initial = (member.display_name || member.username || '?').trim().charAt(0).toUpperCase()
   if (isOwnAvatarUrl(member.avatar_url)) {
-    return (
-      <img
-        src={member.avatar_url}
-        alt=""
-        className="w-6 h-6 rounded-full object-cover flex-shrink-0"
-        style={{ border: `1px solid ${LIGHT_RULE}` }}
-      />
-    )
+    return <img src={member.avatar_url} alt="" className="tm-avatar" />
   }
-  return (
-    <div
-      className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 text-[10px] font-bold"
-      style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0' }}
-    >
-      {initial}
-    </div>
-  )
+  return <span className="tm-avatar" aria-hidden="true">{initial}</span>
 }
 
-function RolePill({ role }) {
-  return (
-    <span className="text-xs font-mono" style={{ color: '#1c1917' }}>
-      {ROLE_LABELS[role] || role || '--'}
-    </span>
-  )
-}
-
-// Empty and de-emphasised cells used to be lighter greys. On #f4a261 those
-// measured 1.42:1 and 3.70:1, so "less important" was rendered as "unreadable".
-// Emptiness is italic now and de-emphasis is weight — one ink either way.
-function ReadCell({ value, muted }) {
-  return (
-    <span
-      className={`text-xs font-mono truncate${value ? '' : ' italic'}`}
-      style={{ color: LIGHT_INK, fontWeight: muted ? 400 : 500 }}
-    >
-      {value || '--'}
-    </span>
-  )
+// Emptiness is italic and ONE ink. It used to be a lighter grey, which on
+// this page measured 1.42:1 — "less important" rendered as "unreadable".
+function ReadValue({ value }) {
+  if (!value) return <span className="tm-empty-value">--</span>
+  return <>{value}</>
 }
 
 function RateCell({ entry, editable, onEdit }) {
   const wage = formatMoney(entry?.wage, entry?.currency)
   const total = formatMoney(entry?.day_rate, entry?.currency) // day_rate = computed total
   const label = wage
-    ? <>{wage}{total && total !== wage ? <span style={{ color: LIGHT_INK }}> / {total}</span> : null}</>
-    : <span className="italic" style={{ color: LIGHT_INK }}>{editable ? 'Set rate' : '--'}</span>
-  if (!editable) {
-    return <span className="text-xs font-mono">{label}</span>
-  }
+    ? <>{wage}{total && total !== wage ? <span className="tm-rate-total"> / {total}</span> : null}</>
+    : <span className="tm-empty-value">{editable ? 'Set rate' : '--'}</span>
+  if (!editable) return label
   return (
-    <button
-      type="button"
-      onClick={onEdit}
-      className="text-xs font-mono text-left hover:bg-stone-200 px-1 py-0.5 rounded-sm transition-colors"
-      style={{ color: '#1c1917' }}
-      title="Edit rate card entry"
-    >
+    <button type="button" className="tm-cell-btn" onClick={onEdit} title="Edit rate card entry">
       {label}
     </button>
   )
@@ -764,16 +779,14 @@ function RateCell({ entry, editable, onEdit }) {
 // before → after summary and requires an explicit confirm click before the
 // entry is written (rate_card.edit is admin-only; the modal is the second
 // look the scope asks for).
+//
+// F2: the overlay, the backdrop, the Escape handler and the busy flag were
+// private copies. It is the kit's Dialog now, so Escape, the modal stack and
+// the busy lock come from one place (Q17) — and the error renders in the
+// footer beside the button that failed, rather than above it.
 function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm }) {
   const [phase, setPhase] = useState('form')
   const [busy, setBusy] = useState(false)
-
-  // Escape closes (matches InviteMemberDialog), never mid-save.
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !busy) onCancel() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onCancel])
   const [error, setError] = useState('')
   const [wage, setWage] = useState(entry?.wage ?? '')
   const [burden, setBurden] = useState(entry?.burden ?? '')
@@ -816,166 +829,101 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
     }
   }
 
-  const fieldStyle = {
-    width: '100%', padding: '6px 8px', fontSize: 12,
-    backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261',
-    border: '1px solid #44403c', borderRadius: 3,
-  }
-  const labelClass = 'block text-[10px] font-bold uppercase tracking-wider mb-1'
+  const TYPES = [{ value: 'percent', label: '%' }, { value: 'fixed', label: '$' }]
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ zIndex: 80, backgroundColor: 'rgba(0,0,0,0.6)' }}
-      onClick={(e) => { if (e.target === e.currentTarget && !busy) onCancel() }}
-    >
-      <div
-        style={{
-          backgroundColor: '#1c1917', border: '2px solid #ea580c', borderRadius: '6px',
-          padding: '20px 22px', width: 'min(420px, 92vw)', color: '#f4a261',
-        }}
-      >
-        <h2 className="font-mono uppercase text-sm tracking-widest mb-4" style={{ color: '#ea580c' }}>
-          {entry ? 'Edit rate' : 'Set rate'} — {member.display_name || member.username}
-        </h2>
-
-        {phase === 'form' ? (
-          <>
-            <div className="mb-3">
-              <label className={labelClass} style={{ color: '#a8a29e' }}>Day rate (wage)</label>
-              <input type="number" min="0" value={wage} onChange={(e) => setWage(e.target.value)} style={fieldStyle} autoFocus />
-            </div>
-            <div className="flex gap-2 mb-3">
-              <div className="flex-1">
-                <label className={labelClass} style={{ color: '#a8a29e' }}>Burden</label>
-                <input type="number" min="0" value={burden} onChange={(e) => setBurden(e.target.value)} style={fieldStyle} placeholder="dept default" />
-              </div>
-              <div className="w-24">
-                <label className={labelClass} style={{ color: '#a8a29e' }}>Type</label>
-                <select value={burdenType} onChange={(e) => setBurdenType(e.target.value)} style={fieldStyle}>
-                  <option value="percent">%</option>
-                  <option value="fixed">$</option>
-                </select>
-              </div>
-            </div>
-            <div className="flex gap-2 mb-4">
-              <div className="flex-1">
-                <label className={labelClass} style={{ color: '#a8a29e' }}>Overhead</label>
-                <input type="number" min="0" value={overhead} onChange={(e) => setOverhead(e.target.value)} style={fieldStyle} placeholder="dept default" />
-              </div>
-              <div className="w-24">
-                <label className={labelClass} style={{ color: '#a8a29e' }}>Type</label>
-                <select value={overheadType} onChange={(e) => setOverheadType(e.target.value)} style={fieldStyle}>
-                  <option value="percent">%</option>
-                  <option value="fixed">$</option>
-                </select>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div className="mb-4 text-xs font-mono leading-relaxed">
-            <p className="mb-2" style={{ color: '#d6d3d1' }}>
-              Confirm the rate card change for{' '}
-              <strong style={{ color: '#f4a261' }}>{member.display_name || member.username}</strong>:
-            </p>
-            <p>
-              Total day rate:{' '}
-              {prevTotal != null && <span style={{ color: '#a8a29e' }}>{formatMoney(prevTotal, entry?.currency)} &rarr; </span>}
-              <strong style={{ color: '#f4a261' }}>{formatMoney(nextTotal, entry?.currency) || '--'}</strong>
-            </p>
-          </div>
-        )}
-
-        {error && (
-          <div className="mb-3 text-xs font-mono" style={{ color: '#ef4444' }}>{error}</div>
-        )}
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={phase === 'confirm' ? () => setPhase('form') : onCancel}
-            disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-            style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
-          >
+    <Dialog
+      title={`${entry ? 'Edit rate' : 'Set rate'} — ${member.display_name || member.username}`}
+      width="form"
+      busy={busy}
+      error={error || null}
+      onClose={onCancel}
+      footer={(
+        <>
+          <Button disabled={busy} onClick={phase === 'confirm' ? () => setPhase('form') : onCancel}>
             {phase === 'confirm' ? 'Back' : 'Cancel'}
-          </button>
-          <button
-            type="button"
-            onClick={phase === 'confirm' ? confirm : toConfirm}
-            disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-            style={{ backgroundColor: '#ea580c', color: '#fff' }}
-          >
+          </Button>
+          <Button variant="primary" disabled={busy} onClick={phase === 'confirm' ? confirm : toConfirm}>
             {busy ? 'Saving…' : phase === 'confirm' ? 'Confirm change' : 'Review'}
-          </button>
+          </Button>
+        </>
+      )}
+    >
+      {phase === 'form' ? (
+        <div className="tm-rate-form">
+          <Field label="Day rate (wage)">
+            <Input type="number" min="0" value={wage} onChange={setWage} autoFocus />
+          </Field>
+          <div className="tm-rate-pair">
+            <Field label="Burden">
+              <Input type="number" min="0" value={burden} onChange={setBurden} placeholder="dept default" />
+            </Field>
+            <Field label="Type">
+              <Select value={burdenType} options={TYPES} onChange={(v) => setBurdenType(v || 'percent')} />
+            </Field>
+          </div>
+          <div className="tm-rate-pair">
+            <Field label="Overhead">
+              <Input type="number" min="0" value={overhead} onChange={setOverhead} placeholder="dept default" />
+            </Field>
+            <Field label="Type">
+              <Select value={overheadType} options={TYPES} onChange={(v) => setOverheadType(v || 'percent')} />
+            </Field>
+          </div>
         </div>
-      </div>
-    </div>
+      ) : (
+        <div className="tm-rate-confirm">
+          <p>
+            Confirm the rate card change for{' '}
+            <strong>{member.display_name || member.username}</strong>:
+          </p>
+          <p>
+            Total day rate:{' '}
+            {prevTotal != null && (
+              <span className="tm-rate-prev">{formatMoney(prevTotal, entry?.currency)} &rarr; </span>
+            )}
+            <strong>{formatMoney(nextTotal, entry?.currency) || '--'}</strong>
+          </p>
+        </div>
+      )}
+    </Dialog>
   )
 }
 
-// ─── Light-themed table atoms (for settings pages) ───
-function ThLight({ children }) {
-  return (
-    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left" style={LIGHT_TABLE_HEAD_CELL}>
-      {children}
-    </th>
-  )
-}
-function TdLight({ children }) {
-  return <td className="px-3 py-2 align-middle">{children}</td>
-}
-
-function InlineLightText({ value, onCommit, placeholder }) {
+// ─── Inline cell editor ───
+// Behaves exactly as it did: click to edit, Enter or blur commits, Escape
+// reverts and closes.
+//
+// 🚨 The two keys are the kit Input's OWN contract, not a second copy here.
+// Input blurs on Enter and, on Escape, reverts to the value the field had on
+// focus and then blurs with the commit suppressed (`useEscapeRevert`). So
+// `onCommit` is the write and `onBlur` only closes the editor. Handling Enter
+// here as well would commit TWICE — Input's blur fires first and the key
+// handler runs after it, with `value` not yet updated.
+function InlineText({ value, onCommit, placeholder, label }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(value)
-  function commit() {
-    setEditing(false)
-    if (draft !== value) onCommit(draft)
-  }
   if (editing) {
     return (
-      <input
+      <Input
+        size="sm"
         autoFocus
         value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') { setDraft(value); setEditing(false) }
-        }}
-        className="w-full px-1 py-0.5 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-        style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
+        onChange={setDraft}
+        onCommit={() => { if (draft !== value) onCommit(draft) }}
+        onBlur={() => setEditing(false)}
+        aria-label={label}
       />
     )
   }
   return (
     <button
       type="button"
+      className="tm-inline-edit"
       onClick={() => { setDraft(value); setEditing(true) }}
-      className={`text-xs font-mono text-left w-full truncate px-1 py-0.5 rounded-sm transition-colors${value ? '' : ' italic'}`}
-      style={{ color: LIGHT_INK }}
-      onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = LIGHT_WELL }}
-      onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent' }}
+      aria-label={label}
     >
-      {value || placeholder || '--'}
+      {value || <span className="tm-empty-value">{placeholder || '--'}</span>}
     </button>
-  )
-}
-
-function InlineLightSelect({ value, options, onCommit }) {
-  const opts = options.map(o => typeof o === 'string' ? { value: o, label: o } : o)
-  return (
-    <select
-      value={value}
-      onChange={(e) => onCommit(e.target.value)}
-      className="px-1.5 py-0.5 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 cursor-pointer"
-      style={{ backgroundColor: 'transparent', color: '#1c1917', border: `1px solid ${LIGHT_RULE}` }}
-    >
-      {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
   )
 }

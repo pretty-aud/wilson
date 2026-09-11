@@ -29,4 +29,17 @@ describe('StatusBadge', () => {
     expect(b.dataset.surface).toBe('light')
     expect(b.querySelector('.ui-status-dot').dataset.surface).toBe('light')
   })
+
+  it('composes StatusDot rather than repeating its markup, and hides it from AT', () => {
+    const { container } = render(<StatusBadge status="blocked" />)
+    const dot = container.querySelector('.ui-status-dot')
+    expect(dot).not.toBeNull()
+    expect(dot.dataset.tone).toBe('danger')
+    // The badge already says the word, so the dot must not be announced twice.
+    expect(dot.getAttribute('aria-hidden')).toBe('true')
+    expect(dot.getAttribute('role')).toBeNull()
+    expect(dot.getAttribute('aria-label')).toBeNull()
+    // Exactly one dot: the old markup drew its own alongside.
+    expect(container.querySelectorAll('.ui-status-dot')).toHaveLength(1)
+  })
 })

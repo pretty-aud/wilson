@@ -20,13 +20,13 @@ import { supabase } from './supabaseClient'
 import AuthShell, {
   AUTH_TEXT_STYLE, AUTH_PROSE_STYLE, AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE, AUTH_BUTTON_BUSY_STYLE, AUTH_ERROR_STYLE,
-  AUTH_LINK_STYLE, AUTH_HINT_STYLE, AuthSectionTitle,
+  AUTH_LINK_STYLE, AUTH_HINT_STYLE,
   AUTH_GAP_WITHIN_FIELD, AUTH_GAP_BETWEEN_FIELDS, AUTH_GAP_BETWEEN_BLOCKS,
 } from './AuthShell'
 import { usePermissions } from '../../permissions'
 import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
-import { Button } from '../../ui'
+import { Button, SectionTitle } from '../../ui'
 import {
   INK_LIGHT, ON_FILL, RADIUS_CONTROL, TYPE, ICON,
 } from '../../ui/tokens'
@@ -471,8 +471,8 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
 
               🚨 R2 asked for two changes here and gets neither, with reasons.
 
-              It called this a third hand-rolled copy of `AuthSectionTitle`. It
-              is not the same role: AuthSectionTitle is a Settings SECTION head
+              It called this a third hand-rolled copy of the section head. It
+              is not the same role: `SectionTitle` is a Settings SECTION head
               — it opens with a `rule-light` top hairline and its description is
               the Dense step — and this is the page title of a full-screen auth
               surface with a 14px PROSE paragraph under it in a centred column.
@@ -560,10 +560,13 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
 // so two byte-identical copies became two copies that no longer even agreed
 // (different spacing below the block, a measure cap on one and not the other),
 // which is a worse outcome than leaving both alone. The role now lives once, as
-// `AuthSectionTitle` in AuthShell, and both auth callers import it.
+// `src/ui/SectionTitle`, and both auth callers import it.
 //
 // 🚨 STILL A KIT REQUEST: `src/ui/SectionTitle` (title, description, surface)
-// is Foundation 2's. AuthSectionTitle is the stand-in that keeps the two
+// was Foundation 2's, and it landed while D2 was in review: D2's stand-in
+// (`AuthSectionTitle`, exported from AuthShell) was deleted on integration and
+// both callers moved to the real one. What the stand-in bought, and what still
+// matters, is that the two
 // surfaces from drifting again in the meantime, and it is deleted into the kit
 // component the day that lands — one deletion, not two.
 
@@ -609,12 +612,11 @@ export function MfaSecuritySection() {
 
   return (
     <div>
-      <AuthSectionTitle
-        title="Two-factor authentication"
-        description={`A 6-digit authenticator code on top of your password.${
-          isAdminTier ? ' Required for admins.' : ' Recommended for everyone.'
-        }`}
-      />
+      <SectionTitle
+        surface="light"
+      >
+        Two-factor authentication
+      </SectionTitle>
 
       {state.loading ? (
         <div style={{ ...AUTH_HINT_STYLE, color: INK_LIGHT }}>Checking status…</div>

@@ -151,19 +151,37 @@ describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 202
   })
 })
 
+import { PAGE_BY_ID } from '../layout/pages'
+
 describe('FILES under RESOURCES, and the file facts (Audrey, 2026-09-11 00:50)', () => {
   const app = read('../App.jsx')
   const localAdapter = read('../tools/rabbit_v0.1.0/adapters/localServerAdapter.js')
   const stream = read('../../electron/projectFileStream.cjs')
   const explorer = read('../components/Resources/ProjectFilesExplorer.jsx')
   const m0081 = read('../../supabase/migrations/0081_file_media_metadata.sql')
-  it('the shell registers the page once: title, RESOURCES entry, render block, light-surface list', () => {
+  // UI overhaul F2: this used to assert FOUR separate registrations in
+  // App.jsx — the title table, the RESOURCES nav array, the render block and
+  // the header's OR chain. Three of those lists are gone: `src/layout/pages.js`
+  // is the single registry they all derive from, and a page missing from it
+  // throws at module load rather than rendering in Home's chrome (review F32,
+  // which is the same defect that made this test necessary). The assertion
+  // that the page is registered ONCE is therefore stronger, not weaker: it is
+  // now structurally impossible to register it in three places out of four.
+  it('the shell registers the page once, in the registry, and renders it once', () => {
     expect(app).toContain("import ProjectFilesExplorer from './components/Resources/ProjectFilesExplorer'")
-    expect(app).toContain("'project-files': 'FILES',")
-    expect(app).toContain("{ id: 'project-files',   label: 'FILES' },")
+    expect(app).toContain('<PageSurface id="project-files"')
     expect(app).toContain("{currentPage === 'project-files' && <ProjectFilesExplorer />}")
-    expect(app).toContain("currentPage === 'team-members' || currentPage === 'project-files' ||")
     expect((app.match(/<ProjectFilesExplorer \/>/g) || []).length).toBe(1)
+    // …and the registry carries it, under RESOURCES, with its own geometry.
+    const files = PAGE_BY_ID['project-files']
+    expect(files, "'project-files' is missing from the PAGES registry").toBeDefined()
+    expect(files.title).toBe('Files')
+    expect(files.nav).toBe('resources')
+    expect(files.bars.top).toBe(PAGE_BY_ID['team-members'].bars.top)
+    // The control: the old shape really is gone, so this test cannot pass by
+    // accident against a stale App.jsx that still carries the hand-kept lists.
+    expect(app).not.toContain("'project-files': 'FILES',")
+    expect(app).not.toContain("currentPage === 'team-members' || currentPage === 'project-files' ||")
   })
   it('the explorer reads straight from the adapter (folders, files, managed files) and has both views and the details', () => {
     expect(explorer).toContain('adapter.listFolders?.bind(adapter)')

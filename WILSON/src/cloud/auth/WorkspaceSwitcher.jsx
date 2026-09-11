@@ -25,7 +25,8 @@
 //          is quoted in the review, not here, so a grep audit counts the
 //          remaining copies rather than this comment.)
 //
-//          It is now `AuthSectionTitle` from AuthShell: ONE implementation for
+//          It is now `src/ui/SectionTitle` (F2's, landed while D2 was in
+//          review): ONE implementation for
 //          both auth surfaces that have the role, so the two cannot drift into
 //          two hand-rolled versions — which is the outcome the first pass at
 //          this actually produced. It draws a 1px `rule-light` hairline above,
@@ -54,7 +55,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
-import { AUTH_ERROR_STYLE, AuthSectionTitle } from './AuthShell'
+import { AUTH_ERROR_STYLE } from './AuthShell'
+import { SectionTitle } from '../../ui'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -166,13 +168,17 @@ export default function WorkspaceSwitcher() {
 
   return (
     <div>
-      {/* AUTH-14 — the section-header role, from AuthShell so this file and
-          MfaSection cannot drift apart again. It carries its own 16px of air
-          below the block, which is why the list no longer adds `mt-4`. */}
-      <AuthSectionTitle
-        title="Active workspace"
+      {/* AUTH-14 — the section-header role. D2 shipped a stand-in exported from
+          AuthShell because the kit had none; F2 landed `src/ui/SectionTitle`
+          while D2 was in review, so the stand-in is gone and this and
+          MfaSection are its first two auth callers, as the finding asked.
+          `surface="light"` because Settings is a light page (Q1 option A). */}
+      <SectionTitle
+        surface="light"
         description="You belong to more than one workspace. Switching reloads the app so every view re-reads the new workspace's data."
-      />
+      >
+        Active workspace
+      </SectionTitle>
       <div className="flex flex-col gap-2">
         {workspaces.map(ws => {
           const active = ws.id === activeWsId

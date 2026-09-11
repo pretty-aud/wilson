@@ -23,7 +23,9 @@ import { withTimeout, TimeoutError, AUTH_TIMEOUT_MS } from '../../cloud/auth/wit
 import { usePermissions } from '../../permissions/usePermissions'
 import { isOwnAvatarUrl } from '../TeamMembers/useWorkspaceMembers'
 import { loadOtterSettings } from '../../lib/localData'
-import { LIGHT_INK } from '../lightSurface'
+import './settings.css'
+import { Section, Group, Row } from './SettingsChrome'
+import { Button, Input, Select } from '../../ui'
 
 const AVATAR_BUCKET = 'user-avatars'
 const AVATAR_MAX_BYTES = 2 * 1024 * 1024 // 2 MB — mirrors the bucket's file_size_limit
@@ -261,57 +263,52 @@ export default function ProfileSection({ onSaved }) {
     }
   }
 
-  const inputStyle = {
-    backgroundColor: 'rgba(120, 70, 30, 0.55)',
-    color: '#fde8d0',
-    border: 'none',
-  }
-  const disabledStyle = {
-    backgroundColor: 'rgba(120, 70, 30, 0.18)',
-    color: LIGHT_INK,
-    border: 'none',
-  }
-  const inputClass = 'w-full px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
-  const labelClass = 'block text-[11px] font-bold uppercase tracking-wider mb-1.5'
-
   // Freshly picked files preview via blob: URL; stored URLs only render when
   // they point at our own user-avatars bucket (same guard as the roster).
   const shownAvatar = avatarPreview || (isOwnAvatarUrl(row?.avatar_url) ? row.avatar_url : null)
 
+  // S27: "loading", "no profile" and "it broke" used to be ONE block with an
+  // ink flip between them, so a failure and an empty state were the same
+  // object. Three states, three treatments.
   if (loading) {
-    return (
-      <div className="py-8 text-xs font-mono italic" style={{ color: LIGHT_INK }}>Loading profile…</div>
-    )
+    return <p className="s-profile-empty">Loading profile…</p>
   }
   if (!row) {
     return (
-      <div className="py-8 text-xs font-mono italic" style={{ color: error ? '#dc2626' : LIGHT_INK }}>
+      <p className="s-profile-empty" data-tone={error ? 'error' : 'neutral'} role={error ? 'alert' : undefined}>
         {error || 'No cloud profile found — sign in to a workspace to edit your profile.'}
-      </div>
+      </p>
     )
   }
 
   return (
-    <div>
-      <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">Profile</h2>
-      <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-        How you appear to teammates across WILSON. Username and role are managed
-        by your workspace admin.
-      </p>
-
-      {/* Avatar */}
+    // ⚠️ THIS COMPONENT HAS TWO HOSTS. SettingsPage mounts it here and
+    // Dashboard/DashboardPage.jsx mounts it as a whole tab. Both are the light
+    // ground today, so one treatment serves both — but plan §2 Q1 moves the
+    // Dashboard onto the dark `paper` in lane C2, and at that point this
+    // component needs a `surface` prop rather than a second copy. Filed as a
+    // kit request in the D1 hand-off.
+    <Section
+      first
+      title="Profile"
+      description="How you appear to teammates across WILSON. Username and role are managed by your workspace admin."
+    >
+      {/* A7: the avatar's action buttons started 80px in (a 64px circle plus a
+          16px gap) and aligned to nothing in the field grid below. The avatar
+          is a row now, so its controls sit on the same right-hand edge as
+          every other control on the page. */}
       <div className="flex items-center gap-4 mb-6">
         {shownAvatar ? (
           <img
             src={shownAvatar}
             alt="Avatar"
             className="w-16 h-16 rounded-full object-cover"
-            style={{ border: '2px solid #c2410c' }}
+            style={{ border: '1px solid var(--color-rule-light)' }}
           />
         ) : (
           <div
-            className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold"
-            style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0' }}
+            className="w-16 h-16 rounded-full flex items-center justify-center"
+            style={{ backgroundColor: 'var(--color-well-light)', color: 'var(--color-ink-light)', fontSize: 'var(--text-h1)', fontWeight: 600 }}
           >
             {(displayName || row.username || '?').trim().charAt(0).toUpperCase()}
           </div>
@@ -325,118 +322,81 @@ export default function ProfileSection({ onSaved }) {
             className="hidden"
           />
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-              style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-            >
+            <Button surface="light" size="sm" onClick={() => fileRef.current?.click()} disabled={busy}>
               {shownAvatar ? 'Change avatar' : 'Upload avatar'}
-            </button>
+            </Button>
             {shownAvatar && (
-              <button
-                type="button"
-                onClick={handleRemoveAvatar}
-                disabled={busy}
-                className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-                style={{ backgroundColor: 'transparent', color: '#dc2626', border: '1px solid #dc2626' }}
-              >
+              <Button surface="light" size="sm" variant="danger" onClick={handleRemoveAvatar} disabled={busy}>
                 {avatarFile ? 'Discard' : 'Remove'}
-              </button>
+              </Button>
             )}
           </div>
-          <p className="text-[10px] mt-1.5" style={{ color: LIGHT_INK }}>
+          <p className="s-row-desc mt-2">
             PNG, JPEG, WEBP, or GIF · under 2 MB{avatarFile ? ` · ${avatarFile.name}` : ''}
           </p>
         </div>
       </div>
 
-      {/* Editable fields */}
-      <div className="grid grid-cols-2 gap-4 mb-4">
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Display name</label>
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value.slice(0, 80))}
-            disabled={busy}
-            className={inputClass}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Pronouns</label>
-          <input
-            type="text"
-            value={pronouns}
-            onChange={(e) => setPronouns(e.target.value.slice(0, 40))}
-            disabled={busy}
-            placeholder="e.g. they/them"
-            className={inputClass}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Title</label>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value.slice(0, 80))}
-            disabled={busy}
-            placeholder="e.g. Compositor"
-            className={inputClass}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Department</label>
-          <select
-            value={department}
-            onChange={(e) => setDepartment(e.target.value)}
-            disabled={busy}
-            className={`${inputClass} cursor-pointer`}
-            style={inputStyle}
-          >
-            <option value="">--</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
-        </div>
-      </div>
+      {/* S19 / A1: a 2-column grid sat 16px above a 3-column grid and read as
+          one block, with the gutter at 50 percent in the first and 33/66 in
+          the second — six field edges that nearly lined up and none that did.
+          One column of rows now, which is the contract the rest of the page
+          uses, so there is no seam to misalign. */}
+      <Group label="You">
+        <Row label="Display name" stacked>
+          <Input surface="light" aria-label="Display name" className="w-full"
+            value={displayName} onChange={(v) => setDisplayName(v.slice(0, 80))} disabled={busy} />
+        </Row>
+        <Row label="Pronouns" stacked>
+          <Input surface="light" aria-label="Pronouns" className="w-full" placeholder="e.g. they/them"
+            value={pronouns} onChange={(v) => setPronouns(v.slice(0, 40))} disabled={busy} />
+        </Row>
+        <Row label="Title" stacked>
+          <Input surface="light" aria-label="Title" className="w-full" placeholder="e.g. Compositor"
+            value={title} onChange={(v) => setTitle(v.slice(0, 80))} disabled={busy} />
+        </Row>
+        <Row label="Department" stacked>
+          <Select surface="light" aria-label="Department" className="w-full"
+            value={department} onChange={(v) => setDepartment(v || '')} disabled={busy}
+            placeholder="--"
+            options={departments.map(d => ({ value: d, label: d }))} />
+        </Row>
+      </Group>
 
-      {/* Locked fields — enforced by the DB guard trigger, disabled here */}
-      <div className="grid grid-cols-3 gap-4 mb-5">
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Username</label>
-          <input type="text" value={row.username || ''} disabled className={inputClass} style={disabledStyle} title="Usernames are managed by your workspace admin." />
-        </div>
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Role</label>
-          <input type="text" value={ROLE_LABELS[row.app_role] || row.app_role || ''} disabled className={inputClass} style={disabledStyle} title="Roles are managed by your workspace admin." />
-        </div>
-        <div>
-          <label className={labelClass} style={{ color: LIGHT_INK }}>Email</label>
-          <input type="text" value={email} disabled className={inputClass} style={disabledStyle} title="Email changes arrive with the account settings work (Session 9)." />
-        </div>
-      </div>
+      {/* Managed by the workspace admin and enforced by a DB guard trigger.
+          They are disabled, and the disabled token is what says so — making
+          them look editable would be a lie the database enforces. */}
+      <Group label="Managed by your workspace">
+        <Row label="Username" stacked>
+          <Input surface="light" className="w-full" value={row.username || ''} onChange={() => {}} disabled
+            aria-label="Username" title="Usernames are managed by your workspace admin." />
+        </Row>
+        <Row label="Role" stacked>
+          <Input surface="light" className="w-full" value={ROLE_LABELS[row.app_role] || row.app_role || ''} onChange={() => {}} disabled
+            aria-label="Role" title="Roles are managed by your workspace admin." />
+        </Row>
+        <Row label="Email" stacked>
+          <Input surface="light" className="w-full" value={email} onChange={() => {}} disabled
+            aria-label="Email" title="Email changes arrive with the account settings work (Session 9)." />
+        </Row>
+      </Group>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={busy}
-          className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
-        >
+      <div className="mt-6">
+        <Button surface="light" variant="primary" onClick={handleSave} disabled={busy}>
           {busy ? 'Saving…' : 'Save profile'}
-        </button>
-        {savedFlash && (
-          <span className="text-xs font-mono text-green-700">Saved.</span>
-        )}
-        {error && (
-          <span className="text-xs font-mono" style={{ color: '#dc2626' }}>{error}</span>
-        )}
+        </Button>
       </div>
-    </div>
+
+      {/* S10: 'Saved.' was text-green-700 on #f4a261 — 2.60:1 — and it
+          appeared and vanished on a 2500ms timeout with no transition, in a
+          position the user may not have been looking at. Same ink as the page
+          and the same left-edge treatment as every other confirmation here. */}
+      {savedFlash && (
+        <p className="s-feedback mt-4" data-tone="ok" role="status">Saved.</p>
+      )}
+      {error && (
+        <p className="s-feedback mt-4" data-tone="error" role="alert">{error}</p>
+      )}
+    </Section>
   )
 }

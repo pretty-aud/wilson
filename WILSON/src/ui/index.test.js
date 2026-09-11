@@ -11,9 +11,9 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import * as kit from './index'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -21,9 +21,13 @@ const files = readdirSync(here)
 const modules = files.filter((f) => /\.(js|jsx)$/.test(f) && !/\.test\.(js|jsx)$/.test(f) && f !== 'index.js')
 
 export const COMPONENTS = [
+  // F1 — tokens and primitives
   'Button', 'IconButton', 'Switch', 'Chip', 'Badge', 'StatusDot', 'StatusBadge', 'Field',
   'Input', 'TextArea', 'Select', 'Dialog', 'Menu', 'Toast', 'ToastProvider', 'Banner',
   'EmptyState', 'Loading', 'Spinner', 'Kbd',
+  // F2 — the shell and data primitives
+  'PageHeader', 'Table', 'Th', 'Td', 'Row', 'Toolbar', 'SectionTitle', 'Card',
+  'Tabs', 'Panel', 'Drawer', 'Stat', 'HoverActions',
 ]
 
 describe('src/ui inventory', () => {
@@ -33,7 +37,7 @@ describe('src/ui inventory', () => {
       const hasTest = files.includes(`${base}.test.js`) || files.includes(`${base}.test.jsx`)
       expect(hasTest, `${f} has no test`).toBe(true)
     }
-    expect(modules.length).toBeGreaterThanOrEqual(22)
+    expect(modules.length).toBeGreaterThanOrEqual(32)
   })
 
   it('every component is exported from the barrel as a component', () => {
@@ -64,5 +68,119 @@ describe('src/ui inventory', () => {
     }
     expect(kit.DIALOG_WIDTHS.confirm).toBe(400)
     expect(kit.STATUS.blocked.tone).toBe('danger')
+  })
+})
+
+// ── Every exported component has a CALLER, or is on a named list ───────────
+//
+// Plan §7's grep audit: "no exported src/ui/ component without a caller".
+// Plan risk 11: "The kit adds ~25 components at once; F2's worked-example page
+// and P1's grep make every one earn a caller." Ten features have shipped in
+// this repo with no caller at all, and `RelationBadge` is imported and never
+// rendered to this day — the defect is real and it is silent.
+//
+// 🚨 The test is not "every component has a caller" — four do not yet, and
+// three of those CANNOT get an honest one on F2's worked example without
+// inventing UI on it, which C1 forbids outright. So the test pins the
+// EXCEPTION LIST instead: a component may lack a caller only if it is named
+// here, with the lane that adopts it. The list can only shrink without
+// editing this file, so the gap is tracked rather than invisible, and P1's
+// grep has a baseline rather than a judgement call.
+describe('every exported component has a caller, or is on the list', () => {
+  // Adopting lane, from plan §5. A name leaves this list when its lane lands.
+  const AWAITING_A_CALLER = {
+    // SectionTitle came off this list when D2 integrated: AUTH-14 needed the
+    // role for `MfaSecuritySection` and `WorkspaceSwitcher`, which opened with
+    // the same hand-typed header string, and D2 had shipped a stand-in in
+    // AuthShell while F2 was still in flight. On integration the stand-in was
+    // deleted and both auth surfaces import the kit's. D1's own swap —
+    // SettingsChrome.jsx re-pointing its local copy — is still outstanding and
+    // is still D1's to make (plan §6.5).
+    Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
+    Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
+    Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
+    // Switch HAD a caller through binUi until Audrey ruled Bins back onto its
+    // own primitives until B6 (764f8f5). It is not a regression in the
+    // component; it is the six hand-rolled toggles still waiting for it.
+    Switch:       'D1 (Settings toggles) or B6 (binUi re-points at the kit)',
+  }
+
+  const root = resolve(here, '..')
+  const files = []
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'ui') walk(p); continue }
+      if (/\.(js|jsx)$/.test(e.name) && !/\.test\.(js|jsx)$/.test(e.name)) files.push(p)
+    }
+  }
+  walk(root)
+
+  // What the app imports from the kit — from `src/ui`, from a single module,
+  // or through binUi's re-exports (Bins' callers are real callers).
+  const imported = new Set()
+  const IMPORT = /import\s*\{([^}]*)\}\s*from\s*'([^']*(?:\/ui(?:\/[A-Za-z]+)?|binUi))'/g
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8')
+    for (const m of src.matchAll(IMPORT)) {
+      for (const raw of m[1].split(',')) {
+        const name = raw.trim().split(/\s+as\s+/)[0].trim()
+        if (name) imported.add(name)
+      }
+    }
+  }
+
+  // A caller INSIDE the kit counts, and is sometimes the right one: Toast is
+  // rendered by ToastProvider, and StatusDot by StatusBadge. Both are proven
+  // on a real screen through their wrapper, and giving either a second,
+  // direct caller on the worked example would be decoration.
+  // 🚨 Comments and string literals are stripped FIRST. Without this, Table,
+  // Th, Td and Row were "called" by the usage example in their own file's
+  // header comment, and Loading by a console.error string — so the four
+  // components F2 exists to deliver would have passed this guard with every
+  // real caller deleted. A guard a comment can satisfy is not a guard.
+  const stripText = (src) => src
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/'(?:[^'\\\n]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\\n]|\\.)*"/g, '""')
+    .replace(/`(?:[^`\\]|\\.)*`/g, '``')
+  for (const f of readdirSync(here)) {
+    if (!/\.(js|jsx)$/.test(f) || /\.test\./.test(f) || f === 'index.js') continue
+    const src = stripText(readFileSync(join(here, f), 'utf8'))
+    for (const name of COMPONENTS) {
+      // The boundary matters: `<StatusDot` starts with `<Stat`, so a plain
+      // `includes` marked Stat as called by StatusBadge and hid a genuinely
+      // uncalled component behind a prefix.
+      if (new RegExp(`<${name}(?![A-Za-z0-9])`).test(src)) imported.add(name)
+    }
+  }
+
+  it('names every component that is exported but not yet called', () => {
+    const uncalled = COMPONENTS.filter((c) => !imported.has(c))
+    expect(uncalled.sort()).toEqual(Object.keys(AWAITING_A_CALLER).sort())
+  })
+
+  it('nothing sits on the list that actually has a caller', () => {
+    for (const name of Object.keys(AWAITING_A_CALLER)) {
+      expect(imported.has(name), `${name} has a caller now — take it off the list`).toBe(false)
+    }
+  })
+
+  it('the control: a real caller is detected and a commented-out one is not', () => {
+    // `PageHeader` has no self-reference anywhere in the kit, so it can only
+    // be in the set because the IMPORT scan found App.jsx. (`Table` would not
+    // do: it appears in its own header comment, which is the false positive
+    // this control exists to rule out.)
+    expect(imported.has('PageHeader'), 'the import scan found nothing at all').toBe(true)
+    expect(imported.size).toBeGreaterThan(15)
+
+    // The text-stripper, against the exact shapes that fooled it: a usage
+    // example in a doc comment, a block comment, and a string literal.
+    expect(stripText('// <Drawer width="lg" />')).not.toContain('<Drawer')
+    expect(stripText('/* <Panel /> */')).not.toContain('<Panel')
+    expect(stripText("console.error('render <Loading /> instead')")).not.toContain('<Loading')
+    // …and it must not eat real JSX while doing it.
+    expect(stripText('return (<Panel width="sm">x</Panel>)')).toContain('<Panel')
   })
 })

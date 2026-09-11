@@ -46,7 +46,9 @@
 // =============================================================================
 
 import { forwardRef, useState, useEffect, useRef } from 'react'
-import { HOME_BAR_HEIGHT } from '../../layout/pageBars'
+// F2 renamed the geometry module to `layout/pages` when it grew the PAGES
+// registry; this is the only line of D2 that had to move for it.
+import { HOME_BAR_HEIGHT } from '../../layout/pages'
 // The shared design tokens (UI overhaul F1). Every value below that used to
 // be a hex or a hand-tuned px is read from here, so the auth family cannot
 // drift from the rest of the app again — which is what happened between
@@ -68,7 +70,7 @@ const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
 // Home's bars at, or the bars visibly jump at the moment the user arrives —
 // the first thing anyone sees after signing in. Phase 4 made that height
 // viewport-responsive, so a copied '268px' would now be wrong on any short
-// screen. See the seam note in src/layout/pageBars.js.
+// screen. See the seam note in src/layout/pages.js.
 const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // Split-phase bar height — the number that decides how much room the tallest
 // auth screen has. Session 43 derived it from 28vh; UI overhaul D2 re-derived
@@ -792,60 +794,16 @@ export const AUTH_BUTTON_BUSY_STYLE = { cursor: 'not-allowed' }
 // that no longer advertises itself as clickable is the honest one.
 export const AUTH_LINK_BUSY_STYLE = { textDecoration: 'none', cursor: 'not-allowed' }
 
-// A section heading, for the two auth surfaces that open with one (AUTH-14).
+// AUTH-14's section heading used to live here as `AuthSectionTitle`, a
+// stand-in exported from this file because `MfaSecuritySection` and
+// `WorkspaceSwitcher` opened with the SAME hand-typed header class string and
+// the kit had no such role yet. F2 landed `src/ui/SectionTitle` while D2 was
+// in review, so the stand-in was deleted on integration and both callers now
+// import the real one with `surface="light"`. Kit request K2 is closed.
 //
-// `MfaSecuritySection` and `WorkspaceSwitcher` opened with the SAME hand-typed
-// header class string — one of 43 copies of it in `src` at the start of this
-// session, 40 at its end, because this is one of the two that left. Replacing two
-// identical copies with two different hand-rolled versions would have been a
-// worse outcome than leaving them alone, and the first attempt at this session
-// did exactly that, so the role lives here instead: one implementation, two
-// callers, both auth.
-//
-// 🚨 This is a STAND-IN, not the answer. The app-wide role is `src/ui/
-// SectionTitle` and it belongs to Foundation 2 (kit request K2 in the
-// hand-off). When it lands, both callers move to it and this export is
-// deleted — it exists only so the two surfaces cannot drift again in the
-// meantime.
-//
-// The hairline above rather than a filled bar or a bordered box is §4's
-// contract for the role; the description is the Dense step.
-//
-// The two spacings are the ones the hand-typed headers it replaced already
-// had — 24px of air under the block and 8px between the title and its
-// description. The first draft used the gap tokens and quietly tightened both
-// (24 → 16 and 8 → 4); round 2 caught it. A shared component that re-spaces
-// its callers is not a shared component, it is a second design.
-export function AuthSectionTitle({ title, description }) {
-  return (
-    <div style={{
-      borderTop: `1px solid ${RULE_LIGHT}`,
-      paddingTop: AUTH_GAP_BETWEEN_BLOCKS,
-      marginBottom: AUTH_GAP_BETWEEN_BLOCKS,
-    }}>
-      <h2 style={{
-        ...AUTH_TEXT_STYLE,
-        fontSize: `${TYPE.h2}px`,
-        lineHeight: 1.3,
-        fontWeight: 600,
-        margin: 0,
-      }}>
-        {title}
-      </h2>
-      {description && (
-        <p style={{
-          ...AUTH_TEXT_STYLE,
-          fontSize: `${TYPE.dense}px`,
-          lineHeight: 1.45,
-          maxWidth: 'min(60ch, 90vw)',
-          margin: `${AUTH_GAP_WITHIN_FIELD} 0 0`,
-        }}>
-          {description}
-        </p>
-      )}
-    </div>
-  )
-}
+// The reason it existed is still worth keeping: replacing two identical copies
+// with two different hand-rolled versions is worse than the duplication, and
+// the first attempt at this session did exactly that.
 
 // A label + its control, spaced by the within-field gap. Every auth field on
 // every auth surface goes through this so the pairing can never drift.

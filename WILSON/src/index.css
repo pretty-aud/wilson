@@ -140,6 +140,17 @@
   --ease-response: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/* 🚨 THE TITLE BAR OFFSET, in one place (plan §3.3; review "Missing coverage").
+   Electron draws WILSON's own 32px title bar fixed at the top of every screen.
+   Three surfaces hand-compensate for it in three different ways and a fourth
+   (EditHistoryDrawer) does not, so it slides UNDER the bar and loses its
+   header (TL-24). `.electron-app` is the class TitleBar already sets on <html>
+   when `window.electronAPI` exists, so this resolves to 32px in the desktop
+   app and 0 in the browser, and a drawer is written ONCE for both. Any fixed
+   overlay that must clear the bar reads this instead of a literal 32. */
+:root { --titlebar-offset: 0px; }
+.electron-app { --titlebar-offset: var(--titlebar); }
+
 @utility duration-state { transition-duration: var(--duration-state); }
 @utility duration-response { transition-duration: var(--duration-response); }
 @utility duration-panel { transition-duration: var(--duration-panel); }
@@ -460,6 +471,68 @@ select option {
    tokens.test.js asserts no reduced-motion rule reaches them.
    ═══════════════════════════════════════════════════════════════ */
 @layer components {
+  /* ── PageHeader ─────────────────────────────────────────────────────────
+     56px, the one gutter, one title size. On the orange frame the title is
+     white (20px at 600 is large text: 3.56:1 clears 3:1) and the subtitle is
+     the ink (4.91:1) — it shipped as `text-orange-200` at 2.63:1. See
+     PageHeader.jsx for the full note. */
+  .ui-page-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    height: var(--page-header);
+    padding: 0 var(--spacing-gutter);
+    flex-shrink: 0;
+  }
+  .ui-page-header-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+  }
+  .ui-page-header-title {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    color: var(--color-on-fill);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-page-header-subtitle {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-light);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ui-page-header-actions {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+  /* The header's TITLE shares its page's column, so it sits directly above the
+     page's own first row.
+     🚨 The title only. An earlier cut capped and centred the whole header,
+     which moved the hamburger inward by half the slack — and the nav strip
+     that hamburger opens is right-aligned against the WINDOW, so fixing the
+     left edge broke the right one by 76px at 1440. Padding the left leaves
+     `margin-left: auto` on the actions untouched, so the title lands on the
+     page column and the hamburger stays on the one gutter, which is where the
+     strip meets it. Below the cap `max()` falls back to the plain gutter and
+     nothing moves. */
+  .ui-page-header[data-measure="data"] {
+    padding-left: max(var(--spacing-gutter), calc((100% - var(--width-data-max)) / 2));
+  }
+  .ui-page-header[data-measure="reading"] {
+    padding-left: max(var(--spacing-gutter), calc((100% - var(--width-reading)) / 2));
+  }
+
   /* ── Button ────────────────────────────────────────────────────────── */
   .ui-btn {
     display: inline-flex;
@@ -573,6 +646,12 @@ select option {
   .ui-iconbtn[data-danger="true"] { color: var(--color-danger); }
   .ui-iconbtn[data-surface="light"] { color: var(--color-ink-light); }
   .ui-iconbtn[data-surface="light"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-ink-light); }
+  /* The orange frame is a surface of its own (F2: PageHeader's hamburger
+     lives there). `dark` would put ink-2 — a grey — on orange, which is the
+     one thing the colour rule forbids; a 24px glyph in white measures 3.56:1
+     and clears the 3:1 non-text threshold. */
+  .ui-iconbtn[data-surface="chrome"] { color: var(--color-on-fill); }
+  .ui-iconbtn[data-surface="chrome"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-on-fill); }
   .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
 
   /* ── Input, TextArea, Select: one well per page class ──────────────── */
@@ -977,6 +1056,582 @@ select option {
     flex-shrink: 0;
   }
   @keyframes ui-spin { to { transform: rotate(360deg); } }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     F2 — THE SHELL AND DATA PRIMITIVES
+     Every state is a data attribute resolved here; no component writes an
+     inline style, so nothing a caller adds can beat a hover (plan §1).
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* ── Table ──────────────────────────────────────────────────────────────
+     A real <table> with `table-layout: fixed` — the DOM decision is argued in
+     Table.jsx's header. No zebra: the dividers already group the rows, and a
+     stripe is a second grouping fighting the first. */
+  .ui-table-scroll { overflow: auto; flex: 1; min-height: 0; }
+  .ui-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+  }
+  .ui-table[data-surface="light"] { color: var(--color-ink-light); }
+
+  .ui-th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    height: var(--table-head);
+    padding: 0 var(--cell-pad-x);
+    text-align: left;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    /* 🚨 OPAQUE. A sticky head with a transparent fill lets the rows scroll
+       through it and read as garbage (review R06). */
+    background-color: var(--color-paper-raised);
+    border-bottom: 1px solid var(--color-rule);
+    white-space: nowrap;
+  }
+  .ui-table[data-surface="light"] .ui-th {
+    color: var(--color-ink-light);
+    background-color: var(--color-surface-light-solid);
+    border-bottom-color: var(--color-rule-light);
+  }
+  .ui-th[data-align="right"], .ui-td[data-align="right"] { text-align: right; }
+  .ui-th[data-align="center"], .ui-td[data-align="center"] { text-align: center; }
+  .ui-th-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+  }
+  .ui-th[data-align="right"] .ui-th-btn { justify-content: flex-end; }
+  .ui-th[data-align="center"] .ui-th-btn { justify-content: center; }
+  .ui-th-label { overflow: hidden; text-overflow: ellipsis; }
+  /* Always present, always this wide, sorted or not: an arrow that appears on
+     click shifts the label sideways under the pointer that just clicked it. */
+  .ui-th-sort { flex: 0 0 10px; width: 10px; text-align: center; }
+  .ui-th-sort[data-dir="asc"]::before { content: "\2191"; }
+  .ui-th-sort[data-dir="desc"]::before { content: "\2193"; }
+
+  .ui-td {
+    height: var(--row);
+    padding: var(--cell-pad-y) var(--cell-pad-x);
+    border-bottom: 1px solid var(--color-rule);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+  }
+  .ui-table[data-surface="light"] .ui-td { border-bottom-color: var(--color-rule-light); }
+  .ui-table[data-dense] .ui-td { height: var(--row-dense); padding-top: 6px; padding-bottom: 6px; }
+  /* Numerics: right-aligned, tabular, in the mono. Four money tables shipped
+     with zero tabular-nums and their columns only lined up by luck (R3-02). */
+  .ui-th[data-numeric], .ui-td[data-numeric] { font-variant-numeric: tabular-nums; }
+  .ui-td[data-numeric] {
+    font-family: var(--font-mono);
+    font-size: calc(var(--text-dense) * var(--mono-size-adjust));
+  }
+
+  .ui-tr { transition: background-color var(--duration-state) ease-out; }
+  .ui-tr[data-interactive] { cursor: pointer; }
+  .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover); }
+  .ui-table[data-surface="light"] .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-hover-light); }
+  /* One selected treatment: a fill plus a 2px signal edge on the first cell.
+     `box-shadow: inset` rather than a border, so the row height is identical
+     selected and not. */
+  /* 🚨 The selected fill has to out-specify the hover fill, or a selectable
+     AND clickable table (Files, Assets, Rate Card — lanes B4 and C1) loses
+     the selection the moment the pointer crosses the selected row. It was
+     (0,3,0) against hover's (0,4,0); the doubled attribute makes it (0,4,0)
+     and later in the sheet, so it wins both ways. */
+  .ui-tr[data-selected][data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+  /* 🚨 …and on light the hover rule is (0,6,0), because it is scoped through
+     the table. The selected rule has to be scoped the same way or the three
+     light data pages lose their selection under the pointer exactly as the
+     dark ones did. */
+  .ui-table[data-surface="light"] .ui-tr[data-selected][data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+
+  /* `highlighted` is NOT selection: it marks a row carrying a standing role (a
+     producer, a director) rather than a choice the user made.
+     🚨 It is an EDGE, not a fill. A fill collides twice over: the only quiet
+     fill in the system is the hover token, so a highlighted row would be
+     pixel-identical to the row under the pointer, and hover on a highlighted
+     row would be invisible. The edge is persistent, cannot be confused with a
+     transient state, and reads as a different thing from the selection edge
+     because it is a different colour. Selected is declared after it at equal
+     specificity, so a row that is both shows the selection. */
+  .ui-tr[data-highlighted] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-ink-3); }
+  .ui-tr[data-selected] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  /* Deactivated rows take the third ink, NEVER `opacity` (plan §3.1 — opacity
+     as a state is what made "less important" mean "unreadable"). */
+  .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
+  .ui-table[data-surface="light"] .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-light); font-style: italic; }
+
+  /* ── Toolbar ────────────────────────────────────────────────────────── */
+  .ui-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--toolbar);
+    padding: 0 var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-toolbar[data-surface="light"] { border-bottom-color: var(--color-rule-light); }
+  .ui-toolbar[data-wrap] { flex-wrap: wrap; padding-top: 8px; padding-bottom: 8px; }
+  .ui-toolbar-slot { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .ui-toolbar-right { margin-left: auto; flex-shrink: 0; }
+  /* ONE baseline: every child is the 28px control height. Only one of the
+     three toolbars this replaces gave its controls a baseline to share. */
+  /* `Select` renders `.ui-input` too — one well, one height, whichever
+     control it is. There is no `.ui-select` class and this rule must not
+     pretend there is. */
+  .ui-toolbar .ui-btn, .ui-toolbar .ui-iconbtn,
+  .ui-toolbar .ui-input, .ui-toolbar .ui-chip {
+    height: var(--control-sm);
+  }
+
+  /* ── SectionTitle ───────────────────────────────────────────────────── */
+  .ui-section { display: flex; align-items: flex-end; gap: 16px; padding-top: 16px; }
+  .ui-section[data-rule] { border-top: 1px solid var(--color-rule); }
+  .ui-section[data-rule][data-surface="light"] { border-top-color: var(--color-rule-light); }
+  .ui-section-text { min-width: 0; }
+  .ui-section-eyebrow {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    margin-bottom: 4px;
+  }
+  .ui-section[data-surface="light"] .ui-section-eyebrow { color: var(--color-ink-light); }
+  .ui-section-title {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: var(--text-h2--font-weight);
+    color: var(--color-ink);
+  }
+  .ui-section[data-surface="light"] .ui-section-title { color: var(--color-ink-light); }
+  .ui-section-desc {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-2);
+    margin-top: 4px;
+    max-width: var(--measure-reading);
+  }
+  .ui-section[data-surface="light"] .ui-section-desc { color: var(--color-ink-light); }
+  .ui-section-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+  /* ── Card ───────────────────────────────────────────────────────────── */
+  .ui-card {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .ui-card[data-surface="light"] {
+    background-color: var(--color-well-light);
+    border-color: var(--color-rule-light);
+  }
+  .ui-card[data-pad] { padding: 16px; }
+  .ui-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .ui-card-title {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .ui-card[data-surface="light"] .ui-card-title { color: var(--color-ink-light); }
+  .ui-card-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  /* A card that holds a table pads nothing: the cells bring their own padding
+     and the rows must reach the hairline on every side. */
+  .ui-card:not([data-pad]) { overflow: hidden; }
+  .ui-card:not([data-pad]) > .ui-card-head {
+    padding: 8px 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+  .ui-card:not([data-pad])[data-surface="light"] > .ui-card-head { border-bottom-color: var(--color-rule-light); }
+
+  /* ── Tabs ───────────────────────────────────────────────────────────── */
+  .ui-tabs { display: flex; align-items: stretch; gap: 4px; flex-wrap: wrap; }
+  .ui-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-md);
+    padding: 0 10px;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+    font-weight: 400;
+    color: var(--color-ink-2);
+    background: none;
+    border: 0;
+    /* The one active treatment: a 2px signal underline, never a fill — under
+       14px text on this frame a fill has no legal ink (C6). The transparent
+       edge is always there, so nothing moves when it lights up. */
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .ui-tab:hover:not(:disabled) { color: var(--color-ink); }
+  .ui-tab[data-active] { color: var(--color-ink); font-weight: 600; border-bottom-color: var(--color-signal); }
+  .ui-tab:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .ui-tab[data-surface="light"] { color: var(--color-ink-light); }
+  .ui-tab[data-surface="light"][data-active] { color: var(--color-ink-light); border-bottom-color: var(--color-ink-light); }
+  .ui-tab-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-tab[data-surface="light"] .ui-tab-count { color: var(--color-ink-light); }
+  .ui-tabs-sep { align-self: center; width: 1px; height: 16px; margin: 0 8px; background-color: var(--color-rule); }
+  .ui-tabs[data-surface="light"] .ui-tabs-sep { background-color: var(--color-rule-light); }
+
+  /* ── Panel ──────────────────────────────────────────────────────────── */
+  .ui-panel {
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    min-height: 0;
+    /* No fill. A panel is its hairline and its content. */
+    background: none;
+  }
+  .ui-panel[data-width="sm"] { width: var(--panel-sm); }
+  .ui-panel[data-width="md"] { width: var(--panel-md); }
+  .ui-panel[data-width="lg"] { width: var(--panel-lg); }
+  .ui-panel[data-side="left"]  { border-right: 1px solid var(--color-rule); }
+  .ui-panel[data-side="right"] { border-left: 1px solid var(--color-rule); }
+  .ui-panel[data-surface="light"][data-side="left"]  { border-right-color: var(--color-rule-light); }
+  .ui-panel[data-surface="light"][data-side="right"] { border-left-color: var(--color-rule-light); }
+  .ui-panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--panel-header);
+    padding: 0 12px;
+    flex-shrink: 0;
+  }
+  .ui-panel-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-panel[data-surface="light"] .ui-panel-title { color: var(--color-ink-light); }
+  .ui-panel-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .ui-panel-body { flex: 1; min-height: 0; overflow: auto; }
+
+  /* ── Drawer ─────────────────────────────────────────────────────────────
+     🚨 `--titlebar-offset` is the whole point — see Drawer.jsx. Three surfaces
+     hand-compensate for Electron's 32px title bar in three different ways
+     today, and one of them slides under it (TL-24). */
+  .ui-drawer {
+    position: fixed;
+    top: var(--titlebar-offset);
+    bottom: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+  }
+  .ui-drawer[data-surface="light"] {
+    background-color: var(--color-surface-light-solid);
+    box-shadow: var(--shadow-float-light);
+  }
+  .ui-drawer[data-side="right"] {
+    right: 0;
+    border-left: 1px solid var(--color-rule);
+    animation: ui-drawer-in-right var(--duration-panel) var(--ease-response);
+  }
+  .ui-drawer[data-side="left"] {
+    left: 0;
+    border-right: 1px solid var(--color-rule);
+    animation: ui-drawer-in-left var(--duration-panel) var(--ease-response);
+  }
+  .ui-drawer[data-surface="light"][data-side="right"] { border-left-color: var(--color-rule-light); }
+  .ui-drawer[data-surface="light"][data-side="left"]  { border-right-color: var(--color-rule-light); }
+  .ui-drawer[data-width="sm"] { width: var(--panel-sm); }
+  .ui-drawer[data-width="md"] { width: var(--panel-md); }
+  .ui-drawer[data-width="lg"] { width: var(--panel-lg); }
+  .ui-drawer-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: var(--panel-header);
+    padding: 0 12px;
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-drawer[data-surface="light"] .ui-drawer-head { border-bottom-color: var(--color-rule-light); }
+  .ui-drawer-title {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-drawer[data-surface="light"] .ui-drawer-title { color: var(--color-ink-light); }
+  .ui-drawer-actions { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+  .ui-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 12px; }
+  .ui-drawer-foot { flex-shrink: 0; padding: 12px; border-top: 1px solid var(--color-rule); }
+  .ui-drawer[data-surface="light"] .ui-drawer-foot { border-top-color: var(--color-rule-light); }
+  .ui-drawer-backdrop { position: fixed; inset: 0; z-index: 59; background-color: var(--color-backdrop); }
+  @keyframes ui-drawer-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+  @keyframes ui-drawer-in-left  { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+
+  /* ── Stat ───────────────────────────────────────────────────────────── */
+  .ui-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .ui-stat-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-stat[data-surface="light"] .ui-stat-label { color: var(--color-ink-light); }
+  .ui-stat-value {
+    font-family: var(--font-mono);
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    font-weight: var(--text-h1--font-weight);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink);
+  }
+  .ui-stat[data-surface="light"] .ui-stat-value { color: var(--color-ink-light); }
+  /* 🚨 The tone rules that set `--status-color` are scoped to `.ui-status`
+     and `.ui-status-dot`, so reading the variable here resolved to the
+     fallback on EVERY delta and both tone props were inert — a state
+     extracted to a data attribute that no rule consumes, which is plan §1's
+     defect the other way round. The tones are declared here, on this
+     element, where they are read. */
+  .ui-stat-delta {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  .ui-stat-delta[data-tone="signal"]  { color: var(--color-signal); }
+  .ui-stat-delta[data-tone="success"] { color: var(--color-success); }
+  .ui-stat-delta[data-tone="warning"] { color: var(--color-warning); }
+  .ui-stat-delta[data-tone="danger"]  { color: var(--color-danger); }
+  /* On light, status colour is not drawn at all (plan §3.2: the greens and
+     reds measure 1.4-3.1:1 on #f4a261), so a delta there is the one ink. */
+  .ui-stat[data-surface="light"] .ui-stat-delta { color: var(--color-ink-light); }
+
+  /* ── HoverActions ───────────────────────────────────────────────────────
+     Reserved slot, revealed on row hover and on focus-within (Q17b). The slot
+     is always laid out — only opacity moves — so a row cannot reflow under
+     the pointer. */
+  .ui-hover-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    opacity: 0;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .ui-hover-actions[data-always] { opacity: 1; }
+  :where(tr, li, .ui-hover-host):hover .ui-hover-actions,
+  :where(tr, li, .ui-hover-host):focus-within .ui-hover-actions,
+  .ui-hover-actions:focus-within { opacity: 1; }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     SHELL — App.jsx's own chrome (F2). Not kit components: one app renders
+     these, so they keep the `wilson-` prefix the scroll and chrome scopes
+     already use. Everything here is a STATE that used to be an inline value
+     computed from a useState hook (plan §1: an inline style beats a class,
+     so a class-based restyle written next to one silently does nothing).
+     ═══════════════════════════════════════════════════════════════════ */
+
+  /* Nav strip items. Hover and `dimmed` (the main column while the resources
+     sub-column is open) resolved in ONE place — see the note at `navState`
+     in App.jsx for why that single resolution is load-bearing. */
+  .wilson-nav-item {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    /* C6: white on #ea580c measures 3.56:1 and is permitted ONLY at 19px bold
+       and above. The strip used to be 16px bold white — the largest piece of
+       illegal text in the app. At the H1 step (20px / 600) it is large text
+       and clears 3:1; sentence case and the scale's own tracking replace
+       `uppercase tracking-[0.2em]` (Q2). */
+    color: var(--color-on-fill);
+    opacity: 1;
+    transition: color var(--duration-state) ease-out, opacity var(--duration-response) ease;
+  }
+  /* Plan §3.4: "Nav hover moves from an opacity value to a named hover ink, so
+     the colour rule stops needing an exception." Black on the frame is 4.91:1,
+     so hover RAISES contrast instead of fading the label toward its ground. */
+  .wilson-nav-item[data-state="hover"] { color: var(--color-ink-light); }
+  /* `dimmed` is not hover: it fades the main column while the resources
+     sub-column is open, which is what tells you which column is live (Audrey,
+     Session 43 — "it should work the same"). It stays an opacity because it is
+     a de-emphasis of a whole column, not an ink choice. */
+  .wilson-nav-item[data-state="dimmed"] { opacity: 0.35; }
+
+  /* ── Team Members, the kit's worked example (F2) ────────────────────────
+     The page owns LAYOUT and nothing else. Every colour, size, border and
+     state below either comes from a token or belongs to a kit component;
+     what is left here is where things sit, which is the only thing a page
+     should still be deciding after the kit exists.
+
+     The state-extraction commit's `.tm-*` rules are mostly gone with the
+     markup they described: `.tm-row`, `.tm-view-btn` and `.tm-disable-opacity`
+     are Table's `data-inactive`/`data-selected`, Tabs' `data-active` and the
+     kit's one disabled token now. The two that survive are the two the kit
+     has no component for — an inline cell editor's rest state, and a cell
+     that is itself a button. */
+  .tm-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    /* The data-page measure (plan §3.3). It was 1080px, which is neither the
+       reading measure nor the data cap. `+ 2 * gutter` so the 1240 is the
+       CONTENT width with the gutter outside it — the same arithmetic the
+       page header uses, which is what makes the two line up. */
+    max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter));
+    margin: 0 auto;
+  }
+  .tm-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+  .tm-table-card { flex: 1; min-height: 0; }
+  .tm-page .ui-input[data-size="sm"] { max-width: 220px; }
+  .tm-count {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  .tm-toolbar-glyph { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
+  .tm-search { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 280px; }
+  /* The field takes the slot; without this it falls back to the browser's
+     default input width and the placeholder clips mid-word. */
+  .tm-search .ui-input { flex: 1 1 auto; min-width: 0; }
+
+  /* Row cells */
+  .tm-member { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  /* 🚨 The name is the most-read text in the row and it must never be the
+     thing that gives way. In a flex row beside two inert badges it collapsed
+     to ZERO width — the row showed an avatar, "Producer", "You" and no name
+     at all. It takes the free space, keeps a floor, and the badges hold their
+     size; if anything has to truncate it is the name's tail, with an
+     ellipsis, after the floor is met. */
+  .tm-name {
+    flex: 1 1 auto;
+    min-width: 8ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tm-member > .ui-badge { flex-shrink: 0; }
+  .tm-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    object-fit: cover;
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    font-size: var(--text-label);
+    font-weight: 600;
+    color: var(--color-ink-2);
+  }
+  /* Emptiness is italic and the third ink — never a second colour, and never
+     an opacity (both of those are how "less important" became "unreadable"). */
+  .tm-empty-value { font-style: italic; color: var(--color-ink-3); }
+  .tm-rate-total { color: var(--color-ink-3); }
+  .tm-check { accent-color: var(--color-signal-fill); width: 14px; height: 14px; cursor: pointer; }
+
+  /* The two page-owned states the kit has no component for. Both were
+     `hover:bg-stone-200` — a near-white fill (C9) that only ever resolved
+     because no inline background happened to sit beside it. */
+  .tm-inline-edit,
+  .tm-cell-btn {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    padding: 2px 4px;
+    margin: -2px -4px;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .ui-td[data-numeric] .tm-cell-btn { text-align: right; }
+  .tm-inline-edit:hover, .tm-cell-btn:hover { background-color: var(--color-hover); }
+  [data-surface="light"] .tm-inline-edit:hover,
+  [data-surface="light"] .tm-cell-btn:hover { background-color: var(--color-hover-light); }
+
+  /* The rate dialog's form */
+  .tm-rate-form { display: flex; flex-direction: column; gap: 12px; }
+  .tm-rate-pair { display: flex; gap: 8px; }
+  .tm-rate-pair > .ui-field:first-child { flex: 1; }
+  .tm-rate-pair > .ui-field:last-child { width: 88px; flex-shrink: 0; }
+  .tm-rate-confirm { display: flex; flex-direction: column; gap: 8px; font-size: var(--text-body); line-height: var(--text-body--line-height); }
+  .tm-rate-prev { color: var(--color-ink-3); }
+
+  /* A header cell whose label is for screen readers only (the actions
+     column). `sr-only`, spelled out rather than pulled in as a utility. */
+  .tm-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
 /* Reduced motion, scoped to the kit's own classes. 🚨 Never a `*` rule here:
@@ -984,9 +1639,12 @@ select option {
    an indeterminate progress indicator has no end state to jump to. */
 @media (prefers-reduced-motion: reduce) {
   .ui-btn, .ui-iconbtn, .ui-input, .ui-chip, .ui-menu-item,
-  .ui-switch-track, .ui-switch-knob {
+  .ui-switch-track, .ui-switch-knob,
+  .ui-tr, .ui-tab, .ui-hover-actions,
+  .wilson-nav-item, .tm-inline-edit, .tm-cell-btn {
     transition-duration: 0.01ms;
   }
+  .ui-drawer { animation: none; }
   .ui-toast { animation: none; }
   .ui-dialog-backdrop { animation: none; }
   .ui-skeleton { animation: none; }
