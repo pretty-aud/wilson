@@ -2726,19 +2726,61 @@ editor types (display name, slate, take and modifier, camera, roll, shoot day,
 scene and shot links, tags, description, notes), the review marks
 (`review_flag` select / reject / unflagged, `circled`, an eight-colour label)
 and the technical columns read once by `ffmpeg -i` or `sharp`
-(`electron/ffmpeg.cjs` `probeMediaInfo`). `electron/rabbitBins.cjs` holds every
+(`electron/ffmpeg.cjs` `probeMediaInfo`) — or, with no decoder on the
+machine, by the renderer's own hidden `<video>` / `<audio>` / `<img>`
+(`bins/binProbeFallback.js`), which the provider runs wherever the server
+answers `unavailable` and once per project after `refreshBins`, so a poster
+reaches the Scenes tab's chips without Bins being opened. `electron/rabbitBins.cjs` holds every
 route (bins, bin-files, prepare / add, probe, poster, stream, relink, roots),
 mounted from `main.cjs` with its helpers injected and gated to same-origin
 requests because every route takes or serves a path; the OS dialogs open in
 the main process through the same routes, and dropped files reach the
 renderer through `webUtils.getPathForFile` in the preload. Offline is a
 computed state on the list route; relink walks a picked or known folder
-(`bundle.binRoots`) and matches by name and size through the existing
-`relinkMatcher`, automatically on open for known roots. The view is
-`views/BinsView.jsx` with `views/bins/*`; the pure logic is `bins/binMedia.js`
+(`bundle.binRoots` — one root per folder picked or dropped from, recorded by
+the add route from `prepare`'s `roots`, a covering folder replacing the ones
+under it, forgettable from the relink dialog) and matches by name and size
+through the existing `relinkMatcher`, automatically on open for known roots.
+After a relink the provider reads every relinked row again in the background
+(`rowsToReprobeAfterRelink`, both relink paths land in `binRelinkApply`):
+the poster cache is keyed by path + mtime, so under the new path there is no
+poster until a probe draws one, and without a decoder only the renderer's
+probe can. That probe waits for a presented frame after its seek and draws a
+blank frame again, a second further in if it stays black (`isBlankFrame`) —
+`seeked` alone drew black posters under load. The add dialog's name
+suggestions (`parseNameSuggestions`) read a modifier glued to the take
+(`24A_2_T3PU_B` → take 3 PU of shot 2, `24A-3PU` → take 3 PU).
+Every failure the adapter throws carries the route's `status` and `code`.
+The view is `views/BinsView.jsx` with `views/bins/*` — its keys and the OS
+drop are bound on the document while the tab is mounted, so they survive
+the focused control unmounting; the pure logic is `bins/binMedia.js`
 (the vocabulary, mirrored from the server and pinned by a parity test) and
-`bins/binSelectors.js`. Milestone 2 (`bundle.shotTakes`) assigns bin files to
-shots many-to-many and shows them in the scenes table.
+`bins/binSelectors.js`. **Shot takes** (milestone 2, `bundle.shotTakes`)
+assign bin files to shots many-to-many: a row per (shot, file) with a `role`
+(`primary` — one per shot that has any — `part` or `alt`), a `position` and
+`notes`; the routes live under the gated `…/shot-takes` prefix in
+`rabbitBins.cjs` (assign, patch, remove, reorder, and `replace`, the undo
+primitive that puts a shot's rows back verbatim), invariants re-established by
+`normalizeShotTakes` after every write, orphans (their shot or file gone)
+never pruned and carried on every read as `orphanTakes` beside the live,
+presented `shotTakes`, so the renderer's state keeps them and undoing a shot
+or file deletion restores its takes; while the stored primary's file is out,
+reads present the first live take as primary without writing, and nothing
+materialises that until a live take is explicitly promoted. The provider's
+`assignShotTakes` / `updateShotTake` / `removeShotTakes` / `reorderShotTakes`
+push snapshot undo entries (`replaceShotTakes` both ways); every mutator a
+history op names must be in the `mutationsRef` registry, pinned by
+`state/mutationsRegistry.test.js`. `bins/shotTakeSelectors.js` joins takes to
+files and shots (orphans skipped) and ranks files for a shot's picker.
+`ScenesView.jsx` adds a Takes chip strip per shot row in both content modes
+and on gallery cards, the primary take's poster standing in for an EMPTY shot
+thumbnail only, the ordered takes list in the shot popup (`views/bins/
+ShotTakesPanel.jsx`), the picker (`TakePickerDialog.jsx`, same scene first)
+and a one-click "use take length" (frame_count is never written otherwise).
+`BinsView.jsx` adds "Assign to shot…" (`AssignToShotDialog.jsx`, scene → shot,
+omitted hidden and counted, several shots at once), "Used in shots" on the
+inspector and a usage badge on tiles and rows. `state/rabbitNavigate.js`
+carries open-in-Scenes / show-in-Bins across the shell's tabs.
 
 ### 13.4 The shell and the shared surfaces
 

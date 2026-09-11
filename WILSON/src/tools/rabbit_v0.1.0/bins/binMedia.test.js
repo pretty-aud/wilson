@@ -15,7 +15,10 @@ import { createRequire } from 'node:module'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 import * as renderer from './binMedia.js'
+import * as probe from './binProbeFallback.js'
 
 const require = createRequire(import.meta.url)
 const server = require('../../../../electron/rabbitBins.cjs')
@@ -88,6 +91,46 @@ describe('formatting', () => {
   })
 })
 
+describe('isBlankFrame (renderer probe)', () => {
+  it('a uniformly black frame is blank; one lit pixel is not; an empty buffer is blank', () => {
+    const black = new Uint8ClampedArray(64 * 64 * 4)
+    expect(probe.isBlankFrame(black)).toBe(true)
+    const lit = new Uint8ClampedArray(64 * 64 * 4); for (let px = 96; px < 112; px++) lit[4 * px + 1] = 200
+    expect(probe.isBlankFrame(lit)).toBe(false)
+    const dim = new Uint8ClampedArray(16); dim.fill(5)
+    expect(probe.isBlankFrame(dim)).toBe(true)
+    expect(probe.isBlankFrame(new Uint8ClampedArray(0))).toBe(true)
+    expect(probe.isBlankFrame(null)).toBe(true)
+  })
+})
+
+describe('rowsToReprobeAfterRelink (renderer)', () => {
+  it('re-reads every relinked row that has columns or a poster to draw, never a document, never a bad row', () => {
+    const rows = [
+      { id: 'v', extension: '.mp4', media_type: 'video' },
+      { id: 'm', extension: '.mov', media_type: 'video' },
+      { id: 'a', extension: '.wav', media_type: 'audio' },
+      { id: 'i', extension: '.png', media_type: 'still' },
+      { id: 's', extension: '.png', media_type: 'sequence', is_sequence: true },
+      { id: 'd', extension: '.txt', media_type: 'document' },
+      { id: '', extension: '.mp4', media_type: 'video' },
+      null,
+    ]
+    expect(renderer.rowsToReprobeAfterRelink(rows)).toEqual(['v', 'm', 'a', 'i', 's'])
+    expect(renderer.rowsToReprobeAfterRelink(undefined)).toEqual([])
+  })
+})
+
+describe('wiring pin: the provider re-reads relinked rows (source scan, like the registry pin)', () => {
+  it('binRelinkApply hands every relinked row to probeBinFiles — both relink paths land there', () => {
+    const provider = fs.readFileSync(path.join(__dirname, '..', 'state', 'RabbitProvider.jsx'), 'utf8')
+    const body = provider.slice(provider.indexOf('const binRelinkApply = useCallback'), provider.indexOf('const removeBinRoot = useCallback'))
+    expect(body).toContain('rowsToReprobeAfterRelink(res?.updated)')
+    expect(body).toContain('probeBinFiles(reprobe)')
+    expect(body).toMatch(/\}, \[[^\]]*probeBinFiles[^\]]*\]\);/)
+  })
+})
+
 describe('parseNameSuggestions (server)', () => {
   const p = server.parseNameSuggestions
   it('12A_3_T4_A → slate 12A, shot 3, take 4, camera A', () => {
@@ -101,6 +144,15 @@ describe('parseNameSuggestions (server)', () => {
   })
   it('Scene12_Shot3_Take4_PU', () => {
     expect(p('Scene12_Shot3_Take4_PU.mov')).toMatchObject({ slate: '12', shot_hint: '3', take_number: 4, take_modifier: 'PU' })
+  })
+  it('a modifier glued to the take token: 24A_2_T3PU_B is take 3 PU of shot 2, never take 2 (walkthrough 16 run, 2026-09-10)', () => {
+    expect(p('24A_2_T3PU_B.mp4')).toMatchObject({ slate: '24A', shot_hint: '2', take_number: 3, take_modifier: 'PU', camera: 'B', confidence: 'high' })
+    expect(p('12A_3_T4SER_A.mov')).toMatchObject({ slate: '12A', shot_hint: '3', take_number: 4, take_modifier: 'SER', camera: 'A' })
+    expect(p('SC12A_SH03_TK04MOS.mp4')).toMatchObject({ slate: '12A', shot_hint: '3', take_number: 4, take_modifier: 'MOS' })
+  })
+  it('a modifier glued to a bare take after the slate: 24A-3PU is take 3 PU', () => {
+    expect(p('24A-3PU.mov')).toMatchObject({ slate: '24A', take_number: 3, take_modifier: 'PU', shot_hint: null })
+    expect(p('24A_3pu_B.mov')).toMatchObject({ slate: '24A', take_number: 3, take_modifier: 'PU', camera: 'B' })
   })
   it('camera clip names give camera and roll, never a slate', () => {
     expect(p('A001C003_240612_R1AB.mov')).toMatchObject({ camera: 'A', roll: 'A001', slate: null, take_number: null })
@@ -178,22 +230,70 @@ describe('detectSequence tolerates a few sidecars (adversarial review)', () => {
     for (let i = 1; i <= 20; i++) fs.writeFileSync(path.join(root, 'ok', `shot.${String(i).padStart(4, '0')}.exr`), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'ok', 'Thumbs.db'), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'ok', 'render.log'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'three'))
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'three', `shot.${i}.exr`), Buffer.from('x'))
+    for (let i = 1; i <= 3; i++) fs.writeFileSync(path.join(root, 'three', `note${i}.txt`), Buffer.from('x'))
     fs.mkdirSync(path.join(root, 'toomany'))
     for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'toomany', `shot.${i}.exr`), Buffer.from('x'))
-    for (let i = 1; i <= 3; i++) fs.writeFileSync(path.join(root, 'toomany', `note${i}.txt`), Buffer.from('x'))
+    for (let i = 1; i <= 4; i++) fs.writeFileSync(path.join(root, 'toomany', `note${i}.txt`), Buffer.from('x'))
     fs.mkdirSync(path.join(root, 'onedigit'))
     fs.writeFileSync(path.join(root, 'onedigit', 's.9.exr'), Buffer.from('x'))
     fs.writeFileSync(path.join(root, 'onedigit', 's.10.exr'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'mixedsep'))
+    fs.writeFileSync(path.join(root, 'mixedsep', 'img1.png'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'mixedsep', 'img_0002.png'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'mixedpad'))
+    fs.writeFileSync(path.join(root, 'mixedpad', 'img1.png'), Buffer.from('x'))
+    fs.writeFileSync(path.join(root, 'mixedpad', 'img0002.png'), Buffer.from('x'))
+    fs.mkdirSync(path.join(root, 'overflow'))
+    for (const n of ['0998', '0999', '1000']) fs.writeFileSync(path.join(root, 'overflow', `a.${n}.png`), Buffer.from('x'))
   })
   afterAll(() => { try { fs.rmSync(root, { recursive: true, force: true }) } catch { /* temp */ } })
   it('two sidecars among twenty frames are set aside and reported', () => {
     const s = server.detectSequence(path.join(root, 'ok'))
     expect(s).toMatchObject({ frame_count: 20, sidecars: 2, pattern: 'shot.####.exr' })
   })
-  it('three notes beside four frames is a folder, not a sequence', () => {
+  it('three sidecars (Thumbs.db, a log, an .md5) are tolerated whatever the size; four beside four frames is a folder', () => {
+    expect(server.detectSequence(path.join(root, 'three'))).toMatchObject({ frame_count: 4, sidecars: 3 })
     expect(server.detectSequence(path.join(root, 'toomany'))).toBeNull()
   })
   it('single-digit frame numbers count', () => {
     expect(server.detectSequence(path.join(root, 'onedigit'))).toMatchObject({ frame_count: 2, first_frame: 9, last_frame: 10 })
+  })
+  // Review round 2: `img1.png` beside `img_0002.png` was accepted as one
+  // sequence and reported as `img#.png`, a pattern matching neither file.
+  it('a different separator or a different zero padding is another series, not a sequence', () => {
+    expect(server.detectSequence(path.join(root, 'mixedsep'))).toBeNull()
+    expect(server.detectSequence(path.join(root, 'mixedpad'))).toBeNull()
+  })
+  it('a padded series may outgrow its padding', () => {
+    expect(server.detectSequence(path.join(root, 'overflow'))).toMatchObject({ frame_count: 3, first_frame: 998, last_frame: 1000, pattern: 'a.####.png' })
+  })
+})
+
+// The provider runs the renderer's own probe for exactly these rows (review
+// round 2: it used to run from the Bins tab's post-load step over the rows as
+// loaded, so a row still pending at load, an MP4 added on the tab, or a take
+// assigned from Scenes kept its icon until the next visit to Bins).
+describe('needsBrowserProbe', () => {
+  const row = (over) => ({ id: 'f', extension: '.mp4', media_type: 'video', probe_status: 'unavailable', online: true, is_sequence: false, ...over })
+  it('an MP4, WebM, WAV or PNG the server had no decoder for', () => {
+    expect(renderer.needsBrowserProbe(row())).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.webm' }))).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.wav', media_type: 'audio' }))).toBe(true)
+    expect(renderer.needsBrowserProbe(row({ extension: '.png', media_type: 'still' }))).toBe(true)
+  })
+  it('never for a row the server read, is still reading, or gave up on', () => {
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'done' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'pending' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ probe_status: 'failed' }))).toBe(false)
+  })
+  it('never for an offline row, a poster-only format, a sequence or a document', () => {
+    expect(renderer.needsBrowserProbe(row({ online: false }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.mov' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.mxf' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.png', media_type: 'sequence', is_sequence: true }))).toBe(false)
+    expect(renderer.needsBrowserProbe(row({ extension: '.pdf', media_type: 'document' }))).toBe(false)
+    expect(renderer.needsBrowserProbe(null)).toBe(false)
   })
 })

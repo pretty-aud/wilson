@@ -24,8 +24,12 @@
 // `Sec-Fetch-Site: same-origin` or its `Origin`, so that is the gate — the
 // S14/S17 rule ("a body-picked path would let a drive-by request point a
 // project at the user's Documents") applied to references. A request with
-// NEITHER header is refused too: a local process is not the user (the unit
-// tests send the header the renderer sends).
+// NEITHER header is refused too (a pre-Fetch-Metadata browser, a cross-origin
+// <img>); the unit tests send the header the renderer sends. What the gate is
+// NOT (review round 2): a wall against another local PROCESS — one can set
+// the header itself, and could read the files directly anyway. The second
+// wall is per path: a route only streams, probes, restores or relinks a path
+// a row already holds or one under a folder the user picked (isAuthorizedDir).
 //
 // 🚨 `fetch` resolves for every status here. Every error is a JSON body with
 // `error` and, where a caller branches on it, a `code`.
@@ -117,7 +121,8 @@ function thumbKeyFor(sourcePath, mtime = '') {
 //   24A-3, 24A_T3      → slate 24A, take 3
 //   Scene12_Shot3_Take4
 //   A001C003_240612…   → camera A, roll A001 (ARRI / RED / Canon clip names)
-//   …_PU / _SER / _MOS → take modifier
+//   …_PU / _SER / _MOS → take modifier; glued to the take too: T3PU, 24A-3PU
+//   (a pickup take is logged as "3PU" on the slate, so the token carries it)
 //   20260612 / 2026-06-12 → shoot day
 const CAMERA_CLIP_RE = /^([A-Ha-h])(\d{3})[_-]?[Cc](\d{3,4})/;
 const DATE_RE = /(?:^|[_\-\s.])((?:19|20)\d{2})[-_]?(\d{2})[-_]?(\d{2})(?=$|[_\-\s.])/;
@@ -155,20 +160,20 @@ function parseNameSuggestions(fileName) {
   // A bare scene/setup or roll token is only read when something else in the
   // name says this is a slate: an explicit take/shot/scene marker, a camera
   // clip name, or a numeric token right after it (12A_3, 24A-3).
-  const hasMarker = tokens.some(t => /^(?:sc|scene)\d|^(?:sh|shot)\d|^(?:t|tk|take)\d{1,3}$|^(pu|ser|mos)$/i.test(t));
+  const hasMarker = tokens.some(t => /^(?:sc|scene)\d|^(?:sh|shot)\d|^(?:t|tk|take)\d{1,3}(?:pu|ser|mos)?$|^(pu|ser|mos)$/i.test(t));
   tokens.forEach((raw, i) => {
     const t = raw.toLowerCase();
     let m;
     if ((m = /^(?:sc|scene)(\d{1,4}[a-z]{0,2})$/.exec(t)) && out.scene_hint == null) { out.scene_hint = m[1].toUpperCase(); sceneIdx = i; explicit = true; return; }
     if ((m = /^(?:sh|shot)(\d{1,4})$/.exec(t)) && out.shot_hint == null) { out.shot_hint = String(Number(m[1])); explicit = true; return; }
-    if ((m = /^(?:t|tk|take)(\d{1,3})$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); explicitTake = true; explicit = true; return; }
+    if ((m = /^(?:t|tk|take)(\d{1,3})(pu|ser|mos)?$/.exec(t)) && out.take_number == null) { out.take_number = Number(m[1]); if (m[2] && out.take_modifier == null) out.take_modifier = m[2].toUpperCase(); explicitTake = true; explicit = true; return; }
     if (/^(pu|ser|mos)$/.test(t) && out.take_modifier == null) { out.take_modifier = t.toUpperCase(); explicit = true; return; }
     if (/^[a-h]$/.test(t) && i > 0 && out.camera == null && (hasMarker || sceneIdx >= 0)) { out.camera = t.toUpperCase(); return; }
     if (/^[a-h]\d{3}$/.test(t) && out.roll == null && !cam && hasMarker) { out.roll = t.toUpperCase(); return; }
     // A bare scene+setup token (12A) or a bare leading number (24): only when
     // a marker exists elsewhere or a numeric token follows it (12A_3, 24A-3).
     const next = tokens[i + 1];
-    const corroborated = hasMarker || (next != null && /^\d{1,3}$/.test(next));
+    const corroborated = hasMarker || (next != null && /^\d{1,3}(?:pu|ser|mos)?$/i.test(next));
     if ((m = /^(\d{1,4})([a-z]{1,2})$/.exec(t)) && out.scene_hint == null && !cam && corroborated) { out.scene_hint = (m[1] + m[2]).toUpperCase(); sceneIdx = i; return; }
     if (/^\d{1,4}$/.test(t) && out.scene_hint == null && i === 0 && !cam && !date && corroborated) { out.scene_hint = t; sceneIdx = i; return; }
   });
@@ -176,9 +181,10 @@ function parseNameSuggestions(fileName) {
   // follows (12A_3_T4), otherwise the take (24A-3).
   if (sceneIdx >= 0 && sceneIdx + 1 < tokens.length) {
     const next = tokens[sceneIdx + 1];
-    if (/^\d{1,3}$/.test(next)) {
-      if (explicitTake && out.shot_hint == null) out.shot_hint = String(Number(next));
-      else if (!explicitTake && out.take_number == null) out.take_number = Number(next);
+    const bare = /^(\d{1,3})(pu|ser|mos)?$/i.exec(next);
+    if (bare) {
+      if (explicitTake && out.shot_hint == null && !bare[2]) out.shot_hint = String(Number(bare[1]));
+      else if (!explicitTake && out.take_number == null) { out.take_number = Number(bare[1]); if (bare[2] && out.take_modifier == null) out.take_modifier = bare[2].toUpperCase(); }
     }
   }
   if (out.scene_hint) out.slate = out.scene_hint;
@@ -202,22 +208,38 @@ function detectSequence(dir) {
   if (entries.some(e => e.isDirectory() && !e.name.startsWith('.'))) return null;
   // A few sidecars beside the frames (Thumbs.db, a render log, an .md5) do
   // not stop the folder being a sequence (adversarial review): files whose
-  // extension is not a frame type are set aside and reported, up to a small
-  // minority. Anything more, or a second frame series, and it is a folder.
+  // extension is not a frame type are set aside and reported — up to three,
+  // or 5% of a big folder, never more than ten (review round 2: the floor was
+  // two, which refused the three sidecars this very comment names). Anything
+  // more, or a second frame series, and it is a folder.
   const files = all.filter(e => SEQUENCE_EXTS.has(extOf(e.name)));
   const sidecars = all.length - files.length;
   if (files.length < 2) return null;
-  if (sidecars > Math.max(2, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
+  if (sidecars > Math.max(3, Math.floor(all.length * 0.05)) || sidecars > 10) return null;
   let prefix = null; let sep = ''; let ext = null; let width = null;
   const frames = [];
+  let padWidth = null; // the width of the zero-padded frames, if any
+  let unpaddedMin = Infinity; // the shortest unpadded number seen
   for (const f of files) {
     const m = FRAME_RE.exec(f.name);
     if (!m) return null;
     const e = m[4].toLowerCase();
     if (prefix === null) { prefix = m[1]; sep = m[2]; ext = e; width = m[3].length; }
-    else if (m[1] !== prefix || e !== ext) return null;
+    // One series: same prefix, separator and extension (review round 2:
+    // `img1.png` beside `img_0002.png` was accepted and reported as
+    // `img#.png`, a pattern matching neither file).
+    else if (m[1] !== prefix || e !== ext || m[2] !== sep) return null;
+    // And one padding rule: every zero-padded frame has the same width, and
+    // an unpadded number is never shorter than that width (a series may
+    // outgrow its padding — …0998, 0999, 1000 — but `img1` beside `img0002`
+    // is two series). Directory order is not frame order, so this is checked
+    // once every frame has been seen.
+    const padded = String(Number(m[3])) !== m[3];
+    if (padded) { if (padWidth === null) padWidth = m[3].length; else if (padWidth !== m[3].length) return null; }
+    else unpaddedMin = Math.min(unpaddedMin, m[3].length);
     frames.push({ name: f.name, n: Number(m[3]) });
   }
+  if (padWidth !== null && unpaddedMin < padWidth) return null;
   frames.sort((a, b) => a.n - b.n);
   let sizeBytes = 0;
   let mtime = 0;
@@ -292,12 +314,13 @@ function mountRabbitBins(expressApp, deps) {
 
   // ── the gate ──
   // 🚨 FAIL CLOSED (adversarial review, HIGH). The first draft allowed a
-  // request that carried neither header on the theory that only a local
-  // process could send one — but a local process is not the user (a
-  // postinstall script, an extension host, a container on host networking),
-  // and pre-Fetch-Metadata browsers send neither on a cross-origin <img>.
-  // The renderer always carries `Sec-Fetch-Site: same-origin`; that is the
-  // one caller these routes serve. Tests send that header explicitly.
+  // request that carried neither header; pre-Fetch-Metadata browsers send
+  // neither on a cross-origin <img>, so that was a hole in the one thing the
+  // gate is for — keeping BROWSER PAGES on other local origins out. The
+  // renderer always carries `Sec-Fetch-Site: same-origin`; that is the one
+  // caller these routes serve. Tests send that header explicitly. (A local
+  // process can send it too; see the header comment — the per-path
+  // authorisation below is the wall for that.)
   function isSameOrigin(req) {
     const site = req.headers['sec-fetch-site'];
     if (site) return site === 'same-origin';
@@ -312,11 +335,13 @@ function mountRabbitBins(expressApp, deps) {
   }
   expressApp.use(`${P}/bins`, gate);
   expressApp.use(`${P}/bin-files`, gate);
+  expressApp.use(`${P}/shot-takes`, gate);
 
   function ensure(bundle) {
     if (!bundle.bins) bundle.bins = [];
     if (!bundle.binFiles) bundle.binFiles = [];
     if (!bundle.binRoots) bundle.binRoots = [];
+    if (!bundle.shotTakes) bundle.shotTakes = [];
     return bundle;
   }
   function load(req, res) {
@@ -352,13 +377,25 @@ function mountRabbitBins(expressApp, deps) {
       if (hit) hit.last_seen_at = now();
       return;
     }
+    // A root that covers recorded ones replaces them (review round 2: a day
+    // folder walked depth-first recorded every leaf before its parent, so
+    // one import left 31 roots, each walked by the auto-relink).
+    bundle.binRoots = bundle.binRoots.filter(r => !pathKey(r.path).startsWith(key + path.sep));
     bundle.binRoots.push({ id: crypto.randomUUID(), project_id: projectId, path: path.resolve(dir), label: label || path.basename(dir), added_at: now(), last_seen_at: now() });
   }
+  // Folders the user picked or dropped from, as the add route records them:
+  // a picked FOLDER is the root, a picked file's folder is. The pick routes
+  // and main.cjs both fill `authorized` lower-cased (review round 2: main.cjs
+  // lower-cases unconditionally while pathKey lower-cases on Windows only —
+  // one convention, so a pick made through main.cjs's dialog authorises a
+  // relink on every platform).
+  const authKey = (p) => pathKey(p).toLowerCase();
   function isAuthorizedDir(bundle, p) {
     if (!isAbs(p)) return false;
     const key = pathKey(p);
-    if (authorized.has(key)) return true;
-    for (const a of authorized) if (key.startsWith(a + path.sep)) return true;
+    const lk = authKey(p);
+    if (authorized.has(lk)) return true;
+    for (const a of authorized) if (lk.startsWith(a + path.sep)) return true;
     return bundle.binRoots.some(r => { const rk = pathKey(r.path); return key === rk || key.startsWith(rk + path.sep); });
   }
   function binDescendants(bundle, binId) {
@@ -388,6 +425,8 @@ function mountRabbitBins(expressApp, deps) {
       bins: bundle.bins,
       binFiles: bundle.binFiles.map(withOnline),
       binRoots: bundle.binRoots,
+      shotTakes: presentTakes(liveTakes(bundle)),
+      orphanTakes: orphanTakes(bundle),
       ffmpeg: ffmpeg.hasFfmpeg(),
     });
   });
@@ -509,7 +548,7 @@ function mountRabbitBins(expressApp, deps) {
       title: 'Add files to the bin',
     });
     if (result.canceled) return res.json({ paths: [], canceled: true });
-    for (const p of result.filePaths) authorized.add(pathKey(path.dirname(p)));
+    for (const p of result.filePaths) authorized.add(authKey(path.dirname(p)));
     res.json({ paths: result.filePaths, canceled: false });
   });
 
@@ -522,7 +561,7 @@ function mountRabbitBins(expressApp, deps) {
       title: String(req.body?.title || 'Add a folder to the bin'),
     });
     if (result.canceled || !result.filePaths.length) return res.json({ path: null, canceled: true });
-    authorized.add(pathKey(result.filePaths[0]));
+    authorized.add(authKey(result.filePaths[0]));
     res.json({ path: result.filePaths[0], canceled: false });
   });
 
@@ -604,7 +643,12 @@ function mountRabbitBins(expressApp, deps) {
       });
       if (r.truncated) truncated = true;
     }
-    res.json({ items, folders, truncated });
+    // The folders this batch came from — a picked folder itself, a picked
+    // file's folder — for the add route to record as the known roots
+    // (review round 2: recording each added file's own folder left one
+    // root per subfolder, all walked by the auto-relink).
+    const roots = [...new Set(paths.filter(p => isFile(p) || isDir(p)).map(p => path.resolve(isDir(p) ? p : path.dirname(p))))];
+    res.json({ items, folders, truncated, roots });
   });
 
   // ── Add: confirmed items → rows (and sub-bins) ────────────────────────────
@@ -688,10 +732,15 @@ function mountRabbitBins(expressApp, deps) {
       bundle.binFiles.push(row);
       created.push(row);
       results.push({ source_path: src, status: 'added', id: row.id, bin_id: targetBin });
-      // The folder the item was added from: a file's folder, or a sequence
-      // folder's parent (the sequence folder IS the item).
-      rememberRoot(bundle, req.params.projectId, path.dirname(src));
     }
+    // Known roots: the folders the batch was picked or dropped from (`roots`,
+    // as `prepare` reported them) — but only one that actually holds an added
+    // item counts, so a body path alone records nothing (the S14 rule). An
+    // item no listed root covers falls back to its own folder (a sequence
+    // folder's parent: the sequence folder IS the item).
+    const bodyRoots = Array.isArray(req.body?.roots) ? req.body.roots.filter(p => isAbs(p) && isDir(p)).map(p => path.resolve(p)) : [];
+    const rootFor = (src) => bodyRoots.find(r => { const rk = pathKey(r); const sk = pathKey(src); return sk === rk || sk.startsWith(rk + path.sep); });
+    for (const row of created) rememberRoot(bundle, req.params.projectId, rootFor(row.source_path) || path.dirname(row.source_path));
     writeRabbitBundle(req.params.projectId, bundle);
     res.json({ created: created.map(withOnline), bins: createdBins, results });
   });
@@ -791,30 +840,32 @@ function mountRabbitBins(expressApp, deps) {
     res.json({ removed });
   });
 
+  // The undo of a removal. Every row that could not be put back is REPORTED
+  // (review round 2: a row whose bin was deleted meanwhile was dropped with a
+  // 200 and nothing said so), and a row's path must sit under a known root or
+  // a folder the user picked — the rows came from this server, but a same-
+  // origin body is not proof of that (the S14 rule): `unauthorized`.
+  // Answers { restored, skipped: [{ id, reason: invalid | bin_gone | unauthorized }] }
+  // and carries the live takes of the shots the restored files belong to, so
+  // the renderer's chips agree with the server the moment the file is back.
   expressApp.post(`${P}/bin-files/restore`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
     if (!rows.length) return res.status(400).json({ error: 'rows required' });
-    const restored = [];
+    const restored = []; const skipped = [];
     for (const r of rows) {
-      if (!r || typeof r !== 'object' || !r.id || !isAbs(r.source_path)) continue;
-      if (!bundle.bins.some(b => b.id === r.bin_id)) continue;
+      if (!r || typeof r !== 'object' || !r.id || !isAbs(r.source_path)) { skipped.push({ id: r?.id ?? null, reason: 'invalid' }); continue; }
+      if (!bundle.bins.some(b => b.id === r.bin_id)) { skipped.push({ id: r.id, reason: 'bin_gone' }); continue; }
+      if (!isAuthorizedDir(bundle, path.dirname(r.source_path)) && !isAuthorizedDir(bundle, r.source_path)) { skipped.push({ id: r.id, reason: 'unauthorized' }); continue; }
       const { online: _o, ...clean } = r;
       const row = { ...clean, project_id: req.params.projectId, updated_at: now() };
       rabbitUpsertInto(bundle.binFiles, row);
       restored.push(withOnline(row));
     }
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ restored });
-  });
-
-  expressApp.post(`${P}/bin-files/reorder`, (req, res) => {
-    const bundle = load(req, res); if (!bundle) return;
-    const ids = idsOf(req.body);
-    if (!ids.length) return res.status(400).json({ error: 'ids required' });
-    ids.forEach((id, i) => { const f = bundle.binFiles.find(x => x.id === id); if (f) { f.sort_order = i; f.updated_at = now(); } });
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ ok: true });
+    if (restored.length) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    const fileIds = new Set(restored.map(r => r.id));
+    const shotIds = [...new Set(bundle.shotTakes.filter(t => fileIds.has(t.bin_file_id)).map(t => t.shot_id))];
+    res.json({ restored, skipped, ...takeResponse(bundle, shotIds) });
   });
 
   // ── Probe: the technical columns ──────────────────────────────────────────
@@ -822,6 +873,12 @@ function mountRabbitBins(expressApp, deps) {
     const patch = {};
     const fps = Number(bundle.project?.fps) > 0 ? Number(bundle.project.fps) : 24;
     let target = row.source_path;
+    // A file re-exported to the same path has a new size and mtime; a probe
+    // (add, "Read columns again") is where the row learns that (review round
+    // 2: nothing refreshed `mtime`, so the poster key never changed either).
+    if (!row.is_sequence) {
+      try { const st = fs.statSync(row.source_path); patch.size_bytes = st.size; patch.mtime = st.mtime.toISOString(); } catch { /* offline: the route refused already */ }
+    }
     if (row.is_sequence) {
       const seq = detectSequence(row.source_path);
       if (!seq) return { probe_status: 'failed' };
@@ -880,11 +937,37 @@ function mountRabbitBins(expressApp, deps) {
   });
 
   // ── Posters ───────────────────────────────────────────────────────────────
+  // The cache key is the path plus the mtime ON DISK, read now (review round
+  // 2: the row's stored mtime is written at add and relink only, so a file
+  // re-exported to the same path kept its old poster for ever). Sequences
+  // key on their folder's mtime, which changes when a frame is added or
+  // replaced. Offline rows fall back to the stored value so a cached poster
+  // still serves while the drive is out.
+  function posterMtime(row) {
+    try { return fs.statSync(row.source_path).mtime.toISOString(); } catch { return row.mtime || ''; }
+  }
+  // A poster is written to `<key>.part` and renamed into place, and one
+  // generation per key runs at a time (review round 2: two tiles asking for
+  // the same still raced on one write, and a torn file would then have been
+  // served for ever because the GET serves on existence alone).
+  const posterInFlight = new Map();
+  function writePosterAtomically(thumbPath, buf) {
+    const part = thumbPath + '.part';
+    fs.writeFileSync(part, buf);
+    fs.renameSync(part, thumbPath);
+  }
+  function posterOnce(thumbPath, make) {
+    if (posterInFlight.has(thumbPath)) return posterInFlight.get(thumbPath);
+    const p = Promise.resolve().then(make).finally(() => posterInFlight.delete(thumbPath));
+    posterInFlight.set(thumbPath, p);
+    return p;
+  }
+
   expressApp.get(`${P}/bin-files/:id/thumbnail`, async (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const row = bundle.binFiles.find(f => f.id === req.params.id);
     if (!row) return rabbitNotFound(res, 'bin-file');
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
     if (exists(thumbPath)) { res.setHeader('Content-Type', 'image/jpeg'); return res.sendFile(thumbPath); }
     if (!(row.is_sequence ? isDir(row.source_path) : isFile(row.source_path))) {
@@ -900,7 +983,15 @@ function mountRabbitBins(expressApp, deps) {
     if (stillLike || (row.is_sequence && ['.png', '.jpg', '.jpeg', '.tif', '.tiff'].includes(row.extension))) {
       try {
         const sharp = require('sharp');
-        await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toFile(thumbPath);
+        // Through a buffer and Node's fs, not libvips's own writer: libvips
+        // cannot open a path past MAX_PATH on Windows (measured, review round
+        // 2: a 268-character cache path answered "unable to open for write"
+        // while the same source read fine), Node's fs can.
+        await posterOnce(thumbPath, async () => {
+          if (exists(thumbPath)) return;
+          const buf = await sharp(source).resize(256, 256, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+          writePosterAtomically(thumbPath, buf);
+        });
         res.setHeader('Content-Type', 'image/jpeg');
         return res.sendFile(thumbPath);
       } catch (err) {
@@ -934,9 +1025,9 @@ function mountRabbitBins(expressApp, deps) {
     if (!buf || buf.length === 0) return res.status(400).json({ error: 'unreadable body' });
     if (buf.length > 262144) return res.status(413).json({ error: 'thumbnail too large' });
     if (!(buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff)) return res.status(415).json({ error: 'not a JPEG' });
-    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, row.mtime));
+    const thumbPath = resolveContainedFilePath(getThumbCacheDir(), thumbKeyFor(row.source_path, posterMtime(row)));
     if (!thumbPath) return res.status(400).json({ error: 'invalid thumbnail path' });
-    try { fs.writeFileSync(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
+    try { writePosterAtomically(thumbPath, buf); } catch (err) { return res.status(500).json({ error: 'thumbnail write failed' }); }
     res.json({ ok: true });
   });
 
@@ -1045,15 +1136,10 @@ function mountRabbitBins(expressApp, deps) {
     res.json({ updated, failed });
   });
 
-  expressApp.post(`${P}/bins/roots`, (req, res) => {
-    const bundle = load(req, res); if (!bundle) return;
-    const p = req.body?.path;
-    if (!isAbs(p) || !isDir(p)) return res.status(400).json({ error: 'path must be an existing folder' });
-    rememberRoot(bundle, req.params.projectId, p, req.body?.label);
-    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
-    res.json({ binRoots: bundle.binRoots });
-  });
-
+  // Roots are recorded by the pick and add routes only — there is no route
+  // that takes one from a body (review round 2 removed it: nothing called
+  // it, and a body-supplied folder is not consent). Forgetting one is the
+  // relink dialog's "forget this folder".
   expressApp.delete(`${P}/bins/roots/:id`, (req, res) => {
     const bundle = load(req, res); if (!bundle) return;
     const before = bundle.binRoots.length;
@@ -1062,12 +1148,300 @@ function mountRabbitBins(expressApp, deps) {
     writeRabbitBundle(req.params.projectId, bundle, { touch: false });
     res.json({ binRoots: bundle.binRoots });
   });
+
+  // ── Shot takes (milestone 2) ──────────────────────────────────────────────
+  //
+  // Audrey (DEMO_BINS_BRIEF §5): "a single shot can have multiple takes, the
+  // shot item in the scenes table should be able to show which take/files are
+  // being used in the shot … some editors will also build a shot from multiple
+  // takes to make a reworked version of a shot, please make sure multiple
+  // files from a bin can be assigned to a single shot."
+  //
+  // A shot take (`bundle.shotTakes`, BINS_DESIGN §4.4) links one shot to one
+  // bin file, many-to-many both ways (§6 Q6: one take may serve several
+  // shots), ordered by `position`, with a `role`: `primary` — the take the
+  // shot is cut from, exactly one per shot that has any; `part` — one piece of
+  // a shot rebuilt from several takes; `alt` — a spare. `notes` is the
+  // editor's reason. Invariants, re-established by normalizeShotTakes after
+  // every write: unique on (shot_id, bin_file_id); positions 0..n-1 in list
+  // order; a shot with any take has exactly one primary.
+  //
+  // Orphans are FILTERED on read, never pruned. A shot deleted through the
+  // generic shots route (main.cjs, not this file) or a bin file removed above
+  // leaves its rows on disk, so an undo that restores the shot or the file
+  // brings its takes back with it. `liveTakes` is what every response carries.
+  //
+  // 🚨 The invariants are re-established on READ as well as on write
+  // (adversarial review, HIGH). The bin-file routes above change what is
+  // live without touching this array — removing the primary's file left a
+  // shot with no primary, and restoring it after another take had been
+  // promoted left it with two — so every response passes the live rows
+  // through `presentTakes`, which renumbers 0..n-1 and keeps exactly one
+  // primary WITHOUT writing: the rows on disk stay verbatim, which is what
+  // makes undoing a removal exact. The one thing a write does to orphans is
+  // demote an orphan primary once a live take is promoted in its place, so
+  // that the restored file comes back as an alt beside the take the editor
+  // chose meanwhile, not as a second primary.
+  //
+  // `replace` is the undo primitive: the provider snapshots the rows of the
+  // shots a mutation touches and hands them back verbatim to undo, so undo is
+  // exact whatever the mutation did to siblings (a promoted primary, shifted
+  // positions), instead of every mutation needing a hand-written inverse.
+  function liveTakes(bundle) {
+    const shots = new Set((bundle.shots || []).map(s => s.id));
+    const files = new Set(bundle.binFiles.map(f => f.id));
+    return bundle.shotTakes.filter(t => shots.has(t.shot_id) && files.has(t.bin_file_id));
+  }
+  // The rows a read does NOT present: their shot or file is gone. They ride
+  // beside `shotTakes` as `orphanTakes`, verbatim, so the renderer's state
+  // keeps them (review round 2, HIGH: every take response and every list
+  // load replaced the state's rows with live ones only, so an orphan the
+  // undo of a file removal needed was gone from state within one edit or one
+  // tab switch, and the restored file came back with no takes on screen).
+  // The renderer's selectors join through live files and shots and ignore
+  // them until their file or shot is back.
+  function orphanTakes(bundle, shotIds = null) {
+    const live = new Set(liveTakes(bundle).map(t => t.id));
+    const set = shotIds ? new Set(shotIds) : null;
+    return bundle.shotTakes.filter(t => !live.has(t.id) && (!set || set.has(t.shot_id)));
+  }
+  function takesOf(bundle, shotIds) {
+    const set = new Set(shotIds);
+    return liveTakes(bundle).filter(t => set.has(t.shot_id)).sort(byPosition);
+  }
+  // `preferId`: the row that should be primary when several claim it (a take
+  // just promoted); otherwise the first claimant in list order, else the first
+  // take. A demoted claimant becomes `alt`, never `part`: parts are a thing
+  // the editor states, not something normalisation invents.
+  //
+  // While the stored primary's FILE is out (an orphan flagged primary) and no
+  // live row claims the role, nothing is materialised: the reads present the
+  // first live take as primary on their own, the stored roles stay as they
+  // are, and the original primary is primary again the moment its drive is
+  // back (review round 2, HIGH: any write to the shot meanwhile — assigning a
+  // spare, say — promoted a live take on disk and demoted the orphan for
+  // good, and no undo covered it). The orphan is demoted only once a live
+  // take is EXPLICITLY made primary: the editor's choice then wins.
+  function normalizeShotTakes(bundle, shotId, preferId = null) {
+    const rows = takesOf(bundle, [shotId]);
+    if (!rows.length) return;
+    const orphanPrimary = bundle.shotTakes.some(t => t.shot_id === shotId && t.role === 'primary' && !rows.includes(t));
+    let primary = preferId ? rows.find(r => r.id === preferId && r.role === 'primary') : null;
+    if (!primary) primary = rows.find(r => r.role === 'primary') || (orphanPrimary ? null : rows[0]);
+    rows.forEach((r, i) => {
+      const role = primary
+        ? (r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role))
+        : (TAKE_ROLES.includes(r.role) && r.role !== 'primary' ? r.role : 'alt');
+      if (r.position !== i || r.role !== role) { r.position = i; r.role = role; r.updated_at = now(); }
+    });
+    if (!primary) return;
+    // An orphan (its file removed) that still says primary would come back as
+    // a second primary when the file is restored; the live take chosen
+    // meanwhile wins. Orphans keep their positions: a restored take lands in
+    // the slot it had (ties by creation time), not at the end.
+    const live = new Set(rows.map(r => r.id));
+    for (const t of bundle.shotTakes) {
+      if (t.shot_id === shotId && !live.has(t.id) && t.role === 'primary') { t.role = 'alt'; t.updated_at = now(); }
+    }
+  }
+  function takeResponse(bundle, shotIds, extra = {}) {
+    const affected = [...new Set(shotIds)];
+    return { ...extra, affectedShotIds: affected, shotTakes: presentTakes(takesOf(bundle, affected)), orphanTakes: orphanTakes(bundle, affected) };
+  }
+
+  expressApp.get(`${P}/shot-takes`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    res.json({ shotTakes: presentTakes(liveTakes(bundle)), orphanTakes: orphanTakes(bundle) });
+  });
+
+  // Assign: several files to one shot, one file to several shots, or any
+  // mix. The whole batch is validated before anything is written; a pair
+  // already assigned is reported as skipped, never duplicated. The first take
+  // a shot gets is its primary; later ones are `alt` unless a role is given;
+  // asking for `primary` demotes the current one.
+  expressApp.post(`${P}/shot-takes`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const list = Array.isArray(req.body?.assignments) ? req.body.assignments : [];
+    if (!list.length) return res.status(400).json({ error: 'assignments required' });
+    for (const a of list) {
+      if (!a || !(bundle.shots || []).some(s => s.id === a.shot_id)) return res.status(400).json({ error: `shot ${a?.shot_id} not found`, code: 'shot_not_found' });
+      if (!bundle.binFiles.some(f => f.id === a.bin_file_id)) return res.status(400).json({ error: `bin file ${a?.bin_file_id} not found`, code: 'file_not_found' });
+    }
+    const created = []; const skipped = []; const affected = [];
+    for (const a of list) {
+      const existing = liveTakes(bundle).find(t => t.shot_id === a.shot_id && t.bin_file_id === a.bin_file_id);
+      if (existing) { skipped.push({ shot_id: a.shot_id, bin_file_id: a.bin_file_id, reason: 'already_assigned', id: existing.id }); affected.push(a.shot_id); continue; }
+      const siblings = takesOf(bundle, [a.shot_id]);
+      // A shot with any live take already HAS a primary as far as every read
+      // is concerned (the first flagged, else the first) — even while the
+      // stored primary's file is out (review round 2, HIGH: reading the raw
+      // roles said "no primary" then, and the new spare took the role).
+      const hasPrimary = siblings.length > 0;
+      let role = TAKE_ROLES.includes(a.role) ? a.role : null;
+      if (!hasPrimary) role = 'primary';
+      else if (!role) role = 'alt';
+      if (role === 'primary' && hasPrimary) for (const t of siblings) if (t.role === 'primary') { t.role = 'alt'; t.updated_at = now(); }
+      const row = rabbitTouch({
+        id: undefined, project_id: req.params.projectId, shot_id: a.shot_id, bin_file_id: a.bin_file_id,
+        role, position: siblings.length, notes: a.notes == null ? '' : String(a.notes),
+      });
+      bundle.shotTakes.push(row);
+      created.push(row); affected.push(a.shot_id);
+      normalizeShotTakes(bundle, a.shot_id, row.id);
+    }
+    if (created.length) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, affected, { created, skipped }));
+  });
+
+  // role / notes / position. Promoting a take to primary SWAPS roles with the
+  // current primary (a part stays a part, a spare stays a spare); demoting the
+  // primary hands the role to the next take in order; the only take of a shot
+  // stays primary whatever is asked. position moves the take within its shot.
+  expressApp.patch(`${P}/shot-takes/:id`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const take = liveTakes(bundle).find(t => t.id === req.params.id);
+    if (!take) return rabbitNotFound(res, 'shot-take');
+    const body = req.body || {};
+    if ('role' in body && !TAKE_ROLES.includes(body.role)) return res.status(400).json({ error: 'role must be primary, part or alt', code: 'bad_role' });
+    if ('position' in body && !Number.isFinite(Number(body.position))) return res.status(400).json({ error: 'position must be a number' });
+    if ('notes' in body) take.notes = body.notes == null ? '' : String(body.notes);
+    if ('role' in body && body.role !== take.role) {
+      const siblings = takesOf(bundle, [take.shot_id]);
+      if (body.role === 'primary') {
+        const old = siblings.find(t => t.role === 'primary' && t.id !== take.id);
+        if (old) { old.role = take.role; old.updated_at = now(); }
+        take.role = 'primary';
+      } else if (take.role === 'primary') {
+        const next = siblings.find(t => t.id !== take.id);
+        if (next) { next.role = 'primary'; next.updated_at = now(); take.role = body.role; }
+      } else take.role = body.role;
+    }
+    if ('position' in body) {
+      const others = takesOf(bundle, [take.shot_id]).filter(t => t.id !== take.id);
+      const idx = Math.max(0, Math.min(others.length, Math.floor(Number(body.position))));
+      others.splice(idx, 0, take);
+      others.forEach((t, i) => { t.position = i; });
+    }
+    take.updated_at = now();
+    normalizeShotTakes(bundle, take.shot_id, take.id);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, [take.shot_id], { take }));
+  });
+
+  // Unassign. Removing a shot's primary promotes the next take in order.
+  expressApp.post(`${P}/shot-takes/remove`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const ids = new Set(idsOf(req.body));
+    if (!ids.size) return res.status(400).json({ error: 'ids required' });
+    // Live rows only, like every other route: an orphan waits on disk for the
+    // undo that brings its shot or file back (review round 2: this was the one
+    // route reading the raw array, and it hard-deleted an orphan).
+    const removed = liveTakes(bundle).filter(t => ids.has(t.id));
+    if (!removed.length) return rabbitNotFound(res, 'shot-take');
+    const gone = new Set(removed.map(t => t.id));
+    bundle.shotTakes = bundle.shotTakes.filter(t => !gone.has(t.id));
+    const affected = [...new Set(removed.map(t => t.shot_id))];
+    for (const s of affected) normalizeShotTakes(bundle, s);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, affected, { removed }));
+  });
+
+  // The listed ids take the given order; takes of the shot not listed follow
+  // in the order they had. Roles are untouched.
+  expressApp.post(`${P}/shot-takes/reorder`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const shotId = req.body?.shot_id; const ids = idsOf(req.body);
+    if (!shotId || !ids.length) return res.status(400).json({ error: 'shot_id and ids required' });
+    if (!(bundle.shots || []).some(s => s.id === shotId)) return res.status(400).json({ error: 'shot not found', code: 'shot_not_found' });
+    const rows = takesOf(bundle, [shotId]);
+    const pos = new Map(ids.map((id, i) => [id, i]));
+    const listed = rows.filter(r => pos.has(r.id)).sort((a, b) => pos.get(a.id) - pos.get(b.id));
+    // Ids that belong to another shot (or to nothing) are a caller's mistake,
+    // not an order (review round 2: they answered 200 and rewrote the shot).
+    if (!listed.length) return res.status(400).json({ error: 'none of the ids is a take of that shot', code: 'bad_ids' });
+    const rest = rows.filter(r => !pos.has(r.id));
+    let changed = false;
+    [...listed, ...rest].forEach((r, i) => { if (r.position !== i) { r.position = i; r.updated_at = now(); changed = true; } });
+    normalizeShotTakes(bundle, shotId);
+    if (changed) writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, [shotId]));
+  });
+
+  // The undo primitive: for the given shots, every current row (live or
+  // orphaned) is dropped and `rows` are put in their place verbatim — ids
+  // kept, so a redo finds the same rows. Rows for other shots, for files that
+  // no longer exist, or duplicating a pair are ignored; an id already in use
+  // by another shot's row gets a fresh one.
+  expressApp.post(`${P}/shot-takes/replace`, (req, res) => {
+    const bundle = load(req, res); if (!bundle) return;
+    const shotIds = Array.isArray(req.body?.shotIds) ? req.body.shotIds.map(String) : [];
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    if (!shotIds.length) return res.status(400).json({ error: 'shotIds required' });
+    const shotSet = new Set(shotIds);
+    for (const id of shotSet) if (!(bundle.shots || []).some(s => s.id === id)) return res.status(400).json({ error: `shot ${id} not found`, code: 'shot_not_found' });
+    // Only the LIVE rows of the named shots are replaced. An orphan — its
+    // file removed since — stays on disk (adversarial review, HIGH: the first
+    // draft dropped it, so "remove a file, undo any take edit, undo the
+    // removal" lost the assignment for good).
+    const fileIds = new Set(bundle.binFiles.map(f => f.id));
+    const remaining = bundle.shotTakes.filter(t => !shotSet.has(t.shot_id) || !fileIds.has(t.bin_file_id));
+    const usedIds = new Set(remaining.map(t => t.id));
+    const seen = new Set(); const clean = [];
+    for (const r of rows) {
+      if (!r || typeof r !== 'object' || !shotSet.has(r.shot_id)) continue;
+      if (!bundle.binFiles.some(f => f.id === r.bin_file_id)) continue;
+      const key = `${r.shot_id}|${r.bin_file_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const id = r.id && !usedIds.has(r.id) ? String(r.id) : undefined;
+      const row = rabbitTouch({
+        ...r, id, project_id: req.params.projectId, shot_id: r.shot_id, bin_file_id: r.bin_file_id,
+        role: TAKE_ROLES.includes(r.role) ? r.role : 'alt', position: Number(r.position) || 0, notes: r.notes == null ? '' : String(r.notes),
+      });
+      usedIds.add(row.id);
+      clean.push(row);
+    }
+    bundle.shotTakes = remaining.concat(clean);
+    for (const s of shotSet) normalizeShotTakes(bundle, s);
+    writeRabbitBundle(req.params.projectId, bundle, { touch: false });
+    res.json(takeResponse(bundle, shotIds));
+  });
+}
+
+const TAKE_ROLES = ['primary', 'part', 'alt'];
+const byPosition = (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0) || String(a.created_at || '').localeCompare(String(b.created_at || ''));
+
+/**
+ * The live rows of any number of shots as a response should show them: per
+ * shot, in (position, created_at) order, renumbered 0..n-1, with exactly one
+ * primary — the first row flagged primary, else the first row; other
+ * claimants read as alt. PURE: returns copies, never touches the rows or
+ * the bundle. The renderer's takesByShot applies the same rule to its own
+ * state (bins/shotTakeSelectors.js), so the two agree while a removal is
+ * still optimistic.
+ */
+function presentTakes(rows) {
+  const byShot = new Map();
+  for (const t of rows || []) {
+    if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, []);
+    byShot.get(t.shot_id).push(t);
+  }
+  const out = [];
+  for (const list of byShot.values()) {
+    list.sort(byPosition);
+    const primary = list.find(r => r.role === 'primary') || list[0];
+    list.forEach((r, i) => {
+      const role = r.id === primary.id ? 'primary' : (r.role === 'primary' || !TAKE_ROLES.includes(r.role) ? 'alt' : r.role);
+      out.push(r.position === i && r.role === role ? r : { ...r, position: i, role });
+    });
+  }
+  return out;
 }
 
 module.exports = {
   mountRabbitBins,
   // Pure helpers, exported for the tests and for parity with the renderer copy.
-  guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor,
+  guessMediaType, guessMime, extOf, parseNameSuggestions, detectSequence, walkFolder, pathKey, thumbKeyFor, presentTakes,
   VIDEO_EXTS, STILL_EXTS, AUDIO_EXTS, GRAPHIC_EXTS, VFX_EXTS, DOC_EXTS, SEQUENCE_EXTS, BROWSER_VIDEO_EXTS,
-  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS,
+  MEDIA_TYPES, REVIEW_FLAGS, COLORS, BIN_KINDS, TAKE_ROLES,
 };

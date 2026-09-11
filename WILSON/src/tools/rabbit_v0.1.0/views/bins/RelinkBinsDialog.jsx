@@ -13,7 +13,7 @@ import { FolderSearch, Link2, Unplug, Check, AlertTriangle, RefreshCw } from 'lu
 import { C, Btn, Modal, Select, Spinner } from './binUi'
 import { matchMissingFiles } from '../../components/relinkMatcher'
 
-export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onScan, onApply, onClose }) {
+export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onScan, onApply, onForgetRoot = null, onClose }) {
   const [phase, setPhase] = useState('idle') // idle | scanning | review | applying | done
   const [folder, setFolder] = useState(null)
   const [scan, setScan] = useState(null)
@@ -78,7 +78,7 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
       subtitle={`${offlineRows.length} file${offlineRows.length === 1 ? '' : 's'} cannot be found at ${offlineRows.length === 1 ? 'its' : 'their'} recorded path`}
       footer={<>
         {error && <span className="text-[10.5px] font-mono mr-auto flex items-center gap-1.5" style={{ color: '#fca5a5' }}><AlertTriangle className="w-3 h-3" /> {error}</span>}
-        <Btn onClick={onClose}>{phase === 'done' ? 'Close' : 'Cancel'}</Btn>
+        <Btn onClick={onClose} disabled={phase === 'applying'}>{phase === 'done' ? 'Close' : 'Cancel'}</Btn>
         {phase !== 'done' && <Btn primary onClick={apply} disabled={phase !== 'review' || applyCount === 0}><Link2 className="w-3 h-3" /> Relink {applyCount || ''}</Btn>}
       </>}>
       {phase === 'done' && result ? (
@@ -94,11 +94,12 @@ export default function RelinkBinsDialog({ offlineRows, roots, onPickFolder, onS
           </div>
           {roots?.length > 0 && (
             <div className="rounded-sm" style={{ border: `1px solid ${C.line}` }}>
-              <div className="px-2 py-1 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scan one after plugging a drive back in</div>
+              <div className="px-2 py-1 text-[9.5px] font-mono uppercase tracking-wider" style={{ color: C.dim, borderBottom: `1px solid ${C.line}` }}>Known folders — scanned on open after a drive is plugged back in; scan one now, or forget it</div>
               {roots.map(r => (
                 <div key={r.id} className="flex items-center gap-2 px-2 py-1 text-[10.5px] font-mono" style={{ borderBottom: `1px solid ${C.faint}` }}>
                   <span className="flex-1 truncate" style={{ color: C.text }} title={r.path}>{r.path}</span>
                   <Btn small onClick={() => doScan(r.path)} disabled={phase === 'scanning'}><RefreshCw className="w-3 h-3" /> Scan</Btn>
+                  {onForgetRoot && <Btn small onClick={() => onForgetRoot(r.id).catch(e => setError(e?.message || String(e)))} disabled={phase === 'scanning' || phase === 'applying'} title="Forget this folder: it is no longer scanned on open. Files already in bins are untouched.">Forget</Btn>}
                 </div>
               ))}
             </div>

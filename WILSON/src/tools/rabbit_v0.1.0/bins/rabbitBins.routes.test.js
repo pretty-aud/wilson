@@ -30,7 +30,11 @@ const FFMPEG = require('../../../../electron/ffmpeg.cjs').hasFfmpeg()
 // ── the fakes ────────────────────────────────────────────────────────────────
 const store = new Map()
 const readRabbitBundle = (id) => (store.has(id) ? JSON.parse(store.get(id)) : null)
-const writeRabbitBundle = (id, bundle) => { store.set(id, JSON.stringify(bundle)) }
+// The fake records the `touch` option of the last write so a test can tell a
+// metadata write (touch:false — no project.updated_at, no mirror files) from
+// a structural one (review round 2: the option was invisible to the tests).
+let lastWrite = null
+const writeRabbitBundle = (id, bundle, opts) => { store.set(id, JSON.stringify(bundle)); lastWrite = { id, touch: opts?.touch !== false } }
 const { randomUUID } = require('node:crypto')
 function rabbitTouch(row) {
   const now = new Date().toISOString()
@@ -258,14 +262,42 @@ describe('pick, prepare, add', () => {
     expect(r.created[0].source_path).toBe(byPath.source_path)
     await api('/bin-files/remove', J({ ids: [r.created[0].id] }))
   })
-  it('roots are recorded in the bundle only, never in the process-wide authorised set', async () => {
+  it('roots are recorded in the bundle only, never in the process-wide authorised set, and only where an added item lives', async () => {
     const before = userAuthorizedDirs.size
-    // A folder OUTSIDE every recorded root (twin sits under media, which the
-    // add already recorded, so it would be covered and not re-recorded).
+    // A batch picked from `elsewhere` records that folder as its root — but a
+    // root the body names that holds none of the added items records nothing
+    // (a body-supplied folder is not consent, the S14 rule).
     const elsewhere = path.join(root, 'elsewhere'); fs.mkdirSync(elsewhere, { recursive: true })
-    const r = await (await api('/bins/roots', J({ path: elsewhere }))).json()
-    expect(r.binRoots.some(x => path.resolve(x.path) === path.resolve(elsewhere))).toBe(true)
+    fs.writeFileSync(path.join(elsewhere, 'far.wav'), Buffer.alloc(64, 5))
+    const nowhere = path.join(root, 'nowhere'); fs.mkdirSync(nowhere, { recursive: true })
+    const plan = await (await api('/bins/prepare', J({ paths: [path.join(elsewhere, 'far.wav')] }))).json()
+    expect(plan.roots).toEqual([path.resolve(elsewhere)])
+    const r = await (await api(`/bins/${dailies.id}/files`, J({ items: plan.items, roots: [...plan.roots, nowhere] }))).json()
+    expect(r.created.length).toBe(1)
+    const roots = (await (await api('/bins')).json()).binRoots.map(x => path.resolve(x.path))
+    expect(roots).toContain(path.resolve(elsewhere))
+    expect(roots).not.toContain(path.resolve(nowhere))
     expect(userAuthorizedDirs.size).toBe(before)
+    await api('/bin-files/remove', J({ ids: [r.created[0].id] }))
+  })
+  it('one root per picked folder, and a folder that covers recorded roots replaces them', async () => {
+    // Day01 was added inside media, so media alone is the root (its leaf
+    // folders were not recorded beside it — review round 2 counted 31 roots
+    // for one import).
+    const roots = (await (await api('/bins')).json()).binRoots.map(x => path.resolve(x.path))
+    expect(roots.filter(p => p === path.resolve(media()) || p.startsWith(path.resolve(media()) + path.sep))).toEqual([path.resolve(media())])
+    // A batch from a folder ABOVE a recorded root replaces it.
+    const above = path.join(root, 'above'); const inside = path.join(above, 'card'); fs.mkdirSync(inside, { recursive: true })
+    fs.writeFileSync(path.join(inside, 'deep.wav'), Buffer.alloc(64, 6))
+    fs.writeFileSync(path.join(above, 'top.wav'), Buffer.alloc(64, 7))
+    const p1 = await (await api('/bins/prepare', J({ paths: [path.join(inside, 'deep.wav')] }))).json()
+    const a1 = await (await api(`/bins/${dailies.id}/files`, J({ items: p1.items, roots: p1.roots }))).json()
+    const p2 = await (await api('/bins/prepare', J({ paths: [above] }))).json()
+    const a2 = await (await api(`/bins/${dailies.id}/files`, J({ items: p2.items.filter(i => i.original_name === 'top.wav'), roots: p2.roots }))).json()
+    const after = (await (await api('/bins')).json()).binRoots.map(x => path.resolve(x.path))
+    expect(after).toContain(path.resolve(above))
+    expect(after).not.toContain(path.resolve(inside))
+    await api('/bin-files/remove', J({ ids: [...a1.created, ...a2.created].map(f => f.id) }))
   })
   it('add refuses an unknown bin and an empty batch', async () => {
     expect((await api('/bins/ghost/files', J({ items: [{ source_path: path.join(media(), 'still.png') }] }))).status).toBe(404)
@@ -293,7 +325,7 @@ describe('bin-file edits', () => {
     expect(r.updated.every(f => f.camera === 'B' && f.tags.length === 1)).toBe(true)
     expect((await api('/bin-files/bulk', J({ ids: [], patch: {} }))).status).toBe(400)
   })
-  it('move, copy (an instance), reorder', async () => {
+  it('move, copy (an instance); there is no reorder route', async () => {
     const still = find('still.png')
     const mv = await (await api('/bin-files/move', J({ ids: [still.id], binId: sceneBin.id }))).json()
     expect(mv.moved).toEqual([{ id: still.id, from: dailies.id, sort_order: still.sort_order }])
@@ -307,20 +339,40 @@ describe('bin-file edits', () => {
     const back = await (await api('/bin-files/move', J({ ids: [still.id], binId: dailies.id, sortOrders: { [still.id]: 41 } }))).json()
     expect(back.binFiles[0]).toMatchObject({ bin_id: dailies.id, sort_order: 41 })
     await api('/bin-files/move', J({ ids: [still.id], binId: sceneBin.id }))
-    const ro = await api('/bin-files/reorder', J({ ids: [cp.created[0].id, still.id] }))
-    expect(ro.status).toBe(200)
-    const files = (await (await api('/bins')).json()).binFiles
-    expect(files.find(f => f.id === still.id).sort_order).toBe(1)
+    // Review round 2 removed the reorder chain: nothing offered a hand order.
+    expect((await api('/bin-files/reorder', J({ ids: [cp.created[0].id, still.id] }))).status).toBe(404)
   })
-  it('remove returns the rows and restore puts them back verbatim', async () => {
+  it('metadata writes do not touch the project; structural ones do', async () => {
+    await api(`/bin-files/${find('still.png').id}`, PATCH({ notes: 'quiet' }))
+    expect(lastWrite).toEqual({ id: PID, touch: false })
+    await api('/bin-files/bulk', J({ ids: [find('still.png').id], patch: { color: 'green' } }))
+    expect(lastWrite.touch).toBe(false)
+    const b = await (await api('/bins', J({ name: 'Touching' }))).json()
+    expect(lastWrite.touch).toBe(true)
+    await api(`/bins/${b.id}?mode=remove`, { method: 'DELETE' })
+    expect(lastWrite.touch).toBe(true)
+  })
+  it('remove returns the rows and restore puts them back verbatim; what cannot go back is said', async () => {
     const pdf = find('notes.pdf')
     const rm = await (await api('/bin-files/remove', J({ ids: [pdf.id] }))).json()
     expect(rm.removed.map(f => f.id)).toEqual([pdf.id])
     expect((await (await api('/bins')).json()).binFiles.some(f => f.id === pdf.id)).toBe(false)
     const rs = await (await api('/bin-files/restore', J({ rows: rm.removed }))).json()
     expect(rs.restored.map(f => f.id)).toEqual([pdf.id])
+    expect(rs.skipped).toEqual([])
     expect((await (await api('/bins')).json()).binFiles.some(f => f.id === pdf.id)).toBe(true)
-    expect((await api('/bin-files/restore', J({ rows: [{ id: 'x', bin_id: dailies.id, source_path: 'relative' }] }))).status).toBe(200)
+    // Review round 2: a row that cannot be restored is reported, never dropped
+    // with a 200 — a relative path, a bin deleted meanwhile, a path under no
+    // known root (a same-origin body is not proof the row came from here).
+    const r = await api('/bin-files/restore', J({ rows: [
+      { id: 'x', bin_id: dailies.id, source_path: 'relative' },
+      { id: 'y', bin_id: 'gone-bin', source_path: pdf.source_path },
+      { id: 'z', bin_id: dailies.id, source_path: path.join(os.tmpdir(), 'wilson-not-a-root', 'secret.txt') },
+    ] }))
+    expect(r.status).toBe(200)
+    const body = await r.json()
+    expect(body.restored).toEqual([])
+    expect(body.skipped).toEqual([{ id: 'x', reason: 'invalid' }, { id: 'y', reason: 'bin_gone' }, { id: 'z', reason: 'unauthorized' }])
     expect((await api('/bin-files/remove', J({}))).status).toBe(400)
   })
 })
@@ -353,6 +405,26 @@ describe('probe', () => {
 
 describe('thumbnail', () => {
   const find = (name) => added.created.find(f => f.original_name === name)
+  it('a file re-exported to the same path gets a fresh poster (the key follows the mtime on disk)', async () => {
+    const still = find('still.png')
+    const before = fs.readdirSync(thumbDir).length
+    expect((await api(`/bin-files/${still.id}/thumbnail`)).status).toBe(200)
+    const one = fs.readdirSync(thumbDir).length
+    expect(one).toBeGreaterThanOrEqual(before + 1)
+    // Same request again: served from the cache, nothing new written.
+    expect((await api(`/bin-files/${still.id}/thumbnail`)).status).toBe(200)
+    expect(fs.readdirSync(thumbDir).length).toBe(one)
+    // "Re-export": the file's mtime moves; the next poster is a NEW cache file
+    // (review round 2: the key used the row's stored mtime, which nothing
+    // refreshed, so the old frame served for ever).
+    const later = new Date(Date.now() + 90_000)
+    fs.utimesSync(still.source_path, later, later)
+    expect((await api(`/bin-files/${still.id}/thumbnail`)).status).toBe(200)
+    expect(fs.readdirSync(thumbDir).filter(n => !n.endsWith('.part')).length).toBe(one + 1)
+    // And a probe refreshes the row's own size and mtime.
+    const probed = await (await api(`/bin-files/${still.id}/probe`, J({}))).json()
+    expect(Math.abs(new Date(probed.mtime).getTime() - later.getTime())).toBeLessThan(2000)
+  })
   it('a still becomes a cached JPEG', async () => {
     const r = await api(`/bin-files/${find('ref.png').id}/thumbnail`)
     expect(r.status).toBe(200)
@@ -460,14 +532,314 @@ describe('relink', () => {
     expect(r.failed).toEqual([{ id: 'ghost-row', reason: 'missing' }])
     expect((await api('/bins/relink-apply', J({}))).status).toBe(400)
   })
-  it('roots can be added and removed', async () => {
-    const r = await (await api('/bins/roots', J({ path: path.join(media(), 'Day01'), label: 'Day 1 card' }))).json()
-    expect(r.binRoots.length).toBeGreaterThan(0)
-    expect((await api('/bins/roots', J({ path: 'nope' }))).status).toBe(400)
-    const before = r.binRoots.length
-    const del = await (await api(`/bins/roots/${r.binRoots[0].id}`, { method: 'DELETE' })).json()
-    expect(del.binRoots.length).toBe(before - 1)
+  it('apply refuses a target under no known root and no picked folder', async () => {
+    const outside = path.join(os.tmpdir(), `wilson-bins-outside-${process.pid}`); fs.mkdirSync(outside, { recursive: true })
+    const stray = path.join(outside, 'clip.mp4'); fs.copyFileSync(path.join(media(), 'clip.mp4'), stray)
+    try {
+      const files = (await (await api('/bins')).json()).binFiles
+      const clip = files.find(f => f.original_name === 'clip.mp4')
+      const r = await (await api('/bins/relink-apply', J({ mappings: [{ id: clip.id, newPath: stray }] }))).json()
+      expect(r.updated).toEqual([])
+      expect(r.failed).toEqual([{ id: clip.id, reason: 'unauthorized' }])
+    } finally { try { fs.rmSync(outside, { recursive: true, force: true }) } catch { /* temp */ } }
+  })
+  it('a recorded root can be forgotten; nothing takes a root from a body', async () => {
+    const roots = (await (await api('/bins')).json()).binRoots
+    expect(roots.length).toBeGreaterThan(0)
+    const victim = roots.find(r => path.resolve(r.path) !== path.resolve(media())) || roots[0]
+    const del = await (await api(`/bins/roots/${victim.id}`, { method: 'DELETE' })).json()
+    expect(del.binRoots.length).toBe(roots.length - 1)
     expect((await api('/bins/roots/ghost', { method: 'DELETE' })).status).toBe(404)
+    // Review round 2 removed POST /bins/roots: nothing called it, and a
+    // body-supplied folder is not consent.
+    expect((await api('/bins/roots', J({ path: media() }))).status).toBe(404)
+  })
+})
+
+// ── shot takes (milestone 2) ────────────────────────────────────────────────
+// Shots live in the bundle's own `shots` array (the generic sub-entity routes
+// in main.cjs own them); here they are written straight into the store. `omit`
+// is a shot marked omitted — the ROUTES accept it (undo must be able to
+// re-assign to a shot omitted meanwhile); the PICKER hides it (Q6).
+describe('shot takes', () => {
+  const shotA = 'shot-a', shotB = 'shot-b', shotOmit = 'shot-omit'
+  let byName
+  const takesOf = async (shotId) => (await (await api('/shot-takes')).json()).shotTakes.filter(t => t.shot_id === shotId).sort((a, b) => a.position - b.position)
+
+  it('the gate covers the new prefix', async () => {
+    expect((await raw('/shot-takes', { headers: { 'sec-fetch-site': 'cross-site' } })).status).toBe(403)
+    expect((await raw('/shot-takes')).status).toBe(403)
+    expect((await raw('/shot-takes/remove', J({ ids: ['x'] }))).status).toBe(403)
+  })
+  it('starts empty, on its own route and on the bins list', async () => {
+    const bundle = JSON.parse(store.get(PID))
+    bundle.scenes = [{ id: 'sc-1', name: 'Sc 1', scene_number: 1 }, { id: 'sc-2', name: 'Sc 2', scene_number: 2 }]
+    bundle.shots = [
+      { id: shotA, scene_id: 'sc-1', name: 'Sc1 Sh1', shot_number: 1, status: 'not_started' },
+      { id: shotB, scene_id: 'sc-2', name: 'Sc2 Sh1', shot_number: 1, status: 'in_progress' },
+      { id: shotOmit, scene_id: 'sc-1', name: 'Sc1 Sh9', shot_number: 9, status: 'omitted' },
+    ]
+    store.set(PID, JSON.stringify(bundle))
+    expect((await (await api('/shot-takes')).json()).shotTakes).toEqual([])
+    expect((await (await api('/bins')).json()).shotTakes).toEqual([])
+    const files = (await (await api('/bins')).json()).binFiles
+    byName = (n) => files.find(f => f.original_name === n)
+    expect(byName('still.png')).toBeTruthy()
+  })
+  it('assigns several files to one shot in one call: the first is primary, the rest alt, positions in order', async () => {
+    const r = await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: byName('still.png').id }, { shot_id: shotA, bin_file_id: byName('tone.wav').id, notes: 'wild track' }] }))
+    expect(r.status).toBe(200)
+    const body = await r.json()
+    expect(body.created.length).toBe(2)
+    expect(body.skipped).toEqual([])
+    expect(body.affectedShotIds).toEqual([shotA])
+    expect(body.shotTakes.map(t => [t.role, t.position, t.notes])).toEqual([['primary', 0, ''], ['alt', 1, 'wild track']])
+    expect(body.created.every(t => t.project_id === PID && t.id && t.created_at)).toBe(true)
+  })
+  it('the same pair again is skipped, never duplicated; one file may serve several shots (Q6)', async () => {
+    const again = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: byName('still.png').id }] }))).json()
+    expect(again.created).toEqual([])
+    expect(again.skipped[0]).toMatchObject({ shot_id: shotA, reason: 'already_assigned' })
+    expect((await takesOf(shotA)).length).toBe(2)
+    const b = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotB, bin_file_id: byName('still.png').id }, { shot_id: shotOmit, bin_file_id: byName('still.png').id }] }))).json()
+    expect(b.created.length).toBe(2)
+    expect((await takesOf(shotB))[0].role).toBe('primary')
+    expect((await (await api('/shot-takes')).json()).shotTakes.filter(t => t.bin_file_id === byName('still.png').id).length).toBe(3)
+  })
+  it('refuses an unknown shot, an unknown file and an empty batch, and writes nothing on a half-bad batch', async () => {
+    const before = (await (await api('/shot-takes')).json()).shotTakes.length
+    const s = await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: byName('notes.pdf').id }, { shot_id: 'ghost', bin_file_id: byName('notes.pdf').id }] }))
+    expect(s.status).toBe(400)
+    expect((await s.json()).code).toBe('shot_not_found')
+    const f = await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: 'ghost' }] }))
+    expect(f.status).toBe(400)
+    expect((await f.json()).code).toBe('file_not_found')
+    expect((await api('/shot-takes', J({}))).status).toBe(400)
+    expect((await (await api('/shot-takes')).json()).shotTakes.length).toBe(before)
+  })
+  it('a role may be given; asking for primary demotes the current primary to alt', async () => {
+    const p = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: byName('notes.pdf').id, role: 'part' }] }))).json()
+    expect(p.created[0].role).toBe('part')
+    const pr = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotA, bin_file_id: byName('ref.png').id, role: 'primary' }] }))).json()
+    const rows = await takesOf(shotA)
+    expect(rows.map(t => t.role)).toEqual(['alt', 'alt', 'part', 'primary'])
+    expect(rows.filter(t => t.role === 'primary').length).toBe(1)
+    expect(pr.shotTakes.length).toBe(4)
+  })
+  it('PATCH swaps roles on promotion, hands primary on when the primary is demoted, keeps a sole primary, validates the role', async () => {
+    let rows = await takesOf(shotA)
+    const part = rows.find(t => t.role === 'part')
+    const oldPrimary = rows.find(t => t.role === 'primary')
+    const r = await (await api(`/shot-takes/${part.id}`, PATCH({ role: 'primary', notes: 'the hero take' }))).json()
+    expect(r.take).toMatchObject({ id: part.id, role: 'primary', notes: 'the hero take' })
+    rows = await takesOf(shotA)
+    expect(rows.find(t => t.id === oldPrimary.id).role).toBe('part')
+    expect(rows.filter(t => t.role === 'primary').length).toBe(1)
+    // Demote the primary: the next take in order takes over.
+    await api(`/shot-takes/${part.id}`, PATCH({ role: 'alt' }))
+    rows = await takesOf(shotA)
+    expect(rows.find(t => t.id === part.id).role).toBe('alt')
+    expect(rows.filter(t => t.role === 'primary').length).toBe(1)
+    expect(rows.find(t => t.role === 'primary').id).toBe(rows.filter(t => t.id !== part.id)[0].id)
+    // The only take of a shot stays primary whatever is asked.
+    const sole = (await takesOf(shotB))[0]
+    const keep = await (await api(`/shot-takes/${sole.id}`, PATCH({ role: 'alt' }))).json()
+    expect(keep.take.role).toBe('primary')
+    expect((await api(`/shot-takes/${sole.id}`, PATCH({ role: 'hero' }))).status).toBe(400)
+    expect((await api(`/shot-takes/${sole.id}`, PATCH({ position: 'first' }))).status).toBe(400)
+    expect((await api('/shot-takes/ghost', PATCH({ notes: 'x' }))).status).toBe(404)
+  })
+  it('PATCH position moves a take within its shot; reorder sets the whole order and unlisted takes follow', async () => {
+    let rows = await takesOf(shotA)
+    const last = rows[rows.length - 1]
+    await api(`/shot-takes/${last.id}`, PATCH({ position: 0 }))
+    rows = await takesOf(shotA)
+    expect(rows[0].id).toBe(last.id)
+    expect(rows.map(t => t.position)).toEqual([0, 1, 2, 3])
+    const ids = rows.map(t => t.id)
+    const ro = await (await api('/shot-takes/reorder', J({ shot_id: shotA, ids: [ids[2], ids[1]] }))).json()
+    expect(ro.affectedShotIds).toEqual([shotA])
+    rows = await takesOf(shotA)
+    expect(rows.map(t => t.id)).toEqual([ids[2], ids[1], ids[0], ids[3]])
+    expect(rows.filter(t => t.role === 'primary').length).toBe(1)
+    expect((await api('/shot-takes/reorder', J({ shot_id: 'ghost', ids }))).status).toBe(400)
+    expect((await api('/shot-takes/reorder', J({ shot_id: shotA }))).status).toBe(400)
+  })
+  it('remove returns the rows, promotes the next take when the primary goes, and 404s on unknown ids', async () => {
+    let rows = await takesOf(shotA)
+    const primary = rows.find(t => t.role === 'primary')
+    const r = await (await api('/shot-takes/remove', J({ ids: [primary.id] }))).json()
+    expect(r.removed.map(t => t.id)).toEqual([primary.id])
+    expect(r.affectedShotIds).toEqual([shotA])
+    rows = await takesOf(shotA)
+    expect(rows.length).toBe(3)
+    expect(rows.map(t => t.position)).toEqual([0, 1, 2])
+    expect(rows.filter(t => t.role === 'primary').length).toBe(1)
+    expect((await api('/shot-takes/remove', J({ ids: ['ghost'] }))).status).toBe(404)
+    expect((await api('/shot-takes/remove', J({}))).status).toBe(400)
+  })
+  it('replace restores a snapshot verbatim (ids, roles, positions), drops what it cannot place, and clears with an empty list', async () => {
+    const snapshot = await takesOf(shotA)
+    // Mutate: promote the last, remove the first.
+    await api(`/shot-takes/${snapshot[2].id}`, PATCH({ role: 'primary' }))
+    await api('/shot-takes/remove', J({ ids: [snapshot[0].id] }))
+    expect((await takesOf(shotA)).length).toBe(2)
+    const back = await (await api('/shot-takes/replace', J({ shotIds: [shotA], rows: snapshot }))).json()
+    expect(back.affectedShotIds).toEqual([shotA])
+    const rows = await takesOf(shotA)
+    expect(rows.map(t => [t.id, t.role, t.position, t.notes])).toEqual(snapshot.map(t => [t.id, t.role, t.position, t.notes]))
+    // Rows for another shot, an unknown file, and a duplicated pair are ignored.
+    const messy = [...snapshot, { ...snapshot[0], id: 'dup-of-first' }, { id: 'stray', shot_id: shotB, bin_file_id: snapshot[0].bin_file_id, role: 'primary', position: 0 }, { id: 'nofile', shot_id: shotA, bin_file_id: 'ghost', role: 'alt', position: 9 }]
+    await api('/shot-takes/replace', J({ shotIds: [shotA], rows: messy }))
+    expect((await takesOf(shotA)).map(t => t.id)).toEqual(snapshot.map(t => t.id))
+    expect((await takesOf(shotB)).length).toBe(1)
+    expect((await api('/shot-takes/replace', J({ shotIds: ['ghost'], rows: [] }))).status).toBe(400)
+    expect((await api('/shot-takes/replace', J({ rows: [] }))).status).toBe(400)
+    await api('/shot-takes/replace', J({ shotIds: [shotB], rows: [] }))
+    expect((await takesOf(shotB)).length).toBe(0)
+    await api('/shot-takes/replace', J({ shotIds: [shotB], rows: [{ shot_id: shotB, bin_file_id: byName('still.png').id, role: 'alt', position: 0 }] }))
+    expect((await takesOf(shotB))[0].role).toBe('primary')
+  })
+  // Every shot in a read has exactly one primary and positions 0..n-1 —
+  // asserted after EVERY step below, because the two HIGH findings of the
+  // review lived exactly here (a removed file left a shot with no primary;
+  // a restored one left it with two).
+  const invariants = (rows) => {
+    const byShot = new Map()
+    for (const t of rows) { if (!byShot.has(t.shot_id)) byShot.set(t.shot_id, []); byShot.get(t.shot_id).push(t) }
+    for (const [shotId, list] of byShot) {
+      list.sort((a, b) => a.position - b.position)
+      expect(list.filter(t => t.role === 'primary').length, `shot ${shotId} primaries`).toBe(1)
+      expect(list.map(t => t.position), `shot ${shotId} positions`).toEqual(list.map((_, i) => i))
+    }
+  }
+  it('a removed bin file takes its assignments out of every read; restoring the file brings them back; the invariants hold throughout', async () => {
+    const still = byName('still.png')
+    const before = (await (await api('/shot-takes')).json()).shotTakes.filter(t => t.bin_file_id === still.id).length
+    expect(before).toBeGreaterThan(0)
+    const rm = await (await api('/bin-files/remove', J({ ids: [still.id] }))).json()
+    let read = (await (await api('/shot-takes')).json()).shotTakes
+    expect(read.some(t => t.bin_file_id === still.id)).toBe(false)
+    invariants(read)
+    read = (await (await api('/bins')).json()).shotTakes
+    expect(read.some(t => t.bin_file_id === still.id)).toBe(false)
+    invariants(read)
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    read = (await (await api('/shot-takes')).json()).shotTakes
+    expect(read.filter(t => t.bin_file_id === still.id).length).toBe(before)
+    invariants(read)
+  })
+  it('while the primary\'s file is out, reads present the next take as primary WITHOUT writing; a take promoted meanwhile keeps the role when the file returns', async () => {
+    const shotC = 'shot-c'
+    const bundle = JSON.parse(store.get(PID))
+    bundle.shots.push({ id: shotC, scene_id: 'sc-2', name: 'Sc2 Sh2', shot_number: 2, status: 'not_started' })
+    store.set(PID, JSON.stringify(bundle))
+    const f1 = byName('still.png'), f2 = byName('tone.wav'), f3 = byName('notes.pdf')
+    await api('/shot-takes', J({ assignments: [f1, f2, f3].map(f => ({ shot_id: shotC, bin_file_id: f.id })) }))
+    expect((await takesOf(shotC)).map(t => [t.bin_file_id, t.role, t.position])).toEqual([[f1.id, 'primary', 0], [f2.id, 'alt', 1], [f3.id, 'alt', 2]])
+    const rm = await (await api('/bin-files/remove', J({ ids: [f1.id] }))).json()
+    // Presented: the next take is primary, positions renumbered.
+    expect((await takesOf(shotC)).map(t => [t.bin_file_id, t.role, t.position])).toEqual([[f2.id, 'primary', 0], [f3.id, 'alt', 1]])
+    // On disk: nothing was written — f1 is still the primary, still at 0.
+    const disk = JSON.parse(store.get(PID)).shotTakes.filter(t => t.shot_id === shotC).sort((a, b) => a.position - b.position)
+    expect(disk.map(t => [t.bin_file_id, t.role, t.position])).toEqual([[f1.id, 'primary', 0], [f2.id, 'alt', 1], [f3.id, 'alt', 2]])
+    // Restore straight away: exact.
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    expect((await takesOf(shotC)).map(t => [t.bin_file_id, t.role, t.position])).toEqual([[f1.id, 'primary', 0], [f2.id, 'alt', 1], [f3.id, 'alt', 2]])
+    // Out again, and this time the editor promotes f3 while f1 is away.
+    await api('/bin-files/remove', J({ ids: [f1.id] }))
+    const t3 = (await takesOf(shotC)).find(t => t.bin_file_id === f3.id)
+    await api(`/shot-takes/${t3.id}`, PATCH({ role: 'primary' }))
+    expect((await takesOf(shotC)).map(t => [t.bin_file_id, t.role])).toEqual([[f2.id, 'alt'], [f3.id, 'primary']])
+    // The orphan was demoted on disk, so the restored take comes back as an
+    // alt in its old slot and the editor's choice stands.
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    const back = await takesOf(shotC)
+    expect(back.map(t => [t.bin_file_id, t.role, t.position])).toEqual([[f1.id, 'alt', 0], [f2.id, 'alt', 1], [f3.id, 'primary', 2]])
+    invariants((await (await api('/shot-takes')).json()).shotTakes)
+  })
+  it('replace keeps the orphan rows of the named shots, so undoing a file removal after an undo still brings the take back', async () => {
+    const shotC = 'shot-c'
+    const f1 = byName('still.png')
+    const rm = await (await api('/bin-files/remove', J({ ids: [f1.id] }))).json()
+    const live = await takesOf(shotC)
+    expect(live.some(t => t.bin_file_id === f1.id)).toBe(false)
+    await api('/shot-takes/replace', J({ shotIds: [shotC], rows: live }))
+    expect(JSON.parse(store.get(PID)).shotTakes.some(t => t.shot_id === shotC && t.bin_file_id === f1.id)).toBe(true)
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    const back = await takesOf(shotC)
+    expect(back.some(t => t.bin_file_id === f1.id)).toBe(true)
+    expect(back.filter(t => t.role === 'primary').length).toBe(1)
+  })
+  it('a deleted shot takes its assignments out of every read; the rows wait on disk for an undo', async () => {
+    const bundle = JSON.parse(store.get(PID))
+    const onDisk = bundle.shotTakes.filter(t => t.shot_id === shotOmit).length
+    expect(onDisk).toBe(1)
+    bundle.shots = bundle.shots.filter(s => s.id !== shotOmit)
+    store.set(PID, JSON.stringify(bundle))
+    expect((await (await api('/shot-takes')).json()).shotTakes.some(t => t.shot_id === shotOmit)).toBe(false)
+    expect(JSON.parse(store.get(PID)).shotTakes.filter(t => t.shot_id === shotOmit).length).toBe(onDisk)
+    expect((await api('/shot-takes', J({ assignments: [{ shot_id: shotOmit, bin_file_id: byName('still.png').id }] }))).status).toBe(400)
+  })
+  // ── review round 2 ──
+  it('every read carries the orphans beside the live rows, so renderer state can keep them for an undo', async () => {
+    const shotC = 'shot-c'
+    const f2 = byName('tone.wav')
+    const rm = await (await api('/bin-files/remove', J({ ids: [f2.id] }))).json()
+    const list = await (await api('/bins')).json()
+    expect(list.shotTakes.some(t => t.bin_file_id === f2.id)).toBe(false)
+    expect(list.orphanTakes.some(t => t.bin_file_id === f2.id && t.shot_id === shotC)).toBe(true)
+    // The deleted shot's rows are orphans too (its shot is gone).
+    expect(list.orphanTakes.some(t => t.shot_id === shotOmit)).toBe(true)
+    const own = await (await api('/shot-takes')).json()
+    expect(own.orphanTakes.some(t => t.bin_file_id === f2.id)).toBe(true)
+    // A mutation response carries the affected shots' orphans, not others'.
+    const f4 = byName('12A_3_T4_A.mov')
+    const res = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotC, bin_file_id: f4.id }] }))).json()
+    expect(res.orphanTakes.some(t => t.bin_file_id === f2.id && t.shot_id === shotC)).toBe(true)
+    expect(res.orphanTakes.some(t => t.shot_id === shotOmit)).toBe(false)
+    // Restore answers with the live takes of the shots the file serves.
+    const back = await (await api('/bin-files/restore', J({ rows: rm.removed }))).json()
+    expect(back.affectedShotIds).toContain(shotC)
+    expect(back.shotTakes.some(t => t.bin_file_id === f2.id && t.shot_id === shotC)).toBe(true)
+    await api('/shot-takes/remove', J({ ids: [res.created[0].id] }))
+  })
+  it('assigning while the primary\'s file is out neither steals the role nor demotes the orphan on disk', async () => {
+    const shotD = 'shot-d'
+    const bundle = JSON.parse(store.get(PID))
+    bundle.shots.push({ id: shotD, scene_id: 'sc-1', name: 'Sc1 Sh4', shot_number: 4, status: 'not_started' })
+    store.set(PID, JSON.stringify(bundle))
+    const fA = byName('12A_3_T4_A.mov'), fB = byName('ref.png'), fC = byName('A001C001_240612_R1AB.mov')
+    await api('/shot-takes', J({ assignments: [fA, fB].map(f => ({ shot_id: shotD, bin_file_id: f.id })) }))
+    const rm = await (await api('/bin-files/remove', J({ ids: [fA.id] }))).json()
+    expect((await takesOf(shotD)).map(t => [t.bin_file_id, t.role])).toEqual([[fB.id, 'primary']])
+    // A spare assigned meanwhile is an alt: the shot HAS a primary as far as
+    // every read is concerned (review round 2, HIGH: it became the primary,
+    // and the orphan was written down as an alt for good).
+    const r = await (await api('/shot-takes', J({ assignments: [{ shot_id: shotD, bin_file_id: fC.id }] }))).json()
+    expect(r.created[0].role).toBe('alt')
+    expect((await takesOf(shotD)).map(t => [t.bin_file_id, t.role, t.position])).toEqual([[fB.id, 'primary', 0], [fC.id, 'alt', 1]])
+    const disk = JSON.parse(store.get(PID)).shotTakes.filter(t => t.shot_id === shotD)
+    expect(disk.find(t => t.bin_file_id === fA.id).role).toBe('primary')
+    expect(disk.find(t => t.bin_file_id === fB.id).role).toBe('alt')
+    // The drive is back: the original primary is the primary again.
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    expect((await takesOf(shotD)).map(t => [t.bin_file_id, t.role, t.position])).toEqual([[fA.id, 'primary', 0], [fB.id, 'alt', 1], [fC.id, 'alt', 2]])
+    invariants((await (await api('/shot-takes')).json()).shotTakes)
+  })
+  it('remove ignores an orphan id (the row waits for its undo) and reorder refuses ids of another shot', async () => {
+    const shotD = 'shot-d'
+    const fA = byName('12A_3_T4_A.mov')
+    const rm = await (await api('/bin-files/remove', J({ ids: [fA.id] }))).json()
+    const orphan = JSON.parse(store.get(PID)).shotTakes.find(t => t.shot_id === shotD && t.bin_file_id === fA.id)
+    expect((await api('/shot-takes/remove', J({ ids: [orphan.id] }))).status).toBe(404)
+    expect(JSON.parse(store.get(PID)).shotTakes.some(t => t.id === orphan.id)).toBe(true)
+    await api('/bin-files/restore', J({ rows: rm.removed }))
+    expect((await takesOf(shotD)).some(t => t.bin_file_id === fA.id)).toBe(true)
+    const foreign = (await takesOf('shot-c'))[0]
+    const bad = await api('/shot-takes/reorder', J({ shot_id: shotD, ids: [foreign.id] }))
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).code).toBe('bad_ids')
   })
 })
 
@@ -490,9 +862,14 @@ describe('delete bin', () => {
     expect(after.binFiles.every(f => f.bin_id === sceneBin.id)).toBe(true)
   })
   it('remove mode returns the removed files for undo; unknown is 404', async () => {
+    const onDisk = JSON.parse(store.get(PID)).shotTakes.length
+    expect(onDisk).toBeGreaterThan(0)
     const r = await (await api(`/bins/${sceneBin.id}?mode=remove`, { method: 'DELETE' })).json()
     expect(r.removedFiles.length).toBeGreaterThan(0)
     expect((await (await api('/bins')).json()).binFiles).toEqual([])
+    // With every file gone, no take is live — and not one was pruned from disk.
+    expect((await (await api('/bins')).json()).shotTakes).toEqual([])
+    expect(JSON.parse(store.get(PID)).shotTakes.length).toBe(onDisk)
     expect((await api('/bins/ghost', { method: 'DELETE' })).status).toBe(404)
   })
 })

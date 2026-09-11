@@ -44,6 +44,19 @@ import {
   nextShotNumber as nextShotNumberFor,
   fileSlugify,
 } from '../entityNaming'
+// Shot takes (milestone 2, DEMO_BINS_BRIEF §5): bin files assigned to shots.
+// Everything below is ADDED to the existing rows and popups — a chip strip
+// per shot row in both content modes, the primary take's poster standing in
+// for an EMPTY shot thumbnail (never over one Audrey set), and the ordered
+// takes list in the shot detail popup. Local Server only (ctx.supportsBins).
+import { useProjectAccess } from '../state/useProjectAccess'
+import { useNavigateTarget } from '../state/rabbitNavigate'
+import { takesByShot, primaryOf } from '../bins/shotTakeSelectors'
+import { binPathLabel } from '../bins/binSelectors'
+import ShotTakeChips from './bins/ShotTakeChips'
+import ShotTakesPanel, { ShotTakesDialog } from './bins/ShotTakesPanel'
+import TakePickerDialog from './bins/TakePickerDialog'
+import BinPoster from './bins/BinPoster'
 
 // ── Status config ──
 const SCENE_STATUSES = [
@@ -272,6 +285,94 @@ export default function ScenesView() {
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [shotPickerOpen, setShotPickerOpen] = useState(false)
   const shotPickerRef = useRef(null)
+
+  // ── Shot takes (milestone 2) ──
+  const { canWrite: canWriteProject } = useProjectAccess()
+  const supportsBins = !!ctx?.supportsBins
+  const shotTakes = ctx?.shotTakes || []
+  const binFiles = ctx?.binFiles || []
+  const bins = ctx?.bins || []
+  const takesByShotMap = useMemo(() => takesByShot(shotTakes, binFiles), [shotTakes, binFiles])
+  const [takesShotId, setTakesShotId] = useState(null)     // the takes dialog, from a row
+  const [pickerShotId, setPickerShotId] = useState(null)   // the picker, from the dialog or the popup
+  const [takesBusy, setTakesBusy] = useState(false)
+  const [takesNotice, setTakesNotice] = useState(null)
+  // posterRev: a poster the provider's browser probe posted after the chip
+  // first asked (no ffmpeg) changes the URL, so the icon becomes the frame.
+  const takeThumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, ctx?.binsInfo?.posterRev || 0) || null, [ctx])
+  const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
+  // Posters and the `online` flag come from the bins list route; load it once
+  // per project so the chips are right even if the Bins tab was never opened.
+  // 🚨 ctx through a ref: its identity changes on every provider update.
+  const ctxRef = useRef(ctx)
+  ctxRef.current = ctx
+  useEffect(() => {
+    const c = ctxRef.current
+    if (!supportsBins || !project?.id || c?.binsInfo?.loadedFor === project.id) return
+    // Named, not swallowed: without the list the chips show whatever
+    // loadProject left in state, with no posters and no online flags.
+    c?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`))
+  }, [supportsBins, project?.id])
+  const takeFail = (err, what) => { console.error(`Failed to ${what}:`, err); setTakesNotice(`Could not ${what}: ${err?.message || err}`) }
+  const handleAssignTakes = useCallback(async (shotId, fileIds, role) => {
+    if (!fileIds?.length) return
+    setTakesBusy(true); setTakesNotice(null)
+    try {
+      const res = await ctx?.assignShotTakes?.(fileIds.map(id => ({ shot_id: shotId, bin_file_id: id, ...(role ? { role } : {}) })))
+      setPickerShotId(null)
+      const n = res?.created?.length || 0; const k = res?.skipped?.length || 0
+      if (k) setTakesNotice(`${n} assigned · ${k} already on this shot`)
+    } catch (err) { takeFail(err, 'assign takes') }
+    finally { setTakesBusy(false) }
+  }, [ctx])
+  const handleUpdateTake = useCallback(async (id, patch) => {
+    try { await ctx?.updateShotTake?.(id, patch) } catch (err) { takeFail(err, 'update the take') }
+  }, [ctx])
+  const handleRemoveTakes = useCallback(async (ids) => {
+    try { await ctx?.removeShotTakes?.(ids) } catch (err) { takeFail(err, 'unassign the take') }
+  }, [ctx])
+  const handleReorderTakes = useCallback(async (shotId, ids) => {
+    try { await ctx?.reorderShotTakes?.(shotId, ids) } catch (err) { takeFail(err, 'reorder the takes') }
+  }, [ctx])
+  // Q6: frame_count is never overwritten by an assignment; this is the one click.
+  const handleUseTakeLength = useCallback(async (shotId, frames) => {
+    try { await ctx?.updateShot?.(shotId, { frame_count: frames }) } catch (err) { takeFail(err, 'set the frame count') }
+  }, [ctx])
+  const takesApi = useMemo(() => ({
+    supports: supportsBins, map: takesByShotMap, thumbUrlFor: takeThumbUrlFor, canWrite: canWriteProject && supportsBins,
+    open: setTakesShotId, openPicker: setPickerShotId, binPathFor, projectId: project?.id || null,
+    onUpdate: handleUpdateTake, onRemove: handleRemoveTakes, onReorder: handleReorderTakes, onUseLength: handleUseTakeLength,
+    notice: takesNotice, clearNotice: () => setTakesNotice(null),
+  }), [supportsBins, takesByShotMap, takeThumbUrlFor, canWriteProject, binPathFor, project?.id, handleUpdateTake, handleRemoveTakes, handleReorderTakes, handleUseTakeLength, takesNotice])
+  // "Open in Scenes" from the bin inspector lands on the shot's detail popup.
+  // Declined (false) until the shot is in state, so the request is retried
+  // rather than lost; a payload for another project is dropped by the hook.
+  const onNavigate = useCallback((p) => {
+    if (p?.shotId) {
+      if (!shots.some(s => s.id === p.shotId)) return false
+      setDetailShotId(p.shotId); setDetailSceneId(null)
+    } else if (p?.sceneId) {
+      if (!scenes.some(s => s.id === p.sceneId)) return false
+      setDetailSceneId(p.sceneId)
+    }
+    return true
+  }, [shots, scenes])
+  useNavigateTarget('scenes', onNavigate, project?.id || null)
+  // Ctrl+Z / Ctrl+Y on this tab, the way the Bins tab and the timeline bind
+  // them: the provider's history holds every takes mutation (and every
+  // scene and shot edit). Never while typing in a field.
+  useEffect(() => {
+    if (!supportsBins) return
+    const h = (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const t = e.target
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); if (e.shiftKey) ctxRef.current?.redo?.(); else ctxRef.current?.undo?.() }
+      else if (e.key === 'y' || e.key === 'Y') { e.preventDefault(); ctxRef.current?.redo?.() }
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [supportsBins])
 
   function toggleGroup(key) {
     setCollapsedGroups(prev => {
@@ -864,6 +965,18 @@ export default function ScenesView() {
         </div>
       )}
 
+      {/* Bins could not be loaded for the take chips (milestone 2): said here
+          on the page with a retry, not only inside a takes dialog she may
+          never open (review round 2). */}
+      {supportsBins && takesNotice && !takesShotId && !pickerShotId && (
+        <div className="flex items-center gap-2 px-4 py-1.5 text-[10.5px] font-mono flex-shrink-0" style={{ borderBottom: '1px solid #44403c', backgroundColor: '#1c1917', color: '#f59e0b' }}>
+          <span className="flex-1 truncate">{takesNotice}</span>
+          <button type="button" onClick={() => { setTakesNotice(null); ctxRef.current?.refreshBins?.().catch(e => setTakesNotice(`Could not load the bins: ${e?.message || e}`)) }}
+            className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-sm hover:bg-stone-700" style={{ border: '1px solid #44403c', color: '#d6d3d1' }}>Retry</button>
+          <button type="button" onClick={() => setTakesNotice(null)} className="p-0.5 rounded-sm hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
+        </div>
+      )}
+
       {/* ── Body ── */}
       <div className="flex-1 overflow-auto">
         {contentMode === 'shots' ? (
@@ -871,6 +984,7 @@ export default function ScenesView() {
             <ShotTable
               shotGroups={shotGroups}
               ctx={ctx}
+              takes={takesApi}
               fps={fps}
               thumbSize={thumbSize}
               thumbRevision={thumbRevision}
@@ -886,6 +1000,8 @@ export default function ScenesView() {
               gallerySize={gallerySize}
               fps={fps}
               ctx={ctx}
+              takes={takesApi}
+              thumbRevision={thumbRevision}
               onOpenSceneDetail={setDetailSceneId}
               onOpenShotDetail={setDetailShotId}
               onRequestDelete={setConfirmDelete}
@@ -912,6 +1028,7 @@ export default function ScenesView() {
                   {!collapsedGroups.has(g.key) && (
                     <SceneTable
                       scenes={g.scenes}
+                      takes={takesApi}
                       shotsByScene={shotsByScene}
                       sceneTotals={sceneTotals}
                       assetCountByScene={assetCountByScene}
@@ -932,6 +1049,7 @@ export default function ScenesView() {
             ) : (
               <SceneTable
                 scenes={sorted}
+                takes={takesApi}
                 shotsByScene={shotsByScene}
                 sceneTotals={sceneTotals}
                 assetCountByScene={assetCountByScene}
@@ -985,6 +1103,7 @@ export default function ScenesView() {
         <ShotDetailPopup
           shotId={detailShotId}
           ctx={ctx}
+          takes={takesApi}
           fps={fps}
           projectMembers={projectMembers}
           roleEntries={roleEntries}
@@ -994,6 +1113,30 @@ export default function ScenesView() {
           onRequestDelete={setConfirmDelete}
         />
       )}
+
+      {/* ── Shot takes: the dialog from a row, and the picker (milestone 2) ── */}
+      {takesShotId && (() => {
+        const shot = shots.find(s => s.id === takesShotId)
+        if (!shot) return null
+        return (
+          <ShotTakesDialog shot={shot} scene={sceneMap[shot.scene_id] || null} onClose={() => { setTakesShotId(null); setTakesNotice(null) }}
+            entries={takesByShotMap.get(shot.id) || []} fps={fps} canWrite={takesApi.canWrite} thumbUrlFor={takeThumbUrlFor} binPathFor={binPathFor} projectId={project?.id || null}
+            onUpdate={handleUpdateTake} onRemove={handleRemoveTakes} onReorder={handleReorderTakes} onUseLength={handleUseTakeLength}
+            onOpenPicker={() => setPickerShotId(shot.id)}>
+            {takesNotice && <div className="mt-2 text-[10.5px] font-mono" style={{ color: '#f59e0b' }}>{takesNotice}</div>}
+          </ShotTakesDialog>
+        )
+      })()}
+      {pickerShotId && (() => {
+        const shot = shots.find(s => s.id === pickerShotId)
+        if (!shot) return null
+        const entries = takesByShotMap.get(shot.id) || []
+        return (
+          <TakePickerDialog shot={shot} scene={sceneMap[shot.scene_id] || null} files={binFiles} bins={bins}
+            assignedFileIds={entries.map(e => e.file.id)} hasPrimary={entries.some(e => e.take.role === 'primary')} thumbUrlFor={takeThumbUrlFor} busy={takesBusy}
+            onConfirm={(fileIds, role) => handleAssignTakes(shot.id, fileIds, role)} onCancel={() => !takesBusy && setPickerShotId(null)} />
+        )
+      })()}
 
       {/* ── Delete confirmation ── */}
       {confirmDelete && (
@@ -1037,7 +1180,7 @@ function BigTile({ icon: Icon, label, value, tone = 'neutral' }) {
 
 
 // ─── Scene table ───
-function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, taskCountByScene, fps, thumbSize, thumbRevision = 0, onThumbChanged, ctx, takes, onOpenDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [expandedScenes, setExpandedScenes] = useState(new Set())
@@ -1321,6 +1464,9 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                 })()}
                 {sceneShots.map(shot => {
                   const isNested = selectedNestedShots.has(shot.id)
+                  const shotTakeEntries = takes?.map?.get(shot.id) || []
+                  const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                  const nestedThumbH = Math.max(rowH - 8, 28)
                   return (
                   <div key={shot.id}
                     className="flex items-center gap-3 px-3 py-1.5 rounded-sm hover:bg-stone-800/60 transition-colors group/shot"
@@ -1357,6 +1503,14 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                             <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
                           </div>
                         </>
+                      ) : takeFallback ? (
+                        <>
+                          {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={thumbW(nestedThumbH)} height={nestedThumbH} radius={0} style={{ border: 'none' }} />
+                          <div className="absolute inset-0 opacity-0 group-hover/shthumb:opacity-100 transition-opacity flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} title="From the primary take. Click to set a thumbnail of your own.">
+                            <ImagePlus className="w-3 h-3" style={{ color: '#d6d3d1' }} />
+                          </div>
+                        </>
                       ) : (
                         <>
                           <Clapperboard className="w-3 h-3 group-hover/shthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
@@ -1373,6 +1527,13 @@ function SceneTable({ scenes, shotsByScene, sceneTotals, assetCountByScene, task
                       <InlineText value={shot.name || ''} placeholder="Untitled shot" size="sm"
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })} />
                     </div>
+                    {/* Takes (milestone 2) */}
+                    {takes?.supports && (
+                      <span className="w-40 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(nestedThumbH, 22)} max={3}
+                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                      </span>
+                    )}
                     {/* Status */}
                     <span className="w-36 flex justify-center flex-shrink-0">
                       <select value={shot.status || 'not_started'} onChange={e => ctx?.updateShot?.(shot.id, { status: e.target.value })}
@@ -1564,7 +1725,7 @@ function SceneGallery({ scenes, shotsByScene, sceneTotals, gallerySize, fps, onO
 
 
 // ─── Shot table (shots grouped by scene) ───
-function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
+function ShotTable({ shotGroups, ctx, takes, fps, thumbSize, thumbRevision = 0, onThumbChanged, onOpenSceneDetail, onOpenShotDetail, onNewShot, onRequestDelete }) {
   const rowH = THUMB_SIZES[thumbSize]?.h || BASE_ROW_H
   const tw = thumbW(rowH)
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
@@ -1615,6 +1776,7 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
         <span style={{ width: tw }} className="flex-shrink-0" />
         <span className="w-14 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>#</span>
         <span className="w-48 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }}>Shot name</span>
+        {takes?.supports && <span className="w-44 text-[10.5px] font-mono uppercase tracking-widest flex-shrink-0" style={{ color: '#78716c' }} title="Bin files assigned to the shot; the starred one is the primary take">Takes</span>}
         <span className="w-36 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Status</span>
         <span className="w-28 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Time of Day</span>
         <span className="w-20 text-[10.5px] font-mono uppercase tracking-widest text-center" style={{ color: '#78716c' }}>Type</span>
@@ -1713,6 +1875,8 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
               <div className="flex flex-col gap-0.5 mt-0.5">
                 {g.shots.map(shot => {
                   const isChecked = selected.has(shot.id)
+                  const shotTakeEntries = takes?.map?.get(shot.id) || []
+                  const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
                   return (
                   <div key={shot.id}
                     className="flex items-center gap-3 px-3 rounded-sm hover:bg-stone-800 transition-colors group"
@@ -1750,6 +1914,14 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
                             <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
                           </div>
                         </>
+                      ) : takeFallback ? (
+                        <>
+                          {/* The primary take's poster stands in for an empty thumbnail (Q6); clicking still picks an image of her own. */}
+                          <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={tw} height={rowH} radius={0} style={{ border: 'none' }} />
+                          <div className="absolute inset-0 opacity-0 group-hover/stthumb:opacity-100 transition-opacity flex items-center justify-center" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }} title="From the primary take. Click to set a thumbnail of your own.">
+                            <ImagePlus className="w-3.5 h-3.5" style={{ color: '#d6d3d1' }} />
+                          </div>
+                        </>
                       ) : (
                         <>
                           <Clapperboard className="w-4 h-4 group-hover/stthumb:opacity-0 transition-opacity" style={{ color: '#292524' }} />
@@ -1771,6 +1943,14 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
                         onCommit={v => ctx?.updateShot?.(shot.id, { name: v })}
                       />
                     </div>
+
+                    {/* Takes (milestone 2) */}
+                    {takes?.supports && (
+                      <span className="w-44 flex items-center flex-shrink-0 overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={Math.min(rowH, 26)} max={3}
+                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                      </span>
+                    )}
 
                     {/* Status */}
                     <span className="w-36 flex justify-center flex-shrink-0">
@@ -1942,7 +2122,7 @@ function ShotTable({ shotGroups, ctx, fps, thumbSize, thumbRevision = 0, onThumb
 
 
 // ─── Shot gallery (shot cards grouped by scene) ───
-function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
+function ShotGallery({ shotGroups, gallerySize, fps, ctx, takes, thumbRevision = 0, onOpenSceneDetail, onOpenShotDetail, onRequestDelete }) {
   const sizeMap = { sm: 160, md: 220, lg: 300 }
   const cardW = sizeMap[gallerySize] || sizeMap.md
 
@@ -1988,16 +2168,27 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onO
 
             {/* Shot cards */}
             <div className="flex flex-wrap gap-3">
-              {g.shots.map(shot => (
+              {g.shots.map(shot => {
+                const shotTakeEntries = takes?.map?.get(shot.id) || []
+                const takeFallback = takes?.supports && !shot.thumbnail_image ? primaryOf(shotTakeEntries)?.file : null
+                const cardH = Math.round(cardW * 9 / 16)
+                return (
                 <div key={shot.id}
                   className="rounded-sm overflow-hidden hover:ring-1 hover:ring-orange-500/40 transition-all cursor-pointer group relative"
                   style={{ width: cardW, backgroundColor: '#1c1917', border: '1px solid #44403c' }}
                   onClick={() => onOpenShotDetail?.(shot.id)}
                 >
-                  {/* Thumbnail placeholder (16:9) */}
+                  {/* Thumbnail (16:9): her own, else the primary take's poster (milestone 2, Q6), else the placeholder */}
                   <div className="flex items-center justify-center relative"
-                    style={{ height: Math.round(cardW * 9 / 16), backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
-                    <Clapperboard className="w-6 h-6" style={{ color: '#292524' }} />
+                    style={{ height: cardH, backgroundColor: '#0c0a09', borderBottom: '1px solid #292524' }}>
+                    {shot.thumbnail_image ? (
+                      <img src={`/api/rabbit/projects/${ctx?.project?.id}/shots/${shot.id}/thumbnail?r=${thumbRevision}`}
+                        alt="" style={{ width: cardW, height: cardH, objectFit: 'cover', display: 'block' }} />
+                    ) : takeFallback ? (
+                      <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={cardW} height={cardH} radius={0} style={{ border: 'none' }} iconSize={28} />
+                    ) : (
+                      <Clapperboard className="w-6 h-6" style={{ color: '#292524' }} />
+                    )}
                     <button type="button"
                       onClick={e => { e.stopPropagation(); onRequestDelete({ type: 'shot', id: shot.id, name: shot.name || 'Untitled' }) }}
                       className="absolute top-2 right-2 p-1 rounded-sm opacity-0 group-hover:opacity-100 transition-all hover:bg-red-900/50"
@@ -2035,9 +2226,16 @@ function ShotGallery({ shotGroups, gallerySize, fps, ctx, onOpenSceneDetail, onO
                         </span>
                       </div>
                     )}
+                    {takes?.supports && (
+                      <div className="mt-1" onClick={e => e.stopPropagation()}>
+                        <ShotTakeChips entries={shotTakeEntries} thumbUrlFor={takes.thumbUrlFor} height={20} max={4}
+                          canWrite={takes.canWrite} onOpen={() => takes.open(shot.id)} />
+                      </div>
+                    )}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )
@@ -2480,7 +2678,7 @@ function SceneDetailPopup({ sceneId, ctx, fps, shotsByScene, sceneTotals, assetC
 
 
 // ─── Shot detail popup ───
-function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
+function ShotDetailPopup({ shotId, ctx, takes, fps, projectMembers, roleEntries, thumbRevision, onThumbChanged, onClose, onRequestDelete }) {
   const shot = (ctx?.shots || []).find(s => s.id === shotId)
   const scene = shot ? (ctx?.scenes || []).find(s => s.id === shot.scene_id) : null
   const project = ctx?.project
@@ -2534,6 +2732,10 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
   const shotFolderPath = `SHOTS/${shotSlug}/`
 
   const fileCount = managedFiles.filter(f => f.shot_id === shot.id && !f.deleted_at).length
+  // Shot takes (milestone 2): the ordered list, and the primary take's poster
+  // standing in while the shot has no thumbnail of its own (Q6).
+  const shotTakeEntries = takes?.map?.get(shot.id) || []
+  const takeFallback = takes?.supports && !hasThumbnail ? primaryOf(shotTakeEntries)?.file : null
 
   return (
     <>
@@ -2634,13 +2836,18 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
                 </>
               ) : (
                 <button type="button" onClick={handleSetThumbnail}
-                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors"
-                  style={{ color: '#57534e' }} title="Set thumbnail">
-                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity">
-                    <ImagePlus className="w-4 h-4" />
-                    <span className="text-[8px] font-mono uppercase">Set thumbnail</span>
+                  className="w-full h-full flex items-center justify-center hover:bg-stone-800 transition-colors relative"
+                  style={{ color: '#57534e' }} title={takeFallback ? 'Showing the primary take. Click to set a thumbnail of your own.' : 'Set thumbnail'}>
+                  {takeFallback && (
+                    <BinPoster row={takeFallback} src={takes.thumbUrlFor?.(takeFallback.id)} width={142} height={80} radius={0}
+                      className="absolute inset-0 group-hover/thumb:opacity-40 transition-opacity" style={{ border: 'none' }} iconSize={24} />
+                  )}
+                  <div className="flex flex-col items-center gap-1 opacity-0 group-hover/thumb:opacity-100 transition-opacity relative">
+                    <ImagePlus className="w-4 h-4" style={{ color: takeFallback ? '#d6d3d1' : undefined }} />
+                    <span className="text-[8px] font-mono uppercase" style={{ color: takeFallback ? '#d6d3d1' : undefined }}>Set thumbnail</span>
                   </div>
-                  <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />
+                  {!takeFallback && <Clapperboard className="w-5 h-5 group-hover/thumb:opacity-0 transition-opacity absolute" style={{ color: '#292524' }} />}
+                  {takeFallback && <span className="absolute bottom-0 left-0 right-0 text-[7.5px] font-mono uppercase tracking-wider text-center py-px group-hover/thumb:opacity-0 transition-opacity" style={{ color: '#fb923c', backgroundColor: 'rgba(12,10,9,0.75)' }}>from primary take</span>}
                 </button>
               )}
             </div>
@@ -2832,6 +3039,22 @@ function ShotDetailPopup({ shotId, ctx, fps, projectMembers, roleEntries, thumbR
               </span>
             </div>
           </div>
+
+          {/* Takes (milestone 2): the bin files this shot is cut from, in order */}
+          {takes?.supports && (
+            <div className="mb-4">
+              <FieldLabel>Takes ({shotTakeEntries.length})</FieldLabel>
+              {takes.notice && (
+                <div className="flex items-center gap-2 mb-2 text-[10.5px] font-mono" style={{ color: '#f59e0b' }}>
+                  <span className="flex-1">{takes.notice}</span>
+                  <button type="button" onClick={takes.clearNotice} className="p-0.5 rounded-sm hover:bg-stone-700" style={{ color: '#78716c' }}><X className="w-3 h-3" /></button>
+                </div>
+              )}
+              <ShotTakesPanel shot={shot} entries={shotTakeEntries} fps={fps} canWrite={takes.canWrite} thumbUrlFor={takes.thumbUrlFor} binPathFor={takes.binPathFor} projectId={takes.projectId}
+                onUpdate={takes.onUpdate} onRemove={takes.onRemove} onReorder={takes.onReorder} onUseLength={takes.onUseLength}
+                onOpenPicker={() => takes.openPicker(shot.id)} />
+            </div>
+          )}
 
           {/* Files */}
           <div className="mb-4">

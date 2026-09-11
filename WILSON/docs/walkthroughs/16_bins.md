@@ -23,8 +23,9 @@ should see; if you see something else, note the step number and what you got.
 1. Open the project and look at the tab strip. → A **Bins** tab sits right
    after **Scenes**. Click it.
 2. You should see three panes: the bin tree on the left ("All files"), an
-   empty page in the middle saying **No bins yet** with five starter buttons,
-   and the inspector on the right. The footer lists the keyboard keys.
+   empty page in the middle saying **No bins yet** with the starter buttons
+   (four; five when the project already has scenes), and the inspector on
+   the right. The footer lists the keyboard keys.
 3. Click **One bin per media type**. → Six bins appear in the tree
    (Footage, Audio, Stills, Graphics, VFX, Selects), each with a colour dot,
    and a green notice "Created 6 bins." Press **Ctrl+Z** on the page. → All
@@ -34,11 +35,12 @@ should see; if you see something else, note the step number and what you got.
 
 4. Click **Footage** in the tree, then **Add ▾ → Folder…** and pick your
    footage folder. → The **Add to "Footage"** dialog lists every file it
-   found: one row per file, a folder of numbered frames as ONE row tagged
-   SEQ, subfolders in the FOLDER column, the type guessed (VID / IMG / AUD /
-   DOC …), the size, and in "From the name" the slate / take / camera it read
-   from names like `12A_3_T4_A` or `A001C003_240612` with a tick you can
-   untick. The subtitle counts what will be added and how much is referenced
+   found: one row per file, a folder of numbered frames as ONE row (a
+   frame-sequence icon and the frame count beside its name), subfolders in
+   the FOLDER column, the type guessed in a dropdown per row (Video / Still /
+   Audio / Document …), the size, and in "From the name" the slate / take / camera it read
+   from names like `12A_3_T4_A` or `A001C003_240612` (a pickup glued to
+   the take, `24A_2_T3PU_B`, reads as take 3 PU) with a tick you can untick. The subtitle counts what will be added and how much is referenced
    in place.
 5. Set a **Shoot day** at the top (it applies to the batch), leave "Folders
    become nested bins" on, click **Add N items**. → The dialog closes, a
@@ -46,7 +48,8 @@ should see; if you see something else, note the step number and what you got.
    created, the tree shows your folder as a nested bin under Footage with its
    own subfolders inside, and the grid fills with tiles. Posters and the
    technical line (duration · 640×360 · 24 fps · H264) appear within a few
-   seconds; the header shows "reading N" while that runs.
+   seconds; the header shows "reading N" while that runs. Without ffmpeg the
+   line stops at duration · 640×360 (fps and codec need the decoder).
 6. Drag two clips from Explorer onto the **Audio** bin in the tree. → The
    same dialog opens for Audio. Drop the same clips again on Footage. → Each
    row is flagged "already in "Audio"" and starts unticked; tick one and add
@@ -82,7 +85,9 @@ should see; if you see something else, note the step number and what you got.
     scenes and tags, each with a count; click a chip → the grid narrows;
     "clear 1" resets. Type in the search box → matches name, file name,
     slate, notes, path.
-13. Double-click a tile's name (or press **F2**). → Rename in place. Right-
+13. Double-click a tile's name (or press **F2**). → A rename bar opens at
+    the bottom of the pane with the name in it; Enter or **Save** commits,
+    Escape cancels. Right-
     click a tile. → A menu with the marks, colours, Move to / Copy to every
     other bin, Open in default app, Reveal in Explorer, Read columns again,
     Rename, Remove. Click **Open in default app** → the clip opens in your
@@ -111,11 +116,14 @@ should see; if you see something else, note the step number and what you got.
     click **Summary**, then **Bins** again. → A green notice: "Relinked N
     files from the folders this project knows." (the app remembers every
     folder you added from and looked there). If instead a header count says
-    "N offline" in amber, click it → the **Relink offline files** dialog
-    lists them; click **Choose the folder they moved to…**, pick the renamed
+    "N offline" in amber (the count is this bin's), click it → the **Relink
+    offline files** dialog lists every offline file in the project, and the
+    folders it knows with a **Scan** and a **Forget** for each; click
+    **Choose the folder they moved to…**, pick the renamed
     folder → each file shows its match in green ("→ new path"); a file with
     two same-named candidates shows a chooser; click **Relink N** → "N files
-    relinked." and the tiles come back online.
+    relinked." and the tiles come back online, the header says "reading N"
+    for a moment and the posters return (a relinked file is read again).
 18. Rename the folder back. Nothing else needs doing.
 
 ## 6. States worth a look

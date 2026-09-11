@@ -40,8 +40,12 @@ import {
   descendantIds, countsByBin, binPathLabel, filterBinFiles, sortBinFiles, SORT_FIELDS, EMPTY_FILTERS,
   activeFilterCount, binStats, distinctValues, stepId, rangeIds,
 } from '../bins/binSelectors'
-import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes, previewKindFor } from '../bins/binMedia'
-import { probeInBrowser } from '../bins/binProbeFallback'
+import { MEDIA_TYPES, MEDIA_TYPE_META, COLORS, BIN_KINDS, BIN_KIND_META, formatDuration, formatBytes } from '../bins/binMedia'
+// Shot takes (milestone 2): "Assign to shot…" from a file's menu, the selection
+// bar and the inspector; "used in" on the inspector; a badge on tiles and rows.
+import AssignToShotDialog from './bins/AssignToShotDialog'
+import { usageByFile, usageCounts } from '../bins/shotTakeSelectors'
+import { useNavigateTarget } from '../state/rabbitNavigate'
 
 const TYPE_STARTER = [
   { name: 'Footage', kind: 'footage', color: 'orange' },
@@ -62,6 +66,7 @@ export default function BinsView() {
   const roots = ctx?.binRoots || []
   const scenes = ctx?.scenes || []
   const shots = ctx?.shots || []
+  const shotTakes = ctx?.shotTakes || []
   const fps = Number(ctx?.project?.fps) > 0 ? Number(ctx.project.fps) : 24
   const ffmpeg = ctx?.binsInfo?.ffmpeg ?? null
   const probing = ctx?.binsInfo?.probing || 0
@@ -88,6 +93,13 @@ export default function BinsView() {
   const [deleteDlg, setDeleteDlg] = useState(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [relinkOpen, setRelinkOpen] = useState(false)
+  const [assignDlg, setAssignDlg] = useState(null)   // the rows being assigned to a shot (milestone 2)
+  const [assignBusy, setAssignBusy] = useState(false)
+  // A failed confirm is reported INSIDE its dialog (review round 2: the page's
+  // notice bar sits under the dialog's backdrop, so the button looked dead).
+  const [addError, setAddError] = useState(null)
+  const [deleteError, setDeleteError] = useState(null)
+  const [assignError, setAssignError] = useState(null)
   const [thumbRev, setThumbRev] = useState(0)
   const [notice, setNotice] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -103,6 +115,10 @@ export default function BinsView() {
     if (ms) noticeTimer.current = setTimeout(() => setNotice(null), ms)
   }, [])
   useEffect(() => () => clearTimeout(noticeTimer.current), [])
+  // Background failures the provider reports — an undo that could not put a
+  // file back, say — surface here, in this tab's notice bar.
+  const providerNotice = ctx?.binsInfo?.notice
+  useEffect(() => { if (providerNotice?.text) say(providerNotice.text, providerNotice.kind || 'warn', 12000) }, [providerNotice, say])
 
   // ── Load: the list route is what carries `online` and the ffmpeg flag ──
   const refreshBins = ctx?.refreshBins
@@ -114,44 +130,13 @@ export default function BinsView() {
     finally { setLoading(false) }
   }, [supports, projectId, refreshBins])
 
-  // After a load, once per project: rows left `pending` (the app closed mid-add)
-  // are probed again, and rows the server could not read (`unavailable`: no
-  // ffmpeg) that Chromium can decode itself get their columns and a poster
-  // from the renderer (bins/binProbeFallback.js). Bounded, sequential, and a
-  // failure marks the row rather than retrying forever.
-  // 🚨 ctx through a ref: its identity changes on every provider state update,
-  // and a load effect that depended on it would refetch forever.
-  const ctxRef = useRef(ctx)
-  ctxRef.current = ctx
-  const postLoadRef = useRef(null)
-  const afterLoad = useCallback(async (data) => {
-    const c = ctxRef.current
-    if (!data || !c || postLoadRef.current === projectId) return
-    postLoadRef.current = projectId
-    const rows = data.binFiles || []
-    const pending = rows.filter(f => f.probe_status === 'pending' && f.online !== false).map(f => f.id)
-    if (pending.length) c.probeBinFiles?.(pending).catch(() => {})
-    const fallback = rows.filter(f => f.probe_status === 'unavailable' && f.online !== false && ['video', 'audio', 'image'].includes(previewKindFor(f))).slice(0, 40)
-    for (const f of fallback) {
-      if (postLoadRef.current !== projectId) return
-      const kind = previewKindFor(f)
-      const src = c.binFileStreamUrl?.(f.id, { probe: true })
-      if (!src) continue
-      try {
-        const r = await probeInBrowser(kind, src)
-        const patch = {}
-        if (r.duration_sec) patch.duration_sec = r.duration_sec
-        if (r.width) patch.width = r.width
-        if (r.height) patch.height = r.height
-        await ctxRef.current.applyBinFileProbe(f.id, patch)
-        if (r.jpegBase64) { await ctxRef.current.postBinFileThumbnail(f.id, r.jpegBase64); setThumbRev(v => v + 1) }
-      } catch {
-        await ctxRef.current.applyBinFileProbe(f.id, { probe_status: 'failed' }).catch(() => {})
-      }
-    }
-  }, [projectId])
-
-  useEffect(() => { load().then(afterLoad) }, [load, afterLoad])
+  // The once-per-project pass after a load — pending rows re-probed, the
+  // renderer's own probe for rows the server has no decoder for — lives in
+  // the provider's refreshBins (browserProbe there), so it runs whichever tab
+  // asked for the list; posters it posts reach this tab through
+  // binsInfo.posterRev in thumbUrlFor. 🚨 The load effect must not depend on
+  // ctx: its identity changes on every provider state update.
+  useEffect(() => { load() }, [load])
 
   // ── Auto-relink on open (Q12): scan every known root once per project ──
   const binRelinkScan = ctx?.binRelinkScan
@@ -212,6 +197,10 @@ export default function BinsView() {
   const selectedRows = useMemo(() => rows.filter(r => selection.has(r.id)), [rows, selection])
   const scenesById = useMemo(() => new Map(scenes.map(s => [s.id, s])), [scenes])
   const filterCount = activeFilterCount(filters)
+  // Where each file is used (milestone 2): the inspector's "Used in shots",
+  // and the count badge on tiles and rows. Takes of a deleted shot are skipped.
+  const usage = useMemo(() => usageByFile(shotTakes, shots, scenes, files), [shotTakes, shots, scenes, files])
+  const usageCount = useMemo(() => usageCounts(shotTakes, shots), [shotTakes, shots])
 
   // Selection survives only for rows that still exist here.
   useEffect(() => {
@@ -222,7 +211,9 @@ export default function BinsView() {
     if (currentId && !orderedIds.includes(currentId)) setCurrentId(null)
   }, [orderedIds, currentId])
 
-  const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev), [ctx, thumbRev])
+  // thumbRev: this tab's own bumps (a relink, a re-probe); posterRev: posters
+  // the provider's browser probe posted, from any tab.
+  const thumbUrlFor = useCallback((id) => ctx?.binFileThumbnailUrl?.(id, thumbRev + (ctx?.binsInfo?.posterRev || 0)), [ctx, thumbRev])
   const streamUrlFor = useCallback((id) => ctx?.binFileStreamUrl?.(id), [ctx])
   const binPathFor = useCallback((id) => binPathLabel(bins, id), [bins])
 
@@ -277,27 +268,73 @@ export default function BinsView() {
     catch (e) { say(e?.message || String(e), 'error') }
   }, [ctx, say])
 
+  // ── Shot takes (milestone 2): "Assign to shot…" from the files ──
+  const openAssign = useCallback((ids) => {
+    const rows = files.filter(f => ids.includes(f.id))
+    if (!rows.length || !canWrite) return
+    if (!shots.length) { say('No shots to assign to yet. Add shots on the Scenes tab first.', 'warn'); return }
+    setAssignDlg(rows)
+  }, [files, shots.length, canWrite, say])
+  const confirmAssign = useCallback(async (shotIds, role) => {
+    if (!assignDlg || !shotIds?.length) return
+    setAssignBusy(true); setAssignError(null)
+    try {
+      const assignments = []
+      for (const shotId of shotIds) for (const f of assignDlg) assignments.push({ shot_id: shotId, bin_file_id: f.id, ...(role ? { role } : {}) })
+      const res = await ctx.assignShotTakes(assignments)
+      const n = res?.created?.length || 0; const k = res?.skipped?.length || 0
+      const where = shotIds.length === 1 ? `"${shots.find(s => s.id === shotIds[0])?.name || 'shot'}"` : `${shotIds.length} shots`
+      say(`Assigned ${n} take${n === 1 ? '' : 's'} to ${where}${k ? ` · ${k} already assigned` : ''}${n ? '. Ctrl+Z undoes it.' : '.'}`, n ? 'ok' : 'warn')
+      setAssignDlg(null)
+    } catch (e) { setAssignError(e?.message || String(e)) }
+    finally { setAssignBusy(false) }
+  }, [assignDlg, ctx, shots, say])
+  const unassign = useCallback(async (takeIds) => {
+    try { await ctx.removeShotTakes(takeIds) } catch (e) { say(e?.message || String(e), 'error') }
+  }, [ctx, say])
+  // "Show in Bins" from a shot's takes lands on the file, selected, in its bin.
+  // Declined (false) until the file is in state, so a request made before the
+  // list landed is retried, not lost.
+  const onNavigate = useCallback((p) => {
+    if (!p?.fileId) return true
+    const f = files.find(x => x.id === p.fileId)
+    if (!f) return false
+    // The tree opens down to the file's bin (review round 2: a file in a
+    // nested bin arrived selected with its bin collapsed and no row lit).
+    const ancestors = []
+    for (let b = binsById.get(f.bin_id); b?.parent_bin_id && !ancestors.includes(b.parent_bin_id); b = binsById.get(b.parent_bin_id)) ancestors.push(b.parent_bin_id)
+    if (ancestors.length) setExpanded(s => new Set([...s, ...ancestors]))
+    setCurrentBinId(f.bin_id); setIncludeNested(true); setSearch(''); setFilters(EMPTY_FILTERS)
+    setSelection(new Set([f.id])); setCurrentId(f.id); anchorRef.current = f.id
+    return true
+  }, [files, binsById])
+  useNavigateTarget('bins', onNavigate, projectId)
+
   // ── Adding files ──
   const addPathsTo = useCallback(async (binId, paths) => {
     if (!paths?.length || !canWrite) return
-    let bin = binsById.get(binId)
+    const bin = binsById.get(binId)
     // A dropped folder becomes a nested bin named after itself — unless no bin
     // is selected and the drop IS one folder, in which case that folder's name
     // becomes the new bin and its files go straight in (no "Day01 / Day01").
+    // That new bin is only CREATED when the batch is confirmed (review round
+    // 2: a cancelled or failed add left an empty bin behind, and took the
+    // empty state's starter buttons with it).
     let folderAsBin = true
+    let pending = null
+    if (!bin) {
+      const single = paths.length === 1 ? String(paths[0]) : null
+      const leaf = single ? (single.split(/[\\/]/).filter(Boolean).pop() || '') : ''
+      const looksLikeFile = /\.[A-Za-z0-9]{1,12}$/.test(leaf)
+      const name = single && leaf && !looksLikeFile ? leaf : 'New bin'
+      pending = { id: null, name, kind: 'footage' }
+      if (single && !looksLikeFile) folderAsBin = false
+    }
     try {
-      if (!bin) {
-        const single = paths.length === 1 ? String(paths[0]) : null
-        const leaf = single ? (single.split(/[\\/]/).filter(Boolean).pop() || '') : ''
-        const looksLikeFile = /\.[A-Za-z0-9]{1,12}$/.test(leaf)
-        const name = single && leaf && !looksLikeFile ? leaf : 'New bin'
-        bin = await ctx.addBin({ name, kind: 'footage' })
-        setCurrentBinId(bin.id)
-        if (single && !looksLikeFile) folderAsBin = false
-      }
       const plan = await ctx.prepareBinFiles(paths, { folderAsBin })
       if (!plan?.items?.length) { say('Nothing to add: no files were found at what was dropped.', 'warn'); return }
-      setAddDlg({ bin, plan })
+      setAddError(null)
+      setAddDlg({ bin: bin || pending, plan })
     } catch (e) { say(e?.message || String(e), 'error') }
   }, [ctx, canWrite, binsById, say])
 
@@ -312,22 +349,29 @@ export default function BinsView() {
 
   const confirmAdd = useCallback(async (items, createSubBins) => {
     if (!addDlg) return
-    setAddBusy(true); setAddProgress(`Adding ${items.length} item${items.length === 1 ? '' : 's'}…`)
+    setAddBusy(true); setAddError(null); setAddProgress(`Adding ${items.length} item${items.length === 1 ? '' : 's'}…`)
     try {
-      const res = await ctx.addBinFiles(addDlg.bin.id, items, createSubBins)
+      let bin = addDlg.bin
+      if (!bin.id) {
+        // The bin a drop on the empty page asked for, created now that the
+        // batch is confirmed; a retry after a failure reuses it.
+        bin = await ctx.addBin({ name: bin.name, kind: bin.kind || 'footage' })
+        setAddDlg(d => (d ? { ...d, bin } : d))
+      }
+      const res = await ctx.addBinFiles(bin.id, items, createSubBins, addDlg.plan?.roots || null)
       const added = (res.results || []).filter(r => r.status === 'added').length
       const missing = (res.results || []).filter(r => r.status === 'missing').length
       const other = (res.results || []).length - added - missing
-      const parts = [`Added ${added} item${added === 1 ? '' : 's'} to "${addDlg.bin.name}"`]
+      const parts = [`Added ${added} item${added === 1 ? '' : 's'} to "${bin.name}"`]
       if (res.bins?.length) parts.push(`${res.bins.length} nested bin${res.bins.length === 1 ? '' : 's'} created`)
       if (missing) parts.push(`${missing} missing on disk`)
       if (other) parts.push(`${other} skipped`)
       say(parts.join(' · ') + '.', missing || other ? 'warn' : 'ok')
-      setExpanded(s => new Set([...s, addDlg.bin.id]))
-      setCurrentBinId(addDlg.bin.id)
+      setExpanded(s => new Set([...s, bin.id]))
+      setCurrentBinId(bin.id)
       setSelection(new Set((res.created || []).map(r => r.id)))
       setAddDlg(null)
-    } catch (e) { say(e?.message || String(e), 'error') }
+    } catch (e) { setAddError(e?.message || String(e)) }
     finally { setAddBusy(false); setAddProgress(null) }
   }, [addDlg, ctx, say])
 
@@ -379,15 +423,15 @@ export default function BinsView() {
   }, [ctx, bins, say])
   const confirmDelete = useCallback(async ({ mode, target }) => {
     if (!deleteDlg) return
-    setDeleteBusy(true)
+    setDeleteBusy(true); setDeleteError(null)
     try {
       const sub = descendantIds(bins, deleteDlg.id)
       await ctx.deleteBin(deleteDlg.id, { mode, target })
       if (currentBinId && sub.has(currentBinId)) setCurrentBinId(mode === 'move' ? target : null)
       setDeleteDlg(null)
-    } catch (e) { say(e?.message || String(e), 'error') }
+    } catch (e) { setDeleteError(e?.message || String(e)) }
     finally { setDeleteBusy(false) }
-  }, [deleteDlg, ctx, bins, currentBinId, say])
+  }, [deleteDlg, ctx, bins, currentBinId])
 
   const createStarter = useCallback(async (which) => {
     if (!canWrite) return
@@ -415,6 +459,8 @@ export default function BinsView() {
       canWrite && { label: 'Unflag', hint: 'U', onClick: () => patchIds(ids, { review_flag: 'unflagged' }) },
       canWrite && { label: row?.circled && n === 1 ? 'Uncircle' : 'Circle (director’s pick)', Icon: Circle, hint: 'C', onClick: () => patchIds(ids, { circled: !(row?.circled && n === 1) }) },
       canWrite && { divider: true },
+      canWrite && { label: n === 1 ? 'Assign to shot…' : `Assign ${n} to a shot…`, Icon: Clapperboard, hint: 'A', disabled: !shots.length, onClick: () => openAssign(ids) },
+      canWrite && { divider: true },
       canWrite && { header: 'Colour' },
       ...(canWrite ? COLORS.map((c, i) => ({ label: c, ColorDot: c, hint: String(i + 1), onClick: () => patchIds(ids, { color: c }) })) : []),
       canWrite && { label: 'No colour', hint: '0', onClick: () => patchIds(ids, { color: null }) },
@@ -432,7 +478,7 @@ export default function BinsView() {
       canWrite && { label: n === 1 ? 'Remove from bin' : `Remove ${n} from bin`, Icon: Trash2, danger: true, hint: 'Del', onClick: () => removeIds(ids) },
     ]
     setMenu({ x: e.clientX, y: e.clientY, items })
-  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds])
+  }, [targetIds, selection, files, canWrite, bins, binTargets, patchIds, moveIds, copyIds, openFile, probe, removeIds, shots.length, openAssign])
 
   const binMenu = useCallback((e, bin) => {
     const sub = descendantIds(bins, bin.id)
@@ -463,8 +509,12 @@ export default function BinsView() {
   const onKeyDown = useCallback((e) => {
     const t = e.target
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
-    if (menu || addDlg || deleteDlg || relinkOpen) return
-    const cols = view === 'grid' ? Math.max(1, Math.floor(((paneRef.current?.clientWidth || 800) - 24) / (tileWidth + 12))) : 1
+    if (menu || addDlg || deleteDlg || relinkOpen || assignDlg) return
+    // The grid's REAL column count, read from its computed tracks (review
+    // round 2: a formula guessed it and ↓ walked diagonally at some widths).
+    const gridEl = view === 'grid' ? paneRef.current?.querySelector('[data-bin-grid]') : null
+    const measured = gridEl ? getComputedStyle(gridEl).gridTemplateColumns.split(' ').filter(Boolean).length : 0
+    const cols = view === 'grid' ? Math.max(1, measured || Math.floor(((paneRef.current?.clientWidth || 800) - 24) / (tileWidth + 12))) : 1
     const move = (steps) => {
       const next = stepId(orderedIds, currentId, steps)
       if (!next) return
@@ -490,7 +540,7 @@ export default function BinsView() {
       case 'Home': return move(-orderedIds.length)
       case 'End': return move(orderedIds.length)
       case 'Escape': e.preventDefault(); return clearSelection()
-      case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } return
+      case 'a': case 'A': if (e.ctrlKey || e.metaKey) { e.preventDefault(); selectAll() } else if (ids.length) { e.preventDefault(); openAssign(ids) } return
       case 's': case 'S': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'select' }) } return
       case 'r': case 'R': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'reject' }) } return
       case 'u': case 'U': if (!e.ctrlKey && ids.length) { e.preventDefault(); patchIds(ids, { review_flag: 'unflagged' }) } return
@@ -500,7 +550,24 @@ export default function BinsView() {
       default:
         if (/^[0-8]$/.test(e.key) && ids.length && !e.ctrlKey) { e.preventDefault(); patchIds(ids, { color: e.key === '0' ? null : COLORS[Number(e.key) - 1] }) }
     }
-  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds])
+  }, [ctx, menu, addDlg, deleteDlg, relinkOpen, assignDlg, view, tileWidth, orderedIds, currentId, selection, files, canWrite, clearSelection, selectAll, patchIds, removeIds, openAssign])
+  // 🚨 Bound on the DOCUMENT, like the Scenes tab's undo (review round 2,
+  // HIGH): a React onKeyDown on the pane only fired while focus sat inside
+  // it, and focus falls to <body> whenever the control just clicked unmounts
+  // — the starter buttons, a dialog's confirm, a menu item — so the Ctrl+Z
+  // the notice had just promised did nothing. The handler still stands down
+  // in fields and while a dialog or menu is open; a control's own Enter and
+  // Space are left to the control.
+  const onKeyDownRef = useRef(onKeyDown); onKeyDownRef.current = onKeyDown
+  useEffect(() => {
+    const h = (e) => {
+      const t = e.target
+      if ((e.key === 'Enter' || e.key === ' ') && t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
+      onKeyDownRef.current(e)
+    }
+    document.addEventListener('keydown', h)
+    return () => document.removeEventListener('keydown', h)
+  }, [])
 
   // ── Drag and drop from the OS onto the files pane ──
   const onDragOverPane = (e) => {
@@ -520,6 +587,35 @@ export default function BinsView() {
     if (payload.ids) { if (payload.copy) await copyIds(payload.ids, binId); else await moveIds(payload.ids, binId); return }
     if (payload.files) { const paths = pathsFromFiles(payload.files); if (paths.length) await addPathsTo(binId, paths); else say('Could not read the dropped files’ paths.', 'warn') }
   }, [copyIds, moveIds, pathsFromFiles, addPathsTo, say])
+  // 🚨 Every surface of the tab takes an OS drop while it is mounted (review
+  // round 2, HIGH). The pane and the bin rows handle theirs above; a drop on
+  // anything else — the rail's empty space, its caption, the inspector, the
+  // footer — used to escape to Chromium's default, which navigates the whole
+  // window to the file. Dropped anywhere else, the files go to the current
+  // bin (or a new one), which is what "drop a folder anywhere on this page"
+  // promises.
+  const dropAnywhereRef = useRef(null)
+  dropAnywhereRef.current = {
+    canWrite,
+    onPaths: (paths) => addPathsTo(currentBinId, paths),
+    fromFiles: pathsFromFiles,
+    complain: () => say('Could not read the dropped files’ paths. Use Add files instead.', 'warn'),
+  }
+  useEffect(() => {
+    const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files')
+    const over = (e) => { if (!hasFiles(e)) return; if (!e.defaultPrevented) e.dataTransfer.dropEffect = dropAnywhereRef.current.canWrite ? 'link' : 'none'; e.preventDefault() }
+    const drop = (e) => {
+      if (!hasFiles(e)) return
+      const handled = e.defaultPrevented
+      e.preventDefault()
+      if (handled || !dropAnywhereRef.current.canWrite) return
+      const paths = dropAnywhereRef.current.fromFiles(e.dataTransfer.files)
+      if (paths.length) dropAnywhereRef.current.onPaths(paths); else dropAnywhereRef.current.complain()
+    }
+    document.addEventListener('dragover', over)
+    document.addEventListener('drop', drop)
+    return () => { document.removeEventListener('dragover', over); document.removeEventListener('drop', drop) }
+  }, [])
 
   // ── Filters UI data ──
   const filterValues = useMemo(() => ({
@@ -547,7 +643,7 @@ export default function BinsView() {
   const showBinColumn = !currentBinId || includeNested
 
   return (
-    <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }} onKeyDown={onKeyDown}>
+    <div className="h-full w-full flex flex-col" style={{ backgroundColor: C.bg }}>
       {/* ── Notice ── */}
       {(notice || loadError) && (
         <div className="flex items-center gap-2 px-4 py-1.5 text-[10.5px] font-mono flex-shrink-0"
@@ -592,7 +688,8 @@ export default function BinsView() {
                   {stats.selects > 0 && <span style={{ color: C.green }}>· {stats.selects} select{stats.selects === 1 ? '' : 's'}</span>}
                   {stats.circled > 0 && <span style={{ color: C.accentText }}>· {stats.circled} circled</span>}
                   {stats.offline > 0 && (
-                    <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }} title="Relink offline files">
+                    <button type="button" onClick={() => setRelinkOpen(true)} className="inline-flex items-center gap-1 hover:underline" style={{ color: C.amber }}
+                      title={`Relink the project's offline files (${stats.offline} in this bin${offlineAll.length !== stats.offline ? `, ${offlineAll.length} in the project` : ''})`}>
                       · <Unplug className="w-3 h-3" /> {stats.offline} offline
                     </button>
                   )}
@@ -651,11 +748,11 @@ export default function BinsView() {
               <Chip active={filters.circled === true} onClick={() => setFilters(f => ({ ...f, circled: f.circled === true ? null : true }))} count={countWhere(f => f.circled)}><Circle className="w-3 h-3" /> circled</Chip>
               <Chip active={filters.online === false} onClick={() => setFilters(f => ({ ...f, online: f.online === false ? null : false }))} color={C.amber} count={countWhere(f => f.online === false)}><Unplug className="w-3 h-3" /> offline</Chip>
               <span style={{ width: 8 }} />
-              {COLORS.filter(c => scopeFiles.some(f => f.color === c)).map(c => <Chip key={c} active={filters.colors.includes(c)} onClick={() => toggleIn('colors', c)}><ColorDot color={c} size={8} /></Chip>)}
-              {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)}>{c} cam</Chip>)}
-              {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)}>{d}</Chip>)}
-              {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
-              {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)}>#{t}</Chip>)}
+              {COLORS.filter(c => scopeFiles.some(f => f.color === c)).map(c => <Chip key={c} active={filters.colors.includes(c)} onClick={() => toggleIn('colors', c)} title={`Colour ${c}`} count={countWhere(f => f.color === c)}><ColorDot color={c} size={8} /></Chip>)}
+              {filterValues.cameras.map(c => <Chip key={`cam-${c}`} active={filters.cameras.includes(c)} onClick={() => toggleIn('cameras', c)} count={countWhere(f => f.camera === c)}>{c} cam</Chip>)}
+              {filterValues.days.map(d => <Chip key={`day-${d}`} active={filters.days.includes(d)} onClick={() => toggleIn('days', d)} count={countWhere(f => f.shoot_day === d)}>{d}</Chip>)}
+              {filterValues.sceneIds.map(s => <Chip key={`sc-${s}`} active={filters.sceneIds.includes(s)} onClick={() => toggleIn('sceneIds', s)} count={countWhere(f => f.scene_id === s)}><Film className="w-3 h-3" /> {scenesById.get(s)?.name || 'scene'}</Chip>)}
+              {filterValues.tags.map(t => <Chip key={`tag-${t}`} active={filters.tags.includes(t)} onClick={() => toggleIn('tags', t)} count={countWhere(f => (f.tags || []).includes(t))}>#{t}</Chip>)}
               {filterCount > 0 && <button type="button" onClick={() => setFilters(EMPTY_FILTERS)} className="text-[10px] font-mono uppercase tracking-wider ml-2 hover:underline" style={{ color: C.accentText }}>clear {filterCount}</button>}
               {filterValues.types.length === 0 && <span className="text-[10px] font-mono" style={{ color: C.dimmer }}>Nothing to filter yet.</span>}
             </div>
@@ -698,15 +795,17 @@ export default function BinsView() {
                 thumbUrlFor={thumbUrlFor} binsById={binsById} showBin={showBinColumn} sort={sort}
                 onSort={field => setSort(s => s.field === field ? { ...s, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { field, dir: 'asc' })}
                 onInlinePatch={(id, patch) => patchIds([id], patch)} canWrite={canWrite} scenesById={scenesById}
-                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} />
+                renamingId={renamingFileId} onRenameEnd={() => setRenamingFileId(null)} dragIdsFor={dragIdsFor} usageCount={usageCount} />
             ) : (
               <BinFileGrid rows={rows} selection={selection} currentId={currentId} onRowClick={selectRow}
                 onRowDoubleClick={id => canWrite && setRenamingFileId(id)} onContextMenu={fileMenu}
                 thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor} tileWidth={tileWidth} canWrite={canWrite}
-                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} />
+                dragIdsFor={dragIdsFor} binsById={binsById} showBin={showBinColumn} usageCount={usageCount} />
             )}
             {renamingFileId && view === 'grid' && (
-              <RenameBar row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
+              // Keyed by the file: F2 on another tile gets a fresh draft, not the
+              // previous file's name (review round 2).
+              <RenameBar key={renamingFileId} row={files.find(f => f.id === renamingFileId)} onCommit={name => { patchIds([renamingFileId], { display_name: name }); setRenamingFileId(null) }} onCancel={() => setRenamingFileId(null)} />
             )}
 
             {/* ── Selection bar ── */}
@@ -719,6 +818,7 @@ export default function BinsView() {
                   <Btn small onClick={() => patchSelection({ review_flag: 'reject' })} title="Reject (R)"><Ban className="w-3 h-3" style={{ color: C.red }} /> Reject</Btn>
                   <Btn small onClick={() => patchSelection({ review_flag: 'unflagged' })} title="Unflag (U)">Unflag</Btn>
                   <Btn small onClick={() => patchSelection({ circled: !selectedRows.every(r => r.circled) })} title="Circle (C)"><Circle className="w-3 h-3" style={{ color: C.accentText }} /> Circle</Btn>
+                  <Btn small onClick={() => openAssign([...selection])} title={shots.length ? 'Assign the selection to a shot (A)' : 'Add shots on the Scenes tab first'} disabled={!shots.length}><Clapperboard className="w-3 h-3" style={{ color: C.accentText }} /> Assign to shot</Btn>
                   <span className="inline-flex items-center gap-1 px-1">{COLORS.map(c => <ColorDot key={c} color={c} size={10} onClick={() => patchSelection({ color: c })} title={`Colour ${c}`} />)}<ColorDot color={null} size={10} onClick={() => patchSelection({ color: null })} title="No colour" /></span>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Move to' }, ...binTargets().map(t => ({ label: t.label, Icon: FolderInput, ColorDot: t.color || undefined, onClick: () => moveIds([...selection], t.id) }))] })} disabled={bins.length < 2}><FolderInput className="w-3 h-3" /> Move to</Btn>
                   <Btn small onClick={e => setMenu({ x: e.currentTarget.getBoundingClientRect().left, y: e.currentTarget.getBoundingClientRect().top - 8 - Math.min(320, 28 * bins.length), items: [{ header: 'Copy to (as an instance)' }, ...binTargets().map(t => ({ label: t.label, Icon: Copy, onClick: () => copyIds([...selection], t.id) }))] })}><Copy className="w-3 h-3" /> Copy to</Btn>
@@ -732,24 +832,35 @@ export default function BinsView() {
 
         <BinInspector rows={inspectorRows} scenes={scenes} shots={shots} fps={fps} canWrite={canWrite} ffmpeg={ffmpeg}
           thumbUrlFor={thumbUrlFor} streamUrlFor={streamUrlFor}
-          onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor} />
+          onPatch={patchSelection} onOpen={openFile} onProbe={probe} onRemove={removeIds} binPathFor={binPathFor}
+          usage={usage} onAssign={openAssign} onUnassign={unassign} projectId={projectId} />
       </div>
 
       {/* ── Footer hints ── */}
-      <div className="flex items-center gap-3 px-3 py-1 text-[9px] font-mono flex-shrink-0 flex-wrap" style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep }}>
-        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
+      {/* Rabbit.jsx draws the adapter status dot at left 10 / bottom 18 (10px)
+          and the presence pill at left 26 / bottom 13, over whatever view is
+          open. The bar is tall enough to hold the dot and the keys start to
+          its right, so the light reads as part of the bar (Audrey, 2026-09-10). */}
+      <div className="flex items-center gap-3 pr-3 text-[9px] font-mono flex-shrink-0 flex-wrap"
+        style={{ borderTop: `1px solid ${C.line}`, color: C.dimmer, backgroundColor: C.deep, minHeight: 34, paddingLeft: 30 }}>
+        <span><Kbd>↑</Kbd><Kbd>↓</Kbd> move</span><span><Kbd>Shift</Kbd> extend</span><span><Kbd>S</Kbd> select</span><span><Kbd>R</Kbd> reject</span><span><Kbd>U</Kbd> unflag</span><span><Kbd>C</Kbd> circle</span><span><Kbd>1</Kbd>–<Kbd>8</Kbd> colour</span><span><Kbd>A</Kbd> assign to shot</span><span><Kbd>Space</Kbd> play</span><span><Kbd>F2</Kbd> rename</span><span><Kbd>Del</Kbd> remove</span><span><Kbd>Ctrl</Kbd><Kbd>Z</Kbd> undo</span>
         <span className="ml-auto">{files.length} file{files.length === 1 ? '' : 's'} in {bins.length} bin{bins.length === 1 ? '' : 's'}{offlineAll.length ? ` · ${offlineAll.length} offline` : ''}</span>
       </div>
 
       {menu && <Menu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
-      {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} onConfirm={confirmAdd} onCancel={() => !addBusy && setAddDlg(null)} />}
-      {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} onConfirm={confirmDelete} onCancel={() => !deleteBusy && setDeleteDlg(null)} />}
+      {addDlg && <AddFilesDialog bin={addDlg.bin} plan={addDlg.plan} scenes={scenes} busy={addBusy} progress={addProgress} error={addError} onConfirm={confirmAdd} onCancel={() => { if (!addBusy) { setAddDlg(null); setAddError(null) } }} />}
+      {deleteDlg && <DeleteBinDialog bin={deleteDlg} bins={bins} files={files} busy={deleteBusy} error={deleteError} onConfirm={confirmDelete} onCancel={() => { if (!deleteBusy) { setDeleteDlg(null); setDeleteError(null) } }} />}
       {relinkOpen && (
         <RelinkBinsDialog offlineRows={offlineAll} roots={roots}
           onPickFolder={async () => { const r = await ctx.pickBinFolder('Choose the folder the files moved to'); return r?.path || null }}
           onScan={(p) => ctx.binRelinkScan(p)}
           onApply={async (m) => { const r = await ctx.binRelinkApply(m); setThumbRev(v => v + 1); return r }}
+          onForgetRoot={canWrite ? (id) => ctx.removeBinRoot(id) : null}
           onClose={() => setRelinkOpen(false)} />
+      )}
+      {assignDlg && (
+        <AssignToShotDialog files={assignDlg} binFiles={files} scenes={scenes} shots={shots} shotTakes={shotTakes} thumbUrlFor={thumbUrlFor} busy={assignBusy} error={assignError}
+          onConfirm={confirmAssign} onCancel={() => { if (!assignBusy) { setAssignDlg(null); setAssignError(null) } }} />
       )}
     </div>
   )

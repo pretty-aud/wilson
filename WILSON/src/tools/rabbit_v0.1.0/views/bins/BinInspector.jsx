@@ -13,11 +13,13 @@
 // element's own onError names the failure.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight } from 'lucide-react'
-import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag } from './binUi'
+import { ExternalLink, FolderOpen, RefreshCw, Check, Ban, Circle, Trash2, Unplug, ChevronDown, ChevronRight, Clapperboard, Plus, X, Star } from 'lucide-react'
+import { C, Btn, IconBtn, Field, TextInput, TextArea, Select, ColorPicker, MediaTag, overlayOpen } from './binUi'
 import BinPoster from './BinPoster'
 import { MEDIA_TYPES, MEDIA_TYPE_META, TAKE_MODIFIERS, previewKindFor, formatDuration, formatBytes, secondsToTimecode } from '../../bins/binMedia'
 import { mixedValue } from '../../bins/binSelectors'
+import { TAKE_ROLE_META } from '../../bins/shotTakeSelectors'
+import { navigateTo } from '../../state/rabbitNavigate'
 
 function useDraft(value, key) {
   const [draft, setDraft] = useState(value ?? '')
@@ -25,14 +27,26 @@ function useDraft(value, key) {
   return [draft, setDraft]
 }
 
+// The header is a row of SIBLINGS — the toggle button and the optional
+// right-hand action — never a button inside a button (invalid HTML; React
+// warns and browsers may split the DOM, so the inner click lands on the toggle).
 function Section({ title, children, open = true, onToggle, right = null }) {
+  // A section that cannot collapse has a plain heading, not a button that
+  // does nothing (review round 2: the Marks header was a tab stop with no action).
+  const heading = (
+    <>
+      {onToggle ? (open ? <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />) : null}
+      <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1 truncate" style={{ color: C.dim }}>{title}</span>
+    </>
+  )
   return (
     <div style={{ borderBottom: `1px solid ${C.line}` }}>
-      <button type="button" onClick={onToggle} className="w-full flex items-center gap-1.5 px-3 py-2 text-left">
-        {onToggle ? (open ? <ChevronDown className="w-3 h-3" style={{ color: C.dim }} /> : <ChevronRight className="w-3 h-3" style={{ color: C.dim }} />) : null}
-        <span className="text-[9.5px] font-mono uppercase tracking-wider flex-1" style={{ color: C.dim }}>{title}</span>
+      <div className="flex items-center gap-1.5 pr-2">
+        {onToggle
+          ? <button type="button" onClick={onToggle} aria-expanded={open} className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</button>
+          : <div className="flex-1 min-w-0 flex items-center gap-1.5 px-3 py-2 text-left">{heading}</div>}
         {right}
-      </button>
+      </div>
       {open && <div className="px-3 pb-3 flex flex-col gap-2">{children}</div>}
     </div>
   )
@@ -41,6 +55,8 @@ function Section({ title, children, open = true, onToggle, right = null }) {
 export default function BinInspector({
   rows, scenes, shots, fps, canWrite, ffmpeg, thumbUrlFor, streamUrlFor,
   onPatch, onOpen, onProbe, onRemove, binPathFor, width = 320,
+  // Shot takes (milestone 2): usage is Map fileId → [{ take, shot, scene }].
+  usage = null, onAssign = null, onUnassign = null, projectId = null,
 }) {
   const single = rows.length === 1 ? rows[0] : null
   const key = rows.map(r => r.id).join(',')
@@ -48,6 +64,9 @@ export default function BinInspector({
   const [techOpen, setTechOpen] = useState(true)
   const [logOpen, setLogOpen] = useState(true)
   const [notesOpen, setNotesOpen] = useState(true)
+  const [usedOpen, setUsedOpen] = useState(true)
+  const uses = single ? (usage?.get(single.id) || []) : []
+  const usedRows = usage ? rows.filter(r => (usage.get(r.id) || []).length > 0).length : 0
 
   const mv = (k) => mixedValue(rows, k)
   const [name, setName] = useDraft(single?.display_name, key)
@@ -126,6 +145,39 @@ export default function BinInspector({
             <ColorPicker value={color.mixed ? null : color.value} onChange={c => canWrite && onPatch({ color: c })} />
           </Field>
         </Section>
+
+        {usage && (
+          <Section title={single ? `Used in shots (${uses.length})` : `Used in shots`} open={usedOpen} onToggle={() => setUsedOpen(o => !o)}
+            right={canWrite && onAssign ? <IconBtn Icon={Plus} title="Assign to shot… (A)" size={3} onClick={e => { e.stopPropagation(); onAssign(rows.map(r => r.id)) }} /> : null}>
+            {single ? (
+              uses.length === 0
+                ? <div className="text-[10.5px] font-mono" style={{ color: C.dimmer }}>Not assigned to any shot yet.</div>
+                : uses.map(({ take, shot, scene }) => {
+                  const meta = TAKE_ROLE_META[take.role] || TAKE_ROLE_META.alt
+                  return (
+                    <div key={take.id} className="flex items-center gap-1.5 text-[10.5px] font-mono min-w-0">
+                      <Clapperboard className="w-3 h-3 flex-shrink-0" style={{ color: C.dim }} />
+                      <span className="truncate flex-1" style={{ color: C.text }} title={`${scene?.name ? scene.name + ' · ' : ''}#${shot.shot_number ?? '—'} ${shot.name || 'Untitled shot'}${take.notes ? ' — ' + take.notes : ''}`}>
+                        {scene?.name ? <span style={{ color: C.dim }}>{scene.name} · </span> : null}#{shot.shot_number ?? '—'} {shot.name || 'Untitled shot'}
+                      </span>
+                      <span className="px-1 rounded-sm text-[8.5px] uppercase tracking-wider flex-shrink-0 inline-flex items-center gap-0.5" style={{ color: meta.color, border: `1px solid ${meta.color}55` }} title={meta.help}>
+                        {take.role === 'primary' && <Star className="w-2 h-2" style={{ fill: meta.color }} />}{meta.label}
+                      </span>
+                      <IconBtn Icon={ExternalLink} title="Open the shot in Scenes" size={3} onClick={() => navigateTo({ view: 'scenes', shotId: shot.id, projectId })} />
+                      {canWrite && onUnassign && <IconBtn Icon={X} title="Unassign from this shot" size={3} danger onClick={() => onUnassign([take.id])} />}
+                    </div>
+                  )
+                })
+            ) : (
+              <div className="text-[10.5px] font-mono" style={{ color: C.muted }}>
+                {usedRows === 0 ? 'None of these is assigned to a shot yet.' : `${usedRows} of ${rows.length} are assigned to shots. Select one file to see where.`}
+              </div>
+            )}
+            {canWrite && onAssign && (
+              <div><Btn small onClick={() => onAssign(rows.map(r => r.id))} title="Pick the shot (or shots) these takes are used in"><Clapperboard className="w-3 h-3" style={{ color: C.accentText }} /> Assign to shot…</Btn></div>
+            )}
+          </Section>
+        )}
 
         <Section title="Logging" open={logOpen} onToggle={() => setLogOpen(o => !o)}>
           {single && (
@@ -246,12 +298,17 @@ function Preview({ row, thumbUrl, streamUrl, ffmpeg, onOpen }) {
   const mediaRef = useRef(null)
   useEffect(() => { setFailed(null); setPlaying(false) }, [row.id, streamUrl])
 
-  // Space toggles play/pause when the preview is a video or audio.
+  // Space toggles play/pause when the preview is a video or audio — and only
+  // then: never while a modal or menu is up, never when Space is a control's
+  // own activation (review round 2: it paged nothing in the add dialog's list,
+  // cancelled every button's Space, and played the clip behind the backdrop).
   useEffect(() => {
     const onKey = (e) => {
-      if (e.code !== 'Space') return
+      if (e.code !== 'Space' || e.defaultPrevented || e.repeat) return
       const t = e.target
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return
+      if (t && typeof t.closest === 'function' && t.closest('button, a, [role="button"], [role="menuitem"], summary')) return
+      if (overlayOpen()) return
       const m = mediaRef.current
       if (!m) return
       e.preventDefault()

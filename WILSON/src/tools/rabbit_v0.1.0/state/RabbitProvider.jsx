@@ -51,6 +51,8 @@ import {
 import { applyRealtimeEvent, isStaleIncoming } from './realtimeMerge';
 import { buildRevertPlan } from '../components/editHistoryRevert';
 import { hasLocalServer, loadOtterSettings, saveOtterSettings } from '../../../lib/localData';
+import { probeInBrowser } from '../bins/binProbeFallback';
+import { previewKindFor, needsBrowserProbe, rowsToReprobeAfterRelink } from '../bins/binMedia';
 
 const DEFAULT_WORKSPACE_ID = '00000000-0000-0000-0000-000000000001';
 const DEFAULT_ADAPTER_MODE = 'local_server';
@@ -2415,7 +2417,16 @@ export function RabbitProvider({ children }) {
     return adapterRef.current;
   }, [activeProjectId]);
 
-  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0 });
+  // `posterRev` counts posters the renderer's own probe posted, so every
+  // <img> built from binFileThumbnailUrl(id, rev) re-requests a poster that
+  // arrived after it first failed (BinPoster remembers WHICH src failed).
+  const [binsInfo, setBinsInfo] = useState({ ffmpeg: null, loadedFor: null, probing: 0, posterRev: 0 });
+  // The renderer's own probe and the once-per-project pass are defined below
+  // (they need the URL and PATCH helpers); refreshBins and probeBinFile reach
+  // them through refs — the mutationsRef pattern.
+  const browserProbeRef = useRef(null);
+  const browserProbeSweepRef = useRef(null);
+  const browserProbeSweptRef = useRef(null);
 
   const mergeRows = (rows, incoming) => {
     const byId = new Map((rows || []).map(r => [r.id, r]));
@@ -2428,16 +2439,34 @@ export function RabbitProvider({ children }) {
     if (typeof adapterRef.current.listBins !== 'function') return null;
     const projectId = activeProjectId;
     const data = await adapterRef.current.listBins(projectId);
-    // The project may have been switched during the await.
-    if (activeProjectIdRef.current !== projectId) return data;
-    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [] }));
+    // The project may have been switched during the await: nothing is
+    // applied and nothing is handed back for a caller to apply either.
+    if (activeProjectIdRef.current !== projectId) return null;
+    // Live rows AND the orphans (their shot or file is gone): the selectors
+    // ignore the orphans; the undo that brings a shot or file back needs them.
+    setBundle(prev => ({ ...prev, bins: data.bins || [], binFiles: data.binFiles || [], binRoots: data.binRoots || [], shotTakes: [...(data.shotTakes || []), ...(data.orphanTakes || [])] }));
     setBinsInfo(i => ({ ...i, ffmpeg: !!data.ffmpeg, loadedFor: projectId }));
+    // Once per project per session, from HERE and not from a tab: rows left
+    // pending (the app closed mid-add) are probed again and rows the server
+    // has no decoder for get the renderer's probe, so a take assigned on the
+    // Scenes tab has its poster and length without Bins ever being opened.
+    if (browserProbeSweptRef.current !== projectId) {
+      browserProbeSweptRef.current = projectId;
+      Promise.resolve(browserProbeSweepRef.current?.(data.binFiles || [], projectId)).catch(() => {});
+    }
     return data;
   }, [activeProjectId]);
 
+  // 🚨 Every mutator below captures the project it was called for and drops
+  // its response when the project changed during the await — the refreshBins
+  // rule (review round 2: the five take mutators had it, the bins mutators
+  // did not, and a probe landing after a switch merged project A's row into
+  // project B's state).
   const addBin = useCallback(async (bin) => {
     const a = binsAdapter();
-    const created = await a.createBin(activeProjectId, { id: bin.id || uuidv4(), ...bin });
+    const pid = activeProjectId;
+    const created = await a.createBin(pid, { id: bin.id || uuidv4(), ...bin });
+    if (activeProjectIdRef.current !== pid) return created;
     setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, [created]) }));
     pushHistory({
       undoOps: [() => mutationsRef.current.deleteBin(created.id, { mode: 'remove' })],
@@ -2448,13 +2477,15 @@ export function RabbitProvider({ children }) {
 
   const updateBin = useCallback(async (id, patch) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const old = bundleRef.current.bins.find(b => b.id === id);
     const oldValues = {};
     if (old) for (const k of Object.keys(patch)) oldValues[k] = old[k];
     const result = await optimistic(
       prev => ({ ...prev, bins: prev.bins.map(b => b.id === id ? { ...b, ...patch } : b) }),
-      () => a.updateBin(activeProjectId, id, patch),
+      () => a.updateBin(pid, id, patch),
     );
+    if (activeProjectIdRef.current !== pid) return result;
     if (old) {
       pushHistory({
         undoOps: [() => mutationsRef.current.updateBin(id, oldValues)],
@@ -2466,8 +2497,23 @@ export function RabbitProvider({ children }) {
 
   const restoreBinFiles = useCallback(async (rows) => {
     const a = binsAdapter();
-    const res = await a.restoreBinFiles(activeProjectId, rows);
+    const pid = activeProjectId;
+    const res = await a.restoreBinFiles(pid, rows);
+    if (activeProjectIdRef.current !== pid) return res.restored;
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.restored) }));
+    // The takes of the shots these files serve, as the server presents them
+    // now that the files are back.
+    applyTakeResponse(res);
+    // A row the server could not put back is said, not swallowed (review
+    // round 2: an undo that restored nothing reported success). The history
+    // loop swallows throws, so this goes through binsInfo.notice, which the
+    // Bins tab shows in its notice bar.
+    if (res.skipped?.length) {
+      const reasons = { bin_gone: 'its bin was deleted', unauthorized: 'its folder is no longer a known root', invalid: 'the row was not restorable' };
+      const why = [...new Set(res.skipped.map(s => reasons[s.reason] || s.reason))].join('; ');
+      const n = res.skipped.length;
+      setBinsInfo(i => ({ ...i, notice: { text: `${n} file${n === 1 ? '' : 's'} could not be put back: ${why}.`, kind: 'warn', at: Date.now() } }));
+    }
     return res.restored;
   }, [binsAdapter, activeProjectId]);
 
@@ -2476,7 +2522,9 @@ export function RabbitProvider({ children }) {
   // same ids) and puts every file back where it was.
   const deleteBin = useCallback(async (id, { mode = 'remove', target = null } = {}) => {
     const a = binsAdapter();
-    const res = await a.deleteBin(activeProjectId, id, { mode, target });
+    const pid = activeProjectId;
+    const res = await a.deleteBin(pid, id, { mode, target });
+    if (activeProjectIdRef.current !== pid) return res;
     const removedIds = new Set((res.removedBins || []).map(b => b.id));
     const moved = new Map((res.movedFiles || []).map(m => [m.id, m]));
     setBundle(prev => ({
@@ -2527,12 +2575,14 @@ export function RabbitProvider({ children }) {
 
   const reorderBins = useCallback(async (order) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const before = bundleRef.current.bins.map(b => ({ id: b.id, parent_bin_id: b.parent_bin_id || null, sort_order: b.sort_order }));
     const byId = new Map(order.map(o => [o.id, o]));
     const result = await optimistic(
       prev => ({ ...prev, bins: prev.bins.map(b => byId.has(b.id) ? { ...b, parent_bin_id: byId.get(b.id).parent_bin_id || null, sort_order: byId.get(b.id).sort_order } : b) }),
-      () => a.reorderBins(activeProjectId, order),
+      () => a.reorderBins(pid, order),
     );
+    if (activeProjectIdRef.current !== pid) return result;
     pushHistory({
       undoOps: [() => mutationsRef.current.reorderBins(before.filter(b => byId.has(b.id)))],
       redoOps: [() => mutationsRef.current.reorderBins(order)],
@@ -2546,8 +2596,18 @@ export function RabbitProvider({ children }) {
 
   const probeBinFile = useCallback(async (id) => {
     const a = binsAdapter();
-    const row = await a.probeBinFile(activeProjectId, id);
+    const pid = activeProjectId;
+    const row = await a.probeBinFile(pid, id);
+    // The project may have been switched during the await (the refreshBins
+    // rule): project B must not receive project A's row.
+    if (activeProjectIdRef.current !== pid) return row;
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
+    // No decoder on this machine: the renderer's own probe, right where the
+    // verdict lands (after an add, a re-probe, "Read columns again").
+    if (needsBrowserProbe(row)) {
+      const done = await browserProbeRef.current?.(row);
+      if (done) return done;
+    }
     return row;
   }, [binsAdapter, activeProjectId]);
 
@@ -2563,7 +2623,12 @@ export function RabbitProvider({ children }) {
         const id = queue.shift();
         try { await probeBinFile(id); }
         catch (err) {
-          setBundle(prev => ({ ...prev, binFiles: prev.binFiles.map(f => f.id === id ? { ...f, probe_status: /offline|410/.test(String(err?.message)) ? 'pending' : 'failed' } : f) }));
+          // Offline (410 / code offline) is not a failure: the row stays
+          // pending for the next pass, once the drive is back. Branch on the
+          // error's code and status (review round 2: the sentence the
+          // adapter threw never contained "offline" or "410").
+          const offline = err?.code === 'offline' || err?.status === 410;
+          setBundle(prev => ({ ...prev, binFiles: prev.binFiles.map(f => f.id === id ? { ...f, probe_status: offline ? 'pending' : 'failed' } : f) }));
         }
         finally { setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - 1) })); }
       }
@@ -2573,11 +2638,13 @@ export function RabbitProvider({ children }) {
 
   const removeBinFiles = useCallback(async (ids, { quiet = false } = {}) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const set = new Set(ids);
     const res = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.filter(f => !set.has(f.id)) }),
-      () => a.removeBinFiles(activeProjectId, ids),
+      () => a.removeBinFiles(pid, ids),
     );
+    if (activeProjectIdRef.current !== pid) return res.removed || [];
     const removed = res.removed || [];
     if (removed.length) {
       const token = pushHistory({
@@ -2593,9 +2660,13 @@ export function RabbitProvider({ children }) {
     return removed;
   }, [binsAdapter, optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
 
-  const addBinFiles = useCallback(async (binId, items, createSubBins = true) => {
+  // roots (optional): the folders the batch was picked or dropped from, as
+  // prepare reported them; the server records those as the known roots.
+  const addBinFiles = useCallback(async (binId, items, createSubBins = true, roots = null) => {
     const a = binsAdapter();
-    const res = await a.addBinFiles(activeProjectId, binId, items, createSubBins);
+    const pid = activeProjectId;
+    const res = await a.addBinFiles(pid, binId, items, createSubBins, roots);
+    if (activeProjectIdRef.current !== pid) return res;
     const created = res.created || [];
     const bins = res.bins || [];
     setBundle(prev => ({ ...prev, bins: mergeRows(prev.bins, bins), binFiles: mergeRows(prev.binFiles, created) }));
@@ -2618,13 +2689,15 @@ export function RabbitProvider({ children }) {
 
   const updateBinFile = useCallback(async (id, patch) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const old = bundleRef.current.binFiles.find(f => f.id === id);
     const oldValues = {};
     if (old) for (const k of Object.keys(patch)) oldValues[k] = old[k];
     const result = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.map(f => f.id === id ? { ...f, ...patch } : f) }),
-      () => a.updateBinFile(activeProjectId, id, patch),
+      () => a.updateBinFile(pid, id, patch),
     );
+    if (activeProjectIdRef.current !== pid) return result;
     if (result) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [result]) }));
     if (old) {
       pushHistory({
@@ -2637,14 +2710,16 @@ export function RabbitProvider({ children }) {
 
   const bulkUpdateBinFiles = useCallback(async (ids, patch) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const set = new Set(ids);
     const olds = bundleRef.current.binFiles.filter(f => set.has(f.id)).map(f => {
       const o = { id: f.id }; for (const k of Object.keys(patch)) o[k] = f[k]; return o;
     });
     const res = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.map(f => set.has(f.id) ? { ...f, ...patch } : f) }),
-      () => a.bulkUpdateBinFiles(activeProjectId, ids, patch),
+      () => a.bulkUpdateBinFiles(pid, ids, patch),
     );
+    if (activeProjectIdRef.current !== pid) return res;
     if (res?.updated) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
     if (olds.length) {
       pushHistory({
@@ -2670,12 +2745,14 @@ export function RabbitProvider({ children }) {
   // at the positions they had; a plain move appends to the target bin.
   const moveBinFiles = useCallback(async (ids, binId, sortOrders = null) => {
     const a = binsAdapter();
+    const pid = activeProjectId;
     const set = new Set(ids);
     const before = bundleRef.current.binFiles.filter(f => set.has(f.id)).map(f => ({ id: f.id, from: f.bin_id, sort_order: f.sort_order }));
     const res = await optimistic(
       prev => ({ ...prev, binFiles: prev.binFiles.map(f => set.has(f.id) ? { ...f, bin_id: binId, ...(sortOrders && Number.isFinite(Number(sortOrders[f.id])) ? { sort_order: Number(sortOrders[f.id]) } : {}) } : f) }),
-      () => a.moveBinFiles(activeProjectId, ids, binId, sortOrders),
+      () => a.moveBinFiles(pid, ids, binId, sortOrders),
     );
+    if (activeProjectIdRef.current !== pid) return res;
     if (res?.binFiles) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.binFiles) }));
     if (before.length) {
       pushHistory({
@@ -2695,7 +2772,9 @@ export function RabbitProvider({ children }) {
 
   const copyBinFiles = useCallback(async (ids, binId) => {
     const a = binsAdapter();
-    const res = await a.copyBinFiles(activeProjectId, ids, binId);
+    const pid = activeProjectId;
+    const res = await a.copyBinFiles(pid, ids, binId);
+    if (activeProjectIdRef.current !== pid) return res.created || [];
     const created = res.created || [];
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, created) }));
     if (created.length) {
@@ -2707,40 +2786,36 @@ export function RabbitProvider({ children }) {
     return created;
   }, [binsAdapter, activeProjectId]);
 
-  const reorderBinFiles = useCallback(async (ids) => {
-    const a = binsAdapter();
-    const set = new Set(ids);
-    const before = bundleRef.current.binFiles.filter(f => set.has(f.id)).sort((x, y) => (x.sort_order || 0) - (y.sort_order || 0)).map(f => f.id);
-    const pos = new Map(ids.map((id, i) => [id, i]));
-    const result = await optimistic(
-      prev => ({ ...prev, binFiles: prev.binFiles.map(f => pos.has(f.id) ? { ...f, sort_order: pos.get(f.id) } : f) }),
-      () => a.reorderBinFiles(activeProjectId, ids),
-    );
-    pushHistory({
-      undoOps: [() => mutationsRef.current.reorderBinFiles(before)],
-      redoOps: [() => mutationsRef.current.reorderBinFiles(ids)],
-    });
-    return result;
-  }, [binsAdapter, optimistic, activeProjectId]);
+  // (There is no reorderBinFiles: the sort menu's "Added order" is the order
+  // rows were added in, and nothing offered a hand order — review round 2
+  // removed the route, the method and the mutator nothing called.)
 
   const binRelinkScan = useCallback((folderPath = null) => binsAdapter().binRelinkScan(activeProjectId, folderPath), [binsAdapter, activeProjectId]);
 
   // A repair, not an edit: no history entry. The rows come back online and
-  // their posters are re-requested by the view through the rev counter.
+  // their posters are re-requested by the view through the rev counter — and
+  // read again in the background (rowsToReprobeAfterRelink): the poster cache
+  // is keyed by path + mtime, so under the new path there is none until a
+  // probe draws it, which without a decoder on the server only the renderer's
+  // probe does. Both relink paths (the dialog's Apply and the auto-relink on
+  // open) land here. Never awaited: the header says "reading N" meanwhile.
   const binRelinkApply = useCallback(async (mappings) => {
     const a = binsAdapter();
-    const res = await a.binRelinkApply(activeProjectId, mappings);
+    const pid = activeProjectId;
+    const res = await a.binRelinkApply(pid, mappings);
+    if (activeProjectIdRef.current !== pid) return res;
     if (res?.updated?.length) setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, res.updated) }));
+    const reprobe = rowsToReprobeAfterRelink(res?.updated);
+    if (reprobe.length) probeBinFiles(reprobe).catch(() => {});
     return res;
-  }, [binsAdapter, activeProjectId]);
+  }, [binsAdapter, activeProjectId, probeBinFiles]);
 
-  const addBinRoot = useCallback(async (path, label) => {
-    const res = await binsAdapter().addBinRoot(activeProjectId, path, label);
-    setBundle(prev => ({ ...prev, binRoots: res.binRoots || prev.binRoots }));
-    return res;
-  }, [binsAdapter, activeProjectId]);
+  // Roots are recorded by the pick and add routes; this forgets one (the
+  // relink dialog's "forget this folder").
   const removeBinRoot = useCallback(async (id) => {
-    const res = await binsAdapter().removeBinRoot(activeProjectId, id);
+    const pid = activeProjectId;
+    const res = await binsAdapter().removeBinRoot(pid, id);
+    if (activeProjectIdRef.current !== pid) return res;
     setBundle(prev => ({ ...prev, binRoots: res.binRoots || prev.binRoots }));
     return res;
   }, [binsAdapter, activeProjectId]);
@@ -2751,7 +2826,9 @@ export function RabbitProvider({ children }) {
   // write, so no history entry, unlike updateBinFile.
   const applyBinFileProbe = useCallback(async (id, patch) => {
     const a = binsAdapter();
-    const row = await a.updateBinFile(activeProjectId, id, { ...patch, probe_status: patch.probe_status || 'done' });
+    const pid = activeProjectId;
+    const row = await a.updateBinFile(pid, id, { ...patch, probe_status: patch.probe_status || 'done' });
+    if (activeProjectIdRef.current !== pid) return row;
     setBundle(prev => ({ ...prev, binFiles: mergeRows(prev.binFiles, [row]) }));
     return row;
   }, [binsAdapter, activeProjectId]);
@@ -2761,6 +2838,192 @@ export function RabbitProvider({ children }) {
   const binFileStreamUrl = useCallback((id, opts) =>
     (adapterRef.current && typeof adapterRef.current.binFileStreamUrl === 'function' && activeProjectId)
       ? adapterRef.current.binFileStreamUrl(activeProjectId, id, opts) : null, [activeProjectId]);
+
+  // ── The renderer's own probe (no ffmpeg on this machine) ──
+  // Chromium decodes H.264 MP4 / WebM, the common audio formats and images: a
+  // row the server marked `unavailable` gets its columns from a hidden
+  // <video> / <audio> / <img> and, for video, the frame it drew as its poster
+  // (bins/binProbeFallback.js; needsBrowserProbe in bins/binMedia.js decides).
+  // 🚨 It runs HERE, where the server's verdict lands — after an add, after a
+  // re-probe of a pending row, and once per project after the list loads —
+  // not from a tab's mount. Review round 2, MEASURED: the Bins tab ran it only
+  // from its post-load step over the rows AS LOADED, so rows still pending at
+  // load kept their icons for the whole session, an MP4 added on the tab got
+  // its poster only on the next visit, and a take assigned from Scenes had no
+  // poster until Bins had been opened. A machine write, so no history entry.
+  const browserProbe = useCallback(async (row) => {
+    if (!needsBrowserProbe(row)) return null;
+    const pid = activeProjectId;
+    const src = binFileStreamUrl(row.id, { probe: true });
+    if (!src) return null;
+    try {
+      const r = await probeInBrowser(previewKindFor(row), src);
+      if (activeProjectIdRef.current !== pid) return null;
+      const patch = {};
+      if (r.duration_sec) patch.duration_sec = r.duration_sec;
+      if (r.width) patch.width = r.width;
+      if (r.height) patch.height = r.height;
+      const done = await applyBinFileProbe(row.id, patch);
+      if (r.jpegBase64) {
+        await postBinFileThumbnail(row.id, r.jpegBase64);
+        setBinsInfo(i => ({ ...i, posterRev: i.posterRev + 1 }));
+      }
+      return done;
+    } catch {
+      if (activeProjectIdRef.current !== pid) return null;
+      return applyBinFileProbe(row.id, { probe_status: 'failed' }).catch(() => null);
+    }
+  }, [activeProjectId, binFileStreamUrl, applyBinFileProbe, postBinFileThumbnail]);
+  browserProbeRef.current = browserProbe;
+
+  // The once-per-project pass refreshBins starts: pending rows go to the
+  // server (an `unavailable` answer comes back through probeBinFile, which
+  // runs browserProbe itself), then the rows already marked unavailable,
+  // sequentially and bounded, each counted in `probing` so the Bins header
+  // says "reading N" while it runs. Stops when the project changes.
+  const browserProbeSweep = useCallback(async (rows, projectId) => {
+    const pending = (rows || []).filter(f => f.probe_status === 'pending' && f.online !== false).map(f => f.id);
+    if (pending.length) probeBinFiles(pending).catch(() => {});
+    const queue = (rows || []).filter(needsBrowserProbe).slice(0, 40);
+    if (!queue.length) return;
+    let left = queue.length;
+    setBinsInfo(i => ({ ...i, probing: i.probing + left }));
+    try {
+      for (const row of queue) {
+        if (activeProjectIdRef.current !== projectId) break;
+        try { await browserProbe(row); }
+        finally { left--; setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - 1) })); }
+      }
+    } finally {
+      if (left > 0) setBinsInfo(i => ({ ...i, probing: Math.max(0, i.probing - left) }));
+    }
+  }, [probeBinFiles, browserProbe]);
+  browserProbeSweepRef.current = browserProbeSweep;
+
+  // ── Shot takes (milestone 2, docs/BINS_DESIGN.md §4.4 and §6 Q6) ──
+  //
+  // Bin files assigned to shots, many-to-many, ordered, with a role. Every
+  // server mutation answers the FULL row set of the shots it touched
+  // (siblings get re-roled and renumbered), and the provider replaces those
+  // shots' rows with it. Undo is a SNAPSHOT: the rows of the affected shots
+  // before the call, handed back verbatim through replaceShotTakes — exact
+  // whatever the mutation did, and one primitive instead of four inverses.
+  // Orphans (a take whose shot or file is gone) stay in state on purpose:
+  // undoing the delete brings the take back; the selectors skip them.
+  const replaceTakeRows = (rows, shotIds, incoming) => {
+    const set = new Set(shotIds || []);
+    return [...(rows || []).filter(t => !set.has(t.shot_id)), ...(incoming || [])];
+  };
+  const snapshotTakes = (shotIds) => {
+    const set = new Set(shotIds || []);
+    return (bundleRef.current.shotTakes || []).filter(t => set.has(t.shot_id)).map(t => ({ ...t }));
+  };
+  // The affected shots' rows become what the server sent: the live rows,
+  // presented, AND the orphans of those shots verbatim (review round 2,
+  // HIGH: replacing them with live rows only threw away the orphan the undo
+  // of a file removal needed).
+  const applyTakeResponse = (res) => {
+    if (!res?.affectedShotIds?.length) return;
+    setBundle(prev => ({ ...prev, shotTakes: replaceTakeRows(prev.shotTakes, res.affectedShotIds, [...(res.shotTakes || []), ...(res.orphanTakes || [])]) }));
+  };
+  // The fields an undo entry exists for: the same rows with the same role,
+  // position and notes is a no-op, and a no-op must not burn a Ctrl+Z
+  // (review round 2: demoting a shot's only take burned one).
+  const sameTakeRows = (before, after) => {
+    const key = (rows) => JSON.stringify((rows || []).map(t => [t.id, t.role, t.position, t.notes || '']).sort((x, y) => String(x[0]).localeCompare(String(y[0]))));
+    return key(before) === key(after);
+  };
+
+  // Every mutator below captures the project it was called for and drops its
+  // response if the project changed during the await (the refreshBins rule):
+  // project B must not gain project A's rows.
+  const replaceShotTakes = useCallback(async (shotIds, rows) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const res = await a.replaceShotTakes(pid, shotIds, rows);
+    if (activeProjectIdRef.current !== pid) return res;
+    applyTakeResponse(res);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const pushTakeHistory = (shotIds, before, after) => pushHistory({
+    undoOps: [() => mutationsRef.current.replaceShotTakes(shotIds, before)],
+    redoOps: [() => mutationsRef.current.replaceShotTakes(shotIds, after)],
+  });
+
+  // assignments: [{ shot_id, bin_file_id, role?, notes? }]
+  const assignShotTakes = useCallback(async (assignments) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const list = (assignments || []).filter(x => x && x.shot_id && x.bin_file_id);
+    if (!list.length) return { created: [], skipped: [], affectedShotIds: [], shotTakes: [] };
+    const shotIds = [...new Set(list.map(x => x.shot_id))];
+    const before = snapshotTakes(shotIds);
+    const res = await a.assignShotTakes(pid, list);
+    if (activeProjectIdRef.current !== pid) return res;
+    applyTakeResponse(res);
+    if (res?.created?.length) pushTakeHistory(shotIds, before, res.shotTakes || []);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  // patch: { role?, notes?, position? }
+  const updateShotTake = useCallback(async (id, patch) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const row = (bundleRef.current.shotTakes || []).find(t => t.id === id);
+    const before = row ? snapshotTakes([row.shot_id]) : null;
+    const res = await a.updateShotTake(pid, id, patch);
+    if (activeProjectIdRef.current !== pid) return res;
+    applyTakeResponse(res);
+    // No row in state means no honest snapshot; an entry whose `before` is
+    // empty would undo an edit by wiping the shot (adversarial review). Apply
+    // the response and push nothing. Nothing either when the server changed
+    // nothing (a sole take asked to be an alt stays primary).
+    const after = [...(res?.shotTakes || []), ...(res?.orphanTakes || [])];
+    if (row && res?.affectedShotIds?.length && !sameTakeRows(before, after)) pushTakeHistory(res.affectedShotIds, before, after);
+    return res;
+  }, [binsAdapter, activeProjectId]);
+
+  const removeShotTakes = useCallback(async (ids) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const set = new Set(ids || []);
+    const rows = (bundleRef.current.shotTakes || []).filter(t => set.has(t.id));
+    if (!rows.length) return { removed: [], affectedShotIds: [], shotTakes: [] };
+    const shotIds = [...new Set(rows.map(t => t.shot_id))];
+    const before = snapshotTakes(shotIds);
+    const res = await optimistic(
+      prev => ({ ...prev, shotTakes: (prev.shotTakes || []).filter(t => !set.has(t.id)) }),
+      () => a.removeShotTakes(pid, [...set]),
+    );
+    if (activeProjectIdRef.current !== pid) return res;
+    applyTakeResponse(res);
+    const removed = res?.removed || [];
+    if (removed.length) {
+      const token = pushTakeHistory(res.affectedShotIds || shotIds, before, res.shotTakes || []);
+      if (token != null) {
+        const shot = bundleRef.current.shots.find(s => s.id === shotIds[0]);
+        const where = shotIds.length === 1 && shot ? ` from "${shot.name || 'Untitled shot'}"` : '';
+        showUndoToast(removed.length === 1 ? `Unassigned 1 take${where}` : `Unassigned ${removed.length} takes${where}`, () => undoHistoryEntry(token));
+      }
+    }
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId, showUndoToast, undoHistoryEntry]);
+
+  const reorderShotTakes = useCallback(async (shotId, ids) => {
+    const a = binsAdapter();
+    const pid = activeProjectId;
+    const before = snapshotTakes([shotId]);
+    const pos = new Map((ids || []).map((id, i) => [id, i]));
+    const res = await optimistic(
+      prev => ({ ...prev, shotTakes: (prev.shotTakes || []).map(t => pos.has(t.id) ? { ...t, position: pos.get(t.id) } : t) }),
+      () => a.reorderShotTakes(pid, shotId, ids),
+    );
+    if (activeProjectIdRef.current !== pid) return res;
+    applyTakeResponse(res);
+    pushTakeHistory([shotId], before, res?.shotTakes || []);
+    return res;
+  }, [binsAdapter, optimistic, activeProjectId]);
 
   // ── Ingestion runs ──────────────────────────────────────
   // The actual chunked pipeline lives in intake/pipeline.js (Commit 10).
@@ -3068,7 +3331,15 @@ export function RabbitProvider({ children }) {
   mutationsRef.current.copyBinFiles     = copyBinFiles;
   mutationsRef.current.removeBinFiles   = removeBinFiles;
   mutationsRef.current.restoreBinFiles  = restoreBinFiles;
-  mutationsRef.current.reorderBinFiles  = reorderBinFiles;
+  // Shot takes (milestone 2). 🚨 A history op calls mutationsRef.current.X,
+  // and undo SWALLOWS a throw — a mutator missing from this list fails
+  // silently (measured: Ctrl+Z after an assignment did nothing until
+  // replaceShotTakes was registered here).
+  mutationsRef.current.replaceShotTakes = replaceShotTakes;
+  mutationsRef.current.assignShotTakes  = assignShotTakes;
+  mutationsRef.current.updateShotTake   = updateShotTake;
+  mutationsRef.current.removeShotTakes  = removeShotTakes;
+  mutationsRef.current.reorderShotTakes = reorderShotTakes;
 
   // ── Memoized selectors ──────────────────────────────────
   const memoSelectors = useMemo(() => ({
@@ -3214,9 +3485,11 @@ export function RabbitProvider({ children }) {
     binsInfo,
     refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
-    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
+    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
-    binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
+    binRelinkScan, binRelinkApply, removeBinRoot,
+    // Shot takes (milestone 2).
+    assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
 
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
@@ -3259,9 +3532,10 @@ export function RabbitProvider({ children }) {
     addManagedFile, updateManagedFile, deleteManagedFile, refreshManagedFiles,
     binsInfo, refreshBins, addBin, updateBin, deleteBin, reorderBins,
     pickBinFiles, pickBinFolder, prepareBinFiles, addBinFiles,
-    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles, reorderBinFiles,
+    updateBinFile, bulkUpdateBinFiles, moveBinFiles, copyBinFiles, removeBinFiles, restoreBinFiles,
     probeBinFile, probeBinFiles, applyBinFileProbe, postBinFileThumbnail, openBinFile, binFileThumbnailUrl, binFileStreamUrl,
-    binRelinkScan, binRelinkApply, addBinRoot, removeBinRoot,
+    binRelinkScan, binRelinkApply, removeBinRoot,
+    assignShotTakes, updateShotTake, removeShotTakes, reorderShotTakes, replaceShotTakes,
     addScene, updateScene, deleteScene,
     addShot, updateShot, deleteShot,
     addLevel, updateLevel, deleteLevel,

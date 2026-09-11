@@ -93,6 +93,33 @@ export function previewKindFor(row) {
   return 'none'
 }
 
+/**
+ * Should the renderer probe this row itself? The server marks a row
+ * `unavailable` when it has no decoder for it; if Chromium can decode the
+ * file, a hidden <video> / <audio> / <img> fills the columns and, for video,
+ * draws the poster (bins/binProbeFallback.js, run by the provider). Never for
+ * a pending, done or failed row, never for an offline one, never for a format
+ * the browser cannot open (a poster-only MOV, a sequence, a document).
+ */
+export function needsBrowserProbe(row) {
+  if (!row || row.probe_status !== 'unavailable' || row.online === false) return false
+  return ['video', 'audio', 'image'].includes(previewKindFor(row))
+}
+
+/**
+ * The rows to read again after a relink. The poster cache is keyed by path +
+ * mtime, so a relinked row has no poster under its new path until something
+ * reads it again — and without a decoder on the server, the renderer's own
+ * probe is the only thing that draws one (measured 2026-09-10: after a relink
+ * every MP4 tile fell back to its icon while its columns stayed). Documents
+ * have nothing to read; everything else goes the way "Read columns again"
+ * goes (the server answers `unavailable` without a decoder, and probeBinFile
+ * runs the browser probe from there).
+ */
+export function rowsToReprobeAfterRelink(rows) {
+  return (rows || []).filter(r => r && r.id && previewKindFor(r) !== 'none').map(r => r.id)
+}
+
 /** True when a tile can hover-scrub (Chromium decodes it and it is not a still). */
 export function canHoverScrub(row) {
   return previewKindFor(row) === 'video'

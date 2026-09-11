@@ -10,6 +10,7 @@
 // keep their poster.
 
 import { useEffect, useRef, useState } from 'react'
+import { Clapperboard } from 'lucide-react'
 import { C, MediaTag, FlagMark, ColorDot } from './binUi'
 import BinPoster from './BinPoster'
 import { DND_FILES } from './BinTree'
@@ -17,19 +18,23 @@ import { canHoverScrub, techLine, slateLine, COLOR_HEX } from '../../bins/binMed
 
 export default function BinFileGrid({
   rows, selection, currentId, onRowClick, onRowDoubleClick, onContextMenu, thumbUrlFor, streamUrlFor,
-  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin,
+  tileWidth = 200, canWrite, dragIdsFor, binsById, showBin, usageCount = null,
 }) {
   const currentRef = useRef(null)
   useEffect(() => { currentRef.current?.scrollIntoView?.({ block: 'nearest' }) }, [currentId])
   return (
     <div className="flex-1 min-h-0 overflow-auto p-3" style={{ backgroundColor: C.bg }}>
       {rows.length === 0 && <div className="px-2 py-6 text-[11px] font-mono" style={{ color: C.dimmer }}>Nothing matches.</div>}
-      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tileWidth}px, 1fr))` }}>
+      {/* data-bin-grid: the keyboard handler reads the REAL column count from
+          this element's computed grid (review round 2: a formula guessed it and
+          the cursor drifted diagonally at some pane widths). */}
+      <div className="grid gap-3" data-bin-grid="" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${tileWidth}px, 1fr))` }}>
         {rows.map(row => (
           <Tile key={row.id} row={row} selected={selection.has(row.id)} current={currentId === row.id}
             innerRef={currentId === row.id ? currentRef : null}
             thumbUrl={thumbUrlFor?.(row.id)} streamUrl={canHoverScrub(row) && row.online !== false ? streamUrlFor?.(row.id) : null}
             binName={showBin ? (binsById?.get(row.bin_id)?.name || '') : null} binColor={binsById?.get(row.bin_id)?.color || null}
+            used={usageCount?.get(row.id) || 0}
             canWrite={canWrite}
             onClick={e => onRowClick?.(row.id, e)}
             onDoubleClick={() => onRowDoubleClick?.(row.id)}
@@ -46,7 +51,7 @@ export default function BinFileGrid({
   )
 }
 
-function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, canWrite, onClick, onDoubleClick, onContextMenu, onDragStart }) {
+function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, binColor, used = 0, canWrite, onClick, onDoubleClick, onContextMenu, onDragStart }) {
   const [hover, setHover] = useState(false)
   const [scrubFrac, setScrubFrac] = useState(null)
   const [failed, setFailed] = useState(false)
@@ -95,6 +100,12 @@ function Tile({ row, selected, current, innerRef, thumbUrl, streamUrl, binName, 
           <div className="absolute bottom-0 left-0 h-[2px]" style={{ width: `${scrubFrac * 100}%`, backgroundColor: C.accent }} />
         )}
         {hex && <div className="absolute top-0 left-0 right-0 h-[3px]" style={{ backgroundColor: hex }} />}
+        {used > 0 && (
+          <div className="absolute top-1 left-1 inline-flex items-center gap-0.5 px-1 rounded-sm text-[8.5px] font-mono tabular-nums" style={{ backgroundColor: 'rgba(12,10,9,0.7)', color: C.accentText }}
+            title={`Used in ${used} shot${used === 1 ? '' : 's'}`}>
+            <Clapperboard style={{ width: 9, height: 9 }} /> {used}
+          </div>
+        )}
         <div className="absolute top-1 right-1 flex items-center gap-1 px-1 rounded-sm" style={{ backgroundColor: 'rgba(12,10,9,0.7)' }}>
           <FlagMark flag={row.review_flag} circled={row.circled} size={11} />
         </div>
