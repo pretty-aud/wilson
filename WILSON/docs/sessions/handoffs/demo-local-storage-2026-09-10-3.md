@@ -22,6 +22,9 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
     demo (option 1), the offline launch MEASURED.
   - `75de78e` merge: `origin/feat/demo-2026-09-11` (`2626bb6`, the bins'
     milestone 2 + two review rounds) into `demo/local-storage`.
+  - `4562183` docs: this hand-off; `3221544` merge: `origin/feat/demo-2026-09-11`
+    (`0040f58`, the bins' hand-off 4) into `demo/local-storage` — the head
+    after this file was written; both refs verified at `3221544`.
   - **No code changed this session.** Everything below is docs, measurement
     and a decision.
 - Audrey's canonical checkout was at `efd4042` at 22:50 (she pulled during
@@ -40,8 +43,10 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
   ran (steps 4–6 skipped). The same CLI-download transient hand-off 1 saw at
   `862fbc8`; nothing under `supabase/` or `.github/` is in this session's
   push (`1572670` is docs-only, and `2626bb6`'s own CI was fully green,
-  pgTAP ✔ on both runs). Run 34556119508: smoke ✔, the rest in progress.
-  Re-read: `curl -s https://api.github.com/repos/pretty-aud/wilson/commits/75de78e/check-runs`.
+  pgTAP ✔ on both runs). Run 34556119508, re-read at 22:52: **pgTAP ✔,
+  Playwright auth ✔, Vitest ✔, smoke ✔** — the head is green on a full run.
+  `3221544` (docs only) was pushed at 22:54; read it the same way:
+  `curl -s https://api.github.com/repos/pretty-aud/wilson/commits/3221544/check-runs`.
 - **Audrey's decision (brief §7, verbatim there).** Her words at ~02:20:
   *"local file storage should be solely for media and files, database entries
   and data should still be cloud based. only file storage is local with local
