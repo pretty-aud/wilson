@@ -3160,7 +3160,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               </button>
             </div>
             <div className="flex-1 flex overflow-hidden">
-              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto settings-scrollbar py-2 flex flex-col">
+              <nav className="w-52 flex-shrink-0 bg-stone-900 border-r border-stone-700 overflow-y-auto wilson-dark-scroll py-2 flex flex-col">
                 <div className="flex-1">
                   {OTTER_HELP_SIDEBAR_ITEMS.map(item => (
                     <button
@@ -3180,7 +3180,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <span className="text-xs text-stone-500 font-mono">{typeof __OTTER_VERSION__ !== 'undefined' ? __OTTER_VERSION__ : 'v?'}</span>
                 </div>
               </nav>
-              <div className="flex-1 overflow-y-auto p-5 settings-scrollbar">
+              <div className="flex-1 overflow-y-auto p-5 wilson-dark-scroll">
                 <OtterHelpContent helpPage={helpPage} theme="dark" />
               </div>
             </div>
@@ -3282,7 +3282,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   }
                 }}
                 placeholder="Search lessons, hotkeys, functions, nodes..."
-                className="flex-1 bg-transparent text-white text-lg focus:outline-none placeholder-stone-500"
+                className="flex-1 bg-transparent text-white text-lg placeholder-stone-500"
               />
               <span className="text-stone-500 text-xs shrink-0">
                 {searchResults.length > 0 ? `${searchResults.length} page${searchResults.length !== 1 ? 's' : ''}` : searchQuery.length >= 2 ? 'No results' : ''}
@@ -4240,7 +4240,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   onBlur={() => setTimeout(() => setShowSoftwareDropdown(false), 200)}
                   placeholder="e.g., Python, Blender, Photoshop..."
                   disabled={generating}
-                  className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600"
+                  className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors placeholder-stone-600"
                 />
                 {showSoftwareDropdown && softwareNameInput.trim() && filteredSoftware.length > 0 && (
                   <div className="absolute left-0 right-0 top-full mt-1 bg-stone-700 border-2 border-stone-600 rounded-sm shadow-lg z-50 max-h-[200px] overflow-y-auto">
@@ -4345,7 +4345,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                   <p className="text-stone-500 text-sm">No courses yet. Create a course first.</p>
                 ) : (
                   <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }} disabled={generating}
-                    className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors">
+                    className="w-full bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors">
                     <option value="" disabled>Select a software/language...</option>
                     {softwareList.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
                   </select>
@@ -4359,7 +4359,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             </label>
             <textarea value={promptText} onChange={e => setPromptText(e.target.value)}
               placeholder={isCourseMode ? "e.g., Focus on game development workflow..." : "e.g., List comprehensions in Python..."}
-              className="w-full h-32 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-4 resize-none focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600"
+              className="w-full h-32 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-4 resize-none focus:border-orange-500 transition-colors placeholder-stone-600"
               disabled={generating} />
 
             {/* Reference URLs */}
@@ -4371,7 +4371,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
                 onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addReferenceUrl(); } }}
                 placeholder="https://docs.example.com/guide"
                 disabled={generating || fetchingUrl}
-                className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm focus:border-orange-500 focus:outline-none transition-colors placeholder-stone-600" />
+                className="flex-1 bg-stone-950 text-white border-2 border-stone-600 rounded-sm px-3 py-1.5 text-sm focus:border-orange-500 transition-colors placeholder-stone-600" />
               <button onClick={addReferenceUrl} disabled={generating || fetchingUrl || !referenceUrlInput.trim()}
                 className="px-3 py-1.5 bg-stone-700 text-stone-300 border-2 border-stone-600 rounded-sm hover:bg-stone-600 transition-colors text-sm disabled:opacity-50 flex items-center gap-1">
                 {fetchingUrl ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />} Add
@@ -5019,13 +5019,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="relative">
                 <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input type="text" value={functionSearch} onChange={e => setFunctionSearch(e.target.value)} placeholder="Search functions..."
-                  className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
+                  className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
               </div>
             </div>
             <div className="flex items-center gap-3 mb-6">
               <Braces className="w-4 h-4 text-stone-500 shrink-0" />
               <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
                 style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
                 {codingLanguages.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
               </select>
@@ -5077,13 +5077,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <div className="relative">
               <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input type="text" value={hotkeySearch} onChange={e => setHotkeySearch(e.target.value)} placeholder="Search shortcuts..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
             </div>
           </div>
           <div className="flex items-center gap-3 mb-6">
             <Keyboard className="w-4 h-4 text-stone-500 shrink-0" />
             <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) selectSoftware(e.target.value); }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
+              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
               {softwareApps.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
             </select>
@@ -5164,7 +5164,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
             <div className="relative">
               <Search className="w-4 h-4 text-stone-500 absolute left-3 top-1/2 -translate-y-1/2" />
               <input type="text" value={nodeSearch} onChange={e => setNodeSearch(e.target.value)} placeholder="Search nodes..."
-                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors w-64" />
+                className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm pl-9 pr-3 py-2 text-sm focus:border-orange-500 transition-colors w-64" />
             </div>
           </div>
 
@@ -5172,7 +5172,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center gap-3 mb-4">
             <Share2 className="w-4 h-4 text-stone-500 shrink-0" />
             <select value={activeSoftwareSlug || ''} onChange={e => { if (e.target.value) { selectSoftware(e.target.value); setActiveNodeSystem(null); } }}
-              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 focus:outline-none transition-colors cursor-pointer appearance-none pr-8"
+              className="bg-stone-800 text-white border-2 border-stone-600 rounded-sm px-3 py-2 text-sm focus:border-orange-500 transition-colors cursor-pointer appearance-none pr-8"
               style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23a8a29e' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`, backgroundRepeat: 'no-repeat', backgroundPosition: 'right 8px center' }}>
               {nodeCapable.map(sw => <option key={sw.slug} value={sw.slug}>{sw.name}</option>)}
             </select>
@@ -5372,7 +5372,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
               <div className="px-3 pb-3 pt-2">
                 <textarea value={editingPrompts[s.key] || ''} onChange={e => setEditingPrompts(prev => ({ ...prev, [s.key]: e.target.value }))}
                   disabled={promptsTabLocked}
-                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:outline-none focus:border-orange-500 resize-none settings-scrollbar ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
+                  className={`w-full h-32 px-3 py-2 bg-stone-950 border-2 border-stone-600 rounded-sm text-orange-400 text-xs font-mono focus:border-orange-500 resize-none wilson-dark-scroll ${promptsTabLocked ? 'cursor-not-allowed' : ''}`} />
                 <button onClick={() => setEditingPrompts(prev => ({ ...prev, [s.key]: s.defaultVal }))} disabled={promptsTabLocked}
                   className={`mt-1 text-[10px] ${promptsTabLocked ? 'text-stone-600 cursor-not-allowed' : 'text-orange-400 hover:text-orange-300'}`}>Reset to default</button>
                 <button onClick={savePrompts} disabled={promptsTabLocked}
@@ -5404,7 +5404,7 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
           <div className="flex items-center gap-2">
             <input value={settings?.storageLocation || './data/software/'} onChange={e => saveSettings({ storageLocation: e.target.value })}
               disabled={toolsTabLocked}
-              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 focus:outline-none transition-colors disabled:cursor-not-allowed" />
+              className="flex-1 bg-stone-950 text-stone-400 border-2 border-stone-600 rounded-sm px-3 py-2 text-xs font-mono focus:border-orange-500 transition-colors disabled:cursor-not-allowed" />
             {/* Session 12: this button used to POST /api/browse-folder, a
                 route that never existed on ANY host — it was dead everywhere
                 (same class as S11's unreachable renderDeleteConfirm). The

@@ -1760,7 +1760,7 @@ export default function App() {
       <div className="wilson-light-scroll" style={{ display: currentPage === 'home' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'auto' }}>
         <Home onNavigate={navigateTo} currentPage={currentPage} />
       </div>
-      <div style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="wilson-dark-scroll" style={{ display: currentPage === 'dog' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <DeckOutlineGenerator
           onNavigate={navigateTo}
           showNavMenu={showNavMenu}
@@ -1769,7 +1769,7 @@ export default function App() {
           zoomLevel={zoomLevel}
         />
       </div>
-      <div style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="wilson-dark-scroll" style={{ display: currentPage === 'otter' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <Otter
           onNavigate={navigateTo}
           currentPage={currentPage}
@@ -1777,7 +1777,7 @@ export default function App() {
           onContextChange={setOtterContext}
         />
       </div>
-      <div style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
+      <div className="wilson-dark-scroll" style={{ display: currentPage === 'rabbit' ? 'flex' : 'none', flex: 1, flexDirection: 'column', overflow: 'hidden' }}>
         <Rabbit
           onNavigate={navigateTo}
           isActive={currentPage === 'rabbit'}
@@ -1911,7 +1911,7 @@ export default function App() {
   return (
     <AgentProvider>
     <RabbitProvider>
-    <div style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
+    <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {authed && (
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

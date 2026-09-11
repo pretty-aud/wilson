@@ -50,9 +50,14 @@ const GENERATION_ITEMS = [
   { key: 'generate_scenes', label: 'Scene Breakdown', icon: Film, desc: 'Scene-by-scene analysis' },
 ]
 
-/* ── typography — midcentury modern ────────────────────────── */
+/* ── typography ─────────────────────────────────────────────── */
 
-const SANS = "'Century Gothic', 'Futura', 'Avenir', system-ui, -apple-system, sans-serif"
+// UI overhaul F1 (2026-09-11): the private Century Gothic → Futura stack is
+// gone (review R01 — it was the third face in the app and it actually
+// resolved on Windows). SANS is now the app's one sans, read from `@theme`
+// in src/index.css, so the inline sites below stay mechanical and keep
+// working; DATA follows in Wave 1 (T2), which sweeps inline mono stacks.
+const SANS = 'var(--font-sans)'
 const DATA = "ui-monospace, 'SF Mono', 'Cascadia Code', monospace"
 
 /* ── main component ────────────────────────────────────────── */

@@ -1,6 +1,189 @@
 @import "tailwindcss";
 
 /* ═══════════════════════════════════════════════════════════════
+   THE DESIGN SYSTEM — UI overhaul Foundation 1 (2026-09-11)
+
+   `docs/design/UI_OVERHAUL_PLAN.md` §3 is the specification; this block is
+   its only executable form. Tailwind v4 turns every entry into a utility
+   (`text-body`, `bg-paper-raised`, `border-rule`, `rounded-control`,
+   `shadow-float`, `px-gutter`, `ease-response`) and into a CSS custom property
+   (`var(--color-ink)`). `src/ui/tokens.js` re-exports the same values for
+   inline `style={{}}` sites, and `src/ui/tokens.test.js` asserts the two
+   agree and that every ink/ground pair clears its contrast ratio.
+
+   🚨 THIS IS THE ONLY PLACE A HEX IS WRITTEN (plan §3, C8). A colour that is
+   not in this block does not exist. A session that needs one adds it here,
+   with its job, and the test measures it before it ships. `static` so every
+   token is emitted as a custom property even before it has a utility caller
+   (inline sites read `var(--…)` at runtime).
+
+   Ink ladder: 100 / 72 / 52 percent of `#f5f0ec` over `#1c1917`, pre-flattened
+   so nobody re-derives them. 48 percent was proposed and measures 4.47:1 —
+   it is not a token (review Part 3, "Contradictions", first entry).
+
+   On orange (`#ea580c`) text is white or black (Audrey, 2026-08-10, in
+   capitals): white measures 3.56:1 and is permitted ONLY at 19px bold and
+   above; everything smaller is `#1c1917` (4.91:1). On the light ground
+   (`#f4a261`) the only ink is `#1c1917` (8.49:1). The filled primary button
+   is `#c2410c` with white (5.18:1) — Q16.
+   ═══════════════════════════════════════════════════════════════ */
+@theme static {
+  /* ── Families (Q3: Inter + JetBrains Mono, self-hosted below) ──────── */
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
+  /* JetBrains Mono renders large next to Inter at the same nominal size.
+     One token, never an em multiplier on a surface. (1.0 for Geist Mono.) */
+  --mono-size-adjust: 0.94;
+
+  /* ── Type scale: 14px body, ratio 1.125, whole pixels, 11px floor (§3.1) */
+  --text-display: 34px;
+  --text-display--line-height: 1;
+  --text-display--letter-spacing: 0.12em;
+  --text-display--font-weight: 600;
+  --text-h1: 20px;
+  --text-h1--line-height: 1.2;
+  --text-h1--letter-spacing: 0.01em;
+  --text-h1--font-weight: 600;
+  --text-h2: 16px;
+  --text-h2--line-height: 1.3;
+  --text-h2--font-weight: 600;
+  --text-h3: 14px;
+  --text-h3--line-height: 1.4;
+  --text-h3--font-weight: 600;
+  --text-body: 14px;
+  --text-body--line-height: 1.5;
+  --text-dense: 13px;
+  --text-dense--line-height: 1.45;
+  --text-caption: 12px;
+  --text-caption--line-height: 1.4;
+  --text-label: 11px;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.06em;
+  --text-label--font-weight: 600;
+
+  /* ── Colour (§3.2) ─────────────────────────────────────────────────── */
+  --color-paper: #1c1917;
+  --color-paper-raised: #232020;
+  --color-paper-recessed: #0c0a09;
+  --color-ink: #f5f0ec;
+  --color-ink-2: #b8b4b0;
+  --color-ink-3: #8d8986;
+  --color-rule: rgba(245, 240, 236, 0.14);
+  --color-rule-light: rgba(28, 25, 23, 0.22);
+  --color-signal: #ea580c;
+  --color-signal-fill: #c2410c;
+  --color-signal-tint: rgba(234, 88, 12, 0.16);
+  --color-on-fill: #ffffff;
+  --color-ground-light: #f4a261;
+  --color-ink-light: #1c1917;
+  --color-well-light: rgba(120, 70, 30, 0.18);
+  --color-surface-light-solid: #dd9155;
+  --color-success: #4ade80;
+  --color-danger: #fca5a5;
+  --color-warning: #f59e0b;
+  --color-focus: #ea580c;
+  --color-backdrop: rgba(12, 10, 9, 0.6);
+  --color-selection: rgba(234, 88, 12, 0.35);
+  --color-selection-light: rgba(28, 25, 23, 0.22);
+  --color-skeleton: rgba(245, 240, 236, 0.08);
+  --color-hover: rgba(245, 240, 236, 0.06);
+  --color-hover-light: rgba(28, 25, 23, 0.08);
+  --color-scroll-thumb: rgba(245, 240, 236, 0.25);
+  --color-scroll-thumb-hover: #ea580c;
+  --color-scroll-thumb-light: #c2712c;
+  --color-scroll-thumb-light-hover: #a85d20;
+
+  /* ── Radius, border, elevation (§3.3, Q5, Q6) ──────────────────────── */
+  --radius-control: 4px;
+  --radius-float: 8px;
+  --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-float-light: 0 8px 24px rgba(60, 30, 10, 0.25);
+
+  /* ── Spacing and measure (§3.3): base 4, one gutter ────────────────── */
+  --spacing-gutter: 24px;
+  --width-reading: 720px;
+  --width-data-max: 1240px;
+  --measure-reading: 66ch;
+  --measure-prose-max: 72ch;
+
+  /* ── Density (§3.3) ────────────────────────────────────────────────── */
+  --control-sm: 28px;
+  --control-md: 36px;
+  --row: 36px;
+  --row-dense: 32px;
+  --table-head: 32px;
+  --cell-pad-y: 8px;
+  --cell-pad-x: 12px;
+  --toolbar: 44px;
+  --page-header: 56px;
+  --panel-header: 32px;
+  --shortcut-bar: 34px;
+  --titlebar: 32px;
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 24px;
+  --panel-sm: 200px;
+  --panel-md: 240px;
+  --panel-lg: 300px;
+  --dialog-confirm: 400px;
+  --dialog-form: 560px;
+  --dialog-reading: 720px;
+  --dialog-workbench: 960px;
+
+  /* ── Motion (§3.4): three durations, one curve ─────────────────────── */
+  --duration-state: 120ms;
+  --duration-response: 200ms;
+  --duration-panel: 240ms;
+  --ease-response: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@utility duration-state { transition-duration: var(--duration-state); }
+@utility duration-response { transition-duration: var(--duration-response); }
+@utility duration-panel { transition-duration: var(--duration-panel); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TYPEFACES — self-hosted under public/fonts, never a CDN (Q3, F01).
+   Inter (SIL OFL 1.1, public/fonts/LICENSE-Inter.txt) and JetBrains Mono
+   (SIL OFL 1.1, public/fonts/LICENSE-JetBrainsMono.txt), variable weight
+   axis 100–900, latin and latin-ext subsets. `font-display: block` — the
+   files are local and load in milliseconds; a swap would flash the fallback
+   on every boot. Paths are root-relative: Vite serves public/ at the base
+   (`./`), Electron serves dist/ the same way.
+   ═══════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url(/fonts/inter-latin-ext-wght.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: block;
+  src: url(/fonts/inter-latin-wght.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: block;
+  src: url(/fonts/jetbrains-mono-latin-ext-wght.woff2) format('woff2-variations');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: block;
+  src: url(/fonts/jetbrains-mono-latin-wght.woff2) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    PAGE CANVAS — Phase 4, 2026-08-12 (Audrey, on a MacBook):
    "i am able to scroll beyond the pages sometimes. i am seeing after the bars
     that its white. lets make sure the orange header and footer bars extend so
@@ -14,10 +197,10 @@
 
    Two lines: paint the canvas, and stop the bounce.
 
-   🚨 #ea580c is the BAR colour, read from App.jsx's bars. It is NOT #f4a261 —
-   that is the light content panel and the page-transition overlay. A second
-   near-miss orange here would read as a rendering fault rather than an empty
-   region, which is worse than the white.
+   🚨 The canvas is the BAR colour (`signal`, read from App.jsx's bars). It is
+   NOT `ground-light` — that is the light content panel and the page-transition
+   overlay. A second near-miss orange here would read as a rendering fault
+   rather than an empty region, which is worse than the white.
 
    ⚠️ `overscroll-behavior` is on the document only. Nested scrollers — the
    R.A.B.B.I.T. timeline, the O.T.T.E.R. lesson pane, Home's own column — still
@@ -26,8 +209,94 @@
    hidden). No pull-to-refresh is lost because there is nothing to refresh.
    ═══════════════════════════════════════════════════════════════ */
 html, body {
-  background-color: #ea580c;
+  background-color: var(--color-signal);
   overscroll-behavior: none;
+}
+
+/* The app runs in ONE face (F01). Tailwind's preflight already points `html`
+   at `--font-sans` and `code, kbd, pre, samp` at `--font-mono`; this is the
+   explicit statement of the same thing so nobody has to know that. The two
+   private stacks that used to compete with it (IntakePrepare's Century
+   Gothic, AuthShell's Apple-first) now read `var(--font-sans)`. */
+html {
+  font-family: var(--font-sans);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FOCUS, PLACEHOLDER, CARET, SELECTION, DISABLED — one token each (F24,
+   review Part 3 "Missing coverage").
+
+   One focus ring, on `:focus-visible` only, so it never fires on a mouse
+   click: 2px of the focus token with a 1px offset. The review proposed the
+   signal at 40 percent; measured, that is 1.7:1 on `paper` and not a focus
+   ring, so the ring is the full signal (4.02:1 on `paper`, asserted at the
+   3:1 non-text floor in tokens.test.js). On a light surface the ring is
+   `ink-light`, because on orange the only inks are black and white.
+
+   The 405 `focus:outline-none` utilities that used to strip the native ring
+   were removed by scripts/sweepOutlineNone.mjs; the rule below is what
+   replaces them. A surviving `focus:outline-none` beats this rule on
+   specificity and should be treated as a defect.
+   ═══════════════════════════════════════════════════════════════ */
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 1px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+.wilson-light-scroll :focus-visible,
+[data-surface="light"] :focus-visible {
+  outline-color: var(--color-ink-light);
+}
+
+/* Placeholder is ink at 52 percent on dark. On a light surface a grey on
+   orange is exactly the thing Audrey's rule forbids (ink-light at 52 percent
+   measures 3.4:1), so there the placeholder is the ink itself, italic — the
+   light pages' existing convention: emptiness from italic, never from a
+   second ink. */
+::placeholder {
+  color: var(--color-ink-3);
+  opacity: 1;
+}
+.wilson-light-scroll ::placeholder,
+[data-surface="light"] ::placeholder {
+  color: var(--color-ink-light);
+  font-style: italic;
+}
+
+/* Caret and selection: the signal on dark, the ink on light. Selection is an
+   alpha screen so the selected text keeps its own colour (a solid signal
+   fill under 13px text would fail the orange rule); ink on the blended
+   ground is asserted in tokens.test.js. AuthPasswordInput sets its own
+   caret-color inline for alignment reasons and keeps it. */
+input, textarea, [contenteditable="true"] {
+  caret-color: var(--color-signal);
+}
+::selection {
+  background-color: var(--color-selection);
+}
+.wilson-light-scroll input,
+.wilson-light-scroll textarea,
+.wilson-light-scroll [contenteditable="true"],
+[data-surface="light"] input,
+[data-surface="light"] textarea,
+[data-surface="light"] [contenteditable="true"] {
+  caret-color: var(--color-ink-light);
+}
+.wilson-light-scroll ::selection,
+[data-surface="light"] ::selection {
+  background-color: var(--color-selection-light);
+}
+
+/* Disabled is one token: the ink screened to 52 percent plus this cursor,
+   never `opacity-30/40/50`. The colour half lives on the kit's classes below
+   (`.ui-btn:disabled` and friends); the cursor is global so the ~60
+   hand-rolled `disabled:cursor-not-allowed` utilities become redundant
+   rather than wrong. */
+:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
 }
 
 /* Session 43: `@keyframes blink` was removed with its only consumer, the
@@ -51,10 +320,54 @@ html, body {
   to   { opacity: 1; }
 }
 .auth-step {
-  animation: authStepIn 200ms cubic-bezier(0.2, 0, 0, 1) both;
+  animation: authStepIn var(--duration-response) var(--ease-response) both;
 }
 @media (prefers-reduced-motion: reduce) {
   .auth-step { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBARS — two classes, applied by the shell per surface (F19).
+
+   `.wilson-dark-scroll` used to be a <style> tag INSIDE DeckOutlineGenerator
+   with a universal selector, mounted for the whole session because App
+   renders every page at once and hides the inactive ones. It restyled every
+   scrollbar in the app from inside one tool, and four O.T.T.E.R. surfaces
+   depended on a settings-scrollbar class defined in that same tag (they
+   now carry the dark class directly). Both treatments live here: App.jsx
+   puts `wilson-dark-scroll` on its root (so nothing
+   loses the treatment it had) and on each tool page, and the light class,
+   declared AFTER it at the same specificity, wins inside the light pages
+   exactly as it did before.
+
+   The dark thumb is the ink screened to 25 percent (what `#57534e` was, as a
+   token), the hover is the signal (what `#f97316` was), the track is
+   transparent (on `paper` it is indistinguishable from the old painted
+   track). The light values are unchanged.
+   ═══════════════════════════════════════════════════════════════ */
+.wilson-dark-scroll::-webkit-scrollbar,
+.wilson-dark-scroll *::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.wilson-dark-scroll::-webkit-scrollbar-track,
+.wilson-dark-scroll *::-webkit-scrollbar-track {
+  background: transparent;
+}
+.wilson-dark-scroll::-webkit-scrollbar-thumb,
+.wilson-dark-scroll *::-webkit-scrollbar-thumb {
+  background: var(--color-scroll-thumb);
+  border-radius: var(--radius-control);
+}
+.wilson-dark-scroll::-webkit-scrollbar-thumb:hover,
+.wilson-dark-scroll *::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scroll-thumb-hover);
+}
+/* Firefox */
+.wilson-dark-scroll,
+.wilson-dark-scroll * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scroll-thumb) transparent;
 }
 
 /* Light-page scrollbar (Settings, Project Manager, Home) — orange thumb only, no track */
@@ -66,11 +379,11 @@ html, body {
   background: transparent;
 }
 .wilson-light-scroll::-webkit-scrollbar-thumb {
-  background: #c2712c;
+  background: var(--color-scroll-thumb-light);
   border-radius: 3px;
 }
 .wilson-light-scroll::-webkit-scrollbar-thumb:hover {
-  background: #a85d20;
+  background: var(--color-scroll-thumb-light-hover);
 }
 /* Also override any nested scrollbars on light pages */
 .wilson-light-scroll *::-webkit-scrollbar {
@@ -81,26 +394,554 @@ html, body {
   background: transparent;
 }
 .wilson-light-scroll *::-webkit-scrollbar-thumb {
-  background: #c2712c;
+  background: var(--color-scroll-thumb-light);
   border-radius: 3px;
 }
 .wilson-light-scroll *::-webkit-scrollbar-thumb:hover {
-  background: #a85d20;
+  background: var(--color-scroll-thumb-light-hover);
 }
 /* Firefox */
 .wilson-light-scroll,
 .wilson-light-scroll * {
   scrollbar-width: thin;
-  scrollbar-color: #c2712c transparent;
+  scrollbar-color: var(--color-scroll-thumb-light) transparent;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    GLOBAL — Dark-theme native <select> dropdown backgrounds
-   Chromium renders <option> with white bg by default; force stone.
+   Chromium renders <option> with white bg by default; force paper.
    ═══════════════════════════════════════════════════════════════ */
 select option {
-  background-color: #1c1917;
-  color: #d6d3d1;
+  background-color: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   THE KIT — src/ui/* (plan §4). State lives in data attributes and in these
+   rules, never in an inline style, so a hover can never be beaten by a
+   `style={{ backgroundColor }}` written next to it (the Bins dead-hover bug,
+   plan §1). Layout utilities may be added on top by callers; utilities sit
+   in a later cascade layer and win.
+
+   Reduced motion is honoured PER CLASS at the bottom of this block, never by
+   a blanket rule: the pet keyframes live in this file too (C5), and
+   tokens.test.js asserts no reduced-motion rule reaches them.
+   ═══════════════════════════════════════════════════════════════ */
+@layer components {
+  /* ── Button ────────────────────────────────────────────────────────── */
+  .ui-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: var(--control-md);
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: 0;
+    white-space: nowrap;
+    user-select: none;
+    cursor: pointer;
+    color: var(--color-ink);
+    background-color: transparent;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .ui-btn[data-size="sm"] {
+    height: var(--control-sm);
+    padding: 0 10px;
+    font-size: var(--text-dense);
+  }
+  .ui-btn[data-variant="primary"] {
+    color: var(--color-on-fill);
+    background-color: var(--color-signal-fill);
+    border-color: var(--color-signal-fill);
+  }
+  .ui-btn[data-variant="primary"]:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-signal-fill) 88%, black);
+    border-color: color-mix(in srgb, var(--color-signal-fill) 88%, black);
+  }
+  .ui-btn[data-variant="secondary"] {
+    border-color: var(--color-rule);
+  }
+  .ui-btn[data-variant="secondary"]:hover:not(:disabled),
+  .ui-btn[data-variant="ghost"]:hover:not(:disabled) {
+    background-color: var(--color-hover);
+  }
+  .ui-btn[data-variant="ghost"] {
+    color: var(--color-ink-2);
+  }
+  .ui-btn[data-variant="ghost"]:hover:not(:disabled) {
+    color: var(--color-ink);
+  }
+  .ui-btn[data-variant="danger"] {
+    color: var(--color-danger);
+    border-color: color-mix(in srgb, var(--color-danger) 40%, transparent);
+  }
+  .ui-btn[data-variant="danger"]:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  }
+  .ui-btn[data-surface="light"][data-variant="secondary"],
+  .ui-btn[data-surface="light"][data-variant="ghost"],
+  .ui-btn[data-surface="light"][data-variant="danger"] {
+    color: var(--color-ink-light);
+    border-color: var(--color-rule-light);
+  }
+  .ui-btn[data-surface="light"][data-variant="ghost"] {
+    border-color: transparent;
+  }
+  .ui-btn[data-surface="light"][data-variant="secondary"]:hover:not(:disabled),
+  .ui-btn[data-surface="light"][data-variant="ghost"]:hover:not(:disabled),
+  .ui-btn[data-surface="light"][data-variant="danger"]:hover:not(:disabled) {
+    background-color: var(--color-hover-light);
+  }
+  .ui-btn:disabled {
+    color: var(--color-ink-3);
+    background-color: transparent;
+    border-color: var(--color-rule);
+  }
+  .ui-btn[data-surface="light"]:disabled {
+    color: color-mix(in srgb, var(--color-ink-light) 52%, transparent);
+    border-color: var(--color-rule-light);
+  }
+  .ui-btn > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; }
+  .ui-btn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+
+  /* ── IconButton: 28 / 36, ghost by default ─────────────────────────── */
+  .ui-iconbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-md);
+    height: var(--control-md);
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    color: var(--color-ink-2);
+    background-color: transparent;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .ui-iconbtn[data-size="sm"] { width: var(--control-sm); height: var(--control-sm); }
+  .ui-iconbtn > svg { width: var(--icon-md); height: var(--icon-md); }
+  .ui-iconbtn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .ui-iconbtn:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
+  .ui-iconbtn[data-active="true"] {
+    color: var(--color-ink);
+    background-color: var(--color-signal-tint);
+    border-color: var(--color-signal);
+  }
+  .ui-iconbtn[data-danger="true"] { color: var(--color-danger); }
+  .ui-iconbtn[data-surface="light"] { color: var(--color-ink-light); }
+  .ui-iconbtn[data-surface="light"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-ink-light); }
+  .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
+
+  /* ── Input, TextArea, Select: one well per page class ──────────────── */
+  .ui-input {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    height: var(--control-md);
+    padding: 0 12px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink);
+    background-color: var(--color-paper-raised);
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .ui-input[data-size="sm"] { height: var(--control-sm); padding: 0 8px; }
+  .ui-input:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-ink) 28%, transparent); }
+  .ui-input:disabled { color: var(--color-ink-3); }
+  .ui-input[data-surface="light"] {
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border-color: var(--color-rule-light);
+  }
+  .ui-input[data-surface="light"]:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-ink-light) 45%, transparent); }
+  .ui-input[data-surface="light"]:disabled { color: color-mix(in srgb, var(--color-ink-light) 52%, transparent); }
+  textarea.ui-input { height: auto; padding: 8px 12px; resize: vertical; }
+  select.ui-input { padding-right: 28px; }
+
+  /* ── Field: Label role + control, 4px inside / 16px between ────────── */
+  .ui-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .ui-field[data-inline="true"] { flex-direction: row; align-items: center; gap: 12px; }
+  .ui-field + .ui-field { margin-top: 16px; }
+  .ui-field[data-inline="true"] + .ui-field[data-inline="true"] { margin-top: 8px; }
+  .ui-field-label {
+    font-size: var(--text-label);
+    line-height: 1.3;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+    flex-shrink: 0;
+  }
+  .ui-field[data-inline="true"] > .ui-field-label { min-width: 88px; }
+  .ui-field[data-mixed="true"] > .ui-field-label { color: var(--color-warning); }
+  .ui-field[data-surface="light"] > .ui-field-label { color: var(--color-ink-light); }
+  .ui-field-control { flex: 1; min-width: 0; }
+  .ui-field-hint { font-size: var(--text-caption); line-height: 1.4; color: var(--color-ink-3); }
+  .ui-field[data-surface="light"] > .ui-field-hint { color: var(--color-ink-light); font-style: italic; }
+
+  /* ── Switch: pill track 36x20, knob `ink-light` on the signal track ── */
+  .ui-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .ui-switch-track {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    border-radius: 9999px;
+    background-color: var(--color-ink-3);
+    transition: background-color var(--duration-state) ease-out;
+    flex-shrink: 0;
+  }
+  .ui-switch[data-checked="true"] > .ui-switch-track { background-color: var(--color-signal); }
+  .ui-switch-knob {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background-color: var(--color-ink-light);
+    transition: transform var(--duration-state) ease-out;
+  }
+  .ui-switch[data-checked="true"] .ui-switch-knob { transform: translateX(16px); }
+  .ui-switch[data-disabled="true"] { cursor: not-allowed; }
+  .ui-switch[data-disabled="true"] > .ui-switch-track { background-color: color-mix(in srgb, var(--color-ink-3) 50%, transparent); }
+  .ui-switch-label { font-size: var(--text-body); line-height: 1.5; color: var(--color-ink); }
+  .ui-switch[data-surface="light"] .ui-switch-label { color: var(--color-ink-light); }
+
+  /* ── Chip (interactive filter) and Badge (inert label) ─────────────── */
+  .ui-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-sm);
+    padding: 0 10px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    font-family: var(--font-sans);
+    font-size: var(--text-label);
+    line-height: 1;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-ink-2);
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+  }
+  .ui-chip:hover:not(:disabled) { background-color: var(--color-hover); color: var(--color-ink); }
+  /* The one active treatment: the signal as a 16% tint and a 1px edge, the
+     ink unchanged. Never the signal as a fill under 11px text. A caller may
+     pass a DATA colour (a bin's colour) through `--chip-color`. */
+  .ui-chip[data-active="true"] {
+    color: var(--color-ink);
+    background-color: var(--chip-color, var(--color-signal-tint));
+    border-color: var(--chip-edge, var(--color-signal));
+  }
+  .ui-chip:disabled { color: var(--color-ink-3); }
+  .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; }
+  .ui-chip[data-active="true"] .ui-chip-count { color: var(--color-ink-2); }
+  .ui-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    font-size: var(--text-label);
+    line-height: 1;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-ink-2);
+  }
+  .ui-badge[data-surface="light"] { color: var(--color-ink-light); border-color: var(--color-rule-light); background-color: var(--color-well-light); }
+
+  /* ── StatusDot / StatusBadge: one semantic source, never colour alone ─
+     The tone → token mapping lives HERE, so a status colour is a stylesheet
+     decision and StatusDot.jsx carries only the semantics. */
+  [data-tone="neutral"] { --status-color: var(--color-ink-3); }
+  [data-tone="signal"]  { --status-color: var(--color-signal); }
+  [data-tone="success"] { --status-color: var(--color-success); }
+  [data-tone="warning"] { --status-color: var(--color-warning); }
+  [data-tone="danger"]  { --status-color: var(--color-danger); }
+  [data-tone="info"]    { --tone-color: var(--color-ink-3); }
+  .ui-toast[data-tone="success"], .ui-banner[data-tone="success"] { --tone-color: var(--color-success); }
+  .ui-toast[data-tone="warning"], .ui-banner[data-tone="warning"] { --tone-color: var(--color-warning); }
+  .ui-toast[data-tone="danger"],  .ui-banner[data-tone="danger"]  { --tone-color: var(--color-danger); }
+  .ui-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    flex-shrink: 0;
+    background-color: var(--status-color, var(--color-ink-3));
+  }
+  .ui-status-dot[data-surface="light"] { background-color: var(--color-ink-light); }
+  .ui-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 20px;
+    padding: 0 8px 0 6px;
+    border-radius: var(--radius-control);
+    font-size: var(--text-label);
+    line-height: 1;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--color-ink);
+    background-color: color-mix(in srgb, var(--status-color, var(--color-ink-3)) 14%, transparent);
+  }
+  .ui-status[data-surface="light"] { color: var(--color-ink-light); background-color: var(--color-well-light); }
+
+  /* ── Kbd: Label step mono, hairline, 4px, min-width 18px, centred ──── */
+  .ui-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    font-family: var(--font-mono);
+    font-size: max(var(--text-label), calc(var(--text-label) * var(--mono-size-adjust)));
+    line-height: 1;
+    font-weight: 600;
+    color: var(--color-ink-2);
+    background-color: var(--color-paper-recessed);
+  }
+
+  /* ── Menu: floating surface ────────────────────────────────────────── */
+  .ui-menu {
+    position: fixed;
+    z-index: 80;
+    min-width: 200px;
+    padding: 4px 0;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+    overflow-y: auto;
+  }
+  .ui-menu-header {
+    padding: 6px 12px 4px;
+    font-size: var(--text-label);
+    line-height: 1.3;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .ui-menu-divider { height: 1px; margin: 4px 0; background-color: var(--color-rule); }
+  .ui-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--control-sm);
+    padding: 0 12px;
+    border: 0;
+    text-align: left;
+    font-family: var(--font-sans);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink);
+    background-color: transparent;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .ui-menu-item:hover:not(:disabled) { background-color: var(--color-hover); }
+  .ui-menu-item[data-danger="true"] { color: var(--color-danger); }
+  .ui-menu-item:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .ui-menu-item > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; color: var(--color-ink-2); }
+  .ui-menu-item[data-danger="true"] > svg { color: var(--color-danger); }
+  .ui-menu-item-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-menu-hint { margin-left: 12px; font-family: var(--font-mono); font-size: var(--text-label); color: var(--color-ink-3); flex-shrink: 0; }
+
+  /* ── Dialog: one backdrop, one surface, 8px, one shadow ────────────── */
+  .ui-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-backdrop);
+  }
+  .ui-dialog {
+    display: flex;
+    flex-direction: column;
+    max-width: 94vw;
+    max-height: 88vh;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+    color: var(--color-ink);
+  }
+  .ui-dialog-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 24px 12px;
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-dialog-title { font-size: var(--text-h2); line-height: 1.3; font-weight: 600; color: var(--color-ink); }
+  .ui-dialog-subtitle { margin-top: 2px; font-size: var(--text-dense); line-height: 1.45; color: var(--color-ink-2); }
+  .ui-dialog-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 24px; font-size: var(--text-body); line-height: 1.5; }
+  .ui-dialog-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 12px 24px 16px;
+    border-top: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .ui-dialog-error {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+    min-width: 0;
+    font-size: var(--text-dense);
+    color: var(--color-danger);
+  }
+  .ui-dialog-error > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
+  .ui-dialog-error > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ── Toast: one anchor, bottom centre, 24px up ─────────────────────── */
+  .ui-toast-stack {
+    position: fixed;
+    left: 50%;
+    bottom: 24px;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transform: translateX(-50%);
+    pointer-events: none;
+  }
+  .ui-toast {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 280px;
+    max-width: 560px;
+    padding: 10px 12px 10px 14px;
+    border: 1px solid var(--color-rule);
+    border-left: 3px solid var(--tone-color, var(--color-ink-3));
+    border-radius: var(--radius-float);
+    background-color: var(--color-paper-raised);
+    box-shadow: var(--shadow-float);
+    color: var(--color-ink);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    pointer-events: auto;
+    animation: ui-toast-in var(--duration-response) var(--ease-response) both;
+  }
+  .ui-toast-title { font-weight: 600; }
+  .ui-toast-body { color: var(--color-ink-2); }
+  .ui-toast-text { flex: 1; min-width: 0; }
+  @keyframes ui-toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Banner: the in-flow strip ─────────────────────────────────────── */
+  .ui-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px var(--spacing-gutter);
+    border-bottom: 1px solid var(--color-rule);
+    background-color: color-mix(in srgb, var(--tone-color, var(--color-ink-3)) 14%, transparent);
+    color: var(--color-ink);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+  }
+  .ui-banner > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; color: var(--tone-color, var(--color-ink-2)); }
+  .ui-banner-text { flex: 1; min-width: 0; }
+  .ui-banner[data-surface="light"] { color: var(--color-ink-light); border-color: var(--color-rule-light); }
+  .ui-banner[data-surface="light"] > svg { color: var(--color-ink-light); }
+
+  /* ── EmptyState: never a loading string ────────────────────────────── */
+  .ui-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    height: 100%;
+    padding: 64px 32px;
+  }
+  .ui-empty[data-compact="true"] { padding: 32px 16px; }
+  .ui-empty > svg { width: var(--icon-lg); height: var(--icon-lg); margin-bottom: 12px; color: var(--color-ink-3); }
+  .ui-empty-title { font-size: var(--text-body); line-height: 1.5; font-weight: 600; color: var(--color-ink); }
+  .ui-empty-body { margin-top: 4px; max-width: var(--measure-reading); font-size: var(--text-dense); line-height: 1.45; color: var(--color-ink-2); }
+  .ui-empty-actions { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  .ui-empty[data-surface="light"] > svg,
+  .ui-empty[data-surface="light"] .ui-empty-title,
+  .ui-empty[data-surface="light"] .ui-empty-body { color: var(--color-ink-light); }
+
+  /* ── Loading: skeleton rows for tables, a spinner elsewhere ────────── */
+  .ui-skeleton-rows { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+  .ui-skeleton-row { display: flex; gap: 12px; height: calc(var(--row) - 8px); align-items: center; padding: 0 var(--cell-pad-x); }
+  .ui-skeleton {
+    display: block;
+    height: 12px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-skeleton);
+    animation: ui-skeleton-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes ui-skeleton-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.45; }
+  }
+  .ui-loading-inline { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-dense); color: var(--color-ink-2); }
+
+  /* ── Spinner ───────────────────────────────────────────────────────── */
+  .ui-spinner {
+    display: inline-block;
+    border-radius: 9999px;
+    border: 2px solid var(--color-rule);
+    border-top-color: var(--color-signal);
+    animation: ui-spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes ui-spin { to { transform: rotate(360deg); } }
+}
+
+/* Reduced motion, scoped to the kit's own classes. 🚨 Never a `*` rule here:
+   the pet keyframes below must keep playing (C5). The spinner keeps turning —
+   an indeterminate progress indicator has no end state to jump to. */
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn, .ui-iconbtn, .ui-input, .ui-chip, .ui-menu-item,
+  .ui-switch-track, .ui-switch-knob {
+    transition-duration: 0.01ms;
+  }
+  .ui-toast { animation: none; }
+  .ui-skeleton { animation: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -246,6 +1087,10 @@ select option {
 
 /* ═══════════════════════════════════════════════════════════════
    O.T.T.E.R. LESSON CONTENT MARKDOWN STYLING
+   ⚠️ The hexes below are O.T.T.E.R.'s reading surface and belong to lane A
+   session A3 (plan §5), which re-derives them from the tokens above with
+   the measure and heading scale. Foundation left them byte-for-byte so the
+   lesson pane does not change under a session that is not looking at it.
    ═══════════════════════════════════════════════════════════════ */
 .lesson-content h1 { font-size: 1.5rem; font-weight: 700; margin: 1.25rem 0 0.75rem; color: #f97316; }
 .lesson-content h2 { font-size: 1.25rem; font-weight: 700; margin: 1rem 0 0.5rem; color: #fb923c; }
@@ -269,7 +1114,8 @@ select option {
 .lesson-content th { background: #292524; color: #f97316; padding: 0.5rem; border: 2px solid #57534e; text-align: left; }
 .lesson-content td { padding: 0.5rem; border: 2px solid #44403c; color: #d6d3d1; }
 
-/* Companion chat markdown styling */
+/* Companion chat markdown styling (the agent panel; unreviewed, see the
+   review's "Missing coverage" — same rule as the lesson block above). */
 .companion-chat-md p { margin: 0.25rem 0; line-height: 1.5; }
 .companion-chat-md p:first-child { margin-top: 0; }
 .companion-chat-md p:last-child { margin-bottom: 0; }

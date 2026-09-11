@@ -400,7 +400,7 @@ export default function RequestsView({
   const isManager = role === 'manager'
 
   return (
-    <div className="h-full overflow-y-auto p-5 settings-scrollbar">
+    <div className="h-full overflow-y-auto p-5 wilson-dark-scroll">
       <div className="max-w-3xl mx-auto space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -593,7 +593,7 @@ export default function RequestsView({
                                     value={note}
                                     onChange={(e) => setNote(e.target.value)}
                                     placeholder="What should change before you would approve this?"
-                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
+                                    className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 placeholder-stone-600"
                                   />
                                   <div className="flex gap-2 mt-2">
                                     <button
@@ -820,7 +820,7 @@ export default function RequestsView({
                                       value={nomNote}
                                       onChange={(e) => setNomNote(e.target.value)}
                                       placeholder="What would have to change before this could be the company's official course?"
-                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 focus:outline-none placeholder-stone-600"
+                                      className="w-full h-16 bg-stone-950 text-white border-2 border-stone-600 rounded-sm p-2 text-[11px] font-mono resize-none focus:border-orange-500 placeholder-stone-600"
                                     />
                                     <div className="flex gap-2 mt-2">
                                       <button

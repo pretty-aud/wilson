@@ -360,7 +360,12 @@ export const AUTH_INK = '#1c1917'
 export const AUTH_ERROR_INK = '#7f1d1d'
 
 // ── Reusable typography ─────────────────────────────────────────────────────
-// Modern geometric sans-serif via the OS-preferred system font stack.
+// The app's one sans, read from `@theme` in src/index.css (UI overhaul F1,
+// 2026-09-11 — the Apple-first system stack that used to live here was the
+// only sans declaration in the app and competed with the global face). Kept
+// as an explicit key because AuthPasswordInput's wrapper reads it to make
+// `22ch` resolve identically on the wrapper and the input; T3 re-measures
+// that caret alignment now that the face has changed.
 // Callers can override fontSize / letterSpacing / fontWeight locally.
 export const AUTH_TEXT_STYLE = {
   color: AUTH_INK,
@@ -368,7 +373,7 @@ export const AUTH_TEXT_STYLE = {
   textTransform: 'uppercase',
   letterSpacing: '0.12em',
   fontSize: '20.5px',
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  fontFamily: 'var(--font-sans)',
 }
 
 // ── Shared field kit (Session 43 §A7) ───────────────────────────────────────
