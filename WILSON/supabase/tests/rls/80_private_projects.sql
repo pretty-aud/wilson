@@ -60,7 +60,17 @@ SELECT ok(
   'projects_select reads is_private');
 
 -- ── the manager makes a private project ─────────────────────────────────────
-SELECT tests.login_as('dddddddd-dddd-dddd-dddd-dddddddddddd', '11111111-1111-1111-1111-111111111111');
+-- Claims in the JWT's own shape (suite 59): current_app_role() reads
+-- app_metadata.app_role from the claims, not from workspace_members, and
+-- tests.login_as does not set it — a manager without it is refused by
+-- projects_insert. set_config rather than tests.login_as for every switch,
+-- because once the role is `authenticated` the tests schema is off limits.
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','dddddddd-dddd-dddd-dddd-dddddddddddd','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','manager')
+)::text, true);
+SELECT set_config('role','authenticated', true);
 
 SELECT lives_ok($$
   INSERT INTO public.projects (id, workspace_id, title, is_private)
@@ -84,7 +94,12 @@ SELECT is(
   1::bigint, 'the owner sees the private project''s file row');
 
 -- ── the plain member sees none of it, and everything else ───────────────────
-SELECT tests.login_as('cccccccc-cccc-cccc-cccc-cccccccccccc', '11111111-1111-1111-1111-111111111111');
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','cccccccc-cccc-cccc-cccc-cccccccccccc','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','user')
+)::text, true);
+SELECT set_config('role','authenticated', true);
 
 SELECT is(
   (SELECT count(*) FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000072'),
@@ -98,16 +113,19 @@ SELECT is(
   (SELECT count(*) FROM public.files WHERE project_id = 'aaaa1111-0000-0000-0000-000000000072'),
   0::bigint, 'the private project''s file row is hidden by the live-parent hop, with no files_select change');
 
-SELECT is(
-  (WITH u AS (
-     UPDATE public.projects SET title = 'renamed by a member'
-      WHERE id = 'aaaa1111-0000-0000-0000-000000000072'
-      RETURNING 1)
-   SELECT count(*) FROM u),
-  0::bigint, 'the plain member cannot update what they cannot see');
+-- A data-modifying CTE may only sit at the top level of a statement, so the
+-- update runs on its own (0 rows, no error) and the admin reads the title
+-- back below.
+UPDATE public.projects SET title = 'renamed by a member'
+ WHERE id = 'aaaa1111-0000-0000-0000-000000000072';
 
 -- ── the admin keeps the escape hatch ────────────────────────────────────────
-SELECT tests.login_as('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', '11111111-1111-1111-1111-111111111111');
+SELECT set_config('request.jwt.claims', jsonb_build_object(
+  'sub','aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa','role','authenticated',
+  'app_metadata', jsonb_build_object(
+    'workspace_id','11111111-1111-1111-1111-111111111111','app_role','admin')
+)::text, true);
+SELECT set_config('role','authenticated', true);
 
 SELECT is(
   (SELECT count(*) FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000072'),
@@ -121,6 +139,10 @@ SELECT is(
   (SELECT created_by FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000072'),
   'dddddddd-dddd-dddd-dddd-dddddddddddd'::uuid,
   'the owner is the inserting caller, stamped by fn_audit_touch — no client can name another');
+
+SELECT is(
+  (SELECT title FROM public.projects WHERE id = 'aaaa1111-0000-0000-0000-000000000072'),
+  'Private P', 'the plain member could not update what they cannot see (0014: SELECT applies to both sides of an UPDATE)');
 
 SELECT * FROM finish();
 ROLLBACK;

@@ -266,3 +266,58 @@ shows the demo folder and the bins there. Both states persist. Walkthrough 18
 one-time copy of her cloud projects into the folder; (3) Supabase only, no
 folder and no bins. The offline-tolerant launch (hand-off 2 §6 item 3) is
 dropped: part 1 needs the cloud anyway.
+
+---
+
+## 8. Built the same night — private projects: cloud rows, media on this computer (2026-09-11)
+
+Audrey, 2026-09-11 ~00:05, after part 1 of the rehearsal worked, verbatim:
+
+> Okay so its working but heres the thing. remember all databases need to
+> live in the supabase storage at all times. the only thing local storage
+> should be related to is just the media files and asset of the project. the
+> system should still track and record all databases in supabase. in settings
+> just clarify that it is only working for demos as local projects cant be
+> shared with other.
+>
+> how we can treat this is lets also just give users the ability to setup
+> private projects for themselves.
+>
+> again, i just want to be able to use the supabase databases and use the
+> local storage for demo purposes
+
+and, asked whether that was next week's build: *"i need it tonight"*.
+
+**What was built (commit `4c10387` on `demo/local-storage`):**
+
+- **A private project** (migration `0072_private_projects.sql`,
+  `projects.is_private`): a cloud project row visible to its creator and to
+  workspace admins, hidden from everyone else by `projects_select`; every
+  child row follows through the live-parent hop already in its own SELECT
+  policy, so no other policy changed (pgTAP suite 80). Made from PROJECTS →
+  NEW PROJECT → the **Private project** checkbox — shown only in Supabase
+  mode, on the desktop, when the database has the column: the adapter probes
+  it once per session, so a client ahead of the database lists projects
+  exactly as before and shows no checkbox.
+- **Its media lives on this computer.** `uploadFile` routes a non-financial
+  upload on a private project to the `local_server` storage provider
+  (`src/tools/rabbit_v0.1.0/storage/localServerProvider.js`) — the value
+  the registry has mapped `network` to since S36 and nobody had implemented,
+  because a browser cannot reach a disk. The desktop renderer can, through
+  five routes on its own Express server (`electron/localMedia.cjs`,
+  `/api/rabbit/local-media/…`). Bodies land under **`<demo folder>\media\`**
+  while a folder is open, app data's `rabbit-data\local-media\` otherwise;
+  thumbnails and playback are served from disk; the row
+  (`files.storage_provider = 'local_server'`) stays in Supabase. An invoice
+  on a private project stays in Supabase — the money pin still wins. Off the
+  desktop a private project's row resolves to a sentence, never to a throw.
+- **The copy she asked for**, on Settings → Storage: for demos only,
+  databases stay in Supabase, only media goes local, nothing stored on this
+  computer can be shared; the card shows the media root. Opening a demo
+  folder no longer flips the backend to Local Server — a cloud session that
+  opens a folder stays a cloud session.
+- The bins stay Local Server only (her 2026-09-10 answer: next week).
+
+**Before it shows on staging:** migration 0072 must be applied there
+(hand-off 4 §6 has the command). Until then the checkbox is absent and
+nothing else is different. Walkthrough 18's last section is the click-by-click.

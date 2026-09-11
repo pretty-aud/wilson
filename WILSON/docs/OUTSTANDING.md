@@ -80,6 +80,20 @@ NO environment yet" is out of date.
 
 ## Broken features
 
+### A private project's media body is never purged from the desktop
+**INFERRED from the design (2026-09-11, the private-projects build,
+`4c10387`); a stated limit, not yet seen to matter.** Cloud rows with
+`storage_provider = 'local_server'` keep their bodies under the desktop's
+local media root (`electron/localMedia.cjs`). `deleteFile` is a soft delete
+that leaves every provider's blob in place (the documented blob-GC gap), and
+the hard-delete / GC sweeps run in the cloud (`trg_files_gc_enqueue`, the
+orphan scan, the teardown sweep), which cannot reach a disk: a local body
+outlives its row for ever. §4a2b invariant 3 ("purge is provider-aware") is
+therefore not met for this provider. Fix shape: on the desktop, a sweep that
+lists `local-media` keys and unlinks any whose row is gone — or a `del()`
+from `deleteFile` when the row is hard-deleted. Until then, *Reset demo
+folder* deliberately leaves `media\` alone (its rows outlive the folder).
+
 ### O.T.T.E.R. software routes join a route parameter onto `getSoftwareDir()` raw
 **INFERRED from code reading (adversarial review round 2 of the local demo
 folder, 2026-09-10); not yet measured.** The same shape that round measured

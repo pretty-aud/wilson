@@ -40,6 +40,12 @@ top of the numbered steps below:
 2. Settings → Storage → *Storage Backend* → **Local Server**, then the LOCAL DEMO FOLDER card → **Choose a demo folder…** (steps 1–3 below; choosing a folder pins Local Server anyway). PROJECTS now lists the folder's projects — empty on a fresh folder until **Create demo project** (step 14) or NEW PROJECT. Bins: walkthrough 16 from here. That is part 2.
 3. Back: Settings → Storage → *Storage Backend* → **Supabase** → your cloud projects are back. The folder is still open for the local server and waits for the next switch.
 
+**Added 2026-09-11, inside part 1: a private project** whose database is in
+Supabase and whose media is on this computer — the last section of this
+file, "Private projects". Opening the demo folder no longer switches the
+backend to Local Server, so step 2's "choosing a folder pins Local Server
+anyway" is gone: click **Local Server** yourself for part 2.
+
 Part 1 needs the network throughout; part 2 does not once the app is open.
 A launch while the network stalls waits 15 seconds and then shows the
 sign-in screen instead of an orange window (measured; "The cable pulled").
@@ -188,3 +194,34 @@ loads, the same as a signed-out launch. Never an orange window in either.
 - **A folder that disappears while WILSON is open** (drive unplugged, folder
   renamed) is reported as missing on the next action — the same red card as
   step 11 — and nothing is recreated at the old path.
+
+---
+
+## Private projects — cloud rows, media on this computer (2026-09-11)
+
+Your rule, 2026-09-11: *"all databases need to live in the supabase storage
+at all times. the only thing local storage should be related to is just the
+media files and asset of the project."* Built that night (`4c10387`). It
+lives in **Supabase mode** — part 1 of the rehearsal — and the demo folder is
+only where the media lands.
+
+**Before it can show:** migration 0072 must be on staging (the hand-off's
+"Waiting on Audrey" has the command). Until then the checkbox in P2 is
+simply absent and nothing else is different.
+
+| # | Do | You should see |
+|---|----|----------------|
+| P1 | Settings → Storage → *Storage Backend* → **Supabase**. If you want the media inside your demo folder, open one (LOCAL DEMO FOLDER → **Choose a demo folder…**); the backend now STAYS on Supabase. | The card carries a red-brown line: *For demos only. Nothing stored on this computer can be shared with anyone. Databases stay in Supabase; local storage is for media. In Supabase mode a private project keeps its media here:* followed by the path — `<folder>\media` with a folder open, `%APPDATA%\wilson\rabbit-data\local-media` without. |
+| P2 | PROJECTS → **NEW PROJECT** → title `Private Demo` → tick **Private project** → Create | The project opens. Back in PROJECTS its row carries a **PRIVATE** badge. In Supabase (Table Editor → `projects`) the row exists with `is_private = true`: the database is in the cloud. |
+| P3 | In the project, add a picture or a clip to an asset (Assets → add files) | The tile shows its thumbnail. In Explorer the body is at `<media root>\projects\<project id>\assets\<asset id>\<time>-<name>` and its thumbnail beside it as `<name>.jpg`. Nothing new appears in the Petal bucket (Supabase → Storage → `rabbit-files`). The `files` row says `storage_provider = local_server`. |
+| P4 | Click the clip → preview; then download it | The player streams from the local server (`http://127.0.0.1:<port>/api/rabbit/local-media/…`); the download saves under the file's real name. |
+| P5 | Sign in as another member of the workspace (a second account, or the web app in a browser) | The private project is not in their list and none of its rows are readable to them. A workspace admin sees the project; opening one of its files there says *this file lives on the computer that added it — open WILSON on that computer to see it* — the media is only on your computer. |
+| P6 | Settings → Storage → *Storage Backend* → **Local Server** | The private project is not here: it is a cloud project. The folder's own projects (part 2) are. Switch back to Supabase and it is back. |
+| P7 | Add an invoice to a budget line of the private project | It lands in Supabase, not on disk: financial files never leave the cloud (the money pin). |
+
+**Limits, stated.** A body is never purged from the disk when its row is
+deleted (the blob-GC gap cloud rows already have, now on the desktop too);
+the local server answers whoever can reach 127.0.0.1 on this machine (the
+Local Server stance since S12); and a private project made on this computer
+shows its media only on this computer — that is the point, and the sentence
+above says so wherever else the row is opened.

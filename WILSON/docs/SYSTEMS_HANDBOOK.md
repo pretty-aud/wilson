@@ -2413,6 +2413,63 @@ the folder's own posix-capable shape check (N8). Out of scope and recorded
 in `OUTSTANDING.md`: the O.T.T.E.R. software routes join `req.params` onto
 `getSoftwareDir()` the same way.
 
+### 12.8a Private projects — cloud rows, media on this computer (2026-09-11)
+
+**Audrey, 2026-09-11, verbatim:** *"all databases need to live in the
+supabase storage at all times. the only thing local storage should be
+related to is just the media files and asset of the project. … lets also
+just give users the ability to setup private projects for themselves."*
+Built the same night (`4c10387`); `DEMO_LOCAL_STORAGE_BRIEF.md` §8 records
+the decision, walkthrough 18's last section the clicks.
+
+**The model.** A private project is a cloud project row with
+`projects.is_private = true` (migration 0072). `projects_select` keeps
+0020's three conditions and gains one arm: `NOT is_private OR created_by =
+auth.uid() OR current_app_role() = 'admin'`. Every child table's SELECT
+policy already hops through `EXISTS (SELECT 1 FROM public.projects …)`
+under the caller's RLS (0014's live-parent rule), so files, assets, tasks,
+scenes, shots, folders and the realtime topic gate (0016) follow without a
+policy change of their own; pgTAP suite 80 pins the owner, the member, the
+admin and the child hop. `created_by` is stamped by `fn_audit_touch`, so the
+owner is the inserting caller by construction.
+
+**Where the media goes.** `uploadFile` (`supabaseAdapter.js`) decides the
+provider beside the money pin: a non-financial upload on a private project
+takes `FILE_PROVIDERS.LOCAL_SERVER`; everything else takes the S37
+workspace read exactly as before, and the S36 refusal of a whole workspace on
+`network` stands. `local_server` is now a REGISTERED provider on every
+surface — `storage/localServerProvider.js`, five functions over `fetch`
+against the desktop's own Express server, plus `getUrl` for playback and
+download — and off the desktop each function refuses with a sentence
+(`NOT_HERE`) instead of the registry's generic throw. The routes are
+`electron/localMedia.cjs` (`/api/rabbit/local-media`: describe / put /
+get with Range and `?download=` / head / delete), mounted from `main.cjs`
+with one line after the missing-folder guard and before the SPA fallback.
+The root is `getLocalMediaRoot()`: `<demo folder>\media` while a folder is
+open, `rabbit-data\local-media` under app data otherwise; a MISSING folder
+refuses (never a silent fallback). Thumbnails follow the body (S44's rule,
+`putThumbnailTo(storageProvider, …)` unchanged) and FileManager reads a
+`local_server` row's preview from the local URL instead of asking Petal to
+sign it. The client probes `is_private` once per session (42703 → absent),
+so a build ahead of the database lists projects as before and shows no
+checkbox; `createProject` drops the flag in that case.
+
+**The key is untrusted.** A `files` row is inserted by any project member
+through PostgREST, so the `storage_path` that reaches these routes is
+input, not our output: `checkMediaKey` admits only the shape `uploadFile`
+writes (`projects/<id>/<entity>/<entity id>/<leaf>`, plain segments, no
+dot-segments, separators, drive letters or device names), the disk path goes
+through `resolveContainedFilePath`, and the nearest existing ancestor is
+re-checked by REAL path so a junction inside the root cannot lead out
+(`localMedia.test.js`). Loopback, unauthenticated — the Local Server stance.
+
+**Stated limits.** A local body is not purged when its row is hard-deleted
+or GC'd — the desktop is out of the cloud sweep's reach (`OUTSTANDING.md`);
+the folder's *Reset demo folder* leaves `media\` alone on purpose (its rows
+outlive the folder); the bins remain Local Server only (Audrey: next week).
+Opening a demo folder no longer pins Local Server mode (§12.8's "choosing a
+folder switches the backend" is gone).
+
 ## 13. The three tools, the shell, and the agent
 
 ### 13.1 D.O.G. — Deck Outline Generator
