@@ -10,6 +10,7 @@
 // affordance — cloud mode gates them by app role, local mode passes both.
 
 import { Plus, Trash2 } from 'lucide-react'
+import '../Resources/resources.css'
 
 function formatDate(iso) {
   if (!iso) return '—'
@@ -130,6 +131,8 @@ export default function ProjectListPanel({
             {projects.map((project, i) => (
               <div
                 key={project.id}
+                className="pl-row"
+                data-zebra={i % 2 === 0 ? 'a' : 'b'}
                 onClick={() => onOpen(project.id)}
                 style={{
                   display: 'grid',
@@ -137,13 +140,10 @@ export default function ProjectListPanel({
                   gap: 0,
                   padding: '0 8px',
                   borderBottom: '1px solid rgba(120, 70, 30, 0.15)',
-                  backgroundColor: i % 2 === 0 ? 'rgba(120, 70, 30, 0.12)' : 'rgba(120, 70, 30, 0.22)',
                   cursor: 'pointer',
                   alignItems: 'center',
                   transition: 'background-color 0.12s ease',
                 }}
-                onMouseEnter={e => e.currentTarget.style.backgroundColor = 'rgba(120, 70, 30, 0.38)'}
-                onMouseLeave={e => e.currentTarget.style.backgroundColor = i % 2 === 0 ? 'rgba(120, 70, 30, 0.12)' : 'rgba(120, 70, 30, 0.22)'}
               >
                 {/* Title */}
                 <span style={{
@@ -177,13 +177,14 @@ export default function ProjectListPanel({
                 {/* Status */}
                 <span style={{ padding: '14px 14px' }}>
                   <select
+                    className="pl-status"
+                    data-status={project.status || 'active'}
                     value={project.status || 'active'}
                     onChange={(e) => { e.stopPropagation(); onUpdateStatus(project.id, e.target.value) }}
                     onClick={(e) => e.stopPropagation()}
                     style={{
                       fontSize: 12, fontWeight: 700, textTransform: 'uppercase',
                       letterSpacing: '0.04em', cursor: 'pointer',
-                      color: (project.status || 'active') === 'active' ? '#16a34a' : '#dc2626',
                       backgroundColor: 'rgba(120, 70, 30, 0.5)',
                       border: '1px solid rgba(120, 70, 30, 0.3)',
                       borderRadius: 2, padding: '4px 8px', outline: 'none',
@@ -222,13 +223,12 @@ export default function ProjectListPanel({
                 <span style={{ padding: '14px 10px', display: 'flex', justifyContent: 'center' }}>
                   {onRequestDelete && (
                     <button
+                      className="pl-del"
                       onClick={(e) => { e.stopPropagation(); onRequestDelete(project.id) }}
                       style={{
-                        color: '#9a6438', padding: 4, borderRadius: 3,
+                        padding: 4, borderRadius: 3,
                         border: 'none', background: 'none', cursor: 'pointer',
                       }}
-                      onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                      onMouseLeave={e => e.currentTarget.style.color = '#9a6438'}
                       title="Delete project"
                     >
                       <Trash2 size={16} />

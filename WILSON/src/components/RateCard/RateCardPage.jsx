@@ -32,6 +32,7 @@ import ImportPreviewModal from './importers/ImportPreviewModal'
 import GoogleSheetUrlPrompt from './importers/GoogleSheetUrlPrompt'
 import { importCsv } from './importers/csvImporter'
 import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
+import '../Resources/resources.css'
 import { importXlsx } from './importers/xlsxImporter'
 import { importPdf } from './importers/pdfImporter'
 import { importGoogleSheet } from './importers/googleSheetImporter'
@@ -195,20 +196,6 @@ export default function RateCardPage() {
     setPreviewResult(null)
   }
 
-  // ─── Tab style helper ───
-  function tabStyle(type) {
-    const isActive = activeType === type
-    return {
-      // Selected tab is the warm well, not a white pill. Unselected is bare
-      // page — the selection reads by fill + rule, not by a lighter ink.
-      backgroundColor: isActive ? LIGHT_WELL : 'transparent',
-      color: isActive ? '#7c2d12' : '#451a03',
-      border: isActive ? '1px solid #7c2d12' : '1px solid transparent',
-      borderBottom: isActive ? `1px solid ${LIGHT_WELL}` : '1px solid transparent',
-      marginBottom: '-2px',
-    }
-  }
-
   return (
     // Was #fef3e8 — a near-white sheet over the whole orange page. The page IS
     // the surface; panels group with wells and rules, not with a card.
@@ -234,8 +221,8 @@ export default function RateCardPage() {
             <button
               type="button"
               onClick={() => generalCard && setActiveRateCardId(generalCard.id)}
-              className="px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors"
-              style={tabStyle('general')}
+              className="rc-tab px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors"
+              data-active={activeType === 'general' || undefined}
             >
               General
             </button>
@@ -251,8 +238,9 @@ export default function RateCardPage() {
               disabled={!internalCard}
               title={internalCard ? undefined : 'The internal rate card could not be created — see the error above.'}
               onClick={() => { if (internalCard) setActiveRateCardId(internalCard.id) }}
-              className="px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors flex items-center gap-1.5"
-              style={{ ...tabStyle('internal'), cursor: internalCard ? 'pointer' : 'not-allowed', opacity: internalCard ? 1 : 0.55 }}
+              className="rc-tab px-3 py-1 text-xs font-mono font-bold uppercase tracking-wider rounded-t-sm transition-colors flex items-center gap-1.5"
+              data-active={activeType === 'internal' || undefined}
+              data-disabled={!internalCard || undefined}
             >
               Internal
               {/* entries are RLS-empty when restricted — the badge would
@@ -548,12 +536,12 @@ function ImporterCard({ label, note, onClick, disabled }) {
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed hover:bg-orange-100"
+      className="rc-importer w-full flex items-start gap-2 p-3 rounded-sm text-left transition-colors disabled:cursor-not-allowed hover:bg-orange-100"
+      data-disabled={disabled || undefined}
       style={{
         backgroundColor: 'transparent',
         border: '2px solid #f4a261',
         color: '#7c2d12',
-        opacity: disabled ? 0.6 : 1,
       }}
     >
       <Upload className="w-4 h-4 mt-0.5 flex-shrink-0" />

@@ -14,6 +14,7 @@ import {
 import ProjectFilesTable from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { useTeamMembers } from '../TeamMembers/useTeamMembers'
 import { LIGHT_INK } from '../lightSurface'
+import '../Resources/resources.css'
 
 /* ── Design tokens (on tan page bg) ───────────────────────── */
 
@@ -37,7 +38,7 @@ const L = {
   select: {
     padding: '10px 14px', fontSize: 15,
     fontFamily: 'ui-monospace, monospace',
-    backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0',
+    backgroundColor: 'rgba(120, 70, 30, 0.55)',
     border: '2px solid rgba(120, 70, 30, 0.35)', borderRadius: 2,
     outline: 'none', cursor: 'pointer', width: '100%',
     appearance: 'none',
@@ -182,12 +183,11 @@ export default function ProjectDetailPanel({
                 <Film size={13} /> Director
               </label>
               <select
+                className="pd-select"
+                data-empty={!project.director_id || undefined}
                 value={project.director_id || ''}
                 onChange={(e) => onUpdate({ director_id: e.target.value || null })}
-                style={{
-                  ...L.select,
-                  color: project.director_id ? '#fde8d0' : LIGHT_INK,
-                }}
+                style={L.select}
               >
                 <option value="">Select director...</option>
                 {(tm.members || []).map(m => (
@@ -201,12 +201,11 @@ export default function ProjectDetailPanel({
                 <Sparkles size={13} /> Producer
               </label>
               <select
+                className="pd-select"
+                data-empty={!project.producer_id || undefined}
                 value={project.producer_id || ''}
                 onChange={(e) => onUpdate({ producer_id: e.target.value || null })}
-                style={{
-                  ...L.select,
-                  color: project.producer_id ? '#fde8d0' : LIGHT_INK,
-                }}
+                style={L.select}
               >
                 <option value="">Select producer...</option>
                 {(tm.members || []).map(m => (
@@ -221,12 +220,11 @@ export default function ProjectDetailPanel({
             <div>
               <label style={L.label}>Status</label>
               <select
+                className="pd-select pd-status"
+                data-status={project.status || 'active'}
                 value={project.status || 'active'}
                 onChange={(e) => onUpdate({ status: e.target.value })}
-                style={{
-                  ...L.select,
-                  color: (project.status || 'active') === 'active' ? '#22c55e' : '#ef4444',
-                }}
+                style={L.select}
               >
                 <option value="active" style={{ color: '#22c55e' }}>Active</option>
                 <option value="inactive" style={{ color: '#ef4444' }}>Inactive</option>
@@ -287,6 +285,7 @@ export default function ProjectDetailPanel({
                   style={L.input}
                 />
                 <select
+                  className="pd-select"
                   value={project.budget_currency || 'USD'}
                   onChange={(e) => onUpdate({ budget_currency: e.target.value })}
                   style={L.select}
@@ -350,22 +349,12 @@ export default function ProjectDetailPanel({
           onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
           onDragLeave={() => setIsDragging(false)}
           onClick={() => inputRef.current?.click()}
-          style={{
-            border: `2px dashed ${isDragging ? '#ea580c' : 'rgba(120, 70, 30, 0.45)'}`,
-            borderRadius: 4,
-            padding: fileCount > 0 ? '12px 24px' : '24px 32px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            marginBottom: fileCount > 0 ? 16 : 0,
-            backgroundColor: isDragging ? 'rgba(234, 88, 12, 0.08)' : 'transparent',
-            transition: 'all 0.15s ease',
-          }}
+          className="pd-drop"
+          data-dragging={isDragging || undefined}
+          data-has-files={fileCount > 0 || undefined}
         >
-          <Upload
-            size={fileCount > 0 ? 16 : 22}
-            style={{ margin: '0 auto 6px', color: isDragging ? '#ea580c' : '#9a6438' }}
-          />
-          <p style={{ fontSize: 13, color: isDragging ? '#ea580c' : '#7c4f1f' }}>
+          <Upload size={fileCount > 0 ? 16 : 22} className="pd-drop-icon" />
+          <p className="pd-drop-text">
             {filesBusy
               ? 'Uploading…'
               : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
@@ -445,12 +434,12 @@ export default function ProjectDetailPanel({
                 .map(f => (
                   <div
                     key={f.id || f.path}
+                    className="pd-tree-row"
+                    data-kind={f.kind}
                     style={{
                       // One space of indent per path segment, so the shape of
                       // the tree is visible without drawing one.
                       paddingLeft: ((f.path || '').split('/').filter(Boolean).length) * 16,
-                      opacity: f.kind === 'entity' ? 0.85 : 1,
-                      fontWeight: f.kind === 'root' ? 700 : 400,
                     }}
                   >
                     {f.kind === 'root' ? (f.slug || '(project root)') : f.slug}

@@ -30,13 +30,12 @@ import { LIGHT_INK } from '../lightSurface'
 import { formatBytes } from '../../cloud/workspaceStorage'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
 import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows } from './fileTree'
+import './resources.css'
 
 const INK = LIGHT_INK
 const MUTED = '#7c4f1f'
-const ACCENT = '#ea580c'
-const ROW_A = 'rgba(120, 70, 30, 0.12)'
-const ROW_B = 'rgba(120, 70, 30, 0.22)'
-const SELECTED = 'rgba(234, 88, 12, 0.24)'
+// ACCENT / ROW_A / ROW_B / SELECTED moved to `resources.css` with the states
+// they described; nothing reads them from JS any more.
 const BORDER = '1px solid rgba(120, 70, 30, 0.25)'
 
 const PROVIDER_LABEL = {
@@ -58,11 +57,6 @@ function safeList(fn, id) {
   try { return Promise.resolve(fn(id)).then(v => (Array.isArray(v) ? v : [])).catch(() => []) } catch { return Promise.resolve([]) }
 }
 
-const btnStyle = (active) => ({
-  padding: '6px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase',
-  borderRadius: 2, cursor: 'pointer', border: `1px solid ${active ? ACCENT : 'rgba(120,70,30,0.4)'}`,
-  backgroundColor: active ? SELECTED : 'transparent', color: INK,
-})
 
 export default function ProjectFilesExplorer() {
   const ctx = useRabbit()
@@ -152,8 +146,8 @@ export default function ProjectFilesExplorer() {
           ))}
         </select>
         <div style={{ display: 'flex', gap: 6 }} role="group" aria-label="View">
-          <button type="button" style={btnStyle(view === 'table')} onClick={() => setView('table')}>Table</button>
-          <button type="button" style={btnStyle(view === 'columns')} onClick={() => setView('columns')}>Columns</button>
+          <button type="button" className="fx-viewbtn" data-active={view === 'table' || undefined} onClick={() => setView('table')}>Table</button>
+          <button type="button" className="fx-viewbtn" data-active={view === 'columns' || undefined} onClick={() => setView('columns')}>Columns</button>
         </div>
         <input
           type="search"
@@ -164,7 +158,7 @@ export default function ProjectFilesExplorer() {
           style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', minWidth: 220 }}
           aria-label="Filter"
         />
-        <button type="button" style={btnStyle(false)} onClick={() => setReloads(n => n + 1)} disabled={!projectId || loading}>Refresh</button>
+        <button type="button" className="fx-viewbtn" onClick={() => setReloads(n => n + 1)} disabled={!projectId || loading}>Refresh</button>
         {tree && (
           <span style={{ fontSize: 12, color: MUTED, fontFamily: 'monospace' }}>
             {tree.folderCount} folder{tree.folderCount === 1 ? '' : 's'} · {tree.fileCount} file{tree.fileCount === 1 ? '' : 's'}
@@ -231,11 +225,13 @@ function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query }
           return (
             <tr
               key={node.id}
+              className="fx-row"
               onClick={() => { if (!isFolder) onPick(node) }}
               data-node-kind={node.kind}
-              style={{ backgroundColor: isSel ? SELECTED : (i % 2 === 0 ? ROW_A : ROW_B), cursor: isFolder ? 'default' : 'pointer' }}
+              data-zebra={i % 2 === 0 ? 'a' : 'b'}
+              data-selected={isSel || undefined}
             >
-              <td style={{ padding: '8px 12px', paddingLeft: 12 + depth * 18 * indent, fontWeight: isFolder ? 700 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 420 }}>
+              <td className="fx-name" style={{ padding: '8px 12px', paddingLeft: 12 + depth * 18 * indent, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 420 }}>
                 <span aria-hidden style={{ marginRight: 8 }}>{isFolder ? '▸' : '·'}</span>{node.name}
               </td>
               <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap' }}>{isFolder ? 'Folder' : m.type}</td>
@@ -269,11 +265,12 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile })
                 key={node.id}
                 type="button"
                 onClick={() => (isFolder ? onOpenFolder(depth, node.id) : onPickFile(depth, node))}
+                className="fx-col-item"
                 data-node-kind={node.kind}
+                data-selected={isSel || undefined}
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%',
                   padding: '7px 12px', textAlign: 'left', fontSize: 13, color: INK, border: 'none', cursor: 'pointer',
-                  backgroundColor: isSel ? SELECTED : 'transparent', fontWeight: isFolder ? 700 : 500,
                 }}
               >
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>

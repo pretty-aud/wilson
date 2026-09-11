@@ -24,6 +24,7 @@ import { CURRENCIES } from '../settings/CurrencyPicker'
 import { DEFAULT_DEPARTMENTS } from '../TeamMembers/useTeamMembers'
 import { computeEntryTotal, BUDGET_TIERS } from './useRateCard'
 import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL, LIGHT_SURFACE_SOLID } from '../lightSurface'
+import '../Resources/resources.css'
 
 const DEPT_ORDER = Object.fromEntries(DEFAULT_DEPARTMENTS.map((d, i) => [d, i]))
 
@@ -93,8 +94,8 @@ function EditCell({
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className={`w-full px-2 py-1.5 text-xs rounded-sm focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
-        style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: align }}
+        className={`rc-cell-input w-full px-2 py-1.5 text-xs rounded-sm focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
+        style={{ textAlign: align }}
       />
     )
   }
@@ -103,10 +104,11 @@ function EditCell({
     <button
       type="button"
       onClick={start}
-      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-900/10'} ${mono ? 'font-mono' : ''}`}
-      style={{ color: LIGHT_INK, textAlign: align, minHeight: '28px' }}
+      className={`rc-cell w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-900/10'} ${mono ? 'font-mono' : ''}`}
+      data-readonly={readOnly || undefined}
+      style={{ textAlign: align, minHeight: '28px' }}
     >
-      {display || <span style={{ color: '#7c2d12', opacity: 0.4 }}>{placeholder || '—'}</span>}
+      {display || <span className="rc-cell-placeholder">{placeholder || '—'}</span>}
     </button>
   )
 }
@@ -154,8 +156,8 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
-          className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
+          className="rc-cell-input flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
+          style={{ textAlign: 'right' }}
         />
         <button
           type="button"
@@ -175,8 +177,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         <button
           type="button"
           onClick={start}
-          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-900/10 transition-colors text-right"
-          style={{ color: LIGHT_INK }}
+          className="rc-cell px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-900/10 transition-colors text-right"
         >
           {hasValue
             ? (isPercent ? `${value}%` : formatCurrency(value, currency))
@@ -189,8 +190,7 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
         <button
           type="button"
           onClick={onToggleType}
-          className="px-1 py-0.5 text-[9px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
-          style={{ color: '#7c2d12', opacity: 0.45, lineHeight: 1 }}
+          className="rc-comp-type px-1 py-0.5 text-[9px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
           title={`Switch to ${isPercent ? 'fixed $' : 'percent'}`}
         >
           {isPercent ? '%' : '$'}
@@ -258,8 +258,8 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
               key={c.code}
               type="button"
               onClick={() => { onCommit(c.code); setOpen(false) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-900/10 transition-colors"
-              style={{ color: c.code === current.code ? '#ea580c' : '#1c1917' }}
+              className="rc-currency-option w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-900/10 transition-colors"
+              data-current={c.code === current.code || undefined}
             >
               <span className="w-6" style={{ color: '#7c2d12' }}>{c.symbol}</span>
               <span className="w-10">{c.code}</span>
@@ -713,8 +713,8 @@ export default function RateCardTable({
                     return (
                       <tr
                         key={row.id}
-                        className="hover:bg-orange-900/10 transition-colors"
-                        style={isGhost ? { backgroundColor: LIGHT_WELL } : undefined}
+                        className="rc-row hover:bg-orange-900/10 transition-colors"
+                        data-ghost={isGhost || undefined}
                       >
                         {/* Role / Member name */}
                         <td style={td}>
@@ -824,10 +824,8 @@ export default function RateCardTable({
                         {/* Total (computed, read-only) */}
                         <td style={td}>
                           <span
-                            className="block px-2 py-1.5 text-xs font-mono text-right font-bold"
-                            style={{
-                              color: computed.total > 0 ? '#166534' : LIGHT_INK,
-                            }}
+                            className="rc-total block px-2 py-1.5 text-xs font-mono text-right font-bold"
+                            data-positive={computed.total > 0 || undefined}
                           >
                             {computed.total > 0 ? formatCurrency(computed.total, row.currency) : '—'}
                           </span>
@@ -879,7 +877,7 @@ export default function RateCardTable({
 
             {/* ── Draft row (general card only) ── */}
             {!isInternal && !readOnly && (
-              <tr style={{ backgroundColor: LIGHT_WELL }}>
+              <tr className="rc-row" data-ghost>
                 <td style={td}>
                   <EditCell
                     value={draft.role_label}
