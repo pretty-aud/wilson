@@ -2,9 +2,61 @@
 // Projects — detail panel (single project, read+write)
 // ============================================================
 //
-// No card containers — content flows directly on the page bg.
-// Section dividers separate logical groups. Inputs use the
-// warm brown well style from the WILSON visual language.
+// ── UI overhaul C1 ───────────────────────────────────────────────────────────
+//
+// Restyled through TOKENS AND KIT COMPONENTS ONLY. Track C carries +45 lines on
+// this file unmerged (plan Q13), so the JSX keeps its shape — same sections in
+// the same order, same two-column form, same fields, same drop zone, same
+// read-only folder tree, same delete — and the later track merge conflicts on
+// lines rather than on structure.
+//
+// The local `L` token object is gone (F-R01: every page on this surface
+// defined its own, which is the mechanism underneath two thirds of the
+// findings). What it held and what replaced it:
+//
+//   L.label     13px 700 UPPER 0.05em — the SAME typographic object this file
+//               used for its BUTTONS at :114 (F-R17). Field labels are the
+//               11px Label role now; buttons are 14px sentence case 600.
+//   L.input     `rgba(120,70,30,0.55)` with `#fde8d0`, recorded as failing at
+//               3.38:1 in lightSurface.js's own header, at 15px in MONO. One
+//               kit Input, Body 14px sans (F-R08, F-R18).
+//   L.select    the same, plus an inline `color` ternary that made the
+//               extracted state rule unwinnable until it moved (commit 1).
+//   L.section   16px 700 UPPER — SectionTitle, sentence case, hairline above.
+//   L.divider   a 2px translucent brown rule at a symmetric 28px margin, which
+//               at 11–13px type reads as a smudge rather than a line. One 1px
+//               hairline, 32px above and 24px below (F-R25).
+//
+// Four more, each from its own finding:
+//
+//  · THE DETAIL VIEW HAS A PRIMARY ACTION NOW. Back, Open in RABBIT and Delete
+//    Project were the same button at the same size — 8px 16px, 13px, 700,
+//    uppercase — so the view technically had none, and Delete sat at the
+//    bottom after a divider identical to every other divider on the page.
+//    Back is a ghost with its chevron, Open in RABBIT is the secondary, and
+//    Delete is a bounded region with a Label eyebrow so the eye stops counting
+//    it among the navigation (F-R28). `#44403c`/`#fb923c`, a fourth button
+//    colourway used exactly once, is retired with it.
+//
+//  · THE DROP ZONE STOPS MOVING THE PAGE. `transition: all 0.15s` sat on a
+//    container whose padding AND margin were both conditional on `fileCount`,
+//    so the first successful upload — the moment the feature proves it worked
+//    — animated two layout properties and shifted everything below it by 28px.
+//    Named properties, one padding and one 16px icon for both states, so the
+//    jump does not exist to be animated (F-R30).
+//
+//  · THE FOLDER TREE STOPS DE-EMPHASISING WITH OPACITY. `opacity: 0.85` on a
+//    coloured ground is a blend toward the ground — the grey-on-orange
+//    mechanism the rule bans, arrived at by another route — and `#5c3415` was
+//    a sixth brown ink on a surface meant to have one. Weight carries the
+//    root; the indent stays, because the review's own note is that it is the
+//    one thing there that works (F-R31).
+//
+//  · THE FILES TABLE FOLLOWS THE PAGE. `ProjectFilesTable` belongs to lane B
+//    (plan §6.5) and is NOT edited here; it already ships a `variant` prop, so
+//    the page asks it for `dark` instead of `warm`. Lane B converges its
+//    internals on the values in this session's hand-off.
+// ============================================================
 
 import { useState, useRef } from 'react'
 import {
@@ -13,47 +65,17 @@ import {
 } from 'lucide-react'
 import ProjectFilesTable from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import { useTeamMembers } from '../TeamMembers/useTeamMembers'
-import { LIGHT_INK } from '../lightSurface'
-
-/* ── Design tokens (on tan page bg) ───────────────────────── */
-
-const L = {
-  label: {
-    fontSize: 13, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.05em', color: '#4a2c10', marginBottom: 6,
-    display: 'flex', alignItems: 'center', gap: 5,
-  },
-  sublabel: {
-    fontSize: 11, color: '#7c4f1f', textTransform: 'uppercase',
-    letterSpacing: '0.04em', marginBottom: 5, display: 'block',
-  },
-  input: {
-    width: '100%', padding: '10px 14px', fontSize: 15,
-    fontFamily: 'ui-monospace, monospace',
-    backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0',
-    border: '2px solid rgba(120, 70, 30, 0.35)', borderRadius: 2,
-    outline: 'none',
-  },
-  select: {
-    padding: '10px 14px', fontSize: 15,
-    fontFamily: 'ui-monospace, monospace',
-    backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0',
-    border: '2px solid rgba(120, 70, 30, 0.35)', borderRadius: 2,
-    outline: 'none', cursor: 'pointer', width: '100%',
-    appearance: 'none',
-  },
-  section: {
-    fontSize: 16, fontWeight: 700, textTransform: 'uppercase',
-    letterSpacing: '0.05em', color: '#3a1e08',
-    marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8,
-  },
-  divider: {
-    borderTop: '2px solid rgba(120, 70, 30, 0.25)',
-    margin: '28px 0',
-  },
-}
+import {
+  Banner, Button, Field, Input, SectionTitle, Select, TextArea, Toolbar,
+} from '../../ui'
+import '../Resources/resources.css'
 
 const CURRENCY_OPTIONS = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY']
+
+const STATUS_OPTIONS = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+]
 
 /* ── helpers ──────────────────────────────────────────────── */
 
@@ -100,201 +122,146 @@ export default function ProjectDetailPanel({
   const imageCount = (allFiles || []).filter(f => f.is_image).length
   const docCount = fileCount - imageCount
 
+  const memberOptions = (tm.members || []).map(m => ({ value: m.id, label: m.name }))
+
   return (
-    <div className="h-full overflow-y-auto wilson-light-scroll">
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '28px 40px' }}>
-
-        {/* ── Navigation bar ──────────────────────────── */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 28 }}>
-          <button
-            onClick={onBack}
-            className="flex items-center gap-2 rounded-sm transition-colors"
-            style={{
-              backgroundColor: '#ea580c', color: '#fff',
-              padding: '8px 16px', fontSize: 13, fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}
-          >
-            <ChevronLeft size={16} />
-            Back to Projects
-          </button>
-          {onOpenInRabbit && (
-            <button
-              onClick={onOpenInRabbit}
-              className="flex items-center gap-2 rounded-sm transition-colors"
-              style={{
-                backgroundColor: '#44403c', color: '#fb923c',
-                border: '1px solid #57534e',
-                padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}
-              title="Open this project in RABBIT"
-            >
-              <RabbitIcon size={16} />
-              Open in RABBIT
-            </button>
-          )}
-
-          {/* Timestamps inline with nav */}
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 16 }}>
+    <div className="rs-page">
+      {/* ── Navigation ──────────────────────────────────────
+          One primary per region, and this region's is "go back to the list" —
+          which is navigation, so it is the GHOST, and the region's filled
+          primary is none. Three equal-weight buttons meant the view had no
+          primary at all (F-R28). */}
+      <Toolbar
+        right={(
+          <div className="pj-meta">
             {project.created_at && (
-              <span style={{ fontSize: 11, color: '#7c4f1f', fontFamily: 'ui-monospace, monospace' }}>
-                Created: {fmtDate(project.created_at)}
-              </span>
+              <span>Created <span className="pj-meta-value">{fmtDate(project.created_at)}</span></span>
             )}
             {project.updated_at && (
-              <span style={{ fontSize: 11, color: '#7c4f1f', fontFamily: 'ui-monospace, monospace' }}>
-                Updated: {fmtDate(project.updated_at)}
-              </span>
+              <span>Updated <span className="pj-meta-value">{fmtDate(project.updated_at)}</span></span>
             )}
           </div>
-        </div>
+        )}
+      >
+        <Button variant="ghost" size="sm" onClick={onBack}>
+          <ChevronLeft aria-hidden="true" /> Back to projects
+        </Button>
+        {onOpenInRabbit && (
+          <Button size="sm" onClick={onOpenInRabbit} title="Open this project in R.A.B.B.I.T.">
+            <RabbitIcon aria-hidden="true" /> Open in R.A.B.B.I.T.
+          </Button>
+        )}
+      </Toolbar>
 
-        {/* ── Project Details ──────────────────────────── */}
-        <h3 style={L.section}>Project Details</h3>
+      <div className="rs-body pj-scroll">
+        {saveError && <Banner tone="danger">{saveError}</Banner>}
+        {storageWarning && (
+          <Banner tone="warning">
+            Storage usage is high. Consider removing unused files to free up space.
+          </Banner>
+        )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 28 }}>
+        {/* ── Project details ──────────────────────────── */}
+        <SectionTitle rule={false}>Project details</SectionTitle>
+
+        <div className="pj-form">
           {/* ── Left column ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <div>
-              <label style={L.label}>Title</label>
-              <input
-                type="text"
-                value={project.title || ''}
-                onChange={(e) => onUpdate({ title: e.target.value })}
-                style={L.input}
-              />
-            </div>
+          <div className="pj-form-col">
+            <Field label="Title">
+              <Input value={project.title || ''} onChange={(v) => onUpdate({ title: v })} />
+            </Field>
 
-            <div>
-              <label style={L.label}>Description</label>
-              <textarea
+            <Field label="Description">
+              <TextArea
                 value={project.description || ''}
-                onChange={(e) => onUpdate({ description: e.target.value })}
+                onChange={(v) => onUpdate({ description: v })}
                 rows={3}
-                placeholder="Brief description of the project..."
-                style={{ ...L.input, resize: 'vertical' }}
+                placeholder="Brief description of the project"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label style={L.label}>
-                <Film size={13} /> Director
-              </label>
-              <select
+            <Field label={<><Film aria-hidden="true" /> Director</>}>
+              <Select
                 value={project.director_id || ''}
-                onChange={(e) => onUpdate({ director_id: e.target.value || null })}
-                style={{
-                  ...L.select,
-                  color: project.director_id ? '#fde8d0' : LIGHT_INK,
-                }}
-              >
-                <option value="">Select director...</option>
-                {(tm.members || []).map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </div>
+                onChange={(v) => onUpdate({ director_id: v })}
+                placeholder="Select director"
+                options={memberOptions}
+              />
+            </Field>
 
-            <div>
-              <label style={L.label}>
-                <Sparkles size={13} /> Producer
-              </label>
-              <select
+            <Field label={<><Sparkles aria-hidden="true" /> Producer</>}>
+              <Select
                 value={project.producer_id || ''}
-                onChange={(e) => onUpdate({ producer_id: e.target.value || null })}
-                style={{
-                  ...L.select,
-                  color: project.producer_id ? '#fde8d0' : LIGHT_INK,
-                }}
-              >
-                <option value="">Select producer...</option>
-                {(tm.members || []).map(m => (
-                  <option key={m.id} value={m.id}>{m.name}</option>
-                ))}
-              </select>
-            </div>
+                onChange={(v) => onUpdate({ producer_id: v })}
+                placeholder="Select producer"
+                options={memberOptions}
+              />
+            </Field>
           </div>
 
           {/* ── Right column ── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-            <div>
-              <label style={L.label}>Status</label>
-              <select
+          <div className="pj-form-col">
+            <Field label="Status">
+              <Select
+                className="pl-status"
+                data-status={project.status || 'active'}
                 value={project.status || 'active'}
-                onChange={(e) => onUpdate({ status: e.target.value })}
-                style={{
-                  ...L.select,
-                  color: (project.status || 'active') === 'active' ? '#22c55e' : '#ef4444',
-                }}
-              >
-                <option value="active" style={{ color: '#22c55e' }}>Active</option>
-                <option value="inactive" style={{ color: '#ef4444' }}>Inactive</option>
-              </select>
-            </div>
+                onChange={(v) => onUpdate({ status: v ?? 'active' })}
+                options={STATUS_OPTIONS}
+              />
+            </Field>
 
-            <div>
-              <label style={L.label}>
-                <Calendar size={13} /> Dates
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div>
-                  <span style={L.sublabel}>Start</span>
-                  <input
+            {/* 🚨 A `Field` renders a <label>, and a label names its FIRST
+                labelable descendant — so one Field around two inputs is a
+                visible word that names nothing, and the old sub-labels
+                ("Start", "End") would have gone with it. Each control gets its
+                own Field; the group keeps its heading. */}
+            <div className="pj-group">
+              <span className="pj-group-label"><Calendar aria-hidden="true" /> Dates</span>
+              <div className="pj-pair">
+                <Field label="Start">
+                  <Input
                     type="date"
                     value={project.startDate || project.start_date || ''}
-                    onChange={(e) => onUpdate({ startDate: e.target.value, start_date: e.target.value })}
-                    style={{ ...L.input, colorScheme: 'dark' }}
+                    onChange={(v) => onUpdate({ startDate: v, start_date: v })}
                   />
-                </div>
-                <div>
-                  <span style={L.sublabel}>End</span>
-                  <input
+                </Field>
+                <Field label="End">
+                  <Input
                     type="date"
                     value={project.endDate || project.end_date || ''}
-                    onChange={(e) => onUpdate({ endDate: e.target.value, end_date: e.target.value })}
-                    style={{ ...L.input, colorScheme: 'dark' }}
+                    onChange={(v) => onUpdate({ endDate: v, end_date: v })}
                   />
-                </div>
+                </Field>
               </div>
             </div>
 
-            <div>
-              <label style={L.label}>
-                <User size={13} /> Client
-              </label>
-              <input
-                type="text"
+            <Field label={<><User aria-hidden="true" /> Client</>}>
+              <Input
                 value={project.client_name || ''}
-                onChange={(e) => onUpdate({ client_name: e.target.value })}
-                placeholder="Client name..."
-                style={L.input}
+                onChange={(v) => onUpdate({ client_name: v })}
+                placeholder="Client name"
               />
-            </div>
+            </Field>
 
-            <div>
-              <label style={L.label}>
-                <DollarSign size={13} /> Budget
-              </label>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
-                <input
-                  type="number"
-                  value={project.budget_total ?? ''}
-                  onChange={(e) => onUpdate({
-                    budget_total: e.target.value ? Number(e.target.value) : null,
-                  })}
-                  placeholder="0.00"
-                  style={L.input}
-                />
-                <select
-                  value={project.budget_currency || 'USD'}
-                  onChange={(e) => onUpdate({ budget_currency: e.target.value })}
-                  style={L.select}
-                >
-                  {CURRENCY_OPTIONS.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+            <div className="pj-group">
+              <span className="pj-group-label"><DollarSign aria-hidden="true" /> Budget</span>
+              <div className="pj-budget">
+                <Field label="Amount">
+                  <Input
+                    type="number"
+                    value={project.budget_total ?? ''}
+                    onChange={(v) => onUpdate({ budget_total: v ? Number(v) : null })}
+                    placeholder="0.00"
+                  />
+                </Field>
+                <Field label="Currency">
+                  <Select
+                    value={project.budget_currency || 'USD'}
+                    onChange={(v) => onUpdate({ budget_currency: v ?? 'USD' })}
+                    options={CURRENCY_OPTIONS}
+                  />
+                </Field>
               </div>
             </div>
           </div>
@@ -302,74 +269,55 @@ export default function ProjectDetailPanel({
 
         {/* Folder location */}
         {project.folder_root && (
-          <div style={{ marginTop: 20 }}>
-            <label style={L.label}>
-              <FolderOpen size={13} /> Project Folder
-            </label>
-            <div style={{
-              padding: '8px 14px', fontSize: 12,
-              fontFamily: 'ui-monospace, monospace', color: '#5c3415',
-              backgroundColor: 'rgba(120, 70, 30, 0.25)', borderRadius: 2,
-            }}>
-              {project.folder_root}
+          <div className="pj-section">
+            {/* Not a Field: a <div> is not labelable, so a <label> around it
+                names nothing. It is a read-only readout with a heading. */}
+            <div className="pj-group">
+              <span className="pj-group-label"><FolderOpen aria-hidden="true" /> Project folder</span>
+              <div className="pj-path">{project.folder_root}</div>
             </div>
           </div>
         )}
 
-        {/* ── Divider ── */}
-        <div style={L.divider} />
+        {/* ── Project files ───────────────────────────── */}
+        <div className="pj-section">
+          <SectionTitle
+            description="Upload documents, images, and media. Mark core project files with the checkbox."
+            actions={fileCount > 0 ? (
+              <span className="rs-count">
+                {fileCount} file{fileCount !== 1 ? 's' : ''}
+                {imageCount > 0 && docCount > 0
+                  ? ` · ${docCount} doc${docCount !== 1 ? 's' : ''}, ${imageCount} media`
+                  : imageCount > 0
+                    ? ` · ${imageCount} media`
+                    : docCount > 0
+                      ? ` · ${docCount} doc${docCount !== 1 ? 's' : ''}`
+                      : ''
+                }
+              </span>
+            ) : null}
+          >
+            Project files
+          </SectionTitle>
 
-        {/* ── Project Files ───────────────────────────── */}
-        <h3 style={L.section}>
-          Project Files
-          {fileCount > 0 && (
-            <span style={{
-              fontSize: 11, color: '#7c4f1f', fontWeight: 400,
-              fontFamily: 'ui-monospace, monospace',
-            }}>
-              {fileCount} file{fileCount !== 1 ? 's' : ''}
-              {imageCount > 0 && docCount > 0
-                ? ` (${docCount} doc${docCount !== 1 ? 's' : ''}, ${imageCount} media)`
-                : imageCount > 0
-                  ? ` (${imageCount} media)`
-                  : docCount > 0
-                    ? ` (${docCount} doc${docCount !== 1 ? 's' : ''})`
-                    : ''
-              }
+          {/* Drop zone — one padding and one icon size for both states, so the
+              first upload does not shift the page under the pointer. */}
+          <button
+            type="button"
+            className="pj-drop"
+            data-dragging={isDragging || undefined}
+            onDrop={handleDrop}
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+            onDragLeave={() => setIsDragging(false)}
+            onClick={() => inputRef.current?.click()}
+          >
+            <Upload className="pj-drop-icon" aria-hidden="true" />
+            <span className="pj-drop-text">
+              {filesBusy
+                ? 'Uploading…'
+                : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
             </span>
-          )}
-        </h3>
-
-        <p style={{ fontSize: 13, color: '#6b4423', marginBottom: 16 }}>
-          Upload documents, images, and media. Mark core project files with the checkbox.
-        </p>
-
-        {/* Drop zone */}
-        <div
-          onDrop={handleDrop}
-          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
-          onDragLeave={() => setIsDragging(false)}
-          onClick={() => inputRef.current?.click()}
-          style={{
-            border: `2px dashed ${isDragging ? '#ea580c' : 'rgba(120, 70, 30, 0.45)'}`,
-            borderRadius: 4,
-            padding: fileCount > 0 ? '12px 24px' : '24px 32px',
-            textAlign: 'center',
-            cursor: 'pointer',
-            marginBottom: fileCount > 0 ? 16 : 0,
-            backgroundColor: isDragging ? 'rgba(234, 88, 12, 0.08)' : 'transparent',
-            transition: 'all 0.15s ease',
-          }}
-        >
-          <Upload
-            size={fileCount > 0 ? 16 : 22}
-            style={{ margin: '0 auto 6px', color: isDragging ? '#ea580c' : '#9a6438' }}
-          />
-          <p style={{ fontSize: 13, color: isDragging ? '#ea580c' : '#7c4f1f' }}>
-            {filesBusy
-              ? 'Uploading…'
-              : isDragging ? 'Drop to upload' : 'Drop files here or click to browse'}
-          </p>
+          </button>
           <input
             ref={inputRef}
             type="file"
@@ -380,21 +328,19 @@ export default function ProjectDetailPanel({
               e.target.value = ''
             }}
           />
+
+          {/* Files table — lane B's file (plan §6.5); it takes the page's
+              surface through the prop it already had. */}
+          {fileCount > 0 && (
+            <ProjectFilesTable
+              files={allFiles}
+              onUpdate={onFileUpdate}
+              onDelete={onFileDelete}
+              maxHeight={380}
+              variant="dark"
+            />
+          )}
         </div>
-
-        {/* Files table */}
-        {fileCount > 0 && (
-          <ProjectFilesTable
-            files={allFiles}
-            onUpdate={onFileUpdate}
-            onDelete={onFileDelete}
-            maxHeight={380}
-            variant="warm"
-          />
-        )}
-
-        {/* ── Divider ── */}
-        <div style={L.divider} />
 
         {/* ── Project folder (Session 27) ───────────────────── */}
         {/*
@@ -407,125 +353,74 @@ export default function ProjectDetailPanel({
             so an editable tree on this page would be a second way to name the
             same thing.
         */}
-        <h3 style={L.section}>
-          <FolderOpen size={15} /> Project Folder
-          {folders.length > 0 && (
-            <span style={{
-              fontSize: 11, color: '#7c4f1f', fontWeight: 400,
-              fontFamily: 'ui-monospace, monospace',
-            }}>
-              {folders.length} folder{folders.length !== 1 ? 's' : ''}
-            </span>
-          )}
-        </h3>
-
-        {folders.length === 0 ? (
-          <p style={{ fontSize: 13, color: '#6b4423', marginBottom: 16 }}>
-            No folder structure yet. It is created the first time this project
-            is opened in R.A.B.B.I.T., or when its first asset or scene is added.
-          </p>
-        ) : (
-          <>
-            <p style={{ fontSize: 13, color: '#6b4423', marginBottom: 12 }}>
-              {/* Said plainly, because the alternative is someone editing the
-                  file and expecting WILSON to notice. */}
-              <code style={{ fontFamily: 'ui-monospace, monospace' }}>PROJECT.json</code>{' '}
-              sits at the top of this folder and describes the project — its
-              settings, this folder list and who is on it. WILSON writes it;
-              editing it by hand changes nothing.
-            </p>
-            <div style={{
-              fontFamily: 'ui-monospace, monospace', fontSize: 12,
-              color: '#5c3415', backgroundColor: 'rgba(120, 70, 30, 0.18)',
-              borderRadius: 2, padding: '10px 14px', marginBottom: 16,
-              maxHeight: 220, overflowY: 'auto',
-            }}>
-              {[...folders]
-                .sort((a, b) => (a.path || '').localeCompare(b.path || ''))
-                .map(f => (
-                  <div
-                    key={f.id || f.path}
-                    style={{
-                      // One space of indent per path segment, so the shape of
-                      // the tree is visible without drawing one.
-                      paddingLeft: ((f.path || '').split('/').filter(Boolean).length) * 16,
-                      opacity: f.kind === 'entity' ? 0.85 : 1,
-                      fontWeight: f.kind === 'root' ? 700 : 400,
-                    }}
-                  >
-                    {f.kind === 'root' ? (f.slug || '(project root)') : f.slug}
-                    {f.label && f.label !== f.slug && (
-                      <span style={{ color: '#9a6438' }}>  {f.label}</span>
-                    )}
-                  </div>
-                ))}
-            </div>
-          </>
-        )}
-
-        {/* ── Divider ── */}
-        <div style={L.divider} />
-
-        {/* ── Danger zone (null onRequestDelete hides it — permission-gated) ── */}
-        {deleteConfirm ? (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ fontSize: 14, color: '#dc2626', fontWeight: 700 }}>
-              Delete this project?
-            </span>
-            <button
-              onClick={onDelete}
-              className="rounded-sm transition-colors"
-              style={{
-                backgroundColor: '#dc2626', color: '#fff',
-                padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                textTransform: 'uppercase',
-              }}
-            >
-              Confirm
-            </button>
-            <button
-              onClick={onCancelDelete}
-              className="rounded-sm transition-colors"
-              style={{
-                padding: '8px 16px', fontSize: 13, fontWeight: 700,
-                textTransform: 'uppercase', color: LIGHT_INK,
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : onRequestDelete ? (
-          <button
-            onClick={onRequestDelete}
-            className="flex items-center gap-2 rounded-sm transition-colors"
-            style={{
-              backgroundColor: '#dc2626', color: '#fff',
-              padding: '8px 16px', fontSize: 13, fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}
+        <div className="pj-section">
+          <SectionTitle
+            actions={folders.length > 0 ? (
+              <span className="rs-count">{folders.length} folder{folders.length !== 1 ? 's' : ''}</span>
+            ) : null}
           >
-            <Trash2 size={15} />
-            Delete Project
-          </button>
-        ) : null}
+            Project folder
+          </SectionTitle>
 
-        {/* Errors / warnings */}
-        {saveError && (
-          <div style={{
-            marginTop: 14, fontSize: 13, color: '#dc2626',
-            backgroundColor: 'rgba(220,38,38,0.1)',
-            padding: '10px 14px', borderRadius: 2,
-          }}>
-            {saveError}
-          </div>
-        )}
-        {storageWarning && (
-          <div style={{
-            marginTop: 14, fontSize: 13, color: '#d97706',
-            backgroundColor: 'rgba(217,119,6,0.1)',
-            padding: '10px 14px', borderRadius: 2,
-          }}>
-            Storage usage is high. Consider removing unused files to free up space.
+          {folders.length === 0 ? (
+            <p className="rs-lede">
+              No folder structure yet. It is created the first time this project
+              is opened in R.A.B.B.I.T., or when its first asset or scene is added.
+            </p>
+          ) : (
+            <>
+              <p className="rs-lede">
+                {/* Said plainly, because the alternative is someone editing the
+                    file and expecting WILSON to notice. */}
+                <code>PROJECT.json</code>{' '}
+                sits at the top of this folder and describes the project — its
+                settings, this folder list and who is on it. WILSON writes it;
+                editing it by hand changes nothing.
+              </p>
+              <div className="pj-tree">
+                {[...folders]
+                  .sort((a, b) => (a.path || '').localeCompare(b.path || ''))
+                  .map(f => (
+                    <div
+                      key={f.id || f.path}
+                      className="pj-tree-row"
+                      data-kind={f.kind}
+                      style={{
+                        // One step of indent per path segment, so the shape of
+                        // the tree is visible without drawing one.
+                        paddingLeft: ((f.path || '').split('/').filter(Boolean).length) * 16,
+                      }}
+                    >
+                      {f.kind === 'root' ? (f.slug || '(project root)') : f.slug}
+                      {f.label && f.label !== f.slug && (
+                        <span className="pj-tree-label">  {f.label}</span>
+                      )}
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Danger zone (null onRequestDelete hides it — permission-gated) ──
+            Bounded, with its own eyebrow and a heavier gap above than any
+            other section, so Delete stops being counted among the navigation
+            (F-R28). The control, the confirmation and the two outcomes are
+            exactly what they were. */}
+        {(deleteConfirm || onRequestDelete) && (
+          <div className="pj-danger">
+            <span className="pj-danger-eyebrow">Danger zone</span>
+            {deleteConfirm ? (
+              <>
+                <span className="pj-danger-question">Delete this project? This cannot be undone.</span>
+                <Button variant="danger" size="sm" onClick={onDelete}>Delete project</Button>
+                <Button variant="ghost" size="sm" onClick={onCancelDelete}>Cancel</Button>
+              </>
+            ) : (
+              <Button variant="ghost" size="sm" onClick={onRequestDelete}>
+                <Trash2 aria-hidden="true" /> Delete project
+              </Button>
+            )}
           </div>
         )}
       </div>

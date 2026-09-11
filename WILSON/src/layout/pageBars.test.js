@@ -48,15 +48,24 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
-  // Q8(b) / W10 (UI overhaul D1b, 2026-09-11): the three resource-class rows
-  // no lane owns are 120/80 — Settings and Help (light) and Team Members
-  // (dark since F2). The five lane-C rows stay 200/150 until each page's own
-  // conversion commit moves it (W10: "lane C sets its own pages' rows"), so
-  // this list is deliberately split for now; Help was the 140/100 outlier.
+  // Q8(b), landed by each lane-C session for the pages it converted: the
+  // resource-class rows go to 120/80, and Files takes the TOOL geometry
+  // because it is a working page, not a reading one. UI overhaul D1b
+  // (W10, 2026-09-11) moved the three rows no lane owns — Settings and Help
+  // (light; Help was the 140/100 outlier) and Team Members (dark since F2).
+  // The one row still at 200/150 is the one whose lane has not run yet:
+  // C3's Admin Terminal.
+  'project-manager': [120, 80], 'rate-card': [120, 80], dashboard: [120, 80],
   settings: [120, 80], 'team-members': [120, 80], help: [120, 80],
-  'project-manager': [200, 150], 'rate-card': [200, 150], 'project-files': [200, 150],
-  dashboard: [200, 150], 'admin-terminal': [200, 150],
+  'project-files': [95, 8],
+  'admin-terminal': [200, 150],
 }
+
+// The 200/150 shape every resource row had before Q8(b), built through the
+// real generator so the "what did we gain" cases below keep a fixed reference
+// after the last 200/150 row (Admin Terminal, C3) moves too.
+const OLD_RESOURCE = bars(200, 150)
+const oldRestAt = (v) => resolveAt(OLD_RESOURCE.top, v) + resolveAt(OLD_RESOURCE.bottom, v)
 
 describe('page bar geometry', () => {
   it('covers every page, and every page in the table is asserted here', () => {
@@ -85,16 +94,33 @@ describe('page bar geometry', () => {
     expect(PAGE_BARS['not-a-page']).toBeUndefined()
   })
 
-  it('the Files page takes the resource-class geometry (Q8a), not Home\'s', () => {
-    // Its twin is another lane-C row (Projects), not Settings: since D1b the
-    // light reading pages sit at 120/80 and Files waits for lane C (W10).
+  // 🚨 THIS TEST CHANGED ITS SUBJECT, NOT ITS JOB (UI overhaul C1).
+  //
+  // F1 gave Files the resource geometry it had been missing (Q8a) and this
+  // test asserted it by comparing against Settings. Q8(b) then moved Files
+  // further than its siblings: it is a WORKING page, so it takes the same
+  // bars(95, 8) the three tools take, and the comparison that means anything
+  // is now against a tool rather than against a reading page.
+  //
+  // It is deliberately still a COMPARISON and not a literal. A literal would
+  // pass against a Files row that had quietly drifted away from the geometry
+  // it is supposed to be sharing, which is the class of bug F-R04 was.
+  it('the Files page takes the TOOL geometry (Q8b) — it is a working page', () => {
     for (const v of VIEWPORTS) {
-      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS['project-manager'].top, v))
-      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS['project-manager'].bottom, v))
+      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS.dog.top, v))
+      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS.dog.bottom, v))
     }
-    // At rest it returns ~186px of field to the densest table (268+268 vs 200+150).
+    // At rest that is 433px of field returned to the densest table in the app
+    // (268+268 against 95+8), where it rendered for three weeks.
     const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
-    expect(rest('home') - rest('project-files')).toBeCloseTo(186, 5)
+    expect(rest('home') - rest('project-files')).toBeCloseTo(433, 5)
+    // …and its two sibling resource pages took the 120/80 half of Q8(b),
+    // which is 150px against the 200/150 they had. (C1 wrote this against
+    // Settings while Settings was still 200/150; D1b moved Settings too, so
+    // the reference is the old shape itself.)
+    for (const id of ['project-manager', 'rate-card']) {
+      expect(oldRestAt(1440) - rest(id), id).toBeCloseTo(150, 5)
+    }
   })
 
   it('never exceeds the resting height, at any viewport', () => {
@@ -150,12 +176,14 @@ describe('page bar geometry', () => {
   })
 
   it('keeps an asymmetric row in proportion all the way down', () => {
-    // Both shapes in the table: the 3:2 light row (D1b) and the 4:3 lane-C row.
-    for (const [page, ratio] of [['settings', 120 / 80], ['project-manager', 200 / 150]]) {
+    // Both shapes: the 3:2 row every resource page has now (D1b, lane C) and
+    // the 4:3 row they came from (still Admin Terminal's until C3; asserted
+    // through the generator so this case outlives that move).
+    for (const [label, shape, ratio] of [['settings', PAGE_BARS.settings, 120 / 80], ['200/150', OLD_RESOURCE, 200 / 150]]) {
       for (const v of VIEWPORTS) {
-        const top = resolveAt(PAGE_BARS[page].top, v)
-        const bottom = resolveAt(PAGE_BARS[page].bottom, v)
-        expect(top / bottom, `${page} ratio at ${v}px`).toBeCloseTo(ratio, 3)
+        const top = resolveAt(shape.top, v)
+        const bottom = resolveAt(shape.bottom, v)
+        expect(top / bottom, `${label} ratio at ${v}px`).toBeCloseTo(ratio, 3)
       }
     }
   })
@@ -186,11 +214,11 @@ describe('page bar geometry', () => {
     // (a 14-inch Air) and above; in a browser on the same machine (~860px) it
     // is 120px; at the 700px minimum both shapes are floored by the same
     // budget and the gain is 0. "336px against Home" holds from 1076px up.
-    it('returns 150px of field against the 200/150 class from 891px tall, 120px at 860, 0 at 700', () => {
-      expect(restAt('project-manager', 1440) - restAt('settings', 1440)).toBeCloseTo(150, 5)
-      expect(restAt('project-manager', 900) - restAt('settings', 900)).toBeCloseTo(150, 5)
-      expect(restAt('project-manager', 860) - restAt('settings', 860)).toBeCloseTo(120, 2)
-      expect(restAt('project-manager', 700) - restAt('settings', 700)).toBeCloseTo(0, 2)
+    it('returns 150px of field against the 200/150 shape from 891px tall, 120px at 860, 0 at 700', () => {
+      expect(oldRestAt(1440) - restAt('settings', 1440)).toBeCloseTo(150, 5)
+      expect(oldRestAt(900) - restAt('settings', 900)).toBeCloseTo(150, 5)
+      expect(oldRestAt(860) - restAt('settings', 860)).toBeCloseTo(120, 2)
+      expect(oldRestAt(700) - restAt('settings', 700)).toBeCloseTo(0, 2)
       // Against Home: 336px on a display tall enough for Home's caps, 160px
       // at 900 where Home itself resolves to 180/180.
       expect(restAt('home', 1440) - restAt('settings', 1440)).toBeCloseTo(336, 5)
@@ -215,13 +243,17 @@ describe('page bar geometry', () => {
       }
     })
 
-    it('Home stays 268/268 (W10: not a resource page) and the lane-C rows stay 200/150 until lane C', () => {
+    it('Home stays 268/268 (W10: not a resource page); lane C moved its own rows; Admin Terminal waits for C3', () => {
       expect(resolveAt(PAGE_BARS.home.top, 1440)).toBeCloseTo(268, 5)
       expect(resolveAt(PAGE_BARS.home.bottom, 1440)).toBeCloseTo(268, 5)
-      for (const page of ['project-manager', 'rate-card', 'project-files', 'dashboard', 'admin-terminal']) {
-        expect(resolveAt(PAGE_BARS[page].top, 1440), `${page}.top`).toBeCloseTo(200, 5)
-        expect(resolveAt(PAGE_BARS[page].bottom, 1440), `${page}.bottom`).toBeCloseTo(150, 5)
+      // Lane C's own commits (C1, C2) moved these; D1b did not touch them.
+      for (const page of ['project-manager', 'rate-card', 'dashboard']) {
+        expect(PAGE_BARS[page].top, `${page}.top`).toBe(PAGE_BARS.settings.top)
+        expect(PAGE_BARS[page].bottom, `${page}.bottom`).toBe(PAGE_BARS.settings.bottom)
       }
+      // The last 200/150 row; C3 moves it with the Admin Terminal conversion.
+      expect(resolveAt(PAGE_BARS['admin-terminal'].top, 1440)).toBeCloseTo(200, 5)
+      expect(resolveAt(PAGE_BARS['admin-terminal'].bottom, 1440)).toBeCloseTo(150, 5)
     })
 
     // CONTROLS. (a) The three rows really are NOT the 200/150 shape any more:
