@@ -1,362 +1,774 @@
 /* ═══════════════════════════════════════════════════════════════
-   System Settings — extracted state (UI overhaul D1, 2026-09-11)
+   System Settings — the row contract and the extracted state
+   UI overhaul D1, 2026-09-11
 
-   🚨 WHY THIS FILE EXISTS. Every visual state on this surface — hover,
-   selected, active, on/off, busy, disabled, tone — used to live in an inline
-   `style={{}}` ternary or in a className template literal, and two of them
-   lived in `onMouseEnter`/`onMouseLeave` handlers that wrote
-   `e.currentTarget.style` directly. An inline style beats a `hover:` class no
-   matter what the class says, so a class-based restyle written next to a
-   surviving inline style silently drops the state. That is plan §1's fourth
-   cause and risk 4, and the Settings review's own Risk 3.
+   Two jobs, in the order they were done.
 
-   So state moved here first, as `data-*` attributes plus CSS, with every
-   branch enumerated as a named variant — BEFORE any visual work, in its own
-   commit, with the values unchanged. This file is therefore deliberately
-   ugly on arrival: it is a faithful transcription of what the surface
-   already looked like. The restyle commits that follow change the values
-   here, in one place, instead of in forty JSX ternaries.
+   FIRST (commit 1, "no visual change"): every hover / selected / on / busy /
+   tone state on this surface moved out of inline `style` ternaries — and out
+   of two `onMouseEnter`/`onMouseLeave` handlers that wrote
+   `e.currentTarget.style` directly — into `data-*` attributes resolved here,
+   with the values transcribed unchanged. An inline style beats a `hover:`
+   class, so a class-based restyle written next to a surviving inline style
+   silently drops the state (plan §1, risk 4; review Risk 3).
+
+   SECOND (this file's current state): those values moved onto the tokens in
+   `@theme`. No hex is written here. Plan §3, C8: a colour that is not in
+   `@theme` does not exist.
+
+   THE SURFACE. Settings is a light page (plan §2 Q1 option A): the ground is
+   `--color-ground-light` `#f4a261` and `--color-ink-light` `#1c1917` is its
+   ONLY ink — white measures 2.06:1 on it and black 8.48:1, so there is
+   exactly one usable ink and hierarchy can only come from size and weight
+   (C6). No white, cream or pale grey surface appears anywhere (C9): that
+   retired `hover:bg-red-50`, `hover:bg-stone-100/200/300`, `#dcfce7`,
+   `#fee2e2` and `bg-white/*` from this surface. No status colour is drawn on
+   the ground either — measured, `#15803d` is 2.43:1 and `#b91c1c` is 3.14:1
+   on `#f4a261` — so status is carried by the written word and by form (a
+   filled dot against a ring), never by colour alone.
 
    `@layer components` on purpose, exactly as `src/ui/`'s own rules are: an
-   UNLAYERED rule in a CSS file beats every Tailwind utility regardless of
-   specificity, so a caller could never add a layout utility on top. Layered,
-   utilities still win for layout and this file still wins for state.
+   UNLAYERED rule beats every Tailwind utility regardless of specificity, so a
+   caller could never add a layout utility on top. Layered, utilities still
+   win for layout and this file still wins for state.
 
-   Settings is a light page (`#f4a261`, plan §2 Q1 option A) and `#1c1917` is
-   its only ink (C6). No white, cream or pale grey surface may appear here
-   (C9). Colours below that break those rules are the ones the restyle
-   commits remove; they are transcribed unchanged so this commit is provably
-   inert.
+   🚨 NO `> *`, `:first-child`-as-layout OR gap ARITHMETIC IN THE ROW RULES.
+   `GatedAction` injects an extra wrapping `<span>` when a control is denied,
+   so a row's flex-child count differs between an admin and a member. Rows own
+   their own spacing instead.
    ═══════════════════════════════════════════════════════════════ */
 
 @layer components {
 
+  /* ═══ THE ROW CONTRACT ════════════════════════════════════════════════
+     Plan §5 bundle D1: label left at the Label step, control right, one
+     column, one 36px row height, hairline between rows, section titles at
+     16px, group gaps from the spacing scale. */
+
+  /* ── The page column ──────────────────────────────────────────────────
+     One measure for the whole surface (S18: three content widths used to
+     stack in one tab — 672px paragraphs over a 448px password form over a
+     672px profile grid, so the right edge stepped three times down one
+     scroll). Prose inside it is capped separately at the reading measure
+     (S22: body copy ran about 110 characters per line against a 66 target). */
+  .s-page {
+    width: 100%;
+    max-width: var(--width-reading);
+    padding-left: var(--spacing-gutter);
+    padding-right: var(--spacing-gutter);
+    padding-top: var(--spacing-gutter);
+    padding-bottom: var(--spacing-gutter);
+  }
+
   /* ── Tab bar ──────────────────────────────────────────────────────────
-     Three simultaneous active signals (fill, ink flip to #ffffff, a 2px
-     #f97316 underline) — S31. The white label measures 4.05:1 on the
-     composited well; a later commit replaces all three with one underline. */
+     S31: the old bar signalled active three ways at once — a filled well, an
+     ink flip to #ffffff and a 2px #f97316 underline — plus a rounded-top
+     corner used nowhere else in the app, and the white active label measured
+     4.05:1 on the composited well. One signal now: the underline. Both states
+     are ink-light, so both measure 8.49:1.
+
+     S17's grouping rides here: `data-group-end` draws a separator after
+     Profile and after Teams so the seven tabs read as
+     [General | Profile] [Models | Storage | Teams] [Agent | Agent Skills].
+     Purely visual — no tab moves, none is hidden, none is collapsed. */
+  .s-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    border-bottom: 1px solid var(--color-rule-light);
+  }
   .s-tab {
+    position: relative;
+    height: var(--control-md);
+    padding: 0 12px;
+    font-size: var(--text-body);
+    font-weight: 400;
+    color: var(--color-ink-light);
     background-color: transparent;
-    color: #1c1917;
+    border: 0;
     border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: color var(--duration-state) ease-out,
+                border-color var(--duration-state) ease-out;
+  }
+  .s-tab:hover {
+    background-color: var(--color-hover-light);
   }
   .s-tab[data-active='true'] {
-    background-color: rgba(120, 70, 30, 0.55);
-    color: #ffffff;
-    border-bottom-color: #f97316;
+    font-weight: 600;
+    border-bottom-color: var(--color-signal);
   }
+  .s-tab[data-group-end='true'] {
+    margin-right: 12px;
+    border-right: 1px solid var(--color-rule-light);
+    padding-right: 24px;
+  }
+
+  /* ── Section ──────────────────────────────────────────────────────────
+     A hairline above rather than a filled bar or a bordered box (plan §4).
+     24px between regions, from the spacing scale. */
+  .s-section {
+    padding-top: 24px;
+    margin-top: 24px;
+    border-top: 1px solid var(--color-rule-light);
+  }
+  .s-section[data-first='true'] {
+    padding-top: 0;
+    margin-top: 0;
+    border-top: 0;
+  }
+  .s-section-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+  .s-section-heading {
+    min-width: 0;
+  }
+  /* 16px is the REGION heading; 14px is an object heading inside it. The two
+     were one size before, which is why a card title collided with the section
+     title above it (critic, contradiction 6). */
+  .s-section-title {
+    font-size: var(--text-h2);
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--color-ink-light);
+  }
+  .s-section-desc {
+    margin-top: 4px;
+    max-width: var(--measure-reading);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink-light);
+  }
+  .s-section-actions {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* ── Group: the visual-only Hick's reframe ────────────────────────────
+     S14 / H2 / H5 / H6 / H7 asked for disclosures. A disclosure adds a click
+     and changes what is reachable at a glance, which C1 forbids, so what
+     ships is the grouping WITHOUT the hiding: an eyebrow, a hairline, 24px
+     between groups against 8px within. Every control stays visible. */
+  .s-group + .s-group {
+    margin-top: 24px;
+  }
+  .s-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: var(--control-sm);
+    margin-bottom: 4px;
+  }
+  .s-group-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .s-rows {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Row ──────────────────────────────────────────────────────────────
+     S20 / A3: the four label-left/control-right rows had no height at all —
+     a ~30px toggle above a ~26px segmented group above another ~26px one,
+     each with a two-line label block, so no two rows shared a baseline. */
+  .s-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: var(--row);
+    padding: 8px 0;
+    border-top: 1px solid var(--color-rule-light);
+  }
+  .s-rows > .s-row:first-of-type {
+    border-top: 0;
+  }
+  .s-row[data-stacked='true'] {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .s-row-label {
+    min-width: 0;
+  }
+  .s-row-control {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  .s-row[data-stacked='true'] .s-row-control {
+    justify-content: flex-start;
+  }
+
+  /* The Label step is the one surviving uppercase role (Q2; critic
+     resolution 8 rejects the proposal to make field labels sentence case,
+     because uppercase is what keeps the role countable and greppable). */
+  .s-label,
+  .s-eyebrow {
+    display: block;
+    font-size: var(--text-label);
+    line-height: 1.3;
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
+  }
+  /* S8: the description used to be text-stone-950 under a text-stone-900
+     heading — a DARKER ink than the thing it described, so colour inverted
+     the hierarchy. One ink now; rank comes from size and weight. */
+  .s-row-desc {
+    margin-top: 2px;
+    max-width: var(--measure-reading);
+    font-size: var(--text-caption);
+    line-height: 1.4;
+    color: var(--color-ink-light);
+  }
+  .s-note {
+    max-width: var(--measure-reading);
+    padding: 8px 12px;
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border-radius: var(--radius-control);
+  }
+
+  /* A raised surface on the light ground. `well-light` is the only grouping
+     fill on this page now; six different alphas of the same brown used to do
+     this job (U13: 0.55, 0.45, 0.35, 0.18, 0.15, 0.12). */
+  .s-well {
+    padding: 12px;
+    background-color: var(--color-well-light);
+    border-radius: var(--radius-control);
+  }
+  .s-card-title {
+    font-size: var(--text-h3);
+    line-height: 1.4;
+    font-weight: 600;
+    color: var(--color-ink-light);
+  }
+
+  /* A path, a version, a count: mono, tabular, one ink. S43 cut this surface
+     from 43 `font-mono` uses to the seven that are actually data. */
+  .s-data {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-light);
+  }
+
+  /* ═══ EXTRACTED STATE ═════════════════════════════════════════════════ */
 
   /* ── The pet card's status word ───────────────────────────────────────
-     Was a six-branch nested ternary inline. `lonely` and `sleeping` are a
-     violet and a cool grey on a palette whose own rule is "warm over cool,
-     no blues, no cyans" — S11. Transcribed unchanged here; the restyle
-     resolves all five to the page's single ink, because Q1 option A draws no
-     status colour on the light ground at all. */
-  .s-pet-state[data-tone='danger']   { color: #ef4444; }
-  .s-pet-state[data-tone='warning']  { color: #f59e0b; }
-  .s-pet-state[data-tone='lonely']   { color: #8b5cf6; }
-  .s-pet-state[data-tone='sleeping'] { color: #6b7280; }
-  .s-pet-state[data-tone='ok']       { color: #22c55e; }
+     Q20 puts this card in scope as Settings chrome; PetCompanion.jsx, the
+     sprites and every pet keyframe are untouched (C5).
 
-  /* ── The two-state toggle button (pet mode, agent mode) ──────────────
-     Not the kit Switch: F1's Switch has no light track rule, so its off
-     state is ink-3 grey and its on state is #ea580c on #f4a261 at about
-     1.06:1. Recorded as a kit request; these stay buttons until it lands. */
-  .s-toggle {
-    background-color: #44403c;
-    color: #1c1917;
-  }
-  .s-toggle[data-on='true'] {
-    background-color: #f97316;
-    color: #ffffff;
+     S11: the ladder was six values deep and included #8b5cf6 (a violet) and
+     #6b7280 (a cool grey) on a palette whose own rule is "warm over cool, no
+     blues, no cyans". All five tones now resolve to the page's single ink,
+     because Q1 option A draws no status colour on the light ground at all.
+     The state is legible from the word — it always was; the colour was
+     never carrying it. The tone attribute stays so that a dark-ground
+     rendering of this card can colour it later without a JSX change. */
+  .s-pet-state {
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
   }
 
-  /* ── Segmented groups (difficulty, auto-approve) ─────────────────── */
-  .s-seg {
-    background-color: rgba(120, 70, 30, 0.45);
-    color: #1c1917;
+  /* S6: the pet's name and its two numeric readouts were #f4a261 — the page
+     ground used as ink — on the 0.55 well, measuring 2.10:1. That is within
+     rounding of the 2.06:1 white-on-orange defect Session 43 existed to fix.
+     Both are ink-light now (the name at the 14px card-title step, the
+     numbers at the 12px caption step with tabular figures). */
+  .s-pet-bar {
+    height: 6px;
+    overflow: hidden;
+    border-radius: var(--radius-control);
+    background-color: var(--color-hover-light);
   }
-  .s-seg[data-selected='true'] {
-    background-color: #f97316;
-    color: #ffffff;
+  /* S34: 500ms on a readout that only changes on a data refresh the user did
+     not initiate. 120ms is the state-change duration from §3.4. */
+  .s-pet-bar-fill {
+    height: 100%;
+    background-color: var(--color-signal);
+    transition: width var(--duration-state) ease-out;
+  }
+
+  /* ── Two-state toggle (pet mode, agent mode) ──────────────────────────
+     🚨 NOT the kit Switch, and that is a kit gap rather than a preference.
+     F1's Switch has no light-surface rule for its TRACK: off resolves to
+     `--color-ink-3` (a grey on orange) and on resolves to `--color-signal`
+     on `--color-ground-light`, about 1.06:1 — the state would be invisible.
+     Filed as a kit request; these stay two-state buttons until it lands. */
+  .s-toggle,
+  .s-seg,
+  .s-lock {
+    height: var(--control-sm);
+    padding: 0 12px;
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out,
+                color var(--duration-state) ease-out;
+  }
+  .s-toggle:hover,
+  .s-seg:hover,
+  .s-lock:hover {
+    border-color: var(--color-rule-light);
+  }
+  .s-toggle[data-on='true'],
+  .s-seg[data-selected='true'],
+  .s-lock[data-locked='true'] {
+    color: var(--color-on-fill);
+    background-color: var(--color-signal-fill);
+    border-color: var(--color-signal-fill);
   }
 
   /* ── The two pet danger-zone buttons ─────────────────────────────────
-     🚨 These carried the ONLY JS-driven hover on the surface: paired
+     These carried the only JS-driven hover on the surface: paired
      onMouseEnter/onMouseLeave handlers writing style.borderColor and
-     style.color. Both handlers are deleted; the state is these two rules.
-     Deleting only one side would have left a hover that never reverts. */
+     style.color. Both were deleted together — removing one side would have
+     left a hover that never reverts. */
   .s-danger-btn {
+    height: var(--control-sm);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink-light);
     background-color: transparent;
-    color: #1c1917;
-    border: 1px solid #44403c;
+    border: 1px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
   }
-  .s-danger-btn[data-tone='danger']:hover {
-    border-color: #ef4444;
-    color: #ef4444;
-  }
-  .s-danger-btn[data-tone='signal']:hover {
-    border-color: #f97316;
-    color: #f97316;
+  .s-danger-btn:hover {
+    background-color: var(--color-hover-light);
   }
 
   /* ── The new-pet status block ─────────────────────────────────────────
-     The review calls this the best-built feedback element in the app
-     (role=status, aria-live, three states on one component, measured
-     contrast in its header comment). Its three inline branches become
-     three named variants; the measured inks are unchanged. */
-  .s-status[data-state='pending'] {
-    border-color: rgba(28, 25, 23, 0.22);
-    color: #1c1917;
-    background-color: rgba(120, 70, 30, 0.08);
+     The review calls this the best-built feedback element in the app:
+     role=status, aria-live=polite, three states on one component, and a
+     header comment recording the measured contrast of every fill. Its ink was
+     already correct at 7.68:1 and 7.56:1 — this only moves the three inline
+     branches to named variants and the fills to tokens. S10 then rewrites
+     every OTHER feedback line on the surface to match it, rather than the
+     other way round. */
+  .s-status {
+    max-width: var(--measure-reading);
+    padding: 8px 12px;
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink-light);
+    border: 1px solid var(--color-rule-light);
+    border-left-width: 2px;
+    border-radius: var(--radius-control);
+    background-color: var(--color-well-light);
   }
+  /* Semantics ride the left edge and the icon, never the ink: the ink stays
+     the page's one ink so the message is always readable. */
   .s-status[data-state='ok'] {
-    border-color: #14532d;
-    color: #1c1917;
-    background-color: rgba(21, 128, 61, 0.10);
+    border-left-color: var(--color-ink-light);
   }
   .s-status[data-state='error'] {
-    border-color: #7f1d1d;
-    color: #1c1917;
-    background-color: rgba(185, 28, 28, 0.10);
+    border-left-color: var(--color-signal);
   }
 
-  /* ── Adapter (storage backend) radio rows ────────────────────────── */
+  /* ── Adapter (storage backend) rows ───────────────────────────────────
+     S41: this was the only 2px border on the surface (Q6 rules one 1px
+     hairline everywhere), and its 12px label wore four emphasis mechanisms at
+     once — mono, bold, uppercase and tracking. */
   .s-adapter {
-    background-color: rgba(120, 70, 30, 0.18);
-    border: 2px solid transparent;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 8px 12px;
+    text-align: left;
+    background-color: transparent;
+    border: 1px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .s-adapter:hover:not(:disabled) {
+    background-color: var(--color-hover-light);
   }
   .s-adapter[data-selected='true'] {
-    background-color: rgba(234, 88, 12, 0.18);
-    border-color: #ea580c;
+    background-color: var(--color-well-light);
+    border-color: var(--color-signal);
   }
   .s-adapter-dot {
+    flex: none;
+    width: 12px;
+    height: 12px;
+    margin-top: 3px;
+    border-radius: 9999px;
     background-color: transparent;
-    border: 2px solid #7c2d12;
+    border: 1px solid var(--color-ink-light);
   }
   .s-adapter[data-selected='true'] .s-adapter-dot {
-    background-color: #ea580c;
+    background-color: var(--color-signal);
+    border-color: var(--color-signal);
+  }
+  .s-adapter-label {
+    font-size: var(--text-h3);
+    line-height: 1.4;
+    font-weight: 600;
+    color: var(--color-ink-light);
+  }
+  .s-adapter-hint {
+    margin-top: 2px;
+    max-width: var(--measure-reading);
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink-light);
   }
 
-  /* ── The two adapter badges (S9: the only near-white fills here) ──── */
-  .s-badge[data-badge='in-use'] {
-    background-color: #dcfce7;
-    color: #166534;
-    border: 1px solid #166534;
-  }
-  .s-badge[data-badge='read-only'] {
-    background-color: #fee2e2;
-    color: #991b1b;
-    border: 1px solid #991b1b;
-  }
-
-  /* ── Connection dots ──────────────────────────────────────────────── */
+  /* ── Status dots ──────────────────────────────────────────────────────
+     S36: the off state was a mid grey, which lightSurface.js's own header
+     warns against ("the moment a lighter grey comes back to mean 'less
+     important', the rule is broken again"), and the dot was the only thing
+     telling connected from disconnected in three cards. Off is now a RING and
+     on is a FILL, so the pair differs in form as well as in value and stays
+     legible with no colour at all. */
+  .s-conn-dot,
   .s-online-dot {
-    background-color: #ef4444;
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 9999px;
+    background-color: transparent;
+    border: 1px solid var(--color-ink-light);
   }
+  .s-conn-dot[data-on='true'],
   .s-online-dot[data-online='true'] {
-    background-color: #22c55e;
-  }
-  .s-conn-dot {
-    background-color: rgba(28, 25, 23, 0.45);
-  }
-  .s-conn-dot[data-on='true'] {
-    background-color: #22c55e;
+    background-color: var(--color-ink-light);
   }
 
-  /* ── Subject lock toggle ──────────────────────────────────────────── */
-  .s-lock {
-    background-color: rgba(120, 70, 30, 0.45);
-    color: #1c1917;
-  }
-  .s-lock[data-locked='true'] {
-    background-color: #ef4444;
-    color: #ffffff;
+  /* ── The two adapter badges ───────────────────────────────────────────
+     S9: `In use` and `Read only` were pale pastel chips — #dcfce7 and
+     #fee2e2 — the only near-white fills on the surface (C9) and, at 9px,
+     below the 11px type floor (C7). The fill stops being the semantic
+     carrier; the word is. */
+  .s-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    margin-left: 8px;
+    padding: 0 6px;
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border: 1px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
   }
 
   /* ── Department rows ──────────────────────────────────────────────────
-     S44: three different hovers inside one 40px row, all of them a cool
-     stone that does not exist on this page. Transcribed as three named
-     variants so a later commit can collapse them to one token. */
+     S44: three different hovers inside one 40px row — bg-stone-200/40 on the
+     row, bg-stone-200 on the name, bg-stone-300 on the remove control — all
+     of them a cool stone that does not exist on this page, and all of them
+     near-white (C9). One hover token now. */
   .s-dept-row {
-    background-color: rgba(120, 70, 30, 0.12);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: var(--row);
+    padding: 0 8px;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
   }
   .s-dept-row:hover {
-    background-color: rgba(231, 229, 228, 0.4);
+    background-color: var(--color-hover-light);
+  }
+  .s-dept-name {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 8px;
+    text-align: left;
+    font-size: var(--text-dense);
+    color: var(--color-ink-light);
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
   }
   .s-dept-name:hover {
-    background-color: #e7e5e4;
-  }
-  .s-dept-remove {
-    color: #dc2626;
-  }
-  .s-dept-remove:hover {
-    background-color: #d6d3d1;
+    border-color: var(--color-rule-light);
   }
 
   /* ── Agent-skills checkbox rows ───────────────────────────────────────
-     A dark hover (bg-stone-800/30) on a light surface — S44's fourth
-     invented hover. */
+     The hover was bg-stone-800/30: a DARK fill on a light surface. */
+  .s-skill-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    min-height: var(--row);
+    padding: 8px;
+    text-align: left;
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-state) ease-out;
+  }
   .s-skill-row:hover {
-    background-color: rgba(41, 37, 36, 0.3);
+    background-color: var(--color-hover-light);
   }
   .s-skill-box {
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    color: var(--color-on-fill);
     background-color: transparent;
-    border: 1px solid #44403c;
+    border: 1px solid var(--color-ink-light);
+    border-radius: var(--radius-control);
   }
   .s-skill-box[data-on='true'] {
-    background-color: #f97316;
-    border-color: #f97316;
+    background-color: var(--color-signal-fill);
+    border-color: var(--color-signal-fill);
+  }
+  .s-skill-label {
+    font-size: var(--text-dense);
+    font-weight: 600;
+    color: var(--color-ink-light);
+  }
+  .s-skill-desc {
+    margin-top: 2px;
+    font-size: var(--text-caption);
+    line-height: 1.4;
+    color: var(--color-ink-light);
   }
 
-  /* ── Sign-out and its confirm row ─────────────────────────────────────
-     hover:bg-red-50 and hover:bg-stone-100 are both near-white, so both
-     break C9. Named here; replaced in the restyle. */
-  .s-quiet-btn[data-tone='danger'] {
-    background-color: transparent;
-    border: 1px solid #b91c1c;
-    color: #991b1b;
-  }
-  .s-quiet-btn[data-tone='danger']:hover {
-    background-color: #fef2f2;
-  }
-  .s-quiet-btn[data-tone='neutral'] {
-    background-color: transparent;
-    border: 1px solid #57534e;
-    color: #292524;
-  }
-  .s-quiet-btn[data-tone='neutral']:hover {
-    background-color: #f5f5f4;
-  }
-
-  /* ── StorageConnections' three private button tokens ──────────────────
-     DARK_BTN / QUIET_BTN / DANGER_BTN were spread into `style` at fourteen
-     call sites, several as `{ ...X, opacity: busy ? 0.6 : 1 }`. The opacity
-     spelling of "disabled" is banned by plan §3.1 (one disabled token: ink
-     at 52% plus cursor:not-allowed), so `busy` becomes `data-busy` here and
-     a later commit gives it the real token. */
-  .s-sc-btn[data-variant='primary'] {
-    background-color: #1c1917;
-    color: #f4a261;
-  }
-  .s-sc-btn[data-variant='quiet'] {
-    background-color: rgba(28, 25, 23, 0.08);
-    color: #1c1917;
-    border: 1px solid rgba(28, 25, 23, 0.35);
-  }
-  .s-sc-btn[data-variant='danger'] {
-    background-color: rgba(220, 38, 38, 0.08);
-    color: #dc2626;
-  }
-  .s-sc-btn[data-busy='true'] {
-    opacity: 0.6;
-  }
-
-  /* ── Model rows ───────────────────────────────────────────────────── */
+  /* ── Model rows ───────────────────────────────────────────────────────
+     S40 / A4: 28 rows drawn as a wrapping flex list, so the select's left
+     edge moved with the label text and the conditional Reset could push a row
+     to wrap. Three fixed tracks now, and the reset slot is reserved whether
+     or not it renders, so the column is a column down all 28 rows. */
   .s-model-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: var(--row);
+    padding: 4px 12px;
     background-color: transparent;
-    border-top: 1px solid rgba(28, 25, 23, 0.22);
+    border-top: 1px solid var(--color-rule-light);
   }
   .s-model-row:first-child {
-    border-top: none;
+    border-top: 0;
   }
   .s-model-row[data-overridden='true'] {
-    background-color: rgba(234, 88, 12, 0.05);
+    background-color: var(--color-well-light);
   }
-
-  /* ── ModelPicker — the one DARK control in this folder ─────────────────
-     🚨 It has no caller in Settings. Its only four call sites are in
-     DeckOutlineGenerator.jsx, on D.O.G.'s dark Prompts tab (review S39,
-     Risk 5: "a blanket light-surface restyle of src/components/settings/
-     will break it"). It therefore takes the DARK tokens, and lane A must
-     not re-skin it. */
-  .s-mp-select {
-    background-color: #0c0a09;
-    border: 2px solid #57534e;
-    color: #fb923c;
+  .s-model-main {
+    flex: 1;
+    min-width: 0;
   }
-  .s-mp-select[data-disabled='true'] {
-    cursor: not-allowed;
-    opacity: 0.6;
+  .s-model-select {
+    flex: none;
+    width: 220px;
   }
-  /* `focus:border-orange-500` was part of the className template literal that
-     also carried the disabled branch; splitting the two kept it. */
-  .s-mp-select:focus {
-    border-color: #f97316;
-  }
-  .s-mp-reset {
-    color: #fb923c;
-  }
-  .s-mp-reset:hover {
-    color: #fdba74;
-  }
-  .s-mp-reset[data-disabled='true'] {
-    color: #57534e;
-    cursor: not-allowed;
-  }
-
-  /* ── The two migration panels ─────────────────────────────────────────
-     One MigrateButton contract, transcribed once and used by both panels
-     (they are deliberately the same shape — Jakob's Law, per
-     OtterMigrationPanel's own header). */
-  .s-migrate-btn {
-    background-color: rgba(120, 70, 30, 0.18);
-    color: #1c1917;
-    border: 2px solid transparent;
-  }
-  .s-migrate-btn[data-variant='primary'] {
-    background-color: #ea580c;
-    color: #ffffff;
-    border-color: #ea580c;
-  }
-  .s-migrate-btn:disabled {
-    opacity: 0.5;
-  }
-  .s-report-cell[data-tone='inserted'] {
-    color: #166534;
-  }
-  .s-report-cell[data-tone='skipped'] {
-    color: #1c1917;
-  }
-  .s-report-cell[data-tone='failed'] {
-    color: #1c1917;
-  }
-  .s-report-cell[data-tone='failed'][data-failed='true'] {
-    color: #991b1b;
+  .s-model-reset {
+    flex: none;
+    width: 72px;
+    display: flex;
+    justify-content: flex-end;
   }
 
   /* ── CurrencyPicker's option list ─────────────────────────────────────
-     A dark floating panel opened from a light page. The panel itself is
-     legitimate (Dialog, Menu and Toast are dark by design); the ink ternary
-     and the hover were inline. */
+     A dark floating panel opened from a light page, which is correct — the
+     kit's own Dialog, Menu and Toast are dark by design and bring their own
+     backdrop. Only the ink ternary and the hover were inline. */
   .s-cur-option {
-    color: #fde8d0;
+    color: var(--color-ink);
   }
   .s-cur-option[data-current='true'] {
-    color: #f4a261;
+    color: var(--color-signal);
   }
   .s-cur-option:hover {
-    background-color: #292524;
+    background-color: var(--color-hover);
   }
 
-  /* ── ProfileSection's one block that plays three parts ────────────────
-     S27: loading, empty and error are the same element with only an ink
-     flip between them. The flip is named here so the restyle can give the
-     error its own treatment and stop "nothing here" and "it broke" looking
-     identical. */
-  .s-profile-empty[data-tone='neutral'] {
-    color: #1c1917;
+  /* ── Empty, loading and error ─────────────────────────────────────────
+     S27: ProfileSection used ONE block for loading, empty AND error with only
+     an ink flip between them, so "nothing here" and "it broke" were the same
+     object. They are two tones now, and the error keeps the page's ink with
+     the signal on its edge rather than a red that measures 2.51:1. */
+  .s-profile-empty {
+    max-width: var(--measure-reading);
+    padding: 16px 0;
+    font-size: var(--text-dense);
+    color: var(--color-ink-light);
   }
   .s-profile-empty[data-tone='error'] {
-    color: #dc2626;
+    padding: 8px 12px;
+    border-left: 2px solid var(--color-signal);
+    background-color: var(--color-well-light);
+    border-radius: var(--radius-control);
   }
 
-  /* ── VersionPanel's busy check button ─────────────────────────────── */
-  .s-version-btn {
-    background-color: #1c1917;
-    color: #f4a261;
+  /* ── Inline feedback ──────────────────────────────────────────────────
+     S10 is the single worst finding on this surface: EVERY success and error
+     message measured below AA on `#f4a261` — 'Saved.' at 2.60:1, the seed
+     confirmation at 3.70:1, the errors at 2.51:1, and the auto-approve
+     warning ("All agent edits will be applied immediately without review") at
+     2.41:1, which made the most consequential sentence on the page the least
+     readable text on it. The fix already existed sixty lines away in the
+     new-pet status block, measured at 7.68:1 and 7.56:1: keep a tinted fill,
+     keep the page's ink, carry the semantics on the left edge. */
+  .s-feedback {
+    display: block;
+    max-width: var(--measure-reading);
+    padding: 8px 12px;
+    font-size: var(--text-dense);
+    line-height: 1.45;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border-left: 2px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
   }
-  .s-version-btn[data-busy='true'] {
-    opacity: 0.6;
+  .s-feedback[data-tone='ok'] {
+    border-left-color: var(--color-ink-light);
+  }
+  .s-feedback[data-tone='error'],
+  .s-feedback[data-tone='warning'] {
+    border-left-color: var(--color-signal);
+  }
+
+  /* ── ModelPicker — the one DARK control in this folder ─────────────────
+     🚨 It has NO caller in Settings. Its only four call sites are in
+     DeckOutlineGenerator.jsx, on D.O.G.'s dark Prompts tab (review S39 and
+     Risk 5: "a blanket light-surface restyle of src/components/settings/ will
+     break it"). So it takes the DARK tokens, and lane A must not re-skin it.
+     Its old `text-stone-500` provenance line measured 3.65:1 on `#1c1917`
+     and is now `ink-3` at 5.04:1. */
+  .s-mp-select {
+    height: var(--control-sm);
+    padding: 0 8px;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background-color: var(--color-paper-recessed);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+  }
+  .s-mp-select[data-disabled='true'] {
+    color: var(--color-ink-3);
+    cursor: not-allowed;
+  }
+  .s-mp-reset {
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+  }
+  .s-mp-reset:hover {
+    color: var(--color-ink);
+  }
+  .s-mp-reset[data-disabled='true'] {
+    color: var(--color-ink-3);
+    cursor: not-allowed;
+  }
+  .s-mp-label {
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .s-mp-note {
+    margin-top: 4px;
+    font-size: var(--text-caption);
+    line-height: 1.4;
+    color: var(--color-ink-2);
+  }
+  .s-mp-note em {
+    font-style: normal;
+    color: var(--color-ink);
+  }
+
+  /* ── The two migration panels ─────────────────────────────────────────
+     One contract, used by both — they are deliberately the same shape
+     (Jakob's Law, per OtterMigrationPanel's own header comment). */
+  .s-log {
+    max-width: 100%;
+    max-height: 160px;
+    overflow: auto;
+    padding: 8px 12px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: 1.45;
+    color: var(--color-ink);
+    background-color: var(--color-paper-recessed);
+    border-radius: var(--radius-control);
+  }
+
+  /* A real <table> kept as a real <table>. The shared `Table` is Foundation
+     2's and has not landed, so these take the Table CONTRACT's tokens by
+     hand — 32px head, 36px row, 8px/12px cells, one hairline, no zebra,
+     right-aligned numerics with tabular figures — which makes the later
+     swap a component change rather than a redesign. */
+  .s-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: var(--text-dense);
+    color: var(--color-ink-light);
+  }
+  .s-table th {
+    height: var(--table-head);
+    padding: 0 var(--cell-pad-x);
+    text-align: right;
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border-bottom: 1px solid var(--color-rule-light);
+  }
+  .s-table th:first-child,
+  .s-table td:first-child {
+    text-align: left;
+  }
+  .s-table td {
+    height: var(--row);
+    padding: 0 var(--cell-pad-x);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    border-bottom: 1px solid var(--color-rule-light);
+  }
+  /* Every count is the page's one ink. The old table painted Inserted green
+     and Skipped grey permanently — a tone on a data column that meant
+     nothing, and measured 3.70:1 doing it. Only a non-zero failure is
+     marked, and it is marked with weight, not colour. */
+  .s-report-cell[data-failed='true'] {
+    font-weight: 600;
+  }
+  .s-table caption {
+    caption-side: top;
+    padding-bottom: 4px;
+    text-align: left;
+    font-size: var(--text-label);
+    letter-spacing: 0.06em;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--color-ink-light);
   }
 }
