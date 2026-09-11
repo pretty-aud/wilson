@@ -1,38 +1,36 @@
 // =============================================================================
-// adminTerminal.css — the guard.
+// adminTerminal.css — the guard, third version.
 //
-// Modelled on `src/components/Dashboard/dashboardCss.test.js` and
-// `src/components/settings/settingsCss.test.js`, then REWRITTEN after review
-// round 1 took the first version apart. That version asserted two set
-// comparisons over the whole directory — "every class the JSX names has a
-// rule" and "every rule has a caller" — and the reviewer proved with twelve
-// mutants that **deleting an entire state rule left it green** every time the
-// class's base rule survived. It could not see a dropped `[data-on='true']`,
-// a dropped `:hover`, an inverted `String(active)`, or a transcribed value
-// changed from 0.18 to 0.50. A guard that cannot see the defect it exists to
-// prevent is worse than no guard, because it is believed.
+// Two adversarial rounds have now been run against this file, and each one
+// broke its predecessor:
 //
-// What it guards now, in the order the failures actually happen:
+//   ROUND 1 broke version one. It compared two NAME SETS over the whole
+//   directory — "every class the JSX names has a rule", "every rule has a
+//   caller" — so deleting a whole state rule passed whenever the class's base
+//   rule survived. Twelve mutants stayed green, including an inverted
+//   `String(active)` and a transcribed value changed from 0.18 to 0.50.
 //
-//   1. THE CASCADE LAYER. D1 wrote `@layer components { … }` in a stylesheet
-//      imported from a component; the bundler emitted it before
-//      `src/index.css`, so `components` was created ahead of `base`, every
-//      rule in it fell behind Tailwind's preflight, and the ENTIRE kit
-//      rendered unstyled — with all 2136 tests green, because no test in this
-//      repo applies CSS. Measured in the running app for THIS sheet: it is
-//      emitted at stylesheet index 3 and `index.css` at index 4, so the
-//      hazard is real here and not hypothetical.
+//   ROUND 2 broke version two, harder and more usefully. Version two added a
+//   hand-written pairing table and eleven pinned declarations, and 36 of 101
+//   mutants still passed — INCLUDING putting back, verbatim, both of the HIGH
+//   regressions round 1 had just found. Its pairing check measured a ±600
+//   CHARACTER WINDOW around any occurrence of the class name anywhere in the
+//   file, so a `title` string plus a `data-` attribute 450 characters away
+//   satisfied it; the element did not have to exist. And it had no assertion
+//   at all about the one thing that caused both regressions: an inline
+//   `style` on an element whose class the CSS also paints.
 //
-//   2. PER-ELEMENT PAIRING. For every `.at-x[data-y]` rule there must be a
-//      JSX element that carries BOTH `at-x` in a className literal and
-//      `data-y=` in its own props. This is what catches a dropped state.
+// So the rule this version is built on: **the only thing worth asserting is
+// the thing that actually broke.** Both HIGH regressions were an inline
+// declaration beating a class rule. Version three parses JSX opening tags and
+// compares, per element, the properties the CSS owns for that element's
+// classes against the properties its inline `style` sets. Reverting either
+// regression now fails here.
 //
-//   3. THE LOAD-BEARING VALUES, pinned literally. A count of hex digits
-//      cannot tell a transcription from an invention — swapping `#b8b4b0`
-//      for `#ff00ff` keeps the count identical. These assertions can.
-//
-//   4. THE TRANSCRIPTION LEDGER, kept for the one thing it is good at:
-//      making the C8 cleanup in commit two impossible to forget.
+// What it still cannot do: prove a `String(...)` writer produces `'true'` for
+// the right boolean. `data-on={String(!on)}` is syntactically perfect. Closing
+// that needs a render, and the repo has `@testing-library/react` — it is
+// recorded as the next honest step in the hand-off rather than faked here.
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
@@ -44,8 +42,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(join(here, 'adminTerminal.css'), 'utf8')
 
 /** Strip comments so a rule can never be satisfied by its own documentation. */
-const code = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
-const cssCode = code(css)
+const stripCss = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '')
+const cssCode = stripCss(css)
 
 const jsxFiles = readdirSync(here).filter((f) => f.endsWith('.jsx'))
 const sources = Object.fromEntries(
@@ -57,14 +55,114 @@ const sources = Object.fromEntries(
 )
 const jsx = Object.values(sources).join('\n')
 
-// 🚨 `used` is scanned ONLY out of className literals. Review round 1 showed
-// that a free-text scan counts `title="Close (Esc) at-phantom"` as a caller,
-// so any title, aria-label or dead string could keep a dead rule alive.
-const classNameLiterals = [...jsx.matchAll(/className=(?:"([^"]*)"|\{`([^`]*)`\})/g)]
-  .map((m) => m[1] ?? m[2])
-  .join(' ')
-const used = new Set([...classNameLiterals.matchAll(/\b(at-[a-z0-9-]+)/g)].map((m) => m[1]))
-const rules = new Set([...cssCode.matchAll(/\.(at-[a-z0-9-]+)/g)].map((m) => m[1]))
+// ── Parsing ──────────────────────────────────────────────────────────────────
+
+/**
+ * Every JSX opening tag in `src`, as text.
+ *
+ * 🚨 Brace depth is tracked, so `style={{ fontSize: size >= 40 ? 16 : 10 }}`
+ * does not end the tag at its `>`. Round 2's finding 4: a character window
+ * around the class name is not a tag, and pairing across two elements is the
+ * failure it lets through.
+ */
+function openingTags(src) {
+  const tags = []
+  for (let i = 0; i < src.length; i++) {
+    if (src[i] !== '<' || !/[A-Za-z]/.test(src[i + 1] || '')) continue
+    let depth = 0
+    let quote = null
+    let j = i + 1
+    for (; j < src.length; j++) {
+      const c = src[j]
+      if (quote) { if (c === quote) quote = null; continue }
+      if (c === '"' || c === "'" || c === '`') { quote = c; continue }
+      if (c === '{') depth++
+      else if (c === '}') depth--
+      else if (c === '>' && depth === 0) break
+    }
+    tags.push(src.slice(i, j + 1))
+    i = j
+  }
+  return tags
+}
+
+/** The `at-*` classes named in this tag's className literal, and nowhere else. */
+function tagClasses(tag) {
+  const m = tag.match(/className=(?:"([^"]*)"|\{`([^`]*)`\})/)
+  if (!m) return []
+  return [...(m[1] ?? m[2]).matchAll(/\b(at-[a-z0-9-]+)/g)].map((x) => x[1])
+}
+
+const kebabToCamel = (p) => p.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+
+/**
+ * The body text of `const <name> = { … }`, following a leading `{ ...base }`
+ * spread so a derived object reports the properties it actually carries.
+ *
+ * 🚨 It follows a SPREAD and deliberately does not follow a DESTRUCTURE. The
+ * first draft of this file resolved `const { border: _x, ...rest } = base`
+ * back to `base` and so reported a border the element did not have — this
+ * test failed on its own first run because of it. The source was inverted to
+ * `const derived = {…}; const base = { ...derived, border }` so the data
+ * flows one way and a resolver cannot get it wrong.
+ */
+function resolveObject(name, src, seen = new Set()) {
+  if (seen.has(name)) return ''
+  seen.add(name)
+  const decl = src.match(new RegExp(`const ${name} = \\{([\\s\\S]*?)\\n?\\}`))
+  if (!decl) return ''
+  const body = decl[1]
+  const spread = body.match(/\.\.\.([A-Za-z_$][\w$]*)/)
+  return spread ? `${resolveObject(spread[1], src, seen)},${body}` : body
+}
+
+/**
+ * The data attributes the sheet selects on with `='true'` — the BOOLEAN
+ * states, which must be written as expressions so they can ever be true.
+ * `data-tone='chip'` is a static variant marker, correctly a string literal,
+ * and is excluded by construction rather than by an exception list.
+ */
+function booleanAttrs() {
+  return [...new Set([...cssCode.matchAll(/\[(data-[a-z-]+)='true'\]/g)].map((m) => m[1]))]
+}
+
+/**
+ * The CSS property names this tag sets inline, camelCased.
+ * Handles `style={{ … }}` and `style={someObject}`, resolving the latter
+ * against a module-level `const someObject = { … }` in the same file — which
+ * is exactly how the invite dialog's `fieldStyle` hid a `border` shorthand.
+ */
+function tagStyleProps(tag, src) {
+  const literal = tag.match(/style=\{\{([\s\S]*?)\}\}/)
+  const body = literal
+    ? literal[1]
+    : (() => {
+        const ref = tag.match(/style=\{([A-Za-z_$][\w$]*)\}/)
+        return ref ? resolveObject(ref[1], src) : ''
+      })()
+  return new Set([...body.matchAll(/(?:^|[{,\s])([A-Za-z][\w]*)\s*:/g)].map((m) => m[1]))
+}
+
+/** class → the set of CSS properties this sheet declares for it, camelCased. */
+function cssPropsByClass(sheet) {
+  const out = {}
+  for (const m of sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    const selector = m[1]
+    const props = [...m[2].matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((p) => kebabToCamel(p[1]))
+    if (!props.length) continue
+    for (const c of [...selector.matchAll(/\.(at-[a-z0-9-]+)/g)].map((x) => x[1])) {
+      out[c] = out[c] || new Set()
+      for (const p of props) out[c].add(p)
+    }
+  }
+  return out
+}
+
+const CSS_PROPS = cssPropsByClass(cssCode)
+const ALL_TAGS = Object.entries(sources).flatMap(([file, src]) =>
+  openingTags(src).map((tag) => ({ file, tag, src })))
+
+// ── The cascade layer ────────────────────────────────────────────────────────
 
 describe('adminTerminal.css declares the cascade layer before it uses one', () => {
   it('names the four layers as its first statement', () => {
@@ -76,17 +174,10 @@ describe('adminTerminal.css declares the cascade layer before it uses one', () =
       .toBeLessThan(cssCode.indexOf('@layer components {'))
   })
 
-  it('the order matches the one Tailwind emits', () => {
-    expect(cssCode).toMatch(/@layer\s+theme,\s*base,\s*components,\s*utilities;/)
-  })
-
   it('🚨 not one rule sits outside `@layer components`', () => {
-    // The first version asserted `afterDeclaration.endsWith('}')`, which any
-    // CSS file ending in a closing brace satisfies — so an unlayered rule
-    // appended after the block passed (review round 1, finding 8). An
-    // unlayered rule beats EVERY Tailwind utility at any specificity, so
-    // that mutant would stop a caller ever adding a layout class on top.
-    // Count braces instead and assert nothing survives outside the block.
+    // Version two asserted `endsWith('}')`, which any CSS file satisfies, so
+    // an appended unlayered rule passed (round 1, finding 8). An unlayered
+    // rule beats every Tailwind utility at any specificity.
     const start = cssCode.indexOf('@layer components {')
     let depth = 0
     let end = -1
@@ -96,156 +187,214 @@ describe('adminTerminal.css declares the cascade layer before it uses one', () =
     }
     expect(end, 'the `@layer components` block never closes').toBeGreaterThan(-1)
     const outside = (cssCode.slice(0, start) + cssCode.slice(end + 1))
-      .replace(/@layer theme, base, components, utilities;/, '')
+      .replace('@layer theme, base, components, utilities;', '')
       .trim()
     expect(outside).toBe('')
   })
 })
 
+// ── The assertion both HIGH regressions needed ───────────────────────────────
+
+describe('🚨 no element fights its own stylesheet', () => {
+  it('no `.at-*` element sets inline a property the CSS owns for that class', () => {
+    // THE ONE THAT MATTERS. Both HIGH regressions round 1 found were this:
+    //   1. the copy tick kept `style={{ color: LIGHT_INK }}` while the CSS
+    //      owned `color`, so the confirmed branch could never paint;
+    //   2. the invite field kept `style={fieldStyle}` whose `border`
+    //      SHORTHAND sets border-color, while the CSS owned `border`.
+    // Round 2 proved version two of this test passed with BOTH put back
+    // verbatim. This fails on either.
+    const offenders = []
+    for (const { file, tag, src } of ALL_TAGS) {
+      const classes = tagClasses(tag)
+      if (!classes.length) continue
+      const inline = tagStyleProps(tag, src)
+      if (!inline.size) continue
+      for (const c of classes) {
+        for (const p of CSS_PROPS[c] || []) {
+          if (inline.has(p)) offenders.push(`${file}: .${c} owns \`${p}\`, element also sets it inline`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})
+
+// ── Per-element pairing, derived from the sheet ──────────────────────────────
+
 describe('🚨 every state rule is paired with an element that can trigger it', () => {
-  // Each entry: the rule's class, the data attribute it keys on, and the
-  // files an element carrying both is allowed to live in. This is the
-  // assertion the first version lacked entirely.
-  const PAIRS = [
-    ['at-nav-item', 'data-active', 'AdminTerminalPage.jsx'],
-    ['at-chip', 'data-active', 'LogsSection.jsx'],
-    ['at-chip', 'data-active', 'ChangeRequestsSection.jsx'],
-    ['at-chip', 'data-active', 'UsersSection.jsx'],
-    ['at-log-row', 'data-expanded', 'LogsSection.jsx'],
-    ['at-roster-row', 'data-selected', 'UsersSection.jsx'],
-    ['at-roster-row', 'data-inactive', 'UsersSection.jsx'],
-    ['at-icon-btn', 'data-copied', 'CompanySection.jsx'],
-    ['at-icon-btn', 'data-tone', 'CompanySection.jsx'],
-    ['at-picker', 'data-active', 'StorageSection.jsx'],
-    ['at-model-row', 'data-overridden', 'ModelsSection.jsx'],
-    ['at-cred-copy', 'data-copied', 'CredentialsPopup.jsx'],
-    ['at-cred-close', 'data-armed', 'CredentialsPopup.jsx'],
-    ['at-toggle', 'data-on', 'UsersSection.jsx'],
-    ['at-toggle', 'data-disabled', 'UsersSection.jsx'],
-    ['at-toggle-row', 'data-disabled', 'UsersSection.jsx'],
-    ['at-invite-row', 'data-sent', 'MultiInviteDialog.jsx'],
-    ['at-invite-name', 'data-invalid', 'MultiInviteDialog.jsx'],
-    ['at-hint', 'data-invalid', 'CreateUserDialog.jsx'],
-    ['at-check-row', 'data-dim', 'CreateUserDialog.jsx'],
-    ['at-detail-panel', 'data-entered', 'UsersSection.jsx'],
-  ]
+  // Derived from the CSS, not transcribed. Round 2, finding 8: a hand-written
+  // table falls behind the sheet, so a NEW rule arrives unguarded.
+  const PAIRS = [...new Set(
+    [...cssCode.matchAll(/\.(at-[a-z0-9-]+)\[(data-[a-z-]+)=/g)].map((m) => `${m[1]} ${m[2]}`),
+  )].map((s) => s.split(' '))
 
-  it.each(PAIRS)('%s[%s] has a rule AND an element in %s', (cls, attr, file) => {
-    // The CSS half: a rule keyed on that attribute, for that class.
-    const rule = new RegExp(`\\.${cls}\\[${attr}=`)
-    expect(cssCode, `no \`.${cls}[${attr}=…]\` rule`).toMatch(rule)
+  it('the sheet actually declares state rules (the derivation is not empty)', () => {
+    // 19 distinct class+attribute pairs. `.at-chip[data-active]` is ONE pair
+    // serving three files, which is the deduplication the hand-written table
+    // of 21 rows did not have. A floor to be raised, never lowered: a rule
+    // that disappears takes its pair — and so its coverage — with it.
+    expect(PAIRS.length).toBeGreaterThanOrEqual(19)
+  })
 
-    // The JSX half: ONE element carrying both. The window is a heuristic —
-    // this codebase writes a component's props within a few lines of its
-    // className — and it is deliberately tight so a match means the two are
-    // on the same element rather than merely in the same file.
-    const src = sources[file]
-    const hits = [...src.matchAll(new RegExp(`\\b${cls}\\b`, 'g'))]
-    expect(hits.length, `${file} never names ${cls}`).toBeGreaterThan(0)
-    const paired = hits.some((h) => {
-      const window = src.slice(Math.max(0, h.index - 300), h.index + 600)
-      return window.includes(`${attr}=`)
-    })
-    expect(paired, `${file} names ${cls} but no element also writes ${attr}=`).toBe(true)
+  it.each(PAIRS)('.%s[%s] has an element carrying BOTH', (cls, attr) => {
+    // Both on ONE opening tag. Round 2, finding 4: a ±600-character window
+    // let a decoy `<i title="at-chip" data-active="true" />` anywhere in the
+    // file satisfy a chip that had lost its own attribute.
+    const paired = ALL_TAGS.filter(({ tag }) =>
+      tagClasses(tag).includes(cls) && new RegExp(`(^|\\s)${attr}=`).test(tag))
+    expect(paired.length, `no single element carries both ${cls} and ${attr}=`).toBeGreaterThan(0)
   })
 
   it('every class a className literal names has a rule', () => {
+    const used = new Set(ALL_TAGS.flatMap(({ tag }) => tagClasses(tag)))
+    const rules = new Set([...cssCode.matchAll(/\.(at-[a-z0-9-]+)/g)].map((m) => m[1]))
     expect([...used].filter((c) => !rules.has(c))).toEqual([])
   })
 
   it('every rule has a caller in a className literal', () => {
+    const used = new Set(ALL_TAGS.flatMap(({ tag }) => tagClasses(tag)))
+    const rules = new Set([...cssCode.matchAll(/\.(at-[a-z0-9-]+)/g)].map((m) => m[1]))
     expect([...rules].filter((c) => !used.has(c))).toEqual([])
   })
 
-  it('every data attribute the CSS selects on is written by the JSX', () => {
-    const selected = new Set([...cssCode.matchAll(/\[(data-[a-z-]+)=/g)].map((m) => m[1]))
-    const written = new Set([...jsx.matchAll(/(data-[a-z-]+)=/g)].map((m) => m[1]))
-    expect([...selected].filter((a) => !written.has(a))).toEqual([])
+  it('🚨 every selected data attribute is written as an expression, never a literal', () => {
+    // Round 2, finding 6: `data-on="false"` freezes a state permanently off
+    // and passed, because the old regex only matched the `={…}` form.
+    const selected = booleanAttrs()
+    const bad = []
+    for (const { file, tag } of ALL_TAGS) {
+      for (const attr of selected) {
+        const lit = new RegExp(`(^|\\s)${attr}="`).test(tag)
+        if (lit) bad.push(`${file}: ${attr} written as a string literal`)
+      }
+    }
+    expect(bad).toEqual([])
   })
 
-  it('🚨 every data attribute is written with String(), so `=\'true\'` can match', () => {
-    // A `flag || undefined` writer produces an ABSENT attribute, which
-    // `[data-x='true']` never matches — the two spellings cannot be mixed.
-    // Every writer in this directory must be the String() form.
-    const writers = [...jsx.matchAll(/data-[a-z-]+=\{([^}]*)\}/g)].map((m) => m[1].trim())
-    const bad = writers.filter((w) => !w.startsWith('String('))
+  it('🚨 every selected data attribute is written with String(<expression>)', () => {
+    // Still only a spelling check — `String(!on)` passes. Round 2, finding 6
+    // is right that only a render closes it; what this DOES stop is the
+    // `flag || undefined` form, which produces an absent attribute that
+    // `[data-x='true']` can never match, and a bare literal inside String().
+    const selected = new Set(booleanAttrs())
+    const bad = []
+    for (const { file, tag } of ALL_TAGS) {
+      for (const m of tag.matchAll(/(data-[a-z-]+)=\{([\s\S]*?)\}(?=\s|\/|>)/g)) {
+        if (!selected.has(m[1])) continue
+        const expr = m[2].trim()
+        if (!/^String\([\s\S]*\)$/.test(expr)) bad.push(`${file}: ${m[1]}={${expr}}`)
+        else if (/^String\(\s*(['"`]|\d)/.test(expr)) bad.push(`${file}: ${m[1]} wraps a literal`)
+      }
+    }
     expect(bad).toEqual([])
   })
 })
 
+// ── The values ───────────────────────────────────────────────────────────────
+
 describe('🚨 the load-bearing values, pinned literally', () => {
-  // A hex COUNT cannot tell a transcription from an invention (review round 1,
-  // finding 11: `#b8b4b0` → `#ff00ff` keeps the count at 35). These can.
+  // Round 2, finding 9: eleven pins out of ~37 declarations, and the rest
+  // rested on a hex COUNT that an 8-digit hex defeats. Every pin below ends
+  // at a boundary so `#22c55e` cannot be satisfied by `#22c55eff`.
+  const H = (hex) => `${hex}(?![0-9a-fA-F])`
   const DECLARATIONS = [
-    // the nav's selected fill and its 3px signal edge
-    [/\.at-nav-item\[data-active='true'\]\s*\{[^}]*background-color:\s*rgba\(234, 88, 12, 0\.18\)/, 'nav active fill'],
-    [/\.at-nav-item\[data-active='true'\]\s*\{[^}]*border-left-color:\s*#ea580c/, 'nav active edge'],
-    // the chip pair, the same object in three files
-    [/\.at-chip\[data-active='true'\]\s*\{[^}]*background-color:\s*#1c1917/, 'chip active fill'],
-    [/\.at-chip\[data-active='true'\]\s*\{[^}]*color:\s*#f4a261/, 'chip active ink'],
-    // AT-01: the whole point of the second commit
-    [/\.at-menu-item \.at-menu-hint\s*\{\s*color:\s*#b8b4b0/, 'AT-01 menu hint ink'],
-    // the toggle, whose ON branch review round 1 had to prove by hand
-    [/\.at-toggle\[data-on='true'\]\s*\{\s*background-color:\s*#ea580c/, 'toggle on track'],
+    // the nav
+    [new RegExp(`\\.at-nav-item\\[data-active='true'\\]\\s*\\{[^}]*background-color:\\s*rgba\\(234, 88, 12, 0\\.18\\)`), 'nav active fill'],
+    [new RegExp(`\\.at-nav-item\\[data-active='true'\\]\\s*\\{[^}]*border-left-color:\\s*${H('#ea580c')}`), 'nav active edge'],
+    [/\.at-nav-item\s*\{[^}]*border-left:\s*3px solid transparent/, 'nav inactive slot'],
+    // the chip, one object in three files
+    [new RegExp(`\\.at-chip\\[data-active='true'\\]\\s*\\{[^}]*background-color:\\s*${H('#1c1917')}`), 'chip active fill'],
+    [new RegExp(`\\.at-chip\\[data-active='true'\\]\\s*\\{[^}]*color:\\s*${H('#f4a261')}`), 'chip active ink'],
+    // AT-01
+    [new RegExp(`\\.at-menu-item \\.at-menu-hint\\s*\\{\\s*color:\\s*${H('#b8b4b0')}`), 'AT-01 menu hint ink'],
+    // the toggle
+    [new RegExp(`\\.at-toggle\\[data-on='true'\\]\\s*\\{\\s*background-color:\\s*${H('#ea580c')}`), 'toggle on track'],
     [/\.at-toggle\[data-on='true'\] \.at-toggle-knob\s*\{\s*transform:\s*translateX\(14px\)/, 'toggle on knob'],
-    // the two dropped states review round 1 found
-    [/\.at-icon-btn\[data-copied='true'\]\s*\{\s*color:\s*#22c55e/, 'copy confirmed ink'],
-    [/\.at-invite-name\[data-invalid='true'\]\s*\{\s*border-color:\s*#dc2626/, 'invalid username edge'],
-    // the roster selection, and the transition that went missing with it
+    [/\.at-toggle\[data-disabled='true'\]\s*\{\s*cursor:\s*default/, 'toggle disabled cursor'],
+    // 🚨 round 1's two HIGH fixes. Round 2, finding 3: deleting either was
+    // caught ONLY by the hex count, which commit two drives to zero.
+    [new RegExp(`\\.at-icon-btn\\s*\\{\\s*color:\\s*${H('#1c1917')}`), 'icon-button rest ink'],
+    [new RegExp(`\\.at-icon-btn\\[data-copied='true'\\]\\s*\\{\\s*color:\\s*${H('#22c55e')}`), 'copy confirmed ink'],
+    [new RegExp(`\\.at-invite-name\\s*\\{\\s*border:\\s*1px solid ${H('#44403c')}`), 'invite name valid edge'],
+    [new RegExp(`\\.at-invite-name\\[data-invalid='true'\\]\\s*\\{\\s*border-color:\\s*${H('#dc2626')}`), 'invite name invalid edge'],
+    // the roster
     [/\.at-roster-row\[data-selected='true'\]\s*\{\s*background-color:\s*rgba\(234, 88, 12, 0\.10\)/, 'roster selected fill'],
-    [/\.at-roster-row\s*\{[^}]*transition:\s*background-color 150ms/, 'roster row transition'],
+    [/\.at-roster-row\[data-inactive='true'\]\s*\{\s*opacity:\s*0\.55/, 'roster deactivated dim'],
+    // ── motion. Round 2, finding 7: the curve round 1 restored was unpinned,
+    //    and so was the promise that the roster's opacity must NOT fade.
+    [/\.at-roster-row\s*\{[^}]*transition:\s*background-color 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\);/, 'roster transition, colour only'],
+    [/\.at-log-row\s*\{[^}]*transition:\s*background-color 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'log row transition'],
+    [/\.at-toggle-knob\s*\{[^}]*transition:\s*transform 150ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'knob transition'],
+    [/\.at-detail-panel\s*\{[^}]*transform:\s*translateX\(24px\)/, 'panel entry offset'],
+    [/\.at-detail-panel\s*\{[^}]*transition:\s*opacity 200ms cubic-bezier\(0\.4, 0, 0\.2, 1\),\s*transform 200ms cubic-bezier\(0\.4, 0, 0\.2, 1\)/, 'panel transition'],
+    [/@media \(prefers-reduced-motion: reduce\)\s*\{\s*\.at-detail-panel \{ transition: none; \}/, 'reduced-motion gate'],
+    // the rest of the transcription
+    [new RegExp(`\\.at-picker\\[data-active='true'\\]\\s*\\{[^}]*border-color:\\s*${H('#ea580c')}`), 'picker selected edge'],
+    [/\.at-model-row\[data-overridden='true'\]\s*\{\s*background-color:\s*rgba\(234, 88, 12, 0\.05\)/, 'overridden model row'],
+    [new RegExp(`\\.at-cred-copy\\[data-copied='true'\\]\\s*\\{[^}]*color:\\s*${H('#22c55e')}`), 'credentials copied'],
+    [new RegExp(`\\.at-cred-close\\[data-armed='true'\\]\\s*\\{[^}]*color:\\s*${H('#f4a261')}`), 'credentials armed'],
+    [/\.at-invite-row\[data-sent='true'\]\s*\{\s*opacity:\s*0\.75/, 'invite row sent'],
+    [new RegExp(`\\.at-hint\\[data-invalid='true'\\]\\s*\\{\\s*color:\\s*${H('#fbbf24')}`), 'create-user hint invalid'],
+    [/\.at-check-row\[data-dim='true'\]\s*\{\s*opacity:\s*0\.6/, 'check row dimmed'],
+    [new RegExp(`\\.at-log-row:hover\\s*\\{\\s*background-color:\\s*${H('#f5f5f4')}`), 'log row hover'],
+    [new RegExp(`\\.at-icon-btn:hover\\s*\\{\\s*background-color:\\s*${H('#e7e5e4')}`), 'icon button hover'],
+    [new RegExp(`\\.at-icon-btn\\[data-tone='chip'\\]:hover\\s*\\{\\s*background-color:\\s*${H('#d6d3d1')}`), 'chip remove hover'],
+    [/\.at-disable-40:disabled\s*\{\s*opacity:\s*0\.4/, 'disabled at 40'],
+    [/\.at-disable-50:disabled\s*\{\s*opacity:\s*0\.5/, 'disabled at 50'],
   ]
 
-  it.each(DECLARATIONS)('pins %s', (pattern) => {
+  it.each(DECLARATIONS)('pins %#: %s', (pattern) => {
     expect(cssCode).toMatch(pattern)
   })
 
   it('🚨 no state rule sets a border via the `border` shorthand', () => {
-    // Review round 1, finding 2: an inline `border` shorthand sets
-    // `border-color`, so a `border-color` rule can never win against one. The
-    // inverse discipline belongs here — a `[data-…]` rule that reaches for
-    // the shorthand is about to fight the same battle from the other side.
     const stateRules = [...cssCode.matchAll(/\.at-[a-z0-9-]+\[data-[a-z-]+='[^']*'\][^{]*\{([^}]*)\}/g)]
-    const offenders = stateRules.map((m) => m[1]).filter((body) => /(^|;)\s*border:\s/.test(body))
-    expect(offenders).toEqual([])
+    expect(stateRules.map((m) => m[1]).filter((b) => /(^|;)\s*border:\s/.test(b))).toEqual([])
   })
 })
 
 describe('no surviving Tailwind state utility in this directory', () => {
   it('🚨 no `hover:` utility of any kind', () => {
-    // The first version asserted `/hover:bg-/` while its comment claimed "no
-    // Tailwind hover utility left at all"; `hover:text-orange-500` passed
-    // (review round 1, finding 12).
     expect(jsx).not.toMatch(/(^|\s|")hover:/)
   })
 
   it('🚨 no `disabled:` utility of any kind', () => {
-    // Plan §3.1: disabled is one token (ink at 52 percent plus
-    // `cursor: not-allowed`), never an opacity — and never a second spelling
-    // of an ink either, which `/disabled:opacity-/` alone allowed through.
     // `disabled:cursor-not-allowed` is the ONE spelling plan §3.1 asks for
     // and is exempted by name; everything else is a second disabled treatment.
     expect(jsx).not.toMatch(/(^|\s|")disabled:(?!cursor-not-allowed)/)
   })
-
-  it('the two transcribed disabled classes are still the only disabled treatment', () => {
-    expect(cssCode).toMatch(/\.at-disable-40:disabled\s*\{\s*opacity:\s*0\.4/)
-    expect(cssCode).toMatch(/\.at-disable-50:disabled\s*\{\s*opacity:\s*0\.5/)
-  })
 })
 
 describe('the transcription ledger (commit one only)', () => {
-  // 🚨 WHEN COMMIT TWO LANDS, THIS NUMBER GOES TO 0 AND THE `toBe` BELOW
-  // BECOMES THE C8 ASSERTION THE OTHER PAGE SHEETS CARRY:
-  //     expect(hexes).toEqual([])
-  // Until then it is a ledger, not a licence: it may only ever go DOWN.
-  // It proves nothing on its own — see the pinned declarations above, which
-  // are what actually catch a changed value.
-  const TRANSCRIBED_HEXES = 37
+  // 🚨 THE WHOLE TRANSCRIPTION, VALUE BY VALUE, NOT A COUNT.
+  //
+  // Round 2, finding 9: eleven pinned declarations left roughly two dozen
+  // values resting on a COUNT, which an 8-digit hex or a compensating hex
+  // elsewhere defeats. The last surviving mutant of this session's own
+  // re-run was `.at-hint { color: #78716c }` → `#ff00ff`, which changed no
+  // count and broke no pin.
+  //
+  // This is the ledger the C8 cleanup needs anyway — commit two replaces the
+  // whole table with `expect(literals).toEqual([])` — and as a side effect it
+  // is total coverage: no value in this sheet can change, in either
+  // direction, without saying so here.
+  const TRANSCRIBED = [
+    ['#1c1917', 8], ['#22c55e', 4], ['#292524', 1], ['#44403c', 3],
+    ['#78716c', 2], ['#b45309', 1], ['#b8b4b0', 1], ['#d6d3d1', 1],
+    ['#dc2626', 1], ['#e7e5e4', 2], ['#ea580c', 5], ['#f4a261', 5],
+    ['#f5f5f4', 1], ['#fbbf24', 1], ['#fff', 1],
+    ['rgba(120, 70, 30, 0.3)', 1], ['rgba(234, 88, 12, 0.05)', 1],
+    ['rgba(234, 88, 12, 0.10)', 2], ['rgba(234, 88, 12, 0.18)', 1],
+    ['rgba(28, 25, 23, 0.35)', 1], ['rgba(34, 197, 94, 0.15)', 1],
+  ]
 
-  it('carries exactly the transcribed hex values, and no more', () => {
-    const hexes = [...cssCode.matchAll(/#[0-9a-fA-F]{3,8}\b/g)].map((m) => m[0])
-    expect(hexes.length).toBe(TRANSCRIBED_HEXES)
+  it('carries exactly the transcribed colour values, each the right number of times', () => {
+    const found = {}
+    for (const m of cssCode.matchAll(/#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g)) {
+      found[m[0]] = (found[m[0]] || 0) + 1
+    }
+    expect(Object.fromEntries(TRANSCRIBED)).toEqual(found)
   })
 
   it('reads no design token yet, because commit one changes nothing visually', () => {

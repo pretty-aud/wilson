@@ -35,18 +35,27 @@ const ERROR_MAP = {
   mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
 }
 
-// The invite row's username field draws its own validity on the control, so
-// its border lives in CSS (`.at-invite-name`) and must NOT be in this object:
-// an inline `border` shorthand sets `border-color`, and no class rule can beat
-// an inline declaration. Review round 1, finding 2 — the extraction moved the
-// invalid branch to CSS and left the valid one inline as a shorthand, which
-// silently deleted the red edge.
-const fieldStyle = {
-  backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261',
-  border: '1px solid #44403c', borderRadius: 3,
+// 🚨 THE DERIVATION RUNS THIS WAY ROUND ON PURPOSE, and the order is the
+// point rather than the comment. The username field's edge is a STATE — it
+// goes red the moment the name stops matching USERNAME_RE — so it belongs in
+// CSS (`.at-invite-name`), and it must not reach this element inline: an
+// inline `border` SHORTHAND sets `border-color`, which no class rule can
+// beat. Review round 1, finding 2: the extraction moved the invalid branch to
+// CSS and left the valid one in a shared style object as a shorthand, which
+// deleted the red edge outright and blocked the user from sending with no
+// marker on the control.
+//
+// Written as `nameFieldStyle` first and `fieldStyle` as the one that ADDS the
+// static edge, a careless tidy of `fieldStyle` cannot silently take the
+// border away from the two elements that do want it (review round 2, finding
+// 13: the previous spelling annotated `fieldStyle` with a comment saying its
+// border "must NOT be in this object", directly above an object containing
+// one). It also removes the unused `_fieldBorder` binding.
+const nameFieldStyle = {
+  backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261', borderRadius: 3,
 }
-const { border: _fieldBorder, ...nameFieldStyle } = fieldStyle
-
+// The textarea and the role select take the same field with a STATIC edge.
+const fieldStyle = { ...nameFieldStyle, border: '1px solid #44403c' }
 
 export default function MultiInviteDialog({ open, onClose, onInvited }) {
   const [text, setText] = useState('')
