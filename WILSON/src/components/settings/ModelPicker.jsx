@@ -94,7 +94,7 @@ export default function ModelPicker({ registryKey, disabled = false }) {
           onChange={(e) => apply(e.target.value)}
           disabled={disabled || busy}
           title={entry.hint || entry.label}
-          className="s-mp-select px-2 py-1 rounded-sm text-[11px] font-mono"
+          className="s-mp-select"
           data-disabled={disabled || busy}
         >
           {/* Empty value = inherit, so a user who never touches this keeps
@@ -118,7 +118,7 @@ export default function ModelPicker({ registryKey, disabled = false }) {
             type="button"
             onClick={() => apply('')}
             disabled={disabled || busy}
-            className="s-mp-reset text-[10px]"
+            className="s-mp-reset"
             data-disabled={disabled || busy}
           >
             Reset to default

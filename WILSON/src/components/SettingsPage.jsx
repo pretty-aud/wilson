@@ -1234,7 +1234,7 @@ function DepartmentRow({ name, onRename, onRemove }) {
   }
 
   return (
-    <div className="s-dept-row flex items-center gap-2 px-3 py-2 rounded-sm transition-colors">
+    <div className="s-dept-row">
       {/* The input is CONDITIONALLY MOUNTED, not hidden with CSS, and it must
           stay that way: `autoFocus` only fires on mount, so turning this into
           a show/hide would silently break focus-on-edit. */}

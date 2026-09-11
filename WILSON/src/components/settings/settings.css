@@ -594,11 +594,46 @@
     justify-content: flex-end;
   }
 
+  /* ── CurrencyPicker ───────────────────────────────────────────────────
+     The trigger was 48px while the rate-card select beneath it was 32px —
+     two controls in one section at two heights (S24). */
+  .s-currency-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    height: var(--control-md);
+    padding: 0 12px;
+    font-size: var(--text-dense);
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border: 1px solid var(--color-rule-light);
+    border-radius: var(--radius-control);
+    transition: border-color var(--duration-state) ease-out;
+  }
+  .s-currency-trigger:hover {
+    border-color: var(--color-ink-light);
+  }
+  .s-currency-menu {
+    position: absolute;
+    z-index: 50;
+    width: 100%;
+    max-height: 288px;
+    margin-top: 4px;
+    overflow: auto;
+    background-color: var(--color-paper-raised);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-float);
+    box-shadow: var(--shadow-float);
+  }
+
   /* ── CurrencyPicker's option list ─────────────────────────────────────
      A dark floating panel opened from a light page, which is correct — the
      kit's own Dialog, Menu and Toast are dark by design and bring their own
      backdrop. Only the ink ternary and the hover were inline. */
   .s-cur-option {
+    font-size: var(--text-dense);
     color: var(--color-ink);
   }
   .s-cur-option[data-current='true'] {

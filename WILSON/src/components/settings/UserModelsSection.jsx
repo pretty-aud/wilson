@@ -38,8 +38,9 @@ import {
   loadApprovedModels, cachedApprovedModels,
   setUserModelOverride, loadModelSources,
 } from '../../lib/modelSources'
-import { LIGHT_INK, LIGHT_RULE } from '../lightSurface'
 import './settings.css'
+import { Section, Group } from './SettingsChrome'
+import { Button, Select } from '../../ui'
 
 /** Which tier supplies this key's value, and what it is. */
 function provenance(key, tier, sources, builtin) {
@@ -98,43 +99,36 @@ export default function UserModelsSection() {
   const mineCount = REGISTRY.filter((e) => sources.user?.[e.key]).length
 
   return (
-    <div>
-      <div className="flex items-start justify-between mb-3">
-        <div>
-          <h3 className="text-xs font-bold uppercase tracking-widest mb-1" style={{ color: LIGHT_INK }}>
-            AI models
-          </h3>
-          <p className="text-[11px] leading-relaxed" style={{ color: LIGHT_INK }}>
-            Which Claude model each WILSON function uses for you. Your choice
-            beats your company&rsquo;s, which beats the platform default.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={reload}
-          disabled={loading}
-          className="flex items-center gap-1.5 px-2 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-40"
-          style={{ backgroundColor: 'rgba(120, 70, 30, 0.55)', color: '#fde8d0' }}
-        >
-          <RefreshCw size={11} className={loading ? 'animate-spin' : ''} /> Refresh
-        </button>
-      </div>
-
+    // S13: this heading was the only `h3 text-xs` among twelve `h2 text-sm`,
+    // the only one in sentence case and the only one with a right-hand
+    // control — three deviations in one header. It is a Section like every
+    // other, and Refresh is in the standard actions slot.
+    <Section
+      first
+      title="AI models"
+      description={<>
+        Which Claude model each WILSON function uses for you. Your choice
+        beats your company&rsquo;s, which beats the platform default.
+      </>}
+      actions={
+        <Button surface="light" size="sm" onClick={reload} disabled={loading}>
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} aria-hidden="true" /> Refresh
+        </Button>
+      }
+    >
       {error && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(220,38,38,0.10)', color: '#991b1b' }}>
-          {error}
-        </p>
+        <p className="s-feedback mb-4" data-tone="error" role="alert">{error}</p>
       )}
 
       {models.length === 0 && !loading && (
-        <p className="text-[11px] mb-3 px-3 py-2 rounded-sm" style={{ backgroundColor: 'rgba(120,70,30,0.12)', color: LIGHT_INK }}>
+        <p className="s-feedback mb-4" data-tone="neutral" role="status">
           There are no models available for you to choose from yet. Everything
           still runs on its default — ask your administrator if you need a choice
           here.
         </p>
       )}
 
-      <p className="text-[11px] mb-4" style={{ color: LIGHT_INK }}>
+      <p className="s-row-desc mb-4">
         {!areModelSourcesLoaded()
           // Distinguishing "nothing is set" from "nothing has loaded" matters:
           // both draw an identical screen, and only one of them is the truth.
@@ -144,10 +138,19 @@ export default function UserModelsSection() {
             : `You have overridden ${mineCount} of ${REGISTRY.length} functions.`}
       </p>
 
-      {[...registryByTool().entries()].map(([tool, entries]) => (
-        <div key={tool} className="mb-4">
-          <div className="text-[10px] font-bold uppercase tracking-wider mb-1" style={{ color: LIGHT_INK }}>{tool}</div>
-          <div className="rounded-sm" style={{ border: `1px solid ${LIGHT_RULE}` }}>
+      {/* H4: 29 controls on one screen. The three tool groups were the right
+          instinct and now read as groups — an eyebrow per group with a count
+          of what is overridden in it, so a user can see which group needs
+          attention without opening anything. No control is hidden. */}
+      {[...registryByTool().entries()].map(([tool, entries]) => {
+        const mineHere = entries.filter((e) => sources.user?.[e.key]).length
+        return (
+        <Group
+          key={tool}
+          label={tool}
+          actions={<span className="s-row-desc">{mineHere} of {entries.length} overridden</span>}
+        >
+          <div>
             {entries.map((entry) => {
               const mine = sources.user?.[entry.key] ?? ''
               const busy = busyKey === entry.key
@@ -168,10 +171,9 @@ export default function UserModelsSection() {
                   className="s-model-row px-3 py-2"
                   data-overridden={!!mine}
                 >
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>
-                      <div className="text-[11px]" style={{ color: LIGHT_INK }}>{entry.label}</div>
-                      <div className="text-[10px]" style={{ color: LIGHT_INK }}>
+                  <div className="s-model-main">
+                      <div className="s-row-desc" style={{ fontWeight: 600 }}>{entry.label}</div>
+                      <div className="s-row-desc">
                         {mine
                           ? `using ${labelFor(mine)} — your choice`
                           : `using ${labelFor(withoutMe.model)} — from ${withoutMe.from}`}
@@ -183,43 +185,57 @@ export default function UserModelsSection() {
                       </div>
                     </div>
 
-                    <select
-                      value={mine}
-                      disabled={busy || models.length === 0}
-                      onChange={(e) => apply(entry.key, e.target.value)}
-                      title={entry.hint || entry.label}
-                      className="px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
-                      style={{ border: `1px solid ${LIGHT_RULE}`, color: LIGHT_INK, minWidth: '190px' }}
-                    >
-                      <option value="">Inherit ({labelFor(withoutMe.model)})</option>
-                      {models.map((m) => (
-                        <option key={m.model_id} value={m.model_id}>{m.label}</option>
-                      ))}
-                      {mine && !models.some((m) => m.model_id === mine) && (
-                        <option value={mine}>{mine} (no longer offered)</option>
+                    {/* 🚨 S28, and a live C9 breach: this select set a border
+                        and a colour but NO background, so Chrome painted its
+                        near-white UA ButtonFace on the orange page — 28 times,
+                        because it is inside a map. The kit Select brings the
+                        well-light surface with it. */}
+                    <div className="s-model-select">
+                      <Select
+                        surface="light"
+                        size="sm"
+                        value={mine}
+                        disabled={busy || models.length === 0}
+                        onChange={(v) => apply(entry.key, v || '')}
+                        title={entry.hint || entry.label}
+                        aria-label={`Model for ${entry.label}`}
+                        className="w-full"
+                        options={[
+                          { value: '', label: `Inherit (${labelFor(withoutMe.model)})` },
+                          ...models.map((m) => ({ value: m.model_id, label: m.label })),
+                          ...(mine && !models.some((m) => m.model_id === mine)
+                            ? [{ value: mine, label: `${mine} (no longer offered)` }]
+                            : []),
+                        ]}
+                      />
+                    </div>
+
+                    {/* The reset slot is RESERVED whether or not it renders,
+                        so a conditional button can no longer push a row to
+                        wrap and the column stays a column down all 28 rows. */}
+                    <div className="s-model-reset">
+                      {mine && (
+                        <Button
+                          surface="light"
+                          size="sm"
+                          variant="ghost"
+                          Icon={RotateCcw}
+                          onClick={() => apply(entry.key, '')}
+                          disabled={busy}
+                        >
+                          Reset
+                        </Button>
                       )}
-                    </select>
+                    </div>
 
-                    {mine && (
-                      <button
-                        type="button"
-                        onClick={() => apply(entry.key, '')}
-                        disabled={busy}
-                        className="flex items-center gap-1 text-[10px] disabled:opacity-40"
-                        style={{ color: '#ea580c' }}
-                      >
-                        <RotateCcw size={11} /> Reset
-                      </button>
-                    )}
-                  </div>
-
-                  {err && <p className="text-[10px] mt-1" style={{ color: '#991b1b' }}>{err}</p>}
+                  {err && <p className="s-feedback" data-tone="error" role="alert">{err}</p>}
                 </div>
               )
             })}
           </div>
-        </div>
-      ))}
-    </div>
+        </Group>
+        )
+      })}
+    </Section>
   )
 }

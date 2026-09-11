@@ -7,7 +7,9 @@
 // the project. Persisted under settings.rabbit.defaultCurrency.
 
 import { useEffect, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import './settings.css'
+import { Input } from '../../ui'
 
 const CURRENCIES = [
   { code: 'USD', label: 'US Dollar',          symbol: '$' },
@@ -31,12 +33,6 @@ const CURRENCIES = [
   { code: 'ZAR', label: 'South African Rand', symbol: 'R' },
 ]
 
-const inputStyle = {
-  backgroundColor: 'rgba(120, 70, 30, 0.55)',
-  color: '#fde8d0',
-  border: 'none',
-}
-
 export default function CurrencyPicker({ value, onChange }) {
   const [open, setOpen] = useState(false)
   const [filter, setFilter] = useState('')
@@ -54,48 +50,58 @@ export default function CurrencyPicker({ value, onChange }) {
 
   return (
     <div className="relative">
+      {/* S24: this trigger was px-4 py-3 — 48px — while the rate-card select
+          directly beneath it was 32px, so the two controls in one section
+          were different objects. Both are 36px now.
+          S38: the caret was text-stone-400 at 1.74:1 and the symbol
+          text-orange-300 at 2.40:1 on the 0.55 well. One ink; the symbol keeps
+          its distinction through a fixed-width column, not colour.
+          S29: the caret was a literal ▲/▼ glyph, not an icon. */}
       <button
         type="button"
         onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-        style={inputStyle}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="s-currency-trigger"
       >
-        <span>
-          <span className="text-orange-300 mr-2">{current.symbol}</span>
-          {current.code} — {current.label}
+        <span className="flex items-center gap-2 min-w-0">
+          <span className="s-data" style={{ width: '2.5ch' }}>{current.symbol}</span>
+          <span className="truncate">{current.code} — {current.label}</span>
         </span>
-        <span className="text-stone-400 text-xs">{open ? '▲' : '▼'}</span>
+        <ChevronDown size={14} aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
 
       {open && (
-        <div
-          className="absolute z-50 mt-1 w-full max-h-72 overflow-auto rounded-sm shadow-xl"
-          style={{ backgroundColor: '#1c1917', border: '1px solid #44403c' }}
-        >
-          <input
-            type="text"
-            value={filter}
-            onChange={e => setFilter(e.target.value)}
-            placeholder="Search currency…"
-            className="w-full px-3 py-2 text-xs font-mono border-b"
-            style={{ ...inputStyle, borderColor: '#44403c' }}
-            autoFocus
-          />
+        <div className="s-currency-menu" role="listbox">
+          {/* The filter is conditionally mounted, so autoFocus fires. */}
+          <div className="p-2">
+            <Input
+              value={filter}
+              onChange={setFilter}
+              placeholder="Search currency…"
+              size="sm"
+              autoFocus
+              aria-label="Search currency"
+              className="w-full"
+            />
+          </div>
           {filtered.map(c => (
             <button
               key={c.code}
               type="button"
               onClick={() => { onChange(c.code); setOpen(false); }}
-              className="s-cur-option w-full flex items-center gap-3 px-4 py-2 text-left text-xs font-mono transition-colors"
+              className="s-cur-option w-full flex items-center gap-3 px-4 py-2 text-left transition-colors"
               data-current={c.code === current.code}
             >
-              <span className="w-8 text-orange-300">{c.symbol}</span>
-              <span className="w-12">{c.code}</span>
-              <span className="text-stone-400">{c.label}</span>
+              <span className="s-data" style={{ width: '2.5ch' }}>{c.symbol}</span>
+              <span className="s-data" style={{ width: '4ch' }}>{c.code}</span>
+              <span className="truncate">{c.label}</span>
             </button>
           ))}
           {filtered.length === 0 && (
-            <div className="px-4 py-3 text-xs text-stone-500 font-mono">No matches.</div>
+            <div className="px-4 py-3" style={{ fontSize: 'var(--text-dense)', color: 'var(--color-ink-2)' }}>
+              No matches.
+            </div>
           )}
         </div>
       )}

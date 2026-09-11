@@ -26,6 +26,9 @@
 import { useState } from 'react'
 import { AGENT_SKILL_REGISTRY, AGENT_SKILL_TOOLS, defaultAgentSkillsState } from './agentSkillRegistry'
 import './settings.css'
+import { Section, Group } from './SettingsChrome'
+import { Button, TextArea } from '../../ui'
+import { Check } from 'lucide-react'
 
 export default function AgentSkillsSection({
   value,
@@ -50,19 +53,12 @@ export default function AgentSkillsSection({
   }
 
   return (
-    <div className="space-y-8">
-      <div>
-        <h2 className="text-sm font-bold uppercase tracking-widest text-stone-900 mb-1">
-          Agent Skills
-        </h2>
-        <p className="text-xs text-stone-950 mb-4 leading-relaxed">
-          Each tool exposes a set of agent capabilities. The system prompt and
-          tool schema below describe the agent's contract; the checkboxes are
-          a reference list and do not gate anything at runtime. Edits to the
-          system prompt persist across sessions and can be reset to the
-          default at any time.
-        </p>
-      </div>
+    <>
+      <Section
+        first
+        title="Agent skills"
+        description={"Each tool exposes a set of agent capabilities. The system prompt and tool schema below describe the agent's contract; the checkboxes are a reference list and do not gate anything at runtime. Edits to the system prompt persist across sessions and can be reset to the default at any time."}
+      />
 
       {AGENT_SKILL_TOOLS.map(toolName => {
         const tool = AGENT_SKILL_REGISTRY[toolName]
@@ -83,7 +79,7 @@ export default function AgentSkillsSection({
           />
         )
       })}
-    </div>
+    </>
   )
 }
 
@@ -102,104 +98,90 @@ function ToolBlock({
   const isOverridden = override != null
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="text-xs font-bold uppercase tracking-widest text-stone-900">
-          {tool.label}
-        </h3>
-        <div className="flex gap-1">
-          <button
-            onClick={() => onSetAll(true)}
-            className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#1c1917' }}
-          >
-            All on
-          </button>
-          <button
-            onClick={() => onSetAll(false)}
-            className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#1c1917' }}
-          >
-            All off
-          </button>
-        </div>
-      </div>
-      <p className="text-[11px] text-stone-950 mb-3 leading-relaxed">{tool.description}</p>
-
-      {/* System prompt editor */}
-      <div className="mb-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-stone-700">
-            System Prompt
-            {isOverridden && (
-              <span className="ml-2 text-[9px] text-orange-700">(edited)</span>
-            )}
-          </span>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setShowSchema(s => !s)}
-              className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#1c1917' }}
-            >
+    // H7: ten controls per tool, repeated for every tool. All on / All off
+    // move into the section's actions slot so they stop competing with the
+    // tool's own title, and the schema keeps the disclosure it ALREADY had —
+    // the one disclosure on this surface that hides read-only text rather
+    // than a control, so C1 is untouched.
+    <Section
+      title={tool.label}
+      description={tool.description}
+      actions={
+        <>
+          <Button surface="light" size="sm" onClick={() => onSetAll(true)}>All on</Button>
+          <Button surface="light" size="sm" onClick={() => onSetAll(false)}>All off</Button>
+        </>
+      }
+    >
+      <Group
+        label={isOverridden ? 'System prompt (edited)' : 'System prompt'}
+        actions={
+          <>
+            <Button surface="light" size="sm" onClick={() => setShowSchema(s => !s)} aria-expanded={showSchema}>
               {showSchema ? 'Hide schema' : 'View schema'}
-            </button>
+            </Button>
             {isOverridden && (
-              <button
-                onClick={onPromptReset}
-                className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                style={{ backgroundColor: 'rgba(120, 70, 30, 0.45)', color: '#1c1917' }}
-              >
-                Reset
-              </button>
+              <Button surface="light" size="sm" onClick={onPromptReset}>Reset</Button>
             )}
+          </>
+        }
+      >
+        {/* S26: this editor was a #1c1917 well with #f4a261 ink — a dark
+            island on a light page — while the Agent tab's editor one tab away
+            was the 0.55 brown well with #fde8d0 at 3.40:1. One TextArea for
+            both now. */}
+        <div className="s-row" data-stacked="true">
+          <div className="s-row-control">
+            <TextArea
+              surface="light"
+              aria-label={`${tool.label} system prompt`}
+              value={promptText}
+              onChange={onPromptChange}
+              rows={10}
+              spellCheck={false}
+              className="w-full"
+            />
           </div>
         </div>
-        <textarea
-          value={promptText}
-          onChange={(e) => onPromptChange(e.target.value)}
-          rows={10}
-          spellCheck={false}
-          className="w-full px-3 py-2 text-[11px] font-mono rounded-sm focus:ring-2 focus:ring-orange-500 resize-y"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261', border: 'none', lineHeight: '1.5' }}
-        />
-      </div>
+      </Group>
 
-      {/* Tool schema viewer (read-only) */}
+      {/* Tool schema viewer (read-only). A code well IS a legitimate dark
+          surface (paper-recessed), unlike the prompt editor above it, which
+          was a form field wearing a code well's clothes. */}
       {showSchema && (
-        <div className="mb-3">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-stone-700 block mb-1">
-            Tool Schema (read-only)
-          </span>
-          <pre
-            className="w-full px-3 py-2 text-[10px] font-mono rounded-sm overflow-x-auto"
-            style={{ backgroundColor: '#1c1917', color: '#f4a261', border: 'none', lineHeight: '1.45', maxHeight: '300px' }}
-          >
+        <div className="mt-4">
+          <span className="s-eyebrow mb-1">Tool schema (read-only)</span>
+          <pre className="s-log" style={{ maxHeight: '300px' }}>
 {JSON.stringify(tool.toolSchema || [], null, 2)}
           </pre>
         </div>
       )}
 
       {/* Per-skill on/off checkboxes */}
-      <div className="space-y-1 p-3 rounded-sm" style={{ backgroundColor: 'rgba(120, 70, 30, 0.35)' }}>
+      <div className="s-well mt-4">
         {tool.skills.map(skill => {
           const isOn = enabled.includes(skill.id)
           return (
             <button
               key={skill.id}
+              type="button"
+              role="checkbox"
+              aria-checked={isOn}
               onClick={() => onToggle(skill.id)}
-              className="s-skill-row w-full flex items-start gap-3 px-2 py-2 text-left rounded-sm transition-colors"
+              className="s-skill-row"
             >
-              <span className="s-skill-box flex-shrink-0 w-4 h-4 mt-0.5 flex items-center justify-center rounded-sm" data-on={isOn}>
-                {isOn && <span className="text-[10px] text-white font-bold">✓</span>}
+              {/* S29: the tick was a text ✓ character, not an icon. */}
+              <span className="s-skill-box" data-on={isOn}>
+                {isOn && <Check size={12} strokeWidth={3} aria-hidden="true" />}
               </span>
-              <span className="flex-1">
-                <span className="block text-xs font-bold text-stone-900 font-mono">{skill.label}</span>
-                <span className="block text-[10px] text-stone-950 mt-0.5">{skill.description}</span>
+              <span className="flex-1 min-w-0">
+                <span className="s-skill-label block">{skill.label}</span>
+                <span className="s-skill-desc block">{skill.description}</span>
               </span>
             </button>
           )
         })}
       </div>
-    </div>
+    </Section>
   )
 }
