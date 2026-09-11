@@ -6,7 +6,7 @@
 // tone; `label` overrides the accessible name and the word together.
 // =============================================================================
 
-import { statusMeta } from './StatusDot'
+import { StatusDot, statusMeta } from './StatusDot'
 
 export function StatusBadge({ status, tone, label, children, title, surface = 'dark', className = '', ...rest }) {
   const meta = statusMeta(status)
@@ -21,7 +21,11 @@ export function StatusBadge({ status, tone, label, children, title, surface = 'd
       title={title}
       {...rest}
     >
-      <span className="ui-status-dot" data-tone={t} data-surface={surface} aria-hidden="true" />
+      {/* The dot is StatusDot, not a second copy of its markup: one element,
+          one set of tone rules, one place a status colour is decided. The
+          badge supplies the accessible name in its own word, so the dot is
+          hidden from the accessibility tree here. */}
+      <StatusDot tone={t} status={status} aria-hidden="true" role={undefined} aria-label={undefined} title={undefined} surface={surface} />
       <span>{children ?? word}</span>
     </span>
   )
