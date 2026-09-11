@@ -352,6 +352,23 @@ export default function App() {
   // Check persisted Supabase session on mount. `session` carries the JWT that
   // RLS uses to gate every request; losing it means logged-out state.
   useEffect(() => {
+    // Dev tester mode — Audrey, 2026-09-11 (UI overhaul F1): "no just bypass
+    // password entry." 🚨 DEV BUILDS ONLY: `import.meta.env.DEV` is a
+    // compile-time constant, so `vite build` (the installer, the beta,
+    // Vercel) drops this branch; there is no runtime switch. With
+    // VITE_DEV_AUTOLOGIN=tester in .env.local the sign-in screen is skipped
+    // with NO credentials and NO session: usePermissions stays empty (no
+    // role, no workspace) and every RLS-gated query returns nothing, so the
+    // chrome, the fonts and the kit are reviewable while the tables are
+    // empty. The credentialed variant (VITE_DEV_AUTOLOGIN=1 + a test
+    // account) lives in LoginScreen.jsx and gives a real session.
+    if (import.meta.env.DEV && import.meta.env.VITE_DEV_AUTOLOGIN === 'tester') {
+      console.warn('[wilson] DEV tester mode: sign-in skipped, no session, no workspace (VITE_DEV_AUTOLOGIN=tester; dev builds only)');
+      setAuthed(true);
+      setShowOverlay(false);
+      setSessionChecked(true);
+      return;
+    }
     checkSessionValid().then(session => {
       if (session) {
         setAuthed(true);

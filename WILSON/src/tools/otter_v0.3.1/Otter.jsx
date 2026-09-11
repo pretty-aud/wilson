@@ -456,7 +456,13 @@ export default function Otter({ onNavigate, currentPage, openSettingsTrigger = 0
     try {
       const res = await otterFetch('/api/software');
       const data = await res.json();
-      setSoftwareList(data);
+      // A denied or failed request answers with an error OBJECT, not a list,
+      // and every consumer below calls .find / .filter / .map on this state:
+      // an un-guarded set threw `softwareList.find is not a function` and
+      // unmounted the whole app (measured in dev tester mode, where every
+      // RLS-gated call is a 401). SettingsPage already guards the same
+      // response this way.
+      setSoftwareList(Array.isArray(data) ? data : []);
       for (const sw of data) {
         if (!softwareCacheRef.current[sw.slug]) {
           Promise.all([

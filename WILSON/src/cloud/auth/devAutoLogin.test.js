@@ -49,10 +49,16 @@ describe('the dev auto sign-in is gated on import.meta.env.DEV', () => {
     expect(src).not.toMatch(/console\.[a-z]+\([^)]*\bpw\b/) // never logged
   })
 
-  it('the bypass exists in exactly one file in src', () => {
+  it('the bypass exists in exactly two files in src, and both guard every read on import.meta.env.DEV', () => {
     const files = walk(resolve(here, '../..'))
     const hits = files.filter((f) => readFileSync(f, 'utf8').includes('VITE_DEV_AUTOLOGIN'))
-    expect(hits.map((f) => f.replace(/\\/g, '/').split('/src/')[1])).toEqual(['cloud/auth/LoginScreen.jsx'])
+    expect(hits.map((f) => f.replace(/\\/g, '/').split('/src/')[1]).sort()).toEqual(['App.jsx', 'cloud/auth/LoginScreen.jsx'])
+    // App.jsx's tester mode (no credentials, no session) is a single `if`
+    // whose condition names DEV before the variable, on the same line.
+    const app = readFileSync(resolve(here, '../../App.jsx'), 'utf8')
+    const codeReads = app.split('\n').filter((l) => l.includes('import.meta.env.VITE_DEV_AUTOLOGIN'))
+    expect(codeReads.length).toBe(1)
+    expect(codeReads[0]).toMatch(/import\.meta\.env\.DEV && import\.meta\.env\.VITE_DEV_AUTOLOGIN === 'tester'/)
   })
 
   it('the control: the checker would catch an unguarded read', () => {
