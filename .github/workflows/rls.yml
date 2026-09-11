@@ -26,6 +26,7 @@ on:
       - 'feat/**'
       - 'track-*'       # the parallel fix tracks (docs/sessions/HANDOFF_PROTOCOL.md), 2026-09-07
       - 'demo/**'        # the Friday demo sprint (docs/sessions/DEMO_2026-09-11_PLAN.md), 2026-09-08
+      - 'ui/**'
   pull_request:
     branches:
       - main
