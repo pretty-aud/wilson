@@ -66,27 +66,70 @@ const REVEAL_EASE       = 'cubic-bezier(0.4, 0, 0.2, 1)'
 // viewport-responsive, so a copied '268px' would now be wrong on any short
 // screen. See the seam note in src/layout/pageBars.js.
 const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
-// Split-phase bar height. Session 43 re-derived it from 28vh, because §A1
-// changed the content it has to clear and a stale justification is how the
-// next session trusts a figure that no longer holds.
+// Split-phase bar height — the number that decides how much room the tallest
+// auth screen has. Session 43 derived it from 28vh; UI overhaul D2 re-derived
+// it again, because AUTH-16 is explicit that this comes from a MEASUREMENT and
+// that a stale justification is how the next session trusts a figure that no
+// longer holds.
 //
-// DERIVED FROM MEASUREMENT, not from counting rows — the first attempt
-// counted rows, said 26vh, and shipped a 348px block into a 346px well.
-// LoginScreen step 2 (LOGIN + company chip + 2 labels + 2 inputs + button +
-// 2 links) measures 330px in the running app. Well height is H·(1−2k):
+// DERIVED FROM MEASUREMENT, not from counting rows — the first attempt counted
+// rows, said 26vh, and shipped a 348px block into a 346px well.
 //
-//   k=24vh   H=700 (minimum window) → 364px well vs 330px content ✓
-//            H=900 (default window) → 468px well vs 330px content ✓
+// Measured 2026-09-11 in the running app, after the retype, at 1440x900 and
+// 1280x700 (Playwright, deviceScaleFactor 1):
 //
-// ⚠️ NewUserWelcome is the tallest consumer (4 fields + avatar row) and still
-// overflows at the 700px MINIMUM window — as it did at 28vh, so this is not a
-// regression, but it is not fixed either. It clears comfortably at the 900px
-// default. Reaching that screen needs a freshly-invited account, so it was
-// not measured this session.
+//   LoginScreen step 2   241.78px   (it was 330px before the retype: the
+//                                    14px body and the 8/16/24 gap scale make
+//                                    the busiest sign-in step SHORTER, not
+//                                    taller, which is the opposite of what the
+//                                    review expected)
+//   one AuthField group   50.09px   (11px label + 8px gap + 27.80px field)
+//   NewUserWelcome       463.67px   composed
 //
-// If a future screen grows past this, change THIS number — do not add a
-// second set of bars in a child (Session 43 §A4).
-const SPLIT_BAR_HEIGHT  = '24vh'
+// ⚠️ HOW NewUserWelcome WAS MEASURED, because it matters. That screen needs a
+// freshly-invited account to reach, so it could not simply be opened — the
+// same reason Session 43 left it unmeasured. Its stack was instead BUILT FROM
+// THE SIGN-IN SCREEN'S OWN LIVE NODES: the real title, four clones of the real
+// AuthField group, the reserved 48px avatar slot, and the real submit button,
+// cloned into the same document and laid out by the same stylesheet, then
+// measured. A real layout of real elements — not arithmetic over guessed row
+// heights, which is what AUTH-16 forbids. It is one clone-count away from the
+// truth, so it is an estimate of the right kind; the screen itself still wants
+// a real look the next time someone holds an invite.
+//
+// At a flat 24vh the well is H·(1−2k):
+//
+//   H=900 → 468px well vs 463.67px content ✓  (4.33px of headroom, tight)
+//   H=700 → 364px well vs 463.67px content ✗  (short by 99.67px)
+//
+// So a flat 24vh does not survive the 700px minimum window, and it did not
+// before this session either — the comment here already recorded that overflow
+// as known and unfixed. AUTH-16's named levers (the 16px field gap, a
+// two-column row for pronouns and title) are worth about 66px between them and
+// do not close a 100px gap on their own.
+//
+// The answer is the idiom pageBars.js already uses for exactly this problem:
+// cap the bar, and let a short window take the room it needs.
+//
+//   min(24vh, (100vh − 480px) / 2)
+//
+// 480px is the measured 463.67 rounded up onto the 4px scale with ~16px of
+// slack. The cap keeps the proportion Audrey chose wherever it fits, and the
+// second term takes exactly the room a short window needs and no more.
+//
+// Re-measured in the running app after the change (same run, same method):
+//
+//   H=900  → bar 210.00px (23.33vh), well 480px, headroom 16.33px ✓
+//   H=700  → bar 110.00px (15.71vh), well 480px, headroom 16.33px ✓
+//   H≥1200 → 24vh wins and nothing changes
+//
+// At 900 the bar is 6px thinner than a flat 24vh, which is imperceptible; at
+// 700 it is the difference between a screen that fits and one that clips.
+//
+// 🚨 Do NOT solve a future overflow by adding a second set of bars in a child
+// (Session 43 §A4). Change THIS expression, and re-measure the way the block
+// above records.
+const SPLIT_BAR_HEIGHT  = 'min(24vh, calc((100vh - 480px) / 2))'
 
 // The shell's own two surfaces, from the token module rather than re-typed:
 // `signal` is the bar orange and `ground-light` is the well the content sits
