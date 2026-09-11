@@ -810,8 +810,16 @@ select option {
      than a component on purpose (C2 KR-3's point): the caller already has a
      flex row there, and what it was missing was a name the kit knows. The
      gutter is the same 16px the stack uses, as a gap. */
+  /* 🚨 IT LAYS OUT AND IT STANDS THE MARGIN DOWN. IT DOES NOT SIZE.
+     The first cut set `flex: 1 1 0` on the children, which looked harmless
+     and was not: Team Members' rate pair declares `width: 88px` on its second
+     field, and a `flex-basis` of 0 makes `width` dead — measured, the 88px
+     Type select became a 251px half. A container that silently re-sizes its
+     caller's columns is the C1 breach this rule exists to fix, in the other
+     direction. `min-width: 0` is the one thing a flex child always needs and
+     no caller ever wants otherwise. */
   .ui-field-row { display: flex; align-items: flex-start; gap: 16px; }
-  .ui-field-row > .ui-field { flex: 1 1 0; min-width: 0; }
+  .ui-field-row > .ui-field { min-width: 0; }
   .ui-field-row > .ui-field + .ui-field { margin-top: 0; }
   /* The other half of the same defect, and the same answer. A parent that
      lays its fields out with `gap` gets the margin ON TOP of the gap: C1

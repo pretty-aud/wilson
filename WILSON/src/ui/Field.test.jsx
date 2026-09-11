@@ -54,6 +54,20 @@ describe('Field spacing: the parent says which way it stacks', () => {
     expect(row[0]).toContain('gap: 16px')
   })
 
+  it('🚨 the row lays out and does NOT size: a flex-basis here kills a caller width', () => {
+    // The first cut set `flex: 1 1 0` on the children. Team Members' rate
+    // pair declares `width: 88px` on its second field, and `flex-basis: 0`
+    // makes `width` dead — measured in the running app, the 88px Type select
+    // became a 251px half. A container that silently re-sizes its caller's
+    // columns is the C1 breach this rule exists to fix, pointing the other
+    // way.
+    const child = css.match(/\.ui-field-row > \.ui-field \{[^}]*\}/)
+    expect(child, 'no .ui-field-row > .ui-field rule').not.toBeNull()
+    expect(child[0]).toContain('min-width: 0')
+    expect(child[0]).not.toMatch(/\bflex\b/)
+    expect(child[0]).not.toContain('width: 100%')
+  })
+
   it('a column that supplies its own gap does too, or the two ADD', () => {
     // Measured by C1: 32px down one column of a form and 16px down the other,
     // on the same form, because splitting one column into groups broke the
