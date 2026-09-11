@@ -699,7 +699,24 @@
      here without being edited and without a second copy existing. It is
      honest about what it is: inside this one region, the role the token
      names "light" is played by the dark palette. Every value is still a
-     token; nothing here invents a colour. Re-filed in the C2 hand-off. */
+     token; nothing here invents a colour. Re-filed in the C2 hand-off.
+
+     The six light-family tokens the kit's `[data-surface="light"]` rules and
+     `settings.css` actually read are `ink-light`, `rule-light`, `well-light`,
+     `hover-light`, `selection-light` and `surface-light-solid`; all six are
+     below, so nothing in that subtree resolves to a colour meant for orange.
+     The two scroll-thumb ones come along because `.wilson-light-scroll`
+     reads them and a later edit might put one here.
+
+     🚨 TWO THINGS THE BRIDGE CANNOT FIX, BOTH ARGUMENTS FOR THE REAL PROP:
+     (1) `.ui-btn[data-surface="light"][data-variant="danger"]` resolves its
+     ink to `ink-light` — deliberate on orange, where no status colour is
+     drawn — so the avatar's Remove button reads as ordinary ink here even
+     though `danger` is legible on `paper`. (2) `.ui-btn` and `.ui-input` on
+     light take `ink-light` when DISABLED, which D1 already recorded as a kit
+     hole ("a disabled light Button is visually identical to an enabled
+     secondary"); on this ground the dark rule would have given `ink-3`, the
+     actual disabled token. Both end when ProfileSection takes `surface`. */
   .dash-profile-bridge {
     max-width: var(--width-reading);
     --color-ink-light: var(--color-ink);
