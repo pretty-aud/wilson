@@ -65,7 +65,11 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
   Declined: (2) Local Server only with a one-time copy of her cloud projects
   into the folder; (3) Supabase only. The target model is the `network`
   provider's second half (`NETWORK_STORAGE_DESIGN.md` §4a2b): a post-Friday
-  session, more than a day, adapter-level.
+  session, more than a day, adapter-level. **Confirmed late 2026-09-10 through
+  the controller session ("Wilson multiuser merge and PR"), her words:**
+  *"i dont need cloud mode for bins till next week. i just need local for
+  testing."* — the demo folder and the bins stay Local Server only, as built;
+  option 2 and the network-provider model are next week's work.
 - **The offline launch, MEASURED in a real window** (staging build at
   `b8c2bed`, Audrey's real sign-in saved on a scratch-userData test window,
   driven over CDP; times from the renderer's `load` event):
@@ -108,6 +112,9 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
   head is wanted.
 - Friday morning is fixes only (plan §0). Do not build the target model
   before the demo.
+- This session ended on the controller's instruction once her answer left
+  nothing to build: hand-off updated, integrated, `git checkout --detach`
+  run — the branch is free for a continuation.
 
 ## 5. Traps hit (this session; the previous hand-offs' §5 all still apply)
 
@@ -153,7 +160,10 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
 1. **The rehearsal report** of the two-part flow (walkthrough 18 "How Friday
    runs": part 1, the switch, part 2, the switch back), on `75de78e` or later.
 2. **`MfaSection.jsx`** `data.all` one-liner (hand-off 2 §6 item 4) — Track
-   B's file; yes or no.
+   B's file; still no yes at hand-off (the controller confirmed late
+   2026-09-10): unbuilt. The same for the offline-tolerant launch (hand-off 2
+   §6 item 3): no yes, unbuilt, and moot for Friday since part 1 needs the
+   cloud.
 3. **Q4 seed content** — only if she wants a seeded project for part 2
    (*Create demo project* makes "Friday Demo" with placeholder scene/shot
    names). **Q6** which machine / OS.
