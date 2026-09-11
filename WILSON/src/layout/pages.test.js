@@ -144,8 +144,8 @@ describe('surface and chrome say what the page PAINTS today', () => {
     // the commit that converts the page's own inks — F2 does Team Members
     // (the worked example) and lane C does the other five. A page listed here
     // early renders its own dark-on-dark text, so this list is the schedule.
-    expect(dark).toEqual(['dog', 'otter', 'rabbit', 'team-members'])
-    const stillLight = ['project-manager', 'rate-card', 'project-files', 'dashboard', 'admin-terminal']
+    expect(dark).toEqual(['dog', 'otter', 'rabbit', 'dashboard', 'team-members'])
+    const stillLight = ['project-manager', 'rate-card', 'project-files', 'admin-terminal']
     for (const id of stillLight) {
       expect(PAGE_BY_ID[id].surface, `${id} is lane C's to convert`).toBe('light')
     }

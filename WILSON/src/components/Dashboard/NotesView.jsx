@@ -1,5 +1,5 @@
 // ============================================================
-// WILSON Dashboard — Notes (Session 8)
+// WILSON Dashboard — Notes (Session 8; UI overhaul C2)
 // ============================================================
 //
 // Per-user private rich-text notes. TipTap v3 (StarterKit — headings, bold,
@@ -14,6 +14,27 @@
 // v3 traps encoded here: StarterKit must run with undoRedo: false when the
 // Collaboration extension is active (it ships its own Yjs undo manager);
 // one Y.Doc per open note, held OUTSIDE React state and keyed by note id.
+//
+// ── The overhaul ────────────────────────────────────────────────────────────
+//
+// 🚨 THE DOCUMENT MODEL IS UNTOUCHED. The Y.Doc, the snapshot-merge save, the
+// version guard, the load-failure lock and every TipTap extension are exactly
+// as they were. What changed is the chrome around them and the typography
+// inside them.
+//
+// The editor's own type was the worst of it: the note body was hard-set to
+// `ui-monospace` at 13px over an ~828px column, which is about 106 characters
+// per line against a 66 target — the least readable long-form text in the
+// app, on the one screen whose entire purpose is long-form text (D9). And the
+// H1 rule applied `text-transform: uppercase` to the user's own heading, so a
+// person typing in their private notebook had the app's system-label
+// treatment written back at them with no way to opt out (D10). Body is the
+// sans at 14/1.5 capped to 66ch and centred; H1 is 20/600 sentence case.
+//
+// Those rules lived in a `<style>` element inside `NoteEditor`, which is
+// keyed by note id — so thirty lines of CSS were torn out of the document and
+// reinserted on every click in the list (D29). They are in `dashboard.css`
+// now, which is also what made the measure cap possible.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Y from 'yjs'
@@ -23,38 +44,28 @@ import Collaboration from '@tiptap/extension-collaboration'
 import {
   Plus, Trash2, Bold, Underline as UnderlineIcon, Heading1, Heading2,
   List, Link2, Link2Off, CloudOff, StickyNote, Settings2, X, Check,
+  AlertTriangle,
 } from 'lucide-react'
 import { useNotes } from './useNotes'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
-import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL } from '../lightSurface'
+import {
+  Badge, Banner, Button, EmptyState, IconButton, Input, Loading, Select,
+} from '../../ui'
 import './dashboard.css'
 
-// ── WILSON light-page tokens (local per page, by convention) ──
-// The Dashboard is a LIGHT page (#f4a261), so every ink here is LIGHT_INK —
-// hierarchy comes from size, weight and italic, never from a lighter grey.
-const L = {
-  text:        '#1c1917',
-  label:       LIGHT_INK,
-  muted:       LIGHT_INK,
-  border:      LIGHT_RULE,
-  headRow:     LIGHT_WELL,
-  inputBg:     'rgba(120, 70, 30, 0.55)',
-  inputText:   '#fde8d0',
-  chipBg:      '#1c1917',
-  chipText:    '#f4a261',
-  primary:     '#ea580c',
-  primaryText: '#ffffff',
-  surface:     'rgba(255, 255, 255, 0.45)',
-}
-
-const inputClass = 'px-3 py-2 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500'
 const SAVE_DEBOUNCE_MS = 1200
 
 const SORTS = [
-  { key: 'updated_at', label: 'Updated' },
-  { key: 'note_date',  label: 'Date' },
-  { key: 'title',      label: 'Title' },
-  { key: 'subject',    label: 'Subject' },
+  { value: 'updated_at', label: 'Updated' },
+  { value: 'note_date', label: 'Date' },
+  { value: 'title', label: 'Title' },
+  { value: 'subject', label: 'Subject' },
+]
+
+const GROUPS = [
+  { value: 'none', label: 'No groups' },
+  { value: 'subject', label: 'By subject' },
+  { value: 'month', label: 'By month' },
 ]
 
 function fmtDate(d) {
@@ -125,6 +136,12 @@ export default function NotesView() {
   }, [nb])
 
   const handleDelete = useCallback(async (id) => {
+    // 🚨 Still `window.confirm`. Review D30 asks for the kit's Dialog, but the
+    // task view's confirm cannot move — its false return is a synchronous
+    // contract with TaskDetailPopup, which belongs to lane B2 — and swapping
+    // one of the surface's two destructive confirms while leaving the other
+    // reinstates exactly the inconsistency D19/D30 names. Both move together,
+    // with B2. Copy unchanged.
     if (!window.confirm('Delete this note permanently? Notes have no trash.')) return
     try {
       await nb.deleteNote(id)
@@ -134,137 +151,141 @@ export default function NotesView() {
 
   if (!nb.cloudReady) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <CloudOff className="w-8 h-8" style={{ color: L.muted }} />
-        <div className="text-sm font-bold uppercase tracking-widest" style={{ color: L.label }}>
-          Notes need the cloud
-        </div>
-        <div className="text-xs font-mono text-center max-w-md" style={{ color: L.muted }}>
-          Notes are private to your account and sync across your devices.
-          Sign in and switch R.A.B.B.I.T. to the Supabase adapter to use them.
-        </div>
+      <div className="dash-body">
+        <EmptyState
+          Icon={CloudOff}
+          title="Notes need the cloud"
+          body="Notes are private to your account and sync across your devices. Sign in and switch R.A.B.B.I.T. to the Supabase adapter to use them."
+        />
       </div>
     )
   }
 
   return (
-    <div className="flex gap-4 h-full min-h-0">
+    <div className="dash-notes">
       {/* ── Left: list ── */}
-      <div className="flex flex-col flex-shrink-0" style={{ width: 300 }}>
-        <div className="flex items-center gap-1.5 pb-2 flex-wrap">
-          <button
-            type="button"
-            onClick={handleCreate}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
-            style={{ backgroundColor: L.primary, color: L.primaryText }}
-          >
-            <Plus className="w-3.5 h-3.5" /> New note
-          </button>
-          <div className="flex-1" />
-          <select
+      <div className="dash-notes-list">
+        {/* New note is the one filled control in this column, because it is
+            the entry action for the column's one job. Everything else here is
+            configuration and takes the quiet treatment (review D11, Hick's
+            hotspot 4). */}
+        {/* Two rows, and which control sits on which is MEASURED, not
+            guessed. A select shows its longest option plus the native arrow —
+            85, 97 and 103px here — and the 300px column has 284px of usable
+            width, so three of them cannot share a row and two of them plus
+            the primary button cannot either. The first cut clipped "All
+            subjects" to "All subjec" and the second clipped "No groups". The
+            entry action takes the first row with the sort; the two controls
+            that organise the list take the second, beside the subject
+            manager they belong with. */}
+        <div className="dash-notes-head">
+          <Button variant="primary" size="sm" onClick={handleCreate}>
+            <Plus aria-hidden="true" /> New note
+          </Button>
+          <Select
+            size="sm"
             value={sortKey}
-            onChange={e => setSortKey(e.target.value)}
-            title="Sort"
-            className={`${inputClass} !py-1`}
-            style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
-          >
-            {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-          </select>
-          <select
-            value={groupKey}
-            onChange={e => setGroupKey(e.target.value)}
-            title="Group"
-            className={`${inputClass} !py-1`}
-            style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
-          >
-            <option value="none">No groups</option>
-            <option value="subject">By subject</option>
-            <option value="month">By month</option>
-          </select>
+            onChange={v => setSortKey(v ?? 'updated_at')}
+            options={SORTS}
+            aria-label="Sort notes"
+            title="Sort notes"
+          />
         </div>
-        <div className="flex items-center gap-1.5 pb-2">
-          <select
+        <div className="dash-notes-head">
+          <Select
+            size="sm"
+            value={groupKey}
+            onChange={v => setGroupKey(v ?? 'none')}
+            options={GROUPS}
+            aria-label="Group notes"
+            title="Group notes"
+          />
+          <Select
+            size="sm"
             value={subjectFilter}
-            onChange={e => setSubjectFilter(e.target.value)}
-            className={`${inputClass} flex-1 !py-1`}
-            style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
-          >
-            <option value="">All subjects</option>
-            {nb.subjects.map(s => <option key={s.id} value={s.label}>{s.label}</option>)}
-          </select>
-          <button
-            type="button"
+            onChange={v => setSubjectFilter(v ?? '')}
+            placeholder="All subjects"
+            options={nb.subjects.map(s => ({ value: s.label, label: s.label }))}
+            aria-label="Filter notes by subject"
+            title="Filter notes by subject"
+          />
+          <IconButton
+            icon={Settings2}
+            size="sm"
             title="Manage subjects"
+            active={manageSubjects}
             onClick={() => setManageSubjects(v => !v)}
-            className="dash-subjects-toggle p-1.5 rounded-sm"
-            data-active={String(manageSubjects)}
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-          </button>
+          />
         </div>
 
         {manageSubjects && <SubjectManager nb={nb} />}
 
         {nb.error && (
-          <div className="text-xs font-mono mb-2 px-3 py-2 rounded-sm flex items-start justify-between gap-2"
-            style={{ backgroundColor: 'rgba(220,38,38,0.1)', color: '#dc2626' }}>
-            <span>{nb.error}</span>
-            <button type="button" onClick={nb.clearError}><X className="w-3 h-3" /></button>
-          </div>
+          <Banner
+            tone="danger"
+            Icon={AlertTriangle}
+            action={<IconButton icon={X} size="sm" title="Dismiss" onClick={nb.clearError} />}
+          >
+            {nb.error}
+          </Banner>
         )}
 
-        <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-1">
-          {visible.length === 0 && !nb.loading && (
-            <div className="flex flex-col items-center py-10 gap-2">
-              <StickyNote className="w-6 h-6" style={{ color: L.muted }} />
-              <span className="text-xs font-mono italic" style={{ color: L.muted }}>
-                {nb.notes.length === 0 ? 'No notes yet.' : 'No notes match the filter.'}
-              </span>
-            </div>
-          )}
-          {groups.map(group => (
-            <div key={group.key}>
+        <div className="dash-notes-scroll wilson-dark-scroll">
+          {/* "Not yet" and "nothing here" were the same italic line. */}
+          {nb.loading && visible.length === 0 ? (
+            <Loading rows={5} columns={1} label="Loading your notes" />
+          ) : visible.length === 0 ? (
+            <EmptyState
+              compact
+              Icon={StickyNote}
+              title={nb.notes.length === 0 ? 'No notes yet' : 'No matches'}
+              body={nb.notes.length === 0
+                ? 'Create one to start writing.'
+                : 'No note matches the current filter.'}
+            />
+          ) : groups.map(group => (
+            <div key={group.key} className="dash-note-group">
               {group.label && (
-                <div className="px-1 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider" style={{ color: L.label }}>
-                  {group.label} <span className="font-mono" style={{ color: L.muted }}>{group.notes.length}</span>
+                <div className="dash-note-group-head">
+                  <span className="dash-group-name">{group.label}</span>
+                  <span className="dash-group-count">{group.notes.length}</span>
                 </div>
               )}
-              <div className="flex flex-col gap-1.5">
+              <ul className="dash-note-rows">
                 {group.notes.map(n => (
-                  <button
-                    key={n.id}
-                    type="button"
-                    onClick={() => setSelectedId(n.id)}
-                    className="dash-note-row text-left rounded-sm px-3 py-2 transition-colors"
-                    data-selected={String(selectedId === n.id)}
-                  >
-                    <div className="text-xs font-mono font-bold truncate">{n.title || 'Untitled note'}</div>
-                    <div className="flex items-center gap-2 pt-0.5">
-                      {n.subject && (
-                        <span className="px-1.5 rounded-sm text-[9px] font-bold uppercase tracking-wider"
-                          style={{ backgroundColor: L.inputBg, color: L.inputText }}>
-                          {n.subject}
-                        </span>
-                      )}
-                      <span className="dash-note-meta text-[10px] font-mono">
-                        {fmtDate(n.note_date)}
+                  <li key={n.id}>
+                    {/* Selected was a SURFACE swap — near-white to near-black,
+                        and the 1px border dropped with it, so every line in
+                        the row shifted a pixel up and left at the moment of
+                        selection. It is a fill plus a 2px signal left edge
+                        now, the same selected treatment the table uses, with
+                        the border present in both states so nothing moves
+                        (review D21, alignment 10). */}
+                    <button
+                      type="button"
+                      className="dash-note-row"
+                      data-selected={String(selectedId === n.id)}
+                      onClick={() => setSelectedId(n.id)}
+                    >
+                      <span className="dash-note-row-title">{n.title || 'Untitled note'}</span>
+                      <span className="dash-note-row-meta">
+                        {n.subject && <Badge>{n.subject}</Badge>}
+                        <span className="dash-note-date">{fmtDate(n.note_date)}</span>
                       </span>
-                    </div>
-                    {n.body_preview && (
-                      <div className="dash-note-meta text-[10.5px] font-mono truncate pt-0.5">
-                        {n.body_preview}
-                      </div>
-                    )}
-                  </button>
+                      {n.body_preview && (
+                        <span className="dash-note-row-preview">{n.body_preview}</span>
+                      )}
+                    </button>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           ))}
         </div>
       </div>
 
       {/* ── Right: editor ── */}
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="dash-notes-editor">
         {selected ? (
           <NoteEditor
             key={selected.id}
@@ -273,12 +294,11 @@ export default function NotesView() {
             onDelete={() => handleDelete(selected.id)}
           />
         ) : (
-          <div className="flex flex-col items-center justify-center flex-1 gap-3">
-            <StickyNote className="w-8 h-8" style={{ color: L.muted }} />
-            <span className="text-xs font-mono italic" style={{ color: L.muted }}>
-              Select a note, or create one.
-            </span>
-          </div>
+          <EmptyState
+            Icon={StickyNote}
+            title="No note selected"
+            body="Pick a note from the list, or create one."
+          />
         )}
       </div>
     </div>
@@ -291,78 +311,72 @@ function SubjectManager({ nb }) {
   const [renaming, setRenaming] = useState(null) // { id, label }
 
   return (
-    <div className="mb-2 p-2 rounded-sm flex flex-col gap-1.5" style={{ backgroundColor: L.surface, border: `1px solid ${L.border}` }}>
-      <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: L.label }}>
-        Your subjects
-      </div>
+    <div className="dash-subjects">
+      <div className="dash-subjects-head">Your subjects</div>
       {nb.subjects.length === 0 && (
-        <span className="text-[10.5px] font-mono italic" style={{ color: L.muted }}>None yet — add one below.</span>
+        <span className="dash-empty-value">None yet — add one below.</span>
       )}
       {nb.subjects.map(s => (
-        <div key={s.id} className="flex items-center gap-1.5">
+        <div key={s.id} className="dash-subject-row">
           {renaming?.id === s.id ? (
             <>
-              <input
+              <Input
+                size="sm"
+                autoFocus
                 value={renaming.label}
-                onChange={e => setRenaming({ id: s.id, label: e.target.value })}
+                onChange={(v) => setRenaming({ id: s.id, label: v })}
                 onKeyDown={e => {
                   if (e.key === 'Enter') { nb.renameSubject(s.id, renaming.label).catch(() => {}); setRenaming(null) }
-                  if (e.key === 'Escape') setRenaming(null)
                 }}
-                autoFocus
-                className={`${inputClass} flex-1 !py-1`}
-                style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
+                aria-label={`Rename ${s.label}`}
               />
-              <button type="button" onClick={() => { nb.renameSubject(s.id, renaming.label).catch(() => {}); setRenaming(null) }}
-                className="p-1 rounded-sm" style={{ color: '#15803d' }}>
-                <Check className="w-3.5 h-3.5" />
-              </button>
+              <IconButton
+                icon={Check}
+                size="sm"
+                title="Save name"
+                onClick={() => { nb.renameSubject(s.id, renaming.label).catch(() => {}); setRenaming(null) }}
+              />
             </>
           ) : (
             <>
               <button
                 type="button"
+                className="dash-subject-name"
                 onClick={() => setRenaming({ id: s.id, label: s.label })}
-                className="flex-1 text-left text-xs font-mono truncate hover:underline"
-                style={{ color: L.text }}
                 title="Rename"
               >
                 {s.label}
               </button>
-              <button
-                type="button"
-                onClick={() => nb.removeSubject(s.id).catch(() => {})}
-                className="p-1 rounded-sm"
-                style={{ color: L.muted }}
+              <IconButton
+                icon={Trash2}
+                size="sm"
+                danger
                 title="Delete subject option"
-              >
-                <Trash2 className="w-3 h-3" />
-              </button>
+                onClick={() => nb.removeSubject(s.id).catch(() => {})}
+              />
             </>
           )}
         </div>
       ))}
-      <div className="flex items-center gap-1.5 pt-1">
-        <input
+      <div className="dash-subject-row">
+        <Input
+          size="sm"
           value={draft}
-          onChange={e => setDraft(e.target.value)}
+          onChange={setDraft}
           onKeyDown={e => {
             if (e.key === 'Enter' && draft.trim()) {
               nb.addSubject(draft).then(() => setDraft('')).catch(() => {})
             }
           }}
-          placeholder="New subject..."
-          className={`${inputClass} flex-1 !py-1`}
-          style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
+          placeholder="New subject"
+          aria-label="New subject"
         />
-        <button
-          type="button"
+        <IconButton
+          icon={Plus}
+          size="sm"
+          title="Add subject"
           onClick={() => { if (draft.trim()) nb.addSubject(draft).then(() => setDraft('')).catch(() => {}) }}
-          className="p-1.5 rounded-sm"
-          style={{ backgroundColor: L.chipBg, color: L.chipText }}
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+        />
       </div>
     </div>
   )
@@ -523,7 +537,7 @@ function NoteEditor({ note, nb, onDelete }) {
   }, [editor, linkPanel])
 
   // Title commits are debounced (review finding M8: a PATCH per keystroke),
-  // flushed on blur. The component is keyed by note.id, so mount-time init
+  // flushed on commit. The component is keyed by note.id, so mount-time init
   // is sufficient.
   const [titleDraft, setTitleDraft] = useState(note.title || '')
   const titleTimerRef = useRef(null)
@@ -546,177 +560,145 @@ function NoteEditor({ note, nb, onDelete }) {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
   }, [])
 
-  // Was a style helper returning one of two inline branches; the branch is a
-  // data attribute now so no inline value can beat the rule (plan §1).
   const tbState = (active) => String(!!active)
 
   return (
-    <div className="flex flex-col h-full min-h-0">
-      {/* metadata row */}
-      <div className="flex items-center gap-2 pb-2 flex-wrap">
-        <input
+    <div className="dash-editor">
+      {/* The note's name was an input with the same well, the same 12px mono
+          and the same height as the subject dropdown and the date picker
+          beside it, so the Notes tab had no heading at all and a person's own
+          note had no visible name until they read the third control in a row
+          of four. It is the page's dominant element now — the H1 step, 600,
+          no fill, no border until focus — and the subject and date drop to
+          the caption step beneath it (review D27). */}
+      <div className="dash-note-head">
+        <Input
+          className="dash-note-title"
           value={titleDraft}
-          onChange={e => onTitleChange(e.target.value)}
-          onBlur={e => commitTitle(e.target.value.slice(0, 200))}
+          onChange={onTitleChange}
+          // 🚨 `onCommit`, never `onBlur`. The kit's Input handles Escape
+          // itself and its cancel path calls blur() — which fires onBlur
+          // unconditionally — so an onBlur commit would PERSIST the edit
+          // Escape is cancelling (D1 hand-off §5 trap 4).
+          onCommit={() => commitTitle(titleDraft)}
           placeholder="Untitled note"
-          className={`${inputClass} flex-1 min-w-40 font-bold`}
-          style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
+          aria-label="Note title"
         />
-        <select
-          value={note.subject || ''}
-          onChange={e => nb.patchNoteMeta(note.id, { subject: e.target.value || null }).catch(() => {})}
-          className={inputClass}
-          style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
-        >
-          <option value="">No subject</option>
-          {nb.subjects.map(s => <option key={s.id} value={s.label}>{s.label}</option>)}
-          {/* A note can keep a subject whose option was deleted. */}
-          {note.subject && !nb.subjects.some(s => s.label === note.subject) && (
-            <option value={note.subject}>{note.subject}</option>
-          )}
-        </select>
-        <input
-          type="date"
-          value={note.note_date || ''}
-          onChange={e => nb.patchNoteMeta(note.id, { note_date: e.target.value || null }).catch(() => {})}
-          className={inputClass}
-          style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
-        />
-        <button
-          type="button"
-          onClick={onDelete}
-          title="Delete note"
-          className="p-2 rounded-sm transition-colors"
-          style={{ backgroundColor: L.chipBg, color: '#ef4444' }}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
+        <IconButton icon={Trash2} size="sm" danger title="Delete note" onClick={onDelete} />
       </div>
 
-      {/* toolbar */}
-      <div className="flex items-center gap-1 pb-2">
-        <button type="button" title="Heading 1" data-active={tbState(editor?.isActive('heading', { level: 1 }))}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
-          <Heading1 className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Heading 2" data-active={tbState(editor?.isActive('heading', { level: 2 }))}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
-          <Heading2 className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Bold" data-active={tbState(editor?.isActive('bold'))}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBold().run()}>
-          <Bold className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Underline" data-active={tbState(editor?.isActive('underline'))}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleUnderline().run()}>
-          <UnderlineIcon className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Bullet list" data-active={tbState(editor?.isActive('bulletList'))}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().toggleBulletList().run()}>
-          <List className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Add / edit link" data-active={tbState(editor?.isActive('link') || linkPanel !== null)}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={openLinkPanel}>
-          <Link2 className="w-3.5 h-3.5" />
-        </button>
-        <button type="button" title="Remove link" data-active={tbState(false)}
-          className="dash-tb-btn p-1.5 rounded-sm" onClick={() => editor?.chain().focus().unsetLink().run()}>
-          <Link2Off className="w-3.5 h-3.5" />
-        </button>
-        <div className="flex-1" />
-        <span className="dash-save-state text-[10px] font-bold uppercase tracking-wider" data-state={saveState}>
+      <div className="dash-note-meta">
+        <Select
+          size="sm"
+          value={note.subject || ''}
+          onChange={v => nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})}
+          placeholder="No subject"
+          options={[
+            ...nb.subjects.map(s => ({ value: s.label, label: s.label })),
+            // A note can keep a subject whose option was deleted.
+            ...(note.subject && !nb.subjects.some(s => s.label === note.subject)
+              ? [{ value: note.subject, label: note.subject }]
+              : []),
+          ]}
+          aria-label="Note subject"
+        />
+        <Input
+          size="sm"
+          type="date"
+          value={note.note_date || ''}
+          onChange={v => nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})}
+          aria-label="Note date"
+        />
+        <span className="dash-save-state" data-state={saveState}>
           {saveState === 'saving' ? 'Saving…'
             : saveState === 'dirty' ? 'Unsaved'
-            : saveState === 'error' ? 'Save failed — retrying on next edit'
-            : 'Saved'}
+              : saveState === 'error' ? 'Save failed — retrying on next edit'
+                : 'Saved'}
+        </span>
+      </div>
+
+      {/* Seven identical squares in one gap-1 run, at Miller's limit, with a
+          destructive-ish control sitting inside the constructive ones. Three
+          proximity groups now — block level, inline marks, link — and Remove
+          link recedes. Nothing moved out of reach and no behaviour changed;
+          this is proximity and weight only (review D24, Hick's hotspot 5). */}
+      <div className="dash-format-bar">
+        <span className="dash-format-group">
+          <button type="button" title="Heading 1" data-active={tbState(editor?.isActive('heading', { level: 1 }))}
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
+            <Heading1 aria-hidden="true" />
+          </button>
+          <button type="button" title="Heading 2" data-active={tbState(editor?.isActive('heading', { level: 2 }))}
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
+            <Heading2 aria-hidden="true" />
+          </button>
+          <button type="button" title="Bullet list" data-active={tbState(editor?.isActive('bulletList'))}
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleBulletList().run()}>
+            <List aria-hidden="true" />
+          </button>
+        </span>
+        <span className="dash-format-group">
+          <button type="button" title="Bold" data-active={tbState(editor?.isActive('bold'))}
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleBold().run()}>
+            <Bold aria-hidden="true" />
+          </button>
+          <button type="button" title="Underline" data-active={tbState(editor?.isActive('underline'))}
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleUnderline().run()}>
+            <UnderlineIcon aria-hidden="true" />
+          </button>
+        </span>
+        <span className="dash-format-group">
+          <button type="button" title="Add / edit link" data-active={tbState(editor?.isActive('link') || linkPanel !== null)}
+            className="dash-tb-btn" onClick={openLinkPanel}>
+            <Link2 aria-hidden="true" />
+          </button>
+          <button type="button" title="Remove link" data-active="false" data-quiet="true"
+            className="dash-tb-btn" onClick={() => editor?.chain().focus().unsetLink().run()}>
+            <Link2Off aria-hidden="true" />
+          </button>
         </span>
       </div>
 
       {/* inline link URL entry (window.prompt is unavailable in Electron) */}
       {linkPanel !== null && (
-        <div className="flex items-center gap-1.5 pb-2">
-          <input
+        <div className="dash-link-panel">
+          <Input
+            size="sm"
             autoFocus
             value={linkPanel.value}
-            onChange={e => setLinkPanel({ value: e.target.value })}
-            onKeyDown={e => {
-              if (e.key === 'Enter') applyLink()
-              if (e.key === 'Escape') setLinkPanel(null)
-            }}
+            onChange={(v) => setLinkPanel({ value: v })}
+            onKeyDown={e => { if (e.key === 'Enter') applyLink() }}
             placeholder="https://…  (empty removes the link)"
-            className={`${inputClass} flex-1`}
-            style={{ backgroundColor: L.inputBg, color: L.inputText, border: 'none' }}
+            aria-label="Link URL"
           />
-          <button type="button" onClick={applyLink}
-            className="px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
-            style={{ backgroundColor: L.primary, color: L.primaryText }}>
-            Apply
-          </button>
-          <button type="button" onClick={() => setLinkPanel(null)}
-            className="px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
-            style={{ backgroundColor: L.chipBg, color: L.chipText }}>
-            Cancel
-          </button>
+          <Button size="sm" variant="primary" onClick={applyLink}>Apply</Button>
+          <Button size="sm" onClick={() => setLinkPanel(null)}>Cancel</Button>
         </div>
       )}
 
-      {/* editor surface */}
-      <style>{`
-        .wilson-note-editor .ProseMirror {
-          outline: none;
-          min-height: 320px;
-          font-size: 13px;
-          line-height: 1.65;
-          color: ${L.text};
-          font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        }
-        .wilson-note-editor .ProseMirror h1 {
-          font-size: 20px; font-weight: 700; letter-spacing: -0.01em;
-          margin: 0.6em 0 0.3em; text-transform: uppercase;
-        }
-        .wilson-note-editor .ProseMirror h2 {
-          font-size: 16px; font-weight: 700; margin: 0.6em 0 0.3em;
-        }
-        .wilson-note-editor .ProseMirror ul {
-          list-style: disc; padding-left: 1.4em; margin: 0.3em 0;
-        }
-        .wilson-note-editor .ProseMirror ol {
-          list-style: decimal; padding-left: 1.4em; margin: 0.3em 0;
-        }
-        .wilson-note-editor .ProseMirror a {
-          color: ${L.primary}; text-decoration: underline; cursor: pointer;
-        }
-        .wilson-note-editor .ProseMirror p { margin: 0.25em 0; }
-        .wilson-note-editor .ProseMirror blockquote {
-          border-left: 2px solid ${L.border}; padding-left: 0.8em;
-          color: ${L.muted}; margin: 0.4em 0;
-        }
-      `}</style>
       <div
-        className="wilson-note-editor flex-1 overflow-y-auto rounded-sm px-4 py-3"
-        style={{ backgroundColor: L.surface, border: `1px solid ${L.border}` }}
+        className="dash-note-editor wilson-dark-scroll"
         onClick={() => { if (docReady) editor?.chain().focus().run() }}
       >
         {loadFailed ? (
           // Editing stays LOCKED: typing into an unloaded doc would save an
           // empty body over the real one (no trash, no history — permanent).
-          <div className="flex flex-col items-start gap-2 py-4">
-            <span className="text-xs font-mono" style={{ color: '#dc2626' }}>
-              Couldn't load this note's content. Editing is disabled so nothing gets overwritten.
-            </span>
-            <button
-              type="button"
+          <div className="dash-note-failed">
+            <Banner tone="danger" Icon={AlertTriangle}>
+              Couldn&apos;t load this note&apos;s content. Editing is disabled so nothing gets overwritten.
+            </Banner>
+            <Button
+              variant="primary"
+              size="sm"
               onClick={() => { setLoadFailed(false); setLoadAttempt(a => a + 1) }}
-              className="px-2.5 py-1.5 rounded-sm text-[11px] font-bold uppercase tracking-wider"
-              style={{ backgroundColor: L.primary, color: L.primaryText }}
             >
               Retry
-            </button>
+            </Button>
           </div>
         ) : docReady ? (
           <EditorContent editor={editor} />
         ) : (
-          <span className="text-xs font-mono italic" style={{ color: L.muted }}>Loading…</span>
+          <Loading label="Loading this note" />
         )}
       </div>
     </div>

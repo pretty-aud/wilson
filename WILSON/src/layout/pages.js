@@ -102,12 +102,16 @@ const PAGE_LIST = [
     nav: 'primary',
   },
   {
+    // Lane C2 converted this page. Its inks moved onto `paper` in the same
+    // commit as this line, which is the rule the comment above states.
     id: 'dashboard',
     title: 'Dashboard',
-    bars: bars(200, 150),
-    // Q1 lane C (C2): → 'dark' when DashboardPage's own inks move.
-    surface: 'light',
+    // Q8(b): the resource-class rows drop to 120/80, which returns about
+    // 150px of field to a view that showed roughly eight table rows.
+    bars: bars(120, 80),
+    surface: 'dark',
     chrome: 'page',
+    measure: 'data',
     nav: 'primary',
   },
   {

@@ -48,7 +48,7 @@ const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
   settings: [200, 150], 'project-manager': [200, 150], 'rate-card': [200, 150],
-  'team-members': [200, 150], 'project-files': [200, 150], dashboard: [200, 150],
+  'team-members': [200, 150], 'project-files': [200, 150], dashboard: [120, 80],
   'admin-terminal': [200, 150],
   help: [140, 100],
 }

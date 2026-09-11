@@ -1,20 +1,39 @@
 /* ═══════════════════════════════════════════════════════════════
-   Dashboard — the extracted state
+   Dashboard — the page's layout and its extracted state
    UI overhaul C2, 2026-09-11
 
-   COMMIT 1 OF THE BUNDLE: "no visual change". Every hover / selected /
-   active / drag-over / save-state branch on this surface moved out of an
-   inline `style` ternary or a className template literal and into a
-   `data-*` attribute resolved here, with the values transcribed UNCHANGED.
+   Two jobs, in the order they were done.
 
-   Why this is its own commit (plan §5, §1, risk 4): an inline style beats a
-   `hover:` class, so a class-based restyle written next to a surviving
-   inline style silently drops the state. Three of the branches below were
-   already dead before this file existed — the note row declared
-   `transition-colors` and had no hover rule at all (D21), and the sort and
-   filter chips declared `transition-colors` beside a hard inline
-   `backgroundColor` (D22). Enumerating every branch first is what makes the
-   restyle in commit 2 reviewable instead of hopeful.
+   FIRST (commit 1, "no visual change"): every hover / selected / active /
+   drag-over / save-state branch on this surface moved out of an inline
+   `style` ternary and into a `data-*` attribute resolved here, with the
+   values transcribed unchanged. An inline style beats a `hover:` class, so a
+   class-based restyle written next to a surviving inline style silently
+   drops the state (plan §1, risk 4). Three of those branches were already
+   dead: the note row declared `transition-colors` and had no hover rule at
+   all, and two of the three toolbar chips declared it beside a hard inline
+   `backgroundColor`.
+
+   SECOND (this file's current state): those values moved onto the tokens in
+   `@theme`, and the page's own layout came with them. No hex is written
+   here. Plan §3, C8: a colour that is not in `@theme` does not exist.
+
+   THE SURFACE. Q1 ruled the six data pages off `#f4a261` and onto the same
+   dark `paper` the three tools use, and the Dashboard is the second of them
+   (Team Members was F2's worked example). That single move retires most of
+   this surface's colour findings by itself: eight of nine status colours and
+   two of four priority colours were unreadable on the orange ground — the
+   DEFAULT status dot measured 1.42:1, so the commonest status marker in the
+   app was effectively not drawn — and on `paper` the semantic set is legible
+   and comes from one source. It also settles D33: the kanban and gallery
+   cards were dark objects on a light page, and now they are dark objects on
+   a dark page.
+
+   THE PAGE OWNS LAYOUT AND NOTHING ELSE. Every colour, size, border and
+   state below either comes from a token or belongs to a kit component. What
+   is left is where things sit, plus the three cases the kit has no component
+   for and says so: an in-cell editor, a rich-text document's own typography,
+   and the temporary bridge under `ProfileSection`.
 
    🚨 THE `@layer` STATEMENT BELOW IS THE FIRST LINE OF THIS FILE, and it has
    to be. A layer's position in the cascade is fixed where it is FIRST named,
@@ -33,104 +52,677 @@
 
 @layer components {
 
-  /* ═══ DashboardPage — the tab bar ═══════════════════════════════════════
-     Was a two-branch inline ternary at DashboardPage.jsx:45-47. */
-  .dash-tab[data-active="true"] {
-    background-color: rgba(120, 70, 30, 0.55);
-    color: #ffffff;
-    border-bottom: 2px solid #f97316;
+  /* ═══ THE PAGE SHELL ════════════════════════════════════════════════════
+     The page set its own `2rem 2rem` padding and capped itself at 1240px
+     INSIDE that padding, so its first column started 32px in while the page
+     title in the orange bar above started at 24px — an 8px offset small
+     enough to read as an accident rather than an indent, and the only
+     vertical line the page had. The measure is the data cap plus the one
+     gutter OUTSIDE it, which is the same arithmetic `PageHeader` uses with
+     `measure="data"`, so the title now sits directly above the first row
+     (review alignment 1; plan §3.3). */
+  .dash-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter));
+    margin: 0 auto;
   }
-  .dash-tab[data-active="false"] {
+  .dash-panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  /* All three panes stay mounted so the notes editor keeps its Y.Doc and the
+     task views keep their scroll. The shown one is a flex column; only the
+     profile pane scrolls as a block. */
+  .dash-tabpane {
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .dash-tabpane-scroll {
+    overflow-y: auto;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+
+  .dash-view {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+  }
+  /* One rhythm. Five gaps from four unrelated values (16 / 12 / 12 / 8 / 6)
+     become 24px between major regions, 16px between a control strip and its
+     content, 8px inside a group (review alignment 8). */
+  .dash-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+
+  /* ═══ THE TOOLBAR ═══════════════════════════════════════════════════════
+     Nine flat controls at four heights became three regions at one height.
+     The separator is the whole Hick's-law fix: it is grouping, not
+     disclosure, so nothing is hidden and nothing gained a click. */
+  .dash-toolbar-group { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .dash-toolbar-sep {
+    width: 1px;
+    height: 20px;
+    background-color: var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dash-toolbar-label {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+    /* A real <label> for the select beside it, so the word focuses the
+       control. It is a toolbar child, so it takes the row's baseline rather
+       than sitting three pixels above it (review alignment 3). */
+    cursor: pointer;
+  }
+  .dash-toolbar-glyph { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
+  .dash-search { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 200px; }
+  /* The field takes the slot. Without this it falls back to the browser's
+     intrinsic input width and the placeholder clips mid-word — and the
+     toolbar's no-wrap rule means the search is what gives way, not the row
+     (review D15). */
+  .dash-search .ui-input { flex: 1 1 auto; min-width: 0; max-width: 240px; }
+  .dash-count {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  .dash-spin > svg { animation: dash-spin 1s linear infinite; }
+  @keyframes dash-spin { to { transform: rotate(360deg); } }
+
+  /* ═══ THE FILTER PANEL ══════════════════════════════════════════════════
+     Three identical wells in a flat run became three fixed proportions with
+     one Label row above the first, so stacked filters read as a table rather
+     than a pile (Hick's hotspot 3). Same three selects, same order. */
+  .dash-filters { display: flex; flex-direction: column; gap: 8px; }
+  .dash-filter-head,
+  .dash-filter-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 3fr var(--control-sm);
+    gap: 8px;
+    align-items: center;
+  }
+  .dash-filter-head > span {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .dash-add-filter { align-self: flex-start; }
+
+  /* ═══ THE TABLE ═════════════════════════════════════════════════════════
+     The table itself is the kit's. What is left here is the group band, the
+     three levels of hierarchy inside a row, and the in-cell editors. */
+  .dash-table-card { flex: 1; min-height: 0; }
+
+  /* A group band is a band, not a row of content: no fill, one hairline, the
+     label at the H3 step in sentence case and the count at the caption step.
+     It was 10.5px bold uppercase on a filled well, which is a size that is
+     perceptually the same as the 10px and 11px steps beside it and a fill
+     that made an EMPTY status group look like content — and the status
+     grouping keeps its empty groups on purpose, so opening the page showed
+     nine of them (review D8, D23, uniformity gap 8). */
+  .dash-group-row > .ui-td {
+    height: var(--table-head);
+    padding-top: 0;
+    padding-bottom: 0;
     background-color: transparent;
-    color: #1c1917;
-    border-bottom: 2px solid transparent;
+    border-bottom: 1px solid var(--color-rule);
   }
+  .dash-group-row[data-dragover="true"] > .ui-td { background-color: var(--color-signal-tint); }
+  .dash-group-label { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .dash-group-name {
+    font-size: var(--text-h3);
+    line-height: var(--text-h3--line-height);
+    font-weight: var(--text-h3--font-weight);
+    color: var(--color-ink);
+  }
+  .dash-group-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
+  /* An empty band recedes to a hairline and a label. */
+  .dash-group-row[data-empty] .dash-group-name { color: var(--color-ink-3); font-weight: 400; }
+  .dash-group-row[data-empty] .dash-group-count { color: var(--color-ink-3); }
 
-  /* ═══ DashboardTasksView ════════════════════════════════════════════════ */
+  /* Three levels where the row had one ink, one size and one face. */
+  .dash-cell-title { font-weight: 600; }
+  .dash-cell-due { font-weight: 600; }
+  /* Emptiness is italic and the third ink — never a second colour, and never
+     an opacity (both of those are how "less important" became
+     "unreadable"). */
+  .dash-empty-value { font-style: italic; color: var(--color-ink-3); }
 
-  /* View toggle (table / board / gallery) — DashboardTasksView.jsx:222-224. */
-  .dash-viewmode[data-active="true"]  { background-color: #1c1917; color: #f4a261; }
-  .dash-viewmode[data-active="false"] { background-color: transparent; color: #1c1917; }
+  /* ── The in-cell editors ──────────────────────────────────────────────
+     🚨 NOT the kit's `Select`, deliberately: that is a 28/36px well with a
+     hairline, which is right in a Toolbar and wrong inside a 36px row. F2
+     kept two page-owned rules on Team Members for exactly this case.
 
-  /* Filter button — :308-310. Active when a filter is set OR the panel is open. */
-  .dash-filter-btn[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
-  .dash-filter-btn[data-active="false"] { background-color: #1c1917; color: #f4a261; }
+     What this fixes is review D7. These were bare `<select>`s and nothing in
+     this file or in index.css set `appearance: none`, so Chromium painted
+     its native dropdown arrow in the Status AND the Priority cell of every
+     row, permanently — sixty caret glyphs on a thirty-row table, which was
+     the single biggest reason this table looked busier than the products
+     Audrey named. The caret is ours now and it appears on row hover or
+     focus-within, which is the same reveal rule the kit's HoverActions uses.
+     The control is unchanged and every option stays equally reachable. */
+  .dash-cell-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  /* 🚨 The editor takes the CELL's width, not its own content's. Left to size
+     itself a <select> settles on roughly its widest option and then shrinks
+     inside a flex parent — measured at 104px inside a 180px Status column,
+     which clipped "Waiting to start", the DEFAULT status, on every row. It
+     also puts the caret in one column down the table instead of wherever
+     each value happens to end. */
+  .dash-cell-editor { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+  .dash-cell-select {
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    font: inherit;
+    color: inherit;
+    background-color: transparent;
+    border: 0;
+    border-radius: var(--radius-control);
+    padding: 2px 14px 2px 4px;
+    margin: -2px -4px;
+    max-width: 100%;
+    cursor: pointer;
+    /* A <select> has no `text-overflow`: it hard-clips mid-word instead of
+       eliding, which is why every one of these carries a `title` (F2 §5
+       trap 15). */
+    text-overflow: ellipsis;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .dash-cell-select:hover:not(:disabled) { background-color: var(--color-hover); }
+  /* Disabled is the ink at 52 percent plus not-allowed, never an opacity
+     (plan §3.1). These rows are read-only for a reviewer on a staffed
+     project, which is the dashboard's primary persona. */
+  .dash-cell-select:disabled { color: var(--color-ink-3); cursor: not-allowed; }
+  .dash-cell-editor::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin-top: -4px;
+    border-right: 1px solid currentColor;
+    border-bottom: 1px solid currentColor;
+    transform: rotate(45deg);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--duration-state) ease-out;
+  }
+  .ui-tr:hover .dash-cell-editor::after,
+  .ui-tr:focus-within .dash-cell-editor::after { opacity: 1; }
 
-  /* The three toolbar chips and the two filter-panel buttons. All five were
-     the same dark square; only refresh had a hover, and it was an opacity
-     (D22). `data-hover="fade"` marks that one branch rather than letting the
-     odd one out hide inside a className. */
-  .dash-chip { background-color: #1c1917; color: #f4a261; }
-  .dash-chip[data-hover="fade"]:hover { opacity: 0.8; }
+  /* Priority carries a tone for `urgent` and `high` and nothing else. A scale
+     where every step is coloured has no emphasis left to spend on the step
+     that matters, and 'low' in its own grey measured 2.33:1 (review D3). */
+  .dash-cell-select[data-tone="danger"],
+  .dash-card-priority[data-tone="danger"] { color: var(--color-danger); }
+  .dash-cell-select[data-tone="warning"],
+  .dash-card-priority[data-tone="warning"] { color: var(--color-warning); }
 
-  /* Table rows — was Tailwind's `hover:bg-black/5` at :531. */
-  .dash-task-row:hover > td { background-color: rgba(0, 0, 0, 0.05); }
-
-  /* Group band, drag target — :513. */
-  .dash-group-row[data-dragover="true"]  { background-color: rgba(234, 88, 12, 0.12); }
-  .dash-group-row[data-dragover="false"] { background-color: rgba(120, 70, 30, 0.10); }
-
-  /* Kanban column, drag target — :591-594. Both the fill and the inset ring
-     are the state; the transition came with it. */
+  /* ═══ BOARD AND GALLERY ═════════════════════════════════════════════════
+     Widths come from the panel scale instead of 270 and 220, which came from
+     nowhere (review D32). */
+  .dash-board {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    overflow-x: auto;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 8px;
+  }
   .dash-kanban-col {
-    background-color: rgba(120, 70, 30, 0.18);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    width: var(--panel-md);
+    max-height: 100%;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: transparent;
     box-shadow: none;
-    transition: background-color 200ms ease, box-shadow 200ms ease;
+    transition: background-color var(--duration-response) var(--ease-response),
+                box-shadow var(--duration-response) var(--ease-response);
   }
   .dash-kanban-col[data-dragover="true"] {
-    background-color: rgba(234, 88, 12, 0.10);
-    box-shadow: inset 0 0 0 2px #ea580c;
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 0 0 0 2px var(--color-signal);
+  }
+  .dash-kanban-head {
+    display: flex;
+    align-items: center;
+    height: var(--panel-header);
+    padding: 0 var(--cell-pad-x);
+    border-bottom: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dash-kanban-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    overflow-y: auto;
+  }
+  .dash-gallery {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(var(--panel-md), 1fr));
+    align-content: start;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+    padding-bottom: 8px;
   }
 
-  /* RolePill — :89-91. Two branches plus the "no role" dash, which is a
-     different element and stays where it is. */
-  .dash-role-pill[data-role="assigned"]  { background-color: #ea580c; color: #ffffff; }
-  .dash-role-pill[data-role="reviewing"] { background-color: rgba(120, 70, 30, 0.55); color: #fde8d0; }
+  .dash-card { cursor: pointer; overflow: hidden; }
+  /* The 3px status edge, in BOTH views and at the top of both. It was status
+     on the top of a kanban card and PRIORITY on the bottom of a gallery
+     card: one device, two meanings, two positions, on two views of the same
+     data one toggle apart (review D18).
+     🚨 The bar IS a StatusDot, stretched. That is not a trick for its own
+     sake: it is the only way to draw a status colour here without writing a
+     second copy of the tone-to-token mapping, which is the defect the whole
+     StatusDot module exists to end. */
+  .dash-card-edge { display: block; height: 3px; }
+  .dash-card-edge .ui-status-dot { display: block; width: 100%; height: 3px; border-radius: 0; }
+  .dash-card-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
+  .dash-card-title {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .dash-card-meta {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
+  .dash-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .dash-card-status {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+  }
+  .dash-card-date {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-2);
+  }
+  .dash-card-priority { flex-shrink: 0; }
 
-  /* ═══ NotesView ═════════════════════════════════════════════════════════ */
+  /* ═══ NOTES — THE LIST ══════════════════════════════════════════════════ */
+  .dash-notes {
+    display: flex;
+    gap: 16px;
+    flex: 1;
+    min-height: 0;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+  .dash-notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+    width: var(--panel-lg);
+    min-height: 0;
+  }
+  .dash-notes-head { display: flex; align-items: center; gap: 8px; }
+  /* 🚨 A `min-width`, not `min-width: 0`. A <select> clips its value mid-word
+     instead of eliding, so a shrunk one reads "All subjec" and "No group" —
+     both of which shipped in a first cut of this row. 104px is the widest
+     option any of these three holds plus its padding and the native arrow,
+     measured; the row's arrangement is chosen so that the sum always fits. */
+  .dash-notes-head > .ui-input { flex: 1 1 auto; min-width: 104px; max-width: 160px; }
+  .dash-notes-head > .ui-btn { flex: 1 1 auto; }
+  .dash-notes-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+  .dash-note-group + .dash-note-group { margin-top: 16px; }
+  .dash-note-group-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 4px 4px;
+  }
+  .dash-note-rows { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; }
 
-  /* Manage-subjects toggle — NotesView.jsx:199-201. */
-  .dash-subjects-toggle[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
-  .dash-subjects-toggle[data-active="false"] { background-color: #1c1917; color: #f4a261; }
-
-  /* Note list row — :240-242. The selected branch swapped the SURFACE from
-     near-white to near-black and dropped the 1px border with it, which is why
-     the meta inks below have two branches too and why the row's contents
-     shift a pixel on selection (D21, alignment 10). Transcribed as shipped. */
+  /* The row was a near-white card (`rgba(255,255,255,0.45)`, which composited
+     to a pale panel on the orange ground — the very move that was removed
+     from the Rate Card, and C9 outright). No fill and a hairline is the same
+     Common Region without a card. Selected is a fill plus a 2px signal left
+     edge — the kit's one selected treatment, the same one the table uses —
+     rather than a swap from a near-white surface to a near-black one, which
+     also dropped the 1px border and shifted every line in the row a pixel up
+     and left at the moment of selection (review D12, D21, alignment 10). */
+  .dash-note-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    background-color: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    border-left: 2px solid transparent;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .dash-note-row:hover { background-color: var(--color-hover); }
   .dash-note-row[data-selected="true"] {
-    background-color: #1c1917;
-    color: #f4a261;
+    background-color: var(--color-signal-tint);
+    border-left-color: var(--color-signal);
   }
-  .dash-note-row[data-selected="false"] {
-    background-color: rgba(255, 255, 255, 0.45);
-    color: #1c1917;
-    border: 1px solid rgba(28, 25, 23, 0.22);
+  .dash-note-row-title {
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .dash-note-row[data-selected="true"]  .dash-note-meta { color: #a8a29e; }
-  .dash-note-row[data-selected="false"] .dash-note-meta { color: #1c1917; }
+  .dash-note-row-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .dash-note-row-preview {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dash-note-date {
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+  }
 
-  /* Editor format-toolbar buttons — :553-556 (`tbBtn`). */
-  .dash-tb-btn[data-active="true"]  { background-color: #ea580c; color: #ffffff; }
-  .dash-tb-btn[data-active="false"] { background-color: #1c1917; color: #f4a261; }
+  .dash-subjects {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-raised);
+  }
+  .dash-subjects-head {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+  }
+  .dash-subject-row { display: flex; align-items: center; gap: 8px; }
+  .dash-subject-row > .ui-input { flex: 1 1 auto; min-width: 0; }
+  .dash-subject-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    text-align: left;
+    font: inherit;
+    font-size: var(--text-dense);
+    color: var(--color-ink);
+    background: none;
+    border: 0;
+    padding: 2px 4px;
+    margin: -2px -4px;
+    border-radius: var(--radius-control);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
+  }
+  .dash-subject-name:hover { background-color: var(--color-hover); }
 
-  /* Save state — :632-634. Four states, three inks as shipped. */
-  .dash-save-state[data-state="error"]  { color: #dc2626; }
-  .dash-save-state[data-state="saved"]  { color: #15803d; }
-  .dash-save-state[data-state="dirty"]  { color: #1c1917; }
-  .dash-save-state[data-state="saving"] { color: #1c1917; }
-}
+  /* ═══ NOTES — THE EDITOR ════════════════════════════════════════════════ */
+  .dash-notes-editor { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+  .dash-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: 8px; }
 
-/* ═══════════════════════════════════════════════════════════════
-   Appended by the same commit: the last inline colour branch on the
-   surface. RolePill's "no role" dash is the one branch that is a SURFACE
-   choice rather than an interaction state — the caller declares which
-   ground it landed on (`onDark`), which the review singles out as the
-   correct mental model for a two-surface app. It is extracted here for the
-   same reason as the others: an inline colour beats the class beside it.
-   Values transcribed unchanged (`L.muted` #78716c on the dark card,
-   `LIGHT_INK` #1c1917 on the light table).
-   ═══════════════════════════════════════════════════════════════ */
-@layer components {
-  .dash-role-none[data-surface="dark"]  { color: #78716c; }
-  .dash-role-none[data-surface="light"] { color: #1c1917; }
+  .dash-note-head { display: flex; align-items: center; gap: 8px; }
+  /* The note's own name, as the page's dominant element. It was an input with
+     the same well, the same 12px mono and the same height as the subject
+     dropdown and the date picker beside it, so the Notes tab had no heading
+     at all (review D27).
+     🚨 The doubled class is deliberate. `.ui-input[data-size="md"]` is
+     (0,2,0) and would otherwise win on specificity regardless of source
+     order, which is the same trap the kit documents on its own selected-row
+     rule. This is (0,3,0) and wins either way. */
+  .dash-note-title.dash-note-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: var(--control-md);
+    padding: 0;
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: var(--text-h1--font-weight);
+    background-color: transparent;
+    border-color: transparent;
+    border-radius: 0;
+  }
+  .dash-note-title.dash-note-title:hover:not(:disabled) { border-color: transparent; }
+  .dash-note-title.dash-note-title:focus-visible { border-bottom-color: var(--color-rule); }
+
+  /* Subject and date sit UNDER the title at their own size, not stretched
+     across the pane: they are the note's metadata, and a date picker as wide
+     as the document is a date picker pretending to be the heading. */
+  .dash-note-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dash-note-meta > .ui-input { flex: 0 1 auto; min-width: 104px; max-width: 180px; }
+  .dash-save-state {
+    margin-left: auto;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  .dash-save-state[data-state="error"] { color: var(--color-danger); }
+  .dash-save-state[data-state="saved"] { color: var(--color-success); }
+
+  /* Seven identical squares in one run, at Miller's limit, with a
+     destructive-ish control inside the constructive ones. Three proximity
+     groups, 16px apart, 2px within; Remove link recedes to the third ink.
+     Nothing moved out of reach (review D24). */
+  .dash-format-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .dash-format-group { display: inline-flex; align-items: center; gap: 2px; }
+  .dash-tb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--control-sm);
+    height: var(--control-sm);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background-color: transparent;
+    color: var(--color-ink-2);
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
+  }
+  .dash-tb-btn > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  .dash-tb-btn:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  /* The one active treatment: the signal as a tint and a 1px edge, the ink
+     unchanged — never the signal as a fill under a small glyph. It is the
+     kit's IconButton treatment, quoted here because these seven buttons are
+     inside a rich-text toolbar whose active state comes from TipTap rather
+     than from a prop. */
+  .dash-tb-btn[data-active="true"] {
+    background-color: var(--color-signal-tint);
+    border-color: var(--color-signal);
+    color: var(--color-ink);
+  }
+  .dash-tb-btn[data-quiet="true"] { color: var(--color-ink-3); }
+
+  .dash-link-panel { display: flex; align-items: center; gap: 8px; }
+  .dash-link-panel > .ui-input { flex: 1 1 auto; min-width: 0; }
+
+  /* ── The document surface ─────────────────────────────────────────────
+     These rules lived in a `<style>` element inside `NoteEditor`, which is
+     keyed by note id — so thirty lines of CSS were torn out of the document
+     and reinserted on every click in the list (review D29). Moving them here
+     is also what made the measure cap possible.
+
+     🚨 THIS IS THE USER'S OWN WRITING, NOT CHROME. Two rules were doing
+     things to it that the app has no business doing: the body was hard-set
+     to `ui-monospace` at 13px over an ~828px column — about 106 characters
+     per line against a 60-to-66 target, the least readable long-form text in
+     the app on the one screen whose entire purpose is long-form text — and
+     the H1 rule applied `text-transform: uppercase` with negative tracking,
+     so a person typing a heading in their private notebook had the app's
+     system-label treatment written back at them with no way to opt out
+     (review D1, D9, D10). */
+  .dash-note-editor {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 16px;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper-raised);
+  }
+  .dash-note-failed { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
+
+  .dash-note-editor .ProseMirror {
+    outline: none;
+    min-height: 320px;
+    /* The reading measure, centred in the pane: the extra width becomes
+       margin rather than line length. */
+    max-width: var(--measure-reading);
+    margin: 0 auto;
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 1.5;
+    color: var(--color-ink);
+  }
+  .dash-note-editor .ProseMirror h1 {
+    font-size: var(--text-h1);
+    line-height: var(--text-h1--line-height);
+    letter-spacing: var(--text-h1--letter-spacing);
+    font-weight: 600;
+    margin: 0.6em 0 0.3em;
+  }
+  .dash-note-editor .ProseMirror h2 {
+    font-size: var(--text-h2);
+    line-height: var(--text-h2--line-height);
+    font-weight: 600;
+    margin: 0.6em 0 0.3em;
+  }
+  .dash-note-editor .ProseMirror ul { list-style: disc; padding-left: 1.4em; margin: 0.3em 0; }
+  .dash-note-editor .ProseMirror ol { list-style: decimal; padding-left: 1.4em; margin: 0.3em 0; }
+  .dash-note-editor .ProseMirror a { color: var(--color-signal); text-decoration: underline; cursor: pointer; }
+  .dash-note-editor .ProseMirror p { margin: 0.25em 0; }
+  .dash-note-editor .ProseMirror blockquote {
+    border-left: 2px solid var(--color-rule);
+    padding-left: 0.8em;
+    color: var(--color-ink-2);
+    margin: 0.4em 0;
+  }
+
+  /* ═══ THE PRESENCE STRIP ════════════════════════════════════════════════ */
+  .dash-presence { display: inline-flex; align-items: center; gap: 8px; }
+  .dash-avatars { display: inline-flex; align-items: center; }
+  .dash-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 9999px;
+    object-fit: cover;
+    /* 1.5px was the only such value in the app: at 96dpi it renders as 1px or
+       2px depending on subpixel position, so five overlapping avatars could
+       visibly disagree on ring weight (review alignment 9). */
+    border: 1px solid var(--color-rule);
+    flex-shrink: 0;
+  }
+  .dash-avatar + .dash-avatar { margin-left: -6px; }
+  .dash-avatar-initial,
+  .dash-avatar-overflow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--color-paper-raised);
+    color: var(--color-ink-2);
+    font-size: var(--text-caption);
+    font-weight: 600;
+  }
+  .dash-avatar-overflow {
+    font-family: var(--font-mono);
+    font-size: var(--text-label);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ═══ THE PROFILE BRIDGE — TEMPORARY ════════════════════════════════════
+     🚨 DELETE THIS BLOCK when `ProfileSection` takes a `surface` prop.
+
+     `ProfileSection` belongs to Settings (lane D1) and is mounted by both
+     SettingsPage and this page. It hard-codes `surface="light"` on every kit
+     control it renders, because until this commit both of its hosts were the
+     light ground. On `paper` those controls resolve `--color-ink-light`,
+     which is `#1c1917` — the paper itself — so the tab would render black on
+     black. The review says this component "must be scheduled with its owning
+     pass and explicitly left alone here" (D35), and D1 filed the real fix as
+     its kit request 6.
+
+     So this region re-points the light-surface tokens at their dark
+     equivalents for the subtree, and the shared component reads correctly
+     here without being edited and without a second copy existing. It is
+     honest about what it is: inside this one region, the role the token
+     names "light" is played by the dark palette. Every value is still a
+     token; nothing here invents a colour. Re-filed in the C2 hand-off. */
+  .dash-profile-bridge {
+    max-width: var(--width-reading);
+    --color-ink-light: var(--color-ink);
+    --color-rule-light: var(--color-rule);
+    --color-well-light: var(--color-paper-raised);
+    --color-hover-light: var(--color-hover);
+    --color-surface-light-solid: var(--color-paper-raised);
+    --color-selection-light: var(--color-selection);
+    --color-scroll-thumb-light: var(--color-scroll-thumb);
+    --color-scroll-thumb-light-hover: var(--color-scroll-thumb-hover);
+  }
+
+  /* Reduced motion. Scoped per class, never as a blanket rule: the pet
+     keyframes live in index.css and a blanket `animation: none` would kill
+     them (C5). The refresh spinner was the one piece of continuous motion on
+     this surface and it was not covered by anything (review D28). */
+  @media (prefers-reduced-motion: reduce) {
+    .dash-spin > svg { animation: none; }
+    .dash-note-row,
+    .dash-kanban-col,
+    .dash-cell-select,
+    .dash-cell-editor::after,
+    .dash-subject-name,
+    .dash-tb-btn { transition: none; }
+  }
 }
