@@ -50,8 +50,11 @@ vi.mock('../../tools/rabbit_v0.1.0/components/TaskDetailPopup', () => ({
 
 const myTasks = vi.hoisted(() => ({ current: null }))
 vi.mock('./useMyTasks', () => ({ useMyTasks: () => myTasks.current }))
+// Varied by the write-gate test: an admin may write anywhere, so a
+// read-only row needs the app role to come down too.
+const perms = vi.hoisted(() => ({ current: { role: 'admin', ready: true } }))
 vi.mock('../../permissions/usePermissions', () => ({
-  usePermissions: () => ({ role: 'admin', ready: true }),
+  usePermissions: () => perms.current,
 }))
 
 const { default: DashboardTasksView } = await import('./DashboardTasksView')
@@ -90,8 +93,9 @@ const hook = (over = {}) => ({
   ...over,
 })
 
-const mount = (over = {}) => {
+const mount = (over = {}, role = { role: 'admin', ready: true }) => {
   myTasks.current = hook(over)
+  perms.current = role
   return render(<DashboardTasksView />)
 }
 
@@ -297,9 +301,13 @@ describe('W9: the native confirm became the kit Dialog, and the veto survived', 
     const dialog = container.querySelector('.ui-dialog') || document.querySelector('.ui-dialog')
     expect(dialog, 'a Dialog is on screen').not.toBeNull()
     expect(screen.getByText('Delete this task?')).toBeTruthy()
-    // The warning the old confirm string carried is still said.
+    // 🚨 The old `window.confirm` string, word for word:
+    //   'Delete this task? (30-day trash, admins can restore)'
+    // The first cut of the Dialog rewrote it to "an admin can restore it" and
+    // this assertion was written to the rewrite, so nothing guarded the drift
+    // (review round 1, finding 3).
     expect(document.body.textContent).toMatch(/30-day trash/)
-    expect(document.body.textContent).toMatch(/admin can restore/i)
+    expect(document.body.textContent).toMatch(/admins can restore/)
   })
 
   it('cancel deletes nothing and leaves the popup open, as a cancelled confirm did', () => {
@@ -325,5 +333,67 @@ describe('W9: the native confirm became the kit Dialog, and the veto survived', 
     openPopupAndDelete()
     expect(spy).not.toHaveBeenCalled()
     spy.mockRestore()
+  })
+})
+
+describe('🚨 drag feedback — the one state nothing else renders', () => {
+  // The review named this a rework risk: the feedback lives in a dragCountRef
+  // enter/leave counter, no test rendered it, and a restyle that drops a
+  // branch loses it in silence. A source-text match on the JSX was not enough
+  // — the handlers can be deleted with the attribute left behind (review
+  // round 1, finding 13a), so this fires the events.
+  const dt = () => ({ dataTransfer: { getData: () => 't1', setData: () => {}, effectAllowed: '' } })
+
+  it('the group band takes and releases the drag state', () => {
+    const { container } = mount()
+    const band = container.querySelector('tr.dash-group-row')
+    expect(band.getAttribute('data-dragover')).toBe('false')
+    fireEvent.dragEnter(band, dt())
+    expect(band.getAttribute('data-dragover')).toBe('true')
+    fireEvent.dragLeave(band, dt())
+    expect(band.getAttribute('data-dragover')).toBe('false')
+  })
+
+  it('the enter/leave counter survives a child crossing (why it is a ref, not a boolean)', () => {
+    const { container } = mount()
+    const band = container.querySelector('tr.dash-group-row')
+    fireEvent.dragEnter(band, dt())   // onto the row
+    fireEvent.dragEnter(band, dt())   // onto a child inside it
+    fireEvent.dragLeave(band, dt())   // off that child, still inside the row
+    expect(band.getAttribute('data-dragover'), 'still over the band').toBe('true')
+    fireEvent.dragLeave(band, dt())
+    expect(band.getAttribute('data-dragover')).toBe('false')
+  })
+
+  it('a drop onto a status band patches the dragged task to that status', () => {
+    const { container } = mount()
+    const band = [...container.querySelectorAll('tr.dash-group-row')]
+      .find((b) => b.textContent.startsWith('Approved'))
+    fireEvent.drop(band, dt())
+    expect(myTasks.current.patchTask).toHaveBeenCalledWith('t1', { status: 'approved' })
+  })
+
+  it('the kanban column takes the drag state too', () => {
+    const { container, getByTitle } = mount()
+    fireEvent.click(getByTitle('Board'))
+    const col = container.querySelector('.dash-kanban-col')
+    expect(col.getAttribute('data-dragover')).toBe('false')
+    fireEvent.dragEnter(col, dt())
+    expect(col.getAttribute('data-dragover')).toBe('true')
+  })
+
+  it('a row is draggable only where the writer may write', () => {
+    const { container } = mount()
+    const row = container.querySelector('td.dash-cell-title').closest('tr')
+    expect(row.getAttribute('draggable')).toBe('true')
+    cleanup()
+    // A plain member with no project role — the dashboard's primary persona
+    // is a reviewer on someone else's project, and the DB will reject a write
+    // it never should have offered (the `ready` flag next door is the other
+    // half of that story).
+    const ro = mount({ myRoleByProject: {}, staffedByProject: { p1: true } }, { role: 'user', ready: true })
+    const roRow = ro.container.querySelector('td.dash-cell-title').closest('tr')
+    expect(roRow.getAttribute('draggable')).toBe('false')
+    expect(ro.container.querySelector('select.dash-cell-select').disabled).toBe(true)
   })
 })

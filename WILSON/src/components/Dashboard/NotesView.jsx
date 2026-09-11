@@ -309,7 +309,7 @@ export default function NotesView() {
           onClose={() => setConfirmDeleteId(null)}
           footer={(
             <>
-              <Button onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+              <Button autoFocus onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
               <Button
                 variant="danger"
                 onClick={() => {
@@ -334,22 +334,42 @@ export default function NotesView() {
 function SubjectManager({ nb }) {
   const [draft, setDraft] = useState('')
   const [renaming, setRenaming] = useState(null) // { id, label }
+  // 🚨 The kit's Input calls `blur()` on Enter before it calls the caller's
+  // onKeyDown (Input.jsx:69), so this field loses focus on every commit and
+  // typing a run of subjects meant clicking back in each time. Putting the
+  // focus back is the smallest fix that does not touch the kit.
+  const draftRef = useRef(null)
+  const addDraft = useCallback(() => {
+    if (!draft.trim()) return
+    nb.addSubject(draft)
+      .then(() => { setDraft(''); draftRef.current?.focus() })
+      .catch(() => {})
+  }, [draft, nb])
 
   return (
     <div className="dash-subjects">
       <div className="dash-subjects-head">Your subjects</div>
       {nb.subjects.length === 0 && (
-        <span className="dash-empty-value">None yet — add one below.</span>
+        <span className="dash-subjects-empty">None yet — add one below.</span>
       )}
       {nb.subjects.map(s => (
-        <div key={s.id} className="dash-subject-row">
+        // 🚨 `onKeyDownCapture`, not `onKeyDown`. The kit's Input handles
+        // Escape itself, calls `stopPropagation()` and RETURNS before the
+        // caller's onKeyDown (Input.jsx:68-72), so a bubbling handler here
+        // never runs. The rename row had an Escape exit before it moved to the
+        // kit Input and lost it — and it is the row's only exit besides Enter
+        // and the tick, so losing it made it a dead end (R1 finding 1).
+        <div key={s.id} className="dash-subject-row" onKeyDownCapture={e => { if (e.key === 'Escape') setRenaming(null) }}>
           {renaming?.id === s.id ? (
             <>
               <Input
                 size="sm"
                 autoFocus
                 value={renaming.label}
-                onChange={(v) => setRenaming({ id: s.id, label: v })}
+                // Never resurrect a row Escape just closed: the kit's
+                // cancel path calls onChange after the capture handler above
+                // has already set this to null.
+                onChange={(v) => setRenaming((r) => (r === null ? null : { id: s.id, label: v }))}
                 onKeyDown={e => {
                   if (e.key === 'Enter') { nb.renameSubject(s.id, renaming.label).catch(() => {}); setRenaming(null) }
                 }}
@@ -385,23 +405,15 @@ function SubjectManager({ nb }) {
       ))}
       <div className="dash-subject-row">
         <Input
+          ref={draftRef}
           size="sm"
           value={draft}
           onChange={setDraft}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && draft.trim()) {
-              nb.addSubject(draft).then(() => setDraft('')).catch(() => {})
-            }
-          }}
+          onKeyDown={e => { if (e.key === 'Enter') addDraft() }}
           placeholder="New subject"
           aria-label="New subject"
         />
-        <IconButton
-          icon={Plus}
-          size="sm"
-          title="Add subject"
-          onClick={() => { if (draft.trim()) nb.addSubject(draft).then(() => setDraft('')).catch(() => {}) }}
-        />
+        <IconButton icon={Plus} size="sm" title="Add subject" onClick={addDraft} />
       </div>
     </div>
   )
@@ -585,7 +597,6 @@ function NoteEditor({ note, nb, onDelete }) {
     if (titleTimerRef.current) clearTimeout(titleTimerRef.current)
   }, [])
 
-  const tbState = (active) => String(!!active)
 
   return (
     <div className="dash-editor">
@@ -616,7 +627,10 @@ function NoteEditor({ note, nb, onDelete }) {
         <Select
           size="sm"
           value={note.subject || ''}
-          onChange={v => nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})}
+          onChange={v => {
+            if ((v || null) === (note.subject || null)) return
+            nb.patchNoteMeta(note.id, { subject: v || null }).catch(() => {})
+          }}
           placeholder="No subject"
           options={[
             ...nb.subjects.map(s => ({ value: s.label, label: s.label })),
@@ -627,11 +641,22 @@ function NoteEditor({ note, nb, onDelete }) {
           ]}
           aria-label="Note subject"
         />
+        {/* 🚨 The guard is not an optimisation. The kit's Input reverts on
+            Escape by CALLING `onChange` with the value the field had on focus
+            — and on this field `onChange` is the write, so Escape (the
+            standard gesture for dismissing an open date picker) used to issue
+            a PATCH. Skipping a change that is already the persisted value
+            suppresses exactly the revert and nothing else; a real pick still
+            commits immediately, as it did before. */}
         <Input
           size="sm"
           type="date"
+          className="dash-date"
           value={note.note_date || ''}
-          onChange={v => nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})}
+          onChange={v => {
+            if ((v || null) === (note.note_date || null)) return
+            nb.patchNoteMeta(note.id, { note_date: v || null }).catch(() => {})
+          }}
           aria-label="Note date"
         />
         <span className="dash-save-state" data-state={saveState}>
@@ -646,52 +671,57 @@ function NoteEditor({ note, nb, onDelete }) {
           destructive-ish control sitting inside the constructive ones. Three
           proximity groups now — block level, inline marks, link — and Remove
           link recedes. Nothing moved out of reach and no behaviour changed;
-          this is proximity and weight only (review D24, Hick's hotspot 5). */}
+          this is proximity and weight only (review D24, Hick's hotspot 5).
+
+          🚨 These are the kit's `IconButton`, not seven hand-rolled buttons.
+          An earlier cut of this bundle re-implemented IconButton's box, hover
+          and active treatment in `dashboard.css` and justified it by saying
+          the active state "comes from TipTap rather than from a prop" — which
+          is not a reason, because `editor.isActive('bold')` is just a value
+          you pass to a prop. The kit version also brings `aria-pressed`,
+          which the hand-rolled seven did not have (C8; review round 1). */}
       <div className="dash-format-bar">
         <span className="dash-format-group">
-          <button type="button" title="Heading 1" data-active={tbState(editor?.isActive('heading', { level: 1 }))}
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}>
-            <Heading1 aria-hidden="true" />
-          </button>
-          <button type="button" title="Heading 2" data-active={tbState(editor?.isActive('heading', { level: 2 }))}
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}>
-            <Heading2 aria-hidden="true" />
-          </button>
-          <button type="button" title="Bullet list" data-active={tbState(editor?.isActive('bulletList'))}
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleBulletList().run()}>
-            <List aria-hidden="true" />
-          </button>
+          <IconButton icon={Heading1} size="sm" title="Heading 1"
+            active={!!editor?.isActive('heading', { level: 1 })}
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()} />
+          <IconButton icon={Heading2} size="sm" title="Heading 2"
+            active={!!editor?.isActive('heading', { level: 2 })}
+            onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()} />
+          <IconButton icon={List} size="sm" title="Bullet list"
+            active={!!editor?.isActive('bulletList')}
+            onClick={() => editor?.chain().focus().toggleBulletList().run()} />
         </span>
         <span className="dash-format-group">
-          <button type="button" title="Bold" data-active={tbState(editor?.isActive('bold'))}
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleBold().run()}>
-            <Bold aria-hidden="true" />
-          </button>
-          <button type="button" title="Underline" data-active={tbState(editor?.isActive('underline'))}
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().toggleUnderline().run()}>
-            <UnderlineIcon aria-hidden="true" />
-          </button>
+          <IconButton icon={Bold} size="sm" title="Bold"
+            active={!!editor?.isActive('bold')}
+            onClick={() => editor?.chain().focus().toggleBold().run()} />
+          <IconButton icon={UnderlineIcon} size="sm" title="Underline"
+            active={!!editor?.isActive('underline')}
+            onClick={() => editor?.chain().focus().toggleUnderline().run()} />
         </span>
         <span className="dash-format-group">
-          <button type="button" title="Add / edit link" data-active={tbState(editor?.isActive('link') || linkPanel !== null)}
-            className="dash-tb-btn" onClick={openLinkPanel}>
-            <Link2 aria-hidden="true" />
-          </button>
-          <button type="button" title="Remove link" data-active="false" data-quiet="true"
-            className="dash-tb-btn" onClick={() => editor?.chain().focus().unsetLink().run()}>
-            <Link2Off aria-hidden="true" />
-          </button>
+          <IconButton icon={Link2} size="sm" title="Add / edit link"
+            active={!!(editor?.isActive('link') || linkPanel !== null)}
+            onClick={openLinkPanel} />
+          {/* The one that recedes: it is the only destructive-ish control in
+              a run of constructive ones (D24). One page rule, not a variant. */}
+          <IconButton icon={Link2Off} size="sm" title="Remove link"
+            className="dash-tb-quiet"
+            onClick={() => editor?.chain().focus().unsetLink().run()} />
         </span>
       </div>
 
       {/* inline link URL entry (window.prompt is unavailable in Electron) */}
       {linkPanel !== null && (
-        <div className="dash-link-panel">
+        <div className="dash-link-panel" onKeyDownCapture={e => { if (e.key === 'Escape') setLinkPanel(null) }}>
           <Input
             size="sm"
             autoFocus
             value={linkPanel.value}
-            onChange={(v) => setLinkPanel({ value: v })}
+            // Same shape as the rename row above: the kit's Escape revert
+            // calls onChange, and a plain object here re-opened the panel.
+            onChange={(v) => setLinkPanel((p) => (p === null ? null : { value: v }))}
             onKeyDown={e => { if (e.key === 'Enter') applyLink() }}
             placeholder="https://…  (empty removes the link)"
             aria-label="Link URL"

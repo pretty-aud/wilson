@@ -96,12 +96,14 @@
     min-height: 0;
   }
   /* One rhythm. Five gaps from four unrelated values (16 / 12 / 12 / 8 / 6)
-     become 24px between major regions, 16px between a control strip and its
-     content, 8px inside a group (review alignment 8). */
+     become 16px between a control strip and its content and 8px inside a
+     group, both on the 4px scale (plan §3.3; review alignment 8). The page
+     has no two MAJOR regions stacked in one scroll, so the 24px step is not
+     used here rather than being claimed and not written. */
   .dash-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
     flex: 1;
     min-height: 0;
     padding: 16px var(--spacing-gutter) var(--spacing-gutter);
@@ -132,18 +134,21 @@
     cursor: pointer;
   }
   .dash-toolbar-glyph { width: var(--icon-sm); height: var(--icon-sm); color: var(--color-ink-3); flex-shrink: 0; }
-  .dash-search { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 200px; }
+  .dash-search { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 200px; }
   /* The field takes the slot. Without this it falls back to the browser's
      intrinsic input width and the placeholder clips mid-word — and the
      toolbar's no-wrap rule means the search is what gives way, not the row
      (review D15). */
   .dash-search .ui-input { flex: 1 1 auto; min-width: 0; max-width: 240px; }
+  /* The Caption step, sentence case, in the mono — the same object as
+     `.dash-group-count` below, because it is the same object. It shipped once
+     as an uppercase Label reading "3 TASKS": plan §3.1 puts counts at Caption
+     and confines uppercase to the Label role, and the review's own type
+     inventory routes "counts" to 12 Caption (D23, review round 1). */
   .dash-count {
-    font-size: var(--text-label);
-    line-height: var(--text-label--line-height);
-    letter-spacing: var(--text-label--letter-spacing);
-    font-weight: var(--text-label--font-weight);
-    text-transform: uppercase;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
     white-space: nowrap;
@@ -232,7 +237,7 @@
      Audrey named. The caret is ours now and it appears on row hover or
      focus-within, which is the same reveal rule the kit's HoverActions uses.
      The control is unchanged and every option stays equally reachable. */
-  .dash-cell-status { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .dash-cell-status { display: flex; align-items: center; gap: 8px; min-width: 0; }
   /* 🚨 The editor takes the CELL's width, not its own content's. Left to size
      itself a <select> settles on roughly its widest option and then shrinks
      inside a flex parent — measured at 104px inside a 180px Status column,
@@ -356,7 +361,7 @@
      StatusDot module exists to end. */
   .dash-card-edge { display: block; height: 3px; }
   .dash-card-edge .ui-status-dot { display: block; width: 100%; height: 3px; border-radius: 0; }
-  .dash-card-body { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; }
+  .dash-card-body { display: flex; flex-direction: column; gap: 8px; padding: 12px; }
   .dash-card-title {
     font-size: var(--text-dense);
     line-height: var(--text-dense--line-height);
@@ -428,7 +433,7 @@
   .dash-note-row {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     width: 100%;
     text-align: left;
     padding: 8px 12px;
@@ -479,6 +484,15 @@
     border-radius: var(--radius-control);
     background-color: var(--color-paper-raised);
   }
+  /* Not `.dash-empty-value`: that is the table's em-dash treatment, and a
+     class named for a cell value styling a sentence is how two things drift
+     apart later. Same ink, same italic, its own name. */
+  .dash-subjects-empty {
+    font-style: italic;
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    color: var(--color-ink-3);
+  }
   .dash-subjects-head {
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
@@ -518,10 +532,18 @@
      the same well, the same 12px mono and the same height as the subject
      dropdown and the date picker beside it, so the Notes tab had no heading
      at all (review D27).
-     🚨 The doubled class is deliberate. `.ui-input[data-size="md"]` is
-     (0,2,0) and would otherwise win on specificity regardless of source
-     order, which is the same trap the kit documents on its own selected-row
-     rule. This is (0,3,0) and wins either way. */
+     🚨 The doubled class is deliberate, and here is the real reason.
+     MEASURED in the running app, the sheet order is settings.css, THIS FILE,
+     then index.css — so this stylesheet is emitted BEFORE the kit, both put
+     their rules in `@layer components`, and therefore every specificity TIE
+     between a `.dash-*` rule and a `.ui-*` rule is won by the kit. A page
+     rule that only ties is a page rule that does nothing.
+     `.ui-input` is (0,1,0); this is (0,2,0) and wins on specificity, which it
+     has to. (An earlier comment here claimed it was beating
+     `.ui-input[data-size="md"]` — a selector that does not exist; index.css
+     only writes `[data-size="sm"]` — and miscounted both sides. Review round
+     1 caught it; `dashboardCss.test.js` now asserts no `.dash-*` rule that
+     targets a kit element merely ties.) */
   .dash-note-title.dash-note-title {
     flex: 1 1 auto;
     min-width: 0;
@@ -542,6 +564,14 @@
      across the pane: they are the note's metadata, and a date picker as wide
      as the document is a date picker pretending to be the heading. */
   .dash-note-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  /* 🚨 Without `color-scheme`, Chromium paints `<input type="date">`'s picker
+     indicator as a DARK glyph on the dark well and opens its calendar in the
+     light-mode chrome — a near-white floating panel, which C9 forbids
+     outright ("no ground, panel, card, well, header row, dialog or MENU is
+     white"). Nothing in `index.css` sets `color-scheme` anywhere, so this is
+     a defect the Q1 move CREATED on every dark page that holds a date field;
+     filed as a kit request (R.A.B.B.I.T. has about a dozen more). */
+  .dash-date { color-scheme: dark; }
   .dash-note-meta > .ui-input { flex: 0 1 auto; min-width: 104px; max-width: 180px; }
   .dash-save-state {
     margin-left: auto;
@@ -558,33 +588,16 @@
      groups, 16px apart, 2px within; Remove link recedes to the third ink.
      Nothing moved out of reach (review D24). */
   .dash-format-bar { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-  .dash-format-group { display: inline-flex; align-items: center; gap: 2px; }
-  .dash-tb-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: var(--control-sm);
-    height: var(--control-sm);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background-color: transparent;
-    color: var(--color-ink-2);
-    cursor: pointer;
-    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
-  }
-  .dash-tb-btn > svg { width: var(--icon-sm); height: var(--icon-sm); }
-  .dash-tb-btn:hover { background-color: var(--color-hover); color: var(--color-ink); }
-  /* The one active treatment: the signal as a tint and a 1px edge, the ink
-     unchanged — never the signal as a fill under a small glyph. It is the
-     kit's IconButton treatment, quoted here because these seven buttons are
-     inside a rich-text toolbar whose active state comes from TipTap rather
-     than from a prop. */
-  .dash-tb-btn[data-active="true"] {
-    background-color: var(--color-signal-tint);
-    border-color: var(--color-signal);
-    color: var(--color-ink);
-  }
-  .dash-tb-btn[data-quiet="true"] { color: var(--color-ink-3); }
+  .dash-format-group { display: inline-flex; align-items: center; gap: 4px; }
+  /* The one thing the kit's IconButton cannot express: Remove link is the
+     only destructive-ish control in a run of constructive ones and has to
+     recede (D24). Three selectors deep so it beats `.ui-iconbtn` (0,1,0) —
+     see the note on source order above.
+     What was here before was a 26-line re-implementation of IconButton's box,
+     hover and active treatment, justified by a claim that its active state
+     "comes from TipTap rather than from a prop". That is not a reason:
+     `editor.isActive('bold')` is a value you pass to `active`. Review round 1. */
+  .dash-format-bar .ui-iconbtn.dash-tb-quiet { color: var(--color-ink-3); }
 
   .dash-link-panel { display: flex; align-items: center; gap: 8px; }
   .dash-link-panel > .ui-input { flex: 1 1 auto; min-width: 0; }
@@ -739,7 +752,6 @@
     .dash-kanban-col,
     .dash-cell-select,
     .dash-cell-editor::after,
-    .dash-subject-name,
-    .dash-tb-btn { transition: none; }
+    .dash-subject-name { transition: none; }
   }
 }

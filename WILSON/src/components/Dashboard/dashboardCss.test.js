@@ -137,8 +137,35 @@ describe('the state extraction left no inline branch behind', () => {
     // dragCountRef enter/leave counter, nothing renders it in a test, and a
     // restyle that drops a branch loses it silently (review rework risk 3).
     expect((view.match(/data-dragover=\{String\(dragOver\)\}/g) || []).length).toBe(2)
-    expect(code(dashboardCss)).toMatch(/\.dash-group-row\[data-dragover="true"\]/)
+    // 🚨 The group band's fill MUST land on the CELL, not the row: the band's
+    // own rule paints `.dash-group-row > .ui-td` transparent, so a fill on the
+    // <tr> is painted straight over and the drag target goes silent. Dropping
+    // "> .ui-td" from this selector kept the looser regex green (review round
+    // 1, finding 13a). The interaction half is in DashboardTasksView.test.jsx.
+    expect(code(dashboardCss)).toMatch(/\.dash-group-row\[data-dragover="true"\]\s*>\s*\.ui-td/)
     expect(code(dashboardCss)).toMatch(/\.dash-kanban-col\[data-dragover="true"\]/)
+  })
+
+  it('🚨 no page rule that targets a kit element merely TIES the kit', () => {
+    // MEASURED in the running app: the sheet order is settings.css, then
+    // dashboard.css, then index.css — so this file is emitted BEFORE the kit
+    // and, both being in `@layer components`, it loses every specificity tie.
+    // A page rule that only ties is a page rule that does nothing, and the
+    // failure is silent (review round 1, finding 5).
+    const weak = []
+    for (const block of code(dashboardCss).split('}')) {
+      const head = block.split('{')[0]
+      if (!head.includes('.ui-')) continue
+      for (const one of head.split(',')) {
+        const sel = one.trim()
+        if (!sel || !sel.includes('.ui-')) continue
+        const units = (sel.match(/\.[a-zA-Z][\w-]*/g) || []).length
+          + (sel.match(/\[[^\]]+\]/g) || []).length
+          + (sel.match(/#[\w-]+/g) || []).length
+        if (units < 2) weak.push(sel)
+      }
+    }
+    expect(weak).toEqual([])
   })
 })
 

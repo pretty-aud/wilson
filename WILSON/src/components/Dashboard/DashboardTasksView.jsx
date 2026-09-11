@@ -36,7 +36,7 @@
 import { useMemo, useRef, useState } from 'react'
 import {
   Table2, Columns3, LayoutGrid, Search, ChevronDown, ChevronUp,
-  X, RefreshCw, CloudOff, ListChecks, AlertTriangle,
+  X, RefreshCw, CloudOff, ListChecks, AlertTriangle, Plus,
 } from 'lucide-react'
 import TaskDetailPopup from '../../tools/rabbit_v0.1.0/components/TaskDetailPopup'
 import { useMyTasks } from './useMyTasks'
@@ -106,7 +106,7 @@ function StatusCell({ value, onChange, disabled }) {
       {/* The dot is decorative here: the select beside it carries the word and
           the accessible name, so announcing the status twice would be worse
           than announcing it once. */}
-      <StatusDot status={v} aria-hidden="true" role={undefined} aria-label={undefined} title={undefined} />
+      <StatusDot status={v} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
       <CellSelect
         value={v}
         options={STATUS_OPTIONS}
@@ -260,8 +260,11 @@ export default function DashboardTasksView() {
           whole of the Hick's-law fix (hotspot 1) — every control is still
           visible, still one click away, and in the same order. Every child is
           the toolbar's own 28px, so the row finally has one baseline (D15). */}
+      {/* No `wrap`. Plan §4's contract is "never wraps", and D15 asked for
+          the search field to give way rather than the row — which is what
+          `.dash-search .ui-input` does. Measured at 1440x900 and 1280x700:
+          the strip stays one 44px row. */}
       <Toolbar
-        wrap
         right={(
           <>
             <span className="dash-toolbar-sep" aria-hidden="true" />
@@ -369,7 +372,12 @@ export default function DashboardTasksView() {
             critic's cross-cutting ruling, which the plan's §4 Loading entry
             makes app-wide). */}
         {mt.loading && processed.length === 0 ? (
-          <Loading rows={6} columns={COLS} label="Loading your tasks" />
+          // In the SAME frame the rows will land in, or the card's hairline
+          // pops into existence when loading ends — the opposite of what
+          // skeleton rows are for.
+          <Card pad={false} className="dash-table-card">
+            <Loading rows={6} columns={COLS} label="Loading your tasks" />
+          </Card>
         ) : processed.length === 0 ? (
           <EmptyState
             Icon={ListChecks}
@@ -411,7 +419,7 @@ export default function DashboardTasksView() {
           onClose={() => setConfirmDeleteId(null)}
           footer={(
             <>
-              <Button onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+              <Button autoFocus onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
               <Button
                 variant="danger"
                 onClick={() => {
@@ -429,7 +437,7 @@ export default function DashboardTasksView() {
             </>
           )}
         >
-          It goes to the 30-day trash, and an admin can restore it.
+          It goes to the 30-day trash, and admins can restore it.
         </Dialog>
       )}
     </div>
@@ -500,7 +508,7 @@ function FilterPanel({ filters, setFilters, projectsById }) {
         className="dash-add-filter"
         onClick={() => setFilters(prev => [...prev, { field: 'status', op: 'is', value: '' }])}
       >
-        Add filter
+        <Plus aria-hidden="true" /> Add filter
       </Button>
     </div>
   )
@@ -570,7 +578,7 @@ function TableGroup({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
       >
         <Td colSpan={COLS}>
           <span className="dash-group-label">
-            {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title={undefined} />}
+            {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
             <span className="dash-group-name">{group.label}</span>
             <span className="dash-group-count">{group.tasks.length}</span>
           </span>
@@ -664,7 +672,7 @@ function KanbanColumn({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
     >
       <div className="dash-kanban-head">
         <span className="dash-group-label">
-          {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title={undefined} />}
+          {groupBy === 'status' && <StatusDot status={group.key} aria-hidden="true" role={undefined} aria-label={undefined} title="" />}
           <span className="dash-group-name">{group.label}</span>
           <span className="dash-group-count">{group.tasks.length}</span>
         </span>
@@ -686,19 +694,21 @@ function KanbanColumn({ group, groupBy, mt, onOpen, droppable, canWriteTask }) {
 // Label-step word in both. The gallery's 80px band holding the first letter
 // of the title at 24px — the loudest object on the card restating its
 // quietest — is gone (D17).
-function TaskCard({ task, mt, onOpen, draggable = false, wide = false }) {
+// One card for both views, which is the point — so there is no per-view
+// variant prop. An earlier cut passed `wide` from the gallery and rendered
+// `data-wide`, which no rule read (review round 1, finding 9).
+function TaskCard({ task, mt, onOpen, draggable = false }) {
   const tone = priorityTone(task.priority)
   return (
     <Card
       pad={false}
       className="dash-card"
-      data-wide={wide || undefined}
       draggable={draggable}
       onDragStart={draggable ? (e) => { e.dataTransfer.setData('text/plain', task.id); e.dataTransfer.effectAllowed = 'move' } : undefined}
       onClick={() => onOpen(task.id)}
     >
       <span className="dash-card-edge" aria-hidden="true">
-        <StatusDot status={task.status} aria-hidden="true" role={undefined} aria-label={undefined} title={undefined} />
+        <StatusDot status={task.status} aria-hidden="true" role={undefined} aria-label={undefined} title="" />
       </span>
       <div className="dash-card-body">
         <div className="dash-card-title">{task.title}</div>
@@ -724,7 +734,7 @@ function TaskGallery({ groups, mt, onOpen }) {
   return (
     <div className="dash-gallery">
       {tasks.map(task => (
-        <TaskCard key={task.id} task={task} mt={mt} onOpen={onOpen} wide />
+        <TaskCard key={task.id} task={task} mt={mt} onOpen={onOpen} />
       ))}
     </div>
   )
