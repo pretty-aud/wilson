@@ -54,6 +54,14 @@ export default function ModelWarningBanner() {
           key={w.key}
           tone="warning"
           Icon={AlertTriangle}
+          // 🚨 Banner maps warning and danger to role="alert", which is an
+          // ASSERTIVE live region: a screen reader interrupts whatever it is
+          // reading. This notice is a persistent degraded STATE, not an event —
+          // the header says so, and it has been role="status" (polite) since
+          // Session 19. A restyle must not change how loudly the app speaks, so
+          // the role is passed explicitly; Banner spreads `...rest` last, so a
+          // caller's role wins. Review round 1 found this.
+          role="status"
           action={(
             <IconButton
               Icon={X}

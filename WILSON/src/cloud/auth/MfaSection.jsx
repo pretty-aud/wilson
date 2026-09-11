@@ -20,7 +20,7 @@ import { supabase } from './supabaseClient'
 import AuthShell, {
   AUTH_TEXT_STYLE, AUTH_PROSE_STYLE, AUTH_INPUT_STYLE,
   AUTH_BUTTON_STYLE, AUTH_BUTTON_BUSY_STYLE, AUTH_ERROR_STYLE,
-  AUTH_LINK_STYLE, AUTH_HINT_STYLE,
+  AUTH_LINK_STYLE, AUTH_HINT_STYLE, AuthSectionTitle,
   AUTH_GAP_WITHIN_FIELD, AUTH_GAP_BETWEEN_FIELDS, AUTH_GAP_BETWEEN_BLOCKS,
 } from './AuthShell'
 import { usePermissions } from '../../permissions'
@@ -28,8 +28,7 @@ import { reportAppEvent } from '../errorCodes'
 import { withTimeout, AUTH_TIMEOUT_MS } from './withTimeout'
 import { Button } from '../../ui'
 import {
-  INK_LIGHT, RULE_LIGHT, WELL_LIGHT, GROUND_LIGHT,
-  RADIUS_CONTROL, TYPE, ICON, GUTTER,
+  INK_LIGHT, ON_FILL, RADIUS_CONTROL, TYPE, ICON,
 } from '../../ui/tokens'
 
 async function listVerifiedTotp() {
@@ -52,16 +51,15 @@ function qrSrc(qr) {
 const PRESS_CLASS = 'active:scale-[0.98]'
 
 // ── Shared enroll panel ──────────────────────────────────────────────────
-// dark=true renders on the auth-overlay, dark=false in Settings > Profile.
+// Two mount points, ONE surface. This used to take a `dark` prop, and that
+// prop was a misnomer that cost the component its legibility. Both of its
+// grounds are the light orange:
 //
-// 🚨 `dark` is a MISNOMER and it cost this component its legibility. BOTH of
-// its surfaces are the light orange ground:
-//
-//   dark=true   MfaEnrollGate → AuthShell's content area, the LIGHT well
-//               (#f4a261) AuthShell paints between the bars.
-//   dark=false  MfaSecuritySection → Settings, and Settings is NOT a dark
-//               page (App.jsx: `isDarkPage = isDog || isOtter || isRabbit`).
-//               It is the same #f4a261.
+//   MfaEnrollGate       → AuthShell's content area, the LIGHT well (#f4a261)
+//                         AuthShell paints between the bars.
+//   MfaSecuritySection  → Settings, which is NOT a dark page (App.jsx:
+//                         `isDarkPage = isDog || isOtter || isRabbit`). It is
+//                         the same #f4a261.
 //
 // So there is no dark branch to keep: ink, field, primary button, busy state
 // and error ink are ONE treatment here, because one ground can only have one
@@ -71,12 +69,15 @@ const PRESS_CLASS = 'active:scale-[0.98]'
 // #f4a261 that is #f5f0ec on orange — the exact defect Session 43 removed —
 // so it is reported rather than written.
 //
-// What `dark` still selects, and the only thing it can honestly select, is
-// the secret chip's GROUND: on the gate the chip sits on the bare well and
-// earns a fill; in Settings it already sits inside a `WELL_LIGHT` block, and
-// a well inside a well is a second surface for no reason, so there it is a
-// hairline instead.
-export function MfaEnrollPanel({ dark = false, onEnrolled }) {
+// 🚨 R1 correction: the prop is GONE rather than kept-and-unused. The last
+// thing it selected was the secret chip's ground, and it only had that job
+// because the Settings mount wrapped this panel in a `WELL_LIGHT` block —
+// which is the fill that dragged the error ink down to 3.95:1 (see the error
+// line below and the section that mounts it). With that block drawn as a
+// hairline instead of a fill, both mounts are the bare #f4a261 and the chip
+// has one treatment. A prop that selects nothing is a prop the next session
+// has to re-derive; this file has already paid for one of those.
+export function MfaEnrollPanel({ onEnrolled }) {
   const [phase, setPhase] = useState('loading') // loading | show | verifying | error
   const [factor, setFactor] = useState(null)    // { id, qr, secret }
   const [code, setCode] = useState('')
@@ -186,7 +187,6 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         <Button
           variant="secondary"
           surface="light"
-          size="sm"
           onClick={() => { startedRef.current = true; begin() }}
         >
           Try again
@@ -202,10 +202,35 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
       style={{ gap: AUTH_GAP_BETWEEN_FIELDS }}
     >
       {factor?.qr && (
-        // The quiet zone is the page ground plus a hairline, not a white card
-        // (C9: no white or near-white ground anywhere). #1c1917 modules on
-        // #f4a261 measure 8.48:1, well past any scanner's threshold, and a QR
-        // whose own SVG paints a light rect is unaffected either way.
+        // 🚨 THE ONE WHITE IN THE AUTH FAMILY, AND IT IS DELIBERATE.
+        //
+        // D2 painted this quiet zone the page orange on the reasoning that C9
+        // forbids a white ground and that 8.48:1 is "well past any scanner's
+        // threshold". Both halves were wrong for this element:
+        //
+        //   • C9 governs UI SURFACES — a ground, a panel, a card, a well, a
+        //     header row, a dialog, a menu. A machine-readable code is none of
+        //     those. Its quiet zone is part of the glyph, not part of the page.
+        //   • A WCAG ratio is not a scanner's threshold. Decoders binarise the
+        //     camera frame and expect the quiet zone to be the LIGHT module
+        //     colour; ISO/IEC 18004 specifies four modules of it. 8.48:1 says
+        //     the modules are readable by a human eye, which is not the claim
+        //     that matters here.
+        //
+        // And the assumption the old comment leant on — "a QR whose own SVG
+        // paints a light rect is unaffected either way" — was never checked
+        // against what GoTrue actually returns (`qrSrc` below passes the
+        // payload straight through without inspecting it). On the ONE screen
+        // where a failure means a person cannot enrol a second factor, an
+        // unverified assumption is not a thing to ship. So the white is back:
+        // if the SVG paints its own light rect this costs nothing, and if it
+        // is transparent this is the thing making the code scannable.
+        //
+        // ON_FILL is the token — `--color-on-fill`, #ffffff — so this is still
+        // a name from the system rather than a hex typed into a component. No
+        // hairline around it: a 1px frame sitting on the outside of an already
+        // sub-spec 6px quiet zone buys nothing, and the white plate is its own
+        // boundary against the orange.
         <img
           src={qrSrc(factor.qr)}
           alt="Authenticator enrollment QR code"
@@ -213,8 +238,7 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
             width: 168,
             height: 168,
             padding: 6,
-            backgroundColor: GROUND_LIGHT,
-            border: `1px solid ${RULE_LIGHT}`,
+            backgroundColor: ON_FILL,
             borderRadius: RADIUS_CONTROL,
           }}
         />
@@ -231,6 +255,14 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         // the whole auth surface that keep the mono. Its letter-spacing went
         // with the rest (Q2: tracking survives only in the Label role) — the
         // mono advance already separates the glyphs.
+        //
+        // R1: one treatment, and the edge is the FULL ink, not `rule-light`.
+        // This is a control (it copies), so its boundary is 1.4.11's business,
+        // and `rule-light` measured 1.51:1 on the ground and 1.47:1 inside the
+        // Settings well — an edge nobody can see is not an edge. INK_LIGHT is
+        // 8.48:1 and is the same 1px the rest of this screen is drawn in
+        // (every field is a bottom rule in it; AUTH_BUTTON_QUIET_STYLE argues
+        // the identical point and authContrast.test.js pins it).
         <button
           type="button"
           onClick={copySecret}
@@ -240,16 +272,16 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
             fontSize: `${TYPE.dense}px`,
             padding: '6px 8px',
             borderRadius: RADIUS_CONTROL,
-            border: dark ? '1px solid transparent' : `1px solid ${RULE_LIGHT}`,
-            backgroundColor: dark ? WELL_LIGHT : 'transparent',
+            border: `1px solid ${INK_LIGHT}`,
+            backgroundColor: 'transparent',
             cursor: 'pointer',
           }}
           title="Copy secret"
         >
           <span style={{ wordBreak: 'break-all' }}>{factor.secret}</span>
           {copied
-            ? <Check size={ICON.sm} className="flex-shrink-0" />
-            : <Copy size={ICON.sm} className="flex-shrink-0" />}
+            ? <Check size={ICON.sm} className="flex-shrink-0" aria-hidden="true" />
+            : <Copy size={ICON.sm} className="flex-shrink-0" aria-hidden="true" />}
         </button>
       )}
       {/* One field treatment across every auth surface (AUTH_INPUT_STYLE), at
@@ -277,9 +309,26 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
         }}
       />
       {/* AUTH-15: one error ink for the family. The two reds this file used to
-          carry measured 1.5:1 and 2.2:1 on the well — an error you cannot read
-          is worse than none. AUTH_ERROR_INK is 4.86:1 there, and it is the
-          same ground on both of this panel's surfaces. */}
+          carry measured 1.5:1 and 2.2:1 — an error you cannot read is worse
+          than none.
+
+          🚨 R1 correction, and it is the reason the Settings mount below stopped
+          being a filled well. The old comment here claimed AUTH_ERROR_INK was
+          4.86:1 and that it was "the same ground on both of this panel's
+          surfaces". The first number was right only for the GATE; the second
+          was simply false. Measured with src/ui/contrast.js:
+
+            #7f1d1d on #f4a261 (the gate, bare ground)          4.86:1  ✓
+            #7f1d1d on over(WELL_LIGHT, #f4a261) = #de9155      3.95:1  ✗
+
+          A 13px/600 line needs 4.5, so the Settings mount was shipping an
+          unreadable error on the one path an admin has to enrol. It is fixed by
+          moving the ground, not the ink: the `WELL_LIGHT` fill that wrapped this
+          panel in Settings is now a hairline, so BOTH mounts are #f4a261 and
+          both errors measure 4.86:1. The sentence about one ground on both
+          surfaces is now true rather than aspirational. If a well is ever put
+          back around this panel, this line fails again — measure before you
+          fill. */}
       {error && <div style={AUTH_ERROR_STYLE}>{error}</div>}
       <button
         type="submit"
@@ -297,8 +346,12 @@ export function MfaEnrollPanel({ dark = false, onEnrolled }) {
           // inline style, where an opacity beats any class a restyle writes —
           // and the third value (0.6) was a third spelling of one state that
           // the rest of the family spells 0.55 and 0.5. The replacement is not
-          // an opacity at all: drop the fill, keep the one ink, leave the
-          // hairline, and let the cursor carry the rest.
+          // an opacity, and after R1 it is not a fill change or an edge either:
+          // AUTH_BUTTON_BUSY_STYLE is `{ cursor: 'not-allowed' }` and nothing
+          // else. Busy is carried by the label swap below ("Activating…",
+          // "MFA active ✓"), by the native `disabled` attribute — which is what
+          // a screen reader announces — and by the fill staying exactly where
+          // it was, so nothing moves and nothing loses contrast mid-verify.
           ...(locked ? AUTH_BUTTON_BUSY_STYLE : null),
         }}
       >
@@ -379,7 +432,7 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
               you&apos;ll be asked for a code at every sign-in.
             </p>
           </div>
-          <MfaEnrollPanel dark onEnrolled={startReveal} />
+          <MfaEnrollPanel onEnrolled={startReveal} />
           {/* AUTH-17: the gate showed three peers — a filled button and two
               identical underlined links side by side — so the screen had no
               primary. Neither escape hatch is removed (this is a visual pass);
@@ -422,31 +475,17 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
 // the review, AUTH-14; it is paraphrased here so a grep audit counts the
 // remaining copies rather than this comment.)
 //
-// 🚨 KIT REQUEST: `src/ui/SectionTitle` (title, description, surface). It is
-// Foundation 2's, not this session's, so the role is built here from shared
-// tokens in the shape the component should take — H2 16/600 sentence case, an
-// optional Dense description, a hairline above, 24px block spacing — and the
-// two locals below are deleted into it the day it lands. This file and
-// WorkspaceSwitcher are its first two callers.
-const SECTION_BLOCK_STYLE = {
-  borderTop: `1px solid ${RULE_LIGHT}`,
-  paddingTop: `${GUTTER}px`,
-  marginBottom: `${GUTTER}px`,
-}
-const SECTION_TITLE_STYLE = {
-  color: INK_LIGHT,
-  fontSize: `${TYPE.h2}px`,
-  lineHeight: 1.3,
-  fontWeight: 600,
-  margin: 0,
-}
-const SECTION_DESC_STYLE = {
-  color: INK_LIGHT,
-  fontSize: `${TYPE.dense}px`,
-  lineHeight: 1.45,
-  fontWeight: 400,
-  margin: `${AUTH_GAP_WITHIN_FIELD} 0 0`,
-}
+// 🚨 R1: the first attempt at this hand-rolled the role HERE as three local
+// style objects while WorkspaceSwitcher hand-rolled it as Tailwind utilities —
+// so two byte-identical copies became two copies that no longer even agreed
+// (different spacing below the block, a measure cap on one and not the other),
+// which is a worse outcome than leaving both alone. The role now lives once, as
+// `AuthSectionTitle` in AuthShell, and both auth callers import it.
+//
+// 🚨 STILL A KIT REQUEST: `src/ui/SectionTitle` (title, description, surface)
+// is Foundation 2's. AuthSectionTitle is the stand-in that keeps the two
+// surfaces from drifting again in the meantime, and it is deleted into the kit
+// component the day that lands — one deletion, not two.
 
 export function MfaSecuritySection() {
   const perms = usePermissions()
@@ -490,21 +529,29 @@ export function MfaSecuritySection() {
 
   return (
     <div>
-      <div style={SECTION_BLOCK_STYLE}>
-        <h2 style={SECTION_TITLE_STYLE}>Two-factor authentication</h2>
-        <p style={SECTION_DESC_STYLE}>
-          A 6-digit authenticator code on top of your password.
-          {isAdminTier ? ' Required for admins.' : ' Recommended for everyone.'}
-        </p>
-      </div>
+      <AuthSectionTitle
+        title="Two-factor authentication"
+        description={`A 6-digit authenticator code on top of your password.${
+          isAdminTier ? ' Required for admins.' : ' Recommended for everyone.'
+        }`}
+      />
 
       {state.loading ? (
         <div style={{ ...AUTH_HINT_STYLE, color: INK_LIGHT }}>Checking status…</div>
       ) : enrolling ? (
+        // 🚨 R1: this block used to be a `WELL_LIGHT` FILL, and the fill was the
+        // defect. `over(WELL_LIGHT, #f4a261)` flattens to #de9155, on which the
+        // family's error ink measures 3.95:1 — below AA, on the errors an admin
+        // reads while enrolling. Everything else about the block was fine, so
+        // the grouping is kept and only the ground moves: a 1px INK_LIGHT
+        // hairline (8.48:1, the same rule the rest of this screen is drawn in)
+        // instead of a fill. The panel inside is now on the bare page ground,
+        // exactly as it is on the gate, which is what makes the error legible
+        // and what let the panel's `dark` prop go.
         <div style={{
           padding: '16px',
           borderRadius: RADIUS_CONTROL,
-          backgroundColor: WELL_LIGHT,
+          border: `1px solid ${INK_LIGHT}`,
         }}>
           <MfaEnrollPanel onEnrolled={() => { setEnrolling(false); refresh() }} />
         </div>
@@ -520,21 +567,52 @@ export function MfaSecuritySection() {
                 className="flex items-center gap-1.5"
                 style={{ ...AUTH_TEXT_STYLE, color: INK_LIGHT, fontSize: `${TYPE.dense}px` }}
               >
-                <ShieldCheck size={ICON.md} /> Enabled
+                <ShieldCheck size={ICON.md} aria-hidden="true" /> Enabled
               </span>
               {isAdminTier ? (
                 <span style={{ ...AUTH_HINT_STYLE, color: INK_LIGHT }}>
                   Admins must keep MFA on.
                 </span>
               ) : confirmDisable ? (
+                // 🚨 R1 BLOCKER FIX — the destructive action and its cancel were
+                // TWO IDENTICAL BUTTONS. `danger` and `secondary` sit in one
+                // selector list on a light surface (src/index.css: `.ui-btn
+                // [data-surface="light"][data-variant="secondary"|"ghost"|
+                // "danger"]` → `color: ink-light; border-color: rule-light`,
+                // and one shared `hover-light` fill), and that pair is (0,3,0)
+                // so it beats the base `[data-variant="danger"]` at (0,2,0).
+                // Both resolved to the same ink, the same 1px edge, the same
+                // hover, the same box. Nothing but the words separated turning
+                // off a second factor from cancelling it.
+                //
+                // The only pair the kit DOES separate on this surface is
+                // danger/secondary vs ghost: a later same-specificity rule
+                // gives `[data-surface="light"][data-variant="ghost"]`
+                // `border-color: transparent`. So the two roles are carried by
+                // enclosure — the destructive one is a bordered control, the
+                // cancel is a bare label — at rest AND on hover, where both take
+                // the same 8% wash but only `Disable` keeps its edge.
+                //
+                // `Disable` stays `variant="danger"` rather than becoming a
+                // secondary that happens to look right: the day the kit gains a
+                // light danger treatment, this call site starts rendering it
+                // with no edit.
+                //
+                // 🚨 KIT REQUEST "light danger": the light surface has NO
+                // destructive treatment at all — `--color-danger` (#fca5a5) is a
+                // dark-surface token and is unreadable on #f4a261, and the plan
+                // draws no status colour on light. A confirm pair that differs
+                // only by a 1.51:1 edge is the best that can be done from
+                // outside the kit, and it is not enough for this action. This
+                // needs Foundation, not another caller-side workaround.
                 <span className="flex items-center" style={{ gap: AUTH_GAP_WITHIN_FIELD }}>
                   <span style={{ ...AUTH_TEXT_STYLE, color: INK_LIGHT, fontSize: `${TYPE.dense}px`, fontWeight: 600 }}>
                     Disable MFA?
                   </span>
-                  <Button variant="danger" surface="light" size="sm" onClick={disable}>
+                  <Button variant="danger" surface="light" onClick={disable}>
                     Disable
                   </Button>
-                  <Button variant="secondary" surface="light" size="sm" onClick={() => setConfirmDisable(false)}>
+                  <Button variant="ghost" surface="light" onClick={() => setConfirmDisable(false)}>
                     Keep it
                   </Button>
                 </span>
@@ -542,10 +620,9 @@ export function MfaSecuritySection() {
                 <Button
                   variant="danger"
                   surface="light"
-                  size="sm"
                   onClick={() => setConfirmDisable(true)}
                 >
-                  <ShieldOff /> Disable
+                  <ShieldOff aria-hidden="true" /> Disable
                 </Button>
               )}
             </>
@@ -554,10 +631,17 @@ export function MfaSecuritySection() {
               <span style={{ ...AUTH_TEXT_STYLE, color: INK_LIGHT, fontSize: `${TYPE.dense}px` }}>
                 Not enrolled
               </span>
+              {/* R1 / C8: every kit Button in this file is the default `md`.
+                  They were `sm` (28px / 13px) while the enrol panel's submit is
+                  AUTH_BUTTON_STYLE (36px / 14px) — two filled primaries at two
+                  sizes on one Settings panel, and clicking this one swapped a
+                  28px primary for a 36px primary in the same block. One control
+                  height per file until the AUTH_BUTTON_* kit is deleted into
+                  `Button surface="light"` (which waits on the light-surface edge
+                  and the light danger treatment, both filed). */}
               <Button
                 variant="primary"
                 surface="light"
-                size="sm"
                 onClick={() => setEnrolling(true)}
               >
                 Set up

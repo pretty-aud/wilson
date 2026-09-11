@@ -17,17 +17,28 @@
 // The Dialog brings Escape-to-close, the modal stack and the busy lock
 // (Q17, "yes, but keep it minimal"), which is why `onClose` is `onDismiss`:
 // Escape and the header close both mean "not now", the same thing the quiet
-// button has always meant. `dismissOnBackdrop` is deliberately NOT passed —
-// a stray click must not dismiss a release notice.
+// button has always meant. Concretely: `onDismiss` does NOT call
+// `skipVersion`, so the prompt returns at the next sign-in — exactly what
+// "Continue in background" and "Close" already did, and deliberately NOT what
+// "Skip this version" does (that one remembers the version and stays quiet
+// until the next release). Two exits, two meanings, both already shipped.
+// `dismissOnBackdrop` is deliberately NOT passed — a stray click must not
+// dismiss a release notice.
+//
+// A failed download reports through Dialog's `error` slot, not through a
+// `Banner` in the body: Banner is a full-bleed in-flow strip (page-gutter
+// padding plus a bottom rule) and nesting one inside `.ui-dialog-body` pads
+// it twice and floats a hairline across the middle of the card. `error` is
+// the slot the kit built for this, and it keeps the full string in a `title`.
 //
 // The body line is a SENTENCE, so it carries no mono (AUTH-13). The only
 // mono left is the percentage readout, which is a numeric.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Download, RotateCw } from 'lucide-react'
+import { Download, RotateCw } from 'lucide-react'
 import {
-  Banner, Button, Dialog,
+  Button, Dialog,
   DURATION, EASE_RESPONSE, FONT_MONO, INK_2, RADIUS_CONTROL, RULE, SIGNAL_FILL, TYPE,
 } from '../ui'
 import {
@@ -104,14 +115,28 @@ export default function UpdatePrompt({ version, onDismiss }) {
   )
 
   return (
-    <Dialog title="Update available" width="confirm" onClose={onDismiss} footer={footer}>
+    <Dialog
+      title="Update available"
+      width="confirm"
+      onClose={onDismiss}
+      footer={footer}
+      error={phase === 'error' ? `${error} — you can retry from Settings later.` : null}
+    >
       <div>
         WILSON {version} is ready to install (you're on {wilsonVersion}).
       </div>
 
       {phase === 'downloading' && (
         <div style={{ marginTop: 16 }}>
+          {/* The bar already knows the value; this reports it. No pixel and no
+              behaviour changes — `percent` is the same number the readout
+              below prints. */}
           <div
+            role="progressbar"
+            aria-label="Download progress"
+            aria-valuenow={percent}
+            aria-valuemin={0}
+            aria-valuemax={100}
             style={{
               height: 8, borderRadius: RADIUS_CONTROL, overflow: 'hidden',
               backgroundColor: RULE,
@@ -129,14 +154,6 @@ export default function UpdatePrompt({ version, onDismiss }) {
           <div style={{ marginTop: 6, fontFamily: FONT_MONO, fontSize: TYPE.caption, color: INK_2 }}>
             {percent}%
           </div>
-        </div>
-      )}
-
-      {phase === 'error' && (
-        <div style={{ marginTop: 16 }}>
-          <Banner tone="danger" Icon={AlertTriangle}>
-            {error} — you can retry from Settings later.
-          </Banner>
         </div>
       )}
     </Dialog>

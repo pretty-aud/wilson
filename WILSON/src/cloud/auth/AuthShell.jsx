@@ -134,7 +134,11 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 //   H=900  → bar 210px, well 480px   6px thinner than a flat 24vh
 //   H=700  → bar 110px, well 480px   the minimum window; 16.33px of headroom
 //   H=500  → bar  10px, well 480px   still the full content height
-//   H=420  → bar   0px, well 420px   clamped; the bars vanish, nothing clips
+//   H=420  → bar   0px, well 420px   clamped: the bars vanish rather than
+//                                    the declaration being dropped. 420px
+//                                    cannot hold a 463.67px screen and
+//                                    nothing can; this is the shell giving
+//                                    the content every pixel it has.
 //
 // At 900 the bar is 6px thinner than a flat 24vh, which is imperceptible; at
 // 700 it is the difference between a screen that fits and one that clips.
@@ -444,7 +448,8 @@ export const AUTH_INK = INK_LIGHT
 // ⚠️ The one hex left in this file. The plan says a colour lives in
 // index.css's @theme and nowhere else, and there is no light-surface danger
 // token yet — the token set draws NO status colour on #f4a261 at all,
-// because success / danger / warning measure 2.43 / 3.14 / 1.41 there. An
+// because the plan measured the light-surface success / danger / warning
+// values at 2.43 / 3.14 / 1.41 on this ground and drew none of them. An
 // error message is the one thing that has to be readable anyway, so this
 // value survives locally until Foundation adds it. Kit request K6.
 export const AUTH_ERROR_INK = '#7f1d1d'
@@ -692,7 +697,11 @@ export const AUTH_HINT_STYLE = {
 // start of each one.
 export const AUTH_PROSE_STYLE = {
   ...AUTH_TEXT_STYLE,
-  maxWidth: '60ch',
+  // Clamped against the viewport as well as the measure: the auth content
+  // block is `position: fixed` and centred, so a bare 60ch (about 456px at
+  // the Body step in Geist) would run past the edges of a narrow window
+  // with nothing to stop it.
+  maxWidth: 'min(60ch, 90vw)',
   textAlign: 'left',
 }
 
@@ -714,23 +723,75 @@ export const AUTH_ERROR_STYLE = {
 // class a later restyle writes — that is the Bins dead-hover bug (plan §1).
 //
 // 🚨 The replacement is NOT an opacity. §3.1: "Disabled is one token: ink at 52
-// percent plus `cursor: not-allowed`, never `opacity-30/40/50`" — and on a
-// light surface a 52 percent screen of the ink is a grey on orange (2.9:1),
-// which is the one thing Audrey's rule forbids. So the light-surface answer is
-// the kit's: keep the one ink, drop the fill, leave the hairline, and let the
-// state read from the cursor and the missing fill. `.ui-btn[data-surface=
-// "light"]:disabled` in index.css does exactly this for the kit's buttons; this
-// is the same treatment for the auth family's own.
-export const AUTH_BUTTON_BUSY_STYLE = {
-  background: 'transparent',
-  color: AUTH_INK,
-  border: `1px solid ${RULE_LIGHT}`,
-  cursor: 'not-allowed',
-}
-export const AUTH_LINK_BUSY_STYLE = {
-  color: AUTH_INK,
-  textDecoration: 'none',
-  cursor: 'not-allowed',
+// percent plus `cursor: not-allowed`, never `opacity-30/40/50`", and on this
+// surface a 52 percent screen of the ink is a grey on orange (2.9:1), which is
+// the one thing Audrey's rule forbids.
+//
+// ⚠️ It is not the kit's light-disabled treatment either, and that took a
+// review round to see. `.ui-btn[data-surface="light"]:disabled` drops the fill
+// and leaves a `rule-light` hairline, which works for an OUTLINED button. Done
+// to the FILLED primary it is three defects at once: the button's only edge
+// becomes `rule-light`, which measures **1.51:1** on the well — the very value
+// this file's own test asserts is too weak to be a component boundary; adding a
+// 1px border to a button whose border is `none` makes it 2px wider the instant
+// it is pressed, so the layout twitches under the cursor; and it happens at the
+// exact moment the user is looking at it, mid sign-in.
+//
+// So busy changes ONE property: the cursor. The state is carried by the label
+// swap the review asked to keep ("Signing in…", "Sending…", "Saving…"), by the
+// native `disabled` attribute — which is what a screen reader reads and what
+// the global `:disabled` rule styles — and by the fill staying exactly where it
+// was. Nothing moves, nothing loses contrast, and there is no second value of
+// "busy" for a future session to find.
+export const AUTH_BUTTON_BUSY_STYLE = { cursor: 'not-allowed' }
+export const AUTH_LINK_BUSY_STYLE = { cursor: 'not-allowed' }
+
+// A section heading, for the two auth surfaces that open with one (AUTH-14).
+//
+// `MfaSecuritySection` and `WorkspaceSwitcher` opened with the SAME hand-typed
+// header class string — one of 43 copies of it in `src`. Replacing two
+// identical copies with two different hand-rolled versions would have been a
+// worse outcome than leaving them alone, and the first attempt at this session
+// did exactly that, so the role lives here instead: one implementation, two
+// callers, both auth.
+//
+// 🚨 This is a STAND-IN, not the answer. The app-wide role is `src/ui/
+// SectionTitle` and it belongs to Foundation 2 (kit request K2 in the
+// hand-off). When it lands, both callers move to it and this export is
+// deleted — it exists only so the two surfaces cannot drift again in the
+// meantime.
+//
+// The hairline above rather than a filled bar or a bordered box is §4's
+// contract for the role; the description is the Dense step.
+export function AuthSectionTitle({ title, description, id }) {
+  return (
+    <div style={{
+      borderTop: `1px solid ${RULE_LIGHT}`,
+      paddingTop: AUTH_GAP_BETWEEN_BLOCKS,
+      marginBottom: AUTH_GAP_BETWEEN_FIELDS,
+    }}>
+      <h2 id={id} style={{
+        ...AUTH_TEXT_STYLE,
+        fontSize: `${TYPE.h2}px`,
+        lineHeight: 1.3,
+        fontWeight: 600,
+        margin: 0,
+      }}>
+        {title}
+      </h2>
+      {description && (
+        <p style={{
+          ...AUTH_TEXT_STYLE,
+          fontSize: `${TYPE.dense}px`,
+          lineHeight: 1.45,
+          maxWidth: 'min(60ch, 90vw)',
+          margin: '4px 0 0',
+        }}>
+          {description}
+        </p>
+      )}
+    </div>
+  )
 }
 
 // A label + its control, spaced by the within-field gap. Every auth field on
@@ -802,11 +863,21 @@ export function AuthField({ label, children }) {
 // dev sign-in bypass off, so the form is actually on screen), at both window
 // sizes:
 //
-//   MEASUREMENT_PLACEHOLDER
+//   the text field's width minus the password field's       0.00px
+//   the input's left/width/top/height minus the mask's       0.00px each
+//   N bullets minus N asterisks, measured in the layers'
+//     own resolved font with a canvas (N = 25)               0.00px
+//   both rows                                               27.80px tall
+//   both layers resolve                          Geist Mono, 14px, and agree
+//                                                on all eight metrics
 //
-// If either number is not 0.00, the mask and the caret have separated and the
-// failure mode is a person who cannot tell how much of their password they
-// typed — on the gate every admin passes at every sign-in.
+// (The pre-session comment records those two row heights as 36.17px against
+// 31.06px, which is the defect the explicit line-height fixed; they are equal
+// now and stay equal because both layers read the same two keys.)
+//
+// If any of those numbers is not 0.00 the mask and the caret have separated,
+// and the failure mode is a person who cannot tell how much of their password
+// they typed — on the gate every admin passes at every sign-in.
 export const AuthPasswordInput = forwardRef(function AuthPasswordInput(
   { value, onChange, disabled, style, ...rest },
   ref,

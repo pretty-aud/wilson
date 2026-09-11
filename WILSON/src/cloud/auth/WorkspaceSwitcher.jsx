@@ -18,13 +18,21 @@
 // MfaSection — which is both a Settings panel AND a full-screen enrol gate —
 // there is no dark branch here. Every value below is the light family.
 //
-// AUTH-14  The `h2 text-sm font-bold uppercase tracking-widest` + `p text-xs`
-//          pair that opened this file was byte-identical to MfaSection's and
-//          one of 43 copies in src. There is no `src/ui/SectionTitle` yet
-//          (Foundation 2), so the role is rendered inline from shared tokens:
-//          a 1px `rule-light` hairline above, 24px of padding under it, an
-//          H2 at 16/600 sentence case with zero tracking, and a 13px Dense
-//          description capped at 60ch. Filed as KIT REQUEST "SectionTitle".
+// AUTH-14  The section header that opened this file — a 14px bold uppercase
+//          widely-tracked h2 over a 12px paragraph — was byte-identical to
+//          MfaSection's and one of 43 copies in src. (The class string itself
+//          is quoted in the review, not here, so a grep audit counts the
+//          remaining copies rather than this comment.)
+//
+//          It is now `AuthSectionTitle` from AuthShell: ONE implementation for
+//          both auth surfaces that have the role, so the two cannot drift into
+//          two hand-rolled versions — which is the outcome the first pass at
+//          this actually produced. It draws a 1px `rule-light` hairline above,
+//          24px of padding under it, an H2 at 16/600 sentence case with zero
+//          tracking, and a 13px Dense description on a 60ch measure. That
+//          export is a STAND-IN for `src/ui/SectionTitle` (Foundation 2, kit
+//          request K2); when the kit has it, both callers move and the
+//          stand-in is deleted.
 //
 // AUTH-25  Five `font-mono` uses; four were a name, a status word, a status
 //          word and an error. ONE survives: the workspace SLUG, which is an
@@ -45,7 +53,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from './supabaseClient'
 import { saveSession } from './sessionStorage'
-import { AUTH_ERROR_STYLE } from './AuthShell'
+import { AUTH_ERROR_STYLE, AuthSectionTitle } from './AuthShell'
 
 const SUPABASE_URL  = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY
@@ -157,15 +165,14 @@ export default function WorkspaceSwitcher() {
 
   return (
     <div>
-      {/* AUTH-14 — the SectionTitle role, rendered inline until the kit has it. */}
-      <div className="border-t border-rule-light pt-6">
-        <h2 className="text-h2 text-ink-light">Active workspace</h2>
-        <p className="text-dense text-ink-light mt-2 max-w-[60ch]">
-          You belong to more than one workspace. Switching reloads the app so
-          every view re-reads the new workspace's data.
-        </p>
-      </div>
-      <div className="flex flex-col gap-2 mt-4">
+      {/* AUTH-14 — the section-header role, from AuthShell so this file and
+          MfaSection cannot drift apart again. It carries its own 16px of air
+          below the block, which is why the list no longer adds `mt-4`. */}
+      <AuthSectionTitle
+        title="Active workspace"
+        description="You belong to more than one workspace. Switching reloads the app so every view re-reads the new workspace's data."
+      />
+      <div className="flex flex-col gap-2">
         {workspaces.map(ws => {
           const active = ws.id === activeWsId
           const busy   = switchingId === ws.id

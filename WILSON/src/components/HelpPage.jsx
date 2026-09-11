@@ -36,6 +36,12 @@ const WILSON_ITEMS = [
 // scale and from weight, never from a second colour — which is why the old
 // `listMuted` (stone-600, 3.70:1) is gone rather than retinted: it was a grey
 // by another name.
+//
+// Every key below has at least one call site in this file. `mono`, `notesBox`
+// and `notesTitle` were carried here with no caller and have been deleted: a
+// worked example that ships three roles nothing renders teaches three roles
+// nothing renders, and `notesBox`/`notesTitle` were byte-identical to
+// `card`/`cardTitle` anyway. A notes callout takes `card`.
 const L = {
   // H2 — 16 / 600 / sentence case / zero tracking
   sectionTitle: 'text-h2 text-ink-light mb-3',
@@ -51,10 +57,6 @@ const L = {
   listBold: 'font-semibold',
   // The lists themselves: real markers in their own column (HELP-05)
   list: 'list-disc pl-5 space-y-1',
-  // Caption — 12 / 400, mono kept because it holds paths and commands
-  mono: 'text-caption text-ink-light font-mono bg-well-light border border-rule-light rounded-control p-2',
-  notesBox: 'bg-well-light border border-rule-light rounded-control p-3',
-  notesTitle: 'text-h3 text-ink-light mb-2',
 }
 
 export default function HelpPage() {
@@ -102,17 +104,24 @@ export default function HelpPage() {
             {TOOL_SECTIONS.map(tool => {
               const isExpanded = expandedTool === tool.id
               const items = getSidebarItems(tool.id)
+              const panelId = `help-pages-${tool.id}`
               return (
                 <div key={tool.id}>
-                  {/* Tool Toggle Header */}
+                  {/* Tool Toggle Header — hover is `hover-light` (1.15:1), the
+                      expanded state is `well-light` (1.23:1). They were the same
+                      token, which made a hovered collapsed header identical to
+                      the open one; a well is a surface, a hover is a state. */}
                   <button
                     onClick={() => toggleTool(tool.id)}
                     data-state={isExpanded ? 'expanded' : 'collapsed'}
-                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 border-b border-rule-light transition-colors duration-state data-[state=collapsed]:hover:bg-well-light data-[state=expanded]:bg-well-light"
+                    aria-expanded={isExpanded}
+                    aria-controls={isExpanded ? panelId : undefined}
+                    className="w-full text-left px-3 py-2.5 flex items-center gap-2 border-b border-rule-light transition-colors duration-state data-[state=collapsed]:hover:bg-hover-light data-[state=expanded]:bg-well-light"
                   >
+                    {/* Decorative: `aria-expanded` above carries this state now */}
                     {isExpanded
-                      ? <ChevronDown size={ICON.sm} className="text-ink-light flex-shrink-0" />
-                      : <ChevronRight size={ICON.sm} className="text-ink-light flex-shrink-0" />
+                      ? <ChevronDown size={ICON.sm} aria-hidden="true" className="text-ink-light flex-shrink-0" />
+                      : <ChevronRight size={ICON.sm} aria-hidden="true" className="text-ink-light flex-shrink-0" />
                     }
                     <span className="flex flex-col min-w-0">
                       <span className="text-dense font-semibold text-ink-light">
@@ -125,16 +134,26 @@ export default function HelpPage() {
                     </span>
                   </button>
 
-                  {/* Expanded Sub-items — selected state is weight plus the signal
-                      edge, hover is the light well. No second ink. */}
+                  {/* Expanded Sub-items — the selected page is carried by three
+                      signals: the `well-light` fill, the 2px `ink-light` edge and
+                      weight 600. The edge was `signal`, which is 1.73:1 on this
+                      orange ground (1.40:1 once hovered) — below WCAG 1.4.11's
+                      3:1 for a non-text indicator, i.e. a marker nobody can see.
+                      `ink-light` is 8.48:1 and is the one ink this surface has;
+                      it still reads as an edge rather than as text because it is
+                      2px and vertical. Same decision as WorkspaceSwitcher's
+                      `border-ink-light` active row on the same ground.
+                      Hover is `hover-light` and is scoped to idle rows, so a
+                      transient state and a persistent one never share a fill. */}
                   {isExpanded && (
-                    <div>
+                    <div id={panelId}>
                       {items.map(item => (
                         <button
                           key={item.id}
                           onClick={() => setActivePage(item.id)}
                           data-state={activePage === item.id ? 'active' : 'idle'}
-                          className="w-full text-left py-1.5 pl-6 pr-2 text-dense text-ink-light border-l-2 border-l-transparent transition-colors duration-state hover:bg-well-light data-[state=idle]:font-normal data-[state=active]:font-semibold data-[state=active]:border-l-signal"
+                          aria-current={activePage === item.id ? 'page' : undefined}
+                          className="w-full text-left py-1.5 pl-6 pr-2 text-dense text-ink-light border-l-2 border-l-transparent transition-colors duration-state data-[state=idle]:font-normal data-[state=idle]:hover:bg-hover-light data-[state=active]:font-semibold data-[state=active]:bg-well-light data-[state=active]:border-l-ink-light"
                         >
                           {item.label}
                         </button>
@@ -156,9 +175,13 @@ export default function HelpPage() {
 
         {/* ===== CONTENT AREA ===== */}
         <div className="flex-1 overflow-y-auto p-6 bg-ground-light">
-          {/* HELP-01: one measure cap for the whole prose column, inside the
-              page padding. Cards and lists inherit it; none sets its own. */}
-          <div style={{ maxWidth: 'var(--measure-prose-max)' }}>
+          {/* D.O.G. and O.T.T.E.R. render at the pane's full width, exactly as
+              they did before this session. They come from `src/data/` and are
+              lane A's; the measure cap below deliberately stops short of them
+              because one of them lays out a two-column grid that 72ch would
+              halve, and nobody has looked at those 880 lines. Lane A should
+              adopt the same cap when it restyles them. */}
+
           {/* D.O.G. Help Content — light theme */}
           {expandedTool === 'dog' && (
             <DogHelpContent helpPage={activePage} theme="light" />
@@ -169,6 +192,10 @@ export default function HelpPage() {
             <OtterHelpContent helpPage={activePage} />
           )}
 
+          {/* HELP-01: one measure cap for the prose this page owns — the
+              Project Manager and Wilson sections. Cards and lists inherit it;
+              none sets its own. */}
+          <div style={{ maxWidth: 'var(--measure-prose-max)' }}>
           {/* Project Manager Help Content */}
           {expandedTool === 'project-manager' && activePage === 'pm-overview' && (
             <div className="space-y-5">

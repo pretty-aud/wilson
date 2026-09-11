@@ -16,8 +16,11 @@
 // shadow, header / body / footer, Escape and the busy lock owned by the kit.
 // A Dialog is always a dark floating surface, wherever it opens (index.css:
 // "a dark island inside a light page"), so the inks here are the dark tokens
-// and the near-white card Audrey banned is deleted with it. Backdrop click
-// no longer dismisses: this is a form, and a stray click must not discard it.
+// and the near-white card Audrey banned is deleted with it. All three panes
+// pass `dismissOnBackdrop` because the hand-rolled overlay dismissed on a
+// backdrop click and C1 does not let a restyle change what a click does;
+// Dialog's `busy` already suppresses `tryClose()`, which is exactly what
+// `onClose={busy ? undefined : onClose}` used to do mid-send.
 // The fields are Field + Input / Select, which gives the stack one left edge
 // and the 11px Label / 4px / 12px Caption proximity ratio (A8).
 //
@@ -69,7 +72,16 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
     return () => clearTimeout(t)
   }, [open])
 
-  // Escape is Dialog's job now (topmost only, and never mid-send).
+  // Escape: Dialog answers it (topmost only, never mid-send) — but only once
+  // the key reaches `document`. Focus opens in the Email field, and the kit
+  // Input owns Escape inside a field: it reverts the value to what it was on
+  // focus, blurs, and stops propagation (src/ui/Input.jsx, a ruled Bins
+  // behaviour — "Escape in a take's note closed the takes dialog and dropped
+  // the note"). So the first press clears that one field and the second
+  // closes the dialog, where the old window-level handler closed on the first
+  // press from anywhere. Left as the kit has it rather than defeated here:
+  // Input's contract and Dialog's collide in every Dialog that holds an
+  // Input, so the reconciliation is Foundation's, not this caller's.
 
   const handleSubmit = useCallback(async (e) => {
     e?.preventDefault()
@@ -153,9 +165,10 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
   if (perms.ready && perms.role !== 'admin') {
     return (
       <Dialog
-        title="Invite member"
+        title="Invite a workspace member"
         width="form"
         onClose={onClose}
+        dismissOnBackdrop
         footer={<Button variant="primary" onClick={onClose}>Close</Button>}
       >
         <p style={{ margin: 0 }}>Only workspace admins can invite members.</p>
@@ -169,6 +182,7 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
         title="Invite sent"
         width="form"
         onClose={onClose}
+        dismissOnBackdrop
         footer={<Button variant="primary" onClick={onClose}>Done</Button>}
       >
         <p style={{ margin: 0 }}>
@@ -182,9 +196,10 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
 
   return (
     <Dialog
-      title="Invite member"
+      title="Invite a workspace member"
       width="form"
       onClose={onClose}
+      dismissOnBackdrop
       busy={busy}
       error={error || null}
       footer={

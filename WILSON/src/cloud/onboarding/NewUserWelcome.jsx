@@ -32,10 +32,9 @@
 // real one.
 //
 // ── UI overhaul D2 ──────────────────────────────────────────────────────────
-// This is the tallest surface in the auth family and the only one AuthShell's
-// own geometry note calls out as overflowing the 700px minimum window
-// (AUTH-16, "unfixed, unmeasured since"). Everything here that could be made
-// shorter without leaving the scale, was:
+// This is the tallest surface in the auth family, and the one AuthShell sizes
+// its well against (AUTH-16). Everything here that could be made shorter
+// without leaving the scale, was:
 //
 //   AUTH-22  the local `24ch` field-width override is gone. One measure for
 //            the family, `AUTH_FIELD_WIDTH`, straight off `AUTH_INPUT_STYLE`.
@@ -57,15 +56,27 @@
 //            and every `aria-label` is untouched: the Playwright suite selects
 //            on those and they deliberately differ from the visible label.
 //
-// ⚠️ HEIGHT. Four field groups + a 48px avatar row + a submit. From the token
-// values this column computes to ~393px with no error line and ~436px with
-// one, against a well of H·(1−2·24vh) = 364px at 700px and 468px at 900px. So
-// it still does not fit at the minimum window, and AUTH-16 is explicit that
-// the fix is a FRESH MEASUREMENT in the running app, not arithmetic — the last
-// person to count rows put a 348px block into a 346px well. The lever named
-// there, if the measurement confirms it, is a two-column row for PRONOUNS and
-// TITLE (both optional, both short, worth ~66px together); that is a decision
-// for whoever holds the measurement, so it is NOT done here.
+// ⚠️ HEIGHT. Four field groups + a 48px avatar row + a submit make this the
+// tallest screen the shell has to hold, so it is the one AUTH-16 fits the well
+// to — and it FITS now, at every window height down to the 700px Electron
+// minimum.
+//
+// Do not re-derive that here. The measurement, the `SPLIT_BAR_HEIGHT`
+// expression it produced, and the per-height table it was re-measured against
+// live in ONE place: the geometry block above `SPLIT_BAR_HEIGHT` in
+// `src/cloud/auth/AuthShell.jsx`. One place owns the number; a second copy is
+// how the next session trusts a figure that no longer holds (this comment used
+// to be that copy — it asserted an overflow against a flat-24vh well the shell
+// had already stopped using).
+//
+// What that means for edits HERE: adding a row to this column spends the
+// headroom AuthShell's well was sized with, so anything that makes this screen
+// taller has to be re-measured there, by the method that block records — a
+// real layout of real nodes, never arithmetic over guessed row heights (the
+// last person to count rows put a 348px block into a 346px well). The lever
+// AUTH-16 named, if it is ever needed, is a two-column row for PRONOUNS and
+// TITLE (both optional, both short); it is not needed today and is NOT done
+// here.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'

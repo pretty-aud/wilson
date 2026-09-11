@@ -273,17 +273,40 @@ describe('busy and disabled are a named treatment, never an opacity', () => {
     expect(AUTH_LINK_BUSY_STYLE.cursor).toBe('not-allowed')
   })
 
-  it('the disabled button keeps the one ink rather than screening it', () => {
-    // On #f4a261 a 52 percent screen of the ink measures 2.9:1 — a grey on
-    // orange, which is the defect Audrey's rule exists to stop. So the light
-    // answer is: keep the ink, drop the fill, leave the hairline.
-    expect(AUTH_BUTTON_BUSY_STYLE.color).toBe(AUTH_INK)
-    expect(ratio(AUTH_BUTTON_BUSY_STYLE.color, WELL)).toBeGreaterThanOrEqual(4.5)
-    expect(AUTH_BUTTON_BUSY_STYLE.background).toBe('transparent')
+  it('busy changes the cursor and nothing else — no fill, no edge, no ink', () => {
+    // Review round 1 found the first attempt at this: it borrowed the kit's
+    // light-disabled treatment (drop the fill, leave a rule-light hairline),
+    // which is right for an OUTLINED button and wrong three times over for the
+    // FILLED primary — the button's only edge becomes 1.51:1, and a 1px border
+    // on a `border: none` button makes it 2px wider the moment it is pressed.
+    //
+    // Busy is carried by the label swap, the native `disabled` attribute and
+    // the cursor. So these objects must stay minimal, and this asserts it:
+    // anything that repaints the button belongs to a state the kit owns.
+    for (const [name, style] of [['button', AUTH_BUTTON_BUSY_STYLE], ['link', AUTH_LINK_BUSY_STYLE]]) {
+      expect(Object.keys(style), name).toEqual(['cursor'])
+      expect(style.cursor, name).toBe('not-allowed')
+    }
   })
 
-  it('the control: a 52 percent screen of the ink would fail on the well', () => {
+  it('the primary keeps its fill and its width while busy', () => {
+    // The fill and the edge come from AUTH_BUTTON_STYLE and the busy variant
+    // must not override either, or the control moves under the cursor at the
+    // one moment the user is watching it.
+    const busy = { ...AUTH_BUTTON_STYLE, ...AUTH_BUTTON_BUSY_STYLE }
+    expect(busy.background).toBe(AUTH_BUTTON_STYLE.background)
+    expect(busy.color).toBe(AUTH_BUTTON_STYLE.color)
+    expect(busy.border).toBe(AUTH_BUTTON_STYLE.border)
+    expect(busy.padding).toBe(AUTH_BUTTON_STYLE.padding)
+    expect(busy.height).toBe(AUTH_BUTTON_STYLE.height)
+  })
+
+  it('the controls: both treatments this rejected really do fail here', () => {
+    // (a) the 52 percent screen of the ink the plan's disabled token would use
     expect(ratio(over('rgba(28, 25, 23, 0.52)', WELL), WELL)).toBeLessThan(4.5)
+    // (b) rule-light as a component boundary, which is what the kit's light
+    //     disabled treatment would have left the primary standing on
+    expect(ratio(over(RULE_LIGHT, WELL), WELL)).toBeLessThan(3)
   })
 })
 

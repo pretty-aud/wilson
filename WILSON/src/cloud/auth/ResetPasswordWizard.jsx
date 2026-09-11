@@ -203,6 +203,19 @@ export default function ResetPasswordWizard({ onDone }) {
     ...(isBusy ? AUTH_BUTTON_BUSY_STYLE : null),
   })
 
+  // AUTH-21. The press is the auth family's affordance and this surface had
+  // none of it — the same control that presses on the sign-in screen sat dead
+  // under the finger here, which is worse than nobody having it. A two percent
+  // :active scale in CSS: no handler, nothing written to the DOM node, nothing
+  // to leave stuck at 0.98 when a mouse-up lands somewhere else.
+  //
+  // One literal per file rather than one per button, because its permanent
+  // home is `.ui-btn:active` in the kit (hand-off kit request K1) and the day
+  // that lands these are grepped and deleted. LoginScreen and MfaSection carry
+  // the same line; the single exported token they should all share belongs in
+  // AuthShell and is not this file's to add.
+  const PRESS_CLASS = 'active:scale-[0.98]'
+
   return (
     <AuthShell
       isRevealing={revealing}
@@ -243,6 +256,7 @@ export default function ResetPasswordWizard({ onDone }) {
               type="button"
               onClick={handleConfirm}
               disabled={busy}
+              className={PRESS_CLASS}
               style={primaryButton(busy)}
             >
               {busy ? 'Confirming…' : 'Continue'}
@@ -265,6 +279,7 @@ export default function ResetPasswordWizard({ onDone }) {
             <button
               type="button"
               onClick={handleDone}
+              className={PRESS_CLASS}
               style={AUTH_BUTTON_STYLE}
             >
               Back to login
@@ -298,7 +313,7 @@ export default function ResetPasswordWizard({ onDone }) {
               />
             </AuthField>
 
-            <button type="submit" disabled={busy} style={primaryButton(busy)}>
+            <button type="submit" disabled={busy} className={PRESS_CLASS} style={primaryButton(busy)}>
               {busy ? 'Updating…' : 'Set password'}
             </button>
           </form>
@@ -315,6 +330,7 @@ export default function ResetPasswordWizard({ onDone }) {
             <button
               type="button"
               onClick={handleDone}
+              className={PRESS_CLASS}
               style={AUTH_BUTTON_STYLE}
             >
               Continue

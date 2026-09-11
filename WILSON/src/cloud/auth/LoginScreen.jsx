@@ -71,8 +71,13 @@
 //          because the genericness of GENERIC_ERROR is a security property.
 //          The three repeated strings are constants rather than five literals.
 //          ⚠️ ONE shouted string survives, `'COMPANY NOT FOUND.'` inside the
-//          dev auto sign-in effect below, which is byte-for-byte pinned by
-//          devAutoLogin.test.js and was not mine to reword. Dev builds only.
+//          dev auto sign-in effect below. Be exact about why, because the
+//          first version of this note was not: devAutoLogin.test.js reads
+//          this file as TEXT and pins the SHAPE of that effect — the guard
+//          order, an occurrence count, three patterns that must never appear
+//          — so the block is not reflowed by a restyle. The literal itself is
+//          not pinned. It stays shouted by decision, not by necessity, and it
+//          is dev builds only, so nobody who uses WILSON ever reads it.
 // AUTH-05  The MFA instruction is a sentence, so it takes AUTH_PROSE_STYLE.
 //   /-12  AUTH_HINT_STYLE keeps only the label-like fragments: the company
 //          echo, the "·" separator and the "Select workspace" caption.
@@ -598,14 +603,18 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     display: 'flex', flexDirection: 'column', alignItems: 'center',
     gap: AUTH_GAP_BETWEEN_FIELDS,
   }
+  // No transition at all, and that is the correction rather than a shorter
+  // one. It used to read `opacity 150ms`, left from when busy WAS an opacity;
+  // the first pass at this rewrote the property list to the fill, the ink and
+  // the edge — but busy now changes exactly one property, the cursor, and a
+  // cursor does not tween. Nothing else on this button moves between states,
+  // so every property that list named was static and the tween animated
+  // nothing. (150 was not one of the three durations either.) When this
+  // becomes a kit Button, `.ui-btn`'s own `--duration-state` rule arrives with
+  // it — which is the right place for it, not here.
   const submitStyle = {
     ...AUTH_BUTTON_STYLE,
     ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
-    // Named properties, never `all` (§3.1) — and these are the properties the
-    // busy token actually moves now. It used to read `opacity 150ms`, left
-    // over from when busy WAS an opacity; after AuthShell's rewrite busy drops
-    // the fill and keeps the ink, so an opacity tween animated nothing.
-    transition: 'background-color 150ms ease-out, color 150ms ease-out, border-color 150ms ease-out',
   }
   // AUTH-21. The press effect used to be three handlers writing
   // `transform: scale(0.98)` straight onto the DOM node. Nothing survives
@@ -789,8 +798,11 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 // left by half the tracking, ~3px at this size. `textIndent`
                 // equal to the tracking pushes the run back by the width of
                 // that phantom trailing space and restores optical centre.
-                // MfaSection.jsx and OperatorLogin.jsx carry the same field
-                // and need the same two properties.
+                // MfaSection.jsx carries the same field and now carries the
+                // same two properties. The operator console under src/admin/
+                // has a third copy of the field, and Q14 puts it out of scope
+                // — so it is an open item in the hand-off, not a to-do here
+                // with no owner.
                 style={{
                   ...AUTH_INPUT_STYLE,
                   letterSpacing: '0.35em',
@@ -849,6 +861,16 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                         width: '100%',
                         textAlign: 'left',
                         padding: '4px 8px',
+                        // Unconditional, and it must be written: these rows
+                        // have no fill, no edge and no hover background, so
+                        // the pointer is most of what says they are clickable
+                        // — and Tailwind v4's preflight, unlike v3's, gives a
+                        // <button> no cursor at all. The busy half needs no
+                        // ternary: the rows are `disabled={busy}` and the
+                        // global `:disabled { cursor: not-allowed }` in
+                        // index.css already answers it, the same way it does
+                        // for the AUTH_*_BUSY tokens.
+                        cursor: 'pointer',
                         display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
                         // Selection reads as weight, not as a lighter ink —
                         // a dimmed row on light orange is the grey-on-orange
