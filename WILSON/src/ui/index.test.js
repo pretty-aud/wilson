@@ -89,10 +89,19 @@ describe('src/ui inventory', () => {
 describe('every exported component has a caller, or is on the list', () => {
   // Adopting lane, from plan §5. A name leaves this list when its lane lands.
   const AWAITING_A_CALLER = {
-    SectionTitle: 'D1 — Settings has nine copies of this pattern',
+    // D1's prep session built a LOCAL SectionTitle in
+    // components/settings/SettingsChrome.jsx because F2 had not landed yet,
+    // and says in its own header that it becomes a re-export once F2 does.
+    // That swap is D1's to make — src/components/settings is not Foundation's
+    // (plan §6.5) — and it is what takes this name off the list.
+    SectionTitle: 'D1 — SettingsChrome.jsx re-points its local copy at the kit',
     Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
     Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
     Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
+    // Switch HAD a caller through binUi until Audrey ruled Bins back onto its
+    // own primitives until B6 (764f8f5). It is not a regression in the
+    // component; it is the six hand-rolled toggles still waiting for it.
+    Switch:       'D1 (Settings toggles) or B6 (binUi re-points at the kit)',
   }
 
   const root = resolve(here, '..')
