@@ -1,10 +1,21 @@
 # Walkthrough 17 — Shot takes (bins, milestone 2)
 
-For Audrey, on the desktop app in Local Server mode, from your checkout:
-`git pull --ff-only` on `feat/demo-2026-09-11`, then `npm run electron:dev`
-(or your usual launch). About ten minutes. Each step says what to do and
-what you should see; if you see something else, note the step number and
-what you got.
+For Audrey, on the desktop app in **Local Server mode**. Launch the packaged
+`WILSON.exe` the local-storage session built for you on 2026-09-10 at 23:30
+(it holds this branch, bins included):
+
+```
+C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON\.claude\worktrees\laughing-proskuriakova-bf7d67\WILSON\out\WILSON-win32-x64\WILSON.exe
+```
+
+or, from your checkout after `git pull --ff-only` on `feat/demo-2026-09-11`,
+`npx vite build --mode staging && npx electron .` — **not** `npm run
+electron:dev`, which builds against wilson-dev, where your password is
+refused (walkthrough 18 explains). Sign in, then Menu → SYSTEM SETTINGS →
+STORAGE → *Storage Backend* → **Local Server**: the bins are Local Server
+only this week. About ten minutes. Each step says what to do and what you should see;
+if you see something else, note the step number and what you got, and say
+"17_shot_takes.md" — Track C's walkthroughs also have a 16.
 
 **What this is.** Your words: *"a way to assign files in bins to shots in a
 scene that are in an edit … a single shot can have multiple takes, the shot

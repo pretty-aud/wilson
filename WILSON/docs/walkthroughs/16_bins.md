@@ -1,13 +1,27 @@
 # Walkthrough 16 — Bins (milestone 1)
 
-For Audrey, on the desktop app in Local Server mode, from your checkout:
-`git pull --ff-only` on `feat/demo-2026-09-11`, then `npm run electron:dev`
-(or your usual launch). Ten minutes. Each step says what to do and what you
-should see; if you see something else, note the step number and what you got.
+For Audrey, on the desktop app in **Local Server mode**. Launch the packaged
+`WILSON.exe` the local-storage session built for you on 2026-09-10 at 23:30
+(it holds this branch, bins included):
+
+```
+C:\Users\Audrey\Documents\My_Work\Dev_Work\wilson\WILSON\.claude\worktrees\laughing-proskuriakova-bf7d67\WILSON\out\WILSON-win32-x64\WILSON.exe
+```
+
+or, from your checkout after `git pull --ff-only` on `feat/demo-2026-09-11`,
+`npx vite build --mode staging && npx electron .` — **not** `npm run
+electron:dev`, which builds against wilson-dev, where your password is
+refused (walkthrough 18 explains). Sign in, then Menu → SYSTEM SETTINGS →
+STORAGE → *Storage Backend* → **Local Server**: the bins are Local Server
+only this week. Ten minutes. Each step says what to do and what you should see;
+if you see something else, note the step number and what you got, and say
+"16_bins.md" — Track C's walkthroughs also have a 16.
 
 **Before you start**
-- Put `ffmpeg.exe` in `WILSON/resources/ffmpeg/` (copy it from
-  `C:\Users\Audrey\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe`). Without
+- Put `ffmpeg.exe` (copy it from
+  `C:\Users\Audrey\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe`) in
+  `WILSON/resources/ffmpeg/` of your checkout or, for the packaged exe, in
+  `resources\app\resources\ffmpeg\` under the exe's folder. Without
   it, MP4 and WebM still get posters and durations through the app's own
   decoder, but MOV / ProRes / MXF / R3D and frame sequences show an icon and
   "no decoder" in the inspector.
