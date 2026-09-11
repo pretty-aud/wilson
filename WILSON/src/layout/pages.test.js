@@ -17,7 +17,17 @@
 //      actually paints today, not what its lane will convert it to.
 // =============================================================================
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// TM_COLUMN_WIDTHS comes from the Team Members page COMPONENT, whose import chain
+// (useWorkspaceMembers -> supabaseClient) constructs the Supabase client at module
+// load and throws 'supabaseUrl is required' when there is no .env.local, which is
+// every CI run (red from 2d98d21 to 7a00c43, 2026-09-11). Same mock the other unit
+// tests use; nothing here touches the client.
+vi.mock('../cloud/auth/supabaseClient', () => ({
+  supabase: {},
+  hydrateSupabase: async () => {},
+}))
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
