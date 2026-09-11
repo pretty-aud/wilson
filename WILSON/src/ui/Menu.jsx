@@ -36,23 +36,25 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
   const left = Math.max(0, Math.min(x, vw - minWidth - 12))
   const maxHeight = Math.max(160, vh - y - 12)
 
+  // No `role="menu"` / `menuitem` yet: those roles promise arrow-key roving
+  // focus and a suppressed Tab, which this menu does not implement (the Bins
+  // menu it replaces was a plain column of buttons, and stays one — C1,
+  // review round 1). F2 adds the keyboard model and the roles together.
   return (
     <div
       ref={ref}
-      role="menu"
       className={`ui-menu ${className}`.trim()}
       style={{ left, top: Math.min(y, vh - 60), minWidth, maxHeight }}
       onContextMenu={(e) => e.preventDefault()}
       {...rest}
     >
       {items.filter(Boolean).map((it, i) => {
-        if (it.divider) return <div key={`d${i}`} className="ui-menu-divider" role="separator" />
+        if (it.divider) return <div key={`d${i}`} className="ui-menu-divider" />
         if (it.header) return <div key={`h${i}`} className="ui-menu-header">{it.header}</div>
         return (
           <button
             key={i}
             type="button"
-            role="menuitem"
             disabled={it.disabled}
             className="ui-menu-item"
             data-danger={it.danger || undefined}

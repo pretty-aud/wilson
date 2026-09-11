@@ -125,6 +125,10 @@ const PAIRS = [
   ['focus ring on paper', T.FOCUS, T.PAPER, 3],
   ['focus ring on paper-raised', T.FOCUS, T.PAPER_RAISED, 3],
   ['ink-light focus ring on ground-light', T.INK_LIGHT, T.GROUND_LIGHT, 3],
+  ['ink-light focus ring on the orange chrome (.wilson-chrome)', T.INK_LIGHT, T.SIGNAL, 3],
+  // disabled on light is the ink itself (a screen of it fails, see the controls)
+  ['ink-light disabled on ground-light', T.INK_LIGHT, T.GROUND_LIGHT, 4.5],
+  ['ink-light disabled on well-light', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
 ]
 
 describe('every ink/ground pair clears its ratio', () => {
@@ -195,6 +199,49 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
   it('the 40-percent focus ring the review proposed is not a focus ring on paper', () => {
     expect(contrast(over('rgba(234, 88, 12, 0.4)', T.PAPER), T.PAPER)).toBeLessThan(3)
   })
+
+  it('the signal ring is invisible on the orange chrome and on the light ground — why those scopes switch it to ink-light', () => {
+    // Review round 1: 1.00:1 on the bars, 1.60:1 on the sign-in well.
+    expect(contrast(T.FOCUS, T.SIGNAL)).toBeLessThan(3)
+    expect(contrast(T.FOCUS, T.GROUND_LIGHT)).toBeLessThan(3)
+    expect(css).toMatch(/\.wilson-chrome :focus-visible/)
+    expect(css).toMatch(/\[data-surface="light"\] :focus-visible/)
+  })
+
+  it('the light disabled ink is never a screen of the ink (2.9:1) — the kit uses the ink itself', () => {
+    expect(contrast(over('rgba(28, 25, 23, 0.52)', T.GROUND_LIGHT), T.GROUND_LIGHT)).toBeLessThan(4.5)
+    expect(css).not.toMatch(/data-surface="light"\]:disabled\s*\{[^}]*color-mix\(in srgb, var\(--color-ink-light\) 52%/)
+  })
+})
+
+// ── "The only place a hex is written", made countable ──────────────────────
+// Two legacy blocks at the bottom of index.css (O.T.T.E.R.'s lesson-content
+// rules and the agent panel's companion-chat rules) still carry their own
+// hexes; they belong to lane A / the unreviewed agent surface and were left
+// byte-for-byte. This pins the set so nothing new can join it unnoticed.
+describe('hexes in index.css outside @theme', () => {
+  const themeBlock = css.match(/@theme[^{]*\{[\s\S]*?\n\}/)[0]
+  // Code only: the comments quote hexes when they explain a measurement.
+  const rest = css.replace(themeBlock, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  const outside = new Set((rest.match(HEX) || []).map((h) => h.toLowerCase()))
+  const LEGACY = new Set(['#f97316', '#fb923c', '#fdba74', '#d6d3d1', '#a8a29e', '#fbbf24', '#292524', '#0c0a09', '#57534e', '#44403c'])
+
+  it('is exactly the lesson-content / companion-chat legacy set', () => {
+    expect([...outside].sort()).toEqual([...LEGACY].sort())
+  })
+
+  it('every one of them sits in a .lesson-content or .companion-chat-md rule', () => {
+    // Per rule, not per line: some of those rules wrap their declarations.
+    // (String.match with a /g regex resets lastIndex; RegExp.test does not.)
+    for (const rule of rest.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const [, selector, body] = rule
+      if ((body.match(HEX) || []).length === 0) continue
+      expect(selector.trim(), selector.trim()).toMatch(/\.lesson-content|\.companion-chat-md/)
+    }
+  })
+})
+
+describe('the rest of the controls', () => {
 
   it('ink-light at 52 percent is a grey on orange, which is why the light placeholder is the ink itself', () => {
     expect(contrast(screen(T.INK_LIGHT, 52, T.GROUND_LIGHT), T.GROUND_LIGHT)).toBeLessThan(4.5)

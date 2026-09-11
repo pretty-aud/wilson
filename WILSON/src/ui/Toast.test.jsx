@@ -31,8 +31,15 @@ describe('Toast', () => {
       </ToastProvider>,
     )
     fireEvent.click(screen.getByText('push'))
+    act(() => { vi.advanceTimersByTime(600) })
+    // A second push re-renders the stack; the first toast's timer must NOT
+    // restart (review round 1): it still goes at its own 1000ms.
     fireEvent.click(screen.getByText('push'))
     const stack = document.querySelector('.ui-toast-stack')
+    expect(stack.querySelectorAll('.ui-toast').length).toBe(2)
+    act(() => { vi.advanceTimersByTime(450) })
+    expect(stack.querySelectorAll('.ui-toast').length).toBe(1)
+    fireEvent.click(screen.getByText('push'))
     expect(stack.querySelectorAll('.ui-toast').length).toBe(2)
     // Hover the first: it survives the timeout; the second goes.
     const [first] = stack.querySelectorAll('.ui-toast')

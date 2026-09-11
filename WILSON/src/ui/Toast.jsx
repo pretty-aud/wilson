@@ -55,11 +55,15 @@ function TimedToast({ item, onDismiss }) {
   const remaining = useRef(item.duration)
   const startedAt = useRef(0)
   const timer = useRef(null)
+  // `onDismiss` is a fresh arrow on every stack render; held in a ref so the
+  // effect below runs once and a second toast cannot restart the first's
+  // timer (review round 1).
+  const onDismissRef = useRef(onDismiss); onDismissRef.current = onDismiss
   const start = useCallback(() => {
     if (!item.duration) return
     startedAt.current = Date.now()
-    timer.current = setTimeout(onDismiss, remaining.current)
-  }, [item.duration, onDismiss])
+    timer.current = setTimeout(() => onDismissRef.current(), remaining.current)
+  }, [item.duration])
   const pause = useCallback(() => {
     if (!timer.current) return
     clearTimeout(timer.current)

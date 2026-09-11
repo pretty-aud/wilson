@@ -5,9 +5,13 @@
 // 405 elements stripped the native focus ring with `focus:outline-none`
 // (and two with a bare `outline-none`); roughly 80 of them put nothing back
 // and the rest put back one of four different rings. src/index.css now
-// carries ONE focus rule on `:focus-visible`, which a surviving
-// `focus:outline-none` utility beats on specificity — so every one of them
-// is removed here, mechanically, class-name only, no reformatting.
+// carries ONE focus rule on `:focus-visible`, in `@layer base`, and a
+// Tailwind utility is a later layer: a surviving `focus:outline-none`
+// utility WINS over that rule and keeps its control ring-less. That is why
+// every one of them is removed here, mechanically, class-name only, no
+// reformatting — and why the files below are excluded rather than merely
+// left alone: their surviving utilities keep suppressing the ring, as
+// intended.
 //
 // Left alone, deliberately:
 //   - src/components/PetCompanion.jsx                     (C5: pets untouched)

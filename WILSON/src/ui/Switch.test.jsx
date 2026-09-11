@@ -14,13 +14,16 @@ describe('Switch', () => {
     expect(s.querySelector('.ui-switch-knob')).not.toBeNull()
   })
 
-  it('reports the inverted value on click, and from the label text too', () => {
+  it('reports the inverted value on click; the label text is NOT a click target (C1)', () => {
     const onChange = vi.fn()
     render(<Switch checked={false} label="Dense rows" onChange={onChange} />)
-    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Dense rows' }))
     expect(onChange).toHaveBeenLastCalledWith(true)
+    // The old Toggle's label text did nothing; a <label> wrapper would have
+    // forwarded this click to the button. It must stay inert.
     fireEvent.click(screen.getByText('Dense rows'))
-    expect(onChange).toHaveBeenCalledTimes(2)
+    expect(onChange).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Dense rows').closest('label')).toBeNull()
   })
 
   it('does nothing when disabled', () => {

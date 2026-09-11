@@ -15,7 +15,10 @@
    not in this block does not exist. A session that needs one adds it here,
    with its job, and the test measures it before it ships. `static` so every
    token is emitted as a custom property even before it has a utility caller
-   (inline sites read `var(--…)` at runtime).
+   (inline sites read `var(--…)` at runtime). The two legacy blocks at the
+   bottom of this file (O.T.T.E.R.'s `.lesson-content`, the agent panel's
+   `.companion-chat-md`) still carry ten hexes of their own until lane A
+   re-derives them; tokens.test.js pins that set so it cannot grow.
 
    Ink ladder: 100 / 72 / 52 percent of `#f5f0ec` over `#1c1917`, pre-flattened
    so nobody re-derives them. 48 percent was proposed and measures 4.47:1 —
@@ -229,76 +232,89 @@ html {
    review Part 3 "Missing coverage").
 
    One focus ring, on `:focus-visible` only, so it never fires on a mouse
-   click: 2px of the focus token with a 1px offset. The review proposed the
-   signal at 40 percent; measured, that is 1.7:1 on `paper` and not a focus
-   ring, so the ring is the full signal (4.02:1 on `paper`, asserted at the
-   3:1 non-text floor in tokens.test.js). On a light surface the ring is
-   `ink-light`, because on orange the only inks are black and white.
+   click (Chromium does match it on a click INTO a text field, which is the
+   right call for a field): 2px of the focus token with a 1px offset. The
+   review proposed the signal at 40 percent; measured, that is 1.7:1 on
+   `paper` and not a focus ring, so the ring is the full signal (4.91:1 on
+   `paper`, asserted at the 3:1 non-text floor in tokens.test.js). On a light
+   surface AND on the orange chrome the ring is `ink-light`, because on
+   orange the only inks are black and white — the signal on the signal is
+   1.0:1 (review round 1). The scopes: `.wilson-light-scroll` and
+   `[data-surface="light"]` (the light pages, AuthShell's content layer),
+   `.wilson-chrome` (App.jsx's three orange bars).
 
-   The 405 `focus:outline-none` utilities that used to strip the native ring
-   were removed by scripts/sweepOutlineNone.mjs; the rule below is what
-   replaces them. A surviving `focus:outline-none` beats this rule on
-   specificity and should be treated as a defect.
+   🚨 These rules live in `@layer base` ON PURPOSE. Tailwind's utilities are
+   a later layer, so a utility written next to a control still wins — the
+   twelve surviving `placeholder-stone-*` utilities keep their colour, and
+   the `focus:outline-none` left in the excluded files (the pet, the
+   operator console) still suppresses the ring there. Unlayered, these
+   rules would beat every utility regardless of specificity (review round
+   1 measured it on the built sheet). The 362 `focus:outline-none` utilities
+   the sweep removed (scripts/sweepOutlineNone.mjs) were removed because a
+   utility WINS: each one would have kept its control ring-less.
    ═══════════════════════════════════════════════════════════════ */
-:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
-}
-:focus:not(:focus-visible) {
-  outline: none;
-}
-.wilson-light-scroll :focus-visible,
-[data-surface="light"] :focus-visible {
-  outline-color: var(--color-ink-light);
-}
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 1px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+  .wilson-light-scroll :focus-visible,
+  [data-surface="light"] :focus-visible,
+  .wilson-chrome :focus-visible {
+    outline-color: var(--color-ink-light);
+  }
 
-/* Placeholder is ink at 52 percent on dark. On a light surface a grey on
-   orange is exactly the thing Audrey's rule forbids (ink-light at 52 percent
-   measures 3.4:1), so there the placeholder is the ink itself, italic — the
-   light pages' existing convention: emptiness from italic, never from a
-   second ink. */
-::placeholder {
-  color: var(--color-ink-3);
-  opacity: 1;
-}
-.wilson-light-scroll ::placeholder,
-[data-surface="light"] ::placeholder {
-  color: var(--color-ink-light);
-  font-style: italic;
-}
+  /* Placeholder is ink at 52 percent on dark. On a light surface a grey on
+     orange is exactly the thing Audrey's rule forbids (ink-light at 52
+     percent measures 2.9:1), so there the placeholder is the ink itself,
+     italic — the light pages' existing convention: emptiness from italic,
+     never from a second ink. */
+  ::placeholder {
+    color: var(--color-ink-3);
+    opacity: 1;
+  }
+  .wilson-light-scroll ::placeholder,
+  [data-surface="light"] ::placeholder {
+    color: var(--color-ink-light);
+    font-style: italic;
+  }
 
-/* Caret and selection: the signal on dark, the ink on light. Selection is an
-   alpha screen so the selected text keeps its own colour (a solid signal
-   fill under 13px text would fail the orange rule); ink on the blended
-   ground is asserted in tokens.test.js. AuthPasswordInput sets its own
-   caret-color inline for alignment reasons and keeps it. */
-input, textarea, [contenteditable="true"] {
-  caret-color: var(--color-signal);
-}
-::selection {
-  background-color: var(--color-selection);
-}
-.wilson-light-scroll input,
-.wilson-light-scroll textarea,
-.wilson-light-scroll [contenteditable="true"],
-[data-surface="light"] input,
-[data-surface="light"] textarea,
-[data-surface="light"] [contenteditable="true"] {
-  caret-color: var(--color-ink-light);
-}
-.wilson-light-scroll ::selection,
-[data-surface="light"] ::selection {
-  background-color: var(--color-selection-light);
-}
+  /* Caret and selection: the signal on dark, the ink on light. Selection is
+     an alpha screen so the selected text keeps its own colour (a solid
+     signal fill under 13px text would fail the orange rule); ink on the
+     blended ground is asserted in tokens.test.js. AuthPasswordInput sets
+     its own caret-color inline for alignment reasons and keeps it. */
+  input, textarea, [contenteditable="true"] {
+    caret-color: var(--color-signal);
+  }
+  ::selection {
+    background-color: var(--color-selection);
+  }
+  .wilson-light-scroll input,
+  .wilson-light-scroll textarea,
+  .wilson-light-scroll [contenteditable="true"],
+  [data-surface="light"] input,
+  [data-surface="light"] textarea,
+  [data-surface="light"] [contenteditable="true"] {
+    caret-color: var(--color-ink-light);
+  }
+  .wilson-light-scroll ::selection,
+  [data-surface="light"] ::selection {
+    background-color: var(--color-selection-light);
+  }
 
-/* Disabled is one token: the ink screened to 52 percent plus this cursor,
-   never `opacity-30/40/50`. The colour half lives on the kit's classes below
-   (`.ui-btn:disabled` and friends); the cursor is global so the ~60
-   hand-rolled `disabled:cursor-not-allowed` utilities become redundant
-   rather than wrong. */
-:disabled,
-[aria-disabled="true"] {
-  cursor: not-allowed;
+  /* Disabled is one token: the ink screened to 52 percent plus this cursor,
+     never `opacity-30/40/50`. The colour half lives on the kit's classes
+     below (`.ui-btn:disabled` and friends); the cursor is global so the ~60
+     hand-rolled `disabled:cursor-not-allowed` utilities become redundant
+     rather than wrong. */
+  :disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 /* Session 43: `@keyframes blink` was removed with its only consumer, the
@@ -505,8 +521,11 @@ select option {
     background-color: transparent;
     border-color: var(--color-rule);
   }
+  /* Disabled on light keeps the one ink (a 52% screen of it is 2.9:1 on
+     orange — the tokens test pins that as failing); the state reads from
+     the cursor, the missing fill and the hairline. */
   .ui-btn[data-surface="light"]:disabled {
-    color: color-mix(in srgb, var(--color-ink-light) 52%, transparent);
+    color: var(--color-ink-light);
     border-color: var(--color-rule-light);
   }
   .ui-btn > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; }
@@ -567,7 +586,7 @@ select option {
     border-color: var(--color-rule-light);
   }
   .ui-input[data-surface="light"]:hover:not(:disabled) { border-color: color-mix(in srgb, var(--color-ink-light) 45%, transparent); }
-  .ui-input[data-surface="light"]:disabled { color: color-mix(in srgb, var(--color-ink-light) 52%, transparent); }
+  .ui-input[data-surface="light"]:disabled { color: var(--color-ink-light); background-color: transparent; }
   textarea.ui-input { height: auto; padding: 8px 12px; resize: vertical; }
   select.ui-input { padding-right: 28px; }
 
@@ -593,14 +612,20 @@ select option {
   .ui-field[data-surface="light"] > .ui-field-hint { color: var(--color-ink-light); font-style: italic; }
 
   /* ── Switch: pill track 36x20, knob `ink-light` on the signal track ── */
-  .ui-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  /* The wrapper is a <span>, not a <label>: the label text is not a click
+     target (the old Toggle's was not either — C1), so only the track shows
+     the pointer. */
+  .ui-switch { display: inline-flex; align-items: center; gap: 8px; user-select: none; }
   .ui-switch-track {
     position: relative;
     display: inline-block;
     width: 36px;
     height: 20px;
+    padding: 0;
+    border: 0;
     border-radius: 9999px;
     background-color: var(--color-ink-3);
+    cursor: pointer;
     transition: background-color var(--duration-state) ease-out;
     flex-shrink: 0;
   }
@@ -675,12 +700,12 @@ select option {
   /* ── StatusDot / StatusBadge: one semantic source, never colour alone ─
      The tone → token mapping lives HERE, so a status colour is a stylesheet
      decision and StatusDot.jsx carries only the semantics. */
-  [data-tone="neutral"] { --status-color: var(--color-ink-3); }
-  [data-tone="signal"]  { --status-color: var(--color-signal); }
-  [data-tone="success"] { --status-color: var(--color-success); }
-  [data-tone="warning"] { --status-color: var(--color-warning); }
-  [data-tone="danger"]  { --status-color: var(--color-danger); }
-  [data-tone="info"]    { --tone-color: var(--color-ink-3); }
+  .ui-status[data-tone="neutral"], .ui-status-dot[data-tone="neutral"] { --status-color: var(--color-ink-3); }
+  .ui-status[data-tone="signal"],  .ui-status-dot[data-tone="signal"]  { --status-color: var(--color-signal); }
+  .ui-status[data-tone="success"], .ui-status-dot[data-tone="success"] { --status-color: var(--color-success); }
+  .ui-status[data-tone="warning"], .ui-status-dot[data-tone="warning"] { --status-color: var(--color-warning); }
+  .ui-status[data-tone="danger"],  .ui-status-dot[data-tone="danger"]  { --status-color: var(--color-danger); }
+  .ui-toast[data-tone="info"],    .ui-banner[data-tone="info"]    { --tone-color: var(--color-ink-3); }
   .ui-toast[data-tone="success"], .ui-banner[data-tone="success"] { --tone-color: var(--color-success); }
   .ui-toast[data-tone="warning"], .ui-banner[data-tone="warning"] { --tone-color: var(--color-warning); }
   .ui-toast[data-tone="danger"],  .ui-banner[data-tone="danger"]  { --tone-color: var(--color-danger); }

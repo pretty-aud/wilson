@@ -69,14 +69,14 @@ export function Dialog({
       onMouseDown={(e) => { if (e.target === e.currentTarget) tryClose() }}
     >
       <div
+        {...rest}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === 'string' ? title : undefined}
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}
-        style={{ width: px }}
+        style={{ ...rest.style, width: px }}
         data-width={typeof width === 'string' ? width : undefined}
-        {...rest}
       >
         <div className="ui-dialog-head">
           <div>

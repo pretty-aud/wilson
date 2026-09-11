@@ -69,6 +69,14 @@ describe('Dialog', () => {
     expect(screen.getByRole('button', { name: 'Close' }).disabled).toBe(true)
   })
 
+  it('a caller\'s extra props cannot clobber the role or the width (review round 1)', () => {
+    render(<Dialog title="Styled" onClose={() => {}} role="region" style={{ opacity: 0.5 }} data-x="y">x</Dialog>)
+    const d = screen.getByRole('dialog', { name: 'Styled' })
+    expect(d.style.width).toBe(`${DIALOG_WIDTHS.form}px`)
+    expect(d.style.opacity).toBe('0.5')
+    expect(d.dataset.x).toBe('y')
+  })
+
   it('accepts a legacy numeric width for Bins, and reports an unknown named one', () => {
     render(<Dialog title="Legacy" width={640} onClose={() => {}}>x</Dialog>)
     expect(screen.getByRole('dialog', { name: 'Legacy' }).style.width).toBe('640px')

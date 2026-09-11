@@ -4,11 +4,16 @@
 // R34: a switch that does not read as a switch is a usability cost, so the
 // pill is a recorded exception to "sharp over soft").
 //
-// The track is a real <button role="switch">, so it is focusable, answers
-// Space and Enter natively, and is labelable — clicking the label text
-// toggles it too. Replaces six hand-rolled toggles; Bins' Toggle is this
-// under its old name (`checked`, `onChange`, `label` unchanged).
+// The track is a real <button role="switch">, so it is focusable and
+// answers Space and Enter natively, and it is named by the label text
+// through aria-labelledby. The wrapper is a <span>, NOT a <label>: a label
+// would forward clicks on the text to the button, which the old Toggle did
+// not do (its track was an inert span) — that would be a new click target
+// (C1, review round 1). Replaces six hand-rolled toggles; Bins' Toggle is
+// this under its old name (`checked`, `onChange`, `label` unchanged).
 // =============================================================================
+
+import { useId } from 'react'
 
 export function Switch({
   checked = false,
@@ -22,8 +27,10 @@ export function Switch({
   ...rest
 }) {
   const on = Boolean(checked)
+  const labelId = useId()
+  const hasLabel = label != null && label !== ''
   return (
-    <label
+    <span
       className={`ui-switch ${className}`.trim()}
       data-checked={on}
       data-disabled={disabled || undefined}
@@ -35,6 +42,7 @@ export function Switch({
         role="switch"
         id={id}
         aria-checked={on}
+        aria-labelledby={hasLabel ? labelId : undefined}
         disabled={disabled}
         className="ui-switch-track"
         onClick={() => { if (!disabled) onChange?.(!on) }}
@@ -42,8 +50,8 @@ export function Switch({
       >
         <span className="ui-switch-knob" aria-hidden="true" />
       </button>
-      {label != null && label !== '' && <span className="ui-switch-label">{label}</span>}
-    </label>
+      {hasLabel && <span id={labelId} className="ui-switch-label">{label}</span>}
+    </span>
   )
 }
 

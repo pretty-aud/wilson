@@ -317,7 +317,7 @@ export default function AuthShell({
           phase flips to 'split'. Pointer events disabled until visible so
           the hidden slot can't intercept clicks. */}
       {!isLogoPhase && (
-        <div style={{
+        <div data-surface="light" style={{
           position: 'fixed', top: '50%', left: '50%',
           transform: 'translate(-50%, -50%)', zIndex: 53,
           display: 'flex', alignItems: 'center', justifyContent: 'center',

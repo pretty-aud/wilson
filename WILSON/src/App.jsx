@@ -1921,7 +1921,7 @@ export default function App() {
           <ModelWarningBanner />
 
           {/* ===== TOP ORANGE BAR ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: topHeight,
             flexShrink: 0,
@@ -1947,7 +1947,7 @@ export default function App() {
           </div>
 
           {/* ===== NAV STRIP — same orange, bottom edge = header edge ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             overflow: 'hidden',
             height: isNavMenuVisible ? `${getNavStripHeight()}px` : '0px',
@@ -2106,7 +2106,7 @@ export default function App() {
           </div>
 
           {/* ===== BOTTOM ORANGE BAR — constant container element ===== */}
-          <div style={{
+          <div className="wilson-chrome" style={{
             backgroundColor: '#ea580c',
             height: bottomHeight,
             flexShrink: 0,
