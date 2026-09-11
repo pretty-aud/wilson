@@ -190,7 +190,7 @@ export default function WorkspaceTakeout({ workspaceId, slug }) {
         type="button"
         onClick={runTakeout}
         disabled={running || !workspaceId}
-        className="flex items-center gap-2 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+        className="at-disable-40 flex items-center gap-2 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
         style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
       >
         {running ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Archive className="w-3.5 h-3.5" />}

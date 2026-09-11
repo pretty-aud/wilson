@@ -35,10 +35,18 @@ const ERROR_MAP = {
   mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
 }
 
+// The invite row's username field draws its own validity on the control, so
+// its border lives in CSS (`.at-invite-name`) and must NOT be in this object:
+// an inline `border` shorthand sets `border-color`, and no class rule can beat
+// an inline declaration. Review round 1, finding 2 — the extraction moved the
+// invalid branch to CSS and left the valid one inline as a shorthand, which
+// silently deleted the red edge.
 const fieldStyle = {
   backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261',
   border: '1px solid #44403c', borderRadius: 3,
 }
+const { border: _fieldBorder, ...nameFieldStyle } = fieldStyle
+
 
 export default function MultiInviteDialog({ open, onClose, onInvited }) {
   const [text, setText] = useState('')
@@ -208,7 +216,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
             {rows.map(row => {
               const usernameOk = USERNAME_RE.test(row.username)
               return (
-                <div key={row.email} style={{ borderBottom: '1px solid #292524', opacity: row.status === 'ok' ? 0.75 : 1 }}>
+                <div key={row.email} className="at-invite-row" data-sent={String(row.status === 'ok')} style={{ borderBottom: '1px solid #292524' }}>
                 <div className="flex items-center gap-2 py-1.5">
                   <span className="flex-1 text-xs font-mono truncate" style={{ color: '#fde8d0' }} title={row.email}>
                     {row.email}
@@ -218,8 +226,9 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
                     value={row.username}
                     disabled={busy || row.status === 'ok'}
                     onChange={(e) => patchRow(row.email, { username: e.target.value.toLowerCase().slice(0, 32), status: row.status === 'failed' ? 'queued' : row.status, error: null })}
-                    className="w-36 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-                    style={{ ...fieldStyle, border: usernameOk ? fieldStyle.border : '1px solid #dc2626' }}
+                    className="at-invite-name w-36 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
+                    data-invalid={String(!usernameOk)}
+                    style={nameFieldStyle}
                     aria-label={`Username for ${row.email}`}
                   />
                   <select
@@ -260,7 +269,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
           >
             {done && okCount > 0 ? 'Done' : 'Cancel'}
@@ -270,7 +279,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
               type="button"
               onClick={() => send(rows.filter(r => r.status === 'failed'))}
               disabled={busy || badUsernames}
-              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+              className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
               style={{ backgroundColor: '#ea580c', color: '#fff' }}
             >
               Retry failed ({failCount})
@@ -280,7 +289,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
               type="button"
               onClick={() => send(pending)}
               disabled={busy || pending.length === 0 || badUsernames}
-              className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+              className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
               style={{ backgroundColor: '#ea580c', color: '#fff' }}
               title={badUsernames ? 'Fix the flagged usernames first.' : undefined}
             >

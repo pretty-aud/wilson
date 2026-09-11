@@ -33,7 +33,7 @@ const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
   border: '1px solid rgba(120, 70, 30, 0.3)',
 }
-const darkBtnClass = 'flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50'
+const darkBtnClass = 'at-disable-50 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 
 const ERROR_MAP = {

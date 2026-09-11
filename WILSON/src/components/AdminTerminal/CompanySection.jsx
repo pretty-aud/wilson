@@ -29,7 +29,7 @@ const cardStyle = {
   backgroundColor: 'rgba(120, 70, 30, 0.12)',
   border: '1px solid rgba(120, 70, 30, 0.3)',
 }
-const darkBtnClass = 'px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40'
+const darkBtnClass = 'at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 
 // Same defaults SettingsPage/TeamMembersPage seed before settings load.
@@ -221,8 +221,8 @@ export default function CompanySection({ isActive, wm }) {
           <button
             type="button"
             onClick={copyId}
-            className="p-1 rounded-sm hover:bg-stone-200 transition-colors flex-shrink-0"
-            style={{ color: copiedId ? '#22c55e' : LIGHT_INK }}
+            className="at-icon-btn p-1 rounded-sm transition-colors flex-shrink-0"
+            data-copied={String(copiedId)}
             title="Copy workspace ID"
           >
             {copiedId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -272,8 +272,8 @@ export default function CompanySection({ isActive, wm }) {
               <button
                 type="button"
                 onClick={() => persistDepartments(departments.filter(x => x !== d))}
-                className="p-0.5 rounded-sm hover:bg-stone-300 transition-colors"
-                style={{ color: LIGHT_INK }}
+                className="at-icon-btn p-0.5 rounded-sm transition-colors"
+                data-tone="chip"
                 title={`Remove ${d}`}
               >
                 <X className="w-3 h-3" />

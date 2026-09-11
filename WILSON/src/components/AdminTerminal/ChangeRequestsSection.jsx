@@ -226,14 +226,12 @@ export default function ChangeRequestsSection({ isActive }) {
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={tab === t.key
-                ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                : { backgroundColor: 'transparent', color: LIGHT_INK }}
+              className="at-chip px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+              data-active={String(tab === t.key)}
             >
               {t.label}
               {t.key === 'open' && open.length > 0 && (
-                <span className="ml-1.5" style={{ color: tab === t.key ? '#f4a261' : '#b45309' }}>
+                <span className="at-chip-count ml-1.5">
                   {open.length}
                 </span>
               )}
@@ -245,7 +243,7 @@ export default function ChangeRequestsSection({ isActive }) {
           type="button"
           onClick={load}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors at-disable-50"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
           {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
@@ -403,7 +401,7 @@ export default function ChangeRequestsSection({ isActive }) {
                               type="button"
                               onClick={() => { setDecide(null); setDiff(null) }}
                               disabled={busy}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-50"
+                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
                               style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
                             >
                               Cancel
@@ -412,7 +410,7 @@ export default function ChangeRequestsSection({ isActive }) {
                               type="button"
                               onClick={() => approve(r)}
                               disabled={busy || diff?.loading}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-50"
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
                               style={{ backgroundColor: '#166534', color: '#fff' }}
                             >
                               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Archive className="w-3 h-3" />}
@@ -440,7 +438,7 @@ export default function ChangeRequestsSection({ isActive }) {
                               type="button"
                               onClick={() => { setDecide(null); setNote('') }}
                               disabled={busy}
-                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-50"
+                              className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
                               style={{ backgroundColor: 'rgba(120, 70, 30, 0.18)', color: '#1c1917' }}
                             >
                               Cancel
@@ -449,7 +447,7 @@ export default function ChangeRequestsSection({ isActive }) {
                               type="button"
                               onClick={() => decline(r)}
                               disabled={busy || !note.trim()}
-                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-50"
+                              className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50"
                               style={{ backgroundColor: '#9a3412', color: '#fff' }}
                             >
                               {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
@@ -468,7 +466,7 @@ export default function ChangeRequestsSection({ isActive }) {
                             type="button"
                             onClick={() => { setDecide({ id: r.id, action: 'approve' }); setNote(''); loadDiff(r) }}
                             disabled={!r.source_readable}
-                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider rounded-sm at-disable-50 disabled:cursor-not-allowed"
                             style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
                             title={r.source_readable ? undefined : 'Their course no longer exists — there is nothing to apply'}
                           >

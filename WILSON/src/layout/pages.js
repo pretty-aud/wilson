@@ -130,8 +130,8 @@ const PAGE_LIST = [
     // surface has nothing to do with it. Lane C moved its own rows in each
     // page's conversion commit (W10: "lane C sets its own pages' rows"):
     // Projects, Rate card and Dashboard to 120/80, Files to the tool 95/8;
-    // Admin Terminal keeps 200/150 until C3. Home stays 268/268: it is not a
-    // resource page.
+    // C3 moved Admin Terminal, the last 200/150 row in the app. Home stays
+    // 268/268: it is not a resource page.
     bars: bars(120, 80),
     surface: 'light',
     chrome: 'page',
@@ -192,8 +192,23 @@ const PAGE_LIST = [
   {
     id: 'admin-terminal',
     title: 'Admin terminal',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C3)
+    // Q8(b) / W10, and AT-11 — the strongest case on the branch for the
+    // 120/80 pair. This is the only light page running two scrolling tables
+    // and a 360px side panel at once, and on a 900px viewport it was spending
+    // 350px on bars and a further 300px on three stacked paddings before a
+    // single row rendered: the roster and its toolbar shared about 348px,
+    // roughly eight rows, while Logs fetches a hundred. 120/80 returns about
+    // 190px, which roughly doubles the visible row count on both table
+    // sub-views. The bars stay orange and stay animated; only the resting
+    // heights change.
+    bars: bars(120, 80),
+    // 🚨 STILL LIGHT, DELIBERATELY. The comment at the top of this file is a
+    // rule, not a note: `surface` says what the page PAINTS TODAY, and it
+    // flips in the same commit as the page's own inks or it renders black
+    // text on black. C3's bundle commit does both together. The bar heights
+    // have no such coupling — they are geometry, not colour — which is why
+    // they can land first and give the field back now.
+    surface: 'light', // Q1 lane C (C3) — flips with the inks, not before
     chrome: 'page',
     nav: 'resources',
     adminOnly: true,
