@@ -131,6 +131,26 @@ describe('the renderer — previews, the checkbox, the badge, the copy', () => {
   })
 })
 
+describe('the Local Server upload streams (Audrey: "[localServer] HTTP 413", 2026-09-11)', () => {
+  const localAdapter = read('../tools/rabbit_v0.1.0/adapters/localServerAdapter.js')
+  it('the adapter PUTs the File itself to …/files-stream through the one streaming transport, and base64 is gone', () => {
+    expect(localAdapter).toContain("import { streamPutJson } from '../storage/localServerProvider'")
+    expect(localAdapter).toContain('/files-stream?${q}`, file, {')
+    expect(localAdapter).not.toContain('arrayBufferToBase64')
+    expect(localAdapter).not.toContain('base64,')
+  })
+  it('main.cjs mounts projectFileStream.cjs ONCE with the same helpers the POST uses, before the SPA fallback', () => {
+    const mounts = mainCjs.match(/require\('\.\/projectFileStream\.cjs'\)\.mountProjectFileStream\(/g) || []
+    expect(mounts.length).toBe(1)
+    const at = mainCjs.indexOf("require('./projectFileStream.cjs')")
+    expect(at).toBeGreaterThan(mainCjs.indexOf("expressApp.use('/api/rabbit', localDemoMissingGuard)"))
+    expect(at).toBeLessThan(mainCjs.indexOf("expressApp.get('/{*splat}'"))
+    expect(mainCjs).toContain('resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,')
+    // the base64 POST stays for anything that still calls it
+    expect(mainCjs).toContain("expressApp.post('/api/rabbit/projects/:projectId/files', (req, res) => {")
+  })
+})
+
 describe('migration 0072 and suite 80', () => {
   it('adds ONE column and replaces ONE policy, keeping 0020\'s three conditions', () => {
     expect(migration).toContain('ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT false')

@@ -3606,6 +3606,17 @@ function startLocalServer(distPath) {
       log: (line) => console.info(line),
     });
 
+    // ── Streamed project-file upload (demo 2026-09-11) — electron/projectFileStream.cjs ──
+    // Audrey: "[localServer] HTTP 413" adding a file to a project. The
+    // base64-in-JSON POST (…/files, above) is capped by the global 50mb json
+    // limit; this PUT streams the body straight to disk and records the same
+    // row, directory and event. Same placement rule as the bins.
+    require('./projectFileStream.cjs').mountProjectFileStream(expressApp, {
+      readRabbitBundle, writeRabbitBundle, rabbitTouch, rabbitLogFileEvent, rabbitNotFound,
+      resolveProjectFilesDir, resolveProjectInvoicesDir, uuidv4,
+      log: (line) => console.info(line),
+    });
+
     // ── Static file serving (SPA fallback) ──
     expressApp.use(express.static(distPath));
     expressApp.get('/{*splat}', (req, res) => {

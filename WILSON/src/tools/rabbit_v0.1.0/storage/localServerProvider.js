@@ -23,7 +23,9 @@
 //
 // A provider is five functions, never an adapter fork (§4a2b). Nothing here
 // knows about projects, rows or the money gate; uploadFile decides the key
-// and the provider, this module moves bytes for a key.
+// and the provider, this module moves bytes for a key. `streamPutJson` is
+// the one transport both this provider and the Local Server adapter's own
+// project-file upload use (electron/projectFileStream.cjs).
 // =============================================================================
 
 import { hasLocalServer } from '../../../lib/localData'
@@ -53,10 +55,15 @@ async function errorText(res) {
   return `${res.status} ${res.statusText || ''}`.trim()
 }
 
+function parseJsonMaybe(text) {
+  if (typeof text !== 'string' || text.trim() === '') return null
+  try { return JSON.parse(text) } catch { return null }
+}
+
 // Upload with progress needs XHR — fetch has no upload-progress events. The
 // body is a File/Blob, which Chromium streams from disk, so a multi-GB
 // master never has to fit in the renderer.
-function putWithProgress(XHR, url, body, onProgress) {
+function putWithProgress(XHR, url, body, onProgress, label) {
   return new Promise((resolve, reject) => {
     const x = new XHR()
     x.open('PUT', url)
@@ -68,15 +75,40 @@ function putWithProgress(XHR, url, body, onProgress) {
       }
     }
     x.onload = () => {
-      if (x.status >= 200 && x.status < 300) return resolve()
+      if (x.status >= 200 && x.status < 300) return resolve(parseJsonMaybe(x.responseText))
       let msg = `${x.status}`
       try { msg = JSON.parse(x.responseText).error || msg } catch { /* not JSON */ }
-      reject(new Error(`[local] media write failed: ${msg}`))
+      reject(new Error(`${label}: ${msg}`))
     }
-    x.onerror = () => reject(new Error('[local] media write failed: the local server did not answer'))
-    x.onabort = () => reject(new Error('[local] media write aborted'))
+    x.onerror = () => reject(new Error(`${label}: the local server did not answer`))
+    x.onabort = () => reject(new Error(`${label} aborted`))
     x.send(body)
   })
+}
+
+/**
+ * PUT a body (a File/Blob, streamed by Chromium) as application/octet-stream
+ * and return the route's JSON answer (null when it sends none). XHR when a
+ * progress callback is given, fetch otherwise. The ONE streaming transport:
+ * the local_server provider's put() and the Local Server adapter's own
+ * project-file upload both ride it, so a 413-shaped regression cannot come
+ * back through a second copy.
+ */
+export async function streamPutJson(url, body, {
+  onProgress, xhr, fetchImpl, label = '[local] media write failed',
+} = {}) {
+  const XHR = xhr === undefined
+    ? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : null)
+    : xhr
+  if (XHR && typeof onProgress === 'function') return putWithProgress(XHR, url, body, onProgress, label)
+  const f = fetchImpl || globalThis.fetch
+  const res = await f(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/octet-stream' },
+    body,
+  })
+  if (!res.ok) throw new Error(`${label}: ${await errorText(res)}`)
+  return parseJsonMaybe(await res.text())
 }
 
 /**
@@ -90,9 +122,6 @@ function putWithProgress(XHR, url, body, onProgress) {
 export function createLocalServerStorageProvider({ available = hasLocalServer, fetchImpl, xhr } = {}) {
   const f = (...args) => (fetchImpl || globalThis.fetch)(...args)
   const here = () => { if (!available()) throw new Error(NOT_HERE) }
-  const XHR = xhr === undefined
-    ? (typeof XMLHttpRequest !== 'undefined' ? XMLHttpRequest : null)
-    : xhr
 
   return {
     name: 'local_server',
@@ -102,17 +131,9 @@ export function createLocalServerStorageProvider({ available = hasLocalServer, f
     // construction (uploadFile stamps Date.now() into the leaf).
     async put(key, body, opts = {}) {
       here()
-      const url = localMediaUrl(key)
-      if (XHR && typeof opts.onProgress === 'function') {
-        await putWithProgress(XHR, url, body, opts.onProgress)
-        return { key }
-      }
-      const res = await f(url, {
-        method: 'PUT',
-        headers: { 'content-type': 'application/octet-stream' },
-        body,
+      await streamPutJson(localMediaUrl(key), body, {
+        onProgress: opts.onProgress, xhr, fetchImpl,
       })
-      if (!res.ok) throw new Error(`[local] media write failed: ${await errorText(res)}`)
       return { key }
     },
 

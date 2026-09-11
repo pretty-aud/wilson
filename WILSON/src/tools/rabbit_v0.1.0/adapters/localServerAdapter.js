@@ -6,10 +6,13 @@
 // Persists JSON bundles under {userData}/rabbit-data/projects/.
 //
 // Single-user / offline-first. No realtime, no auth.
-// File payloads are sent as base64 inside JSON to keep the surface
-// area off a multipart parser dependency. The 50mb express.json
-// limit is the upper bound; larger files should be added in v0.2
-// when streaming uploads are wired.
+// File bodies STREAM to PUT …/files-stream (electron/projectFileStream.cjs,
+// demo 2026-09-11) as application/octet-stream — the File is read from disk
+// by Chromium, never buffered here. Until that night they travelled as
+// base64 inside a JSON POST, which the server's 50mb json limit capped at
+// roughly 37 MB of file: Audrey's "[localServer] HTTP 413" adding one clip.
+
+import { streamPutJson } from '../storage/localServerProvider';
 
 const BASE = '/api/rabbit';
 
@@ -48,15 +51,7 @@ async function jfetch(url, init) {
   }
 }
 
-function arrayBufferToBase64(buf) {
-  let binary = '';
-  const bytes = new Uint8Array(buf);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
-}
+
 
 // Session 26: the folder tree is returned in path order on BOTH backends.
 // Supabase does it with `.order('path')`; the local bundle is a plain array,
@@ -188,20 +183,31 @@ export function localServerAdapter() {
     deleteTaskLink: async (id, projectId) => jfetch(`${BASE}/projects/${projectId}/task-links/${id}`, { method: 'DELETE' }),
 
     // ── Files ─────────────────────────────────────────────────
-    async uploadFile(projectId, scope, file) {
-      const buf = await file.arrayBuffer();
-      const base64 = arrayBufferToBase64(buf);
-      return jfetch(`${BASE}/projects/${projectId}/files`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          name:      file.name,
-          mimeType:  file.type,
-          sizeBytes: file.size,
-          base64,
-          scope,
-        }),
+    // Demo 2026-09-11 (Audrey: "[localServer] HTTP 413" adding a file to a
+    // project). The body STREAMS to the server — Chromium reads the File
+    // from disk in chunks; nothing is buffered here or there — with the
+    // metadata in the query string. Same row, same directories, same
+    // 'uploaded' event as the base64 POST it replaces (which stays mounted
+    // for anything else that calls it). `onProgress` rides XHR when given.
+    async uploadFile(projectId, scope, file, opts = {}) {
+      const q = new URLSearchParams({
+        name:      file?.name || 'file',
+        mimeType:  file?.type || '',
+        sizeBytes: file?.size == null ? '' : String(file.size),
+        scope:     JSON.stringify(scope || {}),
       });
+      try {
+        const row = await streamPutJson(`${BASE}/projects/${projectId}/files-stream?${q}`, file, {
+          onProgress: opts.onProgress,
+          label: '[localServer] upload failed',
+        });
+        lastError = null;
+        lastSyncAt = new Date();
+        return row;
+      } catch (err) {
+        lastError = err.message || String(err);
+        throw err;
+      }
     },
 
     listFiles: async (projectId) => (await jfetch(`${BASE}/projects/${projectId}`)).files || [],

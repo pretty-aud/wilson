@@ -22,6 +22,7 @@ function fakeFetch(handler) {
       status,
       statusText: r.statusText || '',
       json: async () => r.json ?? {},
+      text: async () => (r.json !== undefined ? JSON.stringify(r.json) : (r.text || '')),
       blob: async () => r.blob ?? new Blob([r.text || '']),
     }
   }
