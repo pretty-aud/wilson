@@ -9,8 +9,55 @@
 // no React.
 //
 // Status/priority vocabularies match the RABBIT task views ('urgent' is in
-// the DB enum since 0019). Status accent colors are the same semantic set
-// RABBIT uses — they read correctly on WILSON's light pages too.
+// the DB enum since 0019).
+//
+// 🚨 THIS FILE NO LONGER DECIDES A COLOUR. It used to carry `statusColor` and
+// `priorityColor` — a verbatim copy of RABBIT's switch bodies (four such
+// copies existed) — under a header comment claiming they "read correctly on
+// WILSON's light pages too". Measured against the old #f4a261 ground that was
+// false for eight of the nine statuses: #fb923c was 1.09:1 and the DEFAULT
+// status's #a8a29e was 1.42:1, so the most common status dot in the app was
+// effectively not drawn (review D3). The colour now comes from the kit's one
+// semantic source, `src/ui/StatusDot`, which resolves a status to a TONE and
+// lets the stylesheet pick the value per surface. A copy cannot drift from a
+// source it does not have.
+
+import { statusMeta } from '../../ui/StatusDot'
+
+/**
+ * The task table's column spec (review D13: "carry the width prop across as a
+ * column-spec field"). It lives in this pure module rather than in the view so
+ * that the sum can be asserted without mounting React.
+ *
+ * 🚨 THE WIDTHS MUST SUM TO EXACTLY 100. `table-layout: fixed` hands any
+ * excess back to the browser to reconcile, so a set that over-sums is not a
+ * declaration at all — every column lands somewhere other than where it was
+ * written. F2 shipped three cuts of the Team Members table that each claimed
+ * 100 in a comment and twice did not; `dashboardTaskModel.test.js` computes
+ * this one instead of trusting it.
+ *
+ * The proportions are the review's: Task 3 / Project 2 / Asset 1.5 for the
+ * three flexible columns, against 560px of fixed width before, which left the
+ * most important column about 113px and truncating while the Status dropdown
+ * gave up nothing.
+ *
+ * The five fixed columns were then MEASURED in the browser against the widest
+ * value each can hold, because a percentage that is one character short is a
+ * column that elides on the rows that matter: the first cut gave the dates
+ * 8.5 percent, which is 105px, and "Sep 14, 2026" needs about 95px of text
+ * plus 24px of cell padding. Status is sized for "Waiting to start", Role for
+ * the "Reviewing" badge, Priority for "Medium".
+ */
+export const TASK_COLUMNS = Object.freeze([
+  { key: 'title',    header: 'Task',     width: '21.7%' },
+  { key: 'project',  header: 'Project',  width: '14.5%' },
+  { key: 'asset',    header: 'Asset',    width: '10.8%' },
+  { key: 'status',   header: 'Status',   width: '14.5%' },
+  { key: 'priority', header: 'Priority', width: '8%' },
+  { key: 'role',     header: 'Role',     width: '9.5%' },
+  { key: 'start',    header: 'Start',    width: '10.5%', numeric: true },
+  { key: 'end',      header: 'Due',      width: '10.5%', numeric: true },
+])
 
 export const TASK_STATUSES = [
   'waiting_to_start', 'in_progress', 'pending_review', 'needs_revisions',
@@ -46,31 +93,37 @@ export const FILTER_FIELDS = [
 
 export const ROLE_KEYS = { assigned: 'assigned', reviewing: 'reviewing' }
 
-export function statusColor(status) {
-  switch (status) {
-    case 'in_progress':     return '#fb923c'
-    case 'pending_review':  return '#fbbf24'
-    case 'needs_revisions': return '#e879f9'
-    case 'approved':        return '#4ade80'
-    case 'final':           return '#22c55e'
-    case 'blocked':         return '#ef4444'
-    case 'on_hold':         return '#fcd34d'
-    case 'omitted':         return '#57534e'
-    default:                return '#a8a29e' // waiting_to_start
-  }
+/**
+ * Priority as a STATUS TONE, not a colour. Four values became four hex
+ * literals; they become two marked cases and two unmarked ones.
+ *
+ * Only `urgent` and `high` carry a tone. The review's instruction is
+ * verbatim: "stop encoding priority with colour alone: render it as an 11px
+ * label with a dark ink and reserve colour for the urgent and high cases
+ * only." A scale where every step is coloured has no emphasis left to spend
+ * on the step that matters, and 'low' in its own grey was 2.33:1.
+ */
+const PRIORITY_TONE = Object.freeze({
+  urgent: 'danger',
+  high:   'warning',
+  medium: 'neutral',
+  low:    'neutral',
+})
+
+export function priorityTone(p) {
+  return PRIORITY_TONE[p] || 'neutral'
 }
 
-export function priorityColor(p) {
-  switch (p) {
-    case 'urgent': return '#ef4444'
-    case 'high':   return '#fb923c'
-    case 'medium': return '#fbbf24'
-    case 'low':    return '#78716c'
-    default:       return '#a8a29e'
-  }
+/** Sentence case, from one place (Q2). 'in_progress' -> 'In progress'. */
+export function fmt(s) {
+  const t = String(s ?? '').replace(/_/g, ' ')
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : ''
 }
 
-export function fmt(s) { return (s || '').replace(/_/g, ' ') }
+/** A status's written word, from the kit's semantic source and nowhere else. */
+export function statusLabel(status) {
+  return statusMeta(status).label
+}
 
 /** 'assigned' | 'reviewing' | null for a task relative to the user. */
 export function myRoleOnTask(task, userId) {
@@ -195,6 +248,9 @@ export function resolveGroupLabel(groupBy, key, { projectsById = {}, phasesById 
     return key === ROLE_KEYS.assigned ? 'Assigned to me'
       : key === ROLE_KEYS.reviewing ? 'Reviewing' : fmt(key)
   }
+  // A status group's word is the kit's, so the band and the row's own badge
+  // can never disagree about what a status is called.
+  if (groupBy === 'status') return statusLabel(key)
   return fmt(key)
 }
 

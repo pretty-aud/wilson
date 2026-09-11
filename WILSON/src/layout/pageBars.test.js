@@ -47,14 +47,15 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
-  settings: [200, 150], dashboard: [200, 150], 'admin-terminal': [200, 150],
+  settings: [200, 150], 'admin-terminal': [200, 150],
   'team-members': [200, 150],
-  // Q8(b), landed by lane C for the three pages it converted: the
+  // Q8(b), landed by each lane-C session for the pages it converted: the
   // resource-class rows go to 120/80, and Files takes the TOOL geometry
-  // because it is a working page, not a reading one. The four rows still at
-  // 200/150 are the ones whose own lane has not run yet (C2, C3) plus
-  // Settings, which is a reading page and keeps them.
-  'project-manager': [120, 80], 'rate-card': [120, 80],
+  // because it is a working page, not a reading one. The rows still at
+  // 200/150 are the ones whose own lane has not run yet (C3's Admin
+  // Terminal), Team Members (F2's, and D1b's to move), and Settings, which
+  // is a reading page and keeps them.
+  'project-manager': [120, 80], 'rate-card': [120, 80], dashboard: [120, 80],
   'project-files': [95, 8],
   help: [140, 100],
 }

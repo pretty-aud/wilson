@@ -146,12 +146,14 @@ describe('surface and chrome say what the page PAINTS today', () => {
     // early renders its own dark-on-dark text, so this list is the schedule.
     expect(dark).toEqual([
       'dog', 'otter', 'rabbit',
-      // lane C, C1: converted with their own inks in the same commit
+      // lane C, C2: converted with its own inks in the same commit
+      'dashboard',
+      // lane C, C1: same rule, same commit
       'project-manager', 'rate-card',
       'team-members',
       'project-files',
     ])
-    const stillLight = ['dashboard', 'admin-terminal']
+    const stillLight = ['admin-terminal']
     for (const id of stillLight) {
       expect(PAGE_BY_ID[id].surface, `${id} is lane C's to convert`).toBe('light')
     }
