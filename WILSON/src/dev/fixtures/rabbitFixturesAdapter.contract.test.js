@@ -187,12 +187,12 @@ describe('the fixtures adapter behaves like a backend', () => {
     expect(await fx.thumbnailUrls(['nope'])).toEqual(new Map())
   })
 
-  it('realtime subscriptions report a live channel and hand back an unsubscribe', async () => {
+  it('realtime subscriptions report a joined channel and hand back an unsubscribe', async () => {
     const fx = buildDevFixtures().rabbitAdapter()
     const status = []
     const off = fx.subscribeProjectChanges(PROJECT_ID, () => {}, { onStatus: (s) => status.push(s) })
     await new Promise((r) => setTimeout(r, 5))
-    expect(status).toEqual(['live'])
+    expect(status).toEqual(['SUBSCRIBED']) // the Supabase channel word the provider maps to 'live'
     expect(typeof off).toBe('function')
     off()
   })

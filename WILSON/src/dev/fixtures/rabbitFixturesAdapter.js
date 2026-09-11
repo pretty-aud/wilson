@@ -386,17 +386,19 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async upsertMilestone(row) { return clone(upsert(store.milestones, row)) },
     async deleteMilestone(id) { remove(store.milestones, id) },
 
-    // ── Realtime: nothing to subscribe to; report a live channel ─────────────
+    // ── Realtime: nothing to subscribe to; report a joined channel ───────────
+    // The provider reads Supabase channel statuses ('SUBSCRIBED' → live), and
+    // refetches the project on every join, so the answer is the real one.
     subscribeProjectChanges(projectId, _callback, opts = {}) {
       const t = setTimeout(() => {
-        opts.onStatus?.('live')
+        opts.onStatus?.('SUBSCRIBED')
         opts.onPresence?.(store.members.slice(0, 3).map(m => ({ user_id: m.user_id, label: m.display_name, avatar_url: m.avatar_url })))
       }, 0)
       return () => clearTimeout(t)
     },
     subscribeWorkspaceChanges(_workspaceId, _callback, opts = {}) {
       const t = setTimeout(() => {
-        opts.onStatus?.('live')
+        opts.onStatus?.('SUBSCRIBED')
         opts.onPresence?.(store.members.slice(0, 3).map(m => ({ user_id: m.user_id, label: m.display_name, avatar_url: m.avatar_url })))
       }, 0)
       return () => clearTimeout(t)
