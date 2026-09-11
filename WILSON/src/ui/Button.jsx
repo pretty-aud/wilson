@@ -20,11 +20,17 @@
 //
 //   Icon / icon   D1 kit request 3. `Badge`, `Banner`, `EmptyState`,
 //                 `IconButton` and `Menu` all took one and this did not, so
-//                 thirteen call sites passed `Icon={X}`, it landed in `rest`,
-//                 and React was handed a function-valued DOM attribute —
-//                 silently, with no icon drawn. Same spelling as IconButton's
-//                 so a caller never has to remember which is which. An icon
-//                 CHILD still works and is still sized by `.ui-btn > svg`.
+//                 `Icon={X}` landed in `rest` and React was handed a
+//                 function-valued DOM attribute — silently, with no icon
+//                 drawn. ⚠️ D1 counted thirteen call sites at the time and
+//                 then FIXED them all with a local wrapper that turns the
+//                 prop back into a child (`SmallButton` in
+//                 StorageConnections.jsx), so the count in the tree today is
+//                 zero and this prop has no direct caller yet. It exists so
+//                 the next one does not have to find this out again. Same
+//                 spelling as IconButton's so a caller never has to remember
+//                 which is which. An icon CHILD still works and is still
+//                 sized by `.ui-btn > svg`, which is what the wrapper uses.
 //
 //   loading       D2 kit request K3. Owns the whole busy state: the button
 //                 disables itself, announces `aria-busy`, swaps the glyph for

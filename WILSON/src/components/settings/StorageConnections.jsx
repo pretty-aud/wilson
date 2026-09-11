@@ -85,12 +85,14 @@ function Card({ icon: Icon, title, connected, children }) {
 // carries it, through the kit's one disabled token, which also fixes the
 // three buttons that used to stay at full strength while seven dimmed.
 //
-// 🚨 THE GLYPH IS A CHILD, NOT A PROP. `Button` takes no `Icon`: it
-// destructures variant/size/surface/primary/danger/small/type/className/
-// children and spreads everything else onto the DOM <button>, so `Icon={X}`
-// rendered NOTHING and handed React a function-valued attribute. It is
-// `IconButton` that takes `Icon`. The kit sizes an icon child through
-// `.ui-btn > svg`, which is why this shape works and the prop did not.
+// THE GLYPH IS A CHILD HERE. It had to be: `Button` took no `Icon`, so
+// `Icon={X}` landed in the DOM spread and rendered NOTHING while handing
+// React a function-valued attribute — the defect D1 filed as kit request 3.
+// ✅ F3 gave `Button` an `Icon` / `icon` prop, so this wrapper's job is now
+// only the light surface, the small size and the variant names; the child
+// form it uses is still correct and still sized by `.ui-btn > svg`, so
+// nothing here has to change. Whoever next touches this file can pass
+// `Icon` straight through instead.
 const VARIANTS = { primary: 'primary', quiet: 'secondary', danger: 'danger' }
 
 function SmallButton({ icon: Icon, children, variant = 'quiet', ...rest }) {
