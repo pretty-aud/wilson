@@ -303,3 +303,22 @@ experiences), the steps are:
 
 The worktree's memory folder is empty and the main repo's is not this
 session's to edit. This file is the memory; every lesson is in §5.
+
+---
+
+**Integrated** (2026-09-11, end of session): `origin/feat/ui-overhaul` merged
+into `ui/dev-fixtures` twice — `c63d3f6` (C1's Resources pages and C2's
+Dashboard had landed under this session) and, after the first push was
+rejected because D1b integrated during verification, `ce60c33`. Both merges
+were clean: no file this bundle touched had moved upstream. vitest on the
+merged tree **135 files / 2539 tests** green; `npx vite build` on it grepped
+clean for the ten fixture strings (six assets); the probe on it read **0
+Supabase requests, 0 console errors** with the fixtures on. Pushed
+`HEAD:feat/ui-overhaul`; both `refs/heads/feat/ui-overhaul` and
+`refs/heads/ui/dev-fixtures` were at **`ce60c33`**. The commit recording
+this line sits after `ce60c33` on both refs; if `git ls-remote` shows them
+apart, integrate again per plan §6.3. CI for the push:
+https://github.com/pretty-aud/wilson/actions?query=branch%3Afeat%2Fui-overhaul
+(`gh` is not authenticated here; read the conclusion for `ce60c33` there).
+No chip is spawned: the brief said this chip is a one-off beside the F2 → T0
+chain.
