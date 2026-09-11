@@ -153,7 +153,26 @@
      and not a refactor (review priority order, AT-01 first). */
 
   .at-menu-item:hover { background-color: #292524; }       /* hover:bg-stone-800 */
-  .at-menu-item .at-menu-hint { color: #1c1917; }
+
+  /* 🚨 AT-01, FIXED. This was `#1c1917` — `LIGHT_INK` — on a `#1c1917` panel:
+     contrast 1.00:1, and the hover only lifted it to about 1.1:1. The two
+     strings under the menu's labels ("They set their own password" and "You
+     hand over the credentials") have never been visible to any human since
+     the menu shipped, which is why this is a defect commit and not part of
+     the restyle. Both strings were read before being made legible, as the
+     review asked: they are accurate, and they are the one thing that
+     distinguishes the two ways of adding a person.
+
+     `#b8b4b0` is the dark-surface secondary ink — `--color-ink-2`, 8.49:1 on
+     this panel. It is written as a literal only because commit one is a
+     transcription and tokenising one value out of thirty-five would make the
+     C8 cleanup harder to read; the bundle commit takes all of them together.
+
+     The mechanism this proves is the one the whole rework exists to stop: the
+     element was classified by the FILE it lives in (a light page) rather than
+     by the SURFACE it sits on (a dark floating panel). `lightSurface.js:22`
+     warns about exactly this in a comment, and the warning was ignored. */
+  .at-menu-item .at-menu-hint { color: #b8b4b0; }
 
   /* ═══ THE MODE AND PROVIDER PICKERS ═══════════════════════════════════
      StorageSection.jsx:625-627 and :819-821, byte-identical. The review
