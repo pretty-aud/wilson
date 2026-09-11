@@ -201,7 +201,7 @@ describe('the fixtures adapter behaves like a backend', () => {
     expect(skipped).toEqual([])
     expect(fx.binFileThumbnailUrl(PROJECT_ID, file.id)).toMatch(/^data:image\/svg\+xml/)
     const again = await fx.restoreBinFiles(PROJECT_ID, removed)
-    expect(again.skipped).toEqual([{ id: file.id, reason: 'exists' }])
+    expect(again.skipped).toEqual([{ id: file.id, reason: 'invalid' }]) // the provider's own reason word
     const { created } = await fx.copyBinFiles(PROJECT_ID, [file.id], bins[0].id)
     expect(fx.binFileThumbnailUrl(PROJECT_ID, created[0].id)).toMatch(/^data:image\/svg\+xml/)
     const leaf = bins.find((b) => b.parent_bin_id)

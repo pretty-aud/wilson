@@ -256,8 +256,12 @@ export default function ProfileSection({ onSaved }) {
       // Dev fixtures (dev builds only): clear the row in memory; there is no blob.
       const fx = import.meta.env.DEV ? devFixtures() : null
       if (fx?.workspace) {
-        const { data } = fx.workspace.updateMember(row.user_id, { avatar_url: null })
+        const { data, error: fxErr } = fx.workspace.updateMember(row.user_id, { avatar_url: null })
+        if (fxErr) throw fxErr
         setRow(data)
+        setSavedFlash(true)
+        setTimeout(() => setSavedFlash(false), 2500)
+        onSaved?.(data)
         return
       }
       const prefix = `/storage/v1/object/public/${AVATAR_BUCKET}/`

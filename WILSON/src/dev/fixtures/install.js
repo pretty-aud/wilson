@@ -15,6 +15,7 @@ import { createRabbitFixturesAdapter } from './rabbitFixturesAdapter'
 import { createOtterFixturesHandler } from './otterFixturesRoutes'
 import { PERMISSIONS, PROFILE, WORKSPACE_ID } from './data/workspace'
 import { PROJECT } from './data/project'
+import { BUILTIN } from '../../lib/aiModels'
 
 export function buildDevFixtures() {
   const store = createStore()
@@ -27,6 +28,20 @@ export function buildDevFixtures() {
     permissions: { ...PERMISSIONS },
     profile: { ...PROFILE },
     bins: true,
+
+    /**
+     * modelSources.loadApprovedModels: what the pickers may offer (the
+     * platform_approved_models shape). Derived from the registry's built-in
+     * floors — a model id is written in exactly one file in src/
+     * (noHardcodedModels.test.js), and this is not it.
+     */
+    approvedModels: Object.entries(BUILTIN).map(([tier, model_id], i) => ({
+      model_id,
+      label: `${model_id} (built-in ${tier.toLowerCase()})`,
+      hint: tier === 'REASONING' ? "The registry's reasoning floor." : "The registry's fast floor.",
+      sort_order: i,
+      validation: null,
+    })),
 
     /** One adapter per session — the provider's adapterRef holds it. */
     rabbitAdapter() {

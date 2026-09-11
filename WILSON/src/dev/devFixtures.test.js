@@ -89,6 +89,25 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     }
   })
 
+  it('in the three seams that guard a network call, the guard comes BEFORE the call (an inert guard below a token check passed round 1)', () => {
+    const guarded = [
+      ['cloud/adminApi.js', /fetch\(/],
+      ['cloud/auth/InviteMemberDialog.jsx', /supabase\.auth\.getSession\(\)/],
+      ['components/AdminTerminal/MultiInviteDialog.jsx', /supabase\.auth\.getSession\(\)/],
+    ]
+    for (const [f, call] of guarded) {
+      const code = codeLines(read(join(SRC, f))).join('\n')
+      const guardAt = code.indexOf('import.meta.env.DEV && devFixtures()')
+      const callAt = code.search(call)
+      expect(guardAt, `${f}: guard`).toBeGreaterThan(-1)
+      expect(callAt, `${f}: call`).toBeGreaterThan(-1)
+      expect(guardAt, `${f}: the guard must precede the network call`).toBeLessThan(callAt)
+    }
+    // The control: a guard placed after the call is caught.
+    const bad = 'const t = await supabase.auth.getSession()\nif (import.meta.env.DEV && devFixtures()) return'
+    expect(bad.indexOf('import.meta.env.DEV && devFixtures()')).toBeGreaterThan(bad.search(/supabase\.auth\.getSession\(\)/))
+  })
+
   it('the badge is mounted in App.jsx behind DEV, and App.jsx keeps its three chrome bars', () => {
     const app = read(join(SRC, 'App.jsx'))
     expect(app).toContain('{import.meta.env.DEV && <DevFixturesBadge />}')
@@ -129,7 +148,7 @@ describe('the dev fixtures switch is gated on import.meta.env.DEV', () => {
     }
     // The fixtures directory imports only pure modules from the app: the folder
     // planner, the O.T.T.E.R. route parser and the note encoder.
-    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync']
+    const allowed = ['tools/rabbit_v0.1.0/folderPaths', 'tools/otter_v0.3.1/adapters/otterRoutes', 'components/Dashboard/noteSync', 'lib/aiModels']
     for (const f of devFiles.filter(inFixturesDir)) {
       const external = (read(f).match(/from '(\.\.\/){2,}[^']+'/g) || [])
         .map((m) => m.slice(6, -1).replace(/^(\.\.\/)+/, ''))

@@ -97,6 +97,8 @@ describe('the project', () => {
   it('fifteen assets, each in a phase, with a thumbnail and a real status and type', () => {
     expect(ASSETS.length).toBe(15)
     expect(ASSET_STATUSES.length).toBe(9)
+    expect(ASSET_TYPES.length).toBe(23)
+    expect(PROJECT_STATUSES.length).toBe(5)
     expect(PROJECT_STATUSES).toContain(PROJECT.status)
     for (const a of ASSETS) {
       expect(ids(PHASES).has(a.phase_id)).toBe(true)
@@ -163,9 +165,12 @@ describe('scenes, shots, bins and takes', () => {
   it('six scenes, sixteen shots, every shot in a scene, every word in the view\'s own vocabulary', () => {
     expect(SCENES.length).toBe(6)
     expect(SHOTS.length).toBe(16)
+    // Exact lengths: a regex that silently under-matched would let a bad value through.
     expect(SCENE_STATUSES.length).toBe(9)
-    expect(FRAMING.length).toBeGreaterThan(5)
-    expect(CAMERA_MOVEMENT.length).toBeGreaterThan(10)
+    expect(SCENE_TYPES.length).toBe(4)
+    expect(TIME_OF_DAY.length).toBe(11)
+    expect(FRAMING.length).toBe(16)
+    expect(CAMERA_MOVEMENT.length).toBe(22)
     expect(new Set(SCENES.map((s) => s.scene_number)).size).toBe(6)
     for (const s of SCENES) {
       expect(SCENE_STATUSES, s.name).toContain(s.status)

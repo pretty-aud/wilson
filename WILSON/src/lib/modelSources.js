@@ -186,8 +186,11 @@ export async function loadModelSources() {
  * it does NOT do is invalidate an existing selection; see the header.
  */
 export async function loadApprovedModels() {
-  // Dev fixtures (dev builds only): the cached catalogue stands; nothing leaves.
-  if (import.meta.env.DEV && devFixtures()) return { models: cachedApprovedModels(), error: null }
+  // Dev fixtures (dev builds only): the dataset's catalogue; nothing leaves. (The
+  // localStorage cache is empty by construction in a profile that never signed
+  // in for real — review round 2 — so it is the fallback, not the answer.)
+  const fx = import.meta.env.DEV ? devFixtures() : null
+  if (fx) return { models: fx.approvedModels?.length ? fx.approvedModels.map(m => ({ ...m })) : cachedApprovedModels(), error: null }
   try {
     const { data, error } = await supabase
       .from('platform_approved_models')
@@ -366,6 +369,11 @@ export async function setWorkspaceModelOverride(key, modelId) {
  * choices the user has since changed deliberately.
  */
 export async function migrateLegacyUserModelPrefs() {
+  // Dev fixtures (dev builds only): NOT a fixtures job. Running it would fire a
+  // refusal per legacy pref at boot and then mark the migration done for the
+  // browser profile, so the real one never runs (review round 2). Leave the
+  // prefs and the flag exactly as they are.
+  if (import.meta.env.DEV && devFixtures()) return { migrated: 0, skipped: 0, alreadyDone: true }
   try {
     if (globalThis.localStorage?.getItem(LEGACY_MIGRATED_KEY)) {
       return { migrated: 0, skipped: 0, alreadyDone: true }

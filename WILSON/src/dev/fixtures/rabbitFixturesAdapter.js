@@ -466,8 +466,9 @@ export function createRabbitFixturesAdapter(store, { userId, workspaceId }) {
     async restoreBinFiles(_projectId, rows) {
       const restored = []; const skipped = []
       for (const r of rows || []) {
-        if (!r?.id) { skipped.push({ id: r?.id ?? null, reason: 'bad_ids' }); continue }
-        if (findById(store.binFiles, r.id)) { skipped.push({ id: r.id, reason: 'exists' }); continue }
+        // Reasons are the provider's vocabulary (bin_gone | unauthorized | invalid).
+        if (!r?.id) { skipped.push({ id: r?.id ?? null, reason: 'invalid' }); continue }
+        if (findById(store.binFiles, r.id)) { skipped.push({ id: r.id, reason: 'invalid' }); continue }
         const { online, ...row } = r
         store.binFiles.push(row) // the poster map is keyed by id and survives a remove
         restored.push(clone({ ...row, online: true }))

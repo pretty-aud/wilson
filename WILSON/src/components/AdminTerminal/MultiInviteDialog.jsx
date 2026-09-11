@@ -101,6 +101,20 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
     setDone(false)
     setProgress({ sent: 0, total: targets.length })
 
+    // Dev fixtures (dev builds only): invites are refused loudly, never sent.
+    // BEFORE the session read: tester mode has no session, so a guard below the
+    // token check is dead code (review round 2). 'failed' is the status this
+    // dialog renders and counts; anything else falls through to "Queued".
+    if (import.meta.env.DEV && devFixtures()) {
+      const refused = devWriteRefused('Inviting members')
+      setRows(prev => prev.map(r => (targets.some(t => t.email === r.email)
+        ? { ...r, status: 'failed', error: refused.message }
+        : r)))
+      setBusy(false)
+      setDone(true)
+      return
+    }
+
     const { data: sess } = await supabase.auth.getSession()
     if (!mountedRef.current) return
     const token = sess?.session?.access_token
@@ -113,14 +127,6 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
       return
     }
 
-    // Dev fixtures (dev builds only): invites are refused loudly, never sent.
-    if (import.meta.env.DEV && devFixtures()) {
-      const refused = devWriteRefused('Inviting members')
-      for (const target of targets) patchRow(target.email, { status: 'error', error: refused.message })
-      setBusy(false)
-      setDone(true)
-      return
-    }
     let sent = 0
     for (const target of targets) {
       if (!mountedRef.current) return
