@@ -136,14 +136,32 @@ that digits line up — and then left-aligned, which throws that away. You could
 not tell 9.8 MB from 98 MB without reading both. They are right-aligned with
 proper tabular figures now, along with both date columns.
 
-Separately: sorting by any column other than Name used to keep the tree
-indentation, even though the sort had just scrambled the parent/child order.
-So a file three levels deep would sit indented under an unrelated root folder,
-claiming a relationship that no longer existed. The indent now disappears the
-moment a sort or a filter makes it untrue.
+### The indentation, and one change I want you to rule on
 
-**What to check:** sort by Size. The indentation should flatten. Sort back by
-Name and it should come back.
+The table indents a file to show which folder it is in. That indent was a lie
+in every arrangement except one, and the page opened in a lying state.
+
+Under the hood the table was being re-sorted into a single flat alphabetical
+list of everything, at every depth — while each row kept the indent it had in
+the tree. So a file three levels down would sit indented under an unrelated
+root folder, claiming a parent it did not have. That was true when you sorted
+by Size, and it was true on arrival, because the default sort is by name.
+
+I fixed it by making the default view show the **tree order** — each folder,
+then the things inside it — which is what the indentation has always been
+drawing, and what you asked for ("something like windows explorer"). Sort by
+any other column, or by Name descending, and the indent disappears, because at
+that point it would be describing something that is no longer true.
+
+🚩 **This changes the order rows appear in on arrival.** They used to be one
+flat A-to-Z list; they are now folder-by-folder. I think that is right — an
+indent that does not match the order is broken either way, and losing the
+indent would lose the Explorer view you asked for. But it is a change to what
+the page shows, not just to how it looks, so **tell me if you would rather
+have the flat alphabetical list back**. If so, the indentation goes instead.
+
+**What to check:** open Files, pick a project, switch to Table. Files should
+sit under their folders. Sort by Size and the indentation should flatten.
 
 ---
 
