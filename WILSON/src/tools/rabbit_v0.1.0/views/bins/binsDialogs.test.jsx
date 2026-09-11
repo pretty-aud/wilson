@@ -1,20 +1,20 @@
 /** @vitest-environment jsdom */
 // =============================================================================
-// binsDialogs.test.jsx — every Bins dialog renders once on the promoted kit.
+// binsDialogs.test.jsx — every Bins dialog renders once.
 //
-// UI overhaul F1 moved binUi's primitives into src/ui and left binUi.jsx as
-// re-exports with the old names and props. This is the proof that the six
-// dialogs the Bins tab opens still mount, still register on the modal stack
-// (so the Bins keys stand down), and still answer Escape on the topmost one
-// only — the behaviours the Bins reviews earned (plan Q17: they keep them
-// while the rest of the app waits). The first React-mounting test of any
-// tool surface in the repo.
+// UI overhaul F1 promoted binUi's primitives into src/ui; Audrey ruled that
+// Bins keeps today's look until its own session (B6), so binUi.jsx carries
+// its local copies again and this test renders the six dialogs the Bins tab
+// opens against THEM: they mount, register on binUi's modal stack (so the
+// Bins keys stand down), and answer Escape on the topmost one only — the
+// behaviours the Bins reviews earned. When B6 re-points binUi at src/ui,
+// this file changes only its `overlayOpen` import. The first React-mounting
+// test of any tool surface in the repo.
 // =============================================================================
 
-import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
-import { overlayOpen, _resetOverlaysForTests } from '../../../../ui/overlay'
-import { Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
+import { overlayOpen, Btn, IconBtn, Modal, Menu, Toggle, Kbd, Chip, TextInput, Field, EmptyState, Spinner, C } from './binUi'
 import AddFilesDialog from './AddFilesDialog'
 import AssignToShotDialog from './AssignToShotDialog'
 import DeleteBinDialog from './DeleteBinDialog'
@@ -22,8 +22,8 @@ import RelinkBinsDialog from './RelinkBinsDialog'
 import TakePickerDialog from './TakePickerDialog'
 import { ShotTakesDialog } from './ShotTakesPanel'
 
+// binUi's modal stack empties as each dialog unmounts, which cleanup does.
 afterEach(cleanup)
-beforeEach(() => _resetOverlaysForTests())
 
 const bins = [
   { id: 'b1', name: 'Footage', parent_id: null, color: null },
