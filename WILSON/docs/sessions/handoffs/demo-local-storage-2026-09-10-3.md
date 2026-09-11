@@ -12,8 +12,10 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
 - Item: **local storage** for the Friday 2026-09-11 demo. The bin session
   runs in parallel on `demo/bins`; its latest hand-off is
   `demo-bins-2026-09-10-3.md`.
-- Branch `demo/local-storage`, pushed, head **`75de78e`**. **Integrated**:
-  `origin/feat/demo-2026-09-11` = `origin/demo/local-storage` = `75de78e`
+- Branch `demo/local-storage`, pushed. Last content commit **`1572670`**;
+  head at the last edit of this file **`493e91a`** (docs only after
+  `1572670`). **Integrated**: `origin/feat/demo-2026-09-11` =
+  `origin/demo/local-storage` = `493e91a`, verified by ls-remote at 22:57
   (verify with `git ls-remote origin refs/heads/demo/local-storage
   refs/heads/feat/demo-2026-09-11`; if they differ, merge
   `origin/feat/demo-2026-09-11` into the branch and re-push, plan §2 step 3).
@@ -101,7 +103,9 @@ Protocol: `docs/sessions/HANDOFF_PROTOCOL.md` §4 order below.
   runs" — on her checkout after `git pull --ff-only`. Not reported at
   writing. Her only report tonight was the Local-Server-default trap in a
   fresh test window (§5, not a defect).
-- CI run 34556119508 on `75de78e` in progress at writing (§2).
+- CI: `75de78e` green on a full run (§2); `3221544` and `493e91a` are docs-only
+  merges/commits after it — read them by SHA if a green mark on the exact
+  head is wanted.
 - Friday morning is fixes only (plan §0). Do not build the target model
   before the demo.
 
