@@ -11,9 +11,9 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readdirSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { dirname } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import * as kit from './index'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -68,5 +68,90 @@ describe('src/ui inventory', () => {
     }
     expect(kit.DIALOG_WIDTHS.confirm).toBe(400)
     expect(kit.STATUS.blocked.tone).toBe('danger')
+  })
+})
+
+// ── Every exported component has a CALLER, or is on a named list ───────────
+//
+// Plan §7's grep audit: "no exported src/ui/ component without a caller".
+// Plan risk 11: "The kit adds ~25 components at once; F2's worked-example page
+// and P1's grep make every one earn a caller." Ten features have shipped in
+// this repo with no caller at all, and `RelationBadge` is imported and never
+// rendered to this day — the defect is real and it is silent.
+//
+// 🚨 The test is not "every component has a caller" — four do not yet, and
+// three of those CANNOT get an honest one on F2's worked example without
+// inventing UI on it, which C1 forbids outright. So the test pins the
+// EXCEPTION LIST instead: a component may lack a caller only if it is named
+// here, with the lane that adopts it. The list can only shrink without
+// editing this file, so the gap is tracked rather than invisible, and P1's
+// grep has a baseline rather than a judgement call.
+describe('every exported component has a caller, or is on the list', () => {
+  // Adopting lane, from plan §5. A name leaves this list when its lane lands.
+  const AWAITING_A_CALLER = {
+    SectionTitle: 'D1 — Settings has nine copies of this pattern',
+    Panel:        'A1 / A3 / C1 — the five hand-rolled sidebars',
+    Drawer:       'A2 (D.O.G. settings slide-out) and B3 (EditHistoryDrawer, TL-24)',
+    Stat:         'B1 (the Summary band) and B2 (the four Tasks tiles)',
+  }
+
+  const root = resolve(here, '..')
+  const files = []
+  const walk = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name)
+      if (e.isDirectory()) { if (e.name !== 'ui') walk(p); continue }
+      if (/\.(js|jsx)$/.test(e.name) && !/\.test\.(js|jsx)$/.test(e.name)) files.push(p)
+    }
+  }
+  walk(root)
+
+  // What the app imports from the kit — from `src/ui`, from a single module,
+  // or through binUi's re-exports (Bins' callers are real callers).
+  const imported = new Set()
+  const IMPORT = /import\s*\{([^}]*)\}\s*from\s*'([^']*(?:\/ui(?:\/[A-Za-z]+)?|binUi))'/g
+  for (const f of files) {
+    const src = readFileSync(f, 'utf8')
+    for (const m of src.matchAll(IMPORT)) {
+      for (const raw of m[1].split(',')) {
+        const name = raw.trim().split(/\s+as\s+/)[0].trim()
+        if (name) imported.add(name)
+      }
+    }
+  }
+
+  // A caller INSIDE the kit counts, and is sometimes the right one: Toast is
+  // rendered by ToastProvider, and StatusDot by StatusBadge. Both are proven
+  // on a real screen through their wrapper, and giving either a second,
+  // direct caller on the worked example would be decoration.
+  for (const f of readdirSync(here)) {
+    if (!/\.(js|jsx)$/.test(f) || /\.test\./.test(f) || f === 'index.js') continue
+    const src = readFileSync(join(here, f), 'utf8')
+    for (const name of COMPONENTS) {
+      // The boundary matters: `<StatusDot` starts with `<Stat`, so a plain
+      // `includes` marked Stat as called by StatusBadge and hid a genuinely
+      // uncalled component behind a prefix.
+      if (new RegExp(`<${name}(?![A-Za-z0-9])`).test(src)) imported.add(name)
+    }
+  }
+
+  it('names every component that is exported but not yet called', () => {
+    const uncalled = COMPONENTS.filter((c) => !imported.has(c))
+    expect(uncalled.sort()).toEqual(Object.keys(AWAITING_A_CALLER).sort())
+  })
+
+  it('nothing sits on the list that actually has a caller', () => {
+    for (const name of Object.keys(AWAITING_A_CALLER)) {
+      expect(imported.has(name), `${name} has a caller now — take it off the list`).toBe(false)
+    }
+  })
+
+  it('the control: a name that is definitely called is definitely detected', () => {
+    // If the import scan silently matched nothing, both assertions above would
+    // pass by accident with every component "uncalled" — except that the first
+    // one would then fail. This pins the scan itself against a known caller.
+    expect(imported.has('Table'), 'the import scan found nothing at all').toBe(true)
+    expect(imported.has('PageHeader')).toBe(true)
+    expect(imported.size).toBeGreaterThan(15)
   })
 })

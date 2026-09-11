@@ -6,13 +6,12 @@ import { Toolbar } from './Toolbar'
 afterEach(cleanup)
 
 describe('Toolbar', () => {
-  it('is a toolbar with a left slot and, when given one, a right slot', () => {
+  it('has a left slot and, when given one, a right slot', () => {
     const { container } = render(
       <Toolbar right={<button type="button">Export</button>}>
         <button type="button">Invite</button>
       </Toolbar>,
     )
-    expect(screen.getByRole('toolbar')).not.toBeNull()
     const slots = container.querySelectorAll('.ui-toolbar-slot')
     expect(slots).toHaveLength(2)
     expect(slots[0].textContent).toBe('Invite')
@@ -30,6 +29,15 @@ describe('Toolbar', () => {
     expect(container.querySelector('.ui-toolbar').dataset.wrap).toBeUndefined()
     rerender(<Toolbar wrap>x</Toolbar>)
     expect(container.querySelector('.ui-toolbar').dataset.wrap).toBe('true')
+  })
+
+  // 🚨 F1 trap 10: a role promises a keyboard model. `toolbar` means
+  // arrow-key navigation with a roving tabindex, and there is none — and it
+  // may not own the `tablist` the worked example puts inside it.
+  it('claims no ARIA role it does not implement', () => {
+    const { container } = render(<Toolbar><button type="button">x</button></Toolbar>)
+    expect(container.querySelector('.ui-toolbar').getAttribute('role')).toBeNull()
+    expect(screen.queryByRole('toolbar')).toBeNull()
   })
 
   it('writes no inline style — its height and gutter are the stylesheet’s', () => {

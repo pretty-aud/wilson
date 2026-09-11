@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import {
   PAGES, PAGE_BY_ID, PAGE_IDS, PAGE_BARS, PAGE_TITLES, HOME_BAR_HEIGHT,
-  getPage, navPages,
+  getPage, navPages, validatePage,
 } from './pages'
 
 const here = dirname(fileURLToPath(import.meta.url))
@@ -151,51 +151,54 @@ describe('surface and chrome say what the page PAINTS today', () => {
   })
 })
 
-// ── The controls ────────────────────────────────────────────────────────────
+// ── The controls ─────────────────────────────────────────
 // The registry's whole promise is that an incomplete page throws instead of
-// falling back. These rebuild the validator over a fake list and prove each
-// rejection really fires — without them, "it validates" is unfalsifiable.
+// falling back. These build each incomplete page and prove the rejection
+// really fires.
+//
+// 🚨 They call `validatePage` FROM pages.js. An earlier cut of this file
+// re-implemented the validator here and asserted that the COPY threw, which
+// proves nothing about the source: every assertion survived any change to the
+// real function, including deleting it.
 describe('controls: an incomplete page really does throw', () => {
-  const SURFACES = ['dark', 'light']
-  const CHROMES = ['tool', 'page', 'none']
-  const NAVS = ['primary', 'resources']
-  // The same checks pages.js runs at module load, over one entry.
-  function validate(p) {
-    const at = `PAGES entry ${JSON.stringify(p.id ?? '(no id)')}`
-    if (!p.id || typeof p.id !== 'string') throw new Error(`${at}: needs a string id`)
-    if (!p.title || typeof p.title !== 'string') throw new Error(`${at}: needs a title`)
-    if (!p.bars || typeof p.bars.top !== 'string' || typeof p.bars.bottom !== 'string') {
-      throw new Error(`${at}: needs bars(top, bottom)`)
-    }
-    if (!SURFACES.includes(p.surface)) throw new Error(`${at}: surface`)
-    if (!CHROMES.includes(p.chrome)) throw new Error(`${at}: chrome`)
-    if (!NAVS.includes(p.nav)) throw new Error(`${at}: nav`)
-  }
-  const ok = { id: 'x', title: 'X', bars: { top: '1px', bottom: '1px' }, surface: 'light', chrome: 'page', nav: 'primary' }
+  const ok = Object.freeze({
+    id: 'x', title: 'X', bars: { top: '1px', bottom: '1px' },
+    surface: 'light', chrome: 'page', nav: 'primary',
+  })
 
-  it('accepts a complete page', () => {
-    expect(() => validate(ok)).not.toThrow()
+  it('accepts a complete page, and every real one', () => {
+    expect(() => validatePage(ok)).not.toThrow()
+    for (const p of PAGES) expect(() => validatePage(p), p.id).not.toThrow()
   })
 
   it('🚨 rejects the exact Files-page bug: registered, but with no bars', () => {
     const { bars, ...noBars } = ok
-    expect(() => validate(noBars)).toThrow(/needs bars/)
-    expect(() => validate({ ...ok, bars: {} })).toThrow(/needs bars/)
+    expect(() => validatePage(noBars)).toThrow(/needs bars/)
+    expect(() => validatePage({ ...ok, bars: {} })).toThrow(/needs bars/)
+    expect(() => validatePage({ ...ok, bars: { top: '1px' } })).toThrow(/needs bars/)
+    // …and the message names the page, so the failure says which one.
+    expect(() => validatePage({ ...ok, bars: null })).toThrow(/"x"/)
   })
 
-  it('rejects a missing title, a bad surface, a bad chrome and a bad nav', () => {
-    expect(() => validate({ ...ok, title: '' })).toThrow(/needs a title/)
-    expect(() => validate({ ...ok, surface: 'orange' })).toThrow(/surface/)
-    expect(() => validate({ ...ok, chrome: 'tools' })).toThrow(/chrome/)
-    expect(() => validate({ ...ok, nav: 'sidebar' })).toThrow(/nav/)
+  it('rejects a missing id or title, and a value off any of the four enums', () => {
+    expect(() => validatePage({ ...ok, id: '' })).toThrow(/needs a string id/)
+    expect(() => validatePage(undefined)).toThrow(/needs a string id/)
+    expect(() => validatePage({ ...ok, title: '' })).toThrow(/needs a title/)
+    expect(() => validatePage({ ...ok, surface: 'orange' })).toThrow(/surface/)
+    expect(() => validatePage({ ...ok, chrome: 'tools' })).toThrow(/chrome/)
+    expect(() => validatePage({ ...ok, nav: 'sidebar' })).toThrow(/nav/)
+    expect(() => validatePage({ ...ok, measure: 'wide' })).toThrow(/measure/)
+    // `measure` is the one field that is legitimately absent.
+    expect(() => validatePage({ ...ok, measure: null })).not.toThrow()
   })
 
-  it('the real module ran these at load — so the app cannot boot half-registered', () => {
-    // If the validator were ever commented out, the registry would still
-    // import fine and this file's other assertions would still pass. This is
-    // the one that notices.
+  it('runs at module load, so the app cannot boot half-registered', () => {
+    // If the CALL were removed, every assertion above would still pass:
+    // validatePage would be a function nobody runs. This is the one that
+    // notices, and it reads the source rather than trusting the import.
     const src = readFileSync(resolve(here, './pages.js'), 'utf8')
-    expect(src).toContain('for (const p of PAGE_LIST) {')
-    expect(src).toMatch(/throw new Error\(`\$\{at\}: needs bars/)
+    expect(src).toContain('PAGE_LIST.forEach(validatePage);')
+    expect(src.indexOf('PAGE_LIST.forEach(validatePage);'))
+      .toBeLessThan(src.indexOf('export const PAGES'))
   })
 })

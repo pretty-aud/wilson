@@ -184,15 +184,21 @@ const PAGE_LIST = [
 const SURFACES = ['dark', 'light'];
 const CHROMES = ['tool', 'page', 'none'];
 const NAVS = ['primary', 'resources'];
+const MEASURES = [null, 'data', 'reading'];
 
-// 🚨 Validation at module load. This is the build failure F32 asked for: an
-// incomplete page throws where it is written instead of rendering in Home's
-// chrome three weeks later. It runs in production too — it is a few string
-// comparisons once per boot, and a half-registered page is not a state the app
-// should be able to start in.
-for (const p of PAGE_LIST) {
-  const at = `PAGES entry ${JSON.stringify(p.id ?? '(no id)')}`;
-  if (!p.id || typeof p.id !== 'string') throw new Error(`${at}: needs a string id`);
+/**
+ * Throws unless `p` is a complete page. This is the build failure F32 asked
+ * for: an incomplete page throws where it is written instead of rendering in
+ * Home's chrome three weeks later.
+ *
+ * 🚨 EXPORTED so `pages.test.js` can build each incomplete page and prove each
+ * rejection really fires. A test that re-implements this function proves only
+ * that its own copy throws, and every such assertion survives any change to
+ * the real one.
+ */
+export function validatePage(p) {
+  const at = `PAGES entry ${JSON.stringify(p?.id ?? '(no id)')}`;
+  if (!p || !p.id || typeof p.id !== 'string') throw new Error(`${at}: needs a string id`);
   if (!p.title || typeof p.title !== 'string') throw new Error(`${at}: needs a title`);
   if (!p.bars || typeof p.bars.top !== 'string' || typeof p.bars.bottom !== 'string') {
     throw new Error(`${at}: needs bars(top, bottom) — the Files-page bug (F-R04) is exactly this`);
@@ -200,16 +206,16 @@ for (const p of PAGE_LIST) {
   if (!SURFACES.includes(p.surface)) throw new Error(`${at}: surface must be one of ${SURFACES}`);
   if (!CHROMES.includes(p.chrome)) throw new Error(`${at}: chrome must be one of ${CHROMES}`);
   if (!NAVS.includes(p.nav)) throw new Error(`${at}: nav must be one of ${NAVS}`);
-}
-if (new Set(PAGE_LIST.map((p) => p.id)).size !== PAGE_LIST.length) {
-  throw new Error('PAGES: duplicate id');
+  if (!MEASURES.includes(p.measure ?? null)) throw new Error(`${at}: measure must be one of ${MEASURES}`);
+  return p;
 }
 
-const MEASURES = [null, 'data', 'reading'];
-for (const p of PAGE_LIST) {
-  if (!MEASURES.includes(p.measure ?? null)) {
-    throw new Error(`PAGES entry "${p.id}": measure must be one of ${MEASURES}`);
-  }
+// Validation at module load. It runs in production too — a few string
+// comparisons once per boot, and a half-registered page is not a state the app
+// should be able to start in.
+PAGE_LIST.forEach(validatePage);
+if (new Set(PAGE_LIST.map((p) => p.id)).size !== PAGE_LIST.length) {
+  throw new Error('PAGES: duplicate id');
 }
 
 export const PAGES = Object.freeze(PAGE_LIST.map((p) => Object.freeze({

@@ -78,6 +78,7 @@ const VIEWS = [
   { key: 'user',    label: 'User' },
 ]
 const ROLE_LABELS = { admin: 'Admin', manager: 'Manager', user: 'User' }
+const ROSTER_PANEL_ID = 'tm-roster-panel'
 
 const DEFAULT_DEPARTMENTS = [
   'CG Art', 'Production', 'Creatives', 'Post', 'QA',
@@ -88,10 +89,20 @@ const DEFAULT_DEPARTMENTS = [
 // here rather than emerging from whichever cell happened to be longest. The
 // widths of the columns a view hides are never rendered; the browser
 // redistributes the remainder.
+// 🚨 These sum to 100% in the WIDEST view (Admin: every column, plus the 56px
+// action slot), which is the only view where the sum can be wrong. Declared
+// widths that add up to 112% are not declared at all — the browser reconciles
+// them and every column lands somewhere other than where it was written. The
+// narrower views come in under 100 and share the remainder, which is the
+// intended behaviour rather than a rounding accident.
+//
+// The floors matter as much as the shares: Department holds "Physical
+// Production" and Role holds "Manager" inside a <select>, and a <select> has
+// no `text-overflow` — it hard-clips mid-word instead of eliding.
 const COL = {
-  member: '20%', username: '9%', title: '12%', department: '10%',
-  pronouns: '7%', fullTime: '7%', role: '8%', email: '12%',
-  status: '8%', rate: '9%', projects: '10%', actions: '56px',
+  member: '18%', username: '9%', title: '12%', department: '12%',
+  pronouns: '7%', fullTime: '6%', role: '9%', email: '12%',
+  status: '7%', rate: '8%', projects: '9%', actions: '56px',
 }
 
 function formatMoney(value, currency) {
@@ -363,6 +374,7 @@ export default function TeamMembersPage() {
             <Eye className="tm-toolbar-glyph" aria-hidden="true" />
             <Tabs
               label="Saved views"
+              panelId={ROSTER_PANEL_ID}
               items={availableViews.map(v => ({ id: v.key, label: v.label }))}
               value={activeView}
               onChange={pickView}
@@ -407,38 +419,35 @@ export default function TeamMembersPage() {
         </span>
       </Toolbar>
 
-      <div className="tm-body">
+      {/* The region the saved-view tabs switch. `tabpanel` plus the id the
+          tabs point at with aria-controls, so the tablist is a promise the
+          page keeps rather than a role with nothing behind it. */}
+      <div
+        className="tm-body"
+        id={ROSTER_PANEL_ID}
+        role={availableViews.length > 1 ? 'tabpanel' : undefined}
+        aria-label={availableViews.length > 1 ? `${ROLE_LABELS[activeView] || activeView} view` : undefined}
+      >
         {pageError && <Banner tone="danger" Icon={AlertTriangle}>{pageError}</Banner>}
-        {adminError && (
-          <Banner
-            tone="danger"
-            Icon={AlertTriangle}
-            action={<IconButton icon={X} size="sm" title="Dismiss" onClick={() => setAdminError(null)} />}
-          >
-            {adminError}
-          </Banner>
-        )}
+        {/* No dismiss control: this strip did not have one, and adding one is
+            a new control (C1). It still clears on the next action, as before. */}
+        {adminError && <Banner tone="danger" Icon={AlertTriangle}>{adminError}</Banner>}
 
         {/* Loading and empty were the same picture in the same italic — which
             is the difference between "not yet" and "nothing here". */}
         {loading ? (
           <Loading rows={8} columns={7} label="Loading the roster" />
         ) : filtered.length === 0 ? (
+          // No action slot: the Invite control is in the toolbar directly
+          // above, and a second copy of it is a NEW control under C1 even
+          // though it would only do what the first one does.
           <EmptyState
             Icon={Users}
             title={wm.members.length === 0 ? 'No members yet' : 'No matches'}
             body={wm.members.length === 0
               ? 'Invite your first teammate to this workspace.'
               : 'No member matches the current search and filters.'}
-          >
-            {wm.members.length === 0 && (
-              <PermissionGate requires="member.invite">
-                <Button variant="primary" size="sm" onClick={() => setInviteOpen(true)}>
-                  <UserPlus aria-hidden="true" /> Invite user
-                </Button>
-              </PermissionGate>
-            )}
-          </EmptyState>
+          />
         ) : (
           // §B1 — "there is a white box and white header for the box that
           // doesnt fit the visual language." It was a #d6d3d1 frame around a
@@ -578,7 +587,10 @@ function MemberRow({
   const highlighted = !inactive && staffBadges.length > 0
   const who = member.display_name || member.username
   return (
-    <Row inactive={inactive} selected={highlighted}>
+    // `highlighted`, not `selected`: these rows carry a standing role, they
+    // are not a selection the user made, and the kit draws the two
+    // differently on purpose.
+    <Row inactive={inactive} highlighted={highlighted}>
       <Td>
         <span className="tm-member">
           <Avatar member={member} />
@@ -740,7 +752,7 @@ function RateCell({ entry, editable, onEdit }) {
     : <span className="tm-empty-value">{editable ? 'Set rate' : '--'}</span>
   if (!editable) return label
   return (
-    <button type="button" className="tm-cell-btn tm-rate-btn" onClick={onEdit} title="Edit rate card entry">
+    <button type="button" className="tm-cell-btn" onClick={onEdit} title="Edit rate card entry">
       {label}
     </button>
   )

@@ -71,13 +71,25 @@ export function Table({
 }
 
 /**
- * A row. `selected` is the one selected treatment (a fill plus a 2px signal
- * left edge); `interactive` marks a row whose whole surface is clickable, so
- * the hover fill and the pointer only appear where a click does something.
+ * A row.
+ *
+ *   selected     the ONE selected treatment: a fill plus a 2px signal left
+ *                edge. A real selection the user made.
+ *   highlighted  a row carrying a standing role (a producer, a director) —
+ *                a quiet wash and no edge. Deliberately NOT `selected`: a row
+ *                that looks selected and is not is worse than no marking.
+ *   interactive  the whole row is clickable, so the hover fill and the
+ *                pointer appear only where a click does something.
+ *   inactive     deactivated: the third ink, never an opacity (plan §3.1).
+ *
+ * 🚨 No `aria-selected`. It is not supported on `row` inside `role="table"`
+ * (only grid and treegrid), and this renders a plain <table>. Announcing a
+ * selection the table cannot own is worse than announcing none.
  */
 export function Row({
   children,
   selected = false,
+  highlighted = false,
   interactive = false,
   inactive = false,
   className = '',
@@ -87,9 +99,9 @@ export function Row({
     <tr
       className={`ui-tr ${className}`.trim()}
       data-selected={selected || undefined}
+      data-highlighted={highlighted || undefined}
       data-interactive={interactive || undefined}
       data-inactive={inactive || undefined}
-      aria-selected={selected || undefined}
       {...rest}
     >
       {children}

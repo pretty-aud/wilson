@@ -12,7 +12,12 @@
 // never needs a fill: on this frame a fill under small text has no legal ink
 // (C6).
 //
-//   items:  [{ id, label, count?, disabled? } | { separator: true }]
+//   items:    [{ id, label, count?, disabled? } | { separator: true }]
+//   panelId:  the id of the region these tabs switch. REQUIRED: the caller
+//             puts `role="tabpanel"` and that id on the region, and every tab
+//             points at it with `aria-controls`. Without it a screen reader
+//             announces "tab, 1 of 3, selected" and has nothing to navigate
+//             into — the role without the relationship it promises.
 //
 // A `{ separator: true }` entry is the group hairline, for a set large enough
 // that equal-weight peers become a Hick's-law problem on their own
@@ -34,9 +39,13 @@ export function Tabs({
   onChange,
   surface = 'dark',
   label = 'Views',
+  panelId = null,
   className = '',
   ...rest
 }) {
+  if (import.meta.env?.DEV && !panelId) {
+    console.error('Tabs: `panelId` is required — a tablist with no tabpanel announces "tab, 1 of 3" with nothing to move into. Give the region it switches role="tabpanel" and this id.')
+  }
   const ref = useRef(null)
 
   function onKeyDown(e) {
@@ -75,6 +84,7 @@ export function Tabs({
             role="tab"
             aria-selected={active}
             disabled={item.disabled || undefined}
+            aria-controls={panelId || undefined}
             className="ui-tab"
             data-active={active || undefined}
             data-surface={surface}

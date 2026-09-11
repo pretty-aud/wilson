@@ -29,9 +29,13 @@ describe('Panel', () => {
     }
   })
 
-  it('reports an off-scale width in dev rather than rendering it', () => {
+  // An off-scale width used to render `data-width="220px"`, which matches no
+  // rule — so the panel got NO width at all, and in a production build
+  // nothing said so. It falls back onto the scale and complains in dev.
+  it('falls back to the scale for an off-scale width, and says so in dev', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    render(<Panel width="220px">x</Panel>)
+    const { container } = render(<Panel width="220px">x</Panel>)
+    expect(container.querySelector('.ui-panel').dataset.width).toBe('md')
     expect(spy).toHaveBeenCalled()
     spy.mockRestore()
   })

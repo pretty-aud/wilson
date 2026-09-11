@@ -1150,8 +1150,18 @@ select option {
   /* One selected treatment: a fill plus a 2px signal edge on the first cell.
      `box-shadow: inset` rather than a border, so the row height is identical
      selected and not. */
-  .ui-tr[data-selected] > .ui-td { background-color: var(--color-signal-tint); }
+  /* 🚨 The selected fill has to out-specify the hover fill, or a selectable
+     AND clickable table (Files, Assets, Rate Card — lanes B4 and C1) loses
+     the selection the moment the pointer crosses the selected row. It was
+     (0,3,0) against hover's (0,4,0); the doubled attribute makes it (0,4,0)
+     and later in the sheet, so it wins both ways. */
+  .ui-tr[data-selected][data-selected] > .ui-td { background-color: var(--color-signal-tint); }
   .ui-tr[data-selected] > .ui-td:first-child { box-shadow: inset 2px 0 0 0 var(--color-signal); }
+  /* `highlighted` is NOT selection: it marks a row that carries a standing
+     role (a producer, a director). It gets a quiet wash and no edge, because
+     a row that looks selected and is not is worse than no marking at all. */
+  .ui-tr[data-highlighted] > .ui-td { background-color: var(--color-hover); }
+  .ui-table[data-surface="light"] .ui-tr[data-highlighted] > .ui-td { background-color: var(--color-hover-light); }
   /* Deactivated rows take the third ink, NEVER `opacity` (plan §3.1 — opacity
      as a state is what made "less important" mean "unreadable"). */
   .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
@@ -1173,8 +1183,11 @@ select option {
   .ui-toolbar-right { margin-left: auto; flex-shrink: 0; }
   /* ONE baseline: every child is the 28px control height. Only one of the
      three toolbars this replaces gave its controls a baseline to share. */
+  /* `Select` renders `.ui-input` too — one well, one height, whichever
+     control it is. There is no `.ui-select` class and this rule must not
+     pretend there is. */
   .ui-toolbar .ui-btn, .ui-toolbar .ui-iconbtn,
-  .ui-toolbar .ui-input, .ui-toolbar .ui-select, .ui-toolbar .ui-chip {
+  .ui-toolbar .ui-input, .ui-toolbar .ui-chip {
     height: var(--control-sm);
   }
 
@@ -1396,12 +1409,22 @@ select option {
     color: var(--color-ink);
   }
   .ui-stat[data-surface="light"] .ui-stat-value { color: var(--color-ink-light); }
+  /* 🚨 The tone rules that set `--status-color` are scoped to `.ui-status`
+     and `.ui-status-dot`, so reading the variable here resolved to the
+     fallback on EVERY delta and both tone props were inert — a state
+     extracted to a data attribute that no rule consumes, which is plan §1's
+     defect the other way round. The tones are declared here, on this
+     element, where they are read. */
   .ui-stat-delta {
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     font-variant-numeric: tabular-nums;
-    color: var(--status-color, var(--color-ink-3));
+    color: var(--color-ink-3);
   }
+  .ui-stat-delta[data-tone="signal"]  { color: var(--color-signal); }
+  .ui-stat-delta[data-tone="success"] { color: var(--color-success); }
+  .ui-stat-delta[data-tone="warning"] { color: var(--color-warning); }
+  .ui-stat-delta[data-tone="danger"]  { color: var(--color-danger); }
   /* On light, status colour is not drawn at all (plan §3.2: the greens and
      reds measure 1.4-3.1:1 on #f4a261), so a delta there is the one ink. */
   .ui-stat[data-surface="light"] .ui-stat-delta { color: var(--color-ink-light); }

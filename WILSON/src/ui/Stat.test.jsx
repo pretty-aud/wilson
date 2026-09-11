@@ -1,7 +1,12 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { Stat } from './Stat'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 
@@ -30,6 +35,22 @@ describe('Stat', () => {
     const d = container.querySelector('.ui-stat-delta')
     expect(d.dataset.tone).toBe('success')
     expect(d.getAttribute('style')).toBeNull()
+  })
+
+  // 🚨 The attribute above is only half the story, and it was the half that
+  // was right. The first cut read `var(--status-color)`, which is set ONLY by
+  // the `.ui-status` / `.ui-status-dot` tone rules — so every delta rendered
+  // the fallback ink and BOTH tone props were inert. A state extracted to a
+  // data attribute that no rule consumes is the same dead state as an inline
+  // style beating a class, written the other way round.
+  it('has a stylesheet rule for every tone it can emit', () => {
+    for (const tone of ['signal', 'success', 'warning', 'danger']) {
+      expect(css, tone).toContain(`.ui-stat-delta[data-tone="${tone}"]`)
+    }
+    // The control: the base rule must not resolve its colour through a
+    // variable that is scoped to another component's selectors.
+    const rule = css.slice(css.indexOf('.ui-stat-delta {'), css.indexOf('.ui-stat-delta[data-tone="signal"]'))
+    expect(rule).not.toContain('var(--status-color')
   })
 
   it('falls back to neutral for an unknown status rather than blanking', () => {

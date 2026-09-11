@@ -1,7 +1,12 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, afterEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
 import { Table, Th, Td, Row } from './Table'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 
@@ -67,8 +72,40 @@ describe('Table', () => {
     const rows = container.querySelectorAll('tbody .ui-tr')
     expect(rows[0].dataset.selected).toBeUndefined()
     expect(rows[1].dataset.selected).toBe('true')
-    expect(rows[1].getAttribute('aria-selected')).toBe('true')
     for (const r of rows) expect(r.getAttribute('style')).toBeNull()
+  })
+
+  // `aria-selected` is not supported on `row` inside `role="table"` — only in
+  // a grid or a treegrid — and this renders a plain <table>. Announcing a
+  // selection the table cannot own is worse than announcing none.
+  it('never writes aria-selected on a row', () => {
+    const { container } = basic()
+    for (const r of container.querySelectorAll('.ui-tr')) {
+      expect(r.getAttribute('aria-selected')).toBeNull()
+    }
+  })
+
+  // A standing role (a producer) is not a selection the user made, so it must
+  // not take the selection treatment. Two states, two attributes.
+  it('distinguishes a highlighted row from a selected one', () => {
+    const { container } = render(
+      <Table><Row highlighted><Td>Producer</Td></Row><Row selected><Td>Picked</Td></Row></Table>,
+    )
+    const [hi, sel] = container.querySelectorAll('.ui-tr')
+    expect(hi.dataset.highlighted).toBe('true')
+    expect(hi.dataset.selected).toBeUndefined()
+    expect(sel.dataset.selected).toBe('true')
+    expect(sel.dataset.highlighted).toBeUndefined()
+  })
+
+  // 🚨 The selected fill has to out-specify the hover fill, or a table that
+  // is both selectable and clickable loses its selection under the pointer.
+  it('keeps the selected fill on hover (specificity, not source order alone)', () => {
+    const sel = css.indexOf('.ui-tr[data-selected][data-selected] > .ui-td')
+    const hov = css.indexOf('.ui-tr[data-interactive]:hover > .ui-td')
+    expect(sel, 'the doubled-attribute selected rule is missing').toBeGreaterThan(-1)
+    // Equal specificity (0,4,0) and declared later, so it wins.
+    expect(sel).toBeGreaterThan(hov)
   })
 
   it('takes `dense` from the view and the light surface from the page', () => {

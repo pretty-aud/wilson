@@ -13,6 +13,13 @@
 // `wrap` exists for a strip that genuinely holds more than fits (the Files
 // explorer's six heterogeneous controls). It is opt-in because a toolbar that
 // wraps by default hides the fact that it is over-full.
+//
+// 🚨 NO `role="toolbar"`. The role promises arrow-key navigation with a roving
+// tabindex, and there is none — the same promise F1 refused to make for Menu
+// (hand-off §5 trap 10: "do not add the role before the keyboard model
+// exists"). It also may not own a `tablist`, which is exactly what the worked
+// example puts inside it. It is a plain container; its children are ordinary
+// tab stops, which is what they were before the kit existed.
 // =============================================================================
 
 export function Toolbar({ children, right, surface = 'dark', wrap = false, className = '', ...rest }) {
@@ -21,8 +28,7 @@ export function Toolbar({ children, right, surface = 'dark', wrap = false, class
       className={`ui-toolbar ${className}`.trim()}
       data-surface={surface}
       data-wrap={wrap || undefined}
-      role="toolbar"
-      {...rest}
+          {...rest}
     >
       <div className="ui-toolbar-slot">{children}</div>
       {right && <div className="ui-toolbar-slot ui-toolbar-right">{right}</div>}

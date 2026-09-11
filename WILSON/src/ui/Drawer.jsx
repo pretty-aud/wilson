@@ -24,7 +24,7 @@
 // backdrop is opt-in because the surfaces it replaces do not have one.
 // =============================================================================
 
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 const WIDTHS = ['sm', 'md', 'lg']
 
@@ -43,8 +43,12 @@ export function Drawer({
   className = '',
   ...rest
 }) {
-  const ref = useRef(null)
-  if (import.meta.env?.DEV && !WIDTHS.includes(width)) console.error(`Drawer: unknown width "${width}"`)
+  // An unknown width used to render data-width="220px", which matches no
+  // rule, so the element got NO width at all and nothing said so in a
+  // production build — the silent-wrong-answer shape the page registry
+  // next door exists to eliminate. It falls back to the scale.
+  const w = WIDTHS.includes(width) ? width : 'md'
+  if (import.meta.env?.DEV && w !== width) console.error(`Drawer: unknown width "${width}" — using "md"`)
 
   useEffect(() => {
     if (!open || !onClose) return undefined
@@ -73,10 +77,9 @@ export function Drawer({
         />
       )}
       <aside
-        ref={ref}
         className={`ui-drawer ${className}`.trim()}
         data-side={side}
-        data-width={width}
+        data-width={w}
         data-surface={surface}
         role="complementary"
         aria-label={label || (typeof title === 'string' ? title : 'Panel')}

@@ -1248,7 +1248,11 @@ export default function App() {
     // Build context
     let context = '\n\n--- CURRENT CONTEXT ---';
     context += `\n\nCURRENT WILSON PAGE: ${currentPage}`;
-    context += `\nAVAILABLE PAGES: Home, D.O.G. (Deck Outline Generator), O.T.T.E.R. (Learning Platform), R.A.B.B.I.T. (Resource Allocation, Budgeting & Breakdown Intake Tool), System Settings, Projects, Rate Card, Help`;
+    // 🚨 A FOURTH hand-kept list of page names lived here — it was missing
+    // four of the twelve pages and still said "System Settings" after Q7
+    // renamed it. It is the registry now, like the other three.
+    context += `
+AVAILABLE PAGES: ${PAGES.map(p => (p.subtitle ? `${p.title} (${p.subtitle})` : p.title)).join(', ')}`;
 
     // RABBIT knowledge snippet — appended when the user is on the
     // RABBIT page so the companion can field tool-specific questions

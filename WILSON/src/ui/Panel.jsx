@@ -23,11 +23,16 @@ export function Panel({
   className = '',
   ...rest
 }) {
-  if (import.meta.env?.DEV && !WIDTHS.includes(width)) console.error(`Panel: unknown width "${width}"`)
+  // An unknown width used to render data-width="220px", which matches no
+  // rule, so the element got NO width at all and nothing said so in a
+  // production build — the silent-wrong-answer shape the page registry
+  // next door exists to eliminate. It falls back to the scale.
+  const w = WIDTHS.includes(width) ? width : 'md'
+  if (import.meta.env?.DEV && w !== width) console.error(`Panel: unknown width "${width}" — using "md"`)
   return (
     <aside
       className={`ui-panel ${className}`.trim()}
-      data-width={width}
+      data-width={w}
       data-side={side}
       data-surface={surface}
       {...rest}

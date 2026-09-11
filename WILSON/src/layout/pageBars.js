@@ -63,9 +63,17 @@
 // degradation, not a second bug.
 // =============================================================================
 
-// Content the bars must never eat into. Home's 444px stack + 6vh of wrapper
-// padding + ~40px of slack, which is what turns "just barely fits" into
-// "obviously fits" on the machines Audrey actually uses.
+// Content the bars must never eat into. Home's 444px stack + the content
+// wrapper's padding + ~40px of slack, which is what turns "just barely fits"
+// into "obviously fits" on the machines Audrey actually uses.
+//
+// 📌 UI overhaul F2: that wrapper padding was `3vh 0` and is now a flat 24px
+// (plan §3.3, "nothing in vh" — 3vh was 27px at 900px tall and 21px at 700,
+// so the app's vertical rhythm changed with the window). 540 was derived
+// against 6vh, which is 54px at 900px and more above it, so the reserve is now
+// CONSERVATIVE rather than tight: Home fits with more room to spare than the
+// number was chosen for, never less. Left at 540 deliberately — lowering it
+// would give the bars back space this phase took from them for a reason.
 const CONTENT_RESERVE_PX = 540;
 
 // How far a bar may collapse, as a fraction of its own resting height.
