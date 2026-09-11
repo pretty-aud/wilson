@@ -26,17 +26,20 @@ while this session ran).
   - `bd24977`, `a7fda97`, `b49933a`, `4fd8e7c` docs: the walkthrough
     renumbered (26), the hand-off's first cut.
   - `6001cde` fix(dev): review round 1 — three HIGH, eight MEDIUM, five LOW.
-  - `9c25f46` docs: rate card captures re-taken after the tier fix.
-  - the round-2 commit and the integration merge follow — see
+  - `9c25f46`, `66b521f` docs: rate card captures re-taken after the tier
+    fix; the hand-off records round 1.
+  - `edb8633` fix(dev): review round 2 — the Multi-invite guard was inert,
+    plus four MEDIUM and six LOW.
+  - the integration merge and the closing docs commit follow — see
     `git log 720affb..HEAD`.
 - Integration into `feat/ui-overhaul`: **see the last lines of this file**
   ("Integrated"). If that line is missing, integrate per plan §6.3 first.
 
 ## 2. State, measured
 
-- vitest at `6001cde`: **128 files / 2399 tests**, green (baseline at
-  `720affb` with the seams applied and no new tests: 124 / 2348). New:
-  `src/dev/devFixtures.test.js` (8), `src/dev/fixtures/
+- vitest at `edb8633`: **128 files / 2400 tests**, green (baseline at
+  `720affb` with the seams applied and no new tests: 124 / 2348). New (52):
+  `src/dev/devFixtures.test.js` (9), `src/dev/fixtures/
   rabbitFixturesAdapter.contract.test.js` (17), `dataset.test.js` (13),
   `otterFixturesRoutes.test.js` (13).
 - `npx vite build` (production): passes; **eleven fixture strings grepped
@@ -104,7 +107,27 @@ tree-shaking of the nine static `devFixtures.js` imports and the badge,
 C9 and the `@theme` rule (the badge uses tokens only; the dataset's tints
 are row values), the `data:` avatar allowance, ids and the calendar.
 
-**Review round 2** (Opus, attacking round 1's corrections): pending.
+**Review round 2** (Opus, attacking round 1's corrections): fifteen of
+sixteen HOLD, verified against the code and the live server (the Profile
+row came back with 17 keys; both builds' six assets have identical content
+hashes; Vite's `isProduction` is `NODE_ENV === 'production'` and nothing
+in `vite.config.js` or any `.env*` can flip it; the vocabulary extractors
+return the full lists — 9/4/11/16/22/9/23/4/5). One INCOMPLETE: the
+Multi-invite guard sat BELOW the session read, so in tester mode (no
+session) "Session expired" returned first and the guard was dead — and it
+wrote a status the dialog does not render. Fresh: the legacy model-pref
+migration fired a refusal per pref at boot and then marked itself done for
+the browser profile; the model pickers were empty (the localStorage
+catalogue cache is empty by construction in a never-signed-in profile);
+`adminUserSecurity` is a read and was toasting a refusal that named the
+Edge Function slug. Six LOW (remove-avatar's missing "Saved" and dropped
+error, `skipped` reasons outside the provider's vocabulary, 12 of 16 shots
+with no movement, non-exact list lengths, the seam test not proving order,
+and two notes for other lanes — §6). All fixed in `edb8633`; the seam
+test now proves the guard PRECEDES the network call in the three files
+that make one, with a control. The reviewer drove every write seam
+against the app's live module instances: every writer refused or landed
+in memory, 0 Supabase requests, 0 non-localhost WebSockets.
 
 Integrated: (filled in at the end of the session — last lines of this file.)
 
@@ -189,6 +212,28 @@ Nothing uncommitted at hand-off.
     1440x900 emulated, `ref` clicks landed elsewhere and coordinate clicks
     near the O.T.T.E.R. tab bar hit the neighbouring tab. Reset to
     `desktop` before clicking, and prefer the tests for shape claims.
+19. **A guard below a token check is dead in tester mode.** There is no
+    session, so `if (!token) return` wins first. Put a fixtures guard
+    BEFORE the session read, and pin the order in a test (the seam test
+    now does, for the three files that make a network call).
+20. **A status word outside the component's own vocabulary is a silent
+    refusal.** `status: 'error'` in a dialog that knows
+    `queued | sending | ok | failed` rendered as "Queued" with no message.
+    Read the renderer before writing a state into it.
+21. **Anything that runs on `authed` runs under the fixtures.** The
+    legacy model-pref migration did, refused every pref, and then marked
+    itself done for the browser profile. A boot-time job that writes must
+    be skipped under the fixtures, not refused.
+22. **A cache is not a fallback for a profile that never had it.** The
+    model pickers answered from a localStorage catalogue that a
+    never-signed-in profile does not hold. The fixtures answer from the
+    registry's built-in floors instead — and no model id may be written
+    outside `src/lib/aiModels.js` (`noHardcodedModels.test.js` caught the
+    first cut).
+23. **A read is never refused.** A toast on `adminUserSecurity` (a read)
+    was wrong by the bundle's own rule; reads that cannot work answer
+    quietly as capability gaps (`fileUrl` null, the security panel's
+    sentence).
 
 ## 6. Waiting on Audrey
 
@@ -197,6 +242,11 @@ Nothing uncommitted at hand-off.
   to review against). Nothing blocks on them.
 - Lane B notes from traps 11 and 12 (files table shape on the Summary; the
   $0 budget tile) are hers to route — they predate this bundle.
+- Two more notes for other lanes, from round 2, neither changed here: the
+  video viewer's null-URL sentence names "your own bucket" (the s3 copy;
+  `VideoPreview.jsx`, lane B), and the Profile Department select does not
+  union the row's own department the way Team Members does (lane D1) —
+  harmless today only because the fixture reviewer is in Production.
 
 ## 7. Next session's first three steps
 
