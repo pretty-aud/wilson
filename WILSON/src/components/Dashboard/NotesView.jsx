@@ -49,7 +49,8 @@ import {
 import { useNotes } from './useNotes'
 import { u8ToB64, b64ToU8, saveWithMerge, toPreview } from './noteSync'
 import {
-  Badge, Banner, Button, EmptyState, IconButton, Input, Loading, Select,
+  Badge, Banner, Button, Dialog, EmptyState, IconButton, Input, Loading,
+  Select,
 } from '../../ui'
 import './dashboard.css'
 
@@ -89,6 +90,8 @@ export default function NotesView() {
   const [groupKey, setGroupKey] = useState('none') // none | subject | month
   const [subjectFilter, setSubjectFilter] = useState('')
   const [manageSubjects, setManageSubjects] = useState(false)
+  // The note the delete Dialog is asking about (W9). Null when it is closed.
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const visible = useMemo(() => {
     let rows = nb.notes
@@ -135,14 +138,11 @@ export default function NotesView() {
     } catch { /* surfaced via nb.error */ }
   }, [nb])
 
+  // W9, ruled 2026-09-11: every `window.confirm` in the app becomes the kit
+  // Dialog, each lane converting its own as it passes. The warning this one
+  // carries is not boilerplate — notes have no trash and no history — so the
+  // copy is kept word for word and the button takes the danger variant.
   const handleDelete = useCallback(async (id) => {
-    // 🚨 Still `window.confirm`. Review D30 asks for the kit's Dialog, but the
-    // task view's confirm cannot move — its false return is a synchronous
-    // contract with TaskDetailPopup, which belongs to lane B2 — and swapping
-    // one of the surface's two destructive confirms while leaving the other
-    // reinstates exactly the inconsistency D19/D30 names. Both move together,
-    // with B2. Copy unchanged.
-    if (!window.confirm('Delete this note permanently? Notes have no trash.')) return
     try {
       await nb.deleteNote(id)
       setSelectedId(cur => (cur === id ? null : cur))
@@ -291,7 +291,7 @@ export default function NotesView() {
             key={selected.id}
             note={selected}
             nb={nb}
-            onDelete={() => handleDelete(selected.id)}
+            onDelete={() => setConfirmDeleteId(selected.id)}
           />
         ) : (
           <EmptyState
@@ -301,6 +301,31 @@ export default function NotesView() {
           />
         )}
       </div>
+
+      {confirmDeleteId && (
+        <Dialog
+          width="confirm"
+          title="Delete this note permanently?"
+          onClose={() => setConfirmDeleteId(null)}
+          footer={(
+            <>
+              <Button onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  const id = confirmDeleteId
+                  setConfirmDeleteId(null)
+                  handleDelete(id)
+                }}
+              >
+                Delete note
+              </Button>
+            </>
+          )}
+        >
+          Notes have no trash.
+        </Dialog>
+      )}
     </div>
   )
 }

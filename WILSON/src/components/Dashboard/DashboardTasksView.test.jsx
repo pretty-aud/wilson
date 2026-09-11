@@ -17,7 +17,7 @@
 // =============================================================================
 
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { render, screen, cleanup, within } from '@testing-library/react'
+import { render, screen, cleanup, within, fireEvent } from '@testing-library/react'
 
 // The Supabase client is constructed at module load and throws
 // 'supabaseUrl is required' without a .env.local, which is every CI run
@@ -26,9 +26,26 @@ vi.mock('../../cloud/auth/supabaseClient', () => ({
   supabase: {},
   hydrateSupabase: async () => {},
 }))
-// RABBIT's, 680 lines, and not this session's to mount (review D31).
+// RABBIT's, 680 lines, and not this session's to mount (review D31). The
+// stand-in reproduces the ONE thing the real popup does with this session's
+// ctx that matters: it calls `ctx.deleteTask(id)` and reads the return value,
+// closing itself unless the answer is exactly `false`
+// (TaskDetailPopup.jsx:568). `vetoed` records that answer so the test can
+// assert the contract rather than the implementation.
+const vetoed = vi.hoisted(() => ({ value: null, closed: false }))
 vi.mock('../../tools/rabbit_v0.1.0/components/TaskDetailPopup', () => ({
-  default: () => null,
+  default: ({ taskId, ctx, onClose }) => (
+    <button
+      type="button"
+      data-testid="popup-delete"
+      onClick={() => {
+        vetoed.value = ctx.deleteTask(taskId)
+        if (vetoed.value !== false) { vetoed.closed = true; onClose() }
+      }}
+    >
+      Delete task
+    </button>
+  ),
 }))
 
 const myTasks = vi.hoisted(() => ({ current: null }))
@@ -253,5 +270,60 @@ describe('C1: the control count is unchanged', () => {
     expect(sep).not.toBeNull()
     expect(sep.getAttribute('aria-hidden')).toBe('true')
     expect(sep.tagName).toBe('SPAN')
+  })
+})
+
+describe('W9: the native confirm became the kit Dialog, and the veto survived', () => {
+  const openPopupAndDelete = () => {
+    const r = mount()
+    // open a task, then press the popup's delete
+    fireEvent.click(r.container.querySelector('td.dash-cell-title').closest('tr'))
+    vetoed.value = null
+    vetoed.closed = false
+    fireEvent.click(screen.getByTestId('popup-delete'))
+    return r
+  }
+
+  it('🚨 the ctx callback still answers `false` synchronously, so the popup stays open', () => {
+    openPopupAndDelete()
+    expect(vetoed.value).toBe(false)
+    expect(vetoed.closed).toBe(false)
+    // …and the popup is still mounted behind the dialog.
+    expect(screen.queryByTestId('popup-delete')).not.toBeNull()
+  })
+
+  it('raises a confirm Dialog instead of window.confirm', () => {
+    const { container } = openPopupAndDelete()
+    const dialog = container.querySelector('.ui-dialog') || document.querySelector('.ui-dialog')
+    expect(dialog, 'a Dialog is on screen').not.toBeNull()
+    expect(screen.getByText('Delete this task?')).toBeTruthy()
+    // The warning the old confirm string carried is still said.
+    expect(document.body.textContent).toMatch(/30-day trash/)
+    expect(document.body.textContent).toMatch(/admin can restore/i)
+  })
+
+  it('cancel deletes nothing and leaves the popup open, as a cancelled confirm did', () => {
+    openPopupAndDelete()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(myTasks.current.deleteTask).not.toHaveBeenCalled()
+    expect(screen.queryByTestId('popup-delete')).not.toBeNull()
+    expect(screen.queryByText('Delete this task?')).toBeNull()
+  })
+
+  it('confirm deletes the task and closes the popup — what the old `true` return did', () => {
+    openPopupAndDelete()
+    // Scoped to the dialog: the popup's own trigger says "Delete task" too,
+    // which is correct on screen (two layers) and ambiguous to a query.
+    const dialog = document.querySelector('.ui-dialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete task' }))
+    expect(myTasks.current.deleteTask).toHaveBeenCalledWith('t1')
+    expect(screen.queryByTestId('popup-delete')).toBeNull()
+  })
+
+  it('🚨 no window.confirm survives on this surface', () => {
+    const spy = vi.spyOn(window, 'confirm')
+    openPopupAndDelete()
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
   })
 })

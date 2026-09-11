@@ -48,8 +48,8 @@ import {
   priorityTone, fmt, statusLabel, myRoleOnTask,
 } from './dashboardTaskModel'
 import {
-  Badge, Banner, Button, Card, Chip, EmptyState, IconButton, Input, Loading,
-  Row, Select, StatusDot, Table, Td, Th, Toolbar,
+  Badge, Banner, Button, Card, Chip, Dialog, EmptyState, IconButton, Input,
+  Loading, Row, Select, StatusDot, Table, Td, Th, Toolbar,
 } from '../../ui'
 import './dashboard.css'
 
@@ -153,6 +153,8 @@ export default function DashboardTasksView() {
   const [sortDir, setSortDir] = useState('asc')
   const [groupBy, setGroupBy] = useState('status')
   const [detailTaskId, setDetailTaskId] = useState(null)
+  // The task the delete Dialog is asking about (W9). Null when it is closed.
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   const processed = useMemo(
     () => applyTaskSort(
@@ -220,22 +222,17 @@ export default function DashboardTasksView() {
       updateTask: (id, patch) => { mt.patchTask(id, patch).catch(() => {}) },
       deleteTask: (id) => {
         // No undo toast outside the open project — confirm instead (v1).
-        // Returning false tells the popup the delete was declined so it
-        // keeps the popup open (review finding M7).
         //
-        // 🚨 STILL `window.confirm`, deliberately. Review D30 asks for the
-        // kit's Dialog and the plan wants `window.confirm` gone app-wide, but
-        // this callback is SYNCHRONOUS and its false return is the contract
-        // TaskDetailPopup depends on to stay open. A Dialog is asynchronous,
-        // so honouring it means changing a component this session does not
-        // own (RABBIT, lane B2). Swapping only the note's confirm and leaving
-        // this one would reinstate the very inconsistency D19/D30 names.
-        // Filed for B2 in the C2 hand-off; the copy below is unchanged.
-        if (!window.confirm('Delete this task? (30-day trash, admins can restore)')) {
-          return false
-        }
-        mt.deleteTask(id).catch(() => {})
-        return true
+        // 🚨 THE SYNCHRONOUS VETO IS THE CONTRACT, AND IT IS PRESERVED.
+        // TaskDetailPopup calls this and reads the return VALUE:
+        // `if (ctx?.deleteTask?.(task.id) !== false) onClose()`. A Dialog is
+        // asynchronous, so W9's conversion works by always returning false —
+        // "not deleted, keep yourself open" — and raising the Dialog, which
+        // then closes the popup itself if the person confirms. Cancel leaves
+        // the popup open, which is exactly what a cancelled window.confirm
+        // did. TaskDetailPopup is RABBIT's file and is not touched.
+        setConfirmDeleteId(id)
+        return false
       },
     }
   }, [detailTask, mt])
@@ -401,6 +398,39 @@ export default function DashboardTasksView() {
           ctx={popupCtx}
           onClose={() => setDetailTaskId(null)}
         />
+      )}
+
+      {/* W9, ruled 2026-09-11: "convert the four native confirm pop-ups",
+          extended to every `window.confirm` in the app, each lane converting
+          its own as it passes. The copy is the confirm's, word for word, so
+          the only thing that changed is which surface asks. */}
+      {confirmDeleteId && (
+        <Dialog
+          width="confirm"
+          title="Delete this task?"
+          onClose={() => setConfirmDeleteId(null)}
+          footer={(
+            <>
+              <Button onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  const id = confirmDeleteId
+                  setConfirmDeleteId(null)
+                  mt.deleteTask(id).catch(() => {})
+                  // The popup stayed open behind the Dialog because the ctx
+                  // callback vetoed; closing it here is what the old `true`
+                  // return used to make TaskDetailPopup do.
+                  setDetailTaskId(null)
+                }}
+              >
+                Delete task
+              </Button>
+            </>
+          )}
+        >
+          It goes to the 30-day trash, and an admin can restore it.
+        </Dialog>
       )}
     </div>
   )
