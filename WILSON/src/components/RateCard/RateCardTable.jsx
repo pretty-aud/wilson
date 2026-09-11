@@ -2,7 +2,8 @@
 // RateCardTable — editable rate card entries grid
 // ============================================================
 //
-// Columns: Role · Dept · Wage · Burden · Overhead · Total · Curr · Region · Tier · Actions
+// Columns: Role · Dept · Hourly · Day · Burden · Overhead · Total · Curr ·
+//          Region · Tier · Actions
 //
 // Groups entries by department with collapsible sections.
 // Department group headers include editable default burden% and overhead%.
@@ -17,13 +18,94 @@
 // When null, the department default kicks in (shown as "dept X%").
 //
 // Total = wage + burden_amount + overhead_amount (computed, read-only).
+//
+// ── UI overhaul C1 ───────────────────────────────────────────────────────────
+//
+// Every one of the eleven columns, all six inline editors, both branches of
+// each of them, the ghost rows, the draft row, the collapse, the department
+// defaults in both places and Escape-reverts-the-edit are exactly what they
+// were. The review's own note: "The interaction is right; only its typography
+// and hit targets are wrong."
+//
+//  · THE WORST ALIGNMENT DEFECT ON THE SURFACE IS FIXED. `th` padded 6px 4px,
+//    `td` padded 1px 2px, and every inner control added its own 8px or 4px —
+//    so in an ELEVEN-column financial grid each column label sat 6px left of
+//    its own data, and the row height came from `EditCell`'s `minHeight: 28px`
+//    rather than from the row. The kit `Table` owns the 8px/12px cell on both
+//    `th` and `td`; every control below is padded to ZERO horizontally and
+//    fills its cell; the row declares `--row` (36px) and the head 32px.
+//
+//    Measured, because an earlier cut of this file asserted 36 and rendered
+//    63: a `--control-sm` toggle stacked above the derived amount inside an
+//    8px-padded cell. The toggle is 20px and the derived amount sits beside
+//    the value, so a burden cell no longer sets the row's height. What does
+//    set it is the row-actions slot — a 28px icon button plus the cell's 16px
+//    of vertical padding is 44 — so these rows render at 45px, which is what
+//    EVERY kit table row holding a `sm` control renders at, Team Members
+//    included. The declared 36px is the floor, not the outcome; that tension
+//    between `--row` and `--control-sm` + `--cell-pad-y` is the kit's and is
+//    recorded in the hand-off.
+//
+//  · THE STICKY HEADER HAS A REGION. `th` painted bare `#f4a261`, identical to
+//    the page, so rows scrolled THROUGH the header text. `paper-raised`
+//    (F-R35).
+//
+//  · THE DIVIDER WAS `#fed7aa`, a near-white peach on an orange page (C9).
+//
+//  · THE %/$ TOGGLE HAS A TARGET. It was 9px at `opacity: 0.45` in roughly a
+//    16x14px hit area, 2px from a different action, on every row — and the
+//    mis-click silently changes a rate from a percentage to a dollar amount on
+//    a financial record. Both controls stay and both behaviours stay; the
+//    toggle takes a reserved 28px slot at the cell's right edge, 8px clear of
+//    the value, at the Label step in full-strength ink (F-R21). The editing
+//    branch was already sized correctly, so the two states finally match.
+//
+//  · THE ROW ACTIONS ARE A RESERVED, FIXED-WIDTH SLOT, so the column cannot
+//    shift when a row is a ghost or the grant is view-only. They stay VISIBLE
+//    at rest: they were visible before, and hiding a control that was not
+//    hidden is what C1 calls a disclosure. Hick's #4 is answered by the
+//    toggle's reserved slot and the one cell inset, not by hiding two icons.
+//
+//  · THERE IS A SUMMARY ROW, AND IT IS AN AVERAGE, NOT A SUM.
+//
+//    The plan's bundle line asks for "totals rows", which it inherits from the
+//    money-table prescription written for BudgetView. A budget is a bill and
+//    its column sums to something real. A rate card is a PRICE LIST: adding a
+//    producer's day rate to an editor's day rate produces a figure that is
+//    true only if every role on the card works exactly one day, which is the
+//    same fabricated-number defect this overhaul removed from O.T.T.E.R.'s
+//    progress readout (Q22). The first cut of this file summed anyway, and an
+//    adversarial review was right to say so.
+//
+//    What IS true of a price list is what a rate costs on average and how many
+//    rates that covers, so the row says that. It is PER CURRENCY — these rows
+//    can carry several, and one figure across them is true of nothing either.
+//
+//    It sits at the end of the body rather than in a `<tfoot>`, because the
+//    shared Table has no footer slot; that is a kit request in the hand-off.
+//    Flagged for Audrey in the walkthrough: an average is this session's
+//    reading of "totals row" for this particular table, not her ruling.
+//
+//  · MONO KEEPS THE FIGURES AND LOSES EVERYTHING ELSE. The surface was mono
+//    throughout, including role labels and department names (F-R18/Q4).
+//
+// 🚨 THE GHOST BRANCH IS LOAD-BEARING. Ghost rows, the draft row and the
+// department-default editors all write through `handleUpdate`, and a restyle
+// that changed which element receives the click could convert a ghost row into
+// a real entry on a stray click — a write to a financial record (review Risk
+// 8). No cell was wrapped in anything clickable: the row is not `interactive`,
+// and every editor is the same <button> or <input> it already was.
+// ============================================================
 
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Trash2, Copy, Plus, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { CURRENCIES } from '../settings/CurrencyPicker'
 import { DEFAULT_DEPARTMENTS } from '../TeamMembers/useTeamMembers'
 import { computeEntryTotal, BUDGET_TIERS } from './useRateCard'
-import { LIGHT_INK, LIGHT_RULE, LIGHT_WELL, LIGHT_SURFACE_SOLID } from '../lightSurface'
+import {
+  Card, EmptyState, HoverActions, IconButton, Row, Table, Td, Th,
+} from '../../ui'
+import '../Resources/resources.css'
 
 const DEPT_ORDER = Object.fromEntries(DEFAULT_DEPARTMENTS.map((d, i) => [d, i]))
 
@@ -51,6 +133,10 @@ function parseNumeric(input) {
 }
 
 // ─── Inline editable cell ───
+// TWO returned branches, and the EDITING one is what the user looks at while
+// typing — converting only the display branch leaves the editor unstyled
+// (review Risk 1). Both are named classes; both are zero-inset and full-width,
+// so the cell does not move when it opens.
 function EditCell({
   value, onCommit, placeholder, align = 'left',
   mono = false, numeric = false, currency, readOnly = false,
@@ -90,11 +176,13 @@ function EditCell({
         onChange={e => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={e => {
+          // Escape reverts the edit; Enter commits. Kept exactly (F-R08).
           if (e.key === 'Enter') { e.preventDefault(); commit() }
           else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
         }}
-        className={`w-full px-2 py-1.5 text-xs rounded-sm focus:ring-2 focus:ring-orange-500 ${mono ? 'font-mono' : ''}`}
-        style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: align }}
+        className="rc-cell-input"
+        data-align={align}
+        data-numeric={mono || numeric || undefined}
       />
     )
   }
@@ -103,17 +191,19 @@ function EditCell({
     <button
       type="button"
       onClick={start}
-      className={`w-full px-2 py-1.5 text-xs rounded-sm transition-colors ${readOnly ? 'cursor-default' : 'hover:bg-orange-900/10'} ${mono ? 'font-mono' : ''}`}
-      style={{ color: LIGHT_INK, textAlign: align, minHeight: '28px' }}
+      className="rc-cell"
+      data-align={align}
+      data-numeric={mono || numeric || undefined}
+      data-readonly={readOnly || undefined}
     >
-      {display || <span style={{ color: '#7c2d12', opacity: 0.4 }}>{placeholder || '—'}</span>}
+      {display || <span className="rc-cell-placeholder">{placeholder || '—'}</span>}
     </button>
   )
 }
 
 // ─── Burden / Overhead cell ───
-// Shows value + type toggle (% / $) + computed amount.
-// When null and dept default exists, shows the default indicator.
+// Value + a type toggle (% / $) + the computed amount. When null and a dept
+// default exists, shows the default indicator.
 function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType, currency, deptPct, readOnly = false }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -141,9 +231,25 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
     }
   }
 
+  // The toggle is the SAME slot in both branches, which is what makes the
+  // display and editing states finally line up (F-R21). Its size is set in
+  // CSS at 20px rather than the 28px control token, so that giving it a real
+  // target does not also make the densest table on the surface 63px per row —
+  // see the note on `.rc-comp-type` in `resources.css`.
+  const toggle = (
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); onToggleType() }}
+      className="rc-comp-type"
+      title={`Switch to ${isPercent ? 'a fixed amount' : 'a percentage'}`}
+    >
+      {isPercent ? '%' : '$'}
+    </button>
+  )
+
   if (editing) {
     return (
-      <div className="flex items-center gap-1">
+      <div className="rc-comp">
         <input
           ref={ref}
           type="text"
@@ -154,54 +260,36 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
-          className="flex-1 w-0 px-2 py-1 text-xs font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
+          className="rc-cell-input rc-comp-value"
+          data-align="right"
+          data-numeric
         />
-        <button
-          type="button"
-          onClick={e => { e.stopPropagation(); onToggleType() }}
-          className="px-1.5 py-1 text-[10px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
-          style={{ color: '#7c2d12', border: `1px solid ${LIGHT_RULE}` }}
-        >
-          {isPercent ? '%' : '$'}
-        </button>
+        {toggle}
       </div>
     )
   }
 
   return (
-    <div className="flex flex-col items-end min-h-[28px] justify-center">
-      <div className="flex items-center gap-0.5">
+    <>
+      <div className="rc-comp">
         <button
           type="button"
           onClick={start}
-          className="px-2 py-0.5 text-xs font-mono rounded-sm hover:bg-orange-900/10 transition-colors text-right"
-          style={{ color: LIGHT_INK }}
+          className="rc-cell rc-comp-value"
+          data-align="right"
+          data-numeric
+          data-readonly={readOnly || undefined}
         >
           {hasValue
             ? (isPercent ? `${value}%` : formatCurrency(value, currency))
-            : (usingDeptDefault
-              ? <span style={{ fontSize: '10px' }}>dept {deptPct}%</span>
-              : '—'
-            )
-          }
+            : (usingDeptDefault ? `dept ${deptPct}%` : '—')}
         </button>
-        <button
-          type="button"
-          onClick={onToggleType}
-          className="px-1 py-0.5 text-[9px] font-bold font-mono rounded-sm hover:bg-orange-100 flex-shrink-0"
-          style={{ color: '#7c2d12', opacity: 0.45, lineHeight: 1 }}
-          title={`Switch to ${isPercent ? 'fixed $' : 'percent'}`}
-        >
-          {isPercent ? '%' : '$'}
-        </button>
+        {toggle}
       </div>
       {computedAmount > 0 && (
-        <span className="text-[9px] font-mono pr-5" style={{ color: LIGHT_INK }}>
-          = {formatCurrency(computedAmount, currency)}
-        </span>
+        <span className="rc-comp-derived">= {formatCurrency(computedAmount, currency)}</span>
       )}
-    </div>
+    </>
   )
 }
 
@@ -228,29 +316,24 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
     : CURRENCIES
 
   return (
-    <div className="relative" ref={wrapRef}>
+    <div className="rc-currency" ref={wrapRef}>
       <button
         type="button"
         onClick={() => { if (!readOnly) setOpen(o => !o) }}
-        className="w-full px-1 py-1.5 text-[10px] font-mono rounded-sm hover:bg-orange-900/10 transition-colors flex items-center justify-center gap-0.5"
-        style={{ color: '#1c1917', minHeight: '28px' }}
+        className="rc-currency-face"
       >
-        <span style={{ color: '#7c2d12' }}>{current.symbol}</span>
+        <span className="rc-currency-symbol">{current.symbol}</span>
         <span>{current.code}</span>
       </button>
       {open && (
-        <div
-          className="absolute z-50 mt-1 right-0 w-48 max-h-64 overflow-auto rounded-sm shadow-xl"
-          // Floating dropdown — must be OPAQUE or the grid shows through it.
-        style={{ backgroundColor: LIGHT_SURFACE_SOLID, border: `2px solid ${LIGHT_INK}` }}
-        >
+        // A floating list must be OPAQUE or the grid shows through it.
+        <div className="rc-currency-menu">
           <input
             type="text"
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            placeholder="Search..."
-            className="w-full px-3 py-2 text-xs font-mono"
-            style={{ borderBottom: '1px solid #f4a261', color: '#1c1917' }}
+            placeholder="Search"
+            className="rc-currency-search"
             autoFocus
           />
           {filtered.map(c => (
@@ -258,17 +341,15 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
               key={c.code}
               type="button"
               onClick={() => { onCommit(c.code); setOpen(false) }}
-              className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs font-mono hover:bg-orange-900/10 transition-colors"
-              style={{ color: c.code === current.code ? '#ea580c' : '#1c1917' }}
+              className="rc-currency-option"
+              data-current={c.code === current.code || undefined}
             >
-              <span className="w-6" style={{ color: '#7c2d12' }}>{c.symbol}</span>
-              <span className="w-10">{c.code}</span>
-              <span className="truncate" style={{ color: '#7c2d12', opacity: 0.7 }}>{c.label}</span>
+              <span className="rc-currency-symbol">{c.symbol}</span>
+              <span className="rc-currency-code">{c.code}</span>
+              <span className="rc-currency-label">{c.label}</span>
             </button>
           ))}
-          {filtered.length === 0 && (
-            <div className="px-3 py-2 text-xs font-mono" style={{ color: '#7c2d12', opacity: 0.7 }}>No matches.</div>
-          )}
+          {filtered.length === 0 && <div className="rc-currency-empty">No matches.</div>}
         </div>
       )}
     </div>
@@ -278,18 +359,15 @@ function CurrencyCell({ value, onCommit, readOnly = false }) {
 // ─── Department select ───
 function DepartmentSelect({ value, onChange, readOnly = false }) {
   if (readOnly) {
-    return (
-      <span className="block px-2 py-1.5 text-xs truncate" style={{ color: LIGHT_INK }}>
-        {value || '—'}
-      </span>
-    )
+    return <span className="rc-cell" data-readonly>{value || '—'}</span>
   }
   return (
     <select
       value={value || ''}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-xs rounded-sm focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
-      style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
+      className="rc-select"
+      aria-label="Department"
+      title={value || 'Department'}
     >
       <option value="">—</option>
       {DEFAULT_DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -304,8 +382,9 @@ function TierSelect({ value, onChange, readOnly = false }) {
       value={value || ''}
       disabled={readOnly}
       onChange={e => onChange(e.target.value || null)}
-      className="w-full px-1 py-1.5 text-[10px] rounded-sm focus:ring-1 focus:ring-orange-500 hover:bg-orange-900/10 cursor-pointer"
-      style={{ backgroundColor: 'transparent', color: '#1c1917', border: 'none' }}
+      className="rc-select"
+      aria-label="Budget tier"
+      title={BUDGET_TIERS.find(t => t.value === value)?.label || 'Budget tier'}
     >
       <option value="">—</option>
       {BUDGET_TIERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -314,6 +393,9 @@ function TierSelect({ value, onChange, readOnly = false }) {
 }
 
 // ─── Department default inline editor ───
+// Two branches again, and it appears in TWO places on one screen — the bulk
+// panel and every department bar — which the review keeps deliberately
+// (Hick's #3: "Keep both behaviours"). On the bar it takes the fill's own ink.
 function DeptDefaultInput({ label, value, onChange }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -330,14 +412,13 @@ function DeptDefaultInput({ label, value, onChange }) {
 
   function commit() {
     setEditing(false)
-    const num = parseNumeric(draft)
-    onChange(num)
+    onChange(parseNumeric(draft))
   }
 
   if (editing) {
     return (
-      <div className="flex items-center gap-1">
-        <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#7c2d12' }}>{label}:</span>
+      <span className="rc-dd" data-editing>
+        <span className="rc-dd-label">{label}</span>
         <input
           ref={ref}
           type="text"
@@ -348,59 +429,46 @@ function DeptDefaultInput({ label, value, onChange }) {
             if (e.key === 'Enter') { e.preventDefault(); commit() }
             else if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
           }}
-          className="w-14 px-1 py-0.5 text-[10px] font-mono rounded-sm focus:ring-1 focus:ring-orange-500"
-          style={{ backgroundColor: LIGHT_WELL, color: LIGHT_INK, border: '1px solid #ea580c', textAlign: 'right' }}
+          className="rc-dd-input"
+          aria-label={label}
         />
-      </div>
+      </span>
     )
   }
 
   return (
-    // These sit ON the department bar, which is now #c2410c — white, not the
-    // brown that was chosen against the old amber fill.
-    <button
-      type="button"
-      onClick={start}
-      className="flex items-center gap-1 hover:bg-black/10 rounded-sm px-1.5 py-0.5 transition-colors"
-    >
-      <span className="text-[10px] font-mono whitespace-nowrap" style={{ color: '#ffffff' }}>{label}:</span>
-      <span className="text-[10px] font-mono font-bold" style={{ color: '#ffffff' }}>
-        {value != null ? `${value}%` : '—'}
-      </span>
+    <button type="button" onClick={start} className="rc-dd">
+      <span className="rc-dd-label">{label}</span>
+      <span className="rc-dd-value">{value != null ? `${value}%` : '—'}</span>
     </button>
   )
 }
 
-// ─── Row actions ───
-function RowActions({ onDuplicate, onDelete }) {
-  return (
-    <div className="flex items-center justify-end gap-0.5">
-      <button
-        type="button"
-        onClick={onDuplicate}
-        title="Duplicate row"
-        className="p-1 rounded-sm hover:bg-orange-100 transition-colors"
-        style={{ color: '#7c2d12' }}
-      >
-        <Copy className="w-3 h-3" />
-      </button>
-      <button
-        type="button"
-        onClick={onDelete}
-        title="Delete row"
-        className="p-1 rounded-sm hover:bg-red-100 transition-colors"
-        style={{ color: '#991b1b' }}
-      >
-        <Trash2 className="w-3 h-3" />
-      </button>
-    </div>
-  )
-}
-
 // ─── Column widths ───
+// `table-layout: fixed` reads the header row, so these ARE the grid.
+//
+// 🚨 Sums to exactly 100: 16 + 11 + 8 + 8 + 11 + 11 + 8 + 6 + 6 + 7 + 8.
+//
+// They are MEASURED, not guessed. An earlier cut of this file gave the action
+// column 4 percent, which is what it had before — and at the 1280px minimum
+// window that is a 38px cell holding two 28px buttons, so they overflowed it.
+// The numbers below were checked against the narrowest real case (a 1280px
+// window minus the 240px side panel and the 24px gutters), against the
+// `min-width` the card carries so the table scrolls rather than crushing, and
+// against the content each column actually holds:
+//
+//   actions  two 28px buttons + the 24px cell inset = 82px minimum
+//   curr     a symbol, a gap and a three-letter code in the mono
+//   total    the widest money string on the card
+//   dept     a <select>, which has no `text-overflow` and hard-clips
+//   tier     the same, with the longest label ("Tier 4 — AAA / Tentpole")
+//
+// The two selects carry a `title`, as Team Members' department select does,
+// so a clipped value is still readable.
 const COL = {
-  name: '17%', dept: '9%', hourly: '10%', wage: '10%', burden: '12%', overhead: '12%',
-  total: '9%', curr: '5%', region: '6%', tier: '6%', actions: '4%',
+  name: '16%', dept: '11%', hourly: '8%', wage: '8%', burden: '11%',
+  overhead: '11%', total: '8%', curr: '6%', region: '6%', tier: '7%',
+  actions: '8%',
 }
 
 // Hours in a standard working day. `wage` is stored per DAY — it is the only
@@ -489,6 +557,34 @@ export default function RateCardTable({
     })
   }, [displayRows])
 
+  // ── The summary row, per currency ──
+  //
+  // 🚨 AVERAGES, NOT SUMS, and per currency. See the note at the head of this
+  // file: adding one role's day rate to another's describes nothing, and
+  // adding across currencies describes less than nothing. The mean day rate
+  // and the mean fully-loaded rate are both true of the card, and the count
+  // says how many rates each is the mean of.
+  //
+  // A row with no wage is not a rate, so it is not averaged in — otherwise
+  // every unrated team member on the internal card would drag the mean down
+  // and the number would describe the roster rather than the rates.
+  const summary = useMemo(() => {
+    const byCurrency = new Map()
+    for (const row of displayRows) {
+      const { total } = computeEntryTotal(row, deptDefaults)
+      if (!(total > 0)) continue
+      const code = row.currency || 'USD'
+      const acc = byCurrency.get(code) || { currency: code, day: 0, total: 0, rows: 0 }
+      acc.day += Number(row.wage ?? row.day_rate ?? 0) || 0
+      acc.total += total
+      acc.rows += 1
+      byCurrency.set(code, acc)
+    }
+    return [...byCurrency.values()]
+      .map(a => ({ ...a, day: a.day / a.rows, total: a.total / a.rows }))
+      .sort((a, b) => a.currency.localeCompare(b.currency))
+  }, [displayRows, deptDefaults])
+
   // ── Collapsed state ──
   const [collapsed, setCollapsed] = useState(new Set())
   function toggleDept(dept) {
@@ -555,69 +651,43 @@ export default function RateCardTable({
     return deptDefaults.find(d => d.department === dept) || {}
   }
 
-  // ── Styles ──
-  const th = {
-    backgroundColor: '#f4a261',
-    color: '#1c1917',
-    borderBottom: '2px solid #7c2d12',
-    fontFamily: 'monospace',
-    fontSize: '10px',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-    padding: '6px 4px',
-    textAlign: 'left',
-    position: 'sticky',
-    top: 0,
-    zIndex: 10,
-  }
-
-  const td = {
-    borderBottom: '1px solid #fed7aa',
-    padding: '1px 2px',
-    verticalAlign: 'middle',
-  }
-
   // ── Show dept defaults panel? Only when updateDeptDefault is available ──
   const [defaultsOpen, setDefaultsOpen] = useState(false)
 
   return (
-    <div className="w-full h-full flex flex-col overflow-hidden">
-      {/* ── Department defaults panel ── */}
+    <div className="rc-table-wrap">
+      {/* ── Department defaults panel ──
+          It holds editors that also exist on every department bar below, so
+          the same value is editable in two places on one screen. The review
+          keeps BOTH (Hick's #3) and asks only that this one read as the BULK
+          path, which the label now says. It is collapsed at rest, as before. */}
       {updateDeptDefault && (
-        <div style={{ backgroundColor: LIGHT_WELL, borderBottom: `1px solid ${LIGHT_RULE}`, flexShrink: 0 }}>
+        <div className="rc-defaults">
           <button
             type="button"
             onClick={() => setDefaultsOpen(o => !o)}
-            className="w-full flex items-center gap-2 px-4 py-2 hover:bg-orange-900/10 transition-colors"
+            className="rc-defaults-toggle"
+            aria-expanded={defaultsOpen}
           >
-            {defaultsOpen
-              ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />
-              : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#7c2d12' }} />}
-            <span className="text-[10px] font-mono font-bold uppercase tracking-widest" style={{ color: '#7c2d12' }}>
-              Department defaults — Burden % &amp; Overhead %
-            </span>
+            {defaultsOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+            <span className="rc-defaults-title">Edit all department defaults</span>
+            <span className="rs-count">Burden % and overhead %</span>
           </button>
           {defaultsOpen && (
-            <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            <div className="rc-defaults-grid">
               {DEFAULT_DEPARTMENTS.map(dept => {
                 const dd = deptDefaults.find(d => d.department === dept) || {}
                 return (
-                  <div
-                    key={dept}
-                    className="flex flex-col gap-1 p-2 rounded-sm"
-                    style={{ backgroundColor: 'transparent', border: `1px solid ${LIGHT_RULE}` }}
-                  >
-                    <span className="text-[9px] font-mono font-bold uppercase tracking-wider truncate" style={{ color: '#7c2d12' }}>
-                      {dept}
-                    </span>
-                    <div className="flex items-center gap-2">
+                  <div key={dept} className="rc-defaults-card">
+                    <span className="rc-defaults-dept">{dept}</span>
+                    <div className="rc-defaults-pair">
                       <DeptDefaultInput
-                        label="B"
+                        label="Burden"
                         value={dd.burden_pct}
                         onChange={v => updateDeptDefault(dept, { burden_pct: v })}
                       />
                       <DeptDefaultInput
-                        label="O"
+                        label="Overhead"
                         value={dd.overhead_pct}
                         onChange={v => updateDeptDefault(dept, { overhead_pct: v })}
                       />
@@ -630,341 +700,355 @@ export default function RateCardTable({
         </div>
       )}
 
-      <div className="flex-1 overflow-auto" style={{ backgroundColor: 'transparent' }}>
-        <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
-          <thead>
-            <tr>
-              <th style={{ ...th, width: COL.name }}>{isInternal ? 'Member' : 'Role'}</th>
-              <th style={{ ...th, width: COL.dept }}>Dept</th>
-              <th style={{ ...th, width: COL.hourly, textAlign: 'right' }}>Hourly</th>
-              <th style={{ ...th, width: COL.wage, textAlign: 'right' }}>Day</th>
-              <th style={{ ...th, width: COL.burden, textAlign: 'right' }}>Burden</th>
-              <th style={{ ...th, width: COL.overhead, textAlign: 'right' }}>Overhead</th>
-              <th style={{ ...th, width: COL.total, textAlign: 'right' }}>Total</th>
-              <th style={{ ...th, width: COL.curr, textAlign: 'center' }}>Curr</th>
-              <th style={{ ...th, width: COL.region }}>Region</th>
-              <th style={{ ...th, width: COL.tier }}>Tier</th>
-              <th style={{ ...th, width: COL.actions, textAlign: 'right' }}>&#x22EF;</th>
-            </tr>
-          </thead>
+      <Card pad={false} className="rc-card">
+        <Table
+          aria-label={isInternal ? 'Internal rate card' : 'General rate card'}
+          head={(
+            <Row>
+              <Th width={COL.name}>{isInternal ? 'Member' : 'Role'}</Th>
+              <Th width={COL.dept}>Dept</Th>
+              <Th width={COL.hourly} numeric>Hourly</Th>
+              <Th width={COL.wage} numeric>Day</Th>
+              <Th width={COL.burden} numeric>Burden</Th>
+              <Th width={COL.overhead} numeric>Overhead</Th>
+              <Th width={COL.total} numeric>Total</Th>
+              <Th width={COL.curr} align="center">Curr</Th>
+              <Th width={COL.region}>Region</Th>
+              <Th width={COL.tier}>Tier</Th>
+              <Th width={COL.actions}><span className="rs-sr">Actions</span></Th>
+            </Row>
+          )}
+        >
+          {grouped.map(([dept, rows]) => {
+            const isOpen = !collapsed.has(dept)
+            const dd = getDeptDefault(dept)
 
-          <tbody>
-            {grouped.map(([dept, rows]) => {
-              const isOpen = !collapsed.has(dept)
-              const dd = getDeptDefault(dept)
-
-              return (
-                <Fragment key={dept}>
-                  {/* ── Department group header ── */}
-                  <tr>
-                    {/* Audrey, 2026-08-10: "make the yellow team bars in the
-                        internal page a dark orange … stick to our color
-                        palette." #fde68a/#d97706 were amber — outside the
-                        three-ink palette entirely. #c2410c is the same dark
-                        orange as the primary button, and carries white at
-                        5.18:1. */}
-                    <td colSpan={11} style={{ padding: 0, borderBottom: `1px solid ${LIGHT_INK}` }}>
-                      <div
-                        className="flex items-center gap-3 px-3 py-1.5"
-                        style={{ backgroundColor: '#c2410c' }}
+            return (
+              <Fragment key={dept}>
+                {/* ── Department group header ──
+                    Audrey, 2026-08-10: "make the yellow team bars in the
+                    internal page a dark orange … stick to our color palette."
+                    `#c2410c` carries white at 5.18:1 and is the one status
+                    fill on this surface the review measured and kept; it is
+                    `signal-fill` app-wide now (Q16). Its label indents to the
+                    first column's text inset, so the group reads as a heading
+                    over the column it names (alignment list #10). */}
+                <tr>
+                  <td colSpan={11} className="rc-dept-cell">
+                    <div className="rc-dept">
+                      <button
+                        type="button"
+                        onClick={() => toggleDept(dept)}
+                        className="rc-dept-toggle"
+                        aria-expanded={isOpen}
                       >
-                        <button
-                          type="button"
-                          onClick={() => toggleDept(dept)}
-                          className="flex items-center gap-1.5 hover:opacity-80"
-                        >
-                          {isOpen
-                            ? <ChevronDown className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />
-                            : <ChevronRight className="w-3.5 h-3.5" style={{ color: '#ffffff' }} />}
-                          <span
-                            className="text-xs font-mono font-bold uppercase tracking-wider"
-                            style={{ color: '#ffffff' }}
-                          >
-                            {dept}
-                          </span>
-                          <span className="text-[10px] font-mono" style={{ color: '#ffffff' }}>
-                            ({rows.length})
-                          </span>
-                        </button>
+                        {isOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+                        <span className="rc-dept-name">{dept}</span>
+                        <span className="rc-dept-count">{rows.length}</span>
+                      </button>
 
-                        {dept !== 'Other' && updateDeptDefault && (
-                          <div className="ml-auto flex items-center gap-4">
-                            <DeptDefaultInput
-                              label="Burden"
-                              value={dd.burden_pct}
-                              onChange={v => updateDeptDefault(dept, { burden_pct: v })}
-                            />
-                            <DeptDefaultInput
-                              label="Overhead"
-                              value={dd.overhead_pct}
-                              onChange={v => updateDeptDefault(dept, { overhead_pct: v })}
-                            />
-                          </div>
+                      {dept !== 'Other' && updateDeptDefault && (
+                        <div className="rc-dept-defaults">
+                          <DeptDefaultInput
+                            label="Burden"
+                            value={dd.burden_pct}
+                            onChange={v => updateDeptDefault(dept, { burden_pct: v })}
+                          />
+                          <DeptDefaultInput
+                            label="Overhead"
+                            value={dd.overhead_pct}
+                            onChange={v => updateDeptDefault(dept, { overhead_pct: v })}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+
+                {/* ── Entries in this group ── */}
+                {isOpen && rows.map(row => {
+                  const computed = computeEntryTotal(row, deptDefaults)
+                  const isGhost = row._hasEntry === false
+
+                  return (
+                    <Row key={row.id} className="rc-row" data-ghost={isGhost || undefined}>
+                      {/* Role / Member name */}
+                      <Td>
+                        {isInternal && row._member ? (
+                          <span className="rc-member">
+                            <span className="rc-member-name">{row._member.name}</span>
+                            {row._member.title && (
+                              <span className="rc-member-title">{row._member.title}</span>
+                            )}
+                            {isGhost && (
+                              <AlertTriangle className="rc-member-warn" role="img" aria-label="No rate set" />
+                            )}
+                          </span>
+                        ) : (
+                          <EditCell
+                            value={row.role_label}
+                            onCommit={v => handleUpdate(row, { role_label: v, role_slug: makeSlug(v) })}
+                            placeholder={isInternal ? 'Title…' : 'Role…'}
+                            readOnly={readOnly}
+                          />
                         )}
-                      </div>
-                    </td>
-                  </tr>
+                      </Td>
 
-                  {/* ── Entries in this group ── */}
-                  {isOpen && rows.map(row => {
-                    const computed = computeEntryTotal(row, deptDefaults)
-                    const isGhost = row._hasEntry === false
+                      {/* Department */}
+                      <Td>
+                        <DepartmentSelect
+                          value={row.department}
+                          onChange={v => handleUpdate(row, { department: v })}
+                          readOnly={readOnly || (isInternal && !!row._member)}
+                        />
+                      </Td>
 
-                    return (
-                      <tr
-                        key={row.id}
-                        className="hover:bg-orange-900/10 transition-colors"
-                        style={isGhost ? { backgroundColor: LIGHT_WELL } : undefined}
-                      >
-                        {/* Role / Member name */}
-                        <td style={td}>
-                          {isInternal && row._member ? (
-                            <div className="flex items-center gap-1.5 px-2 py-1.5">
-                              <span className="text-xs truncate" style={{ color: '#1c1917' }}>
-                                {row._member.name}
-                              </span>
-                              {row._member.title && (
-                                <span className="text-[10px] truncate" style={{ color: LIGHT_INK }}>
-                                  {row._member.title}
-                                </span>
-                              )}
-                              {isGhost && (
-                                <AlertTriangle
-                                  className="w-3 h-3 flex-shrink-0"
-                                  style={{ color: '#c2410c' }}
-                                  title="No rate set"
-                                />
-                              )}
-                            </div>
-                          ) : (
-                            <EditCell
-                              value={row.role_label}
-                              onCommit={v => handleUpdate(row, { role_label: v, role_slug: makeSlug(v) })}
-                              placeholder={isInternal ? 'Title...' : 'Role...'}
-                              readOnly={readOnly}
-                            />
+                      {/* Hourly — derived from the day rate, and editable.
+                          Committing here multiplies back up so `wage` stays
+                          the single stored number. */}
+                      <Td numeric>
+                        <EditCell
+                          value={row.wage == null || row.wage === '' ? null
+                            : Math.round((Number(row.wage) / HOURS_PER_DAY) * 100) / 100}
+                          numeric
+                          currency={row.currency}
+                          onCommit={v => handleUpdate(row, {
+                            wage: v == null || v === '' ? null
+                              : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100,
+                          })}
+                          placeholder="—"
+                          align="right"
+                          mono
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Day rate — the stored `wage` */}
+                      <Td numeric>
+                        <EditCell
+                          value={row.wage}
+                          numeric
+                          currency={row.currency}
+                          onCommit={v => handleUpdate(row, { wage: v })}
+                          placeholder="—"
+                          align="right"
+                          mono
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Burden */}
+                      <Td numeric>
+                        <RateCompCell
+                          value={row.burden}
+                          type={row.burden_type || 'percent'}
+                          computedAmount={computed.burden_amount}
+                          onCommitValue={v => handleUpdate(row, { burden: v })}
+                          onToggleType={() => handleUpdate(row, {
+                            burden_type: (row.burden_type || 'percent') === 'percent' ? 'fixed' : 'percent',
+                          })}
+                          currency={row.currency}
+                          deptPct={dd.burden_pct}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Overhead */}
+                      <Td numeric>
+                        <RateCompCell
+                          value={row.overhead}
+                          type={row.overhead_type || 'percent'}
+                          computedAmount={computed.overhead_amount}
+                          onCommitValue={v => handleUpdate(row, { overhead: v })}
+                          onToggleType={() => handleUpdate(row, {
+                            overhead_type: (row.overhead_type || 'percent') === 'percent' ? 'fixed' : 'percent',
+                          })}
+                          currency={row.currency}
+                          deptPct={dd.overhead_pct}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Total (computed, read-only). Weight carries it, not a
+                          green: `#166534` measured 3.46:1 and was one of three
+                          greens the review pinned as failing (F-R19). */}
+                      <Td numeric>
+                        <span className="rc-total" data-positive={computed.total > 0 || undefined}>
+                          {computed.total > 0 ? formatCurrency(computed.total, row.currency) : '—'}
+                        </span>
+                      </Td>
+
+                      {/* Currency */}
+                      <Td align="center">
+                        <CurrencyCell
+                          value={row.currency}
+                          onCommit={v => handleUpdate(row, { currency: v })}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Region */}
+                      <Td>
+                        <EditCell
+                          value={row.region}
+                          onCommit={v => handleUpdate(row, { region: v || null })}
+                          placeholder="—"
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Tier */}
+                      <Td>
+                        <TierSelect
+                          value={row.project_size}
+                          onChange={v => handleUpdate(row, { project_size: v })}
+                          readOnly={readOnly}
+                        />
+                      </Td>
+
+                      {/* Actions — a RESERVED, fixed-width slot, so the
+                          column cannot shift when a row is a ghost or the
+                          grant is view-only.
+
+                          🚨 `always`. An earlier cut of this file let these
+                          hide until hover, which is C1's "a disclosure that
+                          hides a control": they were visible at rest before,
+                          and Q17(b) authorises adding the FOCUS reveal to
+                          controls that already hide — not hiding one that did
+                          not. It also left an invisible Delete on a financial
+                          record clickable at rest on any input that never
+                          generates hover. The Projects list reasoned this out
+                          correctly and this file did not. */}
+                      <Td align="right">
+                        <HoverActions always>
+                          {!isGhost && !readOnly && (
+                            <>
+                              <IconButton
+                                icon={Copy}
+                                size="sm"
+                                title={`Duplicate ${row.role_label || 'this rate'}`}
+                                onClick={() => handleDuplicate(row)}
+                              />
+                              <IconButton
+                                icon={Trash2}
+                                size="sm"
+                                title={`Delete ${row.role_label || 'this rate'}`}
+                                onClick={() => handleDelete(row)}
+                              />
+                            </>
                           )}
-                        </td>
+                        </HoverActions>
+                      </Td>
+                    </Row>
+                  )
+                })}
+              </Fragment>
+            )
+          })}
 
-                        {/* Department */}
-                        <td style={td}>
-                          <DepartmentSelect
-                            value={row.department}
-                            onChange={v => handleUpdate(row, { department: v })}
-                            readOnly={readOnly || (isInternal && !!row._member)}
-                          />
-                        </td>
-
-                        {/* Hourly — derived from the day rate, and editable.
-                            Committing here multiplies back up so `wage`
-                            stays the single stored number. */}
-                        <td style={td}>
-                          <EditCell
-                            value={row.wage == null || row.wage === '' ? null
-                              : Math.round((Number(row.wage) / HOURS_PER_DAY) * 100) / 100}
-                            numeric
-                            currency={row.currency}
-                            onCommit={v => handleUpdate(row, {
-                              wage: v == null || v === '' ? null
-                                : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100,
-                            })}
-                            placeholder="—"
-                            align="right"
-                            mono
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Day rate — the stored `wage` */}
-                        <td style={td}>
-                          <EditCell
-                            value={row.wage}
-                            numeric
-                            currency={row.currency}
-                            onCommit={v => handleUpdate(row, { wage: v })}
-                            placeholder="—"
-                            align="right"
-                            mono
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Burden */}
-                        <td style={td}>
-                          <RateCompCell
-                            value={row.burden}
-                            type={row.burden_type || 'percent'}
-                            computedAmount={computed.burden_amount}
-                            onCommitValue={v => handleUpdate(row, { burden: v })}
-                            onToggleType={() => handleUpdate(row, {
-                              burden_type: (row.burden_type || 'percent') === 'percent' ? 'fixed' : 'percent',
-                            })}
-                            currency={row.currency}
-                            deptPct={dd.burden_pct}
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Overhead */}
-                        <td style={td}>
-                          <RateCompCell
-                            value={row.overhead}
-                            type={row.overhead_type || 'percent'}
-                            computedAmount={computed.overhead_amount}
-                            onCommitValue={v => handleUpdate(row, { overhead: v })}
-                            onToggleType={() => handleUpdate(row, {
-                              overhead_type: (row.overhead_type || 'percent') === 'percent' ? 'fixed' : 'percent',
-                            })}
-                            currency={row.currency}
-                            deptPct={dd.overhead_pct}
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Total (computed, read-only) */}
-                        <td style={td}>
-                          <span
-                            className="block px-2 py-1.5 text-xs font-mono text-right font-bold"
-                            style={{
-                              color: computed.total > 0 ? '#166534' : LIGHT_INK,
-                            }}
-                          >
-                            {computed.total > 0 ? formatCurrency(computed.total, row.currency) : '—'}
-                          </span>
-                        </td>
-
-                        {/* Currency */}
-                        <td style={td}>
-                          <CurrencyCell
-                            value={row.currency}
-                            onCommit={v => handleUpdate(row, { currency: v })}
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Region */}
-                        <td style={td}>
-                          <EditCell
-                            value={row.region}
-                            onCommit={v => handleUpdate(row, { region: v || null })}
-                            placeholder="—"
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Tier */}
-                        <td style={td}>
-                          <TierSelect
-                            value={row.project_size}
-                            onChange={v => handleUpdate(row, { project_size: v })}
-                            readOnly={readOnly}
-                          />
-                        </td>
-
-                        {/* Actions */}
-                        <td style={{ ...td, paddingRight: 6 }}>
-                          {!isGhost && !readOnly ? (
-                            <RowActions
-                              onDuplicate={() => handleDuplicate(row)}
-                              onDelete={() => handleDelete(row)}
-                            />
-                          ) : <span />}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </Fragment>
-              )
-            })}
-
-            {/* ── Draft row (general card only) ── */}
-            {!isInternal && !readOnly && (
-              <tr style={{ backgroundColor: LIGHT_WELL }}>
-                <td style={td}>
-                  <EditCell
-                    value={draft.role_label}
-                    onCommit={v => {
-                      patchDraft('role_label', v)
-                      if (v?.trim()) setTimeout(commitDraft, 0)
-                    }}
-                    placeholder="+ Add role..."
-                  />
-                </td>
-                <td style={td}>
-                  <DepartmentSelect value={draft.department} onChange={v => patchDraft('department', v)} />
-                </td>
-                {/* Hourly on the draft row, same derivation as a live row. */}
-                <td style={td}>
-                  <EditCell
-                    value={draft.wage == null || draft.wage === '' ? null
-                      : Math.round((Number(draft.wage) / HOURS_PER_DAY) * 100) / 100}
-                    numeric
-                    currency={draft.currency}
-                    onCommit={v => patchDraft('wage', v == null || v === '' ? null
-                      : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100)}
-                    placeholder="—"
-                    align="right"
-                    mono
-                  />
-                </td>
-                <td style={td}>
-                  <EditCell
-                    value={draft.wage}
-                    numeric
-                    currency={draft.currency}
-                    onCommit={v => patchDraft('wage', v)}
-                    placeholder="—"
-                    align="right"
-                    mono
-                  />
-                </td>
-                <td style={td} colSpan={2}>
-                  <span className="block px-2 py-1.5 text-[10px] font-mono text-center italic" style={{ color: LIGHT_INK }}>
-                    editable after adding
-                  </span>
-                </td>
-                <td style={td}>
-                  <span className="block px-2 py-1.5 text-xs font-mono text-right italic" style={{ color: LIGHT_INK }}>
-                    —
-                  </span>
-                </td>
-                <td style={td}>
-                  <CurrencyCell value={draft.currency} onCommit={v => patchDraft('currency', v)} />
-                </td>
-                <td style={td}>
-                  <EditCell value={draft.region} onCommit={v => patchDraft('region', v)} placeholder="—" />
-                </td>
-                <td style={td}>
-                  <TierSelect value={draft.project_size} onChange={v => patchDraft('project_size', v)} />
-                </td>
-                <td style={{ ...td, paddingRight: 6 }}>
-                  <button
-                    type="button"
+          {/* ── Draft row (general card only) ── */}
+          {!isInternal && !readOnly && (
+            <Row className="rc-row" data-draft>
+              <Td>
+                <EditCell
+                  value={draft.role_label}
+                  onCommit={v => {
+                    patchDraft('role_label', v)
+                    if (v?.trim()) setTimeout(commitDraft, 0)
+                  }}
+                  placeholder="Add a role…"
+                />
+              </Td>
+              <Td>
+                <DepartmentSelect value={draft.department} onChange={v => patchDraft('department', v)} />
+              </Td>
+              {/* Hourly on the draft row, same derivation as a live row. */}
+              <Td numeric>
+                <EditCell
+                  value={draft.wage == null || draft.wage === '' ? null
+                    : Math.round((Number(draft.wage) / HOURS_PER_DAY) * 100) / 100}
+                  numeric
+                  currency={draft.currency}
+                  onCommit={v => patchDraft('wage', v == null || v === '' ? null
+                    : Math.round(Number(v) * HOURS_PER_DAY * 100) / 100)}
+                  placeholder="—"
+                  align="right"
+                  mono
+                />
+              </Td>
+              <Td numeric>
+                <EditCell
+                  value={draft.wage}
+                  numeric
+                  currency={draft.currency}
+                  onCommit={v => patchDraft('wage', v)}
+                  placeholder="—"
+                  align="right"
+                  mono
+                />
+              </Td>
+              <Td colSpan={2} align="center">
+                <span className="rc-draft-note">Editable once the row is added</span>
+              </Td>
+              <Td numeric><span className="rc-total">—</span></Td>
+              <Td align="center">
+                <CurrencyCell value={draft.currency} onCommit={v => patchDraft('currency', v)} />
+              </Td>
+              <Td>
+                <EditCell value={draft.region} onCommit={v => patchDraft('region', v)} placeholder="—" />
+              </Td>
+              <Td>
+                <TierSelect value={draft.project_size} onChange={v => patchDraft('project_size', v)} />
+              </Td>
+              <Td align="right">
+                <HoverActions always>
+                  <IconButton
+                    icon={Plus}
+                    size="sm"
+                    title="Add this row"
                     onClick={commitDraft}
                     disabled={!draft.role_label?.trim()}
-                    title="Add row"
-                    className="p-1 rounded-sm hover:bg-orange-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-                    style={{ color: '#7c2d12' }}
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
-            )}
+                  />
+                </HoverActions>
+              </Td>
+            </Row>
+          )}
 
-            {/* ── Empty state ── */}
-            {displayRows.length === 0 && !loading && (
-              <tr>
-                <td colSpan={11} className="text-center text-xs font-mono py-8 italic" style={{ color: LIGHT_INK }}>
-                  {isInternal
-                    ? 'No team members found — add team members in the Team Members page.'
-                    : 'No rate card entries yet — add one above or import from a file.'}
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+          {/* ── The summary row, per currency ──
+              🚨 KIT REQUEST (hand-off): this belongs in a `<tfoot>`, and the
+              shared Table has no footer slot — it renders `head` and a
+              `tbody`. It is the last row of the body until it does, which is
+              correct HTML and the right picture, but a real `tfoot` would also
+              stay put under a scrolling body and be announced as the summary
+              it is. `src/ui/` is Foundation's. */}
+          {summary.map(t => (
+            <Row key={`avg-${t.currency}`} className="rc-total-row">
+              <Td colSpan={3}>
+                <span className="rc-total-label">
+                  Average · {t.currency} · {t.rows} rate{t.rows === 1 ? '' : 's'}
+                </span>
+              </Td>
+              <Td numeric>{formatCurrency(t.day, t.currency)}</Td>
+              <Td colSpan={2} />
+              <Td numeric>{formatCurrency(t.total, t.currency)}</Td>
+              <Td colSpan={4} />
+            </Row>
+          ))}
+        </Table>
+      </Card>
+
+      {/* ── Empty state ──
+          Out of the table, so it is a real empty state rather than an italic
+          cell spanning eleven columns (F-R13). */}
+      {displayRows.length === 0 && !loading && (
+        <EmptyState
+          Icon={AlertTriangle}
+          title={isInternal ? 'No team members found' : 'No rates yet'}
+          body={isInternal
+            ? 'Add team members in the Team members page; they appear here automatically.'
+            : 'Add one in the row at the bottom of the table, or import a file from the panel on the left.'}
+        />
+      )}
     </div>
   )
 }
