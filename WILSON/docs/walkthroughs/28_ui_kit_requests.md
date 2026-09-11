@@ -147,6 +147,11 @@ instead:
   It is the only colour in the whole system drawn on an orange page, and it
   is there because "are you sure you want to delete this" has to look
   different from "cancel".
+  **It also turns up on the Dashboard's Profile tab**, which is a dark page,
+  because that panel is shared with App settings and still believes it is on
+  the orange one. The label reads fine there; the button's edge against the
+  dark page does not, and the proper fix belongs with whoever next opens that
+  panel. Worth a look, and worth saying rather than leaving you to find it.
 - **A disabled button now sits in a recessed well with no edge** — it reads as
   a slot rather than a control.
 
@@ -173,9 +178,13 @@ That is **App settings -> Profile** as it looks now. Before this session
   complaint — "when i press internal i am not seeing the internal one" — given
   somewhere to put the answer.
 - **The Rate card's average row is now a real table footer.** Same numbers,
-  same place, but it stays put when the rates scroll under it.
-- **Two form fields side by side line up.** They were 16px out of step with
-  each other on the Projects and Team members forms.
+  same place. A single average also stays put while the rates scroll under
+  it; a card with two currencies in it has two averages, and those scroll
+  with the rows, because pinning both would put them on top of each other.
+- **Two form fields side by side line up.** On the Team members rate dialog
+  the second of a pair sat 16px lower than the first. The Projects form had
+  the same fault and had already been patched on that page; the kit now has
+  the answer, so the patch can go when someone next opens it.
 
 ---
 

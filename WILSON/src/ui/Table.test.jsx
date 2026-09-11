@@ -174,6 +174,17 @@ describe('Table', () => {
     expect(basic().container.querySelector('tfoot')).toBeNull()
   })
 
+  it('🚨 an EMPTY array is not a footer — the rate card passes one', () => {
+    // `summary.map(…)` is `[]` the moment nothing on the card has a rate, and
+    // `[]` is truthy, so the first cut rendered `<tfoot></tfoot>`: a row group
+    // a screen reader announces with nothing in it.
+    expect(basic({ foot: [] }).container.querySelector('tfoot')).toBeNull()
+    cleanup()
+    // …and a non-empty array still renders, which is the control.
+    const { container } = basic({ foot: [<Row key="a"><Td>Average</Td><Td numeric>1</Td></Row>] })
+    expect(container.querySelector('tfoot')).not.toBeNull()
+  })
+
   it('the tfoot is opaque, the mirror of the sticky head', () => {
     // R06's bug in the other direction: a transparent sticky band lets the
     // rows scroll through it and read as garbage.

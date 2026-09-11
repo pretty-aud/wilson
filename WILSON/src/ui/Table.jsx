@@ -77,7 +77,11 @@ export function Table({
             screen while the rows move under it (C1 kit request 3, where the
             rate card's per-currency averages were the last rows of the
             <tbody> for want of this slot). */}
-        {foot && <tfoot>{foot}</tfoot>}
+        {/* An EMPTY array is truthy, and the rate card passes `summary.map(…)`
+            — which is `[]` the moment nothing on the card has a rate. An
+            empty <tfoot> is a row group a screen reader announces with
+            nothing in it. */}
+        {(Array.isArray(foot) ? foot.length > 0 : Boolean(foot)) && <tfoot>{foot}</tfoot>}
       </table>
     </div>
   )

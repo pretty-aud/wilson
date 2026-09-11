@@ -356,6 +356,14 @@ describe('the summary row', () => {
     expect(row.querySelector('.rc-total-label').textContent).toMatch(/1 rate$/)
   })
 
+  it('renders no <tfoot> AT ALL when nothing has a rate, not an empty one', () => {
+    // `summary` is `[]` here and `[]` is truthy, so the kit's first cut of
+    // the footer slot rendered an empty row group.
+    mount({ entries: [] })
+    expect(document.querySelector('table.ui-table')).not.toBeNull()
+    expect(document.querySelector('tfoot')).toBeNull()
+  })
+
   it('renders no summary row when nothing has a rate', () => {
     mount({ entries: [] })
     expect(document.querySelectorAll('tr.rc-total-row')).toHaveLength(0)

@@ -144,9 +144,13 @@ export function Dialog({
       // `node.contains(node)` is TRUE so it did not read as outside either.
       // Both branches missed, nothing was prevented, and Shift+Tab walked
       // out to the page behind the backdrop — measured, onto a live control.
-      // `indexOf` folds all of it into one test: -1 is the surface, <body>,
-      // anything behind the backdrop, and anything inside the dialog that the
-      // focusable list and the browser's tab order disagree about.
+      // `indexOf` folds three of those into one test: -1 is the surface,
+      // <body>, and anything behind the backdrop. ⚠️ It does NOT fix the
+      // opposite disagreement — if `focusableWithin` OVER-lists, `last` is an
+      // element the browser never lands on and the wrap never fires. That is
+      // why the filter tracks the tab order as closely as it does (`inert`,
+      // `checkVisibility`) rather than being a rough approximation with a
+      // clever wrap on top of it.
       const i = items.indexOf(document.activeElement)
       if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
         e.preventDefault()

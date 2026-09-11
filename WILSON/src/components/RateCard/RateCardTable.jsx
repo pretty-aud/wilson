@@ -81,8 +81,8 @@
 //    rates that covers, so the row says that. It is PER CURRENCY — these rows
 //    can carry several, and one figure across them is true of nothing either.
 //
-//    It sits at the end of the body rather than in a `<tfoot>`, because the
-//    shared Table has no footer slot; that is a kit request in the hand-off.
+//    ✅ It sits in a real `<tfoot>` since F3 closed that kit request; it was
+//    the last rows of the `<tbody>` before, for want of the slot.
 //    Flagged for Audrey in the walkthrough: an average is this session's
 //    reading of "totals row" for this particular table, not her ruling.
 //

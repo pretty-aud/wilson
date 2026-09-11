@@ -62,12 +62,18 @@ export function _resetOverlaysForTests() {
 // focused, so it can put focus somewhere on open, keep Tab inside while it is
 // up, and hand focus back when it closes (C2 KR-5).
 //
-// 🚨 VISIBILITY IS NOT CHECKED BY LAYOUT. The obvious filter — `offsetParent`
-// or `getClientRects().length` — reports "hidden" for EVERY element under
-// jsdom, which has no layout engine, so a trap written that way traps nothing
-// in every test that covers it and the tests still pass. The filter is the
-// semantic one instead: `hidden`, `aria-hidden`, `disabled` and a negative
-// tabindex, each of which is in the DOM and true in both environments.
+// 🚨 VISIBILITY IS NEVER CHECKED BY LAYOUT. The obvious filter —
+// `offsetParent` or `getClientRects().length` — reports "hidden" for EVERY
+// element under jsdom, which has no layout engine, so a trap written that way
+// traps nothing in every test that covers it and the tests still pass.
+//
+// So the filter is semantic first — `hidden`, `aria-hidden`, `inert`,
+// `disabled` and a negative tabindex, each of which is in the DOM and true in
+// both environments — and then, ONLY where the environment implements it,
+// `checkVisibility` for the two CSS states that untab an element without
+// showing up as an attribute (`display: none`, `visibility: hidden`). That is
+// a feature test rather than a browser test: under the runner it is
+// `undefined` and the semantic filter stands alone.
 
 const FOCUSABLE = [
   'a[href]',
