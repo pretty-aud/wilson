@@ -130,8 +130,8 @@ const PAGE_LIST = [
     // surface has nothing to do with it. Lane C moved its own rows in each
     // page's conversion commit (W10: "lane C sets its own pages' rows"):
     // Projects, Rate card and Dashboard to 120/80, Files to the tool 95/8;
-    // Admin Terminal keeps 200/150 until C3. Home stays 268/268: it is not a
-    // resource page.
+    // C3 moved Admin Terminal, the last 200/150 row in the app. Home stays
+    // 268/268: it is not a resource page.
     bars: bars(120, 80),
     surface: 'light',
     chrome: 'page',

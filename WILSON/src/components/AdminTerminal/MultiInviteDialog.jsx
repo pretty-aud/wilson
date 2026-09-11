@@ -35,10 +35,18 @@ const ERROR_MAP = {
   mfa_check_failed:  'Could not verify your MFA status. Try again in a moment.',
 }
 
+// The invite row's username field draws its own validity on the control, so
+// its border lives in CSS (`.at-invite-name`) and must NOT be in this object:
+// an inline `border` shorthand sets `border-color`, and no class rule can beat
+// an inline declaration. Review round 1, finding 2 — the extraction moved the
+// invalid branch to CSS and left the valid one inline as a shorthand, which
+// silently deleted the red edge.
 const fieldStyle = {
   backgroundColor: 'rgba(244, 162, 97, 0.12)', color: '#f4a261',
   border: '1px solid #44403c', borderRadius: 3,
 }
+const { border: _fieldBorder, ...nameFieldStyle } = fieldStyle
+
 
 export default function MultiInviteDialog({ open, onClose, onInvited }) {
   const [text, setText] = useState('')
@@ -220,7 +228,7 @@ export default function MultiInviteDialog({ open, onClose, onInvited }) {
                     onChange={(e) => patchRow(row.email, { username: e.target.value.toLowerCase().slice(0, 32), status: row.status === 'failed' ? 'queued' : row.status, error: null })}
                     className="at-invite-name w-36 px-2 py-1 text-xs font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
                     data-invalid={String(!usernameOk)}
-                    style={fieldStyle}
+                    style={nameFieldStyle}
                     aria-label={`Username for ${row.email}`}
                   />
                   <select

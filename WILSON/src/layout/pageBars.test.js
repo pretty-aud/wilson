@@ -63,7 +63,7 @@ const RESTING = {
 
 // The 200/150 shape every resource row had before Q8(b), built through the
 // real generator so the "what did we gain" cases below keep a fixed reference
-// after the last 200/150 row (Admin Terminal, C3) moves too.
+// now that the last 200/150 row (Admin Terminal) has moved too, in C3.
 const OLD_RESOURCE = bars(200, 150)
 const oldRestAt = (v) => resolveAt(OLD_RESOURCE.top, v) + resolveAt(OLD_RESOURCE.bottom, v)
 

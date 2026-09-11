@@ -223,7 +223,6 @@ export default function CompanySection({ isActive, wm }) {
             onClick={copyId}
             className="at-icon-btn p-1 rounded-sm transition-colors flex-shrink-0"
             data-copied={String(copiedId)}
-            style={{ color: LIGHT_INK }}
             title="Copy workspace ID"
           >
             {copiedId ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -275,7 +274,6 @@ export default function CompanySection({ isActive, wm }) {
                 onClick={() => persistDepartments(departments.filter(x => x !== d))}
                 className="at-icon-btn p-0.5 rounded-sm transition-colors"
                 data-tone="chip"
-                style={{ color: LIGHT_INK }}
                 title={`Remove ${d}`}
               >
                 <X className="w-3 h-3" />

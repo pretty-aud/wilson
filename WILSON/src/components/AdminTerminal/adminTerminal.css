@@ -47,6 +47,14 @@
         churn that hides the real change.
      3. POSITIONAL branches — `borderTop: i === 0 ? 'none' : …`, the
         avatar's `fontSize: size >= 40 ? 16 : 10`. Neither is a state.
+     4. THE FOCUS RING. Seventeen `focus:ring-2 focus:ring-orange-500` pairs
+        survive across five files. Focus IS an interaction state, so this is
+        a real exclusion and not one of the three above — it is listed
+        separately because it was found unlisted by review round 1. It stays
+        because the kit already owns focus globally (`:focus-visible`, one
+        ring, in `index.css` `@layer base`) and AT-21's fix is to delete
+        these seventeen in favour of it. That is a visual change, so it
+        belongs to the bundle commit, not to a transcription.
 
    🚨 `@layer` IS NAMED ON THE FIRST LINE, BEFORE ANY RULE. A layer's place
    in the cascade is fixed where it is FIRST named, not where its rules are
@@ -114,16 +122,39 @@
      table has none (UsersSection.jsx:256), so the two tables teach opposite
      things about whether a row is clickable. Both are clickable. */
 
-  .at-log-row { transition: background-color 150ms; border-bottom: 1px solid #e7e5e4; }
+  .at-log-row {
+    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+    border-bottom: 1px solid #e7e5e4;
+  }
   .at-log-row:hover { background-color: #f5f5f4; }  /* was hover:bg-stone-100 */
-  /* An expanded row hands its divider to the JSON row underneath it, so the
-     context block reads as part of the row it belongs to rather than as a
-     row of its own (LogsSection.jsx:298). */
+  /* 🚨 BOTH OF THESE DECLARATIONS ARE INERT, AND THAT IS FAITHFUL. A
+     `border-bottom` on a `<tr>` does not paint when the table is
+     `border-collapse: separate`, which every table on this surface is — so
+     the Logs table has no row divider today and has never had one. The
+     pre-commit code set the identical value inline on the same `<tr>` and
+     was equally inert, so transcribing it is correct and removing it would
+     be a silent visual change in a commit that promises none.
+
+     Review round 1, finding 7 proved the inertness by screenshot rather
+     than by reasoning, and caught the comment that used to sit here
+     describing a hand-off of the divider to the JSON row that has never
+     happened. The real fix — move the divider to the `<td>`s, as the kit's
+     own Table does — is a visual change and belongs to the bundle commit.
+     The same is true of the roster's surviving inline `borderBottom`. */
   .at-log-row[data-expanded='true'] { border-bottom: none; }
 
   /* The roster row's two inline branches: `opacity` for a deactivated
      member and a signal tint for the selected one (UsersSection.jsx:256). */
-  .at-roster-row { background-color: transparent; opacity: 1; }
+  /* `transition-colors` was on this row before the extraction and was not
+     carried over, so selection snapped instead of fading (review round 1,
+     finding 4). Restated with Tailwind's own duration and curve.
+     🚨 background-color ONLY: `transition-colors` never covered `opacity`,
+     so the deactivated row's dimming did not fade before and must not now. */
+  .at-roster-row {
+    background-color: transparent;
+    opacity: 1;
+    transition: background-color 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  }
   .at-roster-row[data-inactive='true'] { opacity: 0.55; }
   .at-roster-row[data-selected='true'] { background-color: rgba(234, 88, 12, 0.10); }
 
@@ -132,6 +163,14 @@
      (UsersSection.jsx:416), the copy-id button (CompanySection.jsx:224) and
      the department chip's remove (CompanySection.jsx:275). */
 
+  /* 🚨 THE REST INK IS DECLARED HERE, AND MUST BE. Review round 1, finding
+     1: the extraction moved the copy-confirmed branch to CSS and left the
+     rest branch as an inline `color`, which beats a class rule at any
+     specificity — so the green tick was painted #1c1917 and the
+     confirmation silently stopped happening. Both branches live here now,
+     and none of the three `.at-icon-btn` call sites carries an inline
+     `color` any more. */
+  .at-icon-btn { color: #1c1917; }
   .at-icon-btn:hover { background-color: #e7e5e4; }        /* hover:bg-stone-200 */
   .at-icon-btn[data-tone='chip']:hover { background-color: #d6d3d1; } /* stone-300 */
 
@@ -241,11 +280,16 @@
 
   .at-toggle { background-color: rgba(28, 25, 23, 0.35); cursor: pointer; }
   .at-toggle[data-on='true'] { background-color: #ea580c; }
-  .at-toggle:disabled { cursor: default; }
+  /* 🚨 `data-disabled`, NOT `:disabled`. The button's DOM `disabled` is
+     `disabled || busy`, but the original cursor branch was keyed on the
+     `disabled` PROP alone — so a toggle that was merely mid-RPC kept its
+     pointer. `:disabled` here widened the predicate, which review round 1
+     (finding 5) caught as a behaviour change inside a transcription. */
+  .at-toggle[data-disabled='true'] { cursor: default; }
   .at-toggle .at-toggle-knob {
     background-color: #fff;
     transform: translateX(0);
-    transition: transform 150ms;
+    transition: transform 150ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .at-toggle[data-on='true'] .at-toggle-knob { transform: translateX(14px); }
   .at-toggle-row[data-disabled='true'] { opacity: 0.7; }
@@ -269,6 +313,14 @@
 
   .at-invite-row { opacity: 1; }
   .at-invite-row[data-sent='true'] { opacity: 0.75; }
+  /* 🚨 BOTH BRANCHES, AND THE VALID ONE FIRST. Review round 1, finding 2:
+     the extraction moved only the invalid branch here and left the valid
+     one inside the shared `fieldStyle` as a `border` SHORTHAND. A shorthand
+     sets `border-color`, and an inline declaration beats a class rule, so
+     the red edge on a bad username was deleted outright — the user was
+     blocked from sending with no marker on the control. `fieldStyle` no
+     longer carries a border for this field (`nameFieldStyle`). */
+  .at-invite-name { border: 1px solid #44403c; }
   .at-invite-name[data-invalid='true'] { border-color: #dc2626; }
 
   /* ═══ THE CREATE-USER HINT ════════════════════════════════════════════
@@ -292,8 +344,16 @@
      surface and it was `transition-all duration-200`, which animates the
      border and the width along with the transform, so the hairline
      separating the panel from the table drew ITSELF in. The properties are
-     named here; the duration and the 24px offset are transcribed unchanged,
-     and the reduced-motion gate and the symmetric exit land in commit two.
+     named here, and the duration and the 24px offset are transcribed
+     unchanged. The SYMMETRIC EXIT lands in commit two.
+
+     🚨 The reduced-motion gate below is in THIS commit, not the next one,
+     and an earlier draft of this comment said otherwise (review round 1,
+     finding 6). It is a real behaviour delta in a no-visual-change commit —
+     a reduced-motion user now gets the panel instantly instead of a slide —
+     and it is kept deliberately: plan §3.4 requires every transition to
+     honour the setting, and shipping a named-property transition without
+     its gate would mean knowingly adding an ungated one.
 
      🚨 The reduced-motion block is scoped to this class by name. It must
      never become a blanket rule: `src/index.css` is where the otter, egg,
@@ -304,7 +364,8 @@
   .at-detail-panel {
     opacity: 0;
     transform: translateX(24px);
-    transition: opacity 200ms, transform 200ms;
+    transition: opacity 200ms cubic-bezier(0.4, 0, 0.2, 1),
+                transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
   }
   .at-detail-panel[data-entered='true'] {
     opacity: 1;

@@ -405,7 +405,7 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: LIGHT_INK }}>
           Member detail
         </span>
-        <button type="button" onClick={onClose} className="at-icon-btn p-1 rounded-sm transition-colors" style={{ color: LIGHT_INK }} title="Close (Esc)">
+        <button type="button" onClick={onClose} className="at-icon-btn p-1 rounded-sm transition-colors" title="Close (Esc)">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -784,6 +784,7 @@ function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
           aria-checked={on}
           aria-label={label}
           data-on={String(!!on)}
+          data-disabled={String(!!disabled)}
           style={{ width: '32px', height: '18px', padding: '2px' }}
         >
           <span
