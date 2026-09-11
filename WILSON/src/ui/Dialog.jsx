@@ -105,6 +105,11 @@ export function Dialog({
       if (node.contains(document.activeElement)) {
         landedRef.current = document.activeElement
       } else {
+        // No "is it still focusable?" check on the remembered element. The
+        // effect has `[]` deps, so it runs exactly twice and only under
+        // StrictMode, both runs inside the same commit — nothing can have
+        // disabled or hidden it in between. A predicate that cannot differ
+        // is the inert guard this file already lost one of.
         const remembered = landedRef.current
         const target = (remembered && node.contains(remembered))
           ? remembered
