@@ -61,6 +61,12 @@ export default function GoogleSheetUrlPrompt({ open, busy, onClose, onSubmit }) 
       title="Import a Google Sheet"
       busy={busy}
       onClose={onClose}
+      // Both of these overlays closed on a backdrop click before. `Dialog`
+      // makes that opt-in (Q17: the ~60 overlays adopting it must not
+      // silently GAIN the click and lose a half-filled form), which means an
+      // overlay that already had it must ask for it back, or the restyle has
+      // changed what a click does — C1.
+      dismissOnBackdrop
       footer={(
         <>
           <Button variant="ghost" onClick={onClose} disabled={busy}>Cancel</Button>

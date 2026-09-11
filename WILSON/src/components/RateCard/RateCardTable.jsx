@@ -33,7 +33,18 @@
 //    its own data, and the row height came from `EditCell`'s `minHeight: 28px`
 //    rather than from the row. The kit `Table` owns the 8px/12px cell on both
 //    `th` and `td`; every control below is padded to ZERO horizontally and
-//    fills its cell; the row is 36px and the head 32px, declared (F-R09).
+//    fills its cell; the row declares `--row` (36px) and the head 32px.
+//
+//    Measured, because an earlier cut of this file asserted 36 and rendered
+//    63: a `--control-sm` toggle stacked above the derived amount inside an
+//    8px-padded cell. The toggle is 20px and the derived amount sits beside
+//    the value, so a burden cell no longer sets the row's height. What does
+//    set it is the row-actions slot — a 28px icon button plus the cell's 16px
+//    of vertical padding is 44 — so these rows render at 45px, which is what
+//    EVERY kit table row holding a `sm` control renders at, Team Members
+//    included. The declared 36px is the floor, not the outcome; that tension
+//    between `--row` and `--control-sm` + `--cell-pad-y` is the kit's and is
+//    recorded in the hand-off.
 //
 //  · THE STICKY HEADER HAS A REGION. `th` painted bare `#f4a261`, identical to
 //    the page, so rows scrolled THROUGH the header text. `paper-raised`
@@ -49,18 +60,31 @@
 //    the value, at the Label step in full-strength ink (F-R21). The editing
 //    branch was already sized correctly, so the two states finally match.
 //
-//  · THE ROW ACTIONS ARE A RESERVED SLOT revealed on hover AND on
-//    `focus-within` (Q17b, ruled). Fourteen targets in a 30px band becomes ten
-//    at rest, with nothing removed and nothing moved (Hick's #4).
+//  · THE ROW ACTIONS ARE A RESERVED, FIXED-WIDTH SLOT, so the column cannot
+//    shift when a row is a ghost or the grant is view-only. They stay VISIBLE
+//    at rest: they were visible before, and hiding a control that was not
+//    hidden is what C1 calls a disclosure. Hick's #4 is answered by the
+//    toggle's reserved slot and the one cell inset, not by hiding two icons.
 //
-//  · THERE IS A TOTALS ROW. A rate card with no total is a rate card the
-//    reader adds up by hand. It is PER CURRENCY: these rows can carry
-//    different currencies and one figure summed across them would be a
-//    number that is not true of anything — the fabricated-figure defect this
-//    overhaul removed from O.T.T.E.R. (Q22). One row per currency actually
-//    present, each saying how many rates it covers. It sits at the end of the
-//    body rather than in a `<tfoot>`, because the shared Table has no footer
-//    slot; that is a kit request in this session's hand-off.
+//  · THERE IS A SUMMARY ROW, AND IT IS AN AVERAGE, NOT A SUM.
+//
+//    The plan's bundle line asks for "totals rows", which it inherits from the
+//    money-table prescription written for BudgetView. A budget is a bill and
+//    its column sums to something real. A rate card is a PRICE LIST: adding a
+//    producer's day rate to an editor's day rate produces a figure that is
+//    true only if every role on the card works exactly one day, which is the
+//    same fabricated-number defect this overhaul removed from O.T.T.E.R.'s
+//    progress readout (Q22). The first cut of this file summed anyway, and an
+//    adversarial review was right to say so.
+//
+//    What IS true of a price list is what a rate costs on average and how many
+//    rates that covers, so the row says that. It is PER CURRENCY — these rows
+//    can carry several, and one figure across them is true of nothing either.
+//
+//    It sits at the end of the body rather than in a `<tfoot>`, because the
+//    shared Table has no footer slot; that is a kit request in the hand-off.
+//    Flagged for Audrey in the walkthrough: an average is this session's
+//    reading of "totals row" for this particular table, not her ruling.
 //
 //  · MONO KEEPS THE FIGURES AND LOSES EVERYTHING ELSE. The surface was mono
 //    throughout, including role labels and department names (F-R18/Q4).
@@ -207,8 +231,11 @@ function RateCompCell({ value, type, computedAmount, onCommitValue, onToggleType
     }
   }
 
-  // The toggle is the SAME 28px slot in both branches, which is what makes the
-  // display and editing states finally line up (F-R21).
+  // The toggle is the SAME slot in both branches, which is what makes the
+  // display and editing states finally line up (F-R21). Its size is set in
+  // CSS at 20px rather than the 28px control token, so that giving it a real
+  // target does not also make the densest table on the surface 63px per row —
+  // see the note on `.rc-comp-type` in `resources.css`.
   const toggle = (
     <button
       type="button"
@@ -530,14 +557,18 @@ export default function RateCardTable({
     })
   }, [displayRows])
 
-  // ── Totals, per currency ──
-  // 🚨 PER CURRENCY, deliberately. These rows can carry different currencies,
-  // and one figure summed across them would be a number that is not true of
-  // anything — the same defect this overhaul removed from O.T.T.E.R.'s
-  // progress readout (Q22). One row per currency actually present, and each
-  // says how many rates it covers so a partial total cannot read as a whole
-  // one.
-  const totals = useMemo(() => {
+  // ── The summary row, per currency ──
+  //
+  // 🚨 AVERAGES, NOT SUMS, and per currency. See the note at the head of this
+  // file: adding one role's day rate to another's describes nothing, and
+  // adding across currencies describes less than nothing. The mean day rate
+  // and the mean fully-loaded rate are both true of the card, and the count
+  // says how many rates each is the mean of.
+  //
+  // A row with no wage is not a rate, so it is not averaged in — otherwise
+  // every unrated team member on the internal card would drag the mean down
+  // and the number would describe the roster rather than the rates.
+  const summary = useMemo(() => {
     const byCurrency = new Map()
     for (const row of displayRows) {
       const { total } = computeEntryTotal(row, deptDefaults)
@@ -549,7 +580,9 @@ export default function RateCardTable({
       acc.rows += 1
       byCurrency.set(code, acc)
     }
-    return [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency))
+    return [...byCurrency.values()]
+      .map(a => ({ ...a, day: a.day / a.rows, total: a.total / a.rows }))
+      .sort((a, b) => a.currency.localeCompare(b.currency))
   }, [displayRows, deptDefaults])
 
   // ── Collapsed state ──
@@ -748,7 +781,7 @@ export default function RateCardTable({
                               <span className="rc-member-title">{row._member.title}</span>
                             )}
                             {isGhost && (
-                              <AlertTriangle className="rc-member-warn" aria-label="No rate set" />
+                              <AlertTriangle className="rc-member-warn" role="img" aria-label="No rate set" />
                             )}
                           </span>
                         ) : (
@@ -873,11 +906,21 @@ export default function RateCardTable({
                         />
                       </Td>
 
-                      {/* Actions — a reserved slot revealed on hover and on
-                          focus-within (Q17b). Fourteen targets in a 30px band
-                          becomes ten at rest, with nothing removed. */}
+                      {/* Actions — a RESERVED, fixed-width slot, so the
+                          column cannot shift when a row is a ghost or the
+                          grant is view-only.
+
+                          🚨 `always`. An earlier cut of this file let these
+                          hide until hover, which is C1's "a disclosure that
+                          hides a control": they were visible at rest before,
+                          and Q17(b) authorises adding the FOCUS reveal to
+                          controls that already hide — not hiding one that did
+                          not. It also left an invisible Delete on a financial
+                          record clickable at rest on any input that never
+                          generates hover. The Projects list reasoned this out
+                          correctly and this file did not. */}
                       <Td align="right">
-                        <HoverActions>
+                        <HoverActions always>
                           {!isGhost && !readOnly && (
                             <>
                               <IconButton
@@ -971,18 +1014,18 @@ export default function RateCardTable({
             </Row>
           )}
 
-          {/* ── Totals, per currency ──
-              🚨 KIT REQUEST (hand-off): these belong in a `<tfoot>`, and the
+          {/* ── The summary row, per currency ──
+              🚨 KIT REQUEST (hand-off): this belongs in a `<tfoot>`, and the
               shared Table has no footer slot — it renders `head` and a
-              `tbody`. They are the last rows of the body until it does, which
-              is correct HTML and the right picture, but a real `tfoot` would
-              also stay put under a scrolling body and be announced as the
-              summary it is. `src/ui/` is Foundation's. */}
-          {totals.map(t => (
-            <Row key={`total-${t.currency}`} className="rc-total-row">
+              `tbody`. It is the last row of the body until it does, which is
+              correct HTML and the right picture, but a real `tfoot` would also
+              stay put under a scrolling body and be announced as the summary
+              it is. `src/ui/` is Foundation's. */}
+          {summary.map(t => (
+            <Row key={`avg-${t.currency}`} className="rc-total-row">
               <Td colSpan={3}>
                 <span className="rc-total-label">
-                  Total · {t.currency} · {t.rows} rate{t.rows === 1 ? '' : 's'}
+                  Average · {t.currency} · {t.rows} rate{t.rows === 1 ? '' : 's'}
                 </span>
               </Td>
               <Td numeric>{formatCurrency(t.day, t.currency)}</Td>

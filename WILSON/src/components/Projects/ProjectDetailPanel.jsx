@@ -211,22 +211,30 @@ export default function ProjectDetailPanel({
               />
             </Field>
 
-            <Field label={<><Calendar aria-hidden="true" /> Dates</>}>
+            {/* 🚨 A `Field` renders a <label>, and a label names its FIRST
+                labelable descendant — so one Field around two inputs is a
+                visible word that names nothing, and the old sub-labels
+                ("Start", "End") would have gone with it. Each control gets its
+                own Field; the group keeps its heading. */}
+            <div className="pj-group">
+              <span className="pj-group-label"><Calendar aria-hidden="true" /> Dates</span>
               <div className="pj-pair">
-                <Input
-                  type="date"
-                  value={project.startDate || project.start_date || ''}
-                  onChange={(v) => onUpdate({ startDate: v, start_date: v })}
-                  aria-label="Start date"
-                />
-                <Input
-                  type="date"
-                  value={project.endDate || project.end_date || ''}
-                  onChange={(v) => onUpdate({ endDate: v, end_date: v })}
-                  aria-label="End date"
-                />
+                <Field label="Start">
+                  <Input
+                    type="date"
+                    value={project.startDate || project.start_date || ''}
+                    onChange={(v) => onUpdate({ startDate: v, start_date: v })}
+                  />
+                </Field>
+                <Field label="End">
+                  <Input
+                    type="date"
+                    value={project.endDate || project.end_date || ''}
+                    onChange={(v) => onUpdate({ endDate: v, end_date: v })}
+                  />
+                </Field>
               </div>
-            </Field>
+            </div>
 
             <Field label={<><User aria-hidden="true" /> Client</>}>
               <Input
@@ -236,32 +244,38 @@ export default function ProjectDetailPanel({
               />
             </Field>
 
-            <Field label={<><DollarSign aria-hidden="true" /> Budget</>}>
+            <div className="pj-group">
+              <span className="pj-group-label"><DollarSign aria-hidden="true" /> Budget</span>
               <div className="pj-budget">
-                <Input
-                  type="number"
-                  value={project.budget_total ?? ''}
-                  onChange={(v) => onUpdate({ budget_total: v ? Number(v) : null })}
-                  placeholder="0.00"
-                  aria-label="Budget total"
-                />
-                <Select
-                  value={project.budget_currency || 'USD'}
-                  onChange={(v) => onUpdate({ budget_currency: v ?? 'USD' })}
-                  options={CURRENCY_OPTIONS}
-                  aria-label="Budget currency"
-                />
+                <Field label="Amount">
+                  <Input
+                    type="number"
+                    value={project.budget_total ?? ''}
+                    onChange={(v) => onUpdate({ budget_total: v ? Number(v) : null })}
+                    placeholder="0.00"
+                  />
+                </Field>
+                <Field label="Currency">
+                  <Select
+                    value={project.budget_currency || 'USD'}
+                    onChange={(v) => onUpdate({ budget_currency: v ?? 'USD' })}
+                    options={CURRENCY_OPTIONS}
+                  />
+                </Field>
               </div>
-            </Field>
+            </div>
           </div>
         </div>
 
         {/* Folder location */}
         {project.folder_root && (
           <div className="pj-section">
-            <Field label={<><FolderOpen aria-hidden="true" /> Project folder</>}>
+            {/* Not a Field: a <div> is not labelable, so a <label> around it
+                names nothing. It is a read-only readout with a heading. */}
+            <div className="pj-group">
+              <span className="pj-group-label"><FolderOpen aria-hidden="true" /> Project folder</span>
               <div className="pj-path">{project.folder_root}</div>
-            </Field>
+            </div>
           </div>
         )}
 

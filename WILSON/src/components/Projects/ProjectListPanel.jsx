@@ -121,7 +121,11 @@ export default function ProjectListPanel({
             action, which is an interaction change (C1); the review asked for
             the INK, which on the dark ground is the danger token measuring
             properly instead of `#dc2626` at 2.34:1 on orange (F-R14). */}
-        {pending && (
+        {/* Gated on `deleteConfirm`, not on the project being findable: if the
+            row leaves the list while a delete is pending (a realtime update, a
+            filter), gating on the lookup takes Delete AND Cancel away and
+            leaves the confirmation stuck with no way to clear it. */}
+        {deleteConfirm && (
           <Banner
             tone="danger"
             action={(
@@ -131,7 +135,7 @@ export default function ProjectListPanel({
               </>
             )}
           >
-            Delete “{pending.title}”? This cannot be undone.
+            Delete {pending ? `“${pending.title}”` : 'this project'}? This cannot be undone.
           </Banner>
         )}
 

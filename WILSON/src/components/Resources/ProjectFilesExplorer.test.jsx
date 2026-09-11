@@ -78,14 +78,18 @@ const FILES = [
   },
 ]
 
+const REAL_ADAPTER = () => ({
+  listFolders: async () => FOLDERS,
+  listFiles: async () => FILES,
+  listManagedFiles: async () => [],
+})
+
+// 🚨 MUTABLE ON PURPOSE. The `vi.mock` below closes over this object, so a
+// test that needs a different context changes THIS one and puts it back.
 const ctx = {
   projectsIndex: { p1: { id: 'p1', title: 'Smoke one' }, p2: { id: 'p2', title: 'Smoke two', is_private: true } },
   activeProjectId: 'p1',
-  getAdapter: () => ({
-    listFolders: async () => FOLDERS,
-    listFiles: async () => FILES,
-    listManagedFiles: async () => [],
-  }),
+  getAdapter: REAL_ADAPTER,
 }
 
 vi.mock('../../tools/rabbit_v0.1.0/state/RabbitProvider', () => ({
@@ -99,9 +103,9 @@ afterEach(cleanup)
 /** Mount, wait for the adapter promises, and switch to the table view. */
 async function mountTable() {
   const utils = render(<ProjectFilesExplorer />)
-  await screen.findByRole('table')
-    .catch(() => null)
-  // The page opens on Columns; the table is the other tab.
+  // The page opens on COLUMNS, so waiting for a <table> here waits out the
+  // full findBy timeout and finds nothing — eight callers, eight seconds. Wait
+  // for the tab (which appears once the adapter promises settle), then switch.
   const tab = await screen.findByRole('tab', { name: 'Table' })
   fireEvent.click(tab)
   return utils
@@ -122,7 +126,10 @@ describe('the Files page — the chrome', () => {
     const tabs = await screen.findAllByRole('tab')
     expect(tabs.map(t => t.textContent)).toEqual(['Table', 'Columns'])
     expect(screen.getByLabelText('Project')).toBeTruthy()
-    expect(screen.getByLabelText('Filter')).toBeTruthy()
+    // `type="search"`, which is what it was: the browser's own clear
+    // affordance came with that type, and swapping it for a hand-rolled
+    // button would be exchanging one control for another under C1.
+    expect(screen.getByLabelText('Filter').getAttribute('type')).toBe('search')
     expect(screen.getByTitle("Reload this project's folders and files")).toBeTruthy()
   })
 
@@ -205,13 +212,21 @@ describe('the Files table — the contract lane B converges on', () => {
     await mountTable()
     const depthOf = () => [...document.querySelectorAll('.ui-table[data-files-table] .fx-name')]
       .map(n => n.style.getPropertyValue('--fx-depth'))
-    // Sorted by name, the tree order holds and the indent means something.
+    // The DEFAULT arrangement is tree order, and it is the one arrangement in
+    // which the indent is true — so it is also the one an earlier cut of this
+    // fix got wrong, because `sortRows` re-sorts the flattened list globally
+    // for every key INCLUDING name-ascending.
     expect(depthOf().some(d => Number(d) > 0)).toBe(true)
-    // Sort by Size: `sortRows` reorders the flattened list globally while each
-    // row keeps its tree depth, so an indent here would claim a parentage that
-    // no longer exists.
+
+    // Sort by Size: the parentage is gone, so the indent must be too.
     fireEvent.click(screen.getByRole('button', { name: /Size/ }))
     expect(depthOf().every(d => Number(d) === 0)).toBe(true)
+
+    // Name DESCENDING is a global sort as well, not a return to tree order.
+    fireEvent.click(screen.getByRole('button', { name: /Name/ }))
+    expect(depthOf().some(d => Number(d) > 0), 'name asc is tree order').toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: /Name/ }))
+    expect(depthOf().every(d => Number(d) === 0), 'name desc is a global sort').toBe(true)
   })
 
   it('keeps the sort slot reserved so the header label never shifts', async () => {
@@ -269,17 +284,55 @@ describe('the Files table — the contract lane B converges on', () => {
 })
 
 describe('the Files page — the three states are three pictures (F-R13)', () => {
+  // 🚨 The `vi.mock` above closes over `ctx`, so the way to drive a different
+  // context is to MUTATE it, not to build a second object the mock never
+  // reads. An earlier cut of this test did the latter and asserted
+  // `expect(spy).toBeDefined()` — which `vi.spyOn` guarantees — so it could
+  // not fail, and its three real assertions grepped the source rather than
+  // the DOM. An adversarial review called it the worst test in the file and
+  // was right.
+  afterEach(() => { ctx.activeProjectId = 'p1' })
+
   it('says "no project chosen" before a project is chosen', async () => {
-    const noProject = { ...ctx, activeProjectId: null }
-    vi.spyOn(noProject, 'getAdapter')
-    const { rerender } = render(<ProjectFilesExplorer />)
-    rerender(<ProjectFilesExplorer />)
-    // With the fixture's activeProjectId the page lands on a project, so the
-    // arrival state is asserted from the source's own branch instead.
-    expect(source).toMatch(/title="No project chosen"/)
-    expect(source).toMatch(/<Loading rows=\{10\} columns=\{7\}/)
-    expect(source).toMatch(/title="Nothing filed yet"/)
-    expect(noProject.getAdapter).toBeDefined()
+    ctx.activeProjectId = null
+    render(<ProjectFilesExplorer />)
+    await screen.findByRole('tablist')
+    expect(screen.getByText('No project chosen')).toBeTruthy()
+    expect(screen.queryByRole('table')).toBeNull()
+    expect(screen.queryByRole('status', { name: /Loading/ })).toBeNull()
+  })
+
+  it('draws skeleton ROWS while loading, not the empty state', async () => {
+    // The defect was one component serving all three, so a slow adapter and an
+    // empty project were the same picture — which on this page is the whole
+    // question. The adapter is held open here so the loading state is real
+    // rather than asserted from the source.
+    let release
+    ctx.getAdapter = () => ({
+      listFolders: () => new Promise((r) => { release = () => r(FOLDERS) }),
+      listFiles: async () => FILES,
+      listManagedFiles: async () => [],
+    })
+    render(<ProjectFilesExplorer />)
+    const loading = await screen.findByRole('status', { name: /Loading/ })
+    expect(loading.querySelectorAll('.ui-skeleton').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Nothing filed yet')).toBeNull()
+    release()
+    // …and once it resolves the skeleton is replaced by the real thing.
+    await screen.findByRole('tab', { name: 'Table' })
+    ctx.getAdapter = REAL_ADAPTER
+  })
+
+  it('says "nothing filed yet" for a project with no folders or files', async () => {
+    ctx.getAdapter = () => ({
+      listFolders: async () => [],
+      listFiles: async () => [],
+      listManagedFiles: async () => [],
+    })
+    render(<ProjectFilesExplorer />)
+    expect(await screen.findByText('Nothing filed yet')).toBeTruthy()
+    expect(screen.queryByRole('table')).toBeNull()
+    ctx.getAdapter = REAL_ADAPTER
   })
 
   it('never hands EmptyState a loading string', () => {

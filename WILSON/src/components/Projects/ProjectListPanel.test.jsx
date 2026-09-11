@@ -175,6 +175,17 @@ describe('the chrome', () => {
     expect(onCancelDelete).toHaveBeenCalled()
   })
 
+  it('keeps Delete and Cancel reachable if the row leaves the list', () => {
+    // A realtime update or a filter can drop the pending project while the
+    // confirmation is open. Gating the strip on the LOOKUP rather than on
+    // `deleteConfirm` took both outcomes away and left the state stuck.
+    const { onCancelDelete } = mount({ projects: [PROJECTS[1]], deleteConfirm: 'p1' })
+    const alert = screen.getByRole('alert')
+    expect(alert.textContent).toMatch(/Delete this project\?/)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(onCancelDelete).toHaveBeenCalled()
+  })
+
   it('offers the canonical empty state, with its action and without the circle', () => {
     const { onCreate } = mount({ projects: [] })
     expect(screen.getByText('No projects yet')).toBeTruthy()

@@ -272,6 +272,8 @@ export default function RateCardPage() {
     },
   ]
 
+  const missingInternal = !internalCard && !rateCardRestricted && !loading
+
   function pickTab(id) {
     if (id === 'general' && generalCard) setActiveRateCardId(generalCard.id)
     if (id === 'internal' && internalCard) setActiveRateCardId(internalCard.id)
@@ -304,12 +306,16 @@ export default function RateCardPage() {
         />
       </Toolbar>
 
-      {(error || importError || !internalCard) && (
+      {/* The guard matches its children exactly. A looser one rendered an
+          empty 16px band on first paint — `internalCard` is undefined while
+          `loading` is still true — which then vanished and shifted the table
+          under the reader. */}
+      {(error || importError || missingInternal) && (
         <div className="rs-body rs-body-flush">
           {(error || importError) && (
             <Banner tone="danger" Icon={AlertCircle}>{importError || error}</Banner>
           )}
-          {!internalCard && !rateCardRestricted && !loading && (
+          {missingInternal && (
             <Banner tone="warning" Icon={AlertTriangle}>
               The internal rate card could not be created, so the Internal tab is
               unavailable.
@@ -319,7 +325,10 @@ export default function RateCardPage() {
       )}
 
       {rateCardRestricted ? (
-        <div className="rs-body">
+        // The tabs carry `aria-controls={TABLE_PANEL_ID}` unconditionally, so
+        // the panel they name has to exist in every branch or they point at
+        // nothing.
+        <div className="rs-body" id={TABLE_PANEL_ID} role="tabpanel" aria-label="Rate cards are restricted">
           <EmptyState
             Icon={Lock}
             title="Rate cards are restricted"

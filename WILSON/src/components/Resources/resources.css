@@ -99,7 +99,22 @@
     color: var(--color-ink-3);
     flex-shrink: 0;
   }
-  .rs-search { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 260px; }
+  /* 🚨 USED BY TWO TABLE HEADERS. It was dropped once, in a rewrite of this
+     section, and the word "Actions" then rendered visibly in a 5%-wide column
+     — `.ui-th` sets `white-space: nowrap` and no `overflow`, so it spilled
+     rather than clipping. `clip-path` over the deprecated `clip`. */
+  .rs-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+  .rs-search { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 260px; }
   .rs-page .ui-input[data-size="sm"] { max-width: 240px; }
   /* `Tabs` wraps by default — correct for a set of eleven, wrong for a set of
      two that IS the view switch: squeezed by the slot beside it, it stacked
@@ -118,6 +133,15 @@
      it). `src/index.css` is Foundation's file, so this session does not
      edit it. */
   .rs-page .ui-toolbar .ui-tab { height: var(--control-sm); }
+  /* 🚨 KIT REQUEST (hand-off). `ProjectDetailPanel`'s two date fields carried
+     `colorScheme: 'dark'` inline; the kit `Input` has no such token and
+     `color-scheme` is declared NOWHERE in the app (grepped). Without it the
+     browser paints `::-webkit-calendar-picker-indicator` — and a `<select>`'s
+     own button chrome — in the light scheme, which is a near-white control
+     region on a dark page: C9's shape arriving through the UA stylesheet
+     rather than through a rule. It belongs on `[data-surface]` in
+     `index.css`, which is Foundation's. */
+  .rs-page .ui-input { color-scheme: dark; }
 
   /* ═══ FILES — ProjectFilesExplorer.jsx ════════════════════════════════ */
 
@@ -289,7 +313,7 @@
   .fx-details-title {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-bottom: 12px;
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
@@ -376,6 +400,22 @@
   }
   .pj-form-col { display: flex; flex-direction: column; gap: 16px; }
   .pj-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  /* A heading over a GROUP of fields, where a <label> would be wrong: a label
+     names its first labelable descendant, so one around two inputs is a
+     visible word that names nothing. The fields inside carry their own. */
+  .pj-group { display: flex; flex-direction: column; gap: 8px; }
+  .pj-group-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .pj-group-label > svg { width: var(--icon-sm); height: var(--icon-sm); }
   .pj-budget { display: grid; grid-template-columns: 1fr 96px; gap: 12px; }
   /* 1280x700 is Electron's floor and the plan's second checkpoint; the
      two-column form is the first thing that stops fitting there. */
@@ -434,7 +474,7 @@
     background-color: var(--color-paper-recessed);
     border: 1px solid var(--color-rule);
     border-radius: var(--radius-control);
-    padding: 10px var(--cell-pad-x);
+    padding: 8px var(--cell-pad-x);
     max-height: 220px;
     overflow-y: auto;
   }
@@ -510,7 +550,7 @@
     color: var(--color-ink-2);
     cursor: pointer;
   }
-  .pj-private input { margin-top: 3px; accent-color: var(--color-signal); flex-shrink: 0; }
+  .pj-private input { margin-top: 4px; accent-color: var(--color-signal); flex-shrink: 0; }
   .pj-private strong { color: var(--color-ink); font-weight: 600; }
 
   /* === RATE CARD ======================================================= */
@@ -638,7 +678,7 @@
   }
   .rc-importer-note {
     display: block;
-    margin-top: 2px;
+    margin-top: 4px;
     font-size: var(--text-caption);
     line-height: var(--text-caption--line-height);
     color: var(--color-ink-2);
@@ -763,10 +803,18 @@
      value, at the Label step in full-strength ink. */
   .rc-comp { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
   .rc-comp-value { flex: 1; min-width: 0; }
+  /* 🚨 20px, not the 28px control token, and this is deliberate.
+     F-R21 asks for a real target where there was a ~16x14px one at 45%
+     opacity two pixels from a different action. It does NOT ask for a taller
+     row: a 28px control plus the derived line plus the cell's 8px padding
+     makes a 63px row in the densest financial table on the surface, against
+     the 36px this lane declares everywhere else. 20px square with 8px of
+     clear space beside it is 2.5x the old area, sits inside the row rather
+     than setting it, and still clears the 8px gap the mis-click needed. */
   .rc-comp-type {
-    flex: 0 0 var(--control-sm);
-    width: var(--control-sm);
-    height: var(--control-sm);
+    flex: 0 0 20px;
+    width: 20px;
+    height: 20px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -782,17 +830,20 @@
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
   }
   .rc-comp-type:hover { background-color: var(--color-hover); color: var(--color-ink); }
+  /* The derived amount sits BESIDE the value, inside the same line, so the
+     cell does not become two rows tall. It is the quietest thing in the cell
+     and the first to be given up when the column is narrow. */
   .rc-comp-derived {
-    display: block;
-    margin-top: 2px;
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: var(--font-mono);
     font-size: var(--text-caption);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
     text-align: right;
-    /* clear of the reserved toggle slot, so the derived figure lines up under
-       the value it derives from rather than under the toggle beside it */
-    padding-right: calc(var(--control-sm) + 8px);
   }
 
   /* -- Currency ----------------------------------------------------------*/
@@ -922,6 +973,7 @@
     font-size: var(--text-label);
     line-height: var(--text-label--line-height);
     letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
     text-transform: uppercase;
     color: var(--color-ink-2);
   }
@@ -997,7 +1049,9 @@
   .rc-dd:hover { background-color: var(--color-hover); }
   .rc-dd-label {
     font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
     letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
     text-transform: uppercase;
     color: var(--color-ink-2);
   }
@@ -1043,7 +1097,7 @@
   .rc-preview-status > span[data-tone="danger"] { color: var(--color-danger); }
   .rc-preview-status > span[data-tone="warning"] { color: var(--color-warning); }
   .rc-preview-count { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-  .rc-preview-card { flex: 1; min-height: 0; max-height: 46vh; }
+  .rc-preview-card { flex: 1; min-height: 0; max-height: 420px; }
   .rc-preview-file {
     font-family: var(--font-mono);
     font-size: var(--text-caption);

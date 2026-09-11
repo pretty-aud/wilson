@@ -102,12 +102,16 @@
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, X } from 'lucide-react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import {
   Banner, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
   Tabs, Td, Th, Toolbar,
 } from '../../ui'
+// `type="search"` is deliberate: the field was a `<input type="search">` and
+// the browser's own clear affordance came with it. Replacing that with a
+// hand-rolled clear button would be swapping one control for another under a
+// constraint that says not to (C1), so the native one stays.
 import { formatBytes } from '../../cloud/workspaceStorage'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
 import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows } from './fileTree'
@@ -185,7 +189,25 @@ export default function ProjectFilesExplorer() {
   }, [projectId, getAdapter, reloads])
 
   const flat = useMemo(() => (tree ? flattenTree(tree.root) : []), [tree])
-  const tableRows = useMemo(() => sortRows(filterFlat(flat, query), sortKey, sortDir), [flat, query, sortKey, sortDir])
+  // 🚨 TREE ORDER IS NOT "SORTED BY NAME ASCENDING", even though it looks like
+  // it. `flattenTree` walks the tree depth-first and `buildFileTree` has
+  // already sorted each LEVEL by name, so the order is parent, then that
+  // parent's children, then the next parent. `sortRows` re-sorts the FLATTENED
+  // list globally — for every key including 'name' — which interleaves
+  // children with unrelated parents while every row keeps its tree depth.
+  //
+  // The default sort is name-ascending, so an earlier cut of this file shipped
+  // F-R12's defect in the state the page OPENS in: the one arrangement where
+  // the indent is meant to be true was the one where it was computed from a
+  // global sort. Tree order is the identity case and is left alone.
+  const sorted = sortKey === 'name' && sortDir === 'asc'
+  const tableRows = useMemo(
+    () => {
+      const rows = filterFlat(flat, query)
+      return sorted ? rows : sortRows(rows, sortKey, sortDir)
+    },
+    [flat, query, sortKey, sortDir, sorted],
+  )
   const cols = useMemo(() => (tree ? columnsFor(tree.root, selected) : []), [tree, selected])
 
   const onSort = useCallback((key) => {
@@ -221,14 +243,12 @@ export default function ProjectFilesExplorer() {
               <Search className="rs-toolbar-glyph" aria-hidden="true" />
               <Input
                 size="sm"
+                type="search"
                 value={query}
                 onChange={setQuery}
                 placeholder="Filter by name or path"
                 aria-label="Filter"
               />
-              {query && (
-                <IconButton icon={X} size="sm" title="Clear filter" onClick={() => setQuery('')} />
-              )}
             </span>
             <IconButton
               icon={RefreshCw}
@@ -306,7 +326,7 @@ export default function ProjectFilesExplorer() {
             <div className="fx-split">
               <div className="fx-main">
                 {view === 'table'
-                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} query={query} />
+                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} query={query} treeOrder={sorted} />
                   : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
               </div>
               <DetailsPanel node={selectedFile} />
@@ -341,12 +361,17 @@ const HEADERS = [
   ['path', 'Location', { width: '16%' }],
 ]
 
-function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query }) {
+function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query, treeOrder }) {
   // F-R12: a sort reorders the flattened list globally while each row keeps
   // the depth it had in the tree, so after sorting by Size the indent claims a
   // parentage that no longer exists. A filter does the same, which is why the
   // query case was already handled here; the sort case was not.
-  const indent = (query || sortKey !== 'name') ? 0 : 1
+  //
+  // `treeOrder` and not `sortKey !== 'name'`: name-DESCENDING is a global sort
+  // too, and so is name-ascending over the flattened list. The indent is true
+  // in exactly one arrangement — the tree's own — and that is the one it asks
+  // about.
+  const indent = (query || !treeOrder) ? 0 : 1
   return (
     <Table
         aria-label="Project folders and files"
