@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { Menu } from 'lucide-react'
 import TitleBar from './components/TitleBar'
-import { PageHeader, IconButton } from './ui'
+import { PageHeader, IconButton, ToastProvider } from './ui'
 import LoginScreen from './cloud/auth/LoginScreen'
 import ForgotPasswordWizard from './cloud/auth/ForgotPasswordWizard'
 import ResetPasswordWizard from './cloud/auth/ResetPasswordWizard'
@@ -1891,6 +1891,7 @@ export default function App() {
       <PageHeader
         title={page.title}
         subtitle={page.subtitle}
+        measure={page.measure}
         leading={page.chrome === 'tool' ? (
           <img
             src={`${import.meta.env.BASE_URL}logo.png`}
@@ -1914,6 +1915,11 @@ export default function App() {
   return (
     <AgentProvider>
     <RabbitProvider>
+    {/* ONE toast stack for the whole app (plan §4: one anchor, one stack
+        manager, replacing five systems in five screen positions). It lives
+        here so a page never mounts a second one; F2's worked example is its
+        first caller and the four tool systems fold in with their lanes. */}
+    <ToastProvider>
     <div className="wilson-dark-scroll" style={{ height: '100vh', backgroundColor: '#ea580c', overflow: 'hidden' }}>
       <TitleBar />
       {authed && (
@@ -2329,6 +2335,7 @@ export default function App() {
         Rabbit page div is display:none. position:fixed, reads
         useRabbit() — must stay the single instance. */}
     <UndoToast />
+    </ToastProvider>
     </RabbitProvider>
     </AgentProvider>
   );

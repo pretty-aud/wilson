@@ -32,6 +32,13 @@
 //             what it will paint after its lane converts it. See the note on
 //             Q1 below; this field drives a real background colour, and an
 //             aspirational value here renders black text on black.
+//   measure   null      full-bleed: the page owns the whole field (the tools)
+//             'data'    the 1240px data column (plan §3.3)
+//             'reading' the 720px reading/form column
+//             🚨 It is set on the PAGE and on its HEADER together. A page
+//             capped to a centred column whose title is not is a title that
+//             does not line up with its own first row, which is the
+//             alignment Audrey named in the brief.
 //   chrome    'tool'  the logo + wordmark + expansion header (D.O.G., O.T.T.E.R.,
 //                     R.A.B.B.I.T.), a 4px separator under the bars, no content
 //                     padding — the tool owns its own field
@@ -143,6 +150,7 @@ const PAGE_LIST = [
     bars: bars(200, 150),
     surface: 'dark',
     chrome: 'page',
+    measure: 'data',
     nav: 'resources',
   },
   {
@@ -197,10 +205,18 @@ if (new Set(PAGE_LIST.map((p) => p.id)).size !== PAGE_LIST.length) {
   throw new Error('PAGES: duplicate id');
 }
 
+const MEASURES = [null, 'data', 'reading'];
+for (const p of PAGE_LIST) {
+  if (!MEASURES.includes(p.measure ?? null)) {
+    throw new Error(`PAGES entry "${p.id}": measure must be one of ${MEASURES}`);
+  }
+}
+
 export const PAGES = Object.freeze(PAGE_LIST.map((p) => Object.freeze({
   subtitle: null,
   navLabel: p.title,
   adminOnly: false,
+  measure: null,
   ...p,
 })));
 

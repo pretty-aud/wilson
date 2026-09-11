@@ -18,15 +18,20 @@
 // `ink-light` (4.91:1). The subtitle shipped as `text-orange-200` at 2.63:1,
 // which is the single worst-contrast piece of standing copy in the app.
 //
+// `measure` caps the header to the same centred column its page uses, so the
+// title sits directly above the page's own first row. A page capped to 1240
+// under a full-bleed title is a title that does not line up with anything
+// underneath it.
+//
 // The title is passed in, never transformed here: the registry holds it in
 // sentence case (Q2) and the page transition applies its own
 // `text-transform: uppercase` for the 400ms it holds the title (Q18 — the
 // transition is untouched).
 // =============================================================================
 
-export function PageHeader({ title, subtitle, leading, actions, className = '', ...rest }) {
+export function PageHeader({ title, subtitle, leading, actions, measure = null, className = '', ...rest }) {
   return (
-    <header className={`ui-page-header ${className}`.trim()} {...rest}>
+    <header className={`ui-page-header ${className}`.trim()} data-measure={measure || undefined} {...rest}>
       {leading}
       <div className="ui-page-header-text">
         <h1 className="ui-page-header-title">{title}</h1>
