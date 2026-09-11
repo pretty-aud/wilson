@@ -28,6 +28,21 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
+// 🚨 THE VITEST JOB HAS NO `.env.local`. This file mounts a real component, so
+// it pulls in whatever that component's imports pull in — and somewhere down
+// that graph is `supabaseClient`, which calls `createClient` AT MODULE LOAD
+// and throws "supabaseUrl is required." when the env vars are absent. Locally
+// the file is there and everything is green; in CI the whole test file fails
+// to import, with a message that says nothing about this test.
+//
+// `pages.test.js` hit the same wall and solved it the same way (commit
+// 720affb). The mock is the smallest shape the client's importers touch.
+vi.mock('../../cloud/auth/supabaseClient', () => ({
+  supabase: {},
+  hydrateSupabase: async () => {},
+}))
+
+
 const here = dirname(fileURLToPath(import.meta.url))
 const css = readFileSync(resolve(here, 'resources.css'), 'utf8')
 const source = readFileSync(resolve(here, 'ProjectFilesExplorer.jsx'), 'utf8')
