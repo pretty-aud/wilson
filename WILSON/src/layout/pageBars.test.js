@@ -58,7 +58,7 @@ const RESTING = {
   'project-manager': [120, 80], 'rate-card': [120, 80], dashboard: [120, 80],
   settings: [120, 80], 'team-members': [120, 80], help: [120, 80],
   'project-files': [95, 8],
-  'admin-terminal': [200, 150],
+  'admin-terminal': [120, 80],
 }
 
 // The 200/150 shape every resource row had before Q8(b), built through the
@@ -243,17 +243,22 @@ describe('page bar geometry', () => {
       }
     })
 
-    it('Home stays 268/268 (W10: not a resource page); lane C moved its own rows; Admin Terminal waits for C3', () => {
+    it('Home stays 268/268 (W10: not a resource page); every resource row is now 120/80', () => {
       expect(resolveAt(PAGE_BARS.home.top, 1440)).toBeCloseTo(268, 5)
       expect(resolveAt(PAGE_BARS.home.bottom, 1440)).toBeCloseTo(268, 5)
-      // Lane C's own commits (C1, C2) moved these; D1b did not touch them.
-      for (const page of ['project-manager', 'rate-card', 'dashboard']) {
+      // Lane C's own commits (C1, C2, and C3 for the Admin Terminal) moved
+      // these; D1b did not touch them. Admin Terminal was the last 200/150 row
+      // in the app and joins the pair here, so the loop is the whole class.
+      for (const page of ['project-manager', 'rate-card', 'dashboard', 'admin-terminal']) {
         expect(PAGE_BARS[page].top, `${page}.top`).toBe(PAGE_BARS.settings.top)
         expect(PAGE_BARS[page].bottom, `${page}.bottom`).toBe(PAGE_BARS.settings.bottom)
       }
-      // The last 200/150 row; C3 moves it with the Admin Terminal conversion.
-      expect(resolveAt(PAGE_BARS['admin-terminal'].top, 1440)).toBeCloseTo(200, 5)
-      expect(resolveAt(PAGE_BARS['admin-terminal'].bottom, 1440)).toBeCloseTo(150, 5)
+      // 🚨 No 200/150 row is left in the app. The rival shape the controls
+      // below compare against is built through the real generator
+      // (OLD_RESOURCE), not read off another row, so nothing here depends on
+      // a page that has now moved.
+      expect(resolveAt(PAGE_BARS['admin-terminal'].top, 1440)).toBeCloseTo(120, 5)
+      expect(resolveAt(PAGE_BARS['admin-terminal'].bottom, 1440)).toBeCloseTo(80, 5)
     })
 
     // CONTROLS. (a) The three rows really are NOT the 200/150 shape any more:
