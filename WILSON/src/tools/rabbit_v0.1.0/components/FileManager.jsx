@@ -41,6 +41,8 @@ import { fileSlugify } from '../entityNaming'
 // refusal for exactly the customers already paying for their own storage.
 import { classifyUpload, noticeAfterUpload, summarizeBatch } from '../storage/uploadNotices'
 import { activeWorkspaceProvider } from '../storage'
+import { localMediaUrl } from '../storage/localServerProvider'
+import { hasLocalServer } from '../../../lib/localData'
 import { getWorkspaceStorageCached, fetchStorageUsage } from '../../../cloud/workspaceStorage'
 import { ensureManagedVideoThumbnail } from '../storage/managedVideoThumbnail'
 import { isVideoExtension } from '../storage/videoThumbnails'
@@ -255,9 +257,23 @@ export default function FileManager({
   // teardown sweep, caught it, and its own review then found the same shape
   // surviving here.
   const [thumbUrls, setThumbUrls] = useState(() => new Map())
+  // Demo 2026-09-11: a PRIVATE project's previews live on THIS computer, at
+  // a URL the desktop's own server serves (electron/localMedia.cjs) —
+  // nothing to sign, and nothing a browser could show (off the desktop they
+  // fall through to file-type icons). Split out before the signing round
+  // trip and merged back into the same map the two render sites read.
+  const localThumbs = useMemo(
+    () => (hasLocalServer()
+      ? assetFiles
+        .filter(f => f.storage_provider === 'local_server' && f.thumbnail_url)
+        .map(f => [f.thumbnail_url, localMediaUrl(f.thumbnail_url)])
+      : []),
+    [assetFiles],
+  )
   const thumbKeys = useMemo(
     () => assetFiles
       .filter(f => f.storage_provider !== 's3')
+      .filter(f => f.storage_provider !== 'local_server')
       .map(f => f.thumbnail_url)
       .filter(Boolean),
     [assetFiles],
@@ -271,20 +287,21 @@ export default function FileManager({
   // useCallback'd method is stable.
   const signThumbnails = ctx?.thumbnailUrls
   useEffect(() => {
+    const local = new Map(localThumbs)
     if (!signThumbnails || thumbKeys.length === 0) {
-      setThumbUrls(new Map())
+      setThumbUrls(local)
       return
     }
     let cancelled = false
     signThumbnails(thumbKeys).then(map => {
       // The list can change while a signing round trip is in flight; a late
       // response must not overwrite a newer one.
-      if (!cancelled) setThumbUrls(map)
+      if (!cancelled) setThumbUrls(new Map([...local, ...map]))
     })
     return () => { cancelled = true }
     // thumbKeys is memoised on assetFiles, so this re-signs when the list
     // changes and not on every render.
-  }, [signThumbnails, thumbKeys])
+  }, [signThumbnails, thumbKeys, localThumbs])
 
   // Listen for copy progress IPC events
   useEffect(() => {

@@ -17,12 +17,14 @@
 // project list, the open bundle and the undo history all belong to that
 // root. WorkspaceSwitcher resorts to window.location.reload() for the same
 // reason, and this follows it rather than inventing a partial re-init.
-// Before the reload the machine's R.A.B.B.I.T. backend switch is pinned to
-// Local Server so a folder opened after a cloud session does not come back
-// in Supabase mode showing an empty list.
+//
+// The R.A.B.B.I.T. backend switch is NOT touched (until 2026-09-11 it was
+// pinned to Local Server here): in Supabase mode the folder is where a
+// PRIVATE project's media lands (electron/localMedia.cjs), so a cloud
+// session that opens a folder stays a cloud session with its cloud project
+// list. Audrey, 2026-09-11: "all databases need to live in the supabase
+// storage at all times … only file storage is local".
 // =============================================================================
-
-import { loadOtterSettings, saveOtterSettings } from '../../lib/localData'
 
 export function localDemoBridge() {
   if (typeof window === 'undefined') return null
@@ -48,27 +50,12 @@ export function describeLocalState(state) {
   return { mode: 'none', recent: Array.isArray(state.recent) ? state.recent : [] }
 }
 
-/**
- * Pin the machine's R.A.B.B.I.T. backend to Local Server, written the way
- * RabbitProvider's saveRabbitSettings writes it (otter-settings.rabbit).
- * activeProjectId is cleared: it named a project in the previous root.
- */
-export async function pinLocalServerMode() {
-  let data = {}
-  try { data = await loadOtterSettings() } catch { data = {} }
-  const base = data && typeof data === 'object' ? data : {}
-  await saveOtterSettings({
-    ...base,
-    rabbit: { ...(base.rabbit || {}), adapterMode: 'local_server', activeProjectId: null },
-  })
-}
-
 const FAILED = 'the folder could not be opened'
 
 /**
  * The pick flow: OS dialog → (a folder holding other files asks first) →
- * pin Local Server mode. Returns { done, canceled, error }.
- * The caller reloads on `done` — see the header.
+ * done. Returns { done, canceled, error }. The caller reloads on `done` —
+ * see the header.
  *
  * `confirmForeign(result)` is the card's own question ("this folder already
  * holds 12 items — use it anyway?"); it resolves true to proceed.
@@ -81,11 +68,9 @@ export async function pickLocalFolder(bridge, { confirmForeign } = {}) {
     if (!yes) return { done: false, canceled: true }
     const r2 = await bridge.open({ folder: r.folder, allowForeign: true })
     if (!r2?.ok) return { done: false, error: r2?.error || FAILED }
-    await pinLocalServerMode()
     return { done: true, result: r2 }
   }
   if (!r.ok) return { done: false, error: r.error || FAILED }
-  await pinLocalServerMode()
   return { done: true, result: r }
 }
 
@@ -103,11 +88,9 @@ export async function reopenLocalFolder(bridge, folder, { confirmForeign } = {})
     if (!yes) return { done: false, canceled: true }
     const r2 = await bridge.open({ folder, allowForeign: true })
     if (!r2?.ok) return { done: false, error: r2?.error || FAILED }
-    await pinLocalServerMode()
     return { done: true, result: r2 }
   }
   if (!r?.ok) return { done: false, error: r?.error || FAILED }
-  await pinLocalServerMode()
   return { done: true, result: r }
 }
 

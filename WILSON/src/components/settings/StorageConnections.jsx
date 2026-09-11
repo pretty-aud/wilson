@@ -299,6 +299,19 @@ export default function StorageConnections() {
             </div>
           )}
 
+          {/* Audrey, 2026-09-11: "in settings just clarify that it is only
+              working for demos as local projects cant be shared with
+              other[s]" — and the rule behind it: databases stay in Supabase,
+              only media goes local. Every state of the card carries it. */}
+          {demo && (
+            <div className="text-[11px]" style={{ color: '#7c2d12' }} data-local-card="demo-only">
+              <b>For demos only.</b> Nothing stored on this computer can be shared with anyone. Databases stay in Supabase; local storage is for media. In Supabase mode a <b>private project</b> keeps its media here{demoState?.mediaRoot ? ':' : '.'}
+            </div>
+          )}
+          {demo && demoState?.mediaRoot && (
+            <PathLine title={demoState.mediaRoot}>{demoState.mediaRoot}</PathLine>
+          )}
+
           {demo && confirm && (
             <div className="flex flex-col gap-2" data-local-card="confirm">
               <div className="text-[11px]" style={{ color: '#1c1917' }}>
@@ -322,7 +335,7 @@ export default function StorageConnections() {
             <div className="flex flex-col gap-2" data-local-card="active">
               <PathLine title={view.folder}>{view.folder}</PathLine>
               <div className="text-[11px]" style={{ color: '#1c1917' }}>
-                Projects, files and thumbnails live in this folder. Copy the whole folder to carry the demo to another computer.
+                In Local Server mode, projects, files and thumbnails live in this folder; in Supabase mode, private projects’ media does. Copy the whole folder to carry the demo to another computer.
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <GatedAction allowed={canEditMachineRoot} reason={machineRootReason}>

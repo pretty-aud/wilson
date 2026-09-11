@@ -673,7 +673,9 @@ export default function SettingsPage({
                 <p className="text-xs text-stone-950 mb-4 leading-relaxed">
                   Where R.A.B.B.I.T. stores projects, phases, assets, tasks, files, and rate
                   cards. Switching backends preserves whatever lives in the destination — it
-                  does not migrate data between adapters.
+                  does not migrate data between adapters. Supabase is where every project’s
+                  database lives and the only backend other people can see. Local Server is
+                  for demos only: its projects stay on this computer and cannot be shared.
                 </p>
                 <div className="flex flex-col gap-2">
                   {ADAPTER_MODES.map(mode => {
@@ -697,7 +699,7 @@ export default function SettingsPage({
                     const hint = unavailableOnWeb
                       ? 'Desktop app only — needs the local server or Drive bridge'
                       : mode === 'supabase'     ? "WILSON's own cloud backend. Already connected — no account to link and nothing to set up." :
-                        mode === 'local_server' ? 'In-app Express server (desktop only — single user)' :
+                        mode === 'local_server' ? 'For demos only — projects here stay on this computer and cannot be shared (in-app Express server, desktop only)' :
                         mode === 'google_drive' ? 'Read-only sync from a Drive folder (writes deferred to v0.2)' : ''
                     return (
                       <button

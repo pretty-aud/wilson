@@ -199,10 +199,11 @@ describe('the Storage card — the one way in, and every seam has its caller', (
     expect(reopen).toContain('{ confirmForeign } = {}')
     expect(reopen).toContain('const yes = confirmForeign ? await confirmForeign(r) : false')
     expect(reopen.indexOf('allowForeign: true')).toBeGreaterThan(reopen.indexOf('if (!yes) return'))
-    // the client pins Local Server mode before the reload
-    const pick = client.slice(client.indexOf('export async function pickLocalFolder'), client.indexOf('export async function reopenLocalFolder'))
-    expect(pick.match(/await pinLocalServerMode\(\)/g)?.length).toBeGreaterThanOrEqual(2)
-    expect(client).toContain("adapterMode: 'local_server', activeProjectId: null")
+    // (2026-09-11) the client no longer pins Local Server mode: in Supabase
+    // mode the folder is where a private project's media lands, so a cloud
+    // session that opens a folder stays a cloud session with its cloud list.
+    expect(client).not.toContain('pinLocalServerMode')
+    expect(client).not.toContain("adapterMode: 'local_server'")
   })
   it('keeps the S34 gate on every machine-wide repoint', () => {
     expect(storageConnections).toMatch(/perms\.ready && \(!perms\.workspaceId \|\| perms\.role === 'admin'\)/)

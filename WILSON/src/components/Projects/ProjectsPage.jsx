@@ -22,13 +22,14 @@
 // file list in the detail panel. Media files are auto-detected
 // by MIME type. Files can be marked as core and classified.
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
 import { usePermissions } from '../../permissions/usePermissions'
 import { detectDocumentKind } from '../../tools/rabbit_v0.1.0/components/ProjectFilesTable'
 import ProjectListPanel from './ProjectListPanel'
 import ProjectDetailPanel from './ProjectDetailPanel'
 import { LIGHT_INK } from '../lightSurface'
+import { hasLocalServer } from '../../lib/localData'
 
 function newFileId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
@@ -62,6 +63,26 @@ export default function ProjectsPage({ onNavigate }) {
   const [view, setView] = useState('list') // 'list' | 'create' | 'detail'
   const [activeId, setActiveId] = useState(null)
   const [newTitle, setNewTitle] = useState('')
+  // Demo 2026-09-11: a PRIVATE project (migration 0072) — its rows in
+  // Supabase, its media on this computer, visible to nobody else. The
+  // checkbox shows only where it can work: a cloud session whose database
+  // has the column (the adapter probes it) on the desktop (the media needs
+  // a home on this computer).
+  const [newPrivate, setNewPrivate] = useState(false)
+  const [privateOk, setPrivateOk] = useState(false)
+  const getAdapter = ctx?.getAdapter
+  useEffect(() => {
+    let cancelled = false
+    const adapter = getAdapter?.()
+    if (!cloud || !hasLocalServer() || typeof adapter?.supportsPrivateProjects !== 'function') {
+      setPrivateOk(false)
+      return
+    }
+    adapter.supportsPrivateProjects()
+      .then(ok => { if (!cancelled) setPrivateOk(!!ok) })
+      .catch(() => { if (!cancelled) setPrivateOk(false) })
+    return () => { cancelled = true }
+  }, [cloud, getAdapter])
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [saveError, setSaveError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -80,8 +101,10 @@ export default function ProjectsPage({ onNavigate }) {
         status:       'active',
         documents:    [],
         visualAssets: [],
+        ...(privateOk && newPrivate ? { is_private: true } : {}),
       })
       setNewTitle('')
+      setNewPrivate(false)
       if (created?.id) {
         setActiveId(created.id)
         setActiveProject?.(created.id)
@@ -329,9 +352,22 @@ export default function ProjectsPage({ onNavigate }) {
             className="w-full px-4 py-3 text-sm font-mono rounded-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
             style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c' }}
           />
+          {privateOk && (
+            <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: LIGHT_INK }} data-private-project>
+              <input
+                type="checkbox"
+                checked={newPrivate}
+                onChange={(e) => setNewPrivate(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                <b>Private project.</b> Only you (and workspace admins) can see it, and its media is stored on this computer — not in the cloud — so it cannot be shared. Its database stays in Supabase. For demos.
+              </span>
+            </label>
+          )}
           <div className="flex gap-3 mt-4">
             <button
-              onClick={() => { setView('list'); setNewTitle('') }}
+              onClick={() => { setView('list'); setNewTitle(''); setNewPrivate(false) }}
               className="flex-1 px-4 py-2 text-xs font-bold uppercase tracking-wide rounded-sm transition-colors"
               style={{ backgroundColor: '#44403c', color: '#a8a29e' }}
             >

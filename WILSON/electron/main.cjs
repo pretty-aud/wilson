@@ -99,6 +99,24 @@ function localDemoRootDir()     { return _localDemo ? _localDemo.rootDir() : nul
 function localDemoDataDir()     { return _localDemo ? _localDemo.dataDir() : null; }
 function localDemoProjectsDir() { return _localDemo ? _localDemo.projectsDir() : null; }
 
+// Demo 2026-09-11 (cloud rows, local bodies — electron/localMedia.cjs):
+// where a PRIVATE project's media lives on this computer. <demo folder>\media
+// while a folder is open, app data's rabbit-data\local-media otherwise. The
+// row stays in Supabase (Audrey: "all databases need to live in the supabase
+// storage at all times … only file storage is local"). A MISSING demo folder
+// refuses with a sentence rather than falling back to app data — the same
+// rule the missing-folder guard enforces for every other local route.
+function getLocalMediaRoot({ create = true } = {}) {
+  const demoRoot = localDemoRootDir(); // runs the presence check
+  const state = localDemo().getState();
+  if (state.missing) {
+    throw new Error(`the demo folder is not available: ${state.missing} — open Settings → Storage to locate it, forget it, or close it`);
+  }
+  const dir = demoRoot ? path.join(demoRoot, 'media') : path.join(getRabbitDataDir(), 'local-media');
+  if (create && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
 // (review round 1, M6) While the remembered demo folder is MISSING (drive
 // unplugged), every resolver above would fall through to userData for every
 // writer — the silent fallback the brief forbids, visible only on the
@@ -3579,6 +3597,15 @@ function startLocalServer(distPath) {
       userAuthorizedDirs, dialog, shell, getMainWindow: () => mainWindow,
     });
 
+    // ── Cloud rows, local bodies (demo 2026-09-11) — electron/localMedia.cjs ──
+    // The five routes the renderer's local_server storage provider talks to.
+    // Same placement rule as the bins: after the /api/rabbit missing-folder
+    // guard, BEFORE the static/SPA fallback.
+    require('./localMedia.cjs').mountLocalMedia(expressApp, {
+      getRoot: getLocalMediaRoot, resolveContainedFilePath, safeMediaContentType,
+      log: (line) => console.info(line),
+    });
+
     // ── Static file serving (SPA fallback) ──
     expressApp.use(express.static(distPath));
     expressApp.get('/{*splat}', (req, res) => {
@@ -3832,7 +3859,11 @@ function localDemoState() {
   // appDataDir is what the Storage card shows while no folder is open.
   // (An "adopt the projects already in app data" count lived here and had
   // no reader — removed, review round 1, L10; build the action if wanted.)
-  return { ...localDemo().getState(), appDataDir: app.getPath('userData') };
+  // Demo 2026-09-11: mediaRoot is where a PRIVATE project's media lands on
+  // this computer (getLocalMediaRoot); null while the demo folder is missing.
+  let mediaRoot = null;
+  try { mediaRoot = getLocalMediaRoot({ create: false }); } catch { mediaRoot = null; }
+  return { ...localDemo().getState(), appDataDir: app.getPath('userData'), mediaRoot };
 }
 ipcMain.handle('local-demo:get-state', () => localDemoState());
 ipcMain.handle('local-demo:pick', async () => {

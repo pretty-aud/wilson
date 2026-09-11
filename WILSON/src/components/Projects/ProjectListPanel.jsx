@@ -152,6 +152,18 @@ export default function ProjectListPanel({
                   whiteSpace: 'nowrap',
                 }}>
                   {project.title}
+                  {project.is_private && (
+                    <span
+                      title="Private project — only you and workspace admins see it; its media stays on the computer that added it"
+                      style={{
+                        marginLeft: 8, fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+                        textTransform: 'uppercase', color: '#7c2d12', border: '1px solid #7c2d12',
+                        borderRadius: 2, padding: '1px 5px', verticalAlign: 'middle',
+                      }}
+                    >
+                      Private
+                    </span>
+                  )}
                 </span>
 
                 {/* Description */}
