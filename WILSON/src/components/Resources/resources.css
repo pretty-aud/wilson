@@ -40,45 +40,290 @@
 
 @layer components {
 
+  /* ═══ THE PAGE SHELLS ═════════════════════════════════════════════════
+     All three pages own LAYOUT and nothing else; every colour, size, border
+     and state either comes from a token or belongs to a kit component.
+
+     One gutter and one measure for all three, which is F-R15: five page
+     gutters and three measures inside one nav group, so the left edge of
+     content moved between 12px and 40px as Audrey clicked along the column.
+     `+ 2 * gutter` so 1240 is the CONTENT width with the gutter outside it —
+     the arithmetic `.ui-page-header` and `.tm-page` already use, which is what
+     makes a page's title line up with its own first row. */
+  .rs-page {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    max-width: calc(var(--width-data-max) + 2 * var(--spacing-gutter));
+    margin: 0 auto;
+  }
+  /* Files is the exception, and deliberately: it is a file browser, it takes
+     the TOOL bar geometry (Q8b) because it is a working page, and capping it
+     to a centred column would hand back the width that ruling just bought. */
+  .rs-page[data-files-explorer] { max-width: none; }
+  .rs-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex: 1;
+    min-height: 0;
+    padding: 16px var(--spacing-gutter) var(--spacing-gutter);
+  }
+  /* `data-fill` means "the content scrolls inside itself rather than the page
+     scrolling", not "no gutter": the one 24px gutter is the point of F-R15 and
+     Files was the page that broke it worst, with cells starting 12px from the
+     window edge. Same padding as `.tm-body`, which is the reference. */
+  .rs-body[data-fill] { gap: 0; }
+  .rs-count {
+    font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  .rs-toolbar-glyph {
+    width: var(--icon-sm);
+    height: var(--icon-sm);
+    color: var(--color-ink-3);
+    flex-shrink: 0;
+  }
+  .rs-search { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 0 1 260px; }
+  .rs-page .ui-input[data-size="sm"] { max-width: 240px; }
+  /* `Tabs` wraps by default — correct for a set of eleven, wrong for a set of
+     two that IS the view switch: squeezed by the slot beside it, it stacked
+     "Table" over "Columns" and took the toolbar from 44px to 93px. The switch
+     holds its width and the picker beside it gives way instead. */
+  .rs-page .ui-toolbar .ui-tabs { flex-wrap: nowrap; flex-shrink: 0; }
+  /* 🚨 KIT REQUEST, recorded in this session's hand-off. Toolbar's contract is
+     "every child 28px so the row has one baseline", and `index.css` enforces
+     it for `.ui-btn`, `.ui-iconbtn`, `.ui-input` and `.ui-chip` — but not for
+     `.ui-tab`, which is `--control-md` (36px). A tab inside a toolbar
+     therefore stands 8px proud of everything beside it and takes the row from
+     44px to 53px. Scoped here so this page matches Team Members, which is the
+     reference; it belongs in `index.css` beside the other four, because Team
+     Members' own saved-view tabs hit it the moment an admin sees more than
+     one view (they do not render in tester mode, which is why F2 did not see
+     it). `src/index.css` is Foundation's file, so this session does not
+     edit it. */
+  .rs-page .ui-toolbar .ui-tab { height: var(--control-sm); }
+
   /* ═══ FILES — ProjectFilesExplorer.jsx ════════════════════════════════ */
 
-  /* was `btnStyle(active)`, :61-65 — one helper serving both the two-state
-     view radio AND the idempotent Refresh command (F-R16) */
-  .fx-viewbtn {
-    padding: 6px 12px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
+  /* ONE hairline region around both views AND the details panel. They were
+     two different objects — a bordered table beside an unbordered column
+     strip — and they are one file browser seen two ways. `overflow: hidden`
+     so the sticky header and the column strip clip to the 3px radius. */
+  .fx-card { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .fx-split { display: flex; flex: 1; min-height: 0; }
+  .fx-main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+
+  /* ── The name column's fixed icon slot ──────────────────────────────────
+     F11, and the loudest single line in the review: the name column could not
+     left-align because a folder drew '▸' and a file drew '·' — two glyphs of
+     different advance widths — so every file name in the table sat at a
+     different x than every folder name above it. The glyph is a lucide icon
+     in a slot of DECLARED width now, so the text after it starts at the same
+     place on every row regardless of kind.
+
+     The indent is on the SLOT, not on the text, so the icon and the name move
+     together and the column keeps one text inset per depth instead of two. */
+  .fx-name {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding-left: calc(var(--fx-depth, 0) * 18px);
+  }
+  .fx-name-icon {
+    flex: 0 0 var(--icon-md);
+    width: var(--icon-md);
+    height: var(--icon-md);
+    margin-right: 8px;
+    color: var(--color-ink-3);
+  }
+  .fx-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-row[data-node-kind="folder"] .fx-name-icon,
+  .fx-col-item[data-node-kind="folder"] .fx-name-icon { color: var(--color-ink-2); }
+  .fx-row[data-node-kind="folder"] .fx-name-text { font-weight: 600; }
+
+  /* The path truncates from the LEFT: the leaf folder identifies a path and an
+     end-ellipsis eats exactly that. `direction: rtl` moves the ellipsis to the
+     start; the <bdi> around the value keeps the path's own characters in
+     order (F-R32). One step down from its neighbours in SIZE, not in colour —
+     it used to be 11px inside a 13px table, which reads as a rendering fault
+     rather than as a rank. */
+  .fx-path {
+    display: block;
+    direction: rtl;
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    color: var(--color-ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* The sorted column carries weight, so the current sort is findable without
+     reading all seven headers (Files' Hick's hotspot #2). The kit already
+     reserves the sort slot at a fixed width, which is why the label no longer
+     shifts sideways at the one moment you are looking straight at it. */
+  .ui-table[data-files-table] .ui-th[aria-sort] .ui-th-label { font-weight: 700; color: var(--color-ink); }
+
+  /* ── The Finder columns ────────────────────────────────────────────────
+     Same tokens as the table: same row height, same cell inset, same hover
+     and selected treatments, same hairline, same icon slot. The two views
+     were two different objects (32px zebra rows against 27px flat buttons
+     with no hover at all); they are one object seen two ways now. */
+  .fx-columns { display: flex; flex: 1; min-height: 0; overflow-x: auto; }
+  .fx-column {
+    min-width: 260px;
+    max-width: 340px;
+    border-right: 1px solid var(--color-rule);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+  .fx-column-head {
+    display: flex;
+    align-items: center;
+    height: var(--table-head);
+    flex-shrink: 0;
+    padding: 0 var(--cell-pad-x);
+    border-bottom: 1px solid var(--color-rule);
+    background-color: var(--color-paper-raised);
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
     text-transform: uppercase;
-    border-radius: 2px;
-    cursor: pointer;
-    border: 1px solid rgba(120, 70, 30, 0.4);
+    color: var(--color-ink-2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  .fx-col-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: var(--row-dense);
+    flex-shrink: 0;
+    padding: 0 var(--cell-pad-x);
+    text-align: left;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
     background-color: transparent;
-    color: #1c1917;
+    border: 0;
+    border-bottom: 1px solid var(--color-rule);
+    border-radius: 0;
+    cursor: pointer;
+    transition: background-color var(--duration-state) ease-out;
   }
-  .fx-viewbtn[data-active] {
-    border-color: #ea580c;
-    background-color: rgba(234, 88, 12, 0.24);
+  /* F-R11: these are real <button> elements, already in the tab order, with
+     no hover fill and no visible focus ring. The ring is the kit's global
+     `:focus-visible`; this is the hover half. */
+  .fx-col-item:hover { background-color: var(--color-hover); }
+  .fx-col-item[data-selected] {
+    background-color: var(--color-signal-tint);
+    box-shadow: inset 2px 0 0 0 var(--color-signal);
+  }
+  .fx-col-item[data-node-kind="folder"] .fx-col-name { font-weight: 600; }
+  .fx-col-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fx-col-meta {
+    flex-shrink: 0;
+    margin-left: 8px;
+    font-family: var(--font-mono);
+    font-size: var(--text-caption);
+    font-variant-numeric: tabular-nums;
+    color: var(--color-ink-3);
+    white-space: nowrap;
+  }
+  /* Alignment list #8: the '›' was MUTED at 3.40:1 and was one of TWO weak
+     signals for "this is a folder", the other a 700/500 weight step. The kind
+     reads from the icon at the START of the row now — the same axis that
+     works in the table — so the chevron is only the "opens another column"
+     affordance it always should have been. */
+  .fx-col-chevron {
+    flex-shrink: 0;
+    margin-left: 8px;
+    color: var(--color-ink-3);
   }
 
-  /* was the <tr> style at :236 — selection, zebra index and the cursor, all
-     computed inline. There is no hover branch to transcribe: the row has
-     never had one (F-R11). */
-  .fx-row[data-zebra="a"] { background-color: rgba(120, 70, 30, 0.12); }
-  .fx-row[data-zebra="b"] { background-color: rgba(120, 70, 30, 0.22); }
-  .fx-row[data-selected] { background-color: rgba(234, 88, 12, 0.24); }
-  .fx-row[data-node-kind="folder"] { cursor: default; }
-  .fx-row[data-node-kind="file"] { cursor: pointer; }
+  /* ── The details panel ─────────────────────────────────────────────────
+     F-R33: eight label/value pairs stacked at a 0:10px proximity ratio — no
+     gap inside a pair and 10px between pairs — so the pairs were held
+     together only by the type difference F-R03 was about to reduce, and they
+     filled 290px of a 300px panel. A two-column grid at the review's own
+     numbers: a 96px label column at the Label step, values at Dense, 8px row
+     gap, baseline aligned.
 
-  /* was the name cell's `fontWeight: isFolder ? 700 : 500`, :238 */
-  .fx-name { font-weight: 500; }
-  .fx-row[data-node-kind="folder"] .fx-name { font-weight: 700; }
-
-  /* was the column item at :273-277 — selection and weight inline, again no
-     hover and no focus ring on a real <button> that is in the tab order */
-  .fx-col-item { background-color: transparent; font-weight: 500; }
-  .fx-col-item[data-node-kind="folder"] { font-weight: 700; }
-  .fx-col-item[data-selected] { background-color: rgba(234, 88, 12, 0.24); }
+     F-R23 asked for this panel to collapse to zero width when nothing is
+     selected. NOT TAKEN, and recorded in the hand-off: it is flagged
+     `touches-interaction` and "taste, not error", it changes what the page
+     shows at rest, and Q8(b) has just returned 433px of vertical field to
+     this page, which is the axis the panel was actually costing. Audrey's
+     call, not this session's. */
+  .fx-details {
+    width: var(--panel-lg);
+    flex-shrink: 0;
+    border-left: 1px solid var(--color-rule);
+    padding: 16px;
+    overflow-y: auto;
+  }
+  .fx-details-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .fx-details-grid {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    gap: 8px 12px;
+    align-items: baseline;
+  }
+  /* The pair wrapper exists so React has one key per fact; `display: contents`
+     keeps the dt and dd as the grid's own items, or the 96px column would be
+     measuring the wrapper instead of the label. */
+  .fx-details-pair { display: contents; }
+  .fx-details-grid dt {
+    font-size: var(--text-label);
+    line-height: var(--text-label--line-height);
+    letter-spacing: var(--text-label--letter-spacing);
+    font-weight: var(--text-label--font-weight);
+    text-transform: uppercase;
+    color: var(--color-ink-2);
+  }
+  .fx-details-grid dd {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  .fx-details-grid dd[data-numeric] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .fx-details-empty {
+    margin: 0;
+    font-size: var(--text-dense);
+    line-height: var(--text-dense--line-height);
+    color: var(--color-ink-3);
+  }
 
   /* ═══ PROJECTS — ProjectListPanel.jsx ═════════════════════════════════ */
 

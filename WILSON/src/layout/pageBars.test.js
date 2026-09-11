@@ -47,9 +47,15 @@ const VIEWPORTS = [700, 800, 845, 860, 900, 956, 982, 1034, 1076, 1200, 1330, 14
 const RESTING = {
   home: [268, 268],
   dog: [95, 8], otter: [95, 8], rabbit: [95, 8],
-  settings: [200, 150], 'project-manager': [200, 150], 'rate-card': [200, 150],
-  'team-members': [200, 150], 'project-files': [200, 150], dashboard: [200, 150],
-  'admin-terminal': [200, 150],
+  settings: [200, 150], dashboard: [200, 150], 'admin-terminal': [200, 150],
+  'team-members': [200, 150],
+  // Q8(b), landed by lane C for the three pages it converted: the
+  // resource-class rows go to 120/80, and Files takes the TOOL geometry
+  // because it is a working page, not a reading one. The four rows still at
+  // 200/150 are the ones whose own lane has not run yet (C2, C3) plus
+  // Settings, which is a reading page and keeps them.
+  'project-manager': [120, 80], 'rate-card': [120, 80],
+  'project-files': [95, 8],
   help: [140, 100],
 }
 
@@ -80,14 +86,31 @@ describe('page bar geometry', () => {
     expect(PAGE_BARS['not-a-page']).toBeUndefined()
   })
 
-  it('the Files page takes the resource-class geometry (Q8a), not Home\'s', () => {
+  // 🚨 THIS TEST CHANGED ITS SUBJECT, NOT ITS JOB (UI overhaul C1).
+  //
+  // F1 gave Files the resource geometry it had been missing (Q8a) and this
+  // test asserted it by comparing against Settings. Q8(b) then moved Files
+  // further than its siblings: it is a WORKING page, so it takes the same
+  // bars(95, 8) the three tools take, and the comparison that means anything
+  // is now against a tool rather than against a reading page.
+  //
+  // It is deliberately still a COMPARISON and not a literal. A literal would
+  // pass against a Files row that had quietly drifted away from the geometry
+  // it is supposed to be sharing, which is the class of bug F-R04 was.
+  it('the Files page takes the TOOL geometry (Q8b) — it is a working page', () => {
     for (const v of VIEWPORTS) {
-      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS.settings.top, v))
-      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS.settings.bottom, v))
+      expect(resolveAt(PAGE_BARS['project-files'].top, v)).toBe(resolveAt(PAGE_BARS.dog.top, v))
+      expect(resolveAt(PAGE_BARS['project-files'].bottom, v)).toBe(resolveAt(PAGE_BARS.dog.bottom, v))
     }
-    // At rest it returns ~186px of field to the densest table (268+268 vs 200+150).
+    // At rest that is 433px of field returned to the densest table in the app
+    // (268+268 against 95+8), where it rendered for three weeks.
     const rest = (page) => resolveAt(PAGE_BARS[page].top, 1440) + resolveAt(PAGE_BARS[page].bottom, 1440)
-    expect(rest('home') - rest('project-files')).toBeCloseTo(186, 5)
+    expect(rest('home') - rest('project-files')).toBeCloseTo(433, 5)
+    // …and its two sibling resource pages took the 120/80 half of Q8(b),
+    // which is 150px against the 200/150 they had.
+    for (const id of ['project-manager', 'rate-card']) {
+      expect(rest('settings') - rest(id), id).toBeCloseTo(150, 5)
+    }
   })
 
   it('never exceeds the resting height, at any viewport', () => {

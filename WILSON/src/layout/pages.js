@@ -129,17 +129,21 @@ const PAGE_LIST = [
   {
     id: 'project-manager',
     title: 'Projects',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    // Q8(b): the resource-class rows go to 120/80, returning about 150px of
+    // field to the pages that hold the app's densest content.
+    bars: bars(120, 80),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
+    measure: 'data',
     nav: 'resources',
   },
   {
     id: 'rate-card',
     title: 'Rate card',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    bars: bars(120, 80),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
+    measure: 'data',
     nav: 'resources',
   },
   {
@@ -154,11 +158,21 @@ const PAGE_LIST = [
     nav: 'resources',
   },
   {
-    // F1 gave this page the resource geometry it had been missing (Q8a).
+    // F1 gave this page the resource geometry it had been missing (Q8a). Q8(b)
+    // then took it further than its siblings: Files is a WORKING page, not a
+    // reading one, so it takes the TOOL geometry — the same bars(95, 8) D.O.G.,
+    // O.T.T.E.R. and R.A.B.B.I.T. get. Against Home's 268/268, where this page
+    // rendered for three weeks, that is 433px of field returned to the densest
+    // table in the app; against its own 200/150, a further 247px.
+    //
+    // It keeps `chrome: 'page'` — it has a plain title, not a tool wordmark —
+    // and it takes NO measure: the two views (a seven-column table and the
+    // Finder columns) fill the field edge to edge, and capping a file browser
+    // to a centred 1240px column would hand back the width Q8(b) just bought.
     id: 'project-files',
     title: 'Files',
-    bars: bars(200, 150),
-    surface: 'light', // Q1 lane C (C1)
+    bars: bars(95, 8),
+    surface: 'dark', // Q1, converted by lane C (C1)
     chrome: 'page',
     nav: 'resources',
   },

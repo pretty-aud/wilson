@@ -138,14 +138,20 @@ describe('nav columns', () => {
 })
 
 describe('surface and chrome say what the page PAINTS today', () => {
-  it('the three tools and the one converted data page are dark; the rest are light', () => {
+  it('the three tools and the four converted data pages are dark; the rest are light', () => {
     const dark = PAGES.filter((p) => p.surface === 'dark').map((p) => p.id)
     // Q1 ruled the six data pages onto `paper`. They flip ONE AT A TIME, in
     // the commit that converts the page's own inks — F2 does Team Members
     // (the worked example) and lane C does the other five. A page listed here
     // early renders its own dark-on-dark text, so this list is the schedule.
-    expect(dark).toEqual(['dog', 'otter', 'rabbit', 'team-members'])
-    const stillLight = ['project-manager', 'rate-card', 'project-files', 'dashboard', 'admin-terminal']
+    expect(dark).toEqual([
+      'dog', 'otter', 'rabbit',
+      // lane C, C1: converted with their own inks in the same commit
+      'project-manager', 'rate-card',
+      'team-members',
+      'project-files',
+    ])
+    const stillLight = ['dashboard', 'admin-terminal']
     for (const id of stillLight) {
       expect(PAGE_BY_ID[id].surface, `${id} is lane C's to convert`).toBe('light')
     }

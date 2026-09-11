@@ -22,21 +22,98 @@
 //
 // Read-only on purpose tonight: opening, moving and deleting stay where
 // they are (the project's own Files panel and FileManager).
+//
+// ── UI overhaul C1 ───────────────────────────────────────────────────────────
+//
+// "files database for example looks atrocious" — Audrey, and the review
+// agreed: 37 findings on this surface and the loudest of them are all here.
+//
+// Nothing about what this page DOES changed. Both views are here, every
+// control is here, every column is here, nothing moved behind a disclosure,
+// and no click does anything new (C1).
+//
+// What changed, and why each one:
+//
+//  · THE PAGE IS DARK (Q1, option A). It was one of six data pages on the
+//    light orange, where `#f4a261` allows exactly one ink — and this page
+//    needed three, so it invented a second (`MUTED #7c4f1f`, measured 3.40:1,
+//    carrying six of the seven columns) and a third (a `#f5efe6` cream header
+//    band: the only use of that value in the app, a near-white sheet on the
+//    orange page, and the exact shape `lightSurface.test.js` already had a
+//    rule against — it simply never imported the token that test guards).
+//    Both are gone with the ground they were workarounds for, and so are the
+//    two black input wells that sat on the orange page: a dark field on a
+//    light page was the third workaround for the same problem.
+//
+//  · THE NAME COLUMN CAN LEFT-ALIGN NOW. It could not before: a folder drew
+//    `▸` and a file drew `·`, two glyphs with different advance widths in any
+//    proportional face, so inside one folder listing the names started at
+//    different x positions. They are lucide icons in a slot of DECLARED width
+//    now, so the text has one origin at every depth and for both kinds. This
+//    is F11, and it is the most visible single line in the review.
+//
+//  · SIX TYPE SIZES BECAME THREE SCALE STEPS. 18 / 14 / 13 / 12 / 11 / 10
+//    became Dense 13 for cells, Caption 12 for the path, Label 11 for headers.
+//    The Location column no longer steps itself 2px below its own neighbours,
+//    which read as a rendering fault rather than a rank (F-R32).
+//
+//  · THE TITLE IS PRINTED ONCE. The orange bar's PageHeader already says
+//    "Files"; this page said it again 150px below in a smaller, lower-contrast
+//    face, so the chrome title read as a subtitle of itself (F-R06).
+//
+//  · THE TWO PRIMARIES ARE REBALANCED, NOT REDUCED. One `btnStyle` helper drew
+//    the Table/Columns radio pair AND the Refresh command, so the row offered
+//    three identical pills for two different kinds of decision and a user
+//    scanning for the view switch found one that was not a view (F-R16). Both
+//    still exist and both still do exactly what they did. The view switch is a
+//    Tabs — two mutually exclusive views of one dataset is what a tab bar IS,
+//    and it is the component Team Members already uses for its saved views —
+//    in the toolbar's left slot beside the project picker, which is this
+//    page's actual primary control. Refresh is a ghost icon button in the
+//    right slot beside the filter and the count. Separated by SLOT, never by
+//    removal (F-R37).
+//
+//  · NUMERICS RIGHT-ALIGN. Size and Duration were set in monospace and then
+//    left-aligned, which throws away the entire reason to use monospace: you
+//    could not tell 9.8 MB from 98 MB without reading both (F-R10). Alignment
+//    lives on the HEADERS array, so a header and its cells cannot disagree.
+//
+//  · THE INDENT STOPS LYING AFTER A SORT. `sortRows` reorders the flattened
+//    list globally while each row keeps its tree depth, so sorting by Size put
+//    a file three levels deep 54px in beneath an unrelated root folder,
+//    asserting a parentage that no longer existed (F-R12).
+//
+//  · LOADING AND EMPTY ARE DIFFERENT PICTURES. One `Empty` component served
+//    "choose a project", "Loading…" and "no files", so the reader could not
+//    tell a slow adapter from an empty project — which on this page is the
+//    whole question (F-R13).
+//
+//  · THE ROWS ANSWER THE POINTER. The one table in the app whose whole job is
+//    pointing at rows had no hover state and no transition at all (F-R11). The
+//    rows stay plain `<tr>` elements with the onClick they already had: adding
+//    `role` and `tabIndex` would be an interaction change under C1, and the
+//    shared Row gives the hover fill and the pointer without one.
+//
+// The two views now share one set of tokens — the same 32px row, the same
+// 8px/12px inset, the same hover and selected treatments, the same hairline —
+// so switching between them is a change of arrangement rather than a change of
+// application. The exact values are listed in this session's hand-off, because
+// lane B converges FileManager, BinFileTable and ProjectFilesTable on them.
 // =============================================================================
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { Folder, File as FileIcon, FolderOpen, Info, RefreshCw, Search, X } from 'lucide-react'
 import { useRabbit } from '../../tools/rabbit_v0.1.0/state/RabbitProvider'
-import { LIGHT_INK } from '../lightSurface'
+import {
+  Banner, Card, EmptyState, IconButton, Input, Loading, Row, Select, Table,
+  Tabs, Td, Th, Toolbar,
+} from '../../ui'
 import { formatBytes } from '../../cloud/workspaceStorage'
 import { formatDuration } from '../../tools/rabbit_v0.1.0/storage/mediaMetadata'
 import { buildFileTree, flattenTree, filterFlat, columnsFor, breadcrumb, sortRows } from './fileTree'
 import './resources.css'
 
-const INK = LIGHT_INK
-const MUTED = '#7c4f1f'
-// ACCENT / ROW_A / ROW_B / SELECTED moved to `resources.css` with the states
-// they described; nothing reads them from JS any more.
-const BORDER = '1px solid rgba(120, 70, 30, 0.25)'
+const VIEW_PANEL_ID = 'fx-view-panel'
 
 const PROVIDER_LABEL = {
   supabase: 'Petal cloud',
@@ -56,7 +133,6 @@ function safeList(fn, id) {
   if (typeof fn !== 'function') return Promise.resolve([])
   try { return Promise.resolve(fn(id)).then(v => (Array.isArray(v) ? v : [])).catch(() => []) } catch { return Promise.resolve([]) }
 }
-
 
 export default function ProjectFilesExplorer() {
   const ctx = useRabbit()
@@ -129,134 +205,222 @@ export default function ProjectFilesExplorer() {
   const project = projects.find(p => p.id === projectId) || null
 
   return (
-    <div className="h-full flex flex-col" style={{ color: INK }} data-files-explorer data-view={view}>
-      {/* header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '18px 24px 12px', borderBottom: BORDER }}>
-        <h2 className="text-lg font-bold uppercase tracking-widest" style={{ color: INK, marginRight: 8 }}>Files</h2>
-        <select
+    <div className="rs-page" data-files-explorer data-view={view}>
+      {/* One 44px toolbar, every child 28px, left and right slots. It replaced
+          a wrapping flex row holding an 18px heading, two 38px fields, three
+          27px buttons and a 12px string, in which nothing sat on a baseline
+          and the view switch was the control that wrapped away (F-R16,
+          F-R37). `wrap` is opt-in and taken here: six heterogeneous controls
+          genuinely do not fit at the 1280px minimum width, and a toolbar that
+          wraps by default hides the fact that it is over-full. */}
+      <Toolbar
+        wrap
+        right={(
+          <>
+            <span className="rs-search">
+              <Search className="rs-toolbar-glyph" aria-hidden="true" />
+              <Input
+                size="sm"
+                value={query}
+                onChange={setQuery}
+                placeholder="Filter by name or path"
+                aria-label="Filter"
+              />
+              {query && (
+                <IconButton icon={X} size="sm" title="Clear filter" onClick={() => setQuery('')} />
+              )}
+            </span>
+            <IconButton
+              icon={RefreshCw}
+              size="sm"
+              title="Reload this project's folders and files"
+              onClick={() => setReloads(n => n + 1)}
+              disabled={!projectId || loading}
+            />
+            {tree && (
+              <span className="rs-count">
+                {tree.folderCount} folder{tree.folderCount === 1 ? '' : 's'} · {tree.fileCount} file{tree.fileCount === 1 ? '' : 's'}
+                {project ? ` · ${project.title}` : ''}
+              </span>
+            )}
+          </>
+        )}
+      >
+        <Select
+          size="sm"
           value={projectId}
-          onChange={(e) => setProjectId(e.target.value)}
-          className="px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', minWidth: 240 }}
+          onChange={(v) => setProjectId(v ?? '')}
+          placeholder="Choose a project…"
+          options={projects.map(p => ({
+            value: p.id,
+            label: `${p.title || 'Untitled'}${p.is_private ? ' · private' : ''}`,
+          }))}
           aria-label="Project"
-        >
-          <option value="">Choose a project…</option>
-          {projects.map(p => (
-            <option key={p.id} value={p.id}>{p.title || 'Untitled'}{p.is_private ? ' · private' : ''}</option>
-          ))}
-        </select>
-        <div style={{ display: 'flex', gap: 6 }} role="group" aria-label="View">
-          <button type="button" className="fx-viewbtn" data-active={view === 'table' || undefined} onClick={() => setView('table')}>Table</button>
-          <button type="button" className="fx-viewbtn" data-active={view === 'columns' || undefined} onClick={() => setView('columns')}>Columns</button>
-        </div>
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by name or path…"
-          className="px-3 py-2 text-sm font-mono rounded-sm focus:ring-2 focus:ring-orange-500"
-          style={{ backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #44403c', minWidth: 220 }}
-          aria-label="Filter"
         />
-        <button type="button" className="fx-viewbtn" onClick={() => setReloads(n => n + 1)} disabled={!projectId || loading}>Refresh</button>
-        {tree && (
-          <span style={{ fontSize: 12, color: MUTED, fontFamily: 'monospace' }}>
-            {tree.folderCount} folder{tree.folderCount === 1 ? '' : 's'} · {tree.fileCount} file{tree.fileCount === 1 ? '' : 's'}
-            {project ? ` · ${project.title}` : ''}
-          </span>
+        <Tabs
+          label="View"
+          panelId={VIEW_PANEL_ID}
+          items={[{ id: 'table', label: 'Table' }, { id: 'columns', label: 'Columns' }]}
+          value={view}
+          onChange={setView}
+        />
+      </Toolbar>
+
+      <div
+        className="rs-body"
+        data-fill
+        id={VIEW_PANEL_ID}
+        role="tabpanel"
+        aria-label={view === 'table' ? 'Table view' : 'Columns view'}
+        // A tabpanel with no focusable descendant needs its own tab stop, or a
+        // keyboard user moves from the last tab straight past it. The three
+        // states below are exactly that; both views bring their own.
+        tabIndex={!projectId || loading || flat.length === 0 ? 0 : undefined}
+      >
+        {error && <Banner tone="danger">{error}</Banner>}
+
+        {/* Three states that used to be one component with three strings, so a
+            slow adapter and an empty project drew the same picture (F-R13). */}
+        {!projectId && (
+          <EmptyState
+            Icon={FolderOpen}
+            title="No project chosen"
+            body="Choose a project above to see its folders and files."
+          />
+        )}
+        {projectId && loading && <Loading rows={10} columns={7} label="Loading this project's files" />}
+        {projectId && !loading && tree && flat.length === 0 && !error && (
+          <EmptyState
+            Icon={Folder}
+            title="Nothing filed yet"
+            body="This project has no folders or files. They appear here as R.A.B.B.I.T. files things into it."
+          />
+        )}
+
+        {projectId && !loading && tree && flat.length > 0 && (
+          // One hairline region around BOTH views and the details panel. The
+          // two views were two different objects — a bordered table beside an
+          // unbordered column strip — and they are one file browser seen two
+          // ways, so they get one frame, one gutter and one set of tokens.
+          <Card pad={false} className="fx-card">
+            <div className="fx-split">
+              <div className="fx-main">
+                {view === 'table'
+                  ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} query={query} />
+                  : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
+              </div>
+              <DetailsPanel node={selectedFile} />
+            </div>
+          </Card>
         )}
       </div>
-
-      {error && (
-        <div className="mx-6 mt-3 text-xs px-3 py-2 rounded-sm" style={{ backgroundColor: '#1c1917', border: '1px solid #991b1b', color: '#fca5a5' }}>{error}</div>
-      )}
-
-      {!projectId && <Empty>Choose a project to see its folders and files.</Empty>}
-      {projectId && loading && <Empty>Loading…</Empty>}
-      {projectId && !loading && tree && flat.length === 0 && !error && <Empty>No folders or files yet.</Empty>}
-
-      {projectId && !loading && tree && flat.length > 0 && (
-        <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
-          <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
-            {view === 'table'
-              ? <TableView rows={tableRows} sortKey={sortKey} sortDir={sortDir} onSort={onSort} onPick={(node) => setSelectedFile(node)} selectedId={selectedFile?.id || null} query={query} />
-              : <ColumnsView cols={cols} selected={selected} selectedFile={selectedFile} onOpenFolder={openFolder} onPickFile={pickFile} />}
-          </div>
-          <DetailsPanel node={selectedFile} />
-        </div>
-      )}
     </div>
   )
 }
 
-function Empty({ children }) {
-  return (
-    <div style={{ padding: '48px 24px', textAlign: 'center', fontSize: 13, color: MUTED, fontFamily: 'monospace' }}>{children}</div>
-  )
-}
-
+// The seven columns, their widths, their alignment and their type, declared
+// once. `table-layout: fixed` reads the header row, so these ARE the grid
+// rather than an emergent property of whichever cell happened to be longest.
+//
+// 🚨 They sum to exactly 100. A percentage table that over-sums is not a
+// declared table at all: the browser reconciles the excess and every column
+// lands somewhere other than where it was written (F2 hit this twice building
+// Team Members). 30 + 10 + 8 + 14 + 14 + 8 + 16 = 100.
+//
+// `numeric` is the kit's one switch for "this is a figure": right alignment,
+// the mono, and tabular figures, together. Declaring it here rather than per
+// cell is F-R10's real fix — a header and its cells cannot disagree about
+// alignment when only one of them says anything about it.
 const HEADERS = [
-  ['name', 'Name'], ['type', 'Type'], ['size', 'Size'], ['created', 'Created'],
-  ['modified', 'Modified'], ['duration', 'Duration'], ['path', 'Location'],
+  ['name', 'Name', { width: '30%' }],
+  ['type', 'Type', { width: '10%' }],
+  ['size', 'Size', { width: '8%', numeric: true }],
+  ['created', 'Created', { width: '14%', numeric: true }],
+  ['modified', 'Modified', { width: '14%', numeric: true }],
+  ['duration', 'Duration', { width: '8%', numeric: true }],
+  ['path', 'Location', { width: '16%' }],
 ]
 
 function TableView({ rows, sortKey, sortDir, onSort, onPick, selectedId, query }) {
-  const indent = query ? 0 : 1
+  // F-R12: a sort reorders the flattened list globally while each row keeps
+  // the depth it had in the tree, so after sorting by Size the indent claims a
+  // parentage that no longer exists. A filter does the same, which is why the
+  // query case was already handled here; the sort case was not.
+  const indent = (query || sortKey !== 'name') ? 0 : 1
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }} data-files-table>
-      <thead>
-        <tr style={{ position: 'sticky', top: 0, backgroundColor: '#f5efe6', zIndex: 1 }}>
-          {HEADERS.map(([key, label]) => (
-            <th
-              key={key}
-              onClick={() => onSort(key)}
-              style={{ textAlign: 'left', padding: '10px 12px', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, cursor: 'pointer', borderBottom: BORDER, whiteSpace: 'nowrap' }}
-            >
-              {label}{sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map(({ node, depth }, i) => {
-          const isFolder = node.kind === 'folder'
-          const m = node.meta || {}
-          const isSel = node.id === selectedId
-          return (
-            <tr
-              key={node.id}
-              className="fx-row"
-              onClick={() => { if (!isFolder) onPick(node) }}
-              data-node-kind={node.kind}
-              data-zebra={i % 2 === 0 ? 'a' : 'b'}
-              data-selected={isSel || undefined}
-            >
-              <td className="fx-name" style={{ padding: '8px 12px', paddingLeft: 12 + depth * 18 * indent, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 420 }}>
-                <span aria-hidden style={{ marginRight: 8 }}>{isFolder ? '▸' : '·'}</span>{node.name}
-              </td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap' }}>{isFolder ? 'Folder' : m.type}</td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{isFolder ? '' : formatBytes(m.sizeBytes)}</td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap' }}>{isFolder ? '' : fmtDate(m.createdAt)}</td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap' }}>{isFolder ? '' : fmtDate(m.modifiedAt)}</td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap', fontFamily: 'monospace' }}>{isFolder ? '' : formatDuration(m.durationSec)}</td>
-              <td style={{ padding: '8px 12px', color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 360, fontFamily: 'monospace', fontSize: 11 }}>{isFolder ? node.path : (node.parent && !node.parent.isRoot ? node.parent.path : '')}</td>
-            </tr>
-          )
+    <Table
+        aria-label="Project folders and files"
+        dense
+        data-files-table
+        head={(
+          <Row>
+            {HEADERS.map(([key, label, opts]) => (
+              <Th
+                key={key}
+                width={opts.width}
+                numeric={opts.numeric}
+                sort={sortKey === key ? sortDir : null}
+                onSort={() => onSort(key)}
+              >
+                {label}
+              </Th>
+            ))}
+          </Row>
+        )}
+      >
+        {rows.map(({ node, depth }) => {
+            const isFolder = node.kind === 'folder'
+            const m = node.meta || {}
+            return (
+              <Row
+                key={node.id}
+                className="fx-row"
+                onClick={() => { if (!isFolder) onPick(node) }}
+                data-node-kind={node.kind}
+                interactive={!isFolder}
+                selected={node.id === selectedId}
+              >
+                <Td>
+                  {/* The icon slot is a declared width, so the name text has
+                      one x origin at every depth and for both kinds. The
+                      indent is on the SLOT, not on the text, so the two move
+                      together and the column keeps one inset per depth (F11). */}
+                  <span className="fx-name" style={{ '--fx-depth': depth * indent }}>
+                    {isFolder
+                      ? <Folder className="fx-name-icon" aria-hidden="true" />
+                      : <FileIcon className="fx-name-icon" aria-hidden="true" />}
+                    <span className="fx-name-text">{node.name}</span>
+                  </span>
+                </Td>
+                <Td>{isFolder ? 'Folder' : m.type}</Td>
+                <Td numeric>{isFolder ? '' : formatBytes(m.sizeBytes)}</Td>
+                <Td numeric>{isFolder ? '' : fmtDate(m.createdAt)}</Td>
+                <Td numeric>{isFolder ? '' : fmtDate(m.modifiedAt)}</Td>
+                <Td numeric>{isFolder ? '' : formatDuration(m.durationSec)}</Td>
+                <Td>
+                  {/* Truncated from the LEFT, which is what Finder does: the
+                      leaf folder is the part that identifies a path, and an
+                      end-ellipsis eats exactly that part (F-R32). */}
+                  <span className="fx-path"><bdi>{isFolder ? node.path : (node.parent && !node.parent.isRoot ? node.parent.path : '')}</bdi></span>
+                </Td>
+              </Row>
+            )
         })}
-      </tbody>
-    </table>
+    </Table>
   )
 }
 
 function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile }) {
   return (
-    <div style={{ display: 'flex', height: '100%', overflowX: 'auto' }} data-files-columns>
+    <div className="fx-columns" data-files-columns>
       {cols.map((col, depth) => (
-        <div key={col.folder ? col.folder.id : depth} style={{ minWidth: 260, maxWidth: 340, borderRight: BORDER, overflowY: 'auto', display: 'flex', flexDirection: 'column' }} data-column={depth}>
-          <div style={{ padding: '8px 12px', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, borderBottom: BORDER, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        <div key={col.folder ? col.folder.id : depth} className="fx-column" data-column={depth}>
+          <div className="fx-column-head">
             {col.folder && !col.folder.isRoot ? col.folder.name : 'Project'}
           </div>
-          {col.items.length === 0 && <div style={{ padding: '14px 12px', fontSize: 12, color: MUTED, fontFamily: 'monospace' }}>Empty</div>}
+          {col.items.length === 0 && (
+            <EmptyState compact Icon={Folder} title="Empty folder" body="Nothing is filed in here." />
+          )}
           {col.items.map((node) => {
             const isFolder = node.kind === 'folder'
             const isSel = isFolder ? selected[depth] === node.id : selectedFile?.id === node.id
@@ -264,19 +428,18 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile })
               <button
                 key={node.id}
                 type="button"
-                onClick={() => (isFolder ? onOpenFolder(depth, node.id) : onPickFile(depth, node))}
                 className="fx-col-item"
+                onClick={() => (isFolder ? onOpenFolder(depth, node.id) : onPickFile(depth, node))}
                 data-node-kind={node.kind}
                 data-selected={isSel || undefined}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%',
-                  padding: '7px 12px', textAlign: 'left', fontSize: 13, color: INK, border: 'none', cursor: 'pointer',
-                }}
               >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
                 {isFolder
-                  ? <span aria-hidden style={{ color: MUTED }}>›</span>
-                  : <span style={{ color: MUTED, fontSize: 11, fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{formatBytes(node.meta?.sizeBytes)}</span>}
+                  ? <Folder className="fx-name-icon" aria-hidden="true" />
+                  : <FileIcon className="fx-name-icon" aria-hidden="true" />}
+                <span className="fx-col-name">{node.name}</span>
+                {isFolder
+                  ? <span className="fx-col-chevron" aria-hidden="true">›</span>
+                  : <span className="fx-col-meta">{formatBytes(node.meta?.sizeBytes)}</span>}
               </button>
             )
           })}
@@ -289,13 +452,17 @@ function ColumnsView({ cols, selected, selectedFile, onOpenFolder, onPickFile })
 function DetailsPanel({ node }) {
   if (!node) {
     return (
-      <div style={{ width: 300, borderLeft: BORDER, padding: 16, fontSize: 12, color: MUTED, fontFamily: 'monospace' }} data-file-details="none">
-        Select a file to see its details.
+      <div className="fx-details" data-file-details="none">
+        <div className="fx-details-title"><Info className="rs-toolbar-glyph" aria-hidden="true" />Details</div>
+        <p className="fx-details-empty">Select a file to see its details.</p>
       </div>
     )
   }
   const m = node.meta || {}
   const isMedia = m.kind === 'video' || m.kind === 'audio'
+  // 🚨 THE SHAPE OF THIS ARRAY IS PINNED. `src/lib/localMediaWiring.test.js`
+  // asserts the eight literals `['Name'` … `['Stored'` appear in this file —
+  // they are the eight facts Audrey asked to see for a file. Keep the pairs.
   const rows = [
     ['Name', node.name],
     ['Type', m.type || '—'],
@@ -307,16 +474,25 @@ function DetailsPanel({ node }) {
     ['Stored', PROVIDER_LABEL[m.provider] || m.provider || '—'],
   ]
   return (
-    <div style={{ width: 300, borderLeft: BORDER, padding: 16, overflowY: 'auto' }} data-file-details={node.id}>
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: MUTED, marginBottom: 10 }}>Details</div>
-      <dl style={{ margin: 0 }}>
+    <div className="fx-details" data-file-details={node.id}>
+      <div className="fx-details-title"><Info className="rs-toolbar-glyph" aria-hidden="true" />Details</div>
+      {/* Eight pairs that stacked label-over-value at a 0:10px proximity ratio
+          — no gap inside a pair, 10px between pairs — and filled 290px of a
+          300px panel. A two-column definition grid reads them in about half
+          that, and the pairs are held together by position rather than by a
+          type difference the dark ground was about to reduce (F-R33). The
+          numeric facts take the mono with tabular figures; the prose ones
+          do not. */}
+      <dl className="fx-details-grid">
         {rows.map(([k, v]) => (
-          <div key={k} style={{ marginBottom: 10 }}>
-            <dt style={{ fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: MUTED }}>{k}</dt>
-            <dd style={{ margin: 0, fontSize: 13, color: INK, wordBreak: 'break-word' }}>{v}</dd>
+          <div key={k} className="fx-details-pair">
+            <dt>{k}</dt>
+            <dd data-numeric={DETAIL_NUMERIC.has(k) || undefined}>{v}</dd>
           </div>
         ))}
       </dl>
     </div>
   )
 }
+
+const DETAIL_NUMERIC = new Set(['Size', 'Created', 'Modified', 'Duration'])
