@@ -200,9 +200,20 @@ describe('both branches of every inline editor survive (review Risk 1)', () => {
     // derived line inside an 8px-padded cell makes a 63px row in the densest
     // table on the surface, against the 36px declared everywhere else. Still
     // 2.5x the old target and still 8px clear of the value.
-    expect(flat).toMatch(/\.rc-comp-type \{[^}]*flex: 0 0 20px;/)
-    expect(flat).toMatch(/\.rc-comp-derived \{[^}]*white-space: nowrap;/)
-    expect(flat).toMatch(/\.rc-comp \{ display: flex; align-items: center; justify-content: flex-end; gap: 8px; \}/)
+    expect(flat).toMatch(/\.rc-comp-type \{[^}]*width: 20px; height: 20px;/)
+    // The cell is a GRID, and the shape is load-bearing rather than
+    // cosmetic — two flex layouts were wrong here first. A 28px toggle with
+    // the derived amount stacked under it made a 63px row; everything on one
+    // line crushed `.rc-comp-value` to THREE PIXELS at the 1080px table
+    // width, so the editable figure vanished and the read-only one it derives
+    // from survived. Measured in the running app both times.
+    expect(flat).toMatch(/\.rc-comp \{ display: grid;/)
+    expect(flat).toMatch(/grid-template-columns: minmax\(0, 1fr\) 20px;/)
+    // The value never shares row 1 with anything but the toggle, and the
+    // derived amount gets the whole cell width on row 2 — so neither a rate
+    // nor a money figure can be truncated to make room for the other.
+    expect(flat).toMatch(/\.rc-comp-value \{ grid-column: 1; grid-row: 1;/)
+    expect(flat).toMatch(/\.rc-comp-derived \{[^}]*grid-column: 1 \/ -1;/)
     expect(code).not.toMatch(/opacity: 0\.45/)
     // …and the editing branch renders the SAME toggle, so the two states line
     // up rather than the toggle changing size when the cell opens.

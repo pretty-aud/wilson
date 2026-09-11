@@ -801,18 +801,45 @@
      financial record. Both controls stay and both behaviours stay: the toggle
      takes a reserved 28px slot at the cell's right edge, 8px clear of the
      value, at the Label step in full-strength ink. */
-  .rc-comp { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-  .rc-comp-value { flex: 1; min-width: 0; }
-  /* 🚨 20px, not the 28px control token, and this is deliberate.
-     F-R21 asks for a real target where there was a ~16x14px one at 45%
-     opacity two pixels from a different action. It does NOT ask for a taller
-     row: a 28px control plus the derived line plus the cell's 8px padding
-     makes a 63px row in the densest financial table on the surface, against
-     the 36px this lane declares everywhere else. 20px square with 8px of
-     clear space beside it is 2.5x the old area, sits inside the row rather
-     than setting it, and still clears the 8px gap the mis-click needed. */
+  /* 🚨 A GRID, AND THE HISTORY IS WORTH KEEPING, because two different
+     layouts were wrong here for two opposite reasons.
+
+     F-R21 asks for a real target: the %/$ toggle was 9px at 45% opacity in a
+     ~16x14px area, two pixels from a different action, on every row — and the
+     mis-click silently turns a percentage into a dollar amount on a financial
+     record.
+
+     First attempt: a 28px control token with the derived amount stacked under
+     the value. That made a 63px row in the densest table on the surface.
+
+     Second attempt: everything on one line, 20px toggle, derived amount
+     beside the value. Measured at the 1080px table width the burden cell is
+     119px of content, and the three items need about 150 — so flexbox
+     crushed `.rc-comp-value`, which has `flex: 1`, to THREE PIXELS. The
+     editable figure vanished and the read-only one it derives from survived.
+     Exactly backwards, and invisible in a suite of empty tables.
+
+     So: two rows and two columns. The value owns row 1 and never shrinks
+     below its content; the derived amount owns row 2, where it has the whole
+     cell width and cannot truncate a money figure; the toggle owns column 2
+     across both rows, centred, at 20px with 8px of clear space. A cell with
+     no derived amount is one row tall, as it was before. */
+  .rc-comp {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 20px;
+    align-items: center;
+    column-gap: 8px;
+    row-gap: 2px;
+    justify-items: end;
+  }
+  .rc-comp-value { grid-column: 1; grid-row: 1; width: 100%; min-width: 0; }
   .rc-comp-type {
-    flex: 0 0 20px;
+    grid-column: 2;
+    /* Row 1 only, beside the value it toggles — which also frees the whole
+       cell width for row 2. Spanning both rows cost the derived amount 28px
+       and truncated "= $1,250.00" to "= $1,250.0…". */
+    grid-row: 1;
+    align-self: center;
     width: 20px;
     height: 20px;
     display: inline-flex;
@@ -826,21 +853,20 @@
     font-family: var(--font-mono);
     font-size: var(--text-label);
     font-weight: var(--text-label--font-weight);
+    line-height: 1;
     cursor: pointer;
     transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out;
   }
   .rc-comp-type:hover { background-color: var(--color-hover); color: var(--color-ink); }
-  /* The derived amount sits BESIDE the value, inside the same line, so the
-     cell does not become two rows tall. It is the quietest thing in the cell
-     and the first to be given up when the column is narrow. */
+  /* Row 2, the full width of column 1: a derived money figure is either
+     readable or absent, never "= $1,2…". */
   .rc-comp-derived {
-    flex: 0 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
     font-family: var(--font-mono);
     font-size: var(--text-caption);
+    line-height: var(--text-caption--line-height);
     font-variant-numeric: tabular-nums;
     color: var(--color-ink-3);
     text-align: right;
