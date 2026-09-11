@@ -177,7 +177,11 @@ describe('FILES under RESOURCES, and the file facts (Audrey, 2026-09-11 00:50)',
     expect(files, "'project-files' is missing from the PAGES registry").toBeDefined()
     expect(files.title).toBe('Files')
     expect(files.nav).toBe('resources')
-    expect(files.bars.top).toBe(PAGE_BY_ID['team-members'].bars.top)
+    // UI overhaul C1: Files took the TOOL geometry under Q8(b) — it is a
+    // working page, not a reading one — so the row it must agree with is a
+    // tool's, not its sibling resource page's. `pageBars.test.js` owns the
+    // geometry itself; this only pins that the page HAS the shared one.
+    expect(files.bars.top).toBe(PAGE_BY_ID.dog.bars.top)
     // The control: the old shape really is gone, so this test cannot pass by
     // accident against a stale App.jsx that still carries the hand-kept lists.
     expect(app).not.toContain("'project-files': 'FILES',")
