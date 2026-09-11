@@ -21,7 +21,7 @@
 // =============================================================================
 
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 import { contrast, over, screen, luminance } from './contrast'
@@ -253,13 +253,36 @@ describe('reduced motion never touches the pet (C5)', () => {
 
 // ── The face and the scrollbar classes ─────────────────────────────────────
 describe('the typeface and the scrollbar classes are declared once, here', () => {
-  it('self-hosts Inter and JetBrains Mono from public/fonts, never a CDN', () => {
-    expect(css).toMatch(/@font-face\s*\{[^}]*font-family:\s*'Inter'/)
-    expect(css).toMatch(/@font-face\s*\{[^}]*font-family:\s*'JetBrains Mono'/)
-    expect(css).toMatch(/url\(\/fonts\/inter-latin-wght\.woff2\)/)
-    expect(css).toMatch(/url\(\/fonts\/jetbrains-mono-latin-wght\.woff2\)/)
+  it('self-hosts Geist and Geist Mono from public/fonts, never a CDN (Q3, ruled)', () => {
+    expect(css).toMatch(/@font-face\s*\{[^}]*font-family:\s*'Geist'/)
+    expect(css).toMatch(/@font-face\s*\{[^}]*font-family:\s*'Geist Mono'/)
+    expect(css).toMatch(/url\(\/fonts\/geist-latin-wght\.woff2\)/)
+    expect(css).toMatch(/url\(\/fonts\/geist-mono-latin-wght\.woff2\)/)
     expect(css).not.toMatch(/fonts\.googleapis|fonts\.gstatic|cdn\./)
     expect(css).toMatch(/html\s*\{\s*font-family:\s*var\(--font-sans\)/)
+    // The files exist beside their licences (the build copies public/ as is).
+    for (const f of ['geist-latin-wght.woff2', 'geist-latin-ext-wght.woff2', 'geist-mono-latin-wght.woff2', 'geist-mono-latin-ext-wght.woff2', 'LICENSE-Geist.txt', 'LICENSE-GeistMono.txt']) {
+      expect(existsSync(resolve(here, '../../public/fonts', f)), f).toBe(true)
+    }
+  })
+
+  it('declares two weights only: the variable axis is clamped to 400–600', () => {
+    const faces = css.match(/@font-face\s*\{[^}]*\}/g) || []
+    expect(faces.length).toBe(4)
+    for (const face of faces) expect(face).toMatch(/font-weight:\s*400 600;/)
+    // The pair is metric-matched: no mono compensation, but the token stays.
+    expect(theme['mono-size-adjust']).toBe('1.0')
+    expect(T.MONO_SIZE_ADJUST).toBe(1)
+  })
+
+  it('the scale has seven steps and no Display step (Q18: the transition title is exempt)', () => {
+    expect(Object.keys(T.TYPE)).toEqual(['h1', 'h2', 'h3', 'body', 'dense', 'caption', 'label'])
+    expect(theme['text-display']).toBeUndefined()
+  })
+
+  it('the radii are 3 and 6 (Q5, ruled)', () => {
+    expect(T.RADIUS_CONTROL).toBe(3)
+    expect(T.RADIUS_FLOAT).toBe(6)
   })
 
   it('declares both scrollbar classes and applies the light one after the dark one', () => {

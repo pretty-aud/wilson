@@ -8,19 +8,15 @@
 // disagreed on every value). A number is accepted for Bins' existing
 // callers until B6 re-points them.
 //
-// The behaviours: a modal stack with topmost-only Escape, a busy lock, the
-// backdrop click, an `onBeforeClose` guard that may return false to keep the
-// dialog open (the add dialog uses it to confirm before a reviewed batch is
-// discarded), and `error` rendered INSIDE the footer (a failed confirm used
-// to report into the page's notice bar, under the backdrop, so the button
-// looked dead).
-//
-// 🚨 Q17. Bringing these to the ~60 overlays that lack them is behaviour, so
-// C1 says ask. Until Audrey confirms, `DIALOG_BEHAVIOURS_DEFAULT` is false:
-// a Dialog with no `behaviours` prop closes only from its X and its own
-// buttons, exactly as those overlays do today. binUi's Modal passes
-// `behaviours` explicitly, so Bins keep everything they have. When she says
-// yes, flip the constant; every caller inherits it.
+// The behaviours (Q17, ruled 2026-09-11: "yes, but keep it minimal" —
+// Escape-to-close, the modal stack and the busy lock, nothing else, no
+// flag): a modal stack with topmost-only Escape, a busy lock, the backdrop
+// click that binUi's Modal already had, an `onBeforeClose` guard that may
+// return false to keep the dialog open (the add dialog uses it to confirm
+// before a reviewed batch is discarded), and `error` rendered INSIDE the
+// footer (a failed confirm used to report into the page's notice bar, under
+// the backdrop, so the button looked dead). No chrome beyond header / body /
+// footer; no motion beyond the 200ms fade in index.css.
 // =============================================================================
 
 import { useEffect, useRef } from 'react'
@@ -28,9 +24,6 @@ import { X, AlertTriangle } from 'lucide-react'
 import { pushModal, isTopModal } from './overlay'
 
 export const DIALOG_WIDTHS = Object.freeze({ confirm: 400, form: 560, reading: 720, workbench: 960 })
-
-/** Q17: false until Audrey confirms the standing permission (plan §2). */
-export const DIALOG_BEHAVIOURS_DEFAULT = false
 
 export function Dialog({
   title,
@@ -42,7 +35,6 @@ export function Dialog({
   busy = false,
   error = null,
   onBeforeClose = null,
-  behaviours = DIALOG_BEHAVIOURS_DEFAULT,
   className = '',
   ...rest
 }) {
@@ -56,14 +48,15 @@ export function Dialog({
   }
   const tryCloseRef = useRef(tryClose); tryCloseRef.current = tryClose
 
+  // Registered ONCE per mount so a re-render of a lower dialog cannot move
+  // it to the top of the stack; only the topmost dialog answers Escape.
   useEffect(() => {
-    if (!behaviours) return undefined
     const id = {}
     const unregister = pushModal(id)
     const key = (e) => { if (e.key === 'Escape' && isTopModal(id)) tryCloseRef.current() }
     document.addEventListener('keydown', key)
     return () => { document.removeEventListener('keydown', key); unregister() }
-  }, [behaviours])
+  }, [])
 
   const px = typeof width === 'number' ? width : (DIALOG_WIDTHS[width] ?? DIALOG_WIDTHS.form)
   if (import.meta.env?.DEV && typeof width === 'string' && !DIALOG_WIDTHS[width]) {
@@ -73,7 +66,7 @@ export function Dialog({
   return (
     <div
       className="ui-dialog-backdrop"
-      onMouseDown={(e) => { if (behaviours && e.target === e.currentTarget) tryClose() }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) tryClose() }}
     >
       <div
         role="dialog"

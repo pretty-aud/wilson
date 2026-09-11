@@ -9,8 +9,8 @@
 // promoted from Bins' binUi.jsx plus Button, IconButton, Switch, Chip,
 // Badge, StatusBadge, StatusDot, Field, Dialog, Menu, Toast, Banner,
 // EmptyState, Loading, Spinner, Kbd. Foundation 2 adds the shell and data
-// primitives (PageHeader, SectionTitle, Card, Table, Toolbar, ShortcutBar,
-// Tabs, Panel, Drawer, Stat, HoverActions).
+// primitives (PageHeader, SectionTitle, Card, Table, Toolbar, Tabs, Panel,
+// Drawer, Stat, HoverActions). There is no ShortcutBar (Q10, ruled).
 // =============================================================================
 
 export * from './tokens'
@@ -27,7 +27,7 @@ export { Field } from './Field'
 export { Input, useEscapeRevert } from './Input'
 export { TextArea } from './TextArea'
 export { Select } from './Select'
-export { Dialog, DIALOG_WIDTHS, DIALOG_BEHAVIOURS_DEFAULT } from './Dialog'
+export { Dialog, DIALOG_WIDTHS } from './Dialog'
 export { Menu } from './Menu'
 export { Toast, ToastProvider, useToast, TOAST_TONES } from './Toast'
 export { Banner, BANNER_TONES } from './Banner'

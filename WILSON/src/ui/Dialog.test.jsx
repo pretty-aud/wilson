@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
-import { Dialog, DIALOG_WIDTHS, DIALOG_BEHAVIOURS_DEFAULT } from './Dialog'
+import { Dialog, DIALOG_WIDTHS } from './Dialog'
 import { overlayOpen, _resetOverlaysForTests } from './overlay'
 
 afterEach(cleanup)
@@ -27,25 +27,29 @@ describe('Dialog', () => {
     expect(alert.textContent).toContain('Network is down')
   })
 
-  it('Q17: the behaviours are off by default and the flag is the single switch', () => {
-    expect(DIALOG_BEHAVIOURS_DEFAULT).toBe(false)
+  it('Q17 (ruled): Escape closes, the X closes, the backdrop closes — every Dialog, no flag', () => {
     const onClose = vi.fn()
     render(<Dialog title="Plain" onClose={onClose}>body</Dialog>)
-    expect(overlayOpen()).toBe(false)
+    expect(overlayOpen()).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
-    expect(onClose).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalledTimes(2)
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(onClose).toHaveBeenCalledTimes(3)
+    // …but a click INSIDE the dialog is not the backdrop.
+    fireEvent.mouseDown(screen.getByRole('dialog'))
+    expect(onClose).toHaveBeenCalledTimes(3)
   })
 
-  it('with behaviours on: registers on the stack, only the topmost answers Escape, busy locks, the guard can refuse', () => {
+  it('the modal stack: only the topmost answers Escape, busy locks, the guard can refuse', () => {
     const closeA = vi.fn()
     const closeB = vi.fn()
     const guard = vi.fn(() => false)
     render(
       <>
-        <Dialog title="A" onClose={closeA} behaviours onBeforeClose={guard}>a</Dialog>
-        <Dialog title="B" onClose={closeB} behaviours>b</Dialog>
+        <Dialog title="A" onClose={closeA} onBeforeClose={guard}>a</Dialog>
+        <Dialog title="B" onClose={closeB}>b</Dialog>
       </>,
     )
     expect(overlayOpen()).toBe(true)
@@ -57,8 +61,9 @@ describe('Dialog', () => {
     expect(guard).toHaveBeenCalled()
     expect(closeA).not.toHaveBeenCalled()
     cleanup()
+    expect(overlayOpen()).toBe(false)   // both unregistered on unmount
     const closeC = vi.fn()
-    render(<Dialog title="C" onClose={closeC} behaviours busy>c</Dialog>)
+    render(<Dialog title="C" onClose={closeC} busy>c</Dialog>)
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(closeC).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Close' }).disabled).toBe(true)

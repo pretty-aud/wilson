@@ -15,9 +15,9 @@
 // tokens), MediaTag, ColorDot, ColorPicker and FlagMark, which draw the
 // media-type and label-colour data from binMedia.
 //
-// 🚨 Behaviour is unchanged (C1): Modal passes `behaviours` explicitly so the
-// Bins dialogs keep their modal stack, topmost-only Escape, busy lock and
-// the onBeforeClose guard while Q17 is open for the rest of the app.
+// 🚨 Behaviour is unchanged (C1): the kit's Dialog carries the modal stack,
+// topmost-only Escape, busy lock and the onBeforeClose guard the Bins
+// dialogs always had (Q17, ruled 2026-09-11: those three, nothing more).
 
 import { Check, Ban, Circle } from 'lucide-react'
 import { MEDIA_TYPE_META, COLOR_HEX, COLORS } from '../../bins/binMedia'
@@ -46,10 +46,10 @@ export function Menu({ items, ...props }) {
   return <UiMenu items={mapped} {...props} />
 }
 
-/** The Bins modal: the kit's Dialog with the behaviours the Bins reviews
- *  earned, and the 640px default Bins' callers were written against. */
+/** The Bins modal: the kit's Dialog with the 640px default Bins' callers
+ *  were written against (B6 moves them onto the named widths). */
 export function Modal({ width = 640, ...props }) {
-  return <Dialog width={width} behaviours {...props} />
+  return <Dialog width={width} {...props} />
 }
 
 // ── Bins-specific ──────────────────────────────────────────────────────────

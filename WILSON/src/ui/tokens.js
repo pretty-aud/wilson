@@ -26,12 +26,11 @@
 /** Every entry of `@theme` that carries a value a JS site may need. Keys are
  *  the custom-property names without the leading `--`. */
 export const THEME = Object.freeze({
-  // families
-  'font-sans': "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
-  'font-mono': "'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace",
-  'mono-size-adjust': '0.94',
-  // type scale (px)
-  'text-display': '34px',
+  // families (Q3, ruled: Geist + Geist Mono; the stacks are the plan's verbatim)
+  'font-sans': "Geist, Inter, system-ui, 'Segoe UI Variable Text', 'Segoe UI', sans-serif",
+  'font-mono': "'Geist Mono', 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace",
+  'mono-size-adjust': '1.0',
+  // type scale (px) — seven steps; the transition title is exempt (Q18)
   'text-h1': '20px',
   'text-h2': '16px',
   'text-h3': '14px',
@@ -70,9 +69,9 @@ export const THEME = Object.freeze({
   'color-scroll-thumb-hover': '#ea580c',
   'color-scroll-thumb-light': '#c2712c',
   'color-scroll-thumb-light-hover': '#a85d20',
-  // radius, elevation
-  'radius-control': '4px',
-  'radius-float': '8px',
+  // radius, elevation (Q5, ruled: 3 / 6)
+  'radius-control': '3px',
+  'radius-float': '6px',
   'shadow-float': '0 8px 24px rgba(0, 0, 0, 0.35)',
   'shadow-float-light': '0 8px 24px rgba(60, 30, 10, 0.25)',
   // spacing, measure
@@ -127,7 +126,6 @@ export const MONO_SIZE_ADJUST = Number(THEME['mono-size-adjust'])
 // ── Type scale, as numbers (px) ─────────────────────────────────────────────
 const px = (name) => Number(THEME[name].replace('px', ''))
 export const TYPE = Object.freeze({
-  display: px('text-display'),
   h1: px('text-h1'),
   h2: px('text-h2'),
   h3: px('text-h3'),
