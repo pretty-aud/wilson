@@ -399,7 +399,19 @@
     gap: var(--spacing-gutter);
   }
   .pj-form-col { display: flex; flex-direction: column; gap: 16px; }
-  .pj-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pj-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+  /* 🚨 KIT REQUEST (hand-off). `index.css` has
+     `.ui-field + .ui-field { margin-top: 16px }` — the right rule for a
+     vertical stack of fields, and it fires on ANY two adjacent fields,
+     including a side-by-side pair. Measured: it put "End" 16px below "Start"
+     and "Currency" 16px below "Amount", and stretched the first field of each
+     pair to cover the gap, so the two controls in a pair did not line up at
+     either edge. It wants to be `:where(:not([data-inline]))` on a stack, or
+     a `Field` group component. Team Members' `.tm-rate-pair` is a horizontal
+     pair too and has the same 16px in it.
+     `src/index.css` is Foundation's, so this is scoped here. */
+  .pj-pair > .ui-field + .ui-field,
+  .pj-budget > .ui-field + .ui-field { margin-top: 0; }
   /* A heading over a GROUP of fields, where a <label> would be wrong: a label
      names its first labelable descendant, so one around two inputs is a
      visible word that names nothing. The fields inside carry their own. */
@@ -416,7 +428,7 @@
     color: var(--color-ink-2);
   }
   .pj-group-label > svg { width: var(--icon-sm); height: var(--icon-sm); }
-  .pj-budget { display: grid; grid-template-columns: 1fr 96px; gap: 12px; }
+  .pj-budget { display: grid; grid-template-columns: 1fr 96px; gap: 12px; align-items: start; }
   /* 1280x700 is Electron's floor and the plan's second checkpoint; the
      two-column form is the first thing that stops fitting there. */
   @media (max-width: 900px) {
