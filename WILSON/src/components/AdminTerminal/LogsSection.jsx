@@ -179,10 +179,8 @@ export default function LogsSection({ isActive, workspaceId }) {
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-              style={tab === t.key
-                ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                : { backgroundColor: 'transparent', color: LIGHT_INK }}
+              className="at-chip px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+              data-active={String(tab === t.key)}
             >
               {t.label}
             </button>
@@ -216,7 +214,7 @@ export default function LogsSection({ isActive, workspaceId }) {
           type="button"
           onClick={() => (tab === 'system' ? loadEvents() : loadHistory())}
           disabled={tab === 'system' ? eventsLoading : historyLoading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-50"
+          className="at-disable-50 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
           {(tab === 'system' ? eventsLoading : historyLoading)
@@ -294,8 +292,8 @@ function SystemRow({ event, expanded, onToggle }) {
     <>
       <tr
         onClick={onToggle}
-        className="cursor-pointer transition-colors hover:bg-stone-100"
-        style={{ borderBottom: expanded ? 'none' : '1px solid #e7e5e4' }}
+        className="at-log-row cursor-pointer"
+        data-expanded={String(expanded)}
       >
         <TdLight>
           <span className="text-xs font-mono whitespace-nowrap" style={{ color: LIGHT_INK }} title={fmtAbs(event.created_at)}>

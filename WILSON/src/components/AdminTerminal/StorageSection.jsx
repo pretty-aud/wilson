@@ -64,7 +64,7 @@ const lightInputStyle = {
   color: '#fde8d0',
   border: 'none',
 }
-const darkBtnClass = 'px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40'
+const darkBtnClass = 'at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors'
 const darkBtnStyle = { backgroundColor: '#1c1917', color: '#f4a261' }
 
 const MODES = [
@@ -621,12 +621,10 @@ export default function StorageSection({ isActive, workspaceId }) {
                 type="button"
                 disabled={!loaded || saving || probing || confirmStep !== 0 || !!loadError}
                 onClick={() => selectMode(m.key)}
-                className="flex items-start gap-3 p-3 rounded-sm text-left transition-colors disabled:opacity-50"
-                style={active
-                  ? { backgroundColor: 'rgba(234, 88, 12, 0.10)', border: '1px solid #ea580c' }
-                  : { backgroundColor: 'transparent', border: '1px solid rgba(120, 70, 30, 0.3)' }}
+                className="at-picker at-disable-50 flex items-start gap-3 p-3 rounded-sm text-left transition-colors"
+                data-active={String(active)}
               >
-                <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
+                <Icon className="at-picker-icon w-4 h-4 flex-shrink-0 mt-0.5" />
                 <span className="flex flex-col gap-0.5">
                   <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                     {m.label}
@@ -815,12 +813,10 @@ export default function StorageSection({ isActive, workspaceId }) {
                   type="button"
                   disabled={!loaded || saving || probing || testing || confirmStep !== 0 || !!loadError}
                   onClick={() => { if (byosProvider !== p.key) { resetRootFlow(); setProviderView(p.key) } }}
-                  className="flex items-start gap-3 p-3 rounded-sm text-left transition-colors disabled:opacity-50"
-                  style={active
-                    ? { backgroundColor: 'rgba(234, 88, 12, 0.10)', border: '1px solid #ea580c' }
-                    : { backgroundColor: 'transparent', border: '1px solid rgba(120, 70, 30, 0.3)' }}
+                  className="at-picker at-disable-50 flex items-start gap-3 p-3 rounded-sm text-left transition-colors"
+                  data-active={String(active)}
                 >
-                  <Icon className="w-4 h-4 flex-shrink-0 mt-0.5" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
+                  <Icon className="at-picker-icon w-4 h-4 flex-shrink-0 mt-0.5" />
                   <span className="flex flex-col gap-0.5">
                     <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: '#1c1917' }}>
                       {p.label}{saved ? ' · saved' : ''}

@@ -119,7 +119,7 @@ export default function ModelsSection({ isActive }) {
         <button
           onClick={reload}
           disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+          className="at-disable-40 flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
           style={{ backgroundColor: '#1c1917', color: '#f4a261' }}
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -161,11 +161,9 @@ export default function ModelsSection({ isActive }) {
               return (
                 <div
                   key={entry.key}
-                  className="px-3 py-2"
-                  style={{
-                    borderTop: i === 0 ? 'none' : '1px solid #e7e5e4',
-                    backgroundColor: chosen ? 'rgba(234, 88, 12, 0.05)' : 'transparent',
-                  }}
+                  className="at-model-row px-3 py-2"
+                  data-overridden={String(!!chosen)}
+                  style={{ borderTop: i === 0 ? 'none' : '1px solid #e7e5e4' }}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="flex-1 min-w-0" style={{ minWidth: '200px' }}>
@@ -182,7 +180,7 @@ export default function ModelsSection({ isActive }) {
                       disabled={busy || models.length === 0}
                       onChange={(e) => apply(entry.key, e.target.value)}
                       title={entry.hint || entry.label}
-                      className="px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500 disabled:opacity-40"
+                      className="at-disable-40 px-2 py-1 text-[11px] rounded-sm focus:ring-2 focus:ring-orange-500"
                       style={{ border: '1px solid #d6d3d1', color: '#1c1917', minWidth: '190px' }}
                     >
                       <option value="">Inherit ({labelFor(inherited)})</option>
@@ -201,7 +199,7 @@ export default function ModelsSection({ isActive }) {
                         type="button"
                         onClick={() => apply(entry.key, '')}
                         disabled={busy}
-                        className="flex items-center gap-1 text-[10px] disabled:opacity-40"
+                        className="at-disable-40 flex items-center gap-1 text-[10px]"
                         style={{ color: '#ea580c' }}
                       >
                         <RotateCcw size={11} /> Reset

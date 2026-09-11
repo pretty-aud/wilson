@@ -1,0 +1,298 @@
+/* ═══════════════════════════════════════════════════════════════
+   ADMIN TERMINAL — the seven-section operator bench
+   UI overhaul C3 (lane C), 2026-09-11
+
+   Review: `docs/design/review/admin-terminal.md` (34 findings, 12 high).
+   Plan:   `docs/design/UI_OVERHAUL_PLAN.md` §5 lane C, bundle C3.
+
+   ── COMMIT ONE OF TWO: THE STATE EXTRACTION ─────────────────────────────
+
+   This file lands FIRST, in a commit with no visual change in it. Every
+   hover / active / selected / armed / copied / busy / disabled branch on the
+   thirteen Admin Terminal files moves out of an inline `style` ternary or a
+   `hover:` utility and into a `data-*` attribute resolved here, with the
+   value transcribed UNCHANGED and the line it came from named beside it.
+
+   Why it has to come first (plan §1 and §5; review Risk 4): an inline
+   `style` object beats a `hover:` class at any specificity, so a class-based
+   restyle written beside a surviving inline style silently drops the state.
+   This surface already had that defect twice over — the roster table has no
+   row hover at all while the Logs table does (AT-22), and `MenuItem`'s hint
+   is painted `LIGHT_INK` on a `#1c1917` panel, which is 1.00:1 and has never
+   been visible to any human (AT-01).
+
+   🚨 THE HEX VALUES IN THIS COMMIT ARE DELIBERATE AND TEMPORARY. They are
+   transcriptions, so the diff of the SECOND commit is the visual change and
+   nothing else. C8 (no hex outside `@theme`) is satisfied by that second
+   commit, not by this one. `adminTerminalCss.test.js` pins the count so the
+   cleanup cannot be forgotten.
+
+   ── WHAT IS DELIBERATELY *NOT* EXTRACTED ────────────────────────────────
+
+   The line is drawn at INTERACTION state — hover, active, selected, armed,
+   copied, expanded, disabled. Three kinds of surviving inline ternary are
+   left alone on purpose, and a reviewer should read them as a boundary
+   rather than as a miss:
+
+     1. `display: section === 'x' ? 'block' : 'none'` in AdminTerminalPage.
+        That is the all-sections-mounted view switch, not a paint. Four
+        sections lazy-fetch behind a `loadedRef` on first activation, so any
+        change that alters a section's identity remounts it and refires the
+        RPCs on every nav hop (review Risk 3). It stays exactly as it is.
+     2. SEMANTIC TONE driven by data, not by the pointer: the realtime and
+        adapter dots, the MFA badge, the roster's active dot, the activity
+        chip, the deactivate button's two inks. These do not become CSS —
+        they become `StatusDot`, `StatusBadge` and `Button` variants in
+        commit two, and extracting them here only to delete them there is
+        churn that hides the real change.
+     3. POSITIONAL branches — `borderTop: i === 0 ? 'none' : …`, the
+        avatar's `fontSize: size >= 40 ? 16 : 10`. Neither is a state.
+
+   🚨 `@layer` IS NAMED ON THE FIRST LINE, BEFORE ANY RULE. A layer's place
+   in the cascade is fixed where it is FIRST named, not where its rules are
+   written. This sheet is imported from a component, so the bundler may emit
+   it BEFORE `src/index.css`; when that happened to D1, `components` was
+   created ahead of `base`, every rule in it fell BEHIND Tailwind's preflight
+   and the whole kit rendered unstyled while every test stayed green (D1
+   hand-off §5). Naming the four layers here is idempotent when `index.css`
+   gets there first and corrective when it does not.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+
+  /* ═══ THE LEFT NAV ════════════════════════════════════════════════════
+     From AdminTerminalPage.jsx:108-114. The active state is a 3px signal
+     left border plus a 10%-ish signal fill, and the INACTIVE state carries
+     an equal 3px transparent border so selecting an item does not shift the
+     label by a pixel. That fixed-width-slot discipline is the one thing this
+     surface already got right (review, "What works") — it is transcribed
+     here exactly rather than rebuilt. */
+
+  .at-nav-item {
+    background-color: transparent;
+    color: #1c1917;
+    border-left: 3px solid transparent;
+  }
+  .at-nav-item[data-active='true'] {
+    background-color: rgba(234, 88, 12, 0.18);
+    color: #1c1917;
+    border-left-color: #ea580c;
+  }
+  /* The icon's colour was a second ternary on the same boolean
+     (AdminTerminalPage.jsx:114); one source of truth now. */
+  .at-nav-item .at-nav-icon { color: #1c1917; }
+  .at-nav-item[data-active='true'] .at-nav-icon { color: #ea580c; }
+
+  /* ═══ SEGMENTED CHIPS ═════════════════════════════════════════════════
+     One rule for three copies of the same object: the Logs tab pair
+     (LogsSection.jsx:183-185), the Requests tab pair
+     (ChangeRequestsSection.jsx:230-232) and the roster's status filter
+     (UsersSection.jsx:176-178). All three were byte-identical ternaries. */
+
+  .at-chip {
+    background-color: transparent;
+    color: #1c1917;
+  }
+  .at-chip[data-active='true'] {
+    background-color: #1c1917;
+    color: #f4a261;
+  }
+  /* The Requests "open" chip carries a count whose ink was a THIRD ternary on
+     the same boolean (ChangeRequestsSection.jsx:234). */
+  .at-chip .at-chip-count { color: #b45309; }
+  .at-chip[data-active='true'] .at-chip-count { color: #f4a261; }
+
+  /* ═══ ROW HOVER AND SELECTION ═════════════════════════════════════════
+     AT-22: the surface hovered with four fills, three of them LIGHTER than
+     the #f4a261 page, so hovering an element made it flash white. They are
+     transcribed one-for-one here and collapse to one screen in commit two.
+
+     AT-22 also records the affordance gap that motivates the extraction:
+     the Logs table has a row hover (LogsSection.jsx:297) and the roster
+     table has none (UsersSection.jsx:256), so the two tables teach opposite
+     things about whether a row is clickable. Both are clickable. */
+
+  .at-log-row { transition: background-color 150ms; border-bottom: 1px solid #e7e5e4; }
+  .at-log-row:hover { background-color: #f5f5f4; }  /* was hover:bg-stone-100 */
+  /* An expanded row hands its divider to the JSON row underneath it, so the
+     context block reads as part of the row it belongs to rather than as a
+     row of its own (LogsSection.jsx:298). */
+  .at-log-row[data-expanded='true'] { border-bottom: none; }
+
+  /* The roster row's two inline branches: `opacity` for a deactivated
+     member and a signal tint for the selected one (UsersSection.jsx:256). */
+  .at-roster-row { background-color: transparent; opacity: 1; }
+  .at-roster-row[data-inactive='true'] { opacity: 0.55; }
+  .at-roster-row[data-selected='true'] { background-color: rgba(234, 88, 12, 0.10); }
+
+  /* ═══ ICON BUTTONS ════════════════════════════════════════════════════
+     Three hovers at three stone values, one per file: the panel close
+     (UsersSection.jsx:416), the copy-id button (CompanySection.jsx:224) and
+     the department chip's remove (CompanySection.jsx:275). */
+
+  .at-icon-btn:hover { background-color: #e7e5e4; }        /* hover:bg-stone-200 */
+  .at-icon-btn[data-tone='chip']:hover { background-color: #d6d3d1; } /* stone-300 */
+
+  /* The copy buttons swap ink for 1.5s after a successful write
+     (CompanySection.jsx:225, DiagnosticsSection.jsx:133). Diagnostics spells
+     the same confirmation as a green tick INSIDE a dark button rather than a
+     recoloured icon button, so it gets its own name rather than being bent
+     into this one. */
+  .at-icon-btn[data-copied='true'] { color: #22c55e; }
+  .at-copied-glyph { color: #22c55e; }
+
+  /* ═══ THE ADD-PEOPLE MENU ═════════════════════════════════════════════
+     UsersSection.jsx:694. A DARK floating panel living inside a light-page
+     file — which is the classification error AT-01 is: the hint below each
+     label is painted LIGHT_INK (#1c1917) on a #1c1917 panel, 1.00:1, and
+     the hover only lifts it to about 1.1:1. The hint's colour is extracted
+     here UNCHANGED so the defect is still present and still visible in the
+     diff; it is fixed in its own commit, on its own, because it is a defect
+     and not a refactor (review priority order, AT-01 first). */
+
+  .at-menu-item:hover { background-color: #292524; }       /* hover:bg-stone-800 */
+  .at-menu-item .at-menu-hint { color: #1c1917; }
+
+  /* ═══ THE MODE AND PROVIDER PICKERS ═══════════════════════════════════
+     StorageSection.jsx:625-627 and :819-821, byte-identical. The review
+     names these two blocks the best-composed thing on the surface and the
+     model for every binary choice in the app, so the extraction keeps their
+     geometry untouched and moves only the selected branch. */
+
+  .at-picker {
+    background-color: transparent;
+    border: 1px solid rgba(120, 70, 30, 0.3);
+  }
+  .at-picker[data-active='true'] {
+    background-color: rgba(234, 88, 12, 0.10);
+    border-color: #ea580c;
+  }
+  /* A third ternary on the same boolean, in both copies
+     (StorageSection.jsx:627 and :819). */
+  .at-picker .at-picker-icon { color: #1c1917; }
+  .at-picker[data-active='true'] .at-picker-icon { color: #ea580c; }
+
+  /* ═══ THE MODEL ROWS ══════════════════════════════════════════════════
+     ModelsSection.jsx:400. Von Restorff, and the file's header says so: a
+     row the company has actually overridden is the only one carrying an
+     accent, so five deliberate choices stand out from twenty-three
+     defaults. That intent survives the restyle because it is named here. */
+
+  .at-model-row { background-color: transparent; }
+  .at-model-row[data-overridden='true'] { background-color: rgba(234, 88, 12, 0.05); }
+
+  /* ═══ THE CREDENTIALS POPUP ═══════════════════════════════════════════
+     Two states nothing else on the surface has, both real interaction
+     design the review says to keep: the copy button's 1.5s confirmation
+     (CredentialsPopup.jsx:172-174) and the close button's ARM, which makes
+     a close-without-copying need a second press on the same target
+     (CredentialsPopup.jsx:143-145). */
+
+  .at-cred-copy {
+    background-color: transparent;
+    color: #f4a261;
+    border: 1px solid #44403c;
+  }
+  .at-cred-copy[data-copied='true'] {
+    background-color: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    border-color: #22c55e;
+  }
+
+  .at-cred-close {
+    background-color: transparent;
+    color: #78716c;
+    border: 1px solid #44403c;
+  }
+  .at-cred-close[data-armed='true'] {
+    background-color: #1c1917;
+    color: #f4a261;
+    border-color: #f4a261;
+  }
+
+  /* ═══ THE ROSTER TOGGLE ═══════════════════════════════════════════════
+     UsersSection.jsx:ToggleRow. Its track, its knob's transform and its
+     cursor were three inline branches on one boolean, plus an `opacity` on
+     the wrapper for the disabled case. The off-state track is a tint of the
+     ink rather than stone-400, which measured 1.4:1 against this page and
+     read as "missing" rather than "off" — that reasoning is in the source
+     as a comment and is carried here with the value. */
+
+  .at-toggle { background-color: rgba(28, 25, 23, 0.35); cursor: pointer; }
+  .at-toggle[data-on='true'] { background-color: #ea580c; }
+  .at-toggle:disabled { cursor: default; }
+  .at-toggle .at-toggle-knob {
+    background-color: #fff;
+    transform: translateX(0);
+    transition: transform 150ms;
+  }
+  .at-toggle[data-on='true'] .at-toggle-knob { transform: translateX(14px); }
+  .at-toggle-row[data-disabled='true'] { opacity: 0.7; }
+
+  /* ═══ DISABLED ════════════════════════════════════════════════════════
+     Twenty-four `disabled:opacity-40` and `disabled:opacity-50` sites across
+     eleven files — the same state at two strengths because two authors
+     typed different numbers (AT-02). Transcribed as two classes so the diff
+     in commit two, where both become the one disabled token (plan §3.1:
+     ink at 52 percent plus `cursor: not-allowed`, never an opacity), is
+     legible as one decision rather than twenty-four. */
+
+  .at-disable-40:disabled { opacity: 0.4; }
+  .at-disable-50:disabled { opacity: 0.5; }
+
+  /* ═══ THE INVITE ROWS ═════════════════════════════════════════════════
+     MultiInviteDialog.jsx:211 and :222. A sent row dims; a row whose
+     username fails USERNAME_RE takes a danger border ON THE FIELD, which is
+     the only place on the surface where validity is drawn on the control
+     rather than beside it. */
+
+  .at-invite-row { opacity: 1; }
+  .at-invite-row[data-sent='true'] { opacity: 0.75; }
+  .at-invite-name[data-invalid='true'] { border-color: #dc2626; }
+
+  /* ═══ THE CREATE-USER HINT ════════════════════════════════════════════
+     CreateUserDialog.jsx:119. The username hint changes ink the moment what
+     you have typed stops matching the pattern — the only live validation
+     feedback in the dialog, and it was a ternary inside a `style` prop. */
+
+  .at-hint { color: #78716c; }
+  .at-hint[data-invalid='true'] { color: #fbbf24; }
+
+  /* CreateUserDialog.jsx:CheckRow. `data-dim` is deliberately NOT
+     `data-disabled`: the row dims only when the control is disabled AND has
+     no note explaining why, so "Can view rate card" stays at full strength
+     while it is disabled-because-edit-implies-it. Two different reasons for
+     one disabled attribute, which is why the branch has to survive. */
+  .at-check-row { opacity: 1; }
+  .at-check-row[data-dim='true'] { opacity: 0.6; }
+
+  /* ═══ THE DETAIL PANEL'S ENTRANCE ═════════════════════════════════════
+     UsersSection.jsx:404. AT-25: this is the only real motion on the
+     surface and it was `transition-all duration-200`, which animates the
+     border and the width along with the transform, so the hairline
+     separating the panel from the table drew ITSELF in. The properties are
+     named here; the duration and the 24px offset are transcribed unchanged,
+     and the reduced-motion gate and the symmetric exit land in commit two.
+
+     🚨 The reduced-motion block is scoped to this class by name. It must
+     never become a blanket rule: `src/index.css` is where the otter, egg,
+     ghost, cloud and hunger keyframes live, and a universal
+     `animation: none` would stop the pet (C5, and the critic's ruling on
+     O29/AT-25). */
+
+  .at-detail-panel {
+    opacity: 0;
+    transform: translateX(24px);
+    transition: opacity 200ms, transform 200ms;
+  }
+  .at-detail-panel[data-entered='true'] {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .at-detail-panel { transition: none; }
+  }
+
+}

@@ -139,10 +139,8 @@ export default function CredentialsPopup({ open, username, password, context = '
           <button
             type="button"
             onClick={handleClose}
-            className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-            style={hasCopied || armedClose
-              ? { backgroundColor: '#1c1917', color: '#f4a261', border: '1px solid #f4a261' }
-              : { backgroundColor: 'transparent', color: '#78716c', border: '1px solid #44403c' }}
+            className="at-cred-close px-4 py-2 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+            data-armed={String(hasCopied || armedClose)}
           >
             {armedClose && !hasCopied ? 'Close without copying?' : "I've saved these"}
           </button>
@@ -168,10 +166,8 @@ function CredentialRow({ label, value, copied, onCopy }) {
         <button
           type="button"
           onClick={onCopy}
-          className="flex items-center gap-1 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors flex-shrink-0"
-          style={copied
-            ? { backgroundColor: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid #22c55e' }
-            : { backgroundColor: 'transparent', color: '#f4a261', border: '1px solid #44403c' }}
+          className="at-cred-copy flex items-center gap-1 px-3 py-2.5 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors flex-shrink-0"
+          data-copied={String(!!copied)}
         >
           {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
           {copied ? 'Copied ✓' : 'Copy'}

@@ -117,7 +117,7 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
             style={fieldStyle}
             aria-label="Username"
           />
-          <div className={hintClass} style={{ color: username && !usernameValid ? '#fbbf24' : '#78716c' }}>
+          <div className={`at-hint ${hintClass}`} data-invalid={String(!!username && !usernameValid)}>
             Lowercase letters, digits, ._- — 2-32 chars. Scoped to this workspace.
           </div>
         </div>
@@ -196,7 +196,7 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
           >
             Cancel
@@ -204,7 +204,7 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
           <button
             type="submit"
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: '#ea580c', color: '#fff' }}
           >
             {busy ? 'Creating…' : 'Create user'}
@@ -218,8 +218,8 @@ export default function CreateUserDialog({ open, onClose, onCreated }) {
 function CheckRow({ checked, disabled, onToggle, label, note }) {
   return (
     <label
-      className="flex items-center gap-2 py-1 cursor-pointer select-none"
-      style={{ opacity: disabled && !note ? 0.6 : 1 }}
+      className="at-check-row flex items-center gap-2 py-1 cursor-pointer select-none"
+      data-dim={String(!!disabled && !note)}
     >
       <input
         type="checkbox"

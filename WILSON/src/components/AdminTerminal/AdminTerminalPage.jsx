@@ -32,6 +32,7 @@ import ChangeRequestsSection from './ChangeRequestsSection'
 import ModelsSection from './ModelsSection'
 import StorageSection from './StorageSection'
 import { LIGHT_INK, LIGHT_RULE } from '../lightSurface' // §B — light page
+import './adminTerminal.css'
 
 // Session 11 adds a fifth item. Miller's Law still holds (5 ≤ 7±2), and
 // Serial Position keeps the two most-used sections at the ends: Users first,
@@ -104,14 +105,14 @@ function AdminTerminalBody({ workspaceId }) {
                 key={item.key}
                 type="button"
                 onClick={() => setSection(item.key)}
-                className="flex items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-left rounded-sm transition-colors"
-                style={active
-                  ? { backgroundColor: 'rgba(234, 88, 12, 0.18)', color: '#1c1917', borderLeft: '3px solid #ea580c' }
-                  : { backgroundColor: 'transparent', color: LIGHT_INK, borderLeft: '3px solid transparent' }}
+                className="at-nav-item flex items-center gap-2 px-3 py-2 text-[11px] font-bold uppercase tracking-wider text-left rounded-sm transition-colors"
+                data-active={String(active)}
               >
-                {/* Inactive nav is now weight-and-fill, not a lighter ink:
-                    #57534e measured 3.70:1 on this page and #78716c 2.33:1. */}
-                <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: active ? '#ea580c' : LIGHT_INK }} />
+                {/* Inactive nav is weight-and-fill, not a lighter ink:
+                    #57534e measured 3.70:1 on this page and #78716c 2.33:1.
+                    Both branches now live in adminTerminal.css, and the icon
+                    follows the button rather than repeating its ternary. */}
+                <Icon className="at-nav-icon w-3.5 h-3.5 flex-shrink-0" />
                 {item.label}
               </button>
             )

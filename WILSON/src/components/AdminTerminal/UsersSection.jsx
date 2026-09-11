@@ -172,10 +172,8 @@ export default function UsersSection({ wm }) {
                 key={f.key}
                 type="button"
                 onClick={() => setStatusFilter(f.key)}
-                className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
-                style={statusFilter === f.key
-                  ? { backgroundColor: '#1c1917', color: '#f4a261' }
-                  : { backgroundColor: 'transparent', color: LIGHT_INK }}
+                className="at-chip px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider rounded-sm transition-colors"
+                data-active={String(statusFilter === f.key)}
               >
                 {f.label}
               </button>
@@ -253,12 +251,10 @@ export default function UsersSection({ wm }) {
                   <tr
                     key={m.user_id}
                     onClick={() => setSelectedId(m.user_id)}
-                    className="cursor-pointer transition-colors"
-                    style={{
-                      borderBottom: `1px solid ${LIGHT_RULE}`,
-                      opacity: m.is_active ? 1 : 0.55,
-                      backgroundColor: selectedId === m.user_id ? 'rgba(234, 88, 12, 0.10)' : 'transparent',
-                    }}
+                    className="at-roster-row cursor-pointer"
+                    data-selected={String(selectedId === m.user_id)}
+                    data-inactive={String(!m.is_active)}
+                    style={{ borderBottom: `1px solid ${LIGHT_RULE}` }}
                   >
                     <TdLight>
                       <div className="flex items-center gap-2">
@@ -401,19 +397,15 @@ function UserDetailPanel({ member, isSelf, wm, escapeDisabled, onClose, onCreden
 
   return (
     <div
-      className="flex-shrink-0 ml-4 pl-4 overflow-y-auto wilson-light-scroll transition-all duration-200"
-      style={{
-        width: '360px',
-        borderLeft: `1px solid ${LIGHT_RULE}`,
-        transform: entered ? 'translateX(0)' : 'translateX(24px)',
-        opacity: entered ? 1 : 0,
-      }}
+      className="at-detail-panel flex-shrink-0 ml-4 pl-4 overflow-y-auto wilson-light-scroll"
+      data-entered={String(entered)}
+      style={{ width: '360px', borderLeft: `1px solid ${LIGHT_RULE}` }}
     >
       <div className="flex items-start justify-between mb-4">
         <span className="text-[10px] font-bold uppercase tracking-widest" style={{ color: LIGHT_INK }}>
           Member detail
         </span>
-        <button type="button" onClick={onClose} className="p-1 rounded-sm hover:bg-stone-200 transition-colors" style={{ color: LIGHT_INK }} title="Close (Esc)">
+        <button type="button" onClick={onClose} className="at-icon-btn p-1 rounded-sm transition-colors" style={{ color: LIGHT_INK }} title="Close (Esc)">
           <X className="w-3.5 h-3.5" />
         </button>
       </div>
@@ -663,7 +655,7 @@ function ConfirmModal({ title, children, confirmLabel, danger, onCancel, onConfi
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={{ backgroundColor: 'transparent', color: '#a8a29e', border: '1px solid #44403c' }}
           >
             Cancel
@@ -672,7 +664,7 @@ function ConfirmModal({ title, children, confirmLabel, danger, onCancel, onConfi
             type="button"
             onClick={go}
             disabled={busy}
-            className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors disabled:opacity-40"
+            className="at-disable-40 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider rounded-sm transition-colors"
             style={danger
               ? { backgroundColor: '#dc2626', color: '#fff' }
               : { backgroundColor: '#ea580c', color: '#fff' }}
@@ -691,10 +683,10 @@ function MenuItem({ label, hint, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="block w-full text-left px-3 py-2 transition-colors hover:bg-stone-800"
+      className="at-menu-item block w-full text-left px-3 py-2 transition-colors"
     >
       <span className="block text-xs font-mono" style={{ color: '#fde8d0' }}>{label}</span>
-      {hint && <span className="block text-[10px] mt-0.5" style={{ color: LIGHT_INK }}>{hint}</span>}
+      {hint && <span className="at-menu-hint block text-[10px] mt-0.5">{hint}</span>}
     </button>
   )
 }
@@ -776,7 +768,7 @@ function GroupLabel({ children }) {
 
 function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
   return (
-    <div className="flex items-center justify-between mb-2" style={{ opacity: disabled ? 0.7 : 1 }}>
+    <div className="at-toggle-row flex items-center justify-between mb-2" data-disabled={String(!!disabled)}>
       <span className="text-xs" style={{ color: '#1c1917' }}>
         {label}
         {note && <span className="ml-1.5 text-[10px]" style={{ color: LIGHT_INK }}>{note}</span>}
@@ -787,24 +779,16 @@ function ToggleRow({ label, on, busy, disabled, note, onToggle }) {
           type="button"
           disabled={disabled || busy}
           onClick={onToggle}
-          className="rounded-full transition-colors flex-shrink-0"
+          className="at-toggle rounded-full transition-colors flex-shrink-0"
           role="switch"
           aria-checked={on}
           aria-label={label}
-          style={{
-            width: '32px', height: '18px', padding: '2px',
-            // Off-state track: a tint of the ink rather than stone-400, which
-        // measured 1.4:1 against the page and read as "missing" not "off".
-        backgroundColor: on ? '#ea580c' : 'rgba(28, 25, 23, 0.35)',
-            cursor: disabled ? 'default' : 'pointer',
-          }}
+          data-on={String(!!on)}
+          style={{ width: '32px', height: '18px', padding: '2px' }}
         >
           <span
-            className="block rounded-full transition-transform"
-            style={{
-              width: '14px', height: '14px', backgroundColor: '#fff',
-              transform: on ? 'translateX(14px)' : 'translateX(0)',
-            }}
+            className="at-toggle-knob block rounded-full"
+            style={{ width: '14px', height: '14px' }}
           />
         </button>
       </span>
