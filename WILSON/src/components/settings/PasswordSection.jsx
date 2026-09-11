@@ -182,6 +182,7 @@ export default function PasswordSection() {
               <Row label="Apply">
                 <Button
                   surface="light"
+                  size="sm"
                   variant="primary"
                   type="submit"
                   disabled={busy || !password || !confirm}

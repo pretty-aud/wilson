@@ -23,10 +23,10 @@
 // `promptOverrides`  : { [toolName]: { systemPromptOverride: string|null } }
 // `onPromptOverrideChange(toolName, override|null)`
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AGENT_SKILL_REGISTRY, AGENT_SKILL_TOOLS, defaultAgentSkillsState } from './agentSkillRegistry'
 import './settings.css'
-import { Section, Group } from './SettingsChrome'
+import { Section, Group, Note } from './SettingsChrome'
 import { Button, TextArea } from '../../ui'
 import { Check } from 'lucide-react'
 
@@ -54,11 +54,15 @@ export default function AgentSkillsSection({
 
   return (
     <>
-      <Section
-        first
-        title="Agent skills"
-        description={"Each tool exposes a set of agent capabilities. The system prompt and tool schema below describe the agent's contract; the checkboxes are a reference list and do not gate anything at runtime. Edits to the system prompt persist across sessions and can be reset to the default at any time."}
-      />
+      <Section first title="Agent skills">
+        <Note>
+          Each tool exposes a set of agent capabilities. The system prompt and
+          tool schema below describe the agent&rsquo;s contract; the checkboxes are
+          a reference list and do not gate anything at runtime. Edits to the
+          system prompt persist across sessions and can be reset to the default
+          at any time.
+        </Note>
+      </Section>
 
       {AGENT_SKILL_TOOLS.map(toolName => {
         const tool = AGENT_SKILL_REGISTRY[toolName]
@@ -96,6 +100,15 @@ function ToolBlock({
   const [showSchema, setShowSchema] = useState(false)
   const promptText = override != null ? override : tool.systemPrompt
   const isOverridden = override != null
+
+  // 🚨 A LOCAL DRAFT, BECAUSE THIS FIELD AUTOSAVES AND THE KIT REVERTS.
+  // TextArea handles Escape itself by calling onChange with the focus-time
+  // value. Wiring onChange straight to the persist path therefore made Escape
+  // write the revert to disk AND push it to the cloud — an undo the user
+  // could not undo, on a field that previously ignored Escape entirely. The
+  // draft keeps Escape local; onCommit persists on blur when the edit stands.
+  const [draft, setDraft] = useState(promptText)
+  useEffect(() => { setDraft(promptText) }, [promptText])
 
   return (
     // H7: ten controls per tool, repeated for every tool. All on / All off
@@ -135,8 +148,9 @@ function ToolBlock({
             <TextArea
               surface="light"
               aria-label={`${tool.label} system prompt`}
-              value={promptText}
-              onChange={onPromptChange}
+              value={draft}
+              onChange={setDraft}
+              onCommit={() => { if (draft !== promptText) onPromptChange(draft) }}
               rows={10}
               spellCheck={false}
               className="w-full"
@@ -151,7 +165,7 @@ function ToolBlock({
       {showSchema && (
         <div className="mt-4">
           <span className="s-eyebrow mb-1">Tool schema (read-only)</span>
-          <pre className="s-log" style={{ maxHeight: '300px' }}>
+          <pre className="s-log" data-surface="dark">
 {JSON.stringify(tool.toolSchema || [], null, 2)}
           </pre>
         </div>

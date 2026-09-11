@@ -69,8 +69,8 @@ export default function SessionSection() {
               : 'Signs you out on this device only — other computers you are signed in on stay signed in, and so does the operator console if you use one. Your pet and your personal settings live with your account, so they will be waiting when you sign back in.'}
           >
             {!confirming ? (
-              <Button surface="light" size="sm" variant="danger" Icon={LogOut} onClick={() => setConfirming(true)}>
-                Sign out
+              <Button surface="light" size="sm" variant="danger" onClick={() => setConfirming(true)}>
+                <LogOut aria-hidden="true" />Sign out
               </Button>
             ) : (
               <>

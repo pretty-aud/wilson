@@ -71,8 +71,15 @@ export default function CurrencyPicker({ value, onChange }) {
         <ChevronDown size={14} aria-hidden="true" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
       </button>
 
+      {/* 🚨 THE MENU IS STAMPED `dark`. index.css scopes the focus ring, the
+          placeholder, the caret and ::selection off the NEAREST data-surface,
+          and the page root is `light`. Without this stamp the ring and the
+          placeholder inside this #232020 panel both resolve to #1c1917 —
+          about 1.08:1, i.e. invisible, on an autofocused search field. The
+          kit's own Dialog, Menu and Toast stamp themselves; a hand-rolled
+          island has to be stamped by hand. */}
       {open && (
-        <div className="s-currency-menu" role="listbox">
+        <div className="s-currency-menu" data-surface="dark" role="listbox">
           {/* The filter is conditionally mounted, so autoFocus fires. */}
           <div className="p-2">
             <Input
@@ -90,7 +97,7 @@ export default function CurrencyPicker({ value, onChange }) {
               key={c.code}
               type="button"
               onClick={() => { onChange(c.code); setOpen(false); }}
-              className="s-cur-option w-full flex items-center gap-3 px-4 py-2 text-left transition-colors"
+              className="s-cur-option"
               data-current={c.code === current.code}
             >
               <span className="s-data" style={{ width: '2.5ch' }}>{c.symbol}</span>

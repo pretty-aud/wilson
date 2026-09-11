@@ -168,7 +168,7 @@ export default function UserModelsSection() {
               return (
                 <div
                   key={entry.key}
-                  className="s-model-row px-3 py-2"
+                  className="s-model-row"
                   data-overridden={!!mine}
                 >
                   <div className="s-model-main">
@@ -219,11 +219,10 @@ export default function UserModelsSection() {
                           surface="light"
                           size="sm"
                           variant="ghost"
-                          Icon={RotateCcw}
                           onClick={() => apply(entry.key, '')}
                           disabled={busy}
                         >
-                          Reset
+                          <RotateCcw aria-hidden="true" />Reset
                         </Button>
                       )}
                     </div>

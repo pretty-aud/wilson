@@ -32,6 +32,23 @@
    caller could never add a layout utility on top. Layered, utilities still
    win for layout and this file still wins for state.
 
+   🚨 AND THAT IS WHY THE `@layer` STATEMENT BELOW IS THE FIRST LINE OF THIS
+   FILE. A layer's position in the cascade is fixed by where it is FIRST
+   named, not by where its rules are written. This stylesheet is imported from
+   a component, so the bundler can emit it BEFORE `src/index.css` — and when
+   it did, `components` was created ahead of `base`, which put every rule in
+   it BEHIND Tailwind's preflight. The symptom was specific and easy to
+   misread: `height` survived (preflight does not set it) while `padding`,
+   `font-size`, `color` and `background-color` were all silently reset, on
+   THIS file's rules and on `src/ui/`'s alike — F1's whole kit rendered
+   unstyled. Naming the four layers in the right order here is idempotent when
+   `index.css` gets there first and corrective when it does not.
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer theme, base, components, utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+
    🚨 NO `> *`, `:first-child`-as-layout OR gap ARITHMETIC IN THE ROW RULES.
    `GatedAction` injects an extra wrapping `<span>` when a control is denied,
    so a row's flex-child count differs between an admin and a member. Rows own
@@ -75,6 +92,9 @@
     display: flex;
     align-items: stretch;
     gap: 0;
+    /* 24px of clear air below the bar, from the spacing scale, so the first
+       section title does not sit on the bar's own rule. */
+    margin-bottom: 24px;
     border-bottom: 1px solid var(--color-rule-light);
   }
   .s-tab {
@@ -98,10 +118,21 @@
     font-weight: 600;
     border-bottom-color: var(--color-signal);
   }
+  /* The separator is a pseudo-element in the margin, so the label stays
+     centred in its own box and the active underline is the same width under
+     every tab. As a `padding-right` it made two of the seven tabs 12px wider
+     on one side and gave them a longer underline than their peers — one
+     signal is supposed to be one length. */
   .s-tab[data-group-end='true'] {
-    margin-right: 12px;
+    margin-right: 25px;
+  }
+  .s-tab[data-group-end='true']::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    right: -13px;
     border-right: 1px solid var(--color-rule-light);
-    padding-right: 24px;
   }
 
   /* ── Section ──────────────────────────────────────────────────────────
@@ -180,13 +211,21 @@
      S20 / A3: the four label-left/control-right rows had no height at all —
      a ~30px toggle above a ~26px segmented group above another ~26px one,
      each with a two-line label block, so no two rows shared a baseline. */
+  /* 🚨 4px, NOT 8px, and that is arithmetic rather than taste. Preflight sets
+     border-box, so `min-height: 36px` INCLUDES the padding: with 8px top and
+     bottom, a row holding a 28px control became 44px and one holding a 36px
+     control became 52px, so the Storage tab showed four row heights in one
+     scroll while the contract claimed one. 4px plus a 28px control is exactly
+     36px, and a text-only row still floors at 36px. Every inline control on
+     this surface is therefore `size="sm"`; anything needing the full measure
+     takes a stacked row instead. */
   .s-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
     min-height: var(--row);
-    padding: 8px 0;
+    padding: 4px 0;
     border-top: 1px solid var(--color-rule-light);
   }
   .s-rows > .s-row:first-of-type {
@@ -196,6 +235,7 @@
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
+    padding: 8px 0;
   }
   .s-row-label {
     min-width: 0;
@@ -229,13 +269,15 @@
      heading — a DARKER ink than the thing it described, so colour inverted
      the hierarchy. One ink now; rank comes from size and weight. */
   .s-row-desc {
-    margin-top: 2px;
+    margin-top: 4px;
     max-width: var(--measure-reading);
     font-size: var(--text-caption);
     line-height: 1.4;
     color: var(--color-ink-light);
   }
   .s-note {
+    margin-top: 16px;
+    margin-bottom: 16px;
     max-width: var(--measure-reading);
     padding: 8px 12px;
     font-size: var(--text-dense);
@@ -265,6 +307,13 @@
   .s-data {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+    color: var(--color-ink-light);
+  }
+  /* The version string is data, so it keeps the mono — but stacking the Label
+     role on top of it gave one span mono AND bold AND uppercase AND tracking,
+     the exact four-mechanism defect this file calls out on the adapter rows. */
+  .s-version {
+    font-size: var(--text-caption);
     color: var(--color-ink-light);
   }
 
@@ -302,9 +351,12 @@
   }
   /* S34: 500ms on a readout that only changes on a data refresh the user did
      not initiate. 120ms is the state-change duration from §3.4. */
+  /* Ink, not signal: an orange fill on a warm track measured 1.50:1, under
+     the 3:1 a non-text indicator needs, and worse than the 2.47:1 it
+     replaced. Ink on the same track is 7.36:1. */
   .s-pet-bar-fill {
     height: 100%;
-    background-color: var(--color-signal);
+    background-color: var(--color-ink-light);
     transition: width var(--duration-state) ease-out;
   }
 
@@ -362,6 +414,12 @@
   .s-danger-btn:hover {
     background-color: var(--color-hover-light);
   }
+  /* The destructive one keeps a heavier edge, so the pair still differs
+     without reaching for a second ink. */
+  .s-danger-btn[data-tone='danger'] {
+    border-left-width: 2px;
+    border-left-color: var(--color-ink-light);
+  }
 
   /* ── The new-pet status block ─────────────────────────────────────────
      The review calls this the best-built feedback element in the app:
@@ -388,7 +446,9 @@
     border-left-color: var(--color-ink-light);
   }
   .s-status[data-state='error'] {
-    border-left-color: var(--color-signal);
+    border-left-width: 4px;
+    border-left-color: var(--color-ink-light);
+    font-weight: 600;
   }
 
   /* ── Adapter (storage backend) rows ───────────────────────────────────
@@ -409,9 +469,20 @@
   .s-adapter:hover:not(:disabled) {
     background-color: var(--color-hover-light);
   }
+  /* Selection reads from a 2px ink edge, not from a 1.40:1 orange hairline. */
   .s-adapter[data-selected='true'] {
     background-color: var(--color-well-light);
-    border-color: var(--color-signal);
+    border-color: var(--color-rule-light);
+    border-left: 2px solid var(--color-ink-light);
+  }
+  .s-adapter-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    /* Aligned to the option rows' own optical left edge: their 12px of
+       padding plus their 1px border. Derived, not a typed 13. */
+    padding-left: calc(var(--cell-pad-x) + 1px);
   }
   .s-adapter-dot {
     flex: none;
@@ -422,9 +493,14 @@
     background-color: transparent;
     border: 1px solid var(--color-ink-light);
   }
+  /* The selected dot is INK, not signal. Filling it with #ea580c put it at
+     1.40:1 against the well it sits on, so selecting a backend made its dot
+     HARDER to see than leaving it alone. Ink measures 6.90:1 there, and it
+     matches the two connection dots, which already work this way: off is a
+     ring, on is a fill. */
   .s-adapter[data-selected='true'] .s-adapter-dot {
-    background-color: var(--color-signal);
-    border-color: var(--color-signal);
+    background-color: var(--color-ink-light);
+    border-color: var(--color-ink-light);
   }
   .s-adapter-label {
     font-size: var(--text-h3);
@@ -433,7 +509,7 @@
     color: var(--color-ink-light);
   }
   .s-adapter-hint {
-    margin-top: 2px;
+    margin-top: 4px;
     max-width: var(--measure-reading);
     font-size: var(--text-dense);
     line-height: 1.45;
@@ -466,12 +542,16 @@
      #fee2e2 — the only near-white fills on the surface (C9) and, at 9px,
      below the 11px type floor (C7). The fill stops being the semantic
      carrier; the word is. */
+  /* The two badges differ in FORM, because on this ground they cannot differ
+     in colour: "in use" is a filled well, "read only" is a bare dashed
+     hairline. Before this they were the same chip and the attribute was
+     dead. */
   .s-badge {
     display: inline-flex;
     align-items: center;
     height: 20px;
     margin-left: 8px;
-    padding: 0 6px;
+    padding: 0 8px;
     font-size: var(--text-label);
     letter-spacing: 0.06em;
     font-weight: 600;
@@ -480,6 +560,10 @@
     background-color: var(--color-well-light);
     border: 1px solid var(--color-rule-light);
     border-radius: var(--radius-control);
+  }
+  .s-badge[data-badge='read-only'] {
+    background-color: transparent;
+    border-style: dashed;
   }
 
   /* ── Department rows ──────────────────────────────────────────────────
@@ -553,7 +637,7 @@
     color: var(--color-ink-light);
   }
   .s-skill-desc {
-    margin-top: 2px;
+    margin-top: 4px;
     font-size: var(--text-caption);
     line-height: 1.4;
     color: var(--color-ink-light);
@@ -573,7 +657,9 @@
     background-color: transparent;
     border-top: 1px solid var(--color-rule-light);
   }
-  .s-model-row:first-child {
+  /* `:first-of-type`, because this file's own header bans `:first-child` as
+     layout — it breaks the moment anything renders above the first row. */
+  .s-model-row:first-of-type {
     border-top: 0;
   }
   .s-model-row[data-overridden='true'] {
@@ -633,11 +719,21 @@
      kit's own Dialog, Menu and Toast are dark by design and bring their own
      backdrop. Only the ink ternary and the hover were inline. */
   .s-cur-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: var(--row);
+    padding: 0 var(--cell-pad-x);
+    text-align: left;
     font-size: var(--text-dense);
     color: var(--color-ink);
+    transition: background-color var(--duration-state) ease-out;
   }
+  /* Weight, not signal: #ea580c measured 4.54:1 on the panel and 3.88:1 the
+     moment the row was hovered, and the current row is hoverable. */
   .s-cur-option[data-current='true'] {
-    color: var(--color-signal);
+    font-weight: 600;
   }
   .s-cur-option:hover {
     background-color: var(--color-hover);
@@ -656,7 +752,8 @@
   }
   .s-profile-empty[data-tone='error'] {
     padding: 8px 12px;
-    border-left: 2px solid var(--color-signal);
+    border-left: 4px solid var(--color-ink-light);
+    font-weight: 600;
     background-color: var(--color-well-light);
     border-radius: var(--radius-control);
   }
@@ -681,12 +778,20 @@
     border-left: 2px solid var(--color-rule-light);
     border-radius: var(--radius-control);
   }
+  /* 🚨 THE EDGE IS ALWAYS INK. Giving error and warning a #ea580c edge put
+     the carrier at 1.40:1 against the well behind it, so the two states you
+     must notice were the two invisible ones and success was the only one that
+     read. The TEXT was always fine; it was the semantics that were not. With
+     one ink the carrier has to be form, so those two get a heavier edge and
+     the weight. */
   .s-feedback[data-tone='ok'] {
     border-left-color: var(--color-ink-light);
   }
   .s-feedback[data-tone='error'],
   .s-feedback[data-tone='warning'] {
-    border-left-color: var(--color-signal);
+    border-left-width: 4px;
+    border-left-color: var(--color-ink-light);
+    font-weight: 600;
   }
 
   /* ── ModelPicker — the one DARK control in this folder ─────────────────
@@ -741,9 +846,20 @@
   /* ── The two migration panels ─────────────────────────────────────────
      One contract, used by both — they are deliberately the same shape
      (Jakob's Law, per OtterMigrationPanel's own header comment). */
+  /* The page carries `wilson-light-scroll`, and its rules reach every
+     descendant, so a dark island would otherwise get the orange thumb. */
+  .s-currency-menu::-webkit-scrollbar-thumb,
+  .s-log::-webkit-scrollbar-thumb {
+    background: var(--color-scroll-thumb);
+  }
+  .s-currency-menu::-webkit-scrollbar-thumb:hover,
+  .s-log::-webkit-scrollbar-thumb:hover {
+    background: var(--color-scroll-thumb-hover);
+  }
+
   .s-log {
     max-width: 100%;
-    max-height: 160px;
+    max-height: 300px;
     overflow: auto;
     padding: 8px 12px;
     font-family: var(--font-mono);

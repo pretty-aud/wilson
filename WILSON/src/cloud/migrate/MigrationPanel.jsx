@@ -122,7 +122,7 @@ export default function MigrationPanel() {
           whitespace here is rendered output, so re-indenting it changes the
           log. Only the class moves. */}
       {progress.length > 0 && (
-        <pre className="s-log mt-4">
+        <pre className="s-log mt-4" data-surface="dark">
           {progress.join('\n')}
         </pre>
       )}
@@ -165,11 +165,11 @@ function MigrateButton({ children, onClick, disabled, primary }) {
 function ReportTable({ r }) {
   const Row = ({ label, bucket }) => (
     <tr>
-      <td className="pr-3 py-0.5">{label}</td>
-      <td className="px-2 text-right">{bucket.total}</td>
-      <td className="s-report-cell px-2 text-right" data-tone="inserted">{bucket.inserted}</td>
-      <td className="s-report-cell px-2 text-right" data-tone="skipped">{bucket.skipped}</td>
-      <td className="s-report-cell px-2 text-right" data-tone="failed" data-failed={!!bucket.failed}>{bucket.failed}</td>
+      <td>{label}</td>
+      <td>{bucket.total}</td>
+      <td>{bucket.inserted}</td>
+      <td>{bucket.skipped}</td>
+      <td className="s-report-cell" data-failed={!!bucket.failed}>{bucket.failed}</td>
     </tr>
   )
   return (

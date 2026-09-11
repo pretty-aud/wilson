@@ -303,7 +303,7 @@ export default function ProfileSection({ onSaved }) {
             src={shownAvatar}
             alt="Avatar"
             className="w-16 h-16 rounded-full object-cover"
-            style={{ border: '2px solid #c2410c' }}
+            style={{ border: '1px solid var(--color-rule-light)' }}
           />
         ) : (
           <div

@@ -78,25 +78,25 @@ function Card({ icon: Icon, title, connected, children }) {
 //      stayed at full strength while seven dimmed — the same disabled state
 //      drawn two ways in one card.
 //
-// `variant` and `busy` are now props, so every call site spells the same
-// thing and the values live in settings.css. ⚠️ The `busy` prop is passed at
-// exactly the seven sites that already dimmed, NOT at the other three: this
-// commit is a state extraction and has to be provably inert, so the defect
-// is preserved here and closed in the restyle, where `opacity` as the
-// disabled spelling is replaced by the one token plan §3.1 defines (ink at
-// 52 percent plus cursor:not-allowed).
 // Now the kit Button, so this card stops being its own button language (C8).
 // `variant` maps onto the kit's: primary is the one filled action per region,
 // quiet is secondary, danger is danger. The `busy` prop is gone with the
 // opacity spelling of "disabled" that plan §3.1 bans — `disabled` alone now
 // carries it, through the kit's one disabled token, which also fixes the
 // three buttons that used to stay at full strength while seven dimmed.
+//
+// 🚨 THE GLYPH IS A CHILD, NOT A PROP. `Button` takes no `Icon`: it
+// destructures variant/size/surface/primary/danger/small/type/className/
+// children and spreads everything else onto the DOM <button>, so `Icon={X}`
+// rendered NOTHING and handed React a function-valued attribute. It is
+// `IconButton` that takes `Icon`. The kit sizes an icon child through
+// `.ui-btn > svg`, which is why this shape works and the prop did not.
 const VARIANTS = { primary: 'primary', quiet: 'secondary', danger: 'danger' }
 
-function SmallButton({ icon: Icon, children, variant = 'quiet', busy = false, ...rest }) {
+function SmallButton({ icon: Icon, children, variant = 'quiet', ...rest }) {
   return (
-    <Button surface="light" size="sm" variant={VARIANTS[variant]} Icon={Icon} {...rest}>
-      {children}
+    <Button surface="light" size="sm" variant={VARIANTS[variant]} {...rest}>
+      {Icon && <Icon aria-hidden="true" />}{children}
     </Button>
   )
 }

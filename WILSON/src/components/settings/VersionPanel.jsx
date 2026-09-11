@@ -19,7 +19,7 @@ import { Button } from '../../ui'
 
 const wilsonVersion = typeof __WILSON_VERSION__ !== 'undefined' ? __WILSON_VERSION__ : 'v?'
 
-export default function VersionPanel() {
+export default function VersionPanel({ first = false }) {
   const [status, setStatus] = useState({ state: 'disabled' })
   const [busy, setBusy] = useState(false)
   const [lastChecked, setLastChecked] = useState(null)
@@ -67,6 +67,7 @@ export default function VersionPanel() {
 
   return (
     <Section
+      first={first}
       title="Version and updates"
       description={supported
         ? 'WILSON checks for updates at sign-in; you can also check manually.'
@@ -79,18 +80,20 @@ export default function VersionPanel() {
           <span className="s-data s-row-desc">WILSON {wilsonVersion}</span>
         </Row>
 
+        {/* The error variant is rendered once, by the feedback block below;
+            showing it here as well printed it twice. */}
         {supported && (
-          <Row label="Updates" description={line || undefined}>
+          <Row label="Updates" description={status.state === 'error' ? undefined : (line || undefined)}>
             {status.state === 'available' && (
-              <Button surface="light" size="sm" variant="primary" Icon={Download}
+              <Button surface="light" size="sm" variant="primary"
                 onClick={() => { setBusy(true); downloadUpdate() }}
                 disabled={busy && status.state !== 'available'}>
-                Download update
+                <Download aria-hidden="true" />Download update
               </Button>
             )}
             {status.state === 'downloaded' && (
-              <Button surface="light" size="sm" variant="primary" Icon={RotateCw} onClick={() => installUpdate()}>
-                Restart and install
+              <Button surface="light" size="sm" variant="primary" onClick={() => installUpdate()}>
+                <RotateCw aria-hidden="true" />Restart and install
               </Button>
             )}
             {status.state !== 'available' && status.state !== 'downloaded' && status.state !== 'downloading' && (
@@ -108,7 +111,7 @@ export default function VersionPanel() {
         {/* The update line used #dc2626 on #f4a261 for an error — 2.51:1
             (S10). It is the page's ink inside the row description now, and
             when it is an error it also gets the feedback treatment below. */}
-        {!supported && line && (
+        {!supported && line && status.state !== 'error' && (
           <Row label="Status" description={line} />
         )}
       </Group>

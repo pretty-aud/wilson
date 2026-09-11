@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { PET_BREEDS } from './sprites/index'
 import { AGENT_SYSTEM_PROMPT } from '../agent/agentPrompts'
 import { useAgent } from '../agent/AgentProvider'
@@ -291,6 +291,7 @@ export default function SettingsPage({
     'Audio', 'Physical Production', 'Development', 'Executive', 'Operations',
   ])
   const [newDeptName, setNewDeptName] = useState('')
+  const deptInputRef = useRef(null)
 
   // Load departments from otter-settings on mount (localData: Express in
   // Electron, localStorage on the web).
@@ -419,7 +420,7 @@ export default function SettingsPage({
               <WorkspaceSwitcher />
 
               {/* Session 9: version + auto-update surface. */}
-              <VersionPanel />
+              <VersionPanel first />
 
               {/* AI access (Session 12, locked #21): no per-user key anymore.
                   AI features authenticate with the signed-in session and the
@@ -796,7 +797,7 @@ export default function SettingsPage({
                     edge while the radio dots above it started ~14px in, so the
                     two label columns never lined up. It is inside the group
                     now, on the same optical left edge. */}
-                <div className="mt-3 flex items-center gap-2" style={{ paddingLeft: '13px' }}>
+                <div className="s-adapter-status">
                   <span className="s-online-dot" data-online={!!rabbitCtx?.adapterStatus?.online} />
                   <span className="s-row-desc">
                     {rabbitCtx?.adapterStatus?.online ? 'Connected' : 'Offline'}
@@ -843,21 +844,27 @@ export default function SettingsPage({
                 description="New projects open with this rate card pinned in the budget view. Manage individual cards on the Rate Card page."
               >
                 <Group>
-                  <Row label="Rate card" htmlFor="s-default-rate-card">
-                    {rateCard.rateCards.length === 0 ? (
-                      <span className="s-row-desc">No rate cards yet. Create one on the Rate Card page.</span>
-                    ) : (
+                  {/* The empty state is a sentence, so it belongs in the
+                      description, not in the control slot — the control slot
+                      is right-aligned, which made it the only right-aligned
+                      prose on the surface. `htmlFor` only when the control
+                      it names actually renders. */}
+                  {rateCard.rateCards.length === 0 ? (
+                    <Row label="Rate card" description="No rate cards yet. Create one on the Rate Card page." />
+                  ) : (
+                    <Row label="Rate card" htmlFor="s-default-rate-card">
                       <Select
                         id="s-default-rate-card"
                         surface="light"
+                        size="sm"
                         aria-label="Default rate card"
                         value={rabbitDefaultRateCardId || ''}
                         onChange={(v) => handleRabbitDefaultRateCardChange(v || '')}
                         placeholder="None"
                         options={rateCard.rateCards.map(c => ({ value: c.id, label: c.name }))}
                       />
-                    )}
-                  </Row>
+                    </Row>
+                  )}
                 </Group>
               </Section>
 
@@ -897,18 +904,31 @@ export default function SettingsPage({
                           behaviour, which is the best input interaction in the
                           app and which this surface had only in DepartmentRow,
                           hand-rolled (U4). */}
+                      {/* Input blurs on Enter before forwarding the key, so
+                          adding a second department used to cost an extra
+                          click. Focus is put back, which is what the bare
+                          <input> did by never losing it. `size="sm"` matches
+                          the rename field sixteen pixels below — the two were
+                          36px and 28px for the same data. */}
                       <Input
+                        ref={deptInputRef}
                         surface="light"
+                        size="sm"
                         aria-label="New department name"
                         value={newDeptName}
                         onChange={setNewDeptName}
-                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment() }}
+                        onKeyDown={(e) => {
+                          if (e.key !== 'Enter') return
+                          handleAddDepartment()
+                          requestAnimationFrame(() => deptInputRef.current?.focus())
+                        }}
                         placeholder="New department name"
                       />
                     </div>
                     <div className="s-row-control">
                       <Button
                         surface="light"
+                        size="sm"
                         variant="primary"
                         onClick={handleAddDepartment}
                         disabled={!newDeptName.trim()}
@@ -1016,8 +1036,9 @@ export default function SettingsPage({
                       Nothing is hidden and nothing is collapsed. */}
                   {agentEnabled && (
                     <div className="mt-6">
-                      <Group label="Course">
+                      <Group label="Scope restrictions">
                         <Row description="Lock subjects to prevent the agent from editing them. Select a course to see its subjects." stacked>
+                          <span className="s-eyebrow mb-2">Course</span>
                           <div className="flex gap-2 flex-wrap">
                             {softwareList.map(sw => (
                               <button
@@ -1115,12 +1136,16 @@ export default function SettingsPage({
                                 className="w-full"
                               />
                             ) : (
+                              /* The preview is a 200-character TEASER, and it
+                                 stays one: showing the whole prompt here would
+                                 change what the view shows, which is a view
+                                 change, not a restyle. */
                               <TextArea
                                 surface="light"
                                 aria-label="Agent system prompt (read only)"
-                                value={agentSystemPrompt || AGENT_SYSTEM_PROMPT}
+                                value={`${(agentSystemPrompt || AGENT_SYSTEM_PROMPT).slice(0, 200)}…`}
                                 onChange={() => {}}
-                                rows={6}
+                                rows={3}
                                 disabled
                                 className="w-full"
                               />
@@ -1157,7 +1182,10 @@ export default function SettingsPage({
       <div className="flex justify-center">
         <div className="s-page" style={{ paddingTop: 0 }}>
           <div className="pt-3" style={{ borderTop: '1px solid var(--color-rule-light)' }}>
-            <span className="s-data s-label">{wilsonVersion}</span>
+            {/* Data, not a label: mono and tabular, sentence case, 400.
+                Stacking the Label role on top of `.s-data` gave it the four
+                emphasis mechanisms this stylesheet condemns elsewhere. */}
+            <span className="s-version s-data">{wilsonVersion}</span>
           </div>
         </div>
       </div>
@@ -1240,6 +1268,13 @@ function DepartmentRow({ name, onRename, onRemove }) {
           a show/hide would silently break focus-on-edit. */}
       {editing ? (
         <div className="flex-1 min-w-0">
+          {/* 🚨 COMMIT THROUGH THE KIT'S OWN CHANNEL, NOT THROUGH onBlur.
+              Input handles Escape itself: it reverts to the focus-time value
+              and blurs, and the blur fires `onBlur` UNCONDITIONALLY — only
+              `onCommit` is gated on "the edit was not cancelled". So an
+              `onBlur={commit}` here made Escape PERSIST the edit it was
+              cancelling. Enter had the same shape and wrote twice. `onCommit`
+              is the contract: it fires on blur only when the edit stands. */}
           <Input
             surface="light"
             size="sm"
@@ -1247,11 +1282,8 @@ function DepartmentRow({ name, onRename, onRemove }) {
             aria-label={`Rename ${name}`}
             value={draft}
             onChange={setDraft}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commit()
-              if (e.key === 'Escape') { setDraft(name); setEditing(false) }
-            }}
+            onCommit={commit}
+            onBlur={() => setEditing(false)}
           />
         </div>
       ) : (
