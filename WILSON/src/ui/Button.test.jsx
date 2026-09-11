@@ -164,9 +164,13 @@ describe('Button on the light ground (D1 kit request 4, D2 K7 and K8)', () => {
     expect(rule, 'no light danger rule in index.css').not.toBeNull()
     expect(rule[0]).toContain('background-color: var(--color-danger-light)')
     expect(rule[0]).toContain('color: var(--color-on-fill)')
-    // The control: danger must have LEFT the outlined trio, or a rule of
-    // equal specificity written later would take the fill straight back off.
-    expect(css).not.toMatch(/\[data-variant="ghost"\],\r?\n\s*\.ui-btn\[data-surface="light"\]\[data-variant="danger"\] \{/)
+    // The control, spelling-proof: the light danger selector appears EXACTLY
+    // twice in the file — the fill and its hover — so it cannot also be in
+    // the outlined trio, and no third rule can take the fill back off. The
+    // first cut pinned one exact line-break spelling of the trio, which any
+    // reformatting would have slipped past.
+    const hits = css.match(/\.ui-btn\[data-surface="light"\]\[data-variant="danger"\]/g) || []
+    expect(hits).toHaveLength(2)
   })
 
   it('a light DISABLED button differs in FORM, and its rule comes after the danger fill', () => {
@@ -181,6 +185,30 @@ describe('Button on the light ground (D1 kit request 4, D2 K7 and K8)', () => {
       .toBeGreaterThan(css.indexOf('.ui-btn[data-surface="light"][data-variant="danger"] {'))
     // And a disabled state is never an opacity (plan section 3.1 bans it).
     expect(rule[0]).not.toContain('opacity')
+  })
+
+  it('🚨 a disabled kit control says not-allowed — @layer components beats @layer base', () => {
+    // `:disabled { cursor: not-allowed }` lives in `@layer base` and every kit
+    // control carries `cursor: pointer` in `@layer components`, a LATER
+    // layer, which beats base whatever the selectors say. Measured in
+    // Chromium before this was fixed: disabled `.ui-btn`, `.ui-iconbtn` and
+    // `.ui-chip` all reported `pointer`. It matters twice here, because "the
+    // state reads from the cursor" is half of what a disabled control on the
+    // light ground has left once the ink cannot carry it.
+    for (const sel of [
+      /\.ui-btn:disabled \{[^}]*\}/,
+      /\.ui-iconbtn:disabled \{[^}]*\}/,
+      /\.ui-chip:disabled \{[^}]*\}/,
+    ]) {
+      const rule = css.match(sel)
+      expect(rule, String(sel)).not.toBeNull()
+      expect(rule[0], String(sel)).toContain('cursor: not-allowed')
+    }
+    // The control: the base rule is still there and is still in `base`, which
+    // is exactly why repeating it in the component layer is necessary rather
+    // than redundant.
+    const base = css.slice(css.indexOf('@layer base {'), css.indexOf('@layer components {'))
+    expect(base).toMatch(/:disabled,\r?\n\s*\[aria-disabled="true"\] \{\s*\r?\n\s*cursor: not-allowed/)
   })
 
   it('the press is one state duration, and reduced motion removes it rather than shortening it', () => {

@@ -392,9 +392,13 @@ describe('F3 tokens', () => {
     expect(theme['color-skeleton-light']).toBe('rgba(28, 25, 23, 0.22)')
     const light = over(theme['color-skeleton-light'], T.GROUND_LIGHT)
     const wrong = over(theme['color-skeleton'], T.GROUND_LIGHT)
-    // It has to be VISIBLE against the ground, the same floor the hairlines
-    // take, and the dark-side token is not: 1.05:1.
-    expect(contrast(light, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(1.25)
+    // 🚨 The yardstick is the DARK skeleton on its own ground, not the 3:1 a
+    // state indicator needs: a skeleton is a placeholder block, it carries no
+    // state, and holding it to 3:1 would make it darker than the rule
+    // hairlines and read as content. What it must not be is what the dark
+    // token becomes here — 1.05:1, an invisible lightening of the ground.
+    const darkOnPaper = contrast(over(theme['color-skeleton'], T.PAPER), T.PAPER)
+    expect(contrast(light, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(darkOnPaper)
     expect(contrast(wrong, T.GROUND_LIGHT)).toBeLessThan(1.1)
     // …and it is a screen of the ink, so it darkens rather than lightens.
     expect(luminance(light)).toBeLessThan(luminance(T.GROUND_LIGHT))

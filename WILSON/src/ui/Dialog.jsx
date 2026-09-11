@@ -135,13 +135,22 @@ export function Dialog({
       // keyboard regression.
       const items = focusableWithin(node)
       if (items.length === 0) { e.preventDefault(); node.focus(); return }
-      const first = items[0]
-      const last = items[items.length - 1]
-      const active = document.activeElement
-      const outside = !node.contains(active)
-      if (e.shiftKey ? (active === first || outside) : (active === last || outside)) {
+      // 🚨 POSITION IN THE LIST, not identity against its two ends. The first
+      // cut compared `active` to `first` and `last` and treated everything
+      // else as "inside, leave it alone" — which silently included the
+      // SURFACE. `tabIndex={-1}` makes the surface click-focusable, and the
+      // zero-focusable branch above parks focus on it deliberately, so
+      // `active === node` is a normal state; it is neither end, and
+      // `node.contains(node)` is TRUE so it did not read as outside either.
+      // Both branches missed, nothing was prevented, and Shift+Tab walked
+      // out to the page behind the backdrop — measured, onto a live control.
+      // `indexOf` folds all of it into one test: -1 is the surface, <body>,
+      // anything behind the backdrop, and anything inside the dialog that the
+      // focusable list and the browser's tab order disagree about.
+      const i = items.indexOf(document.activeElement)
+      if (e.shiftKey ? i <= 0 : (i === -1 || i === items.length - 1)) {
         e.preventDefault()
-        ;(e.shiftKey ? last : first).focus()
+        ;(e.shiftKey ? items[items.length - 1] : items[0]).focus()
       }
     }
     document.addEventListener('keydown', key)

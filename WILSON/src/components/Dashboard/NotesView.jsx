@@ -378,9 +378,14 @@ function SubjectManager({ nb }) {
 
   return (
     // 🚨 `onKeyDownCapture`, and on the PANEL rather than on each row. The
-    // kit's Input handles Escape itself, calls `stopPropagation()` and
-    // RETURNS before the caller's onKeyDown (Input.jsx:68-72), so a bubbling
-    // handler never runs. The rename row had an Escape exit before it moved
+    // kit's Input handles Escape itself and calls `stopPropagation()`, so a
+    // handler on an ANCESTOR still never sees it — that has not changed, and
+    // it is what W2's "the first press does not close the dialog" rests on.
+    // (F3 did change the other half: `Input` now calls the caller's own
+    // `onKeyDown` after reverting instead of returning first, so a handler on
+    // the INPUT ITSELF works too. Capture is still correct here because this
+    // handler is on the panel, not on the field.) The rename row had an
+    // Escape exit before it moved
     // to the kit Input and lost it — and it was the row's only exit besides
     // Enter and the tick, so losing it made the row a dead end (review round
     // 1, finding 1). It sits here rather than on each row because per-row
@@ -399,9 +404,11 @@ function SubjectManager({ nb }) {
       )}
       {nb.subjects.map(s => (
         // 🚨 `onKeyDownCapture`, not `onKeyDown`. The kit's Input handles
-        // Escape itself, calls `stopPropagation()` and RETURNS before the
-        // caller's onKeyDown (Input.jsx:68-72), so a bubbling handler here
-        // never runs. The rename row had an Escape exit before it moved to the
+        // Escape itself and calls `stopPropagation()`, so a BUBBLING handler
+        // here — on the row, above the field — still never runs. (F3 made
+        // Input forward the key to its own `onKeyDown` after reverting; that
+        // helps a handler ON the field, not one above it.) The rename row had
+        // an Escape exit before it moved to the
         // kit Input and lost it — and it is the row's only exit besides Enter
         <div key={s.id} className="dash-subject-row">
           {renaming?.id === s.id ? (

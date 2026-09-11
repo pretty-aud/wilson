@@ -143,8 +143,11 @@ export default function InviteMemberDialog({ open, onClose, onInvited }) {
   //   • Defeating the kit at the call site (an `onKeyDownCapture` that beats
   //     Input's handler) turns off a ruled Bins behaviour in this one dialog
   //     and nowhere else — the same caller-overrides-kit pattern the kit
-  //     header forbids. A form-level `onKeyDown` does not work at all: Input
-  //     returns before calling the caller's handler.
+  //     header forbids. A form-level `onKeyDown` still does not work: Input
+  //     calls `stopPropagation()`, so the key never reaches the form. (F3
+  //     closed the other half of C2's KR-6 — Input now calls the caller's own
+  //     `onKeyDown` after reverting — but that is a handler ON the field, not
+  //     on an ancestor, so nothing here changes.)
   // So it stays as the kit has it, recorded as OPEN against K11 and as a C1
   // exception awaiting a ruling — not as a resolved finding.
 

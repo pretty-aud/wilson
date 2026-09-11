@@ -684,10 +684,21 @@ select option {
     background-color: color-mix(in srgb, var(--color-danger-light) 88%, black);
     border-color: color-mix(in srgb, var(--color-danger-light) 88%, black);
   }
+  /* 🚨 `cursor` HAS TO BE REPEATED HERE, and the reason is layers, not
+     specificity. `@layer base` carries `:disabled { cursor: not-allowed }`
+     and every kit control carries `cursor: pointer` in `@layer components` —
+     a LATER layer, which beats base whatever the selectors say. Measured in
+     Chromium: a disabled `.ui-btn`, `.ui-iconbtn` and `.ui-chip` all
+     reported `pointer`. That matters twice over here, because "the state
+     reads from the cursor" is half of what a disabled control on the light
+     ground has left once the ink cannot carry it. `.ui-input`, `.ui-tab`,
+     `.ui-menu-item` and `.ui-switch` already spell it out; these three did
+     not. */
   .ui-btn:disabled {
     color: var(--color-ink-3);
     background-color: transparent;
     border-color: var(--color-rule);
+    cursor: not-allowed;
   }
   /* ── Disabled on light is a form change (D1 kit request 4, last bullet) ──
      The ink cannot carry it: a 52% screen of `ink-light` is 2.9:1 on orange
@@ -751,7 +762,7 @@ select option {
      and clears the 3:1 non-text threshold. */
   .ui-iconbtn[data-surface="chrome"] { color: var(--color-on-fill); }
   .ui-iconbtn[data-surface="chrome"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-on-fill); }
-  .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
+  .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; cursor: not-allowed; }
   /* 🚨 The DEFECT was order; the FIX is specificity (D1 kit request 4).
      `.ui-iconbtn:disabled` and `.ui-iconbtn[data-surface="light"]` are both
      (0,2,0) and the disabled rule is written later, so on a light page every
@@ -952,7 +963,7 @@ select option {
     background-color: var(--chip-color, var(--color-signal-tint));
     border-color: var(--chip-edge, var(--color-signal));
   }
-  .ui-chip:disabled { color: var(--color-ink-3); }
+  .ui-chip:disabled { color: var(--color-ink-3); cursor: not-allowed; }
   .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; }
   .ui-chip[data-active="true"] .ui-chip-count { color: var(--color-ink-2); }
 
@@ -973,14 +984,26 @@ select option {
     color: var(--color-ink-light);
     background-color: var(--color-hover-light);
   }
+  /* 🚨 The light active chip does NOT honour `--chip-color`, and that is the
+     point rather than an omission. A data colour is a dark-surface
+     affordance: the ink here is fixed at `ink-light` because the light ground
+     has only one, so a caller's colour underneath it would be a fill this
+     component cannot measure and could not correct. Bins is the only caller
+     that passes one and Bins is dark. */
   .ui-chip[data-surface="light"][data-active="true"] {
     color: var(--color-ink-light);
-    background-color: var(--chip-color, var(--color-well-light));
-    border-color: var(--chip-edge, var(--color-ink-light));
+    background-color: var(--color-well-light);
+    border-color: var(--color-ink-light);
   }
-  .ui-chip[data-surface="light"]:disabled { color: var(--color-ink-light); }
+  /* No `:disabled` rule on this surface. A light chip is already `ink-light`
+     and there is no second ink to screen it to, so a rule here would set the
+     colour it already has — the inert shape the reviews keep finding. The
+     state reads from the cursor and the dead hover, the same honest limit the
+     disabled light IconButton has, and it is recorded in the hand-off rather
+     than papered over with an opacity (§3.1 bans that spelling). */
   .ui-chip[data-surface="light"] .ui-chip-count,
   .ui-chip[data-surface="light"][data-active="true"] .ui-chip-count { color: var(--color-ink-light); }
+  .ui-chip[data-surface="light"]:disabled .ui-chip-count { color: var(--color-ink-light); }
   .ui-badge {
     display: inline-flex;
     align-items: center;
@@ -1445,7 +1468,11 @@ select option {
   /* ── tfoot: the summary ────────────────────────────────────────────────
      The mirror of the sticky head, and opaque for the same reason (R06): a
      transparent sticky band lets the rows scroll through it.
-     No hover, no selection — a total is not a row you can pick. */
+     ⚠️ There is no `selected` treatment turned OFF here, and saying so would
+     be a claim this file does not back: `.ui-tr[data-selected][data-selected]
+     > .ui-td` is (0,4,0) and out-specifies everything below, so a caller that
+     passed `selected` on a footer Row would get the signal tint. No caller
+     does, and a total is not a row you can pick. */
   .ui-table tfoot > .ui-tr > .ui-td {
     border-top: 1px solid var(--color-rule);
     border-bottom: 0;

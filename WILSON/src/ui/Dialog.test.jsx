@@ -1,8 +1,9 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
-import { StrictMode } from 'react'
+import { StrictMode, useState } from 'react'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
+import { Input } from './Input'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
@@ -166,6 +167,38 @@ describe('Dialog', () => {
     expect(document.activeElement).toBe(d)
   })
 
+  it('🚨 Shift+Tab FROM THE SURFACE does not walk out — the leak the trap had', () => {
+    // The surface is a third case and leaving it out leaked. With focus on
+    // the dialog itself, `active` is neither the first nor the last item, and
+    // `node.contains(node)` is TRUE so it does not read as outside either —
+    // both branches missed, nothing was prevented, and Shift+Tab went
+    // straight to whatever precedes the dialog in the document.
+    const behind = document.createElement('button')
+    behind.textContent = 'behind the backdrop'
+    document.body.appendChild(behind)
+    render(
+      <Dialog title="Edit" onClose={() => {}} footer={<button>Save</button>}>
+        <input aria-label="Name" />
+      </Dialog>,
+    )
+    const surface = screen.getByRole('dialog')
+    surface.focus()
+    expect(document.activeElement).toBe(surface)
+
+    const back = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true })
+    document.dispatchEvent(back)
+    expect(back.defaultPrevented, 'Shift+Tab from the surface was not trapped').toBe(true)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save' }))
+
+    // …and forwards from the surface lands on the first control, not outside.
+    surface.focus()
+    const fwd = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(fwd)
+    expect(fwd.defaultPrevented).toBe(true)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+    document.body.removeChild(behind)
+  })
+
   it('traps Tab: forwards off the last control and back to the first, and Shift+Tab the other way', () => {
     render(
       <Dialog title="Edit" onClose={() => {}} footer={<button>Save</button>}>
@@ -297,6 +330,44 @@ describe('Dialog', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('Day rate'))
     expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Close' }))
     document.body.removeChild(trigger)
+  })
+
+  it('🚨 W2 END TO END: Escape in a field reverts and the dialog stays open; the second closes it', () => {
+    // The invariant spans two components and was tested by neither: Input's
+    // test stands a React parent in for Dialog, and a React parent is not
+    // Dialog's `document` listener — React 17+ attaches at the root
+    // container, so `stopPropagation` there is precisely what keeps the key
+    // from reaching `document`, and a test that never uses `document` cannot
+    // see whether that holds. This mounts the real pair.
+    const onClose = vi.fn()
+    const onChange = vi.fn()
+    function Host() {
+      const [v, setV] = useState('42000')
+      return (
+        <Dialog title="Set rate" onClose={onClose} footer={<button>Save</button>}>
+          <Input
+            aria-label="Day rate"
+            value={v}
+            onChange={(next) => { onChange(next); setV(next) }}
+          />
+        </Dialog>
+      )
+    }
+    render(<Host />)
+    const field = screen.getByLabelText('Day rate')
+    fireEvent.focus(field, { target: { value: '42000' } })
+    fireEvent.change(field, { target: { value: '9999' } })
+    expect(field.value).toBe('9999')
+
+    // First Escape: the field reverts and the dialog is still up.
+    fireEvent.keyDown(field, { key: 'Escape' })
+    expect(onChange).toHaveBeenLastCalledWith('42000')
+    expect(field.value).toBe('42000')
+    expect(onClose, 'the first Escape closed the dialog — W2 says it must not').not.toHaveBeenCalled()
+
+    // Second Escape, now that the field has blurred: the dialog closes.
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 
   it('restores to the trigger even when focus was moved inside the dialog first', () => {

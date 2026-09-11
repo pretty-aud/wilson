@@ -87,6 +87,33 @@ describe('focusableWithin', () => {
     expect(focusableWithin(host).map((el) => el.id)).toEqual(['visible'])
   })
 
+  it('skips what CSS has hidden, where the environment can tell — and does not need to', () => {
+    // `display: none` and `visibility: hidden` take an element out of the tab
+    // order, and a Tailwind `hidden` class is the common spelling in this
+    // app, so an attribute-only filter puts things in the list the browser
+    // will skip and the Dialog trap leaks wherever the two disagree.
+    // `checkVisibility` is a FEATURE test: jsdom does not implement it, so
+    // this asserts the contract in both directions rather than the result.
+    const host = mount('<button id="a">a</button><button id="b">b</button>')
+    const b = host.querySelector('#b')
+    // 🚨 jsdom does not implement `checkVisibility` — it has no layout — so
+    // the branch is driven by STUBBING the API rather than by setting a style
+    // that jsdom cannot evaluate. Without this the line is unreachable in
+    // every test and the break-it pass says so: reverting it stayed green.
+    expect(b.checkVisibility).toBeUndefined()
+    Object.defineProperty(b, 'checkVisibility', { value: () => false, configurable: true })
+    expect(focusableWithin(host).map((el) => el.id)).toEqual(['a'])
+
+    // …and an element the environment reports as visible stays in.
+    Object.defineProperty(b, 'checkVisibility', { value: () => true, configurable: true })
+    expect(focusableWithin(host).map((el) => el.id)).toEqual(['a', 'b'])
+
+    // The control: with no such API at all, the semantic filter stands alone
+    // and both are returned, which is what has to happen under the runner.
+    delete b.checkVisibility
+    expect(focusableWithin(host).map((el) => el.id)).toEqual(['a', 'b'])
+  })
+
   it('🚨 the control: a LAYOUT filter would return nothing here, which is why it is not used', () => {
     // jsdom has no layout engine, so `offsetParent` is null and
     // `getClientRects()` is empty for every element in this file — the

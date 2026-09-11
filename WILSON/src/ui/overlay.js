@@ -97,12 +97,31 @@ export function focusableWithin(node) {
   if (!node) return []
   return [...node.querySelectorAll(FOCUSABLE)].filter((el) => {
     if (el.disabled) return false
-    if (el.hasAttribute('hidden')) return false
-    if (el.getAttribute('aria-hidden') === 'true') return false
     const ti = el.getAttribute('tabindex')
     if (ti != null && Number(ti) < 0) return false
-    // An ancestor can hide it too — `hidden` on a wrapper is how a collapsed
-    // section is spelled, and its controls are not reachable either.
-    return !el.closest('[hidden],[aria-hidden="true"]')
+    // `closest` matches the element itself as well as its ancestors, so this
+    // one line covers both — `hidden` on a wrapper is how a collapsed section
+    // is spelled and its controls are not reachable either. The first cut
+    // tested the element separately first, which could never decide anything
+    // this did not already decide.
+    if (el.closest('[hidden],[aria-hidden="true"]')) return false
+    // 🚨 CSS visibility, where the environment allows it. `display: none` and
+    // `visibility: hidden` take an element out of the tab order and neither
+    // is visible in the DOM — a Tailwind `hidden` class is the common case in
+    // this app — so a filter built only on attributes puts things in the list
+    // the browser will skip, and the trap leaks wherever the two disagree.
+    // `checkVisibility` is a feature test, not a browser test: jsdom does not
+    // implement it (it has no layout at all), so there it is `undefined` and
+    // the semantic filter above stands alone — which is the only thing that
+    // works under a test runner, and is why this is not `offsetParent`.
+    // 🚨 `visibilityProperty: true`, `opacityProperty` left FALSE. Both are
+    // deliberate: `visibility: hidden` takes an element out of the tab order
+    // and must be skipped, while `opacity: 0` does NOT — and `opacity: 0` is
+    // exactly how `HoverActions` hides a row's controls, because `display:
+    // none` and `visibility: hidden` would take them out of the tab order,
+    // which is the keyboard dead end Q17(b) exists to fix. Turning
+    // `opacityProperty` on here would re-create it inside every dialog.
+    if (typeof el.checkVisibility === 'function' && !el.checkVisibility({ visibilityProperty: true })) return false
+    return true
   })
 }

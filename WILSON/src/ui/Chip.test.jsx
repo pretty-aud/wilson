@@ -56,8 +56,23 @@ describe('Chip on the light ground', () => {
     expect(rule[0]).toContain('var(--color-well-light)')
     expect(rule[0]).toContain('var(--color-ink-light)')
     expect(rule[0]).not.toContain('--color-signal-tint')
-    // A caller's DATA colour still rides through on both surfaces.
-    expect(rule[0]).toContain('var(--chip-color,')
+    // 🚨 And it does NOT honour `--chip-color` here. The ink is fixed at
+    // `ink-light` because this ground has only one, so a caller's data colour
+    // underneath it would be a fill the component cannot measure. The dark
+    // rule keeps it; Bins is the only caller that passes one and Bins is dark.
+    expect(rule[0]).not.toContain('--chip-color')
+    expect(css).toMatch(/\.ui-chip\[data-active="true"\] \{[^}]*var\(--chip-color,/)
+  })
+
+  it('has no inert :disabled rule on light — there is no second ink to screen to', () => {
+    // `.ui-chip[data-surface="light"]` is already `ink-light` and is written
+    // after `.ui-chip:disabled` at equal specificity, so it already wins. A
+    // `:disabled` rule setting `ink-light` again would change nothing.
+    expect(css).not.toMatch(/\.ui-chip\[data-surface="light"\]:disabled \{/)
+    // The control: the light rule really is the later of the two, which is
+    // what makes a disabled light chip legible at all.
+    expect(css.indexOf('.ui-chip[data-surface="light"] {'))
+      .toBeGreaterThan(css.indexOf('.ui-chip:disabled'))
   })
 
   it('the count and the hover take the one ink too, not the dark-side pair', () => {
