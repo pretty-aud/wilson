@@ -23,24 +23,31 @@ while this session ran).
     probe script, `.env.example`, the fixtures-on captures.
   - `ed27856` fix(dev): realtime status word; O.T.T.E.R. hotkeys carry
     windows/mac; walkthrough; the fixtures-off and open-project captures.
-  - `bd24977`, `a7fda97` docs: the walkthrough renumbered (26).
-  - review-round commits and the integration merge follow — see
+  - `bd24977`, `a7fda97`, `b49933a`, `4fd8e7c` docs: the walkthrough
+    renumbered (26), the hand-off's first cut.
+  - `6001cde` fix(dev): review round 1 — three HIGH, eight MEDIUM, five LOW.
+  - `9c25f46` docs: rate card captures re-taken after the tier fix.
+  - the round-2 commit and the integration merge follow — see
     `git log 720affb..HEAD`.
 - Integration into `feat/ui-overhaul`: **see the last lines of this file**
   ("Integrated"). If that line is missing, integrate per plan §6.3 first.
 
 ## 2. State, measured
 
-- vitest at `ed27856`: **128 files / 2396 tests**, green (baseline at
+- vitest at `6001cde`: **128 files / 2399 tests**, green (baseline at
   `720affb` with the seams applied and no new tests: 124 / 2348). New:
-  `src/dev/devFixtures.test.js` (7), `src/dev/fixtures/
-  rabbitFixturesAdapter.contract.test.js` (15), `dataset.test.js` (13),
+  `src/dev/devFixtures.test.js` (8), `src/dev/fixtures/
+  rabbitFixturesAdapter.contract.test.js` (17), `dataset.test.js` (13),
   `otterFixturesRoutes.test.js` (13).
-- `npx vite build` (production): passes; **twelve fixture strings grepped
-  against `dist/` — zero hits** (`VITE_DEV_FIXTURES`, `wilson.dev-fixtures`,
+- `npx vite build` (production): passes; **eleven fixture strings grepped
+  against `dist/assets` — zero hits** (`VITE_DEV_FIXTURES`, `wilson.dev-fixtures`,
   `Lantern & Ash`, `Salt Hours`, `f1c70000-`, `DevFixturesBadge`,
-  `dev-fixtures-badge`, `Dev fixtures`, `devFixtures`, `fixturesAdapter`,
-  `otterFixtures`, `fixtures on`); six asset files.
+  `Dev fixtures`, `devFixtures`, `fixturesAdapter`, `otterFixtures`,
+  `devWriteRefused`). **`npx vite build --mode development`** (what
+  `electron:dev` runs) is clean too, and so is `DEV tester mode` in it: to
+  Vite every `vite build` is a production build with `import.meta.env.DEV`
+  false (review round 1 measured it). `devFixtures.test.js` greps a built
+  `dist/assets` itself whenever one exists.
 - `node scripts/devFixturesProbe.mjs http://localhost:5233` (nine pages,
   Playwright, fresh context each run): **fixtures ON — 0 requests to the
   Supabase host, 0 console errors. Fixtures OFF — 27 requests** (the three
@@ -73,8 +80,29 @@ while this session ran).
 | **`scripts/devFixturesProbe.mjs`** — loads nine pages fixtures on then off and lists every request to the Supabase host + console errors | `e2a22b2` | run; output in §2 |
 | Screenshots: `img/ui-fixtures-{root,team-members,project-files,rate-card,dashboard,rabbit,otter,settings}-{1440x900,1280x700}.png` (on), `img/ui-fixtures-off-{root,team-members,project-files,rabbit,otter,dashboard}-*.png` (off), `img/ui-fixtures-open-rabbit-*.png` (the project open) | `e2a22b2`, `ed27856` | `scripts/screenshot.mjs`, `--storage` states for off / open |
 
-**Review round 1** (Opus): pending at the time of this draft — see the
-paragraph below once it is filled in.
+**Review round 1** (Opus): three HIGH — Settings → Profile's Save and
+Remove-photo were unseamed (a `PATCH workspace_members` and a Storage
+upload left the machine); `loadApprovedModels` and the two model-override
+writes were unseamed (Settings → Models fired a real read); `downloadUrl`
+handed FileManager a thumbnail data URI, which its anchor click could not
+act on — a dropped action with no toast. Eight MEDIUM — the fixtures never
+ran in Electron (`vite build --mode development` is a production build to
+Vite, DEV false; the provider's boot branch was dead and the docs were
+wrong); `fileUrl` threw on a read; four vocabulary misses that rendered as
+blank selects (`project_size: 'short'`, `camera_movement` STATIC/DOLLY, a
+task status on a shot, O.T.T.E.R. function groups keyed `name`); the Team
+Members Active toggle, invites and admin actions answered "Session
+expired"; the dataset test's vocabularies were hand copies. Five LOW —
+`restoreBinFiles` lost the poster, the badge OFF still cloned the dataset,
+CRLF in the working tree, three inaccurate strings, `deleteBin` move with
+no target. All fixed in `6001cde`; the dataset test now reads the
+vocabularies from the modules that render them (ScenesView,
+ProjectAssetsView, useRateCard, ProjectSummaryView, binMedia) in both
+directions. The reviewer verified: both builds clean, the probe at 0, the
+tree-shaking of the nine static `devFixtures.js` imports and the badge,
+`fetchWorkspaceStorage` / `reportAppEvent` / `adminApi` unable to leak,
+C9 and the `@theme` rule (the badge uses tokens only; the dataset's tints
+are row values), the `data:` avatar allowance, ids and the calendar.
 
 **Review round 2** (Opus, attacking round 1's corrections): pending.
 
@@ -141,6 +169,26 @@ Nothing uncommitted at hand-off.
 14. **A `primary` assigned explicitly must demote the old primary**, not be
     demoted by position order. Normalisation runs after the intent is
     applied, never instead of it.
+15. **`vite build --mode development` is a production build to Vite.**
+    `import.meta.env.DEV` is false in it, so `electron:dev` (which runs
+    `build:dev`) never carries the fixtures — nor tester mode. "Dev builds
+    only" means `vite dev`, in a browser. The first cut's provider branch
+    "so the fixtures apply in Electron dev too" was dead code and its
+    comment was false; round 1 caught it by building both modes.
+16. **The probe only loads pages.** It cannot see Settings → Models,
+    Profile → Save, Files → Download, the Active toggle, invites or the
+    Admin Terminal. Round 1 found three HIGHs on exactly those click paths.
+    Enumerate `supabase.` / `.functions` / `fetch(` call sites reachable
+    once `usePermissions` reports an identity; do not trust the probe alone.
+17. **A data URI is not a download.** `downloadUrl` returning the
+    thumbnail made FileManager click an anchor Chromium refuses — a silent
+    no-op, the one outcome the brief forbids. Where there are no bytes,
+    refuse; where a URL is a stated capability gap (`fileUrl`), return null
+    and let the viewer say "unavailable".
+18. **The pane's coordinate frame drifts under viewport emulation.** With
+    1440x900 emulated, `ref` clicks landed elsewhere and coordinate clicks
+    near the O.T.T.E.R. tab bar hit the neighbouring tab. Reset to
+    `desktop` before clicking, and prefer the tests for shape claims.
 
 ## 6. Waiting on Audrey
 
