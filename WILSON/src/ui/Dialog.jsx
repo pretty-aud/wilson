@@ -1,8 +1,8 @@
 // =============================================================================
 // Dialog — Bins' Modal promoted (plan §4, Q17).
 //
-// One backdrop (`backdrop`), one surface (`paper-raised`), 8px radius, the
-// one shadow, header / body / footer. Widths are four tokens — 'confirm'
+// One backdrop (`backdrop`), one surface (`paper-raised`), 6px radius (Q5),
+// the one shadow, header / body / footer. Widths are four tokens — 'confirm'
 // 400 / 'form' 560 / 'reading' 720 / 'workbench' 960 — and nothing else may
 // be written (review Part 3: two reviews proposed three-token scales that
 // disagreed on every value). A number is accepted for Bins' existing
@@ -35,6 +35,11 @@ export function Dialog({
   busy = false,
   error = null,
   onBeforeClose = null,
+  // Q17 ruled Escape, the stack and the busy lock "and nothing else": a
+  // click on the backdrop closes ONLY when the caller asks (Bins' Modal
+  // does, because Bins had it), so the ~60 overlays that adopt Dialog later
+  // do not lose a form to a stray click (review round 2).
+  dismissOnBackdrop = false,
   className = '',
   ...rest
 }) {
@@ -66,7 +71,7 @@ export function Dialog({
   return (
     <div
       className="ui-dialog-backdrop"
-      onMouseDown={(e) => { if (e.target === e.currentTarget) tryClose() }}
+      onMouseDown={(e) => { if (dismissOnBackdrop && e.target === e.currentTarget) tryClose() }}
     >
       <div
         {...rest}
@@ -76,7 +81,8 @@ export function Dialog({
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}
         style={{ ...rest.style, width: px }}
-        data-width={typeof width === 'string' ? width : undefined}
+        data-width={typeof width === 'string' ? width : rest['data-width']}
+        data-surface="dark"
       >
         <div className="ui-dialog-head">
           <div>

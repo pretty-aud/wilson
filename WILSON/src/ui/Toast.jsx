@@ -34,6 +34,7 @@ export function Toast({ tone = 'info', title, body, action, onDismiss, className
       role={tone === 'danger' || tone === 'warning' ? 'alert' : 'status'}
       className={`ui-toast ${className}`.trim()}
       data-tone={tone}
+      data-surface="dark"
       {...rest}
     >
       <Glyph aria-hidden="true" style={{ width: 'var(--icon-md)', height: 'var(--icon-md)', color: 'var(--tone-color, var(--color-ink-2))', flexShrink: 0 }} />

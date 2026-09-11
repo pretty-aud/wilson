@@ -402,7 +402,9 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     console.warn(`[wilson] DEV auto sign-in as ${u} @ ${co} (VITE_DEV_AUTOLOGIN; dev builds only)`)
     setCompany(co)
     setUsername(u)
-    setPassword(pw)
+    // The password is used from the local `pw` only — never set into state:
+    // a controlled <input type="password"> reflects its value into the DOM
+    // attribute, readable in the Elements panel (review round 2).
     setBusy(true)
     setError('')
     ;(async () => {

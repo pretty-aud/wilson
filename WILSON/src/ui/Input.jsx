@@ -1,5 +1,5 @@
 // =============================================================================
-// Input — the one text well (plan §4): hairline, 4px radius, 28 / 36, Dense
+// Input — the one text well (plan §4): hairline, 3px radius (Q5), 28 / 36, Dense
 // 13px, the placeholder token, the global focus-visible ring; on a light
 // surface the warm well and the one ink. States are data attributes
 // resolved in index.css (`.ui-input[data-size]`, `[data-surface]`).

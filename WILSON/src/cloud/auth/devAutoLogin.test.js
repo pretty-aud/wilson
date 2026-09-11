@@ -41,12 +41,15 @@ describe('the dev auto sign-in is gated on import.meta.env.DEV', () => {
     expect(between).not.toContain('useEffect(')
   })
 
-  it('the password is read once and never rendered', () => {
+  it('the password is read once and never rendered, logged or set into state', () => {
     const reads = src.match(/VITE_DEV_AUTOLOGIN_PASSWORD/g) || []
     // One in the comment block (documentation), one code read.
     expect(reads.length).toBe(2)
     expect(src).not.toMatch(/\{\s*pw\s*\}/)          // never interpolated into JSX
     expect(src).not.toMatch(/console\.[a-z]+\([^)]*\bpw\b/) // never logged
+    // A controlled <input type="password"> reflects state into the DOM value
+    // attribute (review round 2), so `pw` must never reach a state setter.
+    expect(src).not.toMatch(/set[A-Z]\w*\(\s*pw\s*\)/)
   })
 
   it('the bypass exists in exactly two files in src, and both guard every read on import.meta.env.DEV', () => {

@@ -27,19 +27,26 @@ describe('Dialog', () => {
     expect(alert.textContent).toContain('Network is down')
   })
 
-  it('Q17 (ruled): Escape closes, the X closes, the backdrop closes — every Dialog, no flag', () => {
+  it('Q17 (ruled): Escape closes and the X closes on every Dialog; the backdrop only when asked', () => {
     const onClose = vi.fn()
     render(<Dialog title="Plain" onClose={onClose}>body</Dialog>)
     expect(overlayOpen()).toBe(true)
+    expect(screen.getByRole('dialog').dataset.surface).toBe('dark')   // the ring stays the signal on a light page
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).toHaveBeenCalledTimes(2)
+    // "Nothing else": a stray click on the backdrop does not close by default…
     fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
-    expect(onClose).toHaveBeenCalledTimes(3)
-    // …but a click INSIDE the dialog is not the backdrop.
+    expect(onClose).toHaveBeenCalledTimes(2)
+    cleanup()
+    // …unless the caller asks (Bins' Modal does), and even then not from inside.
+    const onClose2 = vi.fn()
+    render(<Dialog title="Bins" onClose={onClose2} dismissOnBackdrop>body</Dialog>)
     fireEvent.mouseDown(screen.getByRole('dialog'))
-    expect(onClose).toHaveBeenCalledTimes(3)
+    expect(onClose2).not.toHaveBeenCalled()
+    fireEvent.mouseDown(document.querySelector('.ui-dialog-backdrop'))
+    expect(onClose2).toHaveBeenCalledTimes(1)
   })
 
   it('the modal stack: only the topmost answers Escape, busy locks, the guard can refuse', () => {
@@ -75,6 +82,10 @@ describe('Dialog', () => {
     expect(d.style.width).toBe(`${DIALOG_WIDTHS.form}px`)
     expect(d.style.opacity).toBe('0.5')
     expect(d.dataset.x).toBe('y')
+    cleanup()
+    // A numeric (legacy) width does not erase a caller's own data-width.
+    render(<Dialog title="Legacy" onClose={() => {}} width={640} data-width="bins">x</Dialog>)
+    expect(screen.getByRole('dialog', { name: 'Legacy' }).dataset.width).toBe('bins')
   })
 
   it('accepts a legacy numeric width for Bins, and reports an unknown named one', () => {

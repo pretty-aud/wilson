@@ -1,5 +1,5 @@
 // =============================================================================
-// Chip — the interactive filter (plan §4). Label step, 4px radius, 28px so it
+// Chip — the interactive filter (plan §4). Label step, 3px radius (Q5), 28px so it
 // shares a Toolbar's baseline, one active treatment: the signal as a 16%
 // tint and a 1px edge with the ink unchanged. Never the signal as a fill
 // under 11px text (§3.2). For an inert label use Badge; for a status use

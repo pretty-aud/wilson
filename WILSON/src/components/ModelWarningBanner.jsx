@@ -27,7 +27,7 @@ export default function ModelWarningBanner() {
   if (warnings.length === 0) return null
 
   return (
-    <div style={{ position: 'relative', zIndex: 40 }}>
+    <div className="wilson-chrome" style={{ position: 'relative', zIndex: 40 }}>
       {warnings.map((w) => (
         <div
           key={w.key}

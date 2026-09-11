@@ -149,7 +149,11 @@
    2026-09-11: Geist + Geist Mono, Vercel, SIL OFL 1.1; licences beside the
    files). Variable weight axis declared as 400–600 ONLY: the system has two
    weights, and a stray 700 or 300 clamps to the nearest declared weight
-   instead of being synthesised. Latin and latin-ext subsets.
+   instead of being synthesised (measured in Chromium, review round 2: 700
+   renders byte-identical to 600, no synthetic bold). A 500 is INSIDE the
+   range and still renders as a third weight — the 45 `font-medium` sites
+   are T0's to map onto 400 / 600. Latin and latin-ext subsets: `→ ▸ ✓ ✗`
+   fall outside both ranges and render from the fallback face.
    `font-display: block` — the files are local and load in milliseconds; a
    swap would flash the fallback on every boot. Paths are root-relative:
    Vite serves public/ at the base (`./`), Electron serves dist/ the same
@@ -265,6 +269,16 @@ html {
   [data-surface="light"] :focus-visible,
   .wilson-chrome :focus-visible {
     outline-color: var(--color-ink-light);
+  }
+  /* Surface is a per-element property, not a per-page one: a dark island
+     inside a light page (the kit's Dialog, Menu and Toast paint paper-raised
+     wherever they open; Admin Terminal's dark buttons; Settings' dark
+     popups) takes the signal ring back. The kit stamps its floating
+     surfaces `data-surface="dark"`; lane C stamps the hand-rolled islands
+     (review round 2: an ink-light ring on #1c1917 is 1.00:1). */
+  [data-surface="dark"] :focus-visible,
+  [data-surface="dark"]:focus-visible {
+    outline-color: var(--color-focus);
   }
 
   /* Placeholder is ink at 52 percent on dark. On a light surface a grey on
@@ -736,7 +750,7 @@ select option {
   }
   .ui-status[data-surface="light"] { color: var(--color-ink-light); background-color: var(--color-well-light); }
 
-  /* ── Kbd: Label step mono, hairline, 4px, min-width 18px, centred ──── */
+  /* ── Kbd: Label step mono, hairline, 3px, min-width 18px, centred ──── */
   .ui-kbd {
     display: inline-flex;
     align-items: center;

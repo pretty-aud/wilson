@@ -26,7 +26,7 @@ export default function TitleBar() {
   };
 
   return (
-    <div style={{
+    <div className="wilson-chrome" style={{
       position: 'fixed',
       top: 0,
       left: 0,

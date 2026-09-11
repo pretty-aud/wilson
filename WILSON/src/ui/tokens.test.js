@@ -206,6 +206,19 @@ describe('the controls: values the review found in the wild, pinned as FAILING',
     expect(contrast(T.FOCUS, T.GROUND_LIGHT)).toBeLessThan(3)
     expect(css).toMatch(/\.wilson-chrome :focus-visible/)
     expect(css).toMatch(/\[data-surface="light"\] :focus-visible/)
+    // …and an ink-light ring is invisible on a dark island inside a light page
+    // (review round 2: 1.00:1 on paper, 1.08:1 on paper-raised), so a dark
+    // surface takes the signal back, and the scope is declared AFTER the
+    // light/chrome scopes so it wins at equal specificity.
+    expect(contrast(T.INK_LIGHT, T.PAPER_RAISED)).toBeLessThan(3)
+    const light = css.indexOf('.wilson-chrome :focus-visible')
+    const dark = css.indexOf('[data-surface="dark"] :focus-visible')
+    expect(dark).toBeGreaterThan(light)
+    // Every orange-painted chrome element with focusable controls carries the scope.
+    for (const f of ['../components/TitleBar.jsx', '../components/ModelWarningBanner.jsx']) {
+      expect(readFileSync(resolve(here, f), 'utf8'), f).toContain('className="wilson-chrome"')
+    }
+    expect((readFileSync(resolve(here, '../App.jsx'), 'utf8').match(/className="wilson-chrome"/g) || []).length).toBe(3)
   })
 
   it('the light disabled ink is never a screen of the ink (2.9:1) — the kit uses the ink itself', () => {

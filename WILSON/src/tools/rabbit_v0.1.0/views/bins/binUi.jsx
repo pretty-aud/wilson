@@ -47,9 +47,10 @@ export function Menu({ items, ...props }) {
 }
 
 /** The Bins modal: the kit's Dialog with the 640px default Bins' callers
- *  were written against (B6 moves them onto the named widths). */
+ *  were written against (B6 moves them onto the named widths) and the
+ *  backdrop click Bins always had (the kit's default is off — Q17). */
 export function Modal({ width = 640, ...props }) {
-  return <Dialog width={width} {...props} />
+  return <Dialog width={width} dismissOnBackdrop {...props} />
 }
 
 // ── Bins-specific ──────────────────────────────────────────────────────────

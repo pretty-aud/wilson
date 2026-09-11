@@ -9,8 +9,8 @@
 //
 // `leading` is any node rendered before the label (Bins passes a colour dot
 // through its own adapter in binUi.jsx). `hint` is a key or a short note in
-// the mono at the Label step. Floating surface: paper-raised, 8px radius,
-// the one shadow. Items are 28px, Dense.
+// the mono at the Label step. Floating surface: paper-raised, 6px radius
+// (Q5), the one shadow. Items are 28px, Dense.
 // =============================================================================
 
 import { useEffect, useRef } from 'react'
@@ -44,6 +44,7 @@ export function Menu({ x, y, items, onClose, minWidth = 200, className = '', ...
     <div
       ref={ref}
       className={`ui-menu ${className}`.trim()}
+      data-surface="dark"
       style={{ left, top: Math.min(y, vh - 60), minWidth, maxHeight }}
       onContextMenu={(e) => e.preventDefault()}
       {...rest}

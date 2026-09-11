@@ -1,5 +1,5 @@
 // =============================================================================
-// Badge — the inert label (plan §4): Label step, 4px radius, hairline, 20px.
+// Badge — the inert label (plan §4): Label step, 3px radius (Q5), hairline, 20px.
 // It carries a word, never a state; a status is StatusBadge and an
 // interactive filter is Chip. An optional `Icon` (lucide, 14px) leads the
 // text. On a light surface it takes the well and the one ink.
