@@ -1,4 +1,4 @@
-# 24 — Dev fixtures mode: a fake studio to review the UI against
+# 26 — Dev fixtures mode: a fake studio to review the UI against
 
 **What this is.** Your ask, 2026-09-11, late: *"for reviewing instead of seeing
 empty tables. lets add a dev mode/debug menu and add a fake project with a fake
