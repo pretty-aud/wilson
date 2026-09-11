@@ -99,12 +99,13 @@ test('admin invite flow ends in the invitee setting their password', async ({ pa
   await page.getByRole('button', { name: /team members/i }).filter({ has: page.getByRole('img') }).click()
   await page.getByRole('button', { name: /invite user/i }).click()
 
-  // Scoped to the dialog: every page stays mounted behind display:none, and
-  // Settings' profile inputs (D1) carry the same labels, so a bare getByLabel is
-  // no longer unique in the signed-in app (D2 hand-off, 2026-09-11).
-  const inviteDialog = page.getByRole('dialog')
-  await inviteDialog.getByLabel('Email').fill(inviteeEmail)
-  await inviteDialog.getByLabel('Username').fill(inviteeUsername)
+  // ⚠️ Hazard (d) in src/cloud/auth/authSelectors.test.js: every page stays
+  // mounted behind display:none and Settings' profile inputs (D1) carry the same
+  // labels, so these two are no longer unique in the signed-in app. The fix is a
+  // locator scoped to the invite dialog, which needs that guard to model the
+  // 'dialog' role first (auth lane; plan §5 V1). Left as it was until then.
+  await page.getByLabel('Email').fill(inviteeEmail)
+  await page.getByLabel('Username').fill(inviteeUsername)
   await page.getByRole('button', { name: /send invite/i }).click()
   await expect(page.getByText(/invite sent/i)).toBeVisible({ timeout: 10_000 })
 
