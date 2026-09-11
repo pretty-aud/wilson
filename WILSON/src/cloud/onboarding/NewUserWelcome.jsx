@@ -56,22 +56,31 @@
 //            and every `aria-label` is untouched: the Playwright suite selects
 //            on those and they deliberately differ from the visible label.
 //
-// ⚠️ HEIGHT. Four field groups + a 48px avatar row + a submit make this the
-// tallest screen the shell has to hold, so it is the one AUTH-16 fits the well
-// to — and it FITS now, at every window height down to the 700px Electron
-// minimum.
+// ⚠️ HEIGHT. Four field groups + a 48px avatar row + a submit make this a tall
+// screen, and it fits in the well with room to spare at every window height
+// down to the 700px Electron minimum.
 //
-// Do not re-derive that here. The measurement, the `SPLIT_BAR_HEIGHT`
-// expression it produced, and the per-height table it was re-measured against
-// live in ONE place: the geometry block above `SPLIT_BAR_HEIGHT` in
+// It is NOT the screen the well is cut for, and this comment has twice said
+// otherwise. `MfaEnrollGate` — the enrolment gate in `src/cloud/auth/
+// MfaSection.jsx`, which every admin is forced through — is the tallest of the
+// five AuthShell consumers and is the one `SPLIT_BAR_HEIGHT` is fitted to. This
+// column clears that floor by a wide margin, including the error row at the
+// bottom of it (one Dense line plus one BETWEEN_BLOCKS gap), which is the one
+// piece of this screen the composed measurement does not contain.
+//
+// Do not re-derive any of that here. The measurements, the `SPLIT_BAR_HEIGHT`
+// expression they produced, the consumer list and the per-height table live in
+// ONE place: the geometry block above `SPLIT_BAR_HEIGHT` in
 // `src/cloud/auth/AuthShell.jsx`. One place owns the number; a second copy is
-// how the next session trusts a figure that no longer holds (this comment used
-// to be that copy — it asserted an overflow against a flat-24vh well the shell
-// had already stopped using).
+// how the next session trusts a figure that no longer holds. This comment has
+// been that copy twice now — first asserting an overflow against a flat-24vh
+// well the shell had already stopped using, then claiming this screen was the
+// one the floor was fitted to when the gate is materially taller than it.
 //
-// What that means for edits HERE: adding a row to this column spends the
-// headroom AuthShell's well was sized with, so anything that makes this screen
-// taller has to be re-measured there, by the method that block records — a
+// What that means for edits HERE: adding a row to this column spends the slack
+// the gate's floor leaves, and enough rows would make this the tallest consumer
+// instead, so anything that makes this screen taller has to be re-measured
+// THERE, by the method that block records — a
 // real layout of real nodes, never arithmetic over guessed row heights (the
 // last person to count rows put a 348px block into a 346px well). The lever
 // AUTH-16 named, if it is ever needed, is a two-column row for PRONOUNS and
@@ -241,6 +250,15 @@ export default function NewUserWelcome({ onComplete, membership }) {
     overflow: 'hidden',
   }
 
+  // AUTH-21, named once per file until kit request K1 lands `.ui-btn:active`.
+  // 🚨 R2: "Choose file" was the last button in the auth family drawn from
+  // AUTH_BUTTON_STYLE / AUTH_BUTTON_QUIET_STYLE that still sat dead under the
+  // finger. The press is the family's affordance now, and a control that looks
+  // identical to nine that respond and does not is worse than none of them
+  // having it. The const rather than a second copy of the literal: two spellings
+  // of one magic string in one file is how the other site got missed.
+  const PRESS_CLASS = 'active:scale-[0.98]'
+
   return (
     <AuthShell
       isRevealing={revealing}
@@ -331,6 +349,7 @@ export default function NewUserWelcome({ onComplete, membership }) {
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
+              className={PRESS_CLASS}
               style={AUTH_BUTTON_QUIET_STYLE}
             >
               {avatarFile ? 'Change' : 'Choose file'}
@@ -344,7 +363,7 @@ export default function NewUserWelcome({ onComplete, membership }) {
           <button
             type="submit"
             disabled={busy}
-            className="active:scale-[0.98]"
+            className={PRESS_CLASS}
             style={{
               ...AUTH_BUTTON_STYLE,
               ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),

@@ -184,6 +184,21 @@ export function MfaEnrollPanel({ onEnrolled }) {
     return (
       <div className="flex flex-col items-start" style={{ gap: AUTH_GAP_WITHIN_FIELD }}>
         <div style={AUTH_ERROR_STYLE}>{error}</div>
+        {/* 🚨 R2 raised this and it stays as it is, on purpose. Its edge is the
+            kit's `rule-light`, which measures 1.51:1 on this ground — the very
+            value the secret chip below rejects as "an edge nobody can see", so
+            the outlined-control role is drawn two ways in one component. What
+            R2 did not check is that the two never co-render: `phase === 'error'`
+            returns HERE, and the chip only exists in the form below it. The
+            inconsistency is real but it is across states, not across a screen.
+            It is not fixed from the caller, because the two ways out both make
+            things worse: hand-rolling this as AUTH_BUTTON_QUIET_STYLE adds a
+            tenth copy of an outlined button to a file that is trying to
+            converge on the kit, and pushing a border through `className` is the
+            Bins dead-hover pattern the kit header forbids. It is the light-
+            surface edge kit request (filed with K7), and the day that lands
+            every kit Button on every light page changes at once, which is the
+            point of the kit. */}
         <Button
           variant="secondary"
           surface="light"
@@ -226,11 +241,50 @@ export function MfaEnrollPanel({ onEnrolled }) {
         // if the SVG paints its own light rect this costs nothing, and if it
         // is transparent this is the thing making the code scannable.
         //
-        // ON_FILL is the token — `--color-on-fill`, #ffffff — so this is still
-        // a name from the system rather than a hex typed into a component. No
-        // hairline around it: a 1px frame sitting on the outside of an already
-        // sub-spec 6px quiet zone buys nothing, and the white plate is its own
-        // boundary against the orange.
+        // 🚨 R2, two corrections to the paragraph above, because R1 claimed
+        // more for this than it delivers.
+        //
+        //   1. THE 6px IS NOT A QUIET ZONE. Preflight makes this box
+        //      border-box, so `width: 168` with `padding: 6` leaves 156px of
+        //      modules. A GoTrue otpauth URI is long enough to need a mid
+        //      version — call it 25–45 modules — so one module is roughly 3.5
+        //      to 6px and the padding is about ONE of them against the four
+        //      ISO/IEC 18004 asks for. R1 wrote "already sub-spec" and then
+        //      reasoned as if the padding were doing the job. It is not. What
+        //      does the job in the transparent case is the PLATE — being the
+        //      light module colour under the whole glyph — and in the other
+        //      case the SVG's own margin, which every common generator emits
+        //      at the spec's four modules. Enlarging the padding to four
+        //      modules was considered and NOT done: on the far more likely
+        //      branch (the SVG carries its own margin) it would put a much
+        //      bigger white rectangle on the screen to fix nothing. Measure
+        //      first, then size it.
+        //
+        //   2. THIS IS AN OPEN C9 EXCEPTION, NOT A SETTLED ONE. C9 is dated,
+        //      capitalised and Audrey's ("i never liked when we had white
+        //      backgrounds"), and whether a machine-readable plate is a "UI
+        //      surface" is genuinely arguable — which is exactly what makes it
+        //      a question for her rather than a ruling taken in a file comment.
+        //      It ships white in the meantime because the failure mode of
+        //      getting it wrong is an admin who cannot enrol a second factor,
+        //      and that beats a colour rule; but the walkthrough must carry it
+        //      as a NAMED exception, and the thing that closes it is evidence,
+        //      not argument: log one real `factor.qr` and look at whether its
+        //      SVG paints a light rect. If it does, the plate is dead weight
+        //      and the ground goes back to the page. If it does not, the plate
+        //      stays and gets sized to four modules.
+        //
+        // ⚠️ ON_FILL is `--color-on-fill` (#ffffff), and it is BORROWED. The
+        // token module documents it as the label colour for a filled primary
+        // ("The filled primary button, white text (5.18:1)"), not as a ground —
+        // there is no plate token, so this is the one name in the system with
+        // the right value. Retint `--color-on-fill` (to an off-white for the
+        // primary's label, say) and you silently retint a machine-readable
+        // quiet zone. 🚨 KIT REQUEST (K9): a `--color-plate` token with its job
+        // written down, so the borrowing ends.
+        //
+        // No hairline around it: a 1px frame on the outside of the plate buys
+        // nothing, and the plate is its own boundary against the orange.
         <img
           src={qrSrc(factor.qr)}
           alt="Authenticator enrollment QR code"
@@ -413,7 +467,31 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
               column. De-emphasis comes from sitting UNDER the heading. The
               file's own comment already knew that "an alpha on the ink is a
               grey by another name" and then solved de-emphasis by shrinking
-              to 10px, trading a contrast failure for a legibility one. */}
+              to 10px, trading a contrast failure for a legibility one.
+
+              🚨 R2 asked for two changes here and gets neither, with reasons.
+
+              It called this a third hand-rolled copy of `AuthSectionTitle`. It
+              is not the same role: AuthSectionTitle is a Settings SECTION head
+              — it opens with a `rule-light` top hairline and its description is
+              the Dense step — and this is the page title of a full-screen auth
+              surface with a 14px PROSE paragraph under it in a centred column.
+              Only the five h2 properties coincide. Routing this through it
+              would import a hairline the gate has no use for.
+
+              It also asked for AUTH_TITLE_STYLE (the H1 step, 20px), since the
+              other four auth surfaces set their page title with it and this one
+              is four pixels smaller. That inconsistency is real — and so is the
+              related one R2 names, that the other four are `<div>`s so no auth
+              screen has an h1 while this, the odd size out, is the only true
+              heading. But this is the screen `SPLIT_BAR_HEIGHT` is fitted to:
+              AuthShell's geometry block measures this exact stack, heading
+              block included, and going 16 → 20px moves that number. Changing it
+              here without re-measuring there is precisely the stale-figure
+              failure this round exists to catch, and AuthShell is not this
+              file's to edit. So it stays at H2 and the fix is named instead:
+              promote all five auth page titles to one `AuthTitle` element —
+              same step, same tag — in the pass that re-measures the gate. */}
           <div style={{
             display: 'flex', flexDirection: 'column', alignItems: 'center',
             gap: AUTH_GAP_WITHIN_FIELD,
@@ -469,7 +547,9 @@ export function MfaEnrollGate({ onComplete, onDefer }) {
 // ── Settings > Profile security block ────────────────────────────────────
 // AUTH-14: this file and WorkspaceSwitcher.jsx opened with the IDENTICAL
 // hand-typed section header — a 14px bold uppercase widely-tracked stone-900
-// h2 over a 12px stone-950 paragraph — one of 43 copies of that one class
+// h2 over a 12px stone-950 paragraph — one of 43 copies of that one class at
+// the start of this session (40 at its end; this file held one of the three
+// that left)
 // string in src, and the two are adjacent panels on one Settings page, so the
 // duplication is visible as well as structural. (The exact string is quoted in
 // the review, AUTH-14; it is paraphrased here so a grep audit counts the
@@ -542,17 +622,29 @@ export function MfaSecuritySection() {
         // 🚨 R1: this block used to be a `WELL_LIGHT` FILL, and the fill was the
         // defect. `over(WELL_LIGHT, #f4a261)` flattens to #de9155, on which the
         // family's error ink measures 3.95:1 — below AA, on the errors an admin
-        // reads while enrolling. Everything else about the block was fine, so
-        // the grouping is kept and only the ground moves: a 1px INK_LIGHT
-        // hairline (8.48:1, the same rule the rest of this screen is drawn in)
-        // instead of a fill. The panel inside is now on the bare page ground,
-        // exactly as it is on the gate, which is what makes the error legible
-        // and what let the panel's `dark` prop go.
-        <div style={{
-          padding: '16px',
-          borderRadius: RADIUS_CONTROL,
-          border: `1px solid ${INK_LIGHT}`,
-        }}>
+        // reads while enrolling. Removing the fill is the whole fix: the panel
+        // sits on the bare #f4a261, the error measures 4.86:1, and this mount
+        // and the gate are the same ground — which is what let the panel's
+        // `dark` prop go.
+        //
+        // 🚨 R2 took the box back off. R1 replaced the fill with a 1px INK_LIGHT
+        // hairline to keep a "grouping", and that was a second change smuggled
+        // in beside the one that was needed. INK_LIGHT is 8.48:1 on this ground:
+        // every other panel boundary on a light surface in this app — HelpPage's
+        // cards, `.ui-badge[data-surface="light"]`, `.ui-banner[data-surface=
+        // "light"]`, the kit's light buttons — is `rule-light` at 1.51:1, so a
+        // full-ink box here would have been the only one in the app and would
+        // read as an alarm rather than as a grouping. The precedent R1 cited,
+        // AUTH_BUTTON_QUIET_STYLE, is a CONTROL's own edge, which is what WCAG
+        // 1.4.11 governs; a grouping box around a panel is not a control and
+        // 1.4.11 has nothing to say about it.
+        //
+        // So: no fill and no edge. The padding stays as air under the section
+        // title. The panel now genuinely renders the way it does on the gate
+        // rather than in a box the gate does not have — which is what the
+        // sentence above always claimed. Do not put a fill back without
+        // re-measuring AUTH_ERROR_INK against it.
+        <div style={{ padding: '16px' }}>
           <MfaEnrollPanel onEnrolled={() => { setEnrolling(false); refresh() }} />
         </div>
       ) : (
@@ -585,26 +677,43 @@ export function MfaSecuritySection() {
                 // hover, the same box. Nothing but the words separated turning
                 // off a second factor from cancelling it.
                 //
-                // The only pair the kit DOES separate on this surface is
-                // danger/secondary vs ghost: a later same-specificity rule
-                // gives `[data-surface="light"][data-variant="ghost"]`
-                // `border-color: transparent`. So the two roles are carried by
-                // enclosure — the destructive one is a bordered control, the
-                // cancel is a bare label — at rest AND on hover, where both take
-                // the same 8% wash but only `Disable` keeps its edge.
+                // Round 1 reached for `ghost` on the cancel, because ghost is
+                // the one light variant with a different EDGE (a later rule
+                // gives it `border-color: transparent`). Round 2 measured what
+                // that costs: `.ui-btn[data-variant="ghost"]:hover` sets
+                // `color: var(--color-ink)` at (0,4,0), the light block that
+                // would take it back is (0,3,0) and its hover rule sets only a
+                // background — so a hovered ghost on this surface paints its
+                // label #f5f0ec on orange at **2.10:1**. That is white on
+                // orange, the exact thing C6 forbids in Audrey's own capitals,
+                // introduced by the fix for the blocker. It was the only
+                // `variant="ghost" surface="light"` call site in the app.
+                //
+                // So the pair is separated by FILL instead, which no cascade
+                // can undo: the safe action is the filled primary (signal-fill,
+                // white at 5.18:1 on its own ground, untouched by the light
+                // block) and the destructive one is the outlined `danger`. A
+                // filled cancel next to an outlined confirm is also the right
+                // way round for a destructive confirm — the safe choice is the
+                // one the eye lands on, and the label says which is which.
                 //
                 // `Disable` stays `variant="danger"` rather than becoming a
                 // secondary that happens to look right: the day the kit gains a
                 // light danger treatment, this call site starts rendering it
                 // with no edit.
                 //
-                // 🚨 KIT REQUEST "light danger": the light surface has NO
+                // 🚨 KIT REQUEST "light danger" (K7): the light surface has NO
                 // destructive treatment at all — `--color-danger` (#fca5a5) is a
                 // dark-surface token and is unreadable on #f4a261, and the plan
-                // draws no status colour on light. A confirm pair that differs
-                // only by a 1.51:1 edge is the best that can be done from
-                // outside the kit, and it is not enough for this action. This
-                // needs Foundation, not another caller-side workaround.
+                // draws no status colour on light. Until Foundation rules on
+                // one, a destructive action on an orange page can only be
+                // separated by shape.
+                //
+                // 🚨 KIT REQUEST "light hover ink" (K8): the one-line cause of
+                // the ghost defect above. `.ui-iconbtn[data-surface="light"]
+                // :hover` already sets `color: var(--color-ink-light)`;
+                // `.ui-btn`'s light hover block omits it. Any future light
+                // ghost or light-variant hover has the same 2.10:1 waiting.
                 <span className="flex items-center" style={{ gap: AUTH_GAP_WITHIN_FIELD }}>
                   <span style={{ ...AUTH_TEXT_STYLE, color: INK_LIGHT, fontSize: `${TYPE.dense}px`, fontWeight: 600 }}>
                     Disable MFA?
@@ -612,7 +721,7 @@ export function MfaSecuritySection() {
                   <Button variant="danger" surface="light" onClick={disable}>
                     Disable
                   </Button>
-                  <Button variant="ghost" surface="light" onClick={() => setConfirmDisable(false)}>
+                  <Button variant="primary" surface="light" onClick={() => setConfirmDisable(false)}>
                     Keep it
                   </Button>
                 </span>

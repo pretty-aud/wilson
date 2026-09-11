@@ -107,10 +107,40 @@ export default function HelpPage() {
               const panelId = `help-pages-${tool.id}`
               return (
                 <div key={tool.id}>
-                  {/* Tool Toggle Header — hover is `hover-light` (1.15:1), the
-                      expanded state is `well-light` (1.23:1). They were the same
-                      token, which made a hovered collapsed header identical to
-                      the open one; a well is a surface, a hover is a state. */}
+                  {/* Tool Toggle Header. Hover is `hover-light`, the expanded
+                      state is `well-light`, and the hover is scoped to
+                      collapsed so a transient state and a persistent one never
+                      share a fill — a well is a surface, a hover is a state.
+                      That split is worth keeping for what it means, and the
+                      baseline drew the same two values by hand
+                      (`rgba(0,0,0,0.06)` / `rgba(0,0,0,0.1)`, via the
+                      `e.currentTarget.style` handlers this session removed).
+
+                      🚨 R2: it buys almost nothing to the eye, and round 1's
+                      note here read as if it did. The honest figure is the one
+                      nobody had measured — the two fills against EACH OTHER:
+
+                        hover-light over the ground  #e3975b
+                        well-light  over the ground  #de9155
+                        the two vs each other        1.07:1   (baseline: 1.08:1)
+
+                      1.15:1 and 1.23:1 are each fill against the ground, which
+                      is the comparison a user never makes. So a hovered
+                      collapsed header and an open one are still all but the
+                      same colour. What actually separates them is the
+                      ChevronDown/ChevronRight swap at 8.48:1 — the standard
+                      disclosure signal, present before this session and after
+                      it — plus `aria-expanded` for anyone not looking.
+
+                      Not fixed here, and deliberately: the second signal the
+                      sub-items use is weight, and this header's label is
+                      already `font-semibold` in BOTH states, so adding it means
+                      demoting the collapsed header rather than promoting the
+                      open one. The remaining options — a 2px `ink-light` left
+                      edge like the sub-items, or dropping the header hover and
+                      letting the chevron carry it alone — are both new marks on
+                      this surface rather than restorations, so they belong in
+                      the walkthrough as a question, not in this pass. */}
                   <button
                     onClick={() => toggleTool(tool.id)}
                     data-state={isExpanded ? 'expanded' : 'collapsed'}

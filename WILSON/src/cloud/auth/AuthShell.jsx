@@ -17,6 +17,10 @@
 //   - ForgotPasswordWizard     (src/cloud/auth/ForgotPasswordWizard.jsx)
 //   - ResetPasswordWizard      (src/cloud/auth/ResetPasswordWizard.jsx)
 //   - NewUserWelcome           (src/cloud/onboarding/NewUserWelcome.jsx)
+//   - MfaEnrollGate            (src/cloud/auth/MfaSection.jsx) — missing from
+//     this list until review round 2 of UI overhaul D2 found it, which matters
+//     because it is the TALLEST consumer and the split-bar height is derived
+//     from whichever one that is. Do not add a consumer without re-measuring.
 //
 // (NewCompanyWizard was the fifth until Session 43 removed self-serve company
 // creation from this surface entirely — company creation is a platform
@@ -83,24 +87,47 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 //                                    the busiest sign-in step SHORTER, not
 //                                    taller, which is the opposite of what the
 //                                    review expected)
-//   one AuthField group   50.09px   (11px label + 8px gap + 27.80px field)
+//   one AuthField group   50.09px   (the label ROW at 11px x 1.3 = 14.30,
+//                                    plus the 8px within-field gap, plus the
+//                                    27.80px field. Round 2 caught the first
+//                                    draft writing the label's font-SIZE where
+//                                    its row height belongs, which came to
+//                                    46.80 and did not match the measurement.)
 //   NewUserWelcome       463.67px   composed
+//   MfaEnrollGate        529.19px   composed — THE TALLEST, and the one the
+//                                    floor below is fitted to. Its parts:
+//                                    heading block 70.80 · QR 168 · scan
+//                                    paragraph 42 · secret chip 33.50 · code
+//                                    field 50.09 · submit 36 · exits 16.80,
+//                                    plus 24 + 24 between the three blocks and
+//                                    16 × 4 inside the form.
 //
-// ⚠️ HOW NewUserWelcome WAS MEASURED, because it matters. That screen needs a
-// freshly-invited account to reach, so it could not simply be opened — the
-// same reason Session 43 left it unmeasured. Its stack was instead BUILT FROM
-// THE SIGN-IN SCREEN'S OWN LIVE NODES: the real title, four clones of the real
-// AuthField group, the reserved 48px avatar slot, and the real submit button,
-// cloned into the same document and laid out by the same stylesheet, then
-// measured. A real layout of real elements — not arithmetic over guessed row
-// heights, which is what AUTH-16 forbids. It is one clone-count away from the
-// truth, so it is an estimate of the right kind; the screen itself still wants
-// a real look the next time someone holds an invite.
+// ⚠️ HOW THE TWO UNREACHABLE SCREENS WERE MEASURED, because it matters.
+// NewUserWelcome needs a freshly-invited account and MfaEnrollGate needs an
+// unenrolled admin session, so neither could simply be opened — the same
+// reason Session 43 left the first one unmeasured. Each stack was instead
+// BUILT FROM THE SIGN-IN SCREEN'S OWN LIVE NODES — real AuthField groups, the
+// real submit button — with the fixed boxes (the 48px avatar slot, the 168px
+// QR) declared at their source values, cloned into the same document and laid
+// out by the same stylesheet, then measured. A real layout of real elements,
+// not arithmetic over guessed row heights, which is what AUTH-16 forbids.
+// They are one clone-count away from the truth, so they are estimates of the
+// right kind; both screens still want a real look from someone who can reach
+// them.
+//
+// ⚠️ And a distinction worth keeping, because it decides how bad an overflow
+// is: the content slot is `zIndex: 53` and the bars are `zIndex: 52`, so
+// content taller than the well does NOT get clipped — it spills OVER the bars
+// and keeps rendering, in the one ink that also works on the bar orange
+// (#1c1917 is 4.91:1 there). What is lost is the composition, not the screen.
+// The real clip line is the VIEWPORT. That is why this number is worth getting
+// right and why it is not an emergency when a window is smaller than any of
+// it.
 //
 // At a flat 24vh the well is H·(1−2k):
 //
-//   H=900 → 468px well vs 463.67px content ✓  (4.33px of headroom, tight)
-//   H=700 → 364px well vs 463.67px content ✗  (short by 99.67px)
+//   H=900 → 468px well vs 529.19px content ✗  (short by 61.19px)
+//   H=700 → 364px well vs 529.19px content ✗  (short by 165.19px)
 //
 // So a flat 24vh does not survive the 700px minimum window, and it did not
 // before this session either — the comment here already recorded that overflow
@@ -111,7 +138,7 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // The answer is the idiom pageBars.js already uses for exactly this problem:
 // cap the bar, and let a short window take the room it needs.
 //
-//   min(24vh, max(0px, (100vh − 480px) / 2))
+//   min(24vh, max(0px, (100vh − 544px) / 2))
 //
 // The `max(0px, …)` is not decoration: below a 480px-tall viewport the
 // subtraction goes NEGATIVE, a negative `height` is an invalid declaration,
@@ -123,9 +150,18 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // the right way to run out of it. Same `min(cap, max(floor, …))` shape
 // pageBars.js uses, for the same reason.
 //
-// 480px is the measured 463.67 rounded up onto the 4px scale with ~16px of
+// 544px is the measured 529.19 rounded up onto the 4px scale with ~15px of
 // slack. The cap keeps the proportion Audrey chose wherever it fits, and the
 // second term takes exactly the room a short window needs and no more.
+//
+// ⚠️ The cost, stated because she will see it: the floor now drives below a
+// 1046px-tall window rather than below 923px, so at the 900px default the bars
+// are 178px instead of a flat 216px. That is a visible proportion change on the
+// first screen of the app, and it buys the MFA enrolment gate — the screen
+// every admin is forced through — sitting inside the light well instead of
+// spilling 30px onto each orange bar. The first draft of this derivation fitted
+// the well to NewUserWelcome and missed the gate entirely (it was not in the
+// consumer list above); review round 2 caught it.
 //
 // Re-measured in the running app after the change, in the split phase, at five
 // viewport heights (Playwright, deviceScaleFactor 1):
@@ -146,7 +182,7 @@ const REVEAL_BAR_HEIGHT = HOME_BAR_HEIGHT
 // 🚨 Do NOT solve a future overflow by adding a second set of bars in a child
 // (Session 43 §A4). Change THIS expression, and re-measure the way the block
 // above records.
-const SPLIT_BAR_HEIGHT  = 'min(24vh, max(0px, calc((100vh - 480px) / 2)))'
+const SPLIT_BAR_HEIGHT  = 'min(24vh, max(0px, calc((100vh - 544px) / 2)))'
 
 // The shell's own two surfaces, from the token module rather than re-typed:
 // `signal` is the bar orange and `ground-light` is the well the content sits
@@ -448,8 +484,12 @@ export const AUTH_INK = INK_LIGHT
 // ⚠️ The one hex left in this file. The plan says a colour lives in
 // index.css's @theme and nowhere else, and there is no light-surface danger
 // token yet — the token set draws NO status colour on #f4a261 at all,
-// because the plan measured the light-surface success / danger / warning
-// values at 2.43 / 3.14 / 1.41 on this ground and drew none of them. An
+// because NO status colour is drawn on #f4a261 at all — the dark tokens are
+// unusable there (measured with the repo's own contrast.js: success #4ade80
+// 1.18:1, danger #fca5a5 1.09:1, warning #f59e0b 1.04:1) and the plan measured
+// its proposed light replacements at 2.43 / 3.14 / 1.41 and drew none of them
+// either. Round 2 caught the first draft of this sentence attributing the
+// second set of numbers to the first set of tokens. An
 // error message is the one thing that has to be readable anyway, so this
 // value survives locally until Foundation adds it. Kit request K6.
 export const AUTH_ERROR_INK = '#7f1d1d'
@@ -744,12 +784,19 @@ export const AUTH_ERROR_STYLE = {
 // was. Nothing moves, nothing loses contrast, and there is no second value of
 // "busy" for a future session to find.
 export const AUTH_BUTTON_BUSY_STYLE = { cursor: 'not-allowed' }
-export const AUTH_LINK_BUSY_STYLE = { cursor: 'not-allowed' }
+// A link has no fill and no hairline, so the kit's light-disabled logic —
+// "keep the one ink, drop the fill" — has exactly one thing to drop here: the
+// underline, which IS the affordance. Round 1 read that as making a disabled
+// link look like body text; round 2 read leaving it as making busy invisible.
+// Both are true, and with one ink there is no third option: an inert control
+// that no longer advertises itself as clickable is the honest one.
+export const AUTH_LINK_BUSY_STYLE = { textDecoration: 'none', cursor: 'not-allowed' }
 
 // A section heading, for the two auth surfaces that open with one (AUTH-14).
 //
 // `MfaSecuritySection` and `WorkspaceSwitcher` opened with the SAME hand-typed
-// header class string — one of 43 copies of it in `src`. Replacing two
+// header class string — one of 43 copies of it in `src` at the start of this
+// session, 40 at its end, because this is one of the two that left. Replacing two
 // identical copies with two different hand-rolled versions would have been a
 // worse outcome than leaving them alone, and the first attempt at this session
 // did exactly that, so the role lives here instead: one implementation, two
@@ -763,14 +810,20 @@ export const AUTH_LINK_BUSY_STYLE = { cursor: 'not-allowed' }
 //
 // The hairline above rather than a filled bar or a bordered box is §4's
 // contract for the role; the description is the Dense step.
-export function AuthSectionTitle({ title, description, id }) {
+//
+// The two spacings are the ones the hand-typed headers it replaced already
+// had — 24px of air under the block and 8px between the title and its
+// description. The first draft used the gap tokens and quietly tightened both
+// (24 → 16 and 8 → 4); round 2 caught it. A shared component that re-spaces
+// its callers is not a shared component, it is a second design.
+export function AuthSectionTitle({ title, description }) {
   return (
     <div style={{
       borderTop: `1px solid ${RULE_LIGHT}`,
       paddingTop: AUTH_GAP_BETWEEN_BLOCKS,
-      marginBottom: AUTH_GAP_BETWEEN_FIELDS,
+      marginBottom: AUTH_GAP_BETWEEN_BLOCKS,
     }}>
-      <h2 id={id} style={{
+      <h2 style={{
         ...AUTH_TEXT_STYLE,
         fontSize: `${TYPE.h2}px`,
         lineHeight: 1.3,
@@ -785,7 +838,7 @@ export function AuthSectionTitle({ title, description, id }) {
           fontSize: `${TYPE.dense}px`,
           lineHeight: 1.45,
           maxWidth: 'min(60ch, 90vw)',
-          margin: '4px 0 0',
+          margin: `${AUTH_GAP_WITHIN_FIELD} 0 0`,
         }}>
           {description}
         </p>

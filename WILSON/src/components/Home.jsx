@@ -45,6 +45,28 @@ const RESOURCES_ITEMS_ADMIN = [
   RESOURCES_ITEMS[3],
 ]
 
+// ── UI overhaul D2 (2026-09-11): the only change to this file ──────────────
+// Two class strings, at :226 and :300. `font-bold text-sm tracking-widest
+// uppercase` became `text-h2`: 16px, weight 600, sentence case, zero tracking,
+// in the ink already declared beside it. Nothing else moved — not the layout,
+// the icons, the spacing, the six buttons, the Resources column, the keyboard
+// handler or the two arrays it indexes.
+//
+// ⚠️ C3 scopes Home to "family, scale steps and weights", which on the narrow
+// reading would keep the labels UPPERCASE. The plan's critic ruled the
+// fonts-only version of HOME-01 is "16px, weight 600, sentence case, zero
+// tracking, LIGHT_INK … that is the whole type change", and §0 says a session
+// executes the critic's reframe rather than the original finding. Home would
+// otherwise be the last screen in the app still shouting. It is Audrey's call
+// and it is one string, twice — the walkthrough (docs/walkthroughs/
+// 23_ui_auth_help_home.md, decision 1) puts it to her with the revert.
+//
+// The hover fill below is Q19 and is DELIBERATELY UNTOUCHED. Measured: it
+// composites to #ba7a46, where the white label is 3.52:1 and fails while the
+// resting black is 8.48:1 — so the state being read is the less legible one.
+// Both fixes are one token (black label, 4.96:1; or a darker fill) and both
+// ratios are asserted in authContrast.test.js so whichever she picks has a
+// control the day it lands. NAV_DESTINATIONS belongs to the shell session.
 const HIGHLIGHT_BG = 'rgba(154, 100, 56, 0.65)'
 const MAIN_PADDING = 'clamp(2rem, 20%, 16rem)'
 const RESOURCES_PADDING = 'clamp(1rem, 3%, 2.5rem)'

@@ -25,20 +25,54 @@
 // `dismissOnBackdrop` is deliberately NOT passed — a stray click must not
 // dismiss a release notice.
 //
-// A failed download reports through Dialog's `error` slot, not through a
-// `Banner` in the body: Banner is a full-bleed in-flow strip (page-gutter
-// padding plus a bottom rule) and nesting one inside `.ui-dialog-body` pads
-// it twice and floats a hairline across the middle of the card. `error` is
-// the slot the kit built for this, and it keeps the full string in a `title`.
+// 🚨 R2 REVERSAL — a failed download reports in the BODY again, as the kit
+// `Banner tone="danger"`, NOT through Dialog's `error` slot. R1 moved it into
+// that slot to avoid Banner's nesting cost; R2 measured what the slot does to
+// the message. `.ui-dialog-error > span` is
+// `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`
+// (index.css), so the slot renders exactly ONE clipped line. At
+// `width="confirm"` (400px) the footer row is 352px of content, shared with
+// the phase's `Close` button (~72px), an 8px gap, the 16px AlertTriangle and
+// its 6px gap — roughly 250px, about 43 characters of 13px Dense. The
+// shortest string this surface can produce, "Download failed. — you can retry
+// from Settings later.", is 53; a real electron-updater failure
+// ("net::ERR_CONNECTION_RESET", a 404 on the feed URL) is far longer. The
+// clipped half is the END of the sentence — the half that says what to do —
+// and it survives only in a `title` tooltip, which no keyboard user can
+// reach. `.ui-banner-text` is `flex: 1; min-width: 0` with no nowrap, so the
+// Banner wraps and the body scrolls. Information wins over nesting.
+//
+// The cost R1 was right about is real and is now filed rather than paid for
+// with the message: Banner is a full-bleed in-flow strip (`8px
+// var(--spacing-gutter)`) dropped inside `.ui-dialog-body`'s own 24px, so the
+// text is inset 48px from the card edge and Banner's `border-bottom` hairline
+// stops 24px short of both edges. Two kit requests, NOT fixed with an inline
+// style here (overriding a kit component at the call site is the Bins
+// dead-hover pattern the kit header forbids):
+//
+//   🚨 K9  `.ui-dialog-error > span` should wrap — drop `white-space: nowrap`
+//          and `text-overflow: ellipsis`. `.ui-dialog-foot` is already
+//          `flex-wrap: wrap; align-items: center`, so a two-line error lays
+//          out correctly. Until it lands, Dialog's `error` slot may only
+//          carry strings short enough to fit, and neither of this session's
+//          two callers' strings are. (InviteMemberDialog carries the same
+//          note; the two surfaces now match.)
+//   🚨 K10 Dialog should take a wrapping error slot in the BODY — or Banner
+//          should have a nested/inset variant — so a long failure does not
+//          have to choose between double padding and truncation.
+//
+// The AlertTriangle is kept so the glyph is the one `.ui-dialog-error` drew;
+// on the danger tint (#413333 over `paper-raised`) the label measures 10.63:1
+// and the glyph 6.34:1.
 //
 // The body line is a SENTENCE, so it carries no mono (AUTH-13). The only
 // mono left is the percentage readout, which is a numeric.
 // =============================================================================
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, RotateCw } from 'lucide-react'
+import { AlertTriangle, Download, RotateCw } from 'lucide-react'
 import {
-  Button, Dialog,
+  Banner, Button, Dialog,
   DURATION, EASE_RESPONSE, FONT_MONO, INK_2, RADIUS_CONTROL, RULE, SIGNAL_FILL, TYPE,
 } from '../ui'
 import {
@@ -120,7 +154,6 @@ export default function UpdatePrompt({ version, onDismiss }) {
       width="confirm"
       onClose={onDismiss}
       footer={footer}
-      error={phase === 'error' ? `${error} — you can retry from Settings later.` : null}
     >
       <div>
         WILSON {version} is ready to install (you're on {wilsonVersion}).
@@ -154,6 +187,20 @@ export default function UpdatePrompt({ version, onDismiss }) {
           <div style={{ marginTop: 6, fontFamily: FONT_MONO, fontSize: TYPE.caption, color: INK_2 }}>
             {percent}%
           </div>
+        </div>
+      )}
+
+      {/* R2: back in the body, where the sentence can finish. 16px is the
+          kit's between-blocks step (`.ui-field + .ui-field`), the same one
+          the progress block above uses. Banner's role is `alert` for
+          tone="danger", which is the announcement `.ui-dialog-error`'s
+          `role="alert"` span was making — so nothing is lost to a screen
+          reader either. See K9 / K10 in the header for the nesting cost. */}
+      {phase === 'error' && (
+        <div style={{ marginTop: 16 }}>
+          <Banner tone="danger" Icon={AlertTriangle}>
+            {error} — you can retry from Settings later.
+          </Banner>
         </div>
       )}
     </Dialog>

@@ -607,11 +607,24 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
   // one. It used to read `opacity 150ms`, left from when busy WAS an opacity;
   // the first pass at this rewrote the property list to the fill, the ink and
   // the edge — but busy now changes exactly one property, the cursor, and a
-  // cursor does not tween. Nothing else on this button moves between states,
-  // so every property that list named was static and the tween animated
-  // nothing. (150 was not one of the three durations either.) When this
-  // becomes a kit Button, `.ui-btn`'s own `--duration-state` rule arrives with
-  // it — which is the right place for it, not here.
+  // cursor does not tween, so every property that list named was static and
+  // the tween animated nothing. (150 was not one of the three durations
+  // either.) When this becomes a kit Button, `.ui-btn`'s own
+  // `--duration-state` rule arrives with it — which is the right place for
+  // it, not here.
+  //
+  // 🚨 R2 corrects two sentences round 1 wrote here. The first said "nothing
+  // else on this button moves between states": PRESS_CLASS below IS a
+  // transform on this very element, so something does move — the press is
+  // instant BY CHOICE (see the AUTH-21 note), not because there is nothing to
+  // animate. The second, in AuthShell's busy block, said the native `disabled`
+  // attribute is "what the global `:disabled` rule styles": the only global
+  // `:disabled` declaration is the cursor, and `.ui-btn:disabled` never
+  // reaches these raw <button>s. Said plainly, then: a busy auth primary is
+  // pixel-identical to an idle one apart from its label and its cursor. That
+  // is a deliberate divergence from §3.1's disabled token — the alternative
+  // was a 1.51:1 edge appearing mid sign-in — and it stands until kit request
+  // K1/K3 gives the filled primary a light-surface disabled treatment.
   const submitStyle = {
     ...AUTH_BUTTON_STYLE,
     ...(busy ? AUTH_BUTTON_BUSY_STYLE : null),
@@ -846,11 +859,32 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                 const selected = i === workspaceIndex
                 return (
                   <li key={ws.id}>
+                    {/* 🚨 R2: the pointer is a CLASS, and it has to be. These
+                        rows have no fill, no edge and no hover background, so
+                        the cursor is most of what says they are clickable —
+                        and Tailwind v4's preflight, unlike v3's, gives a
+                        <button> no cursor at all — but round 1 wrote it as an
+                        unconditional INLINE `cursor: 'pointer'` on a row that
+                        is `disabled={busy}`, and claimed the global
+                        `:disabled { cursor: not-allowed }` in index.css would
+                        still answer the busy half. It would not: an inline
+                        declaration outranks every author rule short of
+                        `!important`, so the rows advertised themselves as
+                        clickable while they were inert. That is the same
+                        cascade fact AUTH_BUTTON_BUSY_STYLE exists to work
+                        around — it can only beat AUTH_BUTTON_STYLE's inline
+                        pointer by being inline itself.
+                        As utilities the pair resolves by specificity, in the
+                        right direction: `.disabled\:cursor-not-allowed:disabled`
+                        is (0,2,0) against `.cursor-pointer`'s (0,1,0), and both
+                        sit in Tailwind's utilities layer above base. Do not
+                        move either one back into the style object. */}
                     <button
                       type="button"
                       onMouseEnter={() => setWorkspaceIndex(i)}
                       onClick={() => handleWorkspaceChoose(ws.id)}
                       disabled={busy}
+                      className="cursor-pointer disabled:cursor-not-allowed"
                       style={{
                         // 15px was off the scale entirely — a sixth size for
                         // one row. AUTH_TEXT_STYLE is the Body step and is
@@ -861,16 +895,6 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
                         width: '100%',
                         textAlign: 'left',
                         padding: '4px 8px',
-                        // Unconditional, and it must be written: these rows
-                        // have no fill, no edge and no hover background, so
-                        // the pointer is most of what says they are clickable
-                        // — and Tailwind v4's preflight, unlike v3's, gives a
-                        // <button> no cursor at all. The busy half needs no
-                        // ternary: the rows are `disabled={busy}` and the
-                        // global `:disabled { cursor: not-allowed }` in
-                        // index.css already answers it, the same way it does
-                        // for the AUTH_*_BUSY tokens.
-                        cursor: 'pointer',
                         display: 'flex', alignItems: 'center', gap: AUTH_GAP_WITHIN_FIELD,
                         // Selection reads as weight, not as a lighter ink —
                         // a dimmed row on light orange is the grey-on-orange

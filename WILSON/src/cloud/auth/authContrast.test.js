@@ -283,10 +283,25 @@ describe('busy and disabled are a named treatment, never an opacity', () => {
     // Busy is carried by the label swap, the native `disabled` attribute and
     // the cursor. So these objects must stay minimal, and this asserts it:
     // anything that repaints the button belongs to a state the kit owns.
+    // Round 2's objection to `toEqual(['cursor'])` was fair: it pins a key
+    // list, which is not the same as pinning the PROPERTY OF THE KEYS. What
+    // actually matters is that neither variant repaints anything — no colour,
+    // no fill, no edge, no opacity, no size — so that is what is asserted, key
+    // by key, and a new key of a repainting kind fails.
+    const REPAINTS = [
+      'opacity', 'background', 'backgroundColor', 'color', 'border',
+      'borderColor', 'borderWidth', 'boxShadow', 'filter', 'transform',
+      'height', 'width', 'padding', 'margin', 'fontSize', 'fontWeight',
+    ]
     for (const [name, style] of [['button', AUTH_BUTTON_BUSY_STYLE], ['link', AUTH_LINK_BUSY_STYLE]]) {
-      expect(Object.keys(style), name).toEqual(['cursor'])
       expect(style.cursor, name).toBe('not-allowed')
+      for (const k of REPAINTS) expect(style, `${name}.${k}`).not.toHaveProperty(k)
     }
+    // The link's one permitted change: it drops the underline, because on a
+    // one-ink surface the affordance is the only thing a disabled control has
+    // left to drop. The button has no affordance to lose and changes nothing.
+    expect(AUTH_LINK_BUSY_STYLE.textDecoration).toBe('none')
+    expect(AUTH_BUTTON_BUSY_STYLE).not.toHaveProperty('textDecoration')
   })
 
   it('the primary keeps its fill and its width while busy', () => {

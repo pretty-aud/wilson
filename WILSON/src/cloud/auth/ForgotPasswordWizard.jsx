@@ -117,6 +117,18 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
     setRevealing(true)
   }, [])
 
+  // AUTH-21, one copy per file until kit request K1 lands `.ui-btn:active`.
+  // 🚨 R2: round 1 gave the press to all four of ResetPasswordWizard's buttons
+  // on the grounds that "the same control that presses on the sign-in screen
+  // sat dead under the finger here", and then left THIS file's second filled
+  // primary — the 'sent' stage's "Back to login", the same label, the same
+  // AUTH_BUTTON_STYLE, in the same wrapper as the one it fixed — without it.
+  // The two wizards are reached from the same email, so one button pressed and
+  // its twin did not. The literal was also written out at the submit rather
+  // than named, which is how the second site was missed; it is a const now, so
+  // the file has one copy and the eventual deletion is one line.
+  const PRESS_CLASS = 'active:scale-[0.98]'
+
   // Session 43 §A7: field styling comes from AuthShell so this wizard and the
   // login screen cannot drift apart again.
   return (
@@ -169,7 +181,7 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
             <button
               type="submit"
               disabled={busy}
-              className="active:scale-[0.98]"
+              className={PRESS_CLASS}
               style={{ ...AUTH_BUTTON_STYLE, ...(busy ? AUTH_BUTTON_BUSY_STYLE : null) }}
             >
               {busy ? 'Sending…' : 'Send reset link'}
@@ -192,7 +204,7 @@ export default function ForgotPasswordWizard({ onBackToLogin }) {
             <div style={AUTH_PROSE_STYLE}>
               If an account matches that username, a reset link is on its way. Check your inbox — it expires in 1 hour.
             </div>
-            <button type="button" onClick={handleBack} style={AUTH_BUTTON_STYLE}>
+            <button type="button" onClick={handleBack} className={PRESS_CLASS} style={AUTH_BUTTON_STYLE}>
               Back to login
             </button>
           </div>

@@ -20,7 +20,8 @@
 //
 // AUTH-14  The section header that opened this file — a 14px bold uppercase
 //          widely-tracked h2 over a 12px paragraph — was byte-identical to
-//          MfaSection's and one of 43 copies in src. (The class string itself
+//          MfaSection's and one of 43 copies in src at the session's start,
+//          40 at its end. (The class string itself
 //          is quoted in the review, not here, so a grep audit counts the
 //          remaining copies rather than this comment.)
 //
