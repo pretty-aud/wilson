@@ -99,8 +99,12 @@ test('admin invite flow ends in the invitee setting their password', async ({ pa
   await page.getByRole('button', { name: /team members/i }).filter({ has: page.getByRole('img') }).click()
   await page.getByRole('button', { name: /invite user/i }).click()
 
-  await page.getByLabel('Email').fill(inviteeEmail)
-  await page.getByLabel('Username').fill(inviteeUsername)
+  // Scoped to the dialog: every page stays mounted behind display:none, and
+  // Settings' profile inputs (D1) carry the same labels, so a bare getByLabel is
+  // no longer unique in the signed-in app (D2 hand-off, 2026-09-11).
+  const inviteDialog = page.getByRole('dialog')
+  await inviteDialog.getByLabel('Email').fill(inviteeEmail)
+  await inviteDialog.getByLabel('Username').fill(inviteeUsername)
   await page.getByRole('button', { name: /send invite/i }).click()
   await expect(page.getByText(/invite sent/i)).toBeVisible({ timeout: 10_000 })
 
