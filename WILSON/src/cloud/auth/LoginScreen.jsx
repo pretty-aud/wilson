@@ -365,6 +365,82 @@ export default function LoginScreen({ onAuthenticated, onForgotPassword }) {
     }
   }, [busy, username, password, companySlug, completeSignIn])
 
+  // ── Dev auto sign-in ──────────────────────────────────────────────────
+  // Audrey, 2026-09-11 (UI overhaul F1): "i cant login for testing, can you
+  // just make dev tool to bypass the login … a defaulted account called
+  // tester. that way you can bypass needing a password."
+  //
+  // 🚨 DEV BUILDS ONLY. `import.meta.env.DEV` is a compile-time constant, so
+  // `vite build` (the installer, the beta, Vercel) drops this whole effect;
+  // there is no runtime switch that can turn it on in a shipped build. The
+  // credentials live in the gitignored .env.local and nowhere else:
+  //
+  //   VITE_DEV_AUTOLOGIN=1
+  //   VITE_DEV_AUTOLOGIN_COMPANY=smoke          # the seeded workspace on wilson-dev
+  //   VITE_DEV_AUTOLOGIN_USERNAME=smoke_admin   # or any test user in it
+  //   VITE_DEV_AUTOLOGIN_PASSWORD=…
+  //
+  // It walks the SAME two steps a person does — company verified, username
+  // resolved, signInWithPassword — so the company gate is not bypassed, only
+  // the typing is; a session without a real sign-in would see nothing (every
+  // row is behind RLS). An MFA-enrolled account stops at the TOTP step like
+  // anyone else. Any failure leaves the normal screen up with the fields
+  // prefilled and the generic error, and says why in the console.
+  const autoLoginRan = useRef(false)
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    if (import.meta.env.VITE_DEV_AUTOLOGIN !== '1') return
+    if (!ready || autoLoginRan.current) return
+    const co = String(import.meta.env.VITE_DEV_AUTOLOGIN_COMPANY || '').trim()
+    const u = String(import.meta.env.VITE_DEV_AUTOLOGIN_USERNAME || '').trim().toLowerCase()
+    const pw = String(import.meta.env.VITE_DEV_AUTOLOGIN_PASSWORD || '')
+    if (!co || !u || !pw) {
+      console.warn('[wilson] VITE_DEV_AUTOLOGIN=1 but COMPANY / USERNAME / PASSWORD are not all set in .env.local')
+      return
+    }
+    autoLoginRan.current = true
+    console.warn(`[wilson] DEV auto sign-in as ${u} @ ${co} (VITE_DEV_AUTOLOGIN; dev builds only)`)
+    setCompany(co)
+    setUsername(u)
+    setPassword(pw)
+    setBusy(true)
+    setError('')
+    ;(async () => {
+      try {
+        const v = await verifyCompany(co)
+        const slug = v.unavailable
+          ? slugifyWorkspace(co)
+          : (v.exists && SLUG_RE.test(v.slug ?? '') ? v.slug : null)
+        if (!slug) { setError('COMPANY NOT FOUND.'); setBusy(false); return }
+        setCompanySlug(slug)
+        setStage('auth')
+        const { exists, email } = await resolveLogin({ username: u, workspaceSlug: slug })
+        if (!exists) { setError(GENERIC_ERROR); setBusy(false); return }
+        const { data, error: signInErr } = await supabase.auth.signInWithPassword({ email, password: pw })
+        if (signInErr || !data.session) { setError(GENERIC_ERROR); setBusy(false); return }
+        setPendingSession(data.session)
+        try {
+          const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+          if (aal?.nextLevel === 'aal2' && aal.currentLevel !== 'aal2') {
+            const { data: factors } = await supabase.auth.mfa.listFactors()
+            const totp = (factors?.totp ?? []).find(f => f.status === 'verified')
+            if (totp) { setMfaFactorId(totp.id); setMfaCode(''); setStage('mfa'); setBusy(false); return }
+          }
+        } catch { /* unenrolled (or MFA API unavailable) → proceed as aal1 */ }
+        const ws = await fetchUserWorkspaces()
+        const match = ws.find(w => w.slug === slug)
+        if (ws.length > 1 && !match) {
+          setWorkspaces(ws); setWorkspaceIndex(0); setStage('workspace'); setBusy(false); return
+        }
+        await completeSignIn(data.session, ws.length > 1 && match ? match.id : null)
+      } catch (err) {
+        console.warn('[wilson] DEV auto sign-in failed:', err?.message ?? err)
+        setError(GENERIC_ERROR)
+        setBusy(false)
+      }
+    })()
+  }, [ready, completeSignIn])
+
   // TOTP verify → the SDK swaps in an aal2 session; continue exactly where
   // the password path left off (chooser vs reveal).
   const handleMfaSubmit = useCallback(async (e) => {
