@@ -57,10 +57,14 @@ function truncate(str, len = 40) {
 // `table-layout: fixed` reads the header row, so the columns are DECLARED
 // rather than emerging from whichever cell happened to be longest — and the
 // template is written ONCE, which is alignment list #9.
-// 🚨 Sums to exactly 100: 24 + 26 + 12 + 14 + 10 + 10 + 4.
+// 🚨 Sums to exactly 100: 24 + 25 + 12 + 14 + 10 + 10 + 5.
+//
+// The action column is 5 and not the 4 it had: one 28px icon button plus the
+// 24px cell inset needs 52px, and 4 percent of this table is 49 at the 1280px
+// minimum window. Measured, not guessed.
 const COL = {
-  title: '24%', description: '26%', status: '12%',
-  client: '14%', start: '10%', end: '10%', actions: '4%',
+  title: '24%', description: '25%', status: '12%',
+  client: '14%', start: '10%', end: '10%', actions: '5%',
 }
 
 const STATUS_OPTIONS = [

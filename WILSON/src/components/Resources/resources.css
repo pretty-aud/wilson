@@ -654,6 +654,13 @@
     padding: 16px var(--spacing-gutter) var(--spacing-gutter);
   }
   .rc-card { flex: 1; min-height: 0; }
+  /* Eleven columns, five of them holding a control, do not fit in the 944px a
+     1280px window leaves after the side panel. The kit's scroll container is
+     already `overflow: auto`; this gives it something to scroll. Without it,
+     `table-layout: fixed` crushes every column proportionally instead and the
+     action buttons overflow their own cell. Wide content scrolls in its own
+     container (plan §3.3, responsive). */
+  .rc-card .ui-table { min-width: 1080px; }
 
   /* -- The department group bar ------------------------------------------
      Audrey, 2026-08-10: "make the yellow team bars in the internal page a

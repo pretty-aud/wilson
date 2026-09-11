@@ -340,6 +340,7 @@ function DepartmentSelect({ value, onChange, readOnly = false }) {
       onChange={e => onChange(e.target.value || null)}
       className="rc-select"
       aria-label="Department"
+      title={value || 'Department'}
     >
       <option value="">—</option>
       {DEFAULT_DEPARTMENTS.map(d => <option key={d} value={d}>{d}</option>)}
@@ -356,6 +357,7 @@ function TierSelect({ value, onChange, readOnly = false }) {
       onChange={e => onChange(e.target.value || null)}
       className="rc-select"
       aria-label="Budget tier"
+      title={BUDGET_TIERS.find(t => t.value === value)?.label || 'Budget tier'}
     >
       <option value="">—</option>
       {BUDGET_TIERS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
@@ -417,11 +419,29 @@ function DeptDefaultInput({ label, value, onChange }) {
 
 // ─── Column widths ───
 // `table-layout: fixed` reads the header row, so these ARE the grid.
-// 🚨 Sums to exactly 100: 17 + 10 + 9 + 9 + 12 + 12 + 10 + 5 + 7 + 5 + 4.
+//
+// 🚨 Sums to exactly 100: 16 + 11 + 8 + 8 + 11 + 11 + 8 + 6 + 6 + 7 + 8.
+//
+// They are MEASURED, not guessed. An earlier cut of this file gave the action
+// column 4 percent, which is what it had before — and at the 1280px minimum
+// window that is a 38px cell holding two 28px buttons, so they overflowed it.
+// The numbers below were checked against the narrowest real case (a 1280px
+// window minus the 240px side panel and the 24px gutters), against the
+// `min-width` the card carries so the table scrolls rather than crushing, and
+// against the content each column actually holds:
+//
+//   actions  two 28px buttons + the 24px cell inset = 82px minimum
+//   curr     a symbol, a gap and a three-letter code in the mono
+//   total    the widest money string on the card
+//   dept     a <select>, which has no `text-overflow` and hard-clips
+//   tier     the same, with the longest label ("Tier 4 — AAA / Tentpole")
+//
+// The two selects carry a `title`, as Team Members' department select does,
+// so a clipped value is still readable.
 const COL = {
-  name: '17%', dept: '10%', hourly: '9%', wage: '9%', burden: '12%',
-  overhead: '12%', total: '10%', curr: '5%', region: '7%', tier: '5%',
-  actions: '4%',
+  name: '16%', dept: '11%', hourly: '8%', wage: '8%', burden: '11%',
+  overhead: '11%', total: '8%', curr: '6%', region: '6%', tier: '7%',
+  actions: '8%',
 }
 
 // Hours in a standard working day. `wage` is stored per DAY — it is the only
