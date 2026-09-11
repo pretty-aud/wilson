@@ -2,6 +2,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Switch } from './Switch'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 
@@ -34,5 +39,37 @@ describe('Switch', () => {
     fireEvent.click(s)
     expect(onChange).not.toHaveBeenCalled()
     expect(s.closest('.ui-switch').dataset.disabled).toBe('true')
+  })
+})
+
+// ── F3: the light track (D1 kit request 4) ──────────────────────────────────
+describe('Switch on the light ground', () => {
+  it('the TRACK follows the surface, not just the label', () => {
+    render(<Switch checked onChange={() => {}} label="Notify" surface="light" />)
+    expect(screen.getByRole('switch').closest('.ui-switch').dataset.surface).toBe('light')
+    // surface="light" reached the label and stopped, so the track stayed the
+    // dark-side pair: ink-3 off (1.68:1 on #f4a261) and signal on (1.73:1).
+    // D1 records that as why the six Settings toggles are still buttons.
+    expect(css).toMatch(/\.ui-switch\[data-surface="light"\] > \.ui-switch-track \{[^}]*\}/)
+    expect(css).toMatch(/\.ui-switch\[data-surface="light"\]\[data-checked="true"\] > \.ui-switch-track \{[^}]*\}/)
+  })
+
+  it('one ink means the state is FORM: outlined track and solid knob, or the reverse', () => {
+    const off = css.match(/\.ui-switch\[data-surface="light"\] > \.ui-switch-track \{[^}]*\}/)[0]
+    const on = css.match(/\.ui-switch\[data-surface="light"\]\[data-checked="true"\] > \.ui-switch-track \{[^}]*\}/)[0]
+    expect(off).toContain('background-color: transparent')
+    expect(off).toContain('inset 0 0 0 1px var(--color-ink-light)')
+    expect(on).toContain('background-color: var(--color-ink-light)')
+    expect(on).toContain('box-shadow: none')
+    // The knob inverts with it, so it is legible against the track in both.
+    expect(css).toMatch(/\.ui-switch\[data-surface="light"\]\[data-checked="true"\] \.ui-switch-knob \{[^}]*var\(--color-ground-light\)/)
+    // The ring is an inset shadow rather than a border ON PURPOSE: a border
+    // is inside the border box and would move the 36x20 track and its knob.
+    expect(off).not.toContain('border:')
+  })
+
+  it('the disabled rules come after the checked ones, because they tie at (0,4,x)', () => {
+    expect(css.indexOf('.ui-switch[data-surface="light"][data-disabled="true"] > .ui-switch-track'))
+      .toBeGreaterThan(css.indexOf('.ui-switch[data-surface="light"][data-checked="true"] > .ui-switch-track'))
   })
 })

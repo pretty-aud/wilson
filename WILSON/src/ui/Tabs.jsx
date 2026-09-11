@@ -12,7 +12,14 @@
 // never needs a fill: on this frame a fill under small text has no legal ink
 // (C6).
 //
-//   items:    [{ id, label, count?, disabled? } | { separator: true }]
+//   items:    [{ id, label, count?, disabled?, title? } | { separator: true }]
+//
+//             `title` is the tooltip, and it exists because a DISABLED tab
+//             has to be able to say why (C1 kit request 2): the rate card's
+//             Internal tab is disabled when its card does not exist, which
+//             is Audrey's own complaint — "when i press internal i am not
+//             seeing the internal one" — and the explanation had nowhere to
+//             go, so the page had to say it in a Banner in the flow instead.
 //   panelId:  the id of the region these tabs switch. REQUIRED: the caller
 //             puts `role="tabpanel"` and that id on the region, and every tab
 //             points at it with `aria-controls`. Without it a screen reader
@@ -84,6 +91,7 @@ export function Tabs({
             role="tab"
             aria-selected={active}
             disabled={item.disabled || undefined}
+            title={item.title}
             aria-controls={panelId || undefined}
             className="ui-tab"
             data-active={active || undefined}

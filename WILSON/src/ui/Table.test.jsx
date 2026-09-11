@@ -154,4 +154,40 @@ describe('Table', () => {
     const { container } = render(<Table><Row><Td>only</Td></Row></Table>)
     expect(container.querySelector('thead')).toBeNull()
   })
+
+  // ── The footer slot (F3, C1 kit request 3) ────────────────────────────────
+  it('renders `foot` into a real <tfoot>, after the tbody, and omits it when absent', () => {
+    const { container } = basic({
+      foot: <Row className="rc-total-row"><Td colSpan={1}>Average</Td><Td numeric>1300</Td></Row>,
+    })
+    const t = container.querySelector('table')
+    const foot = t.querySelector('tfoot')
+    expect(foot).not.toBeNull()
+    // A summary OF the rows, not another row: the element is what says so,
+    // and it is the only thing a screen reader can use to say it.
+    expect(foot.querySelector('.ui-tr')).not.toBeNull()
+    expect(screen.getByText('Average').closest('tfoot')).toBe(foot)
+    expect(screen.getByText('Average').closest('tbody')).toBeNull()
+    // Document order: thead, tbody, tfoot.
+    expect([...t.children].map((el) => el.tagName)).toEqual(['THEAD', 'TBODY', 'TFOOT'])
+    cleanup()
+    expect(basic().container.querySelector('tfoot')).toBeNull()
+  })
+
+  it('the tfoot sticks to the bottom and is opaque, the mirror of the sticky head', () => {
+    // R06's bug in the other direction: a transparent sticky band lets the
+    // rows scroll through it and read as garbage.
+    const rule = css.match(/\.ui-table tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)
+    expect(rule, 'no tfoot rule in index.css').not.toBeNull()
+    expect(rule[0]).toContain('position: sticky')
+    expect(rule[0]).toContain('bottom: 0')
+    expect(rule[0]).toContain('background-color: var(--color-paper-raised)')
+    // The light surface gets its own opaque fill, not the dark one.
+    const light = css.match(/\.ui-table\[data-surface="light"\] tfoot > \.ui-tr > \.ui-td \{[^}]*\}/)
+    expect(light, 'no light tfoot rule').not.toBeNull()
+    expect(light[0]).toContain('var(--color-surface-light-solid)')
+    // The control: `bottom` is on the CELLS, because a <tr> is not a
+    // positioning box and a rule written on the row would do nothing.
+    expect(css).not.toMatch(/\.ui-table tfoot > \.ui-tr \{[^}]*position: sticky/)
+  })
 })

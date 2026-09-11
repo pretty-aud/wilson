@@ -6,11 +6,15 @@
 // that bar. The mono's size compensation is the one
 // token, clamped so the floor holds: max(11px, 11px × --mono-size-adjust).
 // Displays a key; registers none.
+//
+// `surface` was missing until F3 (D1 kit request 4) and Help — where the keys
+// are actually written down — is a light page, so every cap there was a
+// `paper-recessed` black chip on `#f4a261`.
 // =============================================================================
 
-export function Kbd({ children, className = '', title, ...rest }) {
+export function Kbd({ children, surface = 'dark', className = '', title, ...rest }) {
   return (
-    <kbd className={`ui-kbd ${className}`.trim()} title={title} {...rest}>
+    <kbd className={`ui-kbd ${className}`.trim()} data-surface={surface} title={title} {...rest}>
       {children}
     </kbd>
   )

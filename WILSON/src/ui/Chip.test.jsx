@@ -2,6 +2,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Chip } from './Chip'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 
@@ -29,5 +34,34 @@ describe('Chip', () => {
     fireEvent.click(screen.getByRole('button', { name: 'All' }))
     expect(onClick).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: 'All' }).dataset.active).toBe('false')
+  })
+})
+
+// ── F3: the light surface (D1 kit request 4) ────────────────────────────────
+describe('Chip on the light ground', () => {
+  it('stamps the surface AND index.css resolves it: it used to measure 1.00 to 1', () => {
+    render(<Chip surface="light">Shots</Chip>)
+    expect(screen.getByRole('button', { name: 'Shots' }).dataset.surface).toBe('light')
+    // The component stamped this from the first commit and no rule read it,
+    // so a chip on a light page kept ink-2 (#b8b4b0) on #f4a261. Not "a grey":
+    // one to one, invisible.
+    const rule = css.match(/\.ui-chip\[data-surface="light"\] \{[^}]*\}/)
+    expect(rule, 'no light chip rule in index.css').not.toBeNull()
+    expect(rule[0]).toContain('color: var(--color-ink-light)')
+  })
+
+  it('the active treatment is form, not the signal, which is 1.73 to 1 there', () => {
+    const rule = css.match(/\.ui-chip\[data-surface="light"\]\[data-active="true"\] \{[^}]*\}/)
+    expect(rule, 'no light active chip rule').not.toBeNull()
+    expect(rule[0]).toContain('var(--color-well-light)')
+    expect(rule[0]).toContain('var(--color-ink-light)')
+    expect(rule[0]).not.toContain('--color-signal-tint')
+    // A caller's DATA colour still rides through on both surfaces.
+    expect(rule[0]).toContain('var(--chip-color,')
+  })
+
+  it('the count and the hover take the one ink too, not the dark-side pair', () => {
+    expect(css).toMatch(/\.ui-chip\[data-surface="light"\]:hover:not\(:disabled\) \{[^}]*color: var\(--color-ink-light\)/)
+    expect(css).toContain('.ui-chip[data-surface="light"] .ui-chip-count')
   })
 })

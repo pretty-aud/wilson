@@ -2,6 +2,11 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import { render, screen, cleanup } from '@testing-library/react'
 import { Toolbar } from './Toolbar'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, resolve } from 'node:path'
+
+const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../index.css'), 'utf8')
 
 afterEach(cleanup)
 
@@ -45,5 +50,25 @@ describe('Toolbar', () => {
     const el = container.querySelector('.ui-toolbar')
     expect(el.getAttribute('style')).toBeNull()
     expect(el.dataset.surface).toBe('light')
+  })
+})
+
+// ── F3: the one-baseline rule has to reach Tabs too (C1 kit request 1) ──────
+describe('Toolbar: every child is 28px, including a tab bar', () => {
+  it('holds .ui-tab to the small control height', () => {
+    // `.ui-tab` is --control-md (36px) on its own, so a tab bar inside a
+    // toolbar stood 8px proud and took the 44px row to 53px. It does not show
+    // in tester mode, which is why F2 did not see it; Team Members hits it
+    // the moment an admin has more than one saved view.
+    const rule = css.match(/\.ui-toolbar \.ui-btn[\s\S]*?\{[^}]*\}/)
+    expect(rule, 'no toolbar baseline rule in index.css').not.toBeNull()
+    expect(rule[0]).toContain('.ui-toolbar .ui-tab')
+    expect(rule[0]).toContain('height: var(--control-sm)')
+  })
+
+  it('the selector is specific enough to beat .ui-tab own height', () => {
+    // `.ui-tab { height: var(--control-md) }` is (0,1,0); the toolbar rule is
+    // (0,2,0), so it wins on specificity rather than on source order.
+    expect(css).toMatch(/\.ui-tab \{[\s\S]*?height: var\(--control-md\)/)
   })
 })

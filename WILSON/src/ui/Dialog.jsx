@@ -17,11 +17,21 @@
 // footer (a failed confirm used to report into the page's notice bar, under
 // the backdrop, so the button looked dead). No chrome beyond header / body /
 // footer; no motion beyond the 200ms fade in index.css.
+//
+// F3 adds FOCUS MANAGEMENT and nothing else with it (C2 KR-5): initial focus,
+// a Tab trap on the topmost dialog, and focus returned to whatever had it
+// when the dialog opened. It is not decoration and it is not a fourth
+// behaviour beyond Q17's three — `role="dialog" aria-modal="true"` was
+// already being announced here, and until F3 none of the three things that
+// role promises was true. W9 converts twenty-seven `window.confirm` calls to
+// this component across every lane; `window.confirm` is a real modal that
+// takes focus, traps it and gives it back, so without this each conversion
+// trades a working keyboard path for a broken one.
 // =============================================================================
 
 import { useEffect, useRef } from 'react'
 import { X, AlertTriangle } from 'lucide-react'
-import { pushModal, isTopModal } from './overlay'
+import { pushModal, isTopModal, focusableWithin } from './overlay'
 
 export const DIALOG_WIDTHS = Object.freeze({ confirm: 400, form: 560, reading: 720, workbench: 960 })
 
@@ -53,14 +63,69 @@ export function Dialog({
   }
   const tryCloseRef = useRef(tryClose); tryCloseRef.current = tryClose
 
+  const surfaceRef = useRef(null)
+
   // Registered ONCE per mount so a re-render of a lower dialog cannot move
-  // it to the top of the stack; only the topmost dialog answers Escape.
+  // it to the top of the stack; only the topmost dialog answers Escape — and,
+  // since F3, only the topmost dialog holds the Tab key.
   useEffect(() => {
     const id = {}
     const unregister = pushModal(id)
-    const key = (e) => { if (e.key === 'Escape' && isTopModal(id)) tryCloseRef.current() }
+    const node = surfaceRef.current
+    // Captured BEFORE focus moves, so closing can hand it back.
+    const returnTo = document.activeElement
+
+    // ── Initial focus ──
+    // A child that asked for focus itself keeps it: React applies `autoFocus`
+    // during the commit, which is before this effect runs, so the test is
+    // "is focus already inside?" and not "did a caller pass a prop?". Every
+    // existing `autoFocus` call site and the two stopgaps that autofocus
+    // Cancel (C2) keep working unchanged. Otherwise the first focusable
+    // element, and the surface itself when the dialog holds none.
+    if (node && !node.contains(document.activeElement)) {
+      const first = focusableWithin(node)[0]
+      ;(first || node).focus()
+    }
+
+    const key = (e) => {
+      if (!isTopModal(id)) return
+      if (e.key === 'Escape') { tryCloseRef.current(); return }
+      if (e.key !== 'Tab' || !node) return
+
+      // ── The trap ──
+      // `aria-modal` tells assistive technology the rest of the page is inert;
+      // it does nothing to the Tab key, and the page behind is still in the
+      // tab order. On the Dashboard the task confirm opens over a
+      // TaskDetailPopup that stays mounted BY DESIGN, so Tab walked its
+      // fifteen controls behind the backdrop (C2 KR-5). W9 sends the kit's
+      // Dialog to twenty-seven `window.confirm` sites, and `window.confirm`
+      // was a real modal — without this, every one of those conversions is a
+      // keyboard regression.
+      const items = focusableWithin(node)
+      if (items.length === 0) { e.preventDefault(); node.focus(); return }
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      const outside = !node.contains(active)
+      if (e.shiftKey ? (active === first || outside) : (active === last || outside)) {
+        e.preventDefault()
+        ;(e.shiftKey ? last : first).focus()
+      }
+    }
     document.addEventListener('keydown', key)
-    return () => { document.removeEventListener('keydown', key); unregister() }
+
+    return () => {
+      document.removeEventListener('keydown', key)
+      unregister()
+      // ── Focus restore ──
+      // Only if the element that had it is still in the document: the row a
+      // delete dialog was opened from is routinely gone by the time the
+      // dialog closes, and `focus()` on a detached node silently drops focus
+      // to <body>. `document.body` is not worth restoring to.
+      if (returnTo && returnTo !== document.body && returnTo.isConnected) {
+        returnTo.focus?.()
+      }
+    }
   }, [])
 
   const px = typeof width === 'number' ? width : (DIALOG_WIDTHS[width] ?? DIALOG_WIDTHS.form)
@@ -75,8 +140,12 @@ export function Dialog({
     >
       <div
         {...rest}
+        ref={surfaceRef}
         role="dialog"
         aria-modal="true"
+        /* The fallback focus target when the dialog holds nothing focusable
+           (a message with no footer). Not a tab stop. */
+        tabIndex={-1}
         aria-label={typeof title === 'string' ? title : undefined}
         aria-busy={busy || undefined}
         className={`ui-dialog ${className}`.trim()}

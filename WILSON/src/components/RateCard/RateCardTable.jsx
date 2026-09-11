@@ -725,6 +725,23 @@ export default function RateCardTable({
               <Th width={COL.actions}><span className="rs-sr">Actions</span></Th>
             </Row>
           )}
+          /* The per-currency averages, in a real <tfoot> (F3 closed C1's kit
+             request 3). They used to be the last rows of the <tbody> because
+             the shared Table had no footer slot; same picture, correct
+             element, and now they stay put while the body scrolls. */
+          foot={summary.map(t => (
+            <Row key={`avg-${t.currency}`} className="rc-total-row">
+              <Td colSpan={3}>
+                <span className="rc-total-label">
+                  Average · {t.currency} · {t.rows} rate{t.rows === 1 ? '' : 's'}
+                </span>
+              </Td>
+              <Td numeric>{formatCurrency(t.day, t.currency)}</Td>
+              <Td colSpan={2} />
+              <Td numeric>{formatCurrency(t.total, t.currency)}</Td>
+              <Td colSpan={4} />
+            </Row>
+          ))}
         >
           {grouped.map(([dept, rows]) => {
             const isOpen = !collapsed.has(dept)
@@ -1021,26 +1038,6 @@ export default function RateCardTable({
             </Row>
           )}
 
-          {/* ── The summary row, per currency ──
-              🚨 KIT REQUEST (hand-off): this belongs in a `<tfoot>`, and the
-              shared Table has no footer slot — it renders `head` and a
-              `tbody`. It is the last row of the body until it does, which is
-              correct HTML and the right picture, but a real `tfoot` would also
-              stay put under a scrolling body and be announced as the summary
-              it is. `src/ui/` is Foundation's. */}
-          {summary.map(t => (
-            <Row key={`avg-${t.currency}`} className="rc-total-row">
-              <Td colSpan={3}>
-                <span className="rc-total-label">
-                  Average · {t.currency} · {t.rows} rate{t.rows === 1 ? '' : 's'}
-                </span>
-              </Td>
-              <Td numeric>{formatCurrency(t.day, t.currency)}</Td>
-              <Td colSpan={2} />
-              <Td numeric>{formatCurrency(t.total, t.currency)}</Td>
-              <Td colSpan={4} />
-            </Row>
-          ))}
         </Table>
       </Card>
 

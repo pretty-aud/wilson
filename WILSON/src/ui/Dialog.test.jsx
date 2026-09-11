@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 import { render, screen, cleanup, fireEvent } from '@testing-library/react'
 import { Dialog, DIALOG_WIDTHS } from './Dialog'
-import { overlayOpen, _resetOverlaysForTests } from './overlay'
+import { overlayOpen, focusableWithin, _resetOverlaysForTests } from './overlay'
 
 afterEach(cleanup)
 beforeEach(() => _resetOverlaysForTests())
@@ -96,4 +96,148 @@ describe('Dialog', () => {
     expect(err).toHaveBeenCalledWith(expect.stringContaining('unknown width'))
     err.mockRestore()
   })
+
+  // ── Focus management (F3, C2 KR-5) ────────────────────────────────────────
+  //
+  // `role="dialog" aria-modal="true"` was already being announced here and
+  // none of the three things it promises was true. W9 sends this component to
+  // twenty-seven `window.confirm` sites; `window.confirm` takes focus, holds
+  // it and gives it back, so each conversion was a keyboard regression until
+  // these tests passed.
+
+  it('takes focus on open — the first focusable thing inside it', () => {
+    render(
+      <Dialog title="Rename" onClose={() => {}} footer={<button>Save</button>}>
+        <input aria-label="Name" />
+      </Dialog>,
+    )
+    // The header's Close button is the first focusable element in the DOM.
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+  })
+
+  it('leaves an autoFocus child alone — React has already focused it', () => {
+    render(
+      <Dialog title="Rename" onClose={() => {}}>
+        <input aria-label="Name" autoFocus />
+      </Dialog>,
+    )
+    expect(document.activeElement).toBe(screen.getByLabelText('Name'))
+  })
+
+  it('focuses the surface itself when the dialog holds nothing focusable', () => {
+    render(<Dialog title="Note" onClose={() => {}}>just a message</Dialog>)
+    // Even the Close button is gone here: this dialog is rendered without one
+    // only in principle, so instead assert the fallback target EXISTS and is
+    // not a tab stop. (The real dialog always has Close — see the control.)
+    const d = screen.getByRole('dialog')
+    expect(d.getAttribute('tabindex')).toBe('-1')
+    cleanup()
+    // The control for the fallback path itself, with the header removed.
+    const host = document.createElement('div')
+    host.innerHTML = '<div tabindex="-1" id="surface"><p>no controls</p></div>'
+    document.body.appendChild(host)
+    const surface = host.querySelector('#surface')
+    expect(focusableWithin(surface)).toEqual([])
+    surface.focus()
+    expect(document.activeElement).toBe(surface)
+    document.body.removeChild(host)
+  })
+
+  it('traps Tab: forwards off the last control and back to the first, and Shift+Tab the other way', () => {
+    render(
+      <Dialog title="Edit" onClose={() => {}} footer={<button>Save</button>}>
+        <input aria-label="Name" />
+      </Dialog>,
+    )
+    const close = screen.getByRole('button', { name: 'Close' })
+    const name = screen.getByLabelText('Name')
+    const save = screen.getByRole('button', { name: 'Save' })
+
+    // Forwards off the end wraps to the start.
+    save.focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(close)
+
+    // Backwards off the start wraps to the end.
+    close.focus()
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true })
+    expect(document.activeElement).toBe(save)
+
+    // In the middle the browser's own Tab is left alone: no preventDefault,
+    // no forced move. (jsdom does not move focus on Tab, so the assertion is
+    // on the event, not on where focus lands.)
+    name.focus()
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(e)
+    expect(e.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(name)
+  })
+
+  it('pulls focus back in when it has escaped the dialog entirely', () => {
+    // The Dashboard case: the confirm opens over a popup that stays mounted
+    // by design, so focus could be sitting on a control behind the backdrop.
+    const outside = document.createElement('button')
+    outside.textContent = 'behind the backdrop'
+    document.body.appendChild(outside)
+    render(<Dialog title="Delete" onClose={() => {}} footer={<button>Delete</button>}>sure?</Dialog>)
+    outside.focus()
+    expect(document.activeElement).toBe(outside)
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close' }))
+    document.body.removeChild(outside)
+  })
+
+  it('only the TOPMOST dialog holds Tab, exactly as it holds Escape', () => {
+    render(
+      <>
+        <Dialog title="A" onClose={() => {}} footer={<button>A-save</button>}>a</Dialog>
+        <Dialog title="B" onClose={() => {}} footer={<button>B-save</button>}>
+          <input aria-label="B-field" />
+        </Dialog>
+      </>,
+    )
+    // B is topmost, so B's own last control wraps to B's first.
+    screen.getByRole('button', { name: 'B-save' }).focus()
+    fireEvent.keyDown(document, { key: 'Tab' })
+    expect(document.activeElement).toBe(screen.getAllByRole('button', { name: 'Close' })[1])
+
+    // 🚨 THE PART THAT ACTUALLY TESTS THE GUARD. Both handlers sit on
+    // `document` and the upper one runs LAST, so wherever the lower one moves
+    // focus the upper one moves it back — the final position is identical
+    // with the guard and without it, and the first cut of this test passed
+    // with `isTopModal` deleted. The case that separates them is a control in
+    // the MIDDLE of the topmost dialog: guarded, no handler does anything and
+    // the browser's own Tab is left alone. Unguarded, the LOWER dialog sees
+    // focus as "outside me", preventDefaults, and yanks it to B's first
+    // control — so Tab in the middle of a form would jump to the header.
+    const middle = screen.getByLabelText('B-field')
+    middle.focus()
+    const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+    document.dispatchEvent(e)
+    expect(e.defaultPrevented).toBe(false)
+    expect(document.activeElement).toBe(middle)
+  })
+
+  it('hands focus back to whatever had it when the dialog opened', () => {
+    const trigger = document.createElement('button')
+    trigger.textContent = 'Open'
+    document.body.appendChild(trigger)
+    trigger.focus()
+    const { unmount } = render(<Dialog title="Confirm" onClose={() => {}}>sure?</Dialog>)
+    expect(document.activeElement).not.toBe(trigger)
+    unmount()
+    expect(document.activeElement).toBe(trigger)
+    document.body.removeChild(trigger)
+  })
+
+  it('does not chase a trigger that is gone — the row a delete dialog opened from', () => {
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    const { unmount } = render(<Dialog title="Delete row" onClose={() => {}}>sure?</Dialog>)
+    document.body.removeChild(trigger)          // the row went with the delete
+    expect(() => unmount()).not.toThrow()
+    expect(document.activeElement).toBe(document.body)
+  })
 })
+

@@ -58,11 +58,13 @@ export const THEME = Object.freeze({
   'color-success': '#4ade80',
   'color-danger': '#fca5a5',
   'color-warning': '#f59e0b',
+  'color-danger-light': '#7f1d1d',
   'color-focus': '#ea580c',
   'color-backdrop': 'rgba(12, 10, 9, 0.6)',
   'color-selection': 'rgba(234, 88, 12, 0.35)',
   'color-selection-light': 'rgba(28, 25, 23, 0.22)',
   'color-skeleton': 'rgba(245, 240, 236, 0.08)',
+  'color-skeleton-light': 'rgba(28, 25, 23, 0.22)',
   'color-hover': 'rgba(245, 240, 236, 0.06)',
   'color-hover-light': 'rgba(28, 25, 23, 0.08)',
   'color-scroll-thumb': 'rgba(245, 240, 236, 0.25)',
@@ -168,6 +170,10 @@ export const HOVER_LIGHT = THEME['color-hover-light']
 export const SUCCESS = THEME['color-success']
 export const DANGER = THEME['color-danger']
 export const WARNING = THEME['color-warning']
+/** Error text on `ground-light` ONLY (4.86:1), or a fill under white
+ *  (10.02:1). It fails on `well-light` and `surface-light-solid` — see the
+ *  controls in tokens.test.js. The one status colour on the light pages. */
+export const DANGER_LIGHT = THEME['color-danger-light']
 
 // ── Focus, backdrop, selection ──────────────────────────────────────────────
 export const FOCUS = THEME['color-focus']

@@ -47,4 +47,47 @@ describe('Input', () => {
     fireEvent.blur(i)
     expect(onCommit).not.toHaveBeenCalled()
   })
+
+  // ── W2 / C2 KR-6 (F3): revert first, forward second ───────────────────────
+  it('hands Escape to the caller AFTER reverting, so an adopted call site keeps its own branch', () => {
+    const onChange = vi.fn()
+    const mine = vi.fn()
+    render(<Input value="original" onChange={onChange} onKeyDown={mine} aria-label="note" />)
+    const i = screen.getByLabelText('note')
+    fireEvent.focus(i, { target: { value: 'original' } })
+    fireEvent.change(i, { target: { value: 'edited' } })
+    fireEvent.keyDown(i, { key: 'Escape' })
+
+    // Both halves, and in this order: the field reverted, and the key still
+    // reached the caller. It used to `return` before the second half, so two
+    // call sites lost their Escape exit on adoption and one of them had no
+    // other way out.
+    expect(onChange).toHaveBeenLastCalledWith('original')
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(mine.mock.calls[0][0].key).toBe('Escape')
+    // The caller can tell the revert happened: `cancel` preventDefaults.
+    expect(mine.mock.calls[0][0].defaultPrevented).toBe(true)
+  })
+
+  it('forwarding does NOT re-open the bubble: W2 still needs a second press to close the dialog', () => {
+    const onChange = vi.fn()
+    const dialogEscape = vi.fn()
+    render(
+      <div onKeyDown={dialogEscape}>
+        <Input value="original" onChange={onChange} onKeyDown={() => {}} aria-label="note" />
+      </div>,
+    )
+    const i = screen.getByLabelText('note')
+    fireEvent.focus(i, { target: { value: 'original' } })
+    fireEvent.keyDown(i, { key: 'Escape' })
+    expect(dialogEscape).not.toHaveBeenCalled()
+  })
+
+  it('every other key is forwarded untouched, as it always was', () => {
+    const mine = vi.fn()
+    render(<Input value="x" onChange={() => {}} onKeyDown={mine} aria-label="note" />)
+    fireEvent.keyDown(screen.getByLabelText('note'), { key: 'a' })
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(mine.mock.calls[0][0].defaultPrevented).toBe(false)
+  })
 })

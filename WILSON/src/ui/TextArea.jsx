@@ -36,7 +36,8 @@ export const TextArea = forwardRef(function TextArea(
       disabled={disabled}
       onFocus={(e) => { esc.onFocus(e); onFocus?.(e) }}
       onBlur={(e) => { if (esc.committing()) onCommit?.(); onBlur?.(e) }}
-      onKeyDown={(e) => { if (e.key === 'Escape') { esc.cancel(e); return } onKeyDown?.(e) }}
+      /* W2 / C2 KR-6: revert first, forward second — see Input.jsx. */
+      onKeyDown={(e) => { if (e.key === 'Escape') { esc.cancel(e) } onKeyDown?.(e) }}
       className={`ui-input ${className}`.trim()}
       data-surface={surface}
       {...rest}

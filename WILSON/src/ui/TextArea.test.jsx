@@ -31,4 +31,16 @@ describe('TextArea', () => {
     fireEvent.blur(t)
     expect(onCommit).toHaveBeenCalledTimes(1)
   })
+
+  it('forwards Escape to the caller after reverting, the same contract as Input (W2 / KR-6)', () => {
+    const onChange = vi.fn()
+    const mine = vi.fn()
+    render(<TextArea value="was" onChange={onChange} onKeyDown={mine} aria-label="note" />)
+    const t = screen.getByLabelText('note')
+    fireEvent.focus(t, { target: { value: 'was' } })
+    fireEvent.keyDown(t, { key: 'Escape' })
+    expect(onChange).toHaveBeenLastCalledWith('was')
+    expect(mine).toHaveBeenCalledTimes(1)
+    expect(mine.mock.calls[0][0].key).toBe('Escape')
+  })
 })

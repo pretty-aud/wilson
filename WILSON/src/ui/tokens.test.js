@@ -129,6 +129,17 @@ const PAIRS = [
   // disabled on light is the ink itself (a screen of it fails, see the controls)
   ['ink-light disabled on ground-light', T.INK_LIGHT, T.GROUND_LIGHT, 4.5],
   ['ink-light disabled on well-light', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
+  // F3 — the one status colour on the light ground, and the light switch.
+  // `danger-light` has exactly two grounds and this is both of them; every
+  // other surface it could land on is a failing control below.
+  ['danger-light error text on ground-light (the only place it is an INK)', T.DANGER_LIGHT, T.GROUND_LIGHT, 4.5],
+  ['white on danger-light (the light destructive button, K7)', T.ON_FILL, T.DANGER_LIGHT, 4.5],
+  // The light Switch: one ink, so the state is form — an outlined track with
+  // a solid knob, or a solid track with a cut-out one. Non-text, so 3:1.
+  ['light switch track on ground-light, both states (non-text)', T.INK_LIGHT, T.GROUND_LIGHT, 3],
+  ['light switch knob on the ON track (non-text)', T.GROUND_LIGHT, T.INK_LIGHT, 3],
+  // The light Kbd cap and the light disabled Button share this ground.
+  ['ink-light on well-light (the light Kbd cap, the light disabled button)', T.INK_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT), 4.5],
 ]
 
 describe('every ink/ground pair clears its ratio', () => {
@@ -358,5 +369,91 @@ describe('the typeface and the scrollbar classes are declared once, here', () =>
   it('has the focus-visible rule and no bare outline reset', () => {
     expect(css).toMatch(/:focus-visible\s*\{\s*outline:\s*2px solid var\(--color-focus\)/)
     expect(css).toMatch(/:focus:not\(:focus-visible\)\s*\{\s*outline:\s*none/)
+  })
+})
+
+
+// ============================================================================
+// F3 — the kit requests: two tokens, `color-scheme`, and the values that were
+// wrong on the light ground until this session.
+// ============================================================================
+
+describe('F3 tokens', () => {
+  it('danger-light is in @theme, in tokens.js, and is the value that was measured', () => {
+    expect(theme['color-danger-light']).toBe('#7f1d1d')
+    expect(T.DANGER_LIGHT).toBe('#7f1d1d')
+    // AuthShell shipped this locally as the last hex in that file (K6); the
+    // value is unchanged, which is the point — it was measured until it
+    // passed and the measurement is what survives.
+    expect(contrast(T.DANGER_LIGHT, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('skeleton-light is an ink screen, the opposite direction to the dark one', () => {
+    expect(theme['color-skeleton-light']).toBe('rgba(28, 25, 23, 0.22)')
+    const light = over(theme['color-skeleton-light'], T.GROUND_LIGHT)
+    const wrong = over(theme['color-skeleton'], T.GROUND_LIGHT)
+    // It has to be VISIBLE against the ground, the same floor the hairlines
+    // take, and the dark-side token is not: 1.05:1.
+    expect(contrast(light, T.GROUND_LIGHT)).toBeGreaterThanOrEqual(1.25)
+    expect(contrast(wrong, T.GROUND_LIGHT)).toBeLessThan(1.1)
+    // …and it is a screen of the ink, so it darkens rather than lightens.
+    expect(luminance(light)).toBeLessThan(luminance(T.GROUND_LIGHT))
+  })
+})
+
+describe('the F3 controls: what the light surfaces resolved to before', () => {
+  it('Chip: ink-2 on the light ground is not a grey, it is 1.00:1', () => {
+    const r = contrast(T.INK_2, T.GROUND_LIGHT)
+    expect(r).toBeLessThan(1.05)
+    expect(r).toBeLessThan(4.5)
+  })
+
+  it('IconButton disabled and the Switch OFF track: ink-3 on the light ground', () => {
+    expect(contrast(T.INK_3, T.GROUND_LIGHT)).toBeLessThan(3)
+  })
+
+  it('the Switch ON track and the Spinner arc: the signal on the light ground', () => {
+    // Under 3:1, which is the floor a non-text indicator has to clear.
+    expect(contrast(T.SIGNAL, T.GROUND_LIGHT)).toBeLessThan(3)
+  })
+
+  it('the light ghost hover: the near-white ink on the light hover tint (K8)', () => {
+    expect(contrast(T.INK, over(T.HOVER_LIGHT, T.GROUND_LIGHT))).toBeLessThan(4.5)
+  })
+
+  it('danger-light is an ink on ONE ground: it fails on both of the raised ones', () => {
+    expect(contrast(T.DANGER_LIGHT, over(T.WELL_LIGHT, T.GROUND_LIGHT))).toBeLessThan(4.5)
+    expect(contrast(T.DANGER_LIGHT, T.SURFACE_LIGHT_SOLID)).toBeLessThan(4.5)
+  })
+
+  it('the two reds that were proposed for this job before it was measured', () => {
+    expect(contrast('#ef4444', T.GROUND_LIGHT)).toBeLessThan(4.5)
+    expect(contrast('#b91c1c', T.GROUND_LIGHT)).toBeLessThan(4.5)
+  })
+})
+
+describe('color-scheme: the native panels follow the ground (C1 kit request 5, C2 KR-4)', () => {
+  it('is declared at all — until F3 the string appeared nowhere in src/', () => {
+    expect(css).toMatch(/:root \{ color-scheme: dark; \}/)
+  })
+
+  it('the two surface scopes are the same ones the focus ring uses', () => {
+    expect(css).toMatch(/\.wilson-light-scroll,\r?\n\s*\[data-surface="light"\] \{ color-scheme: light; \}/)
+    expect(css).toMatch(/\[data-surface="dark"\] \{ color-scheme: dark; \}/)
+  })
+
+  it('the dark-island rule is written LAST, so a Dialog inside a light page paints dark', () => {
+    // Every one of these selectors is (0,1,0), so source order is the whole
+    // mechanism — the same tie that decided the focus ring's scopes.
+    expect(css.indexOf('[data-surface="dark"] { color-scheme: dark; }'))
+      .toBeGreaterThan(css.indexOf('[data-surface="light"] { color-scheme: light; }'))
+    expect(css.indexOf('[data-surface="light"] { color-scheme: light; }'))
+      .toBeGreaterThan(css.indexOf(':root { color-scheme: dark; }'))
+  })
+
+  it('it sits in @layer base with the other global rules, not unlayered', () => {
+    const base = css.slice(css.indexOf('@layer base {'), css.indexOf('@layer components {'))
+    expect(base).toContain(':root { color-scheme: dark; }')
+    expect(base).toContain('[data-surface="dark"] { color-scheme: dark; }')
   })
 })

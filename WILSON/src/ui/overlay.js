@@ -1,6 +1,7 @@
 // =============================================================================
-// overlay.js — the modal stack and the open-menu count, shared by Dialog and
-// Menu (promoted from binUi.jsx, where Bins' adversarial reviews shaped it).
+// overlay.js — the modal stack, the open-menu count and the focusable-element
+// query, shared by Dialog and Menu (promoted from binUi.jsx, where Bins'
+// adversarial reviews shaped it; the focus query added in F3).
 //
 // Escape closes only the TOPMOST dialog (the take picker over the takes
 // dialog used to close both); a dialog registers ONCE per mount so a
@@ -53,4 +54,55 @@ export function menuClosed() {
 export function _resetOverlaysForTests() {
   modalStack.length = 0
   openMenus = 0
+}
+
+// ── Focus, for the surfaces that take it away ───────────────────────────────
+//
+// Dialog needs three things and they all start here: what inside it can be
+// focused, so it can put focus somewhere on open, keep Tab inside while it is
+// up, and hand focus back when it closes (C2 KR-5).
+//
+// 🚨 VISIBILITY IS NOT CHECKED BY LAYOUT. The obvious filter — `offsetParent`
+// or `getClientRects().length` — reports "hidden" for EVERY element under
+// jsdom, which has no layout engine, so a trap written that way traps nothing
+// in every test that covers it and the tests still pass. The filter is the
+// semantic one instead: `hidden`, `aria-hidden`, `disabled` and a negative
+// tabindex, each of which is in the DOM and true in both environments.
+
+const FOCUSABLE = [
+  'a[href]',
+  'area[href]',
+  'button',
+  'input:not([type="hidden"])',
+  'select',
+  'textarea',
+  'iframe',
+  'object',
+  'embed',
+  'summary',
+  'audio[controls]',
+  'video[controls]',
+  '[contenteditable="true"]',
+  '[tabindex]',
+].join(',')
+
+/**
+ * Everything inside `node` that can take focus, in DOM order.
+ *
+ * Document order is the tab order here: a positive `tabindex` would reorder
+ * it and nothing in this app uses one (grepped 2026-09-11), so the extra
+ * sort would be a rule with no case behind it.
+ */
+export function focusableWithin(node) {
+  if (!node) return []
+  return [...node.querySelectorAll(FOCUSABLE)].filter((el) => {
+    if (el.disabled) return false
+    if (el.hasAttribute('hidden')) return false
+    if (el.getAttribute('aria-hidden') === 'true') return false
+    const ti = el.getAttribute('tabindex')
+    if (ti != null && Number(ti) < 0) return false
+    // An ancestor can hide it too — `hidden` on a wrapper is how a collapsed
+    // section is spelled, and its controls are not reachable either.
+    return !el.closest('[hidden],[aria-hidden="true"]')
+  })
 }

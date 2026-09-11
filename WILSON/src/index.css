@@ -84,11 +84,29 @@
   --color-success: #4ade80;
   --color-danger: #fca5a5;
   --color-warning: #f59e0b;
+  /* The ONE status colour drawn on the light ground, and it is drawn for one
+     reason: an error message is the one thing that has to be readable anyway
+     (D2 kit request K6). §3.2 draws no status colour on `#f4a261` because
+     none of them measure — success 1.18, danger 1.09, warning 1.04, and the
+     light replacements the review proposed measured 2.43 / 3.14 / 1.41. This
+     value is the exception that was measured until it passed: `#ef4444` 1.83,
+     `#b91c1c` 3.14, `#7f1d1d` 4.86. It shipped locally in AuthShell as the
+     last hex in that file; this is where it belongs.
+     🚨 ITS GROUND IS `ground-light` AND NOTHING ELSE. On `well-light` it is
+     3.95:1 and on `surface-light-solid` 3.94:1 — both pinned as failing
+     controls in tokens.test.js. As a FILL under white it is 10.02:1, which is
+     what the light destructive button uses (K7). Never a dot, never a chip. */
+  --color-danger-light: #7f1d1d;
   --color-focus: #ea580c;
   --color-backdrop: rgba(12, 10, 9, 0.6);
   --color-selection: rgba(234, 88, 12, 0.35);
   --color-selection-light: rgba(28, 25, 23, 0.22);
   --color-skeleton: rgba(245, 240, 236, 0.08);
+  /* The same job on the light ground, and it has to be the other direction:
+     an ink screen, not an ink-on-dark screen. `--color-skeleton` over
+     `#f4a261` flattens to `#f4a86c`, a 1.05:1 lightening of the ground — a
+     placeholder you cannot see is not a placeholder (D1 kit request 4). */
+  --color-skeleton-light: rgba(28, 25, 23, 0.22);
   --color-hover: rgba(245, 240, 236, 0.06);
   --color-hover-light: rgba(28, 25, 23, 0.08);
   --color-scroll-thumb: rgba(245, 240, 236, 0.25);
@@ -291,6 +309,41 @@ html {
   [data-surface="dark"]:focus-visible {
     outline-color: var(--color-focus);
   }
+
+  /* ── `color-scheme`: the native panels follow the ground (F3; C1 kit
+     request 5, C2 KR-4) ───────────────────────────────────────────────────
+     Until F3 the string `color-scheme` appeared nowhere in `src/`, so every
+     widget a browser paints ITSELF — `<input type="date">`'s calendar first,
+     then `time`, `number` spinners, `select` popups and any scrollbar the
+     `wilson-*-scroll` classes do not reach — opened in the UA's LIGHT
+     chrome. On `paper` that is a near-white floating panel arriving through
+     the UA stylesheet rather than through a rule, which C9 forbids just as
+     surely as a `bg-white` class does. Two pages had already scoped a local
+     fix (`.rs-page .ui-input`, `.dash-date`) and R.A.B.B.I.T. has about a
+     dozen more date fields still to move.
+
+     `color-scheme` INHERITS, so it is declared on the surface, not on the
+     control: the root (the app's ground is `paper`), then the two scopes
+     F1 already established for the focus ring. A dark island inside a light
+     page — the kit's Dialog, Menu and Toast all stamp `data-surface="dark"`
+     — takes `dark` back, exactly as it takes the signal ring back.
+
+     🚨 The light branch is `light` ON PURPOSE and it is the one place this
+     property cannot satisfy C9 and the surface at the same time. The light
+     pages' well is `well-light` (`#de9155`), a MID tone: a UA in `dark` mode
+     paints its picker glyph WHITE on it, which is unreadable, so the glyph
+     wants `light`. A panel opened from `light` chrome is the browser's
+     near-white one. Measured 2026-09-11: NO `date`, `time`, `month`, `week`,
+     `datetime-local` or `color` input is mounted on a light page (the four
+     light pages are home, settings, admin-terminal and help) — the only
+     native chrome there is a `number` spinner inside TaskTemplateManager and
+     the `select` caret, neither of which opens a painted panel. So nothing
+     renders near-white today. If a lane moves a date field onto a light
+     page, that is a ruling for Audrey, not a default to inherit. */
+  :root { color-scheme: dark; }
+  .wilson-light-scroll,
+  [data-surface="light"] { color-scheme: light; }
+  [data-surface="dark"] { color-scheme: dark; }
 
   /* Placeholder is ink at 52 percent on dark. On a light surface a grey on
      orange is exactly the thing Audrey's rule forbids (ink-light at 52
@@ -553,13 +606,20 @@ select option {
     cursor: pointer;
     color: var(--color-ink);
     background-color: transparent;
-    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out;
+    transition: background-color var(--duration-state) ease-out, color var(--duration-state) ease-out, border-color var(--duration-state) ease-out, transform var(--duration-state) ease-out;
   }
   .ui-btn[data-size="sm"] {
     height: var(--control-sm);
     padding: 0 10px;
     font-size: var(--text-dense);
   }
+  /* The press (D2 kit request K1). Six auth buttons were standing in with an
+     `active:scale-[0.98]` utility; this is the same two percent, once, for
+     every button in the app. D2 asked for 100ms and it is `--duration-state`
+     (120ms) instead: a press is a state change and §3.4 allows three
+     durations, so 100 would be a fourth for a two-percent movement nobody
+     can time. Switched off entirely under reduced motion below. */
+  .ui-btn:active:not(:disabled) { transform: scale(0.98); }
   .ui-btn[data-variant="primary"] {
     color: var(--color-on-fill);
     background-color: var(--color-signal-fill);
@@ -590,33 +650,72 @@ select option {
     background-color: color-mix(in srgb, var(--color-danger) 12%, transparent);
   }
   .ui-btn[data-surface="light"][data-variant="secondary"],
-  .ui-btn[data-surface="light"][data-variant="ghost"],
-  .ui-btn[data-surface="light"][data-variant="danger"] {
+  .ui-btn[data-surface="light"][data-variant="ghost"] {
     color: var(--color-ink-light);
     border-color: var(--color-rule-light);
   }
   .ui-btn[data-surface="light"][data-variant="ghost"] {
     border-color: transparent;
   }
+  /* 🚨 The ink is HALF of a light hover and it was the missing half (D2 kit
+     request K8). The base ghost hover sets `color: var(--color-ink)` — the
+     near-white — and the light block overrode only the fill, so a light ghost
+     button turned 2.10:1 at the exact moment the pointer reached it.
+     `.ui-iconbtn`'s light hover always carried its ink; this one now does. */
   .ui-btn[data-surface="light"][data-variant="secondary"]:hover:not(:disabled),
-  .ui-btn[data-surface="light"][data-variant="ghost"]:hover:not(:disabled),
-  .ui-btn[data-surface="light"][data-variant="danger"]:hover:not(:disabled) {
+  .ui-btn[data-surface="light"][data-variant="ghost"]:hover:not(:disabled) {
+    color: var(--color-ink-light);
     background-color: var(--color-hover-light);
+  }
+  /* ── Destructive on light: a FILL, because there is no second ink ──────
+     (D2 kit request K7, and the answer to D1's "a disabled control needs a
+     form change on this ground, not an ink change".) On `#f4a261` the whole
+     palette is one ink, so an outlined danger button was byte-identical to
+     an outlined secondary one — the most dangerous control on the page,
+     drawn exactly like the safest. Filled `danger-light` under white is
+     10.02:1 and reads as destructive from across the room. */
+  .ui-btn[data-surface="light"][data-variant="danger"] {
+    color: var(--color-on-fill);
+    background-color: var(--color-danger-light);
+    border-color: var(--color-danger-light);
+  }
+  .ui-btn[data-surface="light"][data-variant="danger"]:hover:not(:disabled) {
+    color: var(--color-on-fill);
+    background-color: color-mix(in srgb, var(--color-danger-light) 88%, black);
+    border-color: color-mix(in srgb, var(--color-danger-light) 88%, black);
   }
   .ui-btn:disabled {
     color: var(--color-ink-3);
     background-color: transparent;
     border-color: var(--color-rule);
   }
-  /* Disabled on light keeps the one ink (a 52% screen of it is 2.9:1 on
-     orange — the tokens test pins that as failing); the state reads from
-     the cursor, the missing fill and the hairline. */
+  /* ── Disabled on light is a form change (D1 kit request 4, last bullet) ──
+     The ink cannot carry it: a 52% screen of `ink-light` is 2.9:1 on orange
+     (pinned as failing in tokens.test.js), so disabled keeps the one ink and
+     the ONLY difference from an enabled secondary was the cursor. Measured,
+     the two were identical: same ink, same hairline, no fill on either.
+     So the form changes instead — the hairline goes and the inert
+     `well-light` comes in, which is the vocabulary §3.2 already gives this
+     ground for a surface that is not a control (table headers, inert chips).
+     Ink-light on it is 6.90:1. It must stay AFTER the danger rule above:
+     both are (0,3,0) and the tie goes to source order. */
   .ui-btn[data-surface="light"]:disabled {
     color: var(--color-ink-light);
-    border-color: var(--color-rule-light);
+    border-color: transparent;
+    background-color: var(--color-well-light);
   }
   .ui-btn > svg { width: var(--icon-md); height: var(--icon-md); flex-shrink: 0; }
   .ui-btn[data-size="sm"] > svg { width: var(--icon-sm); height: var(--icon-sm); }
+  /* The loading spinner inside a Button (D2 kit request K3) reads the
+     button's own ink, so it is correct in all four variants on both surfaces
+     without a prop choosing: white inside a filled primary, `ink-light`
+     inside a light secondary, `ink` inside a dark ghost. A disabled button
+     is `ink-3` and so is its spinner, which is what a busy button should
+     look like. */
+  .ui-btn > .ui-spinner {
+    border-color: color-mix(in srgb, currentColor 30%, transparent);
+    border-top-color: currentColor;
+  }
 
   /* ── IconButton: 28 / 36, ghost by default ─────────────────────────── */
   .ui-iconbtn {
@@ -653,6 +752,18 @@ select option {
   .ui-iconbtn[data-surface="chrome"] { color: var(--color-on-fill); }
   .ui-iconbtn[data-surface="chrome"]:hover:not(:disabled) { background-color: var(--color-hover-light); color: var(--color-on-fill); }
   .ui-iconbtn:disabled { color: var(--color-ink-3); background-color: transparent; }
+  /* 🚨 ORDER, not specificity (D1 kit request 4). `.ui-iconbtn:disabled` and
+     `.ui-iconbtn[data-surface="light"]` are both (0,2,0), and the disabled
+     rule is written later — so on a light page every disabled icon button
+     resolved to `ink-3`, a grey, which measures 1.68:1 on `#f4a261`. The
+     control that is telling you it cannot be used was the one you could not
+     see. These two rules carry the extra unit that settles it.
+     The glyph has no fill and no edge to change, so on light the state reads
+     from the cursor and the dead hover alone; that is the honest limit of an
+     icon-only control on a one-ink ground, and it is recorded rather than
+     papered over with an opacity (§3.1 bans that spelling outright). */
+  .ui-iconbtn[data-surface="light"]:disabled { color: var(--color-ink-light); background-color: transparent; }
+  .ui-iconbtn[data-surface="chrome"]:disabled { color: var(--color-on-fill); background-color: transparent; }
 
   /* ── Input, TextArea, Select: one well per page class ──────────────── */
   .ui-input {
@@ -688,6 +799,29 @@ select option {
   .ui-field[data-inline="true"] { flex-direction: row; align-items: center; gap: 12px; }
   .ui-field + .ui-field { margin-top: 16px; }
   .ui-field[data-inline="true"] + .ui-field[data-inline="true"] { margin-top: 8px; }
+  /* 🚨 A VERTICAL-STACK RULE EXPRESSED AS A SIBLING RULE FIRES SIDEWAYS TOO
+     (C1 kit request 4). The two rules above are the spacing between STACKED
+     fields, but `+` does not know which way the parent lays its children
+     out: measured, a side-by-side Start/End pair got 16px of top margin on
+     "End", which pushed it down and stretched "Start" to cover the gap, so
+     neither edge lined up with anything. `.pj-pair` and `.tm-rate-pair` both
+     carried a local reset for it.
+     `.ui-field-row` is the horizontal container, and it is a RULE rather
+     than a component on purpose (C2 KR-3's point): the caller already has a
+     flex row there, and what it was missing was a name the kit knows. The
+     gutter is the same 16px the stack uses, as a gap. */
+  .ui-field-row { display: flex; align-items: flex-start; gap: 16px; }
+  .ui-field-row > .ui-field { flex: 1 1 0; min-width: 0; }
+  .ui-field-row > .ui-field + .ui-field { margin-top: 0; }
+  /* The other half of the same defect, and the same answer. A parent that
+     lays its fields out with `gap` gets the margin ON TOP of the gap: C1
+     measured 32px down one column of a form and 16px down the other, side by
+     side, because splitting the right-hand column into groups broke the
+     sibling adjacency and nowhere else. The margin is only correct in normal
+     flow — `InviteMemberDialog`'s bare <form> is the one caller that has it —
+     so a parent that owns the spacing says so and the margin stands down. */
+  .ui-field-stack { display: flex; flex-direction: column; gap: 16px; }
+  .ui-field-stack > .ui-field + .ui-field { margin-top: 0; }
   .ui-field-label {
     font-size: var(--text-label);
     line-height: 1.3;
@@ -739,6 +873,39 @@ select option {
   .ui-switch-label { font-size: var(--text-body); line-height: 1.5; color: var(--color-ink); }
   .ui-switch[data-surface="light"] .ui-switch-label { color: var(--color-ink-light); }
 
+  /* ── The light Switch: the TRACK, which is the part that carries the state
+     (D1 kit request 4) ──────────────────────────────────────────────────
+     `surface="light"` used to reach the label and stop. The track stayed the
+     dark-side pair — `ink-3` off (1.68:1 on `#f4a261`) and `signal` on
+     (1.73:1) — so on the light pages the two states were a grey smudge and
+     an orange smudge on orange, and which one meant "on" was unreadable.
+     D1 records this as the reason the six toggles on Settings are still
+     two-state buttons rather than this component.
+
+     One ink, so the state is FORM, not colour: off is an outlined track with
+     a solid knob; on is a solid track with a cut-out knob. Both edges measure
+     8.48:1 against the ground and the knob measures 8.48:1 against the track
+     it sits on, in both states. The ring is an inset shadow rather than a
+     border so the 36x20 track and the knob's 2px offsets do not move. */
+  .ui-switch[data-surface="light"] > .ui-switch-track {
+    background-color: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-ink-light);
+  }
+  .ui-switch[data-surface="light"] .ui-switch-knob { background-color: var(--color-ink-light); }
+  .ui-switch[data-surface="light"][data-checked="true"] > .ui-switch-track {
+    background-color: var(--color-ink-light);
+    box-shadow: none;
+  }
+  .ui-switch[data-surface="light"][data-checked="true"] .ui-switch-knob { background-color: var(--color-ground-light); }
+  /* After the checked rules: same (0,3,x), so source order settles it. The
+     inert `well-light` is the same vocabulary the disabled light Button
+     takes, and the knob keeps the ink so the position still reads. */
+  .ui-switch[data-surface="light"][data-disabled="true"] > .ui-switch-track {
+    background-color: var(--color-well-light);
+    box-shadow: inset 0 0 0 1px var(--color-rule-light);
+  }
+  .ui-switch[data-surface="light"][data-disabled="true"] .ui-switch-knob { background-color: var(--color-ink-light); }
+
   /* ── Chip (interactive filter) and Badge (inert label) ─────────────── */
   .ui-chip {
     display: inline-flex;
@@ -772,6 +939,32 @@ select option {
   .ui-chip:disabled { color: var(--color-ink-3); }
   .ui-chip-count { color: var(--color-ink-3); font-weight: 400; letter-spacing: 0; }
   .ui-chip[data-active="true"] .ui-chip-count { color: var(--color-ink-2); }
+
+  /* ── The light Chip (D1 kit request 4) ────────────────────────────────
+     🚨 MEASURED: the component took `surface="light"`, stamped it, and no
+     rule read it — so a chip on a light page kept `ink-2` (`#b8b4b0`) on
+     `#f4a261`, which is 1.00:1. Not "a grey": invisible, exactly.
+     The active treatment follows `Tabs`' light precedent — on this ground
+     the signal is 1.73:1 and cannot be the marker, so the ink carries it
+     through form (the inert `well-light` fill and a full-strength edge)
+     while the label stays the one ink at 8.48:1. A caller's DATA colour
+     (`--chip-color`, Bins' bin colours) is untouched on either surface. */
+  .ui-chip[data-surface="light"] {
+    color: var(--color-ink-light);
+    border-color: var(--color-rule-light);
+  }
+  .ui-chip[data-surface="light"]:hover:not(:disabled) {
+    color: var(--color-ink-light);
+    background-color: var(--color-hover-light);
+  }
+  .ui-chip[data-surface="light"][data-active="true"] {
+    color: var(--color-ink-light);
+    background-color: var(--chip-color, var(--color-well-light));
+    border-color: var(--chip-edge, var(--color-ink-light));
+  }
+  .ui-chip[data-surface="light"]:disabled { color: var(--color-ink-light); }
+  .ui-chip[data-surface="light"] .ui-chip-count,
+  .ui-chip[data-surface="light"][data-active="true"] .ui-chip-count { color: var(--color-ink-light); }
   .ui-badge {
     display: inline-flex;
     align-items: center;
@@ -845,6 +1038,15 @@ select option {
     font-weight: 600;
     color: var(--color-ink-2);
     background-color: var(--color-paper-recessed);
+  }
+  /* Kbd on a light page (D1 kit request 4: it had no `surface` at all).
+     Help is a light page and Help is where the keys are documented, so a
+     `paper-recessed` key cap was a black chip floating on orange. The light
+     cap is the ground's own inert well with the one ink: 6.90:1. */
+  .ui-kbd[data-surface="light"] {
+    color: var(--color-ink-light);
+    background-color: var(--color-well-light);
+    border-color: var(--color-rule-light);
   }
 
   /* ── Menu: floating surface ────────────────────────────────────────── */
@@ -945,15 +1147,32 @@ select option {
   }
   .ui-dialog-error {
     display: inline-flex;
-    align-items: center;
+    /* flex-start, not centre: a wrapped message centres the icon against
+       three lines of text and it reads as a bullet rather than a warning. */
+    align-items: flex-start;
     gap: 6px;
     margin-right: auto;
     min-width: 0;
     font-size: var(--text-dense);
     color: var(--color-danger);
   }
-  .ui-dialog-error > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; }
-  .ui-dialog-error > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ui-dialog-error > svg { width: var(--icon-sm); height: var(--icon-sm); flex-shrink: 0; margin-top: 2px; }
+  /* 🚨 A one-line error message is a one-line error message; a real one is a
+     sentence (D2 kit request K5). `white-space: nowrap` truncated every
+     failure the footer reported to about six words and an ellipsis, which is
+     the half that says what went wrong and not the half that says what to do
+     — both auth dialogs worked around it with a Banner in the body. It wraps
+     now, capped at three lines so a stack trace cannot push the buttons off
+     a 700px-tall window; the full text is still on the `title`. */
+  .ui-dialog-error > span {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 
   /* ── Toast: one anchor, bottom centre, 24px up ─────────────────────── */
   .ui-toast-stack {
@@ -1045,6 +1264,12 @@ select option {
     50% { opacity: 0.45; }
   }
   .ui-loading-inline { display: inline-flex; align-items: center; gap: 8px; font-size: var(--text-dense); color: var(--color-ink-2); }
+  /* The light half of Loading (D1 kit request 4). The skeleton block was
+     lightening the ground by 1.05:1 and the label was `ink-2` at 1.00:1 on
+     it — a loading state you could not see, on the one surface where the
+     user is waiting and looking. */
+  .ui-skeleton-rows[data-surface="light"] .ui-skeleton { background-color: var(--color-skeleton-light); }
+  .ui-loading-inline[data-surface="light"] { color: var(--color-ink-light); }
 
   /* ── Spinner ───────────────────────────────────────────────────────── */
   .ui-spinner {
@@ -1054,6 +1279,20 @@ select option {
     border-top-color: var(--color-signal);
     animation: ui-spin 0.8s linear infinite;
     flex-shrink: 0;
+  }
+  /* On the light ground the dark-side ring is invisible (`rule` is a screen
+     of the near-white ink) and the signal quarter measures 1.73:1, under the
+     3:1 a non-text indicator needs. Both flip to the one ink: the track is
+     the light hairline and the moving quarter is `ink-light` at 8.48:1. */
+  .ui-spinner[data-surface="light"] {
+    border-color: var(--color-rule-light);
+    border-top-color: var(--color-ink-light);
+  }
+  /* Loading's inline spinner is a plain <span>, so it takes the scope from
+     the wrapper rather than a prop of its own. */
+  .ui-loading-inline[data-surface="light"] > .ui-spinner {
+    border-color: var(--color-rule-light);
+    border-top-color: var(--color-ink-light);
   }
   @keyframes ui-spin { to { transform: rotate(360deg); } }
 
@@ -1183,6 +1422,29 @@ select option {
   .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-3); }
   .ui-table[data-surface="light"] .ui-tr[data-inactive] > .ui-td { color: var(--color-ink-light); font-style: italic; }
 
+  /* ── tfoot: the summary, pinned to the bottom of the scroller ──────────
+     The mirror of the sticky head, and opaque for the same reason (R06): a
+     transparent sticky band lets the rows scroll through it. `bottom: 0` on
+     the cells rather than the row, because a <tr> is not a positioning box.
+     No hover, no selection — a total is not a row you can pick. */
+  .ui-table tfoot > .ui-tr > .ui-td {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    border-top: 1px solid var(--color-rule);
+    border-bottom: 0;
+    background-color: var(--color-paper-raised);
+    font-weight: 600;
+    color: var(--color-ink);
+  }
+  .ui-table[data-surface="light"] tfoot > .ui-tr > .ui-td {
+    border-top-color: var(--color-rule-light);
+    background-color: var(--color-surface-light-solid);
+    color: var(--color-ink-light);
+  }
+  .ui-table tfoot > .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-paper-raised); }
+  .ui-table[data-surface="light"] tfoot > .ui-tr[data-interactive]:hover > .ui-td { background-color: var(--color-surface-light-solid); }
+
   /* ── Toolbar ────────────────────────────────────────────────────────── */
   .ui-toolbar {
     display: flex;
@@ -1202,8 +1464,13 @@ select option {
   /* `Select` renders `.ui-input` too — one well, one height, whichever
      control it is. There is no `.ui-select` class and this rule must not
      pretend there is. */
+  /* `.ui-tab` is `--control-md` (36px) by itself, so a tab bar inside a
+     toolbar stood 8px proud and took the 44px row to 53px (C1 kit request 1).
+     It does not show in tester mode, which is why F2 did not see it — Team
+     Members hits it the moment an admin has more than one saved view. */
   .ui-toolbar .ui-btn, .ui-toolbar .ui-iconbtn,
-  .ui-toolbar .ui-input, .ui-toolbar .ui-chip {
+  .ui-toolbar .ui-input, .ui-toolbar .ui-chip,
+  .ui-toolbar .ui-tab {
     height: var(--control-sm);
   }
 
@@ -1644,6 +1911,9 @@ select option {
   .wilson-nav-item, .tm-inline-edit, .tm-cell-btn {
     transition-duration: 0.01ms;
   }
+  /* The press is movement, not a transition: killing the duration would still
+     leave it scaled while the finger is down. It goes entirely. */
+  .ui-btn:active:not(:disabled) { transform: none; }
   .ui-drawer { animation: none; }
   .ui-toast { animation: none; }
   .ui-dialog-backdrop { animation: none; }

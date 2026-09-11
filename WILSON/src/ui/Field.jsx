@@ -11,6 +11,25 @@
 // inside it, and the control's accessible name is the label. A caller that
 // wraps a non-labelable control (a Switch is labelable; a div is not) gets
 // the proximity and nothing else, which is still correct.
+//
+// ── THE 16px IS A NORMAL-FLOW RULE. THE PARENT CAN SAY OTHERWISE. ───────────
+//
+// `.ui-field + .ui-field { margin-top: 16px }` is the between-fields half of
+// the ratio, and `+` cannot see which way the parent lays its children out
+// (C1 kit request 4). Two classes in index.css say it instead, and neither is
+// a component — the caller already has the container, what it lacked was a
+// name the kit knows:
+//
+//   .ui-field-row     a horizontal pair. Without it the second field takes
+//                     16px of TOP margin beside the first, which pushes it
+//                     down and stretches the first to cover the gap, so
+//                     neither edge lines up (measured on a Start/End pair).
+//   .ui-field-stack   a column that supplies its own `gap`. Without it the
+//                     gap and the margin ADD: 32px down one column of a form
+//                     and 16px down the other, on the same form.
+//
+// The bare margin stays for the callers in real normal flow —
+// `InviteMemberDialog`'s <form> is one — where it is exactly right.
 // =============================================================================
 
 export function Field({ label, children, hint, inline = false, mixed = false, surface = 'dark', className = '', ...rest }) {

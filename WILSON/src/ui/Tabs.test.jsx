@@ -88,3 +88,24 @@ describe('Tabs', () => {
     spy.mockRestore()
   })
 })
+
+// ── F3: a disabled tab has to be able to say why (C1 kit request 2) ─────────
+describe('Tabs: item title', () => {
+  it('puts an item title on the tab, which is where a disabled one explains itself', () => {
+    render(
+      <Tabs
+        panelId="p"
+        value="general"
+        items={[
+          { id: 'general', label: 'General' },
+          { id: 'internal', label: 'Internal', disabled: true, title: 'No internal card on this project yet' },
+        ]}
+      />,
+    )
+    const internal = screen.getByRole('tab', { name: 'Internal' })
+    expect(internal.getAttribute('title')).toBe('No internal card on this project yet')
+    expect(internal.disabled).toBe(true)
+    // A tab with nothing to explain carries no title attribute at all.
+    expect(screen.getByRole('tab', { name: 'General' }).hasAttribute('title')).toBe(false)
+  })
+})

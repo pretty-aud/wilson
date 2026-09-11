@@ -25,7 +25,11 @@
 //
 // ── The contract ────────────────────────────────────────────────────────────
 //
-//   <Table head={<Row><Th>…</Th></Row>} dense surface="light">
+//   <Table
+//     head={<Row><Th>…</Th></Row>}
+//     foot={<Row><Td colSpan={3}>Total</Td><Td numeric>…</Td></Row>}
+//     dense surface="light"
+//   >
 //     <Row selected>…<Td numeric>…</Td></Row>
 //   </Table>
 //
@@ -45,6 +49,7 @@ const ALIGNS = ['left', 'center', 'right']
 
 export function Table({
   head,
+  foot,
   children,
   dense = false,
   surface = 'dark',
@@ -65,6 +70,14 @@ export function Table({
       >
         {head && <thead>{head}</thead>}
         <tbody>{children}</tbody>
+        {/* `foot` mirrors `head`: the same <Row>/<Td> children, in a real
+            <tfoot>. A totals row is not the last item in the list — it is a
+            summary OF the list — and only this element says so. It also
+            sticks to the bottom of the scroller, so the figure stays on
+            screen while the rows move under it (C1 kit request 3, where the
+            rate card's per-currency averages were the last rows of the
+            <tbody> for want of this slot). */}
+        {foot && <tfoot>{foot}</tfoot>}
       </table>
     </div>
   )

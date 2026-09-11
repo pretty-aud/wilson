@@ -848,8 +848,17 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
           <Button disabled={busy} onClick={phase === 'confirm' ? () => setPhase('form') : onCancel}>
             {phase === 'confirm' ? 'Back' : 'Cancel'}
           </Button>
-          <Button variant="primary" disabled={busy} onClick={phase === 'confirm' ? confirm : toConfirm}>
-            {busy ? 'Saving…' : phase === 'confirm' ? 'Confirm change' : 'Review'}
+          {/* F3: the kit's `loading` owns the busy state (D2 kit request K3) —
+              the disable, `aria-busy`, the spinner and the label swap. It used
+              to be a ternary on the label and a `disabled` prop, and nothing
+              announced it. */}
+          <Button
+            variant="primary"
+            loading={busy}
+            loadingLabel="Saving…"
+            onClick={phase === 'confirm' ? confirm : toConfirm}
+          >
+            {phase === 'confirm' ? 'Confirm change' : 'Review'}
           </Button>
         </>
       )}
@@ -859,7 +868,7 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
           <Field label="Day rate (wage)">
             <Input type="number" min="0" value={wage} onChange={setWage} autoFocus />
           </Field>
-          <div className="tm-rate-pair">
+          <div className="ui-field-row tm-rate-pair">
             <Field label="Burden">
               <Input type="number" min="0" value={burden} onChange={setBurden} placeholder="dept default" />
             </Field>
@@ -867,7 +876,7 @@ function RateCardEditorModal({ member, entry, deptDefaults, onCancel, onConfirm 
               <Select value={burdenType} options={TYPES} onChange={(v) => setBurdenType(v || 'percent')} />
             </Field>
           </div>
-          <div className="tm-rate-pair">
+          <div className="ui-field-row tm-rate-pair">
             <Field label="Overhead">
               <Input type="number" min="0" value={overhead} onChange={setOverhead} placeholder="dept default" />
             </Field>

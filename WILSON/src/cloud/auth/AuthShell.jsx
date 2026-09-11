@@ -56,7 +56,7 @@ import { HOME_BAR_HEIGHT } from '../../layout/pages'
 // with its export names kept, so its 30 importers are unaffected.
 import {
   INK_LIGHT, RULE_LIGHT, SIGNAL, SIGNAL_FILL, ON_FILL, GROUND_LIGHT, FONT_MONO,
-  TYPE, RADIUS_CONTROL, CONTROL_MD,
+  DANGER_LIGHT, TYPE, RADIUS_CONTROL, CONTROL_MD,
 } from '../../ui/tokens'
 
 // Timings — the intro's rhythm (see header note on their origin).
@@ -188,8 +188,8 @@ const SPLIT_BAR_HEIGHT  = 'min(24vh, max(0px, calc((100vh - 544px) / 2)))'
 
 // The shell's own two surfaces, from the token module rather than re-typed:
 // `signal` is the bar orange and `ground-light` is the well the content sits
-// in. They were the last two literals in this file (AUTH_ERROR_INK is the
-// third and is the subject of kit request K6).
+// in. They were the last two literals in this file; AUTH_ERROR_INK was the
+// third and F3 closed kit request K6, so this file now writes no hex at all.
 const COLOR_ORANGE       = SIGNAL
 const COLOR_ORANGE_LIGHT = GROUND_LIGHT
 
@@ -483,9 +483,11 @@ export const AUTH_INK = INK_LIGHT
 // So the decision went to the measurement, not to the preference: #7f1d1d
 // stays, and the assertion in authContrast.test.js now records why, with
 // #b91c1c as a failing control so nobody re-proposes it from a palette.
-// ⚠️ The one hex left in this file. The plan says a colour lives in
-// index.css's @theme and nowhere else, and there is no light-surface danger
-// token yet — the token set draws NO status colour on #f4a261 at all,
+// ✅ CLOSED by F3: `--color-danger-light` is in `@theme` with this exact
+// value and the measurement below written beside it, so the last hex in this
+// file is now a token read like every other one. The paragraph that follows
+// is why the value is what it is, kept because the reasoning is the point —
+// the token set draws NO status colour on #f4a261 at all,
 // because NO status colour is drawn on #f4a261 at all — the dark tokens are
 // unusable there (measured with the repo's own contrast.js: success #4ade80
 // 1.18:1, danger #fca5a5 1.09:1, warning #f59e0b 1.04:1) and the plan measured
@@ -494,7 +496,7 @@ export const AUTH_INK = INK_LIGHT
 // second set of numbers to the first set of tokens. An
 // error message is the one thing that has to be readable anyway, so this
 // value survives locally until Foundation adds it. Kit request K6.
-export const AUTH_ERROR_INK = '#7f1d1d'
+export const AUTH_ERROR_INK = DANGER_LIGHT
 
 // ── Reusable typography ─────────────────────────────────────────────────────
 // The BASE every auth role spreads. Three things left it in D2:
