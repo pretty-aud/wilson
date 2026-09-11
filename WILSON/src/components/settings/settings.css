@@ -583,6 +583,14 @@
   .s-dept-row:hover {
     background-color: var(--color-hover-light);
   }
+  /* The adjacent-sibling form, not `:first-child`: GatedAction can wrap a
+     child, and a list can gain a header, but a row is only ever preceded by
+     another row. Same hairline the contract's own rows carry, so a list of
+     departments reads as the same object as a list of settings. */
+  .s-dept-row + .s-dept-row,
+  .s-skill-row + .s-skill-row {
+    border-top: 1px solid var(--color-rule-light);
+  }
   .s-dept-name {
     flex: 1;
     min-width: 0;
